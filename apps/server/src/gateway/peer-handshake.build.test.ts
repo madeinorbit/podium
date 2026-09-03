@@ -3,11 +3,9 @@ import { createHash } from 'node:crypto'
 import { WIRE_VERSION } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../relay'
-import { SessionStore } from '../store'
 import { wireDaemonSocket } from './daemon-socket'
 import { recordHelloBuild } from './peer-handshake'
-
-const openTestStore = () => new SessionStore(':memory:')
+import { openTestStore } from '../test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 

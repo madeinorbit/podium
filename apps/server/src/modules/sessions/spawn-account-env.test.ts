@@ -16,7 +16,8 @@ import { asAccountId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -28,7 +29,7 @@ function storeWith(
   accountId: string,
   ...accounts: Array<Parameters<SessionStore['accounts']['upsert']>[0]>
 ): SessionStore {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   for (const a of accounts) store.accounts.upsert(a)
   const settings = store.settings.getSettings()
   store.settings.setSettings({

@@ -13,7 +13,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const ORIGIN = 'https://example.test/podium.git'
 const SOURCE = '/home/mgw/src/other/podium'
@@ -35,7 +35,7 @@ afterEach(() => {
 })
 
 function rig() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const machine = { ownerUserId: null }
   store.machines.upsertMachine({
     id: 'src',

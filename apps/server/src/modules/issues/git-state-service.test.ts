@@ -3,7 +3,7 @@ import { asSessionId, type SessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
 
@@ -11,7 +11,7 @@ import { issueTestPlumbing } from './service/test-plumbing'
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
 // with shared-checkout commits attributed from issue markers in history.
 function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const broadcast = vi.fn()
   const repoOp = vi.fn(async (op: string, _cwd: string, args?: Record<string, string>) => {
     const key =
@@ -260,9 +260,7 @@ describe('POD-98 git-state service wiring', () => {
         return { ok: true, output: '## main' }
       }
       if (op === 'logIssueCommits') {
-        return statusCalls >= 2
-          ? { ok: true, output: 'late-sha' }
-          : { ok: true, output: '' }
+        return statusCalls >= 2 ? { ok: true, output: 'late-sha' } : { ok: true, output: '' }
       }
       return { ok: false, output: '' }
     })

@@ -16,8 +16,8 @@ import { asUserId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
-import { SessionStore } from '../store'
 import { wireDaemonSocket } from './daemon-socket'
+import { openTestStore } from '../test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -50,7 +50,7 @@ const A_ROUTABLE_FRAME = {
 
 /** A registry with `machines` rows and spies on the gateway's two entry points. */
 function harness(machines: { id: string; token: string }[]) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   for (const m of machines) {
     store.machines.upsertMachine({
       id: m.id,

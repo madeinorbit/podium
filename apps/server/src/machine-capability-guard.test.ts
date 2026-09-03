@@ -25,15 +25,15 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * A fleet with exactly the shape of the sandbox that broke: a coordinator that
  * runs the server and no daemon, and one ordinary machine that runs a daemon.
  */
 function fleet() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   // The coordinator row, stamped `server` by boot exactly as production does.
   const coordinator = asMachineId(registry.modules.machines.ensureHostMachine('source'))

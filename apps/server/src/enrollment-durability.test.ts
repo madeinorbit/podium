@@ -31,7 +31,7 @@ import {
   ownershipFromMachines,
 } from './machine-access'
 import { MachinesService, sha256 } from './modules/machines/service'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const OWNER = FIRST_ADMIN_USER_ID
 const OTHER = asUserId('user:colleague')
@@ -41,7 +41,7 @@ function tempState(): string {
 }
 
 function makeWorld(stateDir: string, opts: { dbPath?: string } = {}) {
-  const store = new SessionStore(opts.dbPath ?? ':memory:')
+  const store = openTestStore(opts.dbPath ?? ':memory:')
   // Ensure the colleague exists for transfer / non-owner cases.
   const now = new Date().toISOString()
   if (!store.users.get(OTHER)) {
@@ -339,7 +339,7 @@ describe('D19.4 regression sequences', () => {
 
     // Fully recreated DB / account gone: userExists reports OTHER unresolvable.
     // Do NOT auto-assign first admin (D19.4b).
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const svc = new MachinesService({
       instanceId: 'default',
       store,

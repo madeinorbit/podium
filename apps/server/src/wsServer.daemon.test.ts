@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { wireDaemonSocket } from './gateway/daemon-socket'
 import { PairingManager } from './hub/pairing'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -42,7 +42,7 @@ const frame = (value: unknown): string => JSON.stringify(value)
 
 describe('daemon socket auth', () => {
   it('ignores a pre-auth non-handshake frame, then attaches on a valid hello', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
@@ -72,7 +72,7 @@ describe('daemon socket auth', () => {
   })
 
   it('the pre-registered local machine authenticates via the normal hello + routes control', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // The local machine is a normal registered machine: the server provisioned it at
     // startup (ensureHostMachine) with a server-owned credential. Its same-host daemon
     // then authenticates through the same hello path as any remote — no special case.
@@ -149,7 +149,7 @@ describe('daemon socket auth', () => {
   })
 
   it('rejects an unknown hello with helloRejected and does not attach', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
@@ -161,7 +161,7 @@ describe('daemon socket auth', () => {
   })
 
   it('a pair frame redeems a code, replies once with paired, then attaches', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
@@ -197,7 +197,7 @@ describe('daemon socket auth', () => {
   })
 
   it('detaches the machine on close', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'h',
@@ -217,7 +217,7 @@ describe('daemon socket auth', () => {
   })
 
   it('does not detach when the socket closes before it ever attached', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'h',

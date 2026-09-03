@@ -10,10 +10,10 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function regWithTwoDaemons() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'm1',
     name: 'one',
@@ -221,7 +221,7 @@ describe('RepoRegistry.scanReposAll()', () => {
 
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'one',

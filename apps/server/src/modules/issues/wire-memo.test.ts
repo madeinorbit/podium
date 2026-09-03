@@ -5,14 +5,14 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 // POD-723: allWire() memoizes each issue's built wire payload, keyed by that
 // issue's own inputs (a generation counter bumped on any issue-side mutation +
 // its member sessions' issue-relevant projections). A session-driven publish that
 // only touches SOME issues' members must rebuild only those and reuse the rest.
 function harness(sessions: SessionMeta[]) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,

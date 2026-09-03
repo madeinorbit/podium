@@ -1,8 +1,7 @@
 import { asUserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
-
-const openTestStore = () => new SessionStore(':memory:')
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 function seedMachine(store: SessionStore): void {
   store.machines.upsertMachine({

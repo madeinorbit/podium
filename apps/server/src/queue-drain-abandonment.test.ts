@@ -24,7 +24,8 @@ import { asMachineId, asUserId, type SessionId } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const MACHINE = 'm1'
 const OTHER_MACHINE = 'm2'
@@ -42,7 +43,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   let toDaemon: ControlMessage[]
 
   beforeEach(() => {
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     for (const id of [MACHINE, OTHER_MACHINE]) {
       store.machines.upsertMachine({
         id,

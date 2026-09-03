@@ -7,8 +7,9 @@ import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * Conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257 — the LAST
@@ -104,7 +105,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       .filter((c) => c.entity === 'conversation')
 
   it('(a) a throw between the store writes and the change append rolls BOTH back (nested-savepoint layering)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
       now: () => 1_000,
@@ -280,7 +281,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
   })
 
   it('(d) restart: the baseline folds from the retained log — no boot reconcile, and the first scan dedups', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     first.gateway.attachDaemon('m1', () => {})
     push(first, [conv('c1', { title: 't' }), conv('c2')])

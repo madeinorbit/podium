@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import { appliedDrizzleNames } from './index'
 
 function tmpDbFile(name: string): string {
@@ -69,7 +69,7 @@ const MIGRATION = '20260730162954_change-provenance-envelope'
  */
 function seedPreMigrationDatabase(file: string, rowCount: number): void {
   // 1. A real database at HEAD, through the real boot path.
-  new SessionStore(file).close()
+  openTestStore(file).close()
 
   const db = openDatabase(file)
   const insert = db.prepare(
@@ -122,7 +122,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
 
     // The real boot path: SessionStore runs the drizzle migrations in one
     // transaction. Nothing here reaches past it into the applier.
-    new SessionStore(file).close()
+    openTestStore(file).close()
 
     const db = openDatabase(file)
     const rows = db
@@ -143,7 +143,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     // migration invented a confirmation for it.
     const file = tmpDbFile('upgrade-null.db')
     seedPreMigrationDatabase(file, ROWS)
-    new SessionStore(file).close()
+    openTestStore(file).close()
 
     const db = openDatabase(file)
     const row = db
@@ -168,7 +168,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(headBefore).toBe(ROWS)
     expect(highWaterBefore).toBe(ROWS)
 
-    new SessionStore(file).close()
+    openTestStore(file).close()
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(highWaterBefore)
@@ -203,7 +203,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(sequenceHighWater(pre)).toBe(ROWS)
     pre.close()
 
-    new SessionStore(file).close()
+    openTestStore(file).close()
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(ROWS)
@@ -224,15 +224,13 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
   it('is idempotent — a second boot changes nothing', () => {
     const file = tmpDbFile('upgrade-twice.db')
     seedPreMigrationDatabase(file, ROWS)
-    new SessionStore(file).close()
-    new SessionStore(file).close()
+    openTestStore(file).close()
+    openTestStore(file).close()
 
     const db = openDatabase(file)
     expect(maxSeq(db)).toBe(ROWS)
     expect(sequenceHighWater(db)).toBe(ROWS)
-    expect(
-      (db.prepare('SELECT COUNT(*) AS n FROM changes').get() as { n: number }).n,
-    ).toBe(ROWS)
+    expect((db.prepare('SELECT COUNT(*) AS n FROM changes').get() as { n: number }).n).toBe(ROWS)
     db.close()
   })
 })

@@ -24,9 +24,9 @@ const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * Characterization net for the architecture redesign (store.ts / relay.ts dissolution).
@@ -222,7 +222,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
    *  install has one host; this pins that. */
   const HOST = asMachineId('machine-under-test')
   const freshRegistry = () => {
-    const reg = SessionRegistry.create(new SessionStore(':memory:', HOST), undefined, {
+    const reg = SessionRegistry.create(openTestStore(':memory:', HOST), undefined, {
       instanceId: 'default',
     })
     registries.push(reg)
@@ -439,7 +439,7 @@ describe('characterization: change-log delta client heals to identical state (co
   }
 
   it('a client that missed N deltas reconstructs the exact live state from changesSince(cursor)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
       now: Date.now,
@@ -507,7 +507,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     const file = join(mkdtempSync(join(tmpdir(), 'podium-char-db-')), 'podium.db')
 
     // Populate one row in each family through the real write paths.
-    const store1 = new SessionStore(file)
+    const store1 = openTestStore(file)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -543,7 +543,7 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
 
     // Reopen with the SAME code: the constructor migration pass must not fire any
     // destructive ALTER twice, drop data, or reshape the schema.
-    const store2 = new SessionStore(file)
+    const store2 = openTestStore(file)
     const after = {
       sessionIds: store2.sessions.loadSessions().map((s) => s.id),
       issue: store2.issues.getIssue(issue.id),

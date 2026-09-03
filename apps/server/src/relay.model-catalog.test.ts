@@ -1,7 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 describe('SessionRegistry model catalog wiring', () => {
   it('defaults to an empty catalog and never shells out when no probe is injected', () => {
@@ -38,7 +38,7 @@ describe('SessionRegistry model catalog wiring', () => {
   })
 
   it('persists the catalog so a restart serves it instantly without re-probing', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const machineId = store.hostMachineId
     const probe = vi.fn(async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }))
 
@@ -69,7 +69,7 @@ describe('SessionRegistry model catalog wiring', () => {
    * other's models, and a restart must still keep them separate in meta.
    */
   it('two machines keep distinct catalogs through settings+store — neither sees the other', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const host = store.hostMachineId
     const other = 'other-machine'
     const probe = vi.fn(async (machineId: string) =>

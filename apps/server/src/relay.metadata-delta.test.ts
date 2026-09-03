@@ -2,8 +2,8 @@ import type { IssueWire, SessionMeta } from '@podium/model'
 import type { MetadataChange, ServerMessage } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 // The split fan-out + catch-up seam (docs/spec/oplog-read-path.md §2.3-2.5):
 // delta-cap clients receive per-entity metadataDelta batches, legacy clients keep
@@ -22,7 +22,7 @@ describe('SessionRegistry metadata deltas', () => {
   }
 
   function makeLegacyRegistry(): SessionRegistry {
-    const registry = SessionRegistry.create(new SessionStore(':memory:'), undefined, { instanceId: 'default' })
+    const registry = SessionRegistry.create(openTestStore(':memory:'), undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }

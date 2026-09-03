@@ -1,23 +1,32 @@
+import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionMeta } from '@podium/model'
-import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations'
-import { SessionStore } from './store'
-import { IssueService, type IssueDeps } from './modules/issues/service'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
     listSessions: () => sessions,
-    getSettings: () => normalizeSettings({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    getSettings: () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+      }),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -28,18 +37,24 @@ function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
 
 describe('SessionStore event log', () => {
   it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const id1 = store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's1', payload: { x: 1 } })
     const id2 = store.events.appendEvent({ ts: 't2', kind: 'b', subject: 's2', repoPath: '/r' })
     expect(id2).toBeGreaterThan(id1)
     const all = store.events.listEventsSince(0)
     expect(all.map((e) => e.id)).toEqual([id1, id2])
-    expect(all[0]).toMatchObject({ ts: 't1', kind: 'a', subject: 's1', repoPath: null, payload: { x: 1 } })
+    expect(all[0]).toMatchObject({
+      ts: 't1',
+      kind: 'a',
+      subject: 's1',
+      repoPath: null,
+      payload: { x: 1 },
+    })
     expect(all[1]).toMatchObject({ kind: 'b', repoPath: '/r', payload: {} })
   })
 
   it('since-cursor returns only events after the cursor', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const id1 = store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's' })
     const id2 = store.events.appendEvent({ ts: 't2', kind: 'a', subject: 's' })
     expect(store.events.listEventsSince(id1).map((e) => e.id)).toEqual([id2])
@@ -47,11 +62,14 @@ describe('SessionStore event log', () => {
   })
 
   it('filters by kind list, repoPath, and honors limit', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.appendEvent({ ts: 't', kind: 'a', subject: 's', repoPath: '/r1' })
     store.events.appendEvent({ ts: 't', kind: 'b', subject: 's', repoPath: '/r2' })
     store.events.appendEvent({ ts: 't', kind: 'c', subject: 's', repoPath: '/r1' })
-    expect(store.events.listEventsSince(0, { kinds: ['a', 'c'] }).map((e) => e.kind)).toEqual(['a', 'c'])
+    expect(store.events.listEventsSince(0, { kinds: ['a', 'c'] }).map((e) => e.kind)).toEqual([
+      'a',
+      'c',
+    ])
     expect(store.events.listEventsSince(0, { repoPath: '/r2' }).map((e) => e.kind)).toEqual(['b'])
     expect(store.events.listEventsSince(0, { limit: 2 }).length).toBe(2)
   })
@@ -59,7 +77,7 @@ describe('SessionStore event log', () => {
   // POD-532: the per-issue activity feed used to drain the whole repo log and
   // filter on `subject` in the browser. The filter belongs here.
   it('narrows to one subject, and returns every subject when omitted', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.appendEvent({ ts: 't1', kind: 'issue.created', subject: 'POD-1', repoPath: '/r' })
     store.events.appendEvent({ ts: 't2', kind: 'issue.created', subject: 'POD-2', repoPath: '/r' })
     const mine = store.events.appendEvent({
@@ -83,7 +101,9 @@ describe('SessionStore event log', () => {
     ])
     // Composes with the cursor and the other filters rather than replacing them.
     expect(
-      store.events.listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] }).map((e) => e.id),
+      store.events
+        .listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] })
+        .map((e) => e.id),
     ).toEqual([mine])
     expect(store.events.listEventsSince(0, { subject: 'POD-1', repoPath: '/other' })).toEqual([])
     expect(store.events.listEventsSince(mine, { subject: 'POD-1' })).toEqual([])
@@ -96,11 +116,13 @@ describe('SessionStore event log', () => {
   it('searches an index for a subject-narrowed read instead of scanning the log', () => {
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    const plan = (db
-      .prepare(
-        'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
-      )
-      .all(0, 'POD-1', 200) as { detail: string }[])
+    const plan = (
+      db
+        .prepare(
+          'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
+        )
+        .all(0, 'POD-1', 200) as { detail: string }[]
+    )
       .map((r) => r.detail)
       .join(' | ')
 
@@ -110,7 +132,7 @@ describe('SessionStore event log', () => {
   })
 
   it('reads a kind window with the last prior value for step-function consumers', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.appendEvent({
       ts: '2026-08-06T09:00:00.000Z',
       kind: 'fleet',
@@ -151,7 +173,7 @@ describe('SessionStore event log retention', () => {
   }
 
   it('deletes rows older than maxAgeDays and returns the deleted count', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     store.events.appendEvent({ ts: daysAgo(20), kind: 'old', subject: 's' })
     const keep = store.events.appendEvent({ ts: daysAgo(1), kind: 'new', subject: 's' })
@@ -160,7 +182,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('row cap deletes the oldest rows beyond maxRows even when young', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ids = [1, 2, 3, 4, 5].map(() =>
       store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }),
     )
@@ -169,23 +191,19 @@ describe('SessionStore event log retention', () => {
   })
 
   it('bounds each delete unit before the retention owner starts another', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     for (let i = 0; i < 5; i++) {
       store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     }
 
-    expect(
-      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
-    ).toBe(2)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 })).toBe(2)
     expect(store.events.listEventsSince(0)).toHaveLength(3)
-    expect(
-      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
-    ).toBe(2)
+    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 })).toBe(2)
     expect(store.events.listEventsSince(0)).toHaveLength(1)
   })
 
   it('a cursor pointing into a pruned range still works — returns only retained rows', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const id1 = store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const id2 = store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const id3 = store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
@@ -199,7 +217,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('maxEventId tracks the newest retained row; ids never rewind after a full prune', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
     const top = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
     pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
@@ -213,7 +231,7 @@ describe('SessionStore event log retention', () => {
   })
 
   it('returns 0 when nothing qualifies for pruning', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
     expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(0)
   })
@@ -300,14 +318,20 @@ describe('IssueService event emission', () => {
     svc.clearNeedsHuman(a.id)
     const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
-    expect(flagged[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, question: 'which key?' } })
+    expect(flagged[0]).toMatchObject({
+      subject: a.id,
+      payload: { seq: a.seq, question: 'which key?' },
+    })
     expect(store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
   })
 
   it('issue.needs_human carries options + askedBy when given (issue #53)', () => {
     const { svc, store } = harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.setNeedsHuman(a.id, 'merge?', { options: ['Yes', 'No'], askedBy: asSessionId('sess_asker') })
+    svc.setNeedsHuman(a.id, 'merge?', {
+      options: ['Yes', 'No'],
+      askedBy: asSessionId('sess_asker'),
+    })
     const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
     expect(flagged[0]).toMatchObject({
@@ -345,7 +369,10 @@ describe('IssueService event emission', () => {
     svc.defer(a.id, null)
     const snoozed = store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })
     expect(snoozed.length).toBe(1)
-    expect(snoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, until: '2999-01-01' } })
+    expect(snoozed[0]).toMatchObject({
+      subject: a.id,
+      payload: { seq: a.seq, until: '2999-01-01' },
+    })
     const unsnoozed = store.events.listEventsSince(0, { kinds: ['issue.unsnoozed'] })
     expect(unsnoozed.length).toBe(1)
     expect(unsnoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
@@ -476,12 +503,19 @@ describe('SessionRegistry session.phase events', () => {
     ({ phase, since: 't', nativeSubagentCount: 0, ...(idle ? { idle } : {}) }) as never
 
   it('skips the prev-undefined seed and logs only real phase transitions', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
     // First state after boot/spawn: prev is undefined → no phantom row.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: st('working') })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: st('working'),
+    })
     expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
@@ -489,7 +523,11 @@ describe('SessionRegistry session.phase events', () => {
       state: st('idle', { kind: 'question' }),
     })
     // Same-phase refresh → no second row.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: st('idle') })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: st('idle'),
+    })
     const evs = store.events.listEventsSince(0, { kinds: ['session.phase'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({

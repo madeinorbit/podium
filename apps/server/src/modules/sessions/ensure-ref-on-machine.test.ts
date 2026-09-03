@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const TIP = 'a'.repeat(40)
 const MAIN = 'b'.repeat(40)
@@ -36,7 +36,7 @@ function makeRig(
   /** revParseVerify answers that only exist once a bundle has actually landed. */
   afterFetch: Record<string, string> = {},
 ) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'src',
     name: 'src',

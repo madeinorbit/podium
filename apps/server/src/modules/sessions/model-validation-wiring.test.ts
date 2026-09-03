@@ -11,7 +11,8 @@ import { afterEach, expect, it } from 'vitest'
 import { MODEL_CATALOG_VERSION } from '../../model-catalog'
 import { ModelValidationError } from '../../model-validation'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -19,7 +20,7 @@ afterEach(() => {
 })
 
 function storeWithCatalog(): SessionStore {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.settings.setModelCatalog({
     machineId: store.hostMachineId,
     version: MODEL_CATALOG_VERSION,

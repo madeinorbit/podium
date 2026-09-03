@@ -12,8 +12,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
 import { afterAll, beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import type { IssueRow, SessionRow } from '../../store/types'
+import { openTestStore } from '../../test-support/open-test-store'
 import { CostService } from './service'
 
 let store: SessionStore
@@ -31,7 +32,7 @@ afterAll(() => {
 })
 
 beforeEach(() => {
-  store = new SessionStore(':memory:')
+  store = openTestStore(':memory:')
   service = new CostService(store)
   machineId = store.hostMachineId
   const home = mkdtempSync(join(tmpdir(), 'podium-cost-'))

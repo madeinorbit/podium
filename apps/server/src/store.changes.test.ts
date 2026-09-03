@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function pruneChanges(
   store: SessionStore,
@@ -14,7 +15,7 @@ function pruneChanges(
 // monotonicity across a full prune (the property AUTOINCREMENT exists to provide).
 describe('SessionStore changes table', () => {
   it('assigns contiguous, monotonic seqs across batches', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const a = store.sync.appendChanges(
       [
         { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"a":1}' },
@@ -33,7 +34,7 @@ describe('SessionStore changes table', () => {
   })
 
   it('changesSince returns rows strictly after the cursor, in order', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.appendChanges(
       [
         { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
@@ -49,7 +50,7 @@ describe('SessionStore changes table', () => {
   })
 
   it('prunes rows beyond EITHER the row cap or the age budget, head-only', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       store.sync.appendChanges(
         [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
@@ -69,7 +70,7 @@ describe('SessionStore changes table', () => {
   })
 
   it('bounds each head-prune delete unit and reports its row count', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       store.sync.appendChanges(
         [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
@@ -77,18 +78,14 @@ describe('SessionStore changes table', () => {
       )
     }
 
-    expect(
-      pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
-    ).toBe(2)
+    expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
     expect(store.sync.minChangeSeq()).toBe(3)
-    expect(
-      pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 }),
-    ).toBe(2)
+    expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000, batchSize: 2 })).toBe(2)
     expect(store.sync.minChangeSeq()).toBe(5)
   })
 
   it('keeps a fixed prune plan safe when rows append between batches', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     for (let i = 1; i <= 5; i++) {
       store.sync.appendChanges(
         [{ entity: 'issue', entityId: `i${i}`, op: 'upsert', payload: '{}' }],
@@ -108,21 +105,36 @@ describe('SessionStore changes table', () => {
   })
 
   it('age pruning deletes from the head only, keeping the retained range contiguous', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // Out-of-order event times: row 2 is "old", rows 1 and 3 are "young". A naive
     // `WHERE event_time < cutoff` would punch a hole at seq 2; head-only pruning
     // must delete everything at-or-below the highest aged seq instead.
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 9000)
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }], 9000)
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }],
+      9000,
+    )
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }],
+      1000,
+    )
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i3', op: 'upsert', payload: '{}' }],
+      9000,
+    )
     pruneChanges(store, { keepRows: 100, maxAgeMs: 1000, now: 5000 })
     expect(store.sync.minChangeSeq()).toBe(3)
   })
 
   it('keeps seq monotonic even after the whole table is pruned', () => {
-    const store = new SessionStore(':memory:')
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1000)
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }], 1000)
+    const store = openTestStore(':memory:')
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }],
+      1000,
+    )
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{}' }],
+      1000,
+    )
     pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })
     expect(store.sync.minChangeSeq()).toBeNull()
     // A rewound seq here would silently corrupt every client cursor.
@@ -135,7 +147,7 @@ describe('SessionStore changes table', () => {
   })
 
   it('reports the latest LIVE state per (entity, id)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.appendChanges(
       [
         { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
@@ -175,7 +187,9 @@ describe('SessionStore changes table', () => {
       payload: '{"s":1}',
     })
     // In seq order, which is what a bootstrap installs in.
-    expect(world.map((row) => row.seq)).toEqual([...world.map((row) => row.seq)].sort((a, b) => a - b))
+    expect(world.map((row) => row.seq)).toEqual(
+      [...world.map((row) => row.seq)].sort((a, b) => a - b),
+    )
   })
 
   // POD-678. The regression that made every POD-N mention older than a day render
@@ -183,7 +197,7 @@ describe('SessionStore changes table', () => {
   // deleted the world along with the delta window. Retention bounds what
   // `changesSince` can serve; it may not bound what exists.
   it('keeps the installed world when retention deletes the whole log', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.appendChanges(
       [
         { entity: 'issue', entityId: 'old', op: 'upsert', payload: '{"v":1}' },
@@ -191,7 +205,10 @@ describe('SessionStore changes table', () => {
       ],
       1000,
     )
-    store.sync.appendChanges([{ entity: 'issue', entityId: 'gone', op: 'remove', payload: null }], 2000)
+    store.sync.appendChanges(
+      [{ entity: 'issue', entityId: 'gone', op: 'remove', payload: null }],
+      2000,
+    )
     // Everything, including the row `old` was last written by, is now beyond the
     // budget — exactly the live install's state after ~27h at 20k rows.
     expect(pruneChanges(store, { keepRows: 0, maxAgeMs: 0, now: 10_000 })).toBe(3)
@@ -207,7 +224,7 @@ describe('SessionStore changes table', () => {
   })
 
   it('reuses latest-state materialization until the next append', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const initialGeneration = store.sync.latestChangeStatesGeneration()
     store.sync.appendChanges(
       [

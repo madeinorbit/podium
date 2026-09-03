@@ -1,7 +1,8 @@
-import { asUserId, asMachineId } from '@podium/model'
+import { asMachineId, asUserId } from '@podium/model'
 import type { PortableCredentialBundle, PortableCredentialKind } from '@podium/protocol'
-import { SessionStore } from '../../store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { LoginPropagationService } from './login-propagation'
 
 const owner = 'user:owner'
@@ -40,7 +41,7 @@ describe('login propagation coordinator', () => {
   })
 
   it('selects the first owned online catalog donor and cleans the server transfer row', async () => {
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'donor',
       name: 'donor',
@@ -108,7 +109,7 @@ describe('login propagation coordinator', () => {
   })
 
   it('does not cross a principal boundary and caps failed retries with backoff', async () => {
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'donor',
       name: 'donor',

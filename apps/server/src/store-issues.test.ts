@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
-  FIRST_ADMIN_USER_ID,
   asDeliveryReceiptId,
   asIssueId,
   asMachineId,
@@ -8,22 +11,20 @@ import {
   asShipHoldId,
   asShipOrderId,
   asShipStepId,
-  integrationReceiptMatchesOrder,
   type DeliveryReceipt,
+  FIRST_ADMIN_USER_ID,
+  integrationReceiptMatchesOrder,
   type ShipOrder,
 } from '@podium/model'
-import { createHash } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
-import type { RootIntegrationReceiptStore } from './store/shipping'
-import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { shipOrderProjectionRows } from './modules/shipping/projection'
+import type { SessionStore } from './store'
+import type { RootIntegrationReceiptStore } from './store/shipping'
+import { openTestStore } from './test-support/open-test-store'
 
 const base = () => ({
   id: asIssueId('iss_1'),
@@ -77,7 +78,7 @@ const base = () => ({
 
 describe('store issues', () => {
   it('round-trips an issue', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(base())
     const got = s.issues.getIssue('iss_1')
     expect(got?.title).toBe('Fix login')
@@ -87,7 +88,7 @@ describe('store issues', () => {
   })
 
   it('updates on conflict and preserves JSON blockedBy', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(base())
     s.issues.upsertIssue({
       ...base(),
@@ -103,7 +104,7 @@ describe('store issues', () => {
   })
 
   it('lists by repo and increments seq per repo_id', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const rid = (p: string) => s.repos.resolveRepoIdForPath(p)
     expect(s.issues.nextIssueSeq(rid('/r'))).toBe(1)
     s.issues.upsertIssue({
@@ -136,7 +137,7 @@ describe('store issues', () => {
   })
 
   it('allocates seq per repo_id — shared across checkout paths of one origin (#140)', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const repoId = asRepoId('repo_shared_origin')
     // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
     s.issues.upsertIssue({
@@ -161,7 +162,7 @@ describe('store issues', () => {
     // On this branch collisions are unrepresentable through the facade: migration
     // 005 installed UNIQUE(repo_id, seq), so the upsert itself throws and the #140
     // heal has nothing to do on a live DB.
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const repoId = asRepoId('repo_dup')
     s.issues.upsertIssue({
       ...base(),
@@ -188,7 +189,7 @@ describe('store issues', () => {
     // the per-boot renumberCollidingIssueSeqs heal renumbers the loser.
     const file = join(mkdtempSync(join(tmpdir(), 'podium-seq-heal-')), 'heal.db')
     const repoId = asRepoId('repo_dup')
-    const s1 = new SessionStore(file)
+    const s1 = openTestStore(file)
     // Same origin, two paths; canonical (majority) path /home/user + a loser path
     // /home/till that minted colliding #4 (and a non-colliding #1).
     s1.issues.upsertIssue({
@@ -231,7 +232,7 @@ describe('store issues', () => {
     raw.exec('DROP INDEX idx_issues_repo_id_seq')
     raw.prepare('UPDATE issues SET seq = 4 WHERE id = ?').run('t4')
     raw.close()
-    const s2 = new SessionStore(file) // boot heal runs here
+    const s2 = openTestStore(file) // boot heal runs here
     expect(s2.issues.getIssue('m4')?.seq).toBe(4) // canonical path keeps #4
     expect(s2.issues.getIssue('t4')?.seq).toBe(6) // loser appended after max(5) => 6
     expect(s2.issues.getIssue('t1')?.seq).toBe(1) // non-colliding kept
@@ -242,14 +243,14 @@ describe('store issues', () => {
   })
 
   it('deletes', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(base())
     s.issues.deleteIssue('iss_1')
     expect(s.issues.getIssue('iss_1')).toBeNull()
   })
 
   it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     expect(() => s.issues.upsertIssue({ ...base(), stage: 'bogus' })).toThrow(/stage/i)
     // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
     // it is resolved to a concrete kind only at spawn time.
@@ -257,7 +258,7 @@ describe('store issues', () => {
   })
 
   it('normalizes a non-array blockedBy to [] on write', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue({
       ...base(),
       blockedBy: 'nope' as unknown as string[],
@@ -270,7 +271,7 @@ describe('store issues', () => {
     // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
     // IssueService's constructor at boot, crash-looping the server. Quarantine the
     // bad field (blockedBy -> []) and keep the row.
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(base())
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
 
@@ -280,7 +281,7 @@ describe('store issues', () => {
   })
 
   it('quarantines a non-array blocked_by JSON value', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(base())
     // Valid JSON, wrong shape (an object, not a string[]).
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
@@ -289,7 +290,7 @@ describe('store issues', () => {
 
   // POD-568 — the finished-work projection the auto-hibernate sweep orders by.
   it('names closed issues by stage, close reason and tombstone', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue({
       ...base(),
       id: asIssueId('open'),
@@ -411,7 +412,7 @@ describe('shipping durable store', () => {
 
   it('fences active orders, attempts, idempotent steps, holds, and immutable receipts', () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-store-')), 'shipping.db')
-    const s = new SessionStore(file)
+    const s = openTestStore(file)
     s.issues.upsertIssue(base())
     const order = shipOrder()
     expect(s.shipping.createOrder(order)).toEqual(order)
@@ -620,19 +621,15 @@ describe('shipping durable store', () => {
       completedAt: '2026-08-12T10:08:00.000Z',
     }
     expect(() => s.shipping.completeVerifiedOrder(receipt)).toThrow(/successful proof/)
-    const finished = s.shipping.finishAttempt(
-      retry.attempt.id,
-      retry.attempt.leaseGeneration,
-      {
-        finishedAt: '2026-08-12T10:07:30.000Z',
-        outcome: 'succeeded',
-        testedIntegrationSha: 'tested-integration',
-        landedRefSha: 'landed-ref',
-        destinationSha: 'destination-tip',
-        validationProfileId: 'default',
-        validationResult: 'passed',
-      },
-    )
+    const finished = s.shipping.finishAttempt(retry.attempt.id, retry.attempt.leaseGeneration, {
+      finishedAt: '2026-08-12T10:07:30.000Z',
+      outcome: 'succeeded',
+      testedIntegrationSha: 'tested-integration',
+      landedRefSha: 'landed-ref',
+      destinationSha: 'destination-tip',
+      validationProfileId: 'default',
+      validationResult: 'passed',
+    })
     expect(finished).toMatchObject({
       approvedHeadSha: 'approved-head',
       testedIntegrationSha: 'tested-integration',
@@ -681,7 +678,7 @@ describe('shipping durable store', () => {
 
     expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))).not.toThrow()
     s.close()
-    const restarted = new SessionStore(file)
+    const restarted = openTestStore(file)
     expect(restarted.shipping.getOrder(order.id)).toMatchObject({
       state: 'shipped',
     })
@@ -706,7 +703,7 @@ describe('shipping durable store', () => {
   })
 
   it('settles a queued dependency from its shipped train covering proof', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const lowerIssue = asIssueId('iss_lower')
     const coveringIssue = asIssueId('iss_covering')
     s.issues.upsertIssue({
@@ -931,7 +928,7 @@ describe('shipping durable store', () => {
   })
 
   it('exposes a CAS-only issue custody seam for atomic admission and settlement', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const issue = { ...base(), stage: 'review' as const }
     s.issues.upsertIssue(issue)
     s.transact(() => {
@@ -962,7 +959,7 @@ describe('shipping durable store', () => {
       descendants: [childB, childA],
     }
     const canonical = { ...receipt, descendants: [childA, childB] }
-    const s = new SessionStore(file)
+    const s = openTestStore(file)
     s.issues.upsertIssue(base())
 
     expect(s.shipping.recordRootIntegrationReceipt(receipt)).toEqual(canonical)
@@ -989,7 +986,7 @@ describe('shipping durable store', () => {
     ).toThrow(/root integration receipt is immutable/)
 
     s.close()
-    const restarted = new SessionStore(file)
+    const restarted = openTestStore(file)
     expect(
       restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
     ).toEqual(canonical)
@@ -997,7 +994,7 @@ describe('shipping durable store', () => {
   })
 
   it('atomically rejects cross-lane, non-prefix, and stale-member train custody', () => {
-    const s = new SessionStore(':memory:', asMachineId('machine-1'))
+    const s = openTestStore(':memory:', asMachineId('machine-1'))
     const issueIds = ['a', 'b', 'c'].map((suffix) => asIssueId(`iss_train_${suffix}`))
     issueIds.forEach((id, index) =>
       s.issues.upsertIssue({
@@ -1055,7 +1052,7 @@ describe('shipping durable store', () => {
     expect(s.shipping.activeTrainForOrder(c.id)).toBeNull()
     s.close()
 
-    const cyclic = new SessionStore(':memory:', asMachineId('machine-1'))
+    const cyclic = openTestStore(':memory:', asMachineId('machine-1'))
     const upperIssue = asIssueId('iss_cycle_upper')
     const lowerIssue = asIssueId('iss_cycle_lower')
     for (const [index, id] of [upperIssue, lowerIssue].entries()) {
@@ -1087,7 +1084,7 @@ describe('shipping durable store', () => {
   })
 
   it('exposes exact current proof through the typed admission retrieval port', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const rootIssueId = asIssueId('iss_1')
     const childA = {
       issueId: asIssueId('iss_child_a'),
@@ -1143,7 +1140,7 @@ describe('shipping durable store', () => {
         descendants: [childB, childA],
       },
     })
-    const s = new SessionStore(file)
+    const s = openTestStore(file)
     s.issues.upsertIssue(base())
     expect(s.shipping.createOrder(evidenced)).toEqual(evidenced)
     expect(s.shipping.createOrder(evidenced)).toEqual(evidenced)
@@ -1175,7 +1172,7 @@ describe('shipping durable store', () => {
         .run('{}', evidenced.id),
     ).toThrow(/approval is immutable/)
     s.close()
-    const restarted = new SessionStore(file)
+    const restarted = openTestStore(file)
     expect(restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
     restarted.close()
   })

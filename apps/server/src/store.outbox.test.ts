@@ -1,18 +1,18 @@
 import { asMutationId, asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 // Outbox write-path storage (docs/spec/outbox-write-path.md §2.1-2.2): the
 // applied_mutations idempotency ledger and the queued_messages durable send queue.
 
 describe('SessionStore applied_mutations', () => {
   it('getAppliedMutation returns undefined for an unknown id', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.sync.getAppliedMutation(asMutationId('never-seen'))).toBeUndefined()
   })
 
   it('round-trips a recorded result verbatim', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.recordAppliedMutation(asMutationId('m1'), 'issues.create', '{"id":"i1"}', 1000)
     expect(store.sync.getAppliedMutation(asMutationId('m1'))).toBe('{"id":"i1"}')
   })
@@ -20,14 +20,14 @@ describe('SessionStore applied_mutations', () => {
   it('a duplicate record keeps the FIRST result (INSERT OR IGNORE)', () => {
     // Idempotency invariant 1: a mutationId is applied at most once — a racing
     // second record must never overwrite what the original run returned.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.recordAppliedMutation(asMutationId('m1'), 'issues.create', '{"v":"first"}', 1000)
     store.sync.recordAppliedMutation(asMutationId('m1'), 'issues.create', '{"v":"second"}', 2000)
     expect(store.sync.getAppliedMutation(asMutationId('m1'))).toBe('{"v":"first"}')
   })
 
   it('prunes only mutations older than the age window', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.recordAppliedMutation(asMutationId('old'), 'p', '"a"', 1_000)
     store.sync.recordAppliedMutation(asMutationId('young'), 'p', '"b"', 9_000)
     store.sync.pruneAppliedMutations({ maxAgeMs: 5_000, now: 10_000 })
@@ -38,7 +38,7 @@ describe('SessionStore applied_mutations', () => {
 
 describe('SessionStore queued_messages', () => {
   it('lists FIFO by queued_at, then insertion order for ties', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // Inserted out of time order + a same-timestamp pair to prove BOTH sort keys
     // (queued_at first, rowid as the tiebreaker).
     expect(
@@ -74,7 +74,7 @@ describe('SessionStore queued_messages', () => {
 
   it('enqueue with a duplicate id returns false and does not duplicate the row', () => {
     // The row id IS the mutationId, so a replayed enqueue must be a storage no-op.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(
       store.sync.enqueueMessage({
         id: 'mut-1',
@@ -97,7 +97,7 @@ describe('SessionStore queued_messages', () => {
   })
 
   it('queuedMessageCounts groups per session', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.enqueueMessage({
       id: 'a1',
       sessionId: asSessionId('s-a'),
@@ -125,7 +125,7 @@ describe('SessionStore queued_messages', () => {
   })
 
   it('deleteQueuedMessage removes exactly that row', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.enqueueMessage({
       id: 'keep',
       sessionId: asSessionId('s1'),
@@ -143,7 +143,7 @@ describe('SessionStore queued_messages', () => {
   })
 
   it('bumpQueuedAttempts increments the attempt counter', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.enqueueMessage({ id: 'q1', sessionId: asSessionId('s1'), text: 't', queuedAt: 1000 })
     store.sync.bumpQueuedAttempts('q1')
     store.sync.bumpQueuedAttempts('q1')
@@ -151,7 +151,7 @@ describe('SessionStore queued_messages', () => {
   })
 
   it('deleteQueuedMessagesForSession drops only that session queue', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.enqueueMessage({
       id: 'a1',
       sessionId: asSessionId('s-a'),
@@ -175,7 +175,7 @@ describe('SessionStore queued_messages', () => {
     expect(store.sync.listQueuedMessages(asSessionId('s-b')).map((m) => m.id)).toEqual(['b1'])
   })
   it('persists explicit causal input origins with queued prompts', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sync.enqueueMessage({
       id: 'steward-1',
       sessionId: asSessionId('parent'),

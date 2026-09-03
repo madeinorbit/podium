@@ -6,10 +6,10 @@
 import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
 import type { IssueService } from '../issues/service'
 import { type MessageDeliveryDeps, MessageDeliveryService } from './service'
 import { makeSpawnOnWake, spawnedByForMessage } from './spawn'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const ISSUE = {
   id: 'iss_a',
@@ -127,7 +127,7 @@ describe('makeSpawnOnWake', () => {
 
 describe('wake → spawn → first prompt (service integration)', () => {
   function harness() {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const sessions: SessionMeta[] = []
     const queued: { sessionId: SessionId; text: string }[] = []
     const interrupted: { sessionId: SessionId; text: string }[] = []

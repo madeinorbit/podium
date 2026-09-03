@@ -1,7 +1,7 @@
 import { asUserId } from '@podium/model'
-import { SessionStore } from '../store'
-
 import { afterEach, describe, expect, it } from 'vitest'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 describe('native login transfer secrets', () => {
   let store: SessionStore | undefined
@@ -12,7 +12,7 @@ describe('native login transfer secrets', () => {
   })
 
   it('is retrievable only by its principal and is absent from presence projections', () => {
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     const bundle = {
       kind: 'codex' as const,
       contentBase64: Buffer.from('credential-bytes').toString('base64'),

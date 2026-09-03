@@ -27,7 +27,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
 import { deriveRepoId } from './repo-id'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -51,7 +51,7 @@ const HOST = asMachineId('7a0f1b64-2c33-4a5d-9e10-0b1c2d3e4f50')
  */
 function seedLegacyDb(path: string): void {
   // Let the migration chain build the schema, then close and write behind it.
-  new SessionStore(path, HOST).close()
+  openTestStore(path, HOST).close()
   const db = openDatabase(path)
   db.exec(`
     DELETE FROM machines;
@@ -82,7 +82,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     const path = tmpDb()
     seedLegacyDb(path)
 
-    expect(() => new SessionStore(path, HOST)).toThrow(
+    expect(() => openTestStore(path, HOST)).toThrow(
       /retired machine sentinels.*machines\.id.*repos\.machine_id.*sessions\.machine_id/s,
     )
   })
@@ -94,7 +94,7 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     // covers every machine column in the schema, which is what
     // `store/machines-sentinel-scan.test.ts` pins.
     const path = tmpDb()
-    new SessionStore(path, HOST).close()
+    openTestStore(path, HOST).close()
     const db = openDatabase(path)
     db.exec(`
       INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
@@ -103,13 +103,13 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     `)
     db.close()
 
-    expect(() => new SessionStore(path, HOST)).toThrow(
+    expect(() => openTestStore(path, HOST)).toThrow(
       /retired machine sentinels.*issues\.machine_id/s,
     )
   })
 
   it('says nothing on a database no sentinel was ever written to', () => {
-    const store = new SessionStore(':memory:', HOST)
+    const store = openTestStore(':memory:', HOST)
     expect(store.machines.legacyMachineSentinelSites()).toEqual([])
     store.repos.addRepo('/w', HOST)
     expect(store.machines.legacyMachineSentinelSites()).toEqual([])
@@ -160,7 +160,7 @@ describe('a database that already ran the retired upgrades', () => {
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      const store = new SessionStore(path, HOST)
+      const store = openTestStore(path, HOST)
 
       // Nothing refused, and nothing warned either — a live install's boot log
       // does not gain a line because an upgrade was deleted underneath it.
@@ -187,13 +187,13 @@ describe('a database that already ran the retired upgrades', () => {
   it('and the seed itself would have been refused — the assertion above is not vacuous', () => {
     const path = tmpDb()
     seedLegacyDb(path)
-    expect(() => new SessionStore(path, HOST)).toThrow(/retired machine sentinels/)
+    expect(() => openTestStore(path, HOST)).toThrow(/retired machine sentinels/)
   })
 })
 
 describe('the split-mode local daemon authenticates as this host', () => {
   const bootedRegistry = (secret: string) => {
-    const store = new SessionStore(':memory:', HOST)
+    const store = openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', secret)
     return registry
@@ -219,7 +219,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
     // Two servers, two state dirs, two ids — and each directory verifies against
     // its own. A hard-coded `'local'` could not tell them apart.
     const other = asMachineId('11112222-3333-4444-5555-666677778888')
-    const store = new SessionStore(':memory:', other)
+    const store = openTestStore(':memory:', other)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
 
@@ -231,7 +231,7 @@ describe('the split-mode local daemon authenticates as this host', () => {
 
 describe('composition threads deployment identity explicitly', () => {
   it('derives fleet and durable-session namespaces from the constructor parameter', () => {
-    const store = new SessionStore(':memory:', HOST)
+    const store = openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'blue' })
 
     expect(registry.modules.machines.instanceId).toBe('blue')
@@ -256,7 +256,7 @@ describe('composition threads deployment identity explicitly', () => {
 
 describe('rows are attributed from birth — there is no placeholder phase', () => {
   it('a session created before any daemon connects already names the host', () => {
-    const store = new SessionStore(':memory:', HOST)
+    const store = openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
@@ -273,7 +273,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
   })
 
   it('defaultMachine answers with the host even when its daemon is offline', () => {
-    const store = new SessionStore(':memory:', HOST)
+    const store = openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
@@ -288,7 +288,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
   it('a durable session row cannot be written without a machine', () => {
     // R1's guarantee, at the layer that would have silently supplied `'__local__'`:
     // the column has no default any more, so the store must be told.
-    const store = new SessionStore(':memory:', HOST)
+    const store = openTestStore(':memory:', HOST)
     const row = {
       id: asSessionId('s-no-machine'),
       ownerUserId: FIRST_ADMIN_USER_ID,

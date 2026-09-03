@@ -15,7 +15,8 @@ import {
   requestUserId,
 } from './auth-route'
 import { authReadinessBoundary } from './readiness-boundary'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
 
@@ -48,7 +49,7 @@ function cookieValue(res: Response): string | undefined {
 
 beforeEach(() => {
   dir = mkdtempSync(join(tmpdir(), 'podium-authroute-'))
-  store = new SessionStore(':memory:')
+  store = openTestStore(':memory:')
 })
 afterEach(() => {
   store.close()
@@ -689,7 +690,7 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
 
   beforeEach(() => {
     mintDir = mkdtempSync(join(tmpdir(), 'podium-mint-'))
-    mintStore = new SessionStore(join(mintDir, 'podium.db'))
+    mintStore = openTestStore(join(mintDir, 'podium.db'))
   })
   afterEach(() => {
     mintStore.close()

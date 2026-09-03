@@ -13,7 +13,8 @@ import {
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageGate, type MessageGateDeps } from './gate'
@@ -98,7 +99,7 @@ function harness(opts?: {
    *  cross-machine spawn refusal (POD-1386). */
   issueOverrides?: Record<string, unknown>
 }) {
-  const store = opts?.store ?? new SessionStore(':memory:')
+  const store = opts?.store ?? openTestStore(':memory:')
   const sessions = opts?.sessions ?? []
   const spawns: Record<string, unknown>[] = []
   const created: Record<string, unknown>[] = []
@@ -141,9 +142,7 @@ function harness(opts?: {
         spawns.push(i)
         return { sessionId: asSessionId('child1') }
       }),
-    ...(opts?.awaitMachineInventory
-      ? { awaitMachineInventory: opts.awaitMachineInventory }
-      : {}),
+    ...(opts?.awaitMachineInventory ? { awaitMachineInventory: opts.awaitMachineInventory } : {}),
     ...(opts?.resolveExecutionProfile
       ? { resolveExecutionProfile: opts.resolveExecutionProfile }
       : {}),

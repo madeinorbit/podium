@@ -16,7 +16,7 @@ import { afterAll, describe, expect, it } from 'vitest'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { deriveRepoId } from './repo-id'
 import type { SessionRow } from './store'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -37,7 +37,7 @@ async function tmpDbPath(): Promise<string> {
 
 describe('SessionStore repos', () => {
   it('reports the newest migration recorded by a real migrated store', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const expected = [...DRIZZLE_MIGRATIONS]
       .map(({ name }) => name)
       .sort()
@@ -47,7 +47,7 @@ describe('SessionStore repos', () => {
   })
 
   it('starts empty, adds, dedupes, lists in insertion order, removes', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.repos.listRepoPaths()).toEqual([])
     store.repos.addRepo('/home/u/b', store.hostMachineId)
     store.repos.addRepo('/home/u/a', store.hostMachineId)
@@ -59,7 +59,7 @@ describe('SessionStore repos', () => {
   })
 
   it('rejects SQLite writes while a transfer fence is held, then reopens them', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.beginTransferFence()
     expect(() => store.repos.addRepo('/home/u/fenced', store.hostMachineId)).toThrow()
     store.endTransferFence()
@@ -69,16 +69,16 @@ describe('SessionStore repos', () => {
 
   it('persists repos across instances on the same file', async () => {
     const file = await tmpDbPath()
-    const a = new SessionStore(file)
+    const a = openTestStore(file)
     a.repos.addRepo('/abs/one', a.hostMachineId)
     a.close()
-    const b = new SessionStore(file)
+    const b = openTestStore(file)
     expect(b.repos.listRepoPaths()).toEqual(['/abs/one'])
     b.close()
   })
 
   it('upgrades a manually-added remote repo when scanner reports a canonical path', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const machineId = 'm-vmi'
     const path = '/home/till/src/podium'
     const originUrl = 'https://github.com/madeinorbit/podium.git'
@@ -99,7 +99,7 @@ describe('SessionStore repos', () => {
   })
 
   it('resolves subpaths under a registered filesystem root repo', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.repos.addRepo('/', store.hostMachineId)
     const repoId = store.repos.listRepos()[0]?.repoId
 
@@ -108,7 +108,7 @@ describe('SessionStore repos', () => {
   })
 
   it('exposes loadSessions() as [] on a fresh db (tables exist)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.sessions.loadSessions()).toEqual([])
     store.close()
   })
@@ -190,13 +190,13 @@ describe('SessionStore sessions', () => {
     // Strict on write: an agentKind outside the enum (e.g. the 'auto' sentinel) must
     // never reach the table, since it later fails the sessionsChanged zod-parse and
     // blanks every client. Fail loudly at the source instead.
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     expect(() => s.sessions.upsertSession(row({ agentKind: 'auto' }))).toThrow(/agentKind/i)
     s.close()
   })
 
   it('round-trips optional cumulative compute time and preserves legacy absence', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ workingMsTotal: 123_456 }))
     expect(store.sessions.loadSessions()[0]?.workingMsTotal).toBe(123_456)
 
@@ -207,14 +207,14 @@ describe('SessionStore sessions', () => {
 
   it('upserts, loads, updates in place (preserving created_at), and deletes', async () => {
     const file = await tmpDbPath()
-    const a = new SessionStore(file)
+    const a = openTestStore(file)
     a.sessions.upsertSession(row())
     a.sessions.upsertSession(
       row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
     )
     a.close()
 
-    const b = new SessionStore(file)
+    const b = openTestStore(file)
     expect(b.sessions.loadSessions()).toEqual([
       row({ status: 'live', title: 'renamed', lastActiveAt: '2026-06-09T00:05:00.000Z' }),
     ])
@@ -225,7 +225,7 @@ describe('SessionStore sessions', () => {
 
   it('persists a cwd change when an existing session moves machines', async () => {
     const file = await tmpDbPath()
-    const source = new SessionStore(file)
+    const source = openTestStore(file)
     source.sessions.upsertSession(
       row({ cwd: '/source/repo/.worktrees/x', machineId: asMachineId('m1') }),
     )
@@ -234,7 +234,7 @@ describe('SessionStore sessions', () => {
     )
     source.close()
 
-    const restarted = new SessionStore(file)
+    const restarted = openTestStore(file)
     expect(restarted.sessions.loadSessions()).toEqual([
       row({ cwd: '/target/repo/.worktrees/x', machineId: asMachineId('m2') }),
     ])
@@ -242,7 +242,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips the last authoritative terminal geometry', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const resized = row({ geometry: { cols: 173, rows: 47 } })
     s.sessions.upsertSession(resized)
     expect(s.sessions.loadSessions()).toEqual([resized])
@@ -250,7 +250,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips who named the session (#490) — and reads a rogue source as nobody', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     // The distinction the agent-title refusal rests on: a name is not enough, the
     // SOURCE has to survive the write → restart → read cycle.
     const user = row({ id: asSessionId('u'), name: 'Merge lock lease expiry', nameSource: 'user' })
@@ -267,7 +267,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips #285 workflow pass-through metadata verbatim (never interpreted)', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     const r = row({
       workflowRunId: 'run_9',
       workflowStepId: 'step_3',
@@ -279,7 +279,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('hides issue-deleted session tombstones and restores them as exited records', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const deletedAt = '2026-07-13T10:00:00.000Z'
     store.sessions.upsertSession(row({ issueId: asIssueId('iss_1'), status: 'live' }))
 
@@ -304,7 +304,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('keeps standalone session tombstones out of active loads and issue restoration', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const deletedAt = '2026-07-13T11:00:00.000Z'
     store.sessions.upsertSession(row({ issueId: asIssueId('iss_1'), status: 'live' }))
     store.sessions.setPin(asUserId(SOLE_USER_ID), 'panel', 'id-1', true)
@@ -336,7 +336,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips resume metadata', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const r = row({
       id: asSessionId('id-2'),
       originKind: 'resume',
@@ -351,7 +351,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips the activity timestamps (output/input/resumed)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(
       row({
         id: asSessionId('s1'),
@@ -369,7 +369,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('reads null activity timestamps for a row that never had them', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s2'), durableLabel: 'podium-s2' }))
     const [r] = store.sessions.loadSessions()
     expect(r?.lastOutputAt).toBeNull()
@@ -379,7 +379,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips spawnedBy provenance (issue #60)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(
       row({ id: asSessionId('s1'), durableLabel: 'podium-s1', spawnedBy: 'issue:iss_9' }),
     )
@@ -388,7 +388,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('round-trips the native login-shell purpose', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(
       row({
         id: asSessionId('login-shell'),
@@ -406,7 +406,7 @@ describe('SessionStore sessions', () => {
   // property — a stale writer must not be able to un-prove a conversation, and a
   // row from before the column must not read as proof of anything.
   it('round-trips the conversation-binding claim', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(
       row({ id: asSessionId('s1'), durableLabel: 'podium-s1', conversationBinding: 'never' }),
     )
@@ -415,7 +415,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('refuses to walk a bound conversation back to never', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const base = row({ id: asSessionId('s1'), durableLabel: 'podium-s1' })
     store.sessions.upsertSession({ ...base, conversationBinding: 'bound' })
     // A later writer holding a stale copy of the session — a status flush, a
@@ -427,7 +427,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('reads a rogue conversation-binding value as no claim, not as proof', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(
       row({
         id: asSessionId('s1'),
@@ -441,7 +441,7 @@ describe('SessionStore sessions', () => {
   })
 
   it('reads spawnedBy as null on a legacy row that never had it', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // A row written without the field (the pre-#60 write shape) reads back null.
     const { spawnedBy: _omit, ...legacy } = row({
       id: asSessionId('s2'),
@@ -456,7 +456,7 @@ describe('SessionStore sessions', () => {
   // (A separate schema-PRAGMA "column exists" test was dropped as redundant — this
   // round-trip already fails if the column is missing. POD-619 [spec:SP-0be7].)
   it('round-trips stoppedAt and stopReason [spec:SP-6144]', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const stopped = row({
       stoppedAt: '2026-07-18T12:00:00.000Z',
       stopReason: 'forced',
@@ -471,7 +471,7 @@ describe('SessionStore sessions', () => {
   // never-opened case is now an ABSENT ROW rather than a null column, which is
   // the single-spelling rule the repository enforces.
   it('round-trips per-user readAt; a session this user never opened has NO row', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s_read'), durableLabel: 'podium-s_read' }))
     store.sessions.upsertSession(
       row({ id: asSessionId('s_unread'), durableLabel: 'podium-s_unread' }),
@@ -511,12 +511,12 @@ describe('SessionStore sessions', () => {
 describe('SessionStore drafts', () => {
   it('round-trips, overwrites, and clears a draft on empty text', async () => {
     const file = await tmpDbPath()
-    const a = new SessionStore(file)
+    const a = openTestStore(file)
     a.sessions.setDraft(asSessionId('sess'), 'half typed')
     a.sessions.setDraft(asSessionId('sess'), 'half typed and more') // overwrite, not append
     a.close()
 
-    const b = new SessionStore(file) // survives a "restart"
+    const b = openTestStore(file) // survives a "restart"
     expect(b.sessions.loadDrafts()).toEqual({ sess: 'half typed and more' })
     b.sessions.setDraft(asSessionId('sess'), '') // composer cleared on send
     expect(b.sessions.loadDrafts()).toEqual({})
@@ -524,7 +524,7 @@ describe('SessionStore drafts', () => {
   })
 
   it('exposes draft edit times: setDraft returns the timestamp (undefined on clear) and loadDraftTimes round-trips it', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const at = store.sessions.setDraft(asSessionId('sess'), 'typing')
     expect(typeof at).toBe('string')
     expect(store.sessions.loadDraftTimes()).toEqual({ sess: at })
@@ -534,7 +534,7 @@ describe('SessionStore drafts', () => {
   })
 
   it('drops a session draft when the session is deleted', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row())
     store.sessions.setDraft(asSessionId('id-1'), 'work in progress')
     store.sessions.purgeSession(asSessionId('id-1'))
@@ -543,7 +543,7 @@ describe('SessionStore drafts', () => {
   })
 
   it('ignores a blank session id', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.setDraft(asSessionId('  '), 'orphan')
     expect(store.sessions.loadDrafts()).toEqual({})
     store.close()
@@ -557,7 +557,7 @@ describe('SessionStore drafts', () => {
 
 describe('SessionStore pins', () => {
   it('starts empty, adds, dedupes, lists by kind in insertion order, and removes', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.sessions.listPins(asUserId(SOLE_USER_ID))).toEqual({
       panels: [],
       worktrees: [],
@@ -586,7 +586,7 @@ describe('SessionStore pins', () => {
   })
 
   it('removes a panel pin when the session is deleted', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('session-1') }))
     store.sessions.setPin(asUserId(SOLE_USER_ID), 'panel', 'session-1', true)
 
@@ -603,7 +603,7 @@ describe('SessionStore pins', () => {
 
 describe('SessionStore snoozes', () => {
   it('starts empty, sets until-next-message (null) and timed, overwrites, and clears', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
 
     store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
@@ -627,7 +627,7 @@ describe('SessionStore snoozes', () => {
   })
 
   it('lazily drops a timed snooze whose deadline has passed; keeps null forever', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.setSnooze(
       asUserId(SOLE_USER_ID),
       asSessionId('past'),
@@ -642,7 +642,7 @@ describe('SessionStore snoozes', () => {
   })
 
   it('removes a snooze when the session is deleted', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s1') }))
     store.sessions.setSnooze(asUserId(SOLE_USER_ID), asSessionId('s1'), null)
     store.sessions.purgeSession(asSessionId('s1'))
@@ -660,7 +660,7 @@ describe('SessionStore offers', () => {
   }
 
   it('starts empty, sets/round-trips an offer, replaces it, and clears', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.sessions.listOffers()).toEqual({})
 
     store.sessions.setOffer(asSessionId('s1'), OFFER)
@@ -677,7 +677,7 @@ describe('SessionStore offers', () => {
   })
 
   it('drops a row with corrupt JSON actions instead of throwing', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.setOffer(asSessionId('good'), OFFER)
     // Simulate a corrupt persisted row.
     ;(store as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db
@@ -688,7 +688,7 @@ describe('SessionStore offers', () => {
   })
 
   it('removes an offer when the session is purged', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s1') }))
     store.sessions.setOffer(asSessionId('s1'), OFFER)
     store.sessions.purgeSession(asSessionId('s1'))
@@ -699,7 +699,7 @@ describe('SessionStore offers', () => {
 
 describe('SessionStore tab order', () => {
   it('starts empty, upserts per worktree, and clears on an empty list', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({})
 
     store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s1', 's2'])
@@ -718,7 +718,7 @@ describe('SessionStore tab order', () => {
   })
 
   it('rejects an empty worktree path', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(() => store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '  ', ['s1'])).toThrow(
       'worktree path is empty',
     )
@@ -727,16 +727,16 @@ describe('SessionStore tab order', () => {
 
   it('persists across instances on the same file', async () => {
     const file = await tmpDbPath()
-    const a = new SessionStore(file)
+    const a = openTestStore(file)
     a.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s2', 's1'])
     a.close()
-    const b = new SessionStore(file)
+    const b = openTestStore(file)
     expect(b.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({ '/repo/a': ['s2', 's1'] })
     b.close()
   })
 
   it('scrubs a session from every order when it is deleted', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession(row({ id: asSessionId('s1') }))
     store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/a', ['s2', 's1'])
     store.sessions.setTabOrder(asUserId(SOLE_USER_ID), '/repo/b', ['s1'])
@@ -750,7 +750,7 @@ describe('SessionStore tab order', () => {
 
 describe('settings', () => {
   it('returns defaults when nothing was ever saved', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const s = store.settings.getSettings()
     expect(s.roles.coding.accountId).toBe('') // '' = the role's default (claude-code)
     expect(s.roles.background.model).toBe('google/gemini-2.5-flash')
@@ -760,7 +760,7 @@ describe('settings', () => {
   })
 
   it('accepts zero as the idle-session target and rejects negative targets', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const settings = store.settings.getSettings()
     store.settings.setSettings({
       ...settings,
@@ -778,21 +778,21 @@ describe('settings', () => {
 
   it('round-trips an explicit unlimited idle-session target', async () => {
     const file = await tmpDbPath()
-    const a = new SessionStore(file)
+    const a = openTestStore(file)
     const settings = a.settings.getSettings()
     a.settings.setSettings({
       ...settings,
       hibernation: { ...settings.hibernation, maxIdleSessions: null },
     })
     a.close()
-    const b = new SessionStore(file)
+    const b = openTestStore(file)
     expect(b.settings.getSettings().hibernation.maxIdleSessions).toBeNull()
     b.close()
   })
 
   it('round-trips a saved blob and fills missing keys forward', async () => {
     const file = await tmpDbPath()
-    const a = new SessionStore(file)
+    const a = openTestStore(file)
     const s = a.settings.getSettings()
     a.settings.setSettings({
       ...s,
@@ -803,7 +803,7 @@ describe('settings', () => {
       hibernation: { ...s.hibernation, memoryPct: 90 },
     })
     a.close()
-    const b = new SessionStore(file)
+    const b = openTestStore(file)
     const loaded = b.settings.getSettings()
     expect(loaded.roles.coding.accountId).toBe('native:codex')
     expect(loaded.roles.coding.model).toBe('gpt-5-codex')
@@ -828,7 +828,7 @@ describe('conversation index', () => {
   })
 
   it('indexes discovered conversations and finds them by keyword', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([
       conv('a', { title: 'fix the soft keyboard profiles' }),
       conv('b', { title: 'memory chip breakdown' }),
@@ -839,14 +839,14 @@ describe('conversation index', () => {
   })
 
   it('prefix-matches partial words', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([conv('a', { title: 'podium relay endpoint' })])
     expect(store.conversations.index.search({ query: 'rela' }).map((h) => h.id)).toEqual(['a'])
     store.close()
   })
 
   it('filters by projectPath subtree and browses by recency on empty query', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([
       conv('old', { updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('new', { updatedAt: '2026-06-12T00:00:00.000Z' }),
@@ -858,7 +858,7 @@ describe('conversation index', () => {
   })
 
   it('excludes subagent (sidechain) conversations from the resume picker', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([
       conv('top', { title: 'fix the parser' }),
       conv('sub', { title: 'fix the parser subagent', parentConversationId: 'top' }),
@@ -871,7 +871,7 @@ describe('conversation index', () => {
   })
 
   it('orders search results by recency, not relevance (matches claude --resume)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([
       conv('older', { title: 'relay endpoint fix', updatedAt: '2026-06-01T00:00:00.000Z' }),
       conv('newer', { title: 'relay endpoint retry', updatedAt: '2026-06-12T00:00:00.000Z' }),
@@ -885,7 +885,7 @@ describe('conversation index', () => {
   })
 
   it('curation (name/summary) survives re-discovery and is searchable', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([conv('a')])
     store.conversations.index.setMeta('a', {
       name: 'Soft keyboard epic',
@@ -900,7 +900,7 @@ describe('conversation index', () => {
   })
 
   it('deleteConversations removes the rows and keeps the FTS index consistent', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([
       conv('a', { title: 'keep this keyboard one' }),
       conv('b', { title: 'remove this keyboard one' }),
@@ -924,7 +924,7 @@ describe('conversation index', () => {
   })
 
   it('deleteConversations is a no-op on an empty id list', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.conversations.index.upsert([conv('a')])
     store.conversations.index.delete([])
     expect(store.conversations.index.search({}).map((h) => h.id)).toEqual(['a'])
@@ -934,7 +934,7 @@ describe('conversation index', () => {
 
 describe('SessionStore superagent threads', () => {
   it('creates a default global thread and scopes messages by thread', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     expect(
       s.superagent.listSuperagentThreads(FIRST_ADMIN_USER_ID).some((t) => t.id === 'global'),
     ).toBe(true)
@@ -951,13 +951,13 @@ describe('SessionStore superagent threads', () => {
     s.close()
   })
   it('defaults message ops to the global thread', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'legacy' })
     expect(s.superagent.loadSuperagentMessages().map((m) => m.content)).toEqual(['legacy'])
     s.close()
   })
   it('stores and reads a btw watermark', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.superagent.upsertSuperagentThread({
       ownerUserId: FIRST_ADMIN_USER_ID,
       id: 'btw_y',
@@ -971,7 +971,7 @@ describe('SessionStore superagent threads', () => {
     s.close()
   })
   it('clears only the targeted thread', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'user', content: 'g' })
     s.superagent.upsertSuperagentThread({
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -990,7 +990,7 @@ describe('SessionStore superagent threads', () => {
     // One message with unparseable tool_calls must NOT throw out of the row map and
     // blank the entire thread's history — quarantine that field to undefined, keep
     // the message and the rest of the thread.
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'assistant', content: 'a' })
     s.superagent.appendSuperagentMessage(asThreadId('global'), { role: 'assistant', content: 'b' })
     ;(s as unknown as { db: { prepare(q: string): { run(...a: unknown[]): unknown } } }).db

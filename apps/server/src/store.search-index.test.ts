@@ -3,8 +3,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { forceFeature } from './test-support/features'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * SEARCH IS ONE SWITCH [PDM-25].
@@ -24,7 +25,7 @@ afterEach(() => {
 })
 
 function open(path: string): SessionStore {
-  const store = new SessionStore(path)
+  const store = openTestStore(path)
   stores.push(store)
   return store
 }

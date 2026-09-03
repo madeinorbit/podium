@@ -5,7 +5,7 @@ import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * Issue writes on the write-seam Ledger ([spec:SP-3fe2] #255): the REAL Ledger
@@ -18,7 +18,7 @@ function harness() {
   // Mutable wall clock: the in-place-rollback tests advance it so a missing
   // updatedAt restore is a REAL wire difference the reconcile would append.
   let wallClock = '2026-07-01T00:00:00.000Z'
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const ledger = new Ledger({
     repo: store.sync,
     now: () => 1_000,

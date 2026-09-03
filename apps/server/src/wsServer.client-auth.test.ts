@@ -11,7 +11,8 @@ import {
   type WsHandle,
 } from './gateway/ws-server'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 let server: Pick<NativeServer<never>, 'port' | 'stop'> | undefined
 let handle: WsHandle | undefined
@@ -36,7 +37,7 @@ async function start(
     clearInterval(handle: unknown): void
   },
 ) {
-  store = new SessionStore(':memory:')
+  store = openTestStore(':memory:')
   registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(
     registry,
@@ -70,7 +71,7 @@ async function start(
 }
 
 async function startNotReady() {
-  store = new SessionStore(':memory:')
+  store = openTestStore(':memory:')
   registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     readinessForClient: () => ({

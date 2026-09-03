@@ -15,13 +15,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { createPrimeInjector } from '../../daemon/src/prime-injector'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
 // docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
 
 function harness(sessions: SessionMeta[] = []) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const issueBySession = new Map<SessionId, IssueId | null>()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -602,7 +602,7 @@ describe('prime draft/attach variants', () => {
 
 describe('store: sessions.issue_id round-trip', () => {
   it('persists and reloads issueId on session rows', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.sessions.upsertSession({
       id: asSessionId('sx'),
       ownerUserId: FIRST_ADMIN_USER_ID,

@@ -3,9 +3,9 @@ import { automationOccurrenceRunId } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
-import { SessionStore } from '../../store'
 import { type AutomationDecision, decideTick, GRACE_MS, type Schedulable } from './decide'
 import { AutomationsService, type AutomationInput } from './service'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
@@ -185,7 +185,7 @@ function harness(
     resumeReason?: string
   } = {},
 ) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   let clock = NOW
   let n = 0
   let issueN = 0

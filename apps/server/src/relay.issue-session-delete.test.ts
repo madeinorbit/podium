@@ -1,9 +1,9 @@
 import type { SessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
-function registryWithDaemon(store = new SessionStore(':memory:')) {
+function registryWithDaemon(store = openTestStore(':memory:')) {
   const messages: unknown[] = []
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => messages.push(message))

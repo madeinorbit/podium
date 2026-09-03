@@ -13,14 +13,15 @@
 
 import { asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 const COLLEAGUE = 'colleague'
 
 let store: SessionStore
 
 beforeEach(() => {
-  store = new SessionStore(':memory:')
+  store = openTestStore(':memory:')
 })
 
 const pair = (id: string, ownerUserId: string | null): void =>

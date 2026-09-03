@@ -30,8 +30,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { machineUseGateFor } from './handoff/access'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 
@@ -145,7 +146,7 @@ async function handoffFixture(
     modelSourceReleaseMs?: number
   } = {},
 ): Promise<HandoffFixture> {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'm1',
     name: 'source',

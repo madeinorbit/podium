@@ -3,7 +3,7 @@ import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const at = (second: number) => `2026-07-18T12:00:${String(second).padStart(2, '0')}.000Z`
 const runtime = (
@@ -20,7 +20,7 @@ const runtime = (
 
 describe('causal session observation gate', () => {
   it('restores one snapshot, emits only live edges, and survives restart idempotently', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = SessionRegistry.create(
       store,
@@ -189,7 +189,7 @@ describe('causal session observation gate', () => {
   })
 
   it('routes a foreign lease advance to an explicit rejection acknowledgement', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
@@ -241,7 +241,7 @@ describe('causal session observation gate', () => {
   })
 
   it('atomically rebinds an exact native session without phase or notification effects', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const ntfy = vi.fn()
     const telegram = vi.fn()
@@ -460,7 +460,7 @@ describe('causal session observation gate', () => {
   })
 
   it('rejects a fresh rebind to a provider thread already owned by another session', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
@@ -539,7 +539,7 @@ describe('causal session observation gate', () => {
   })
 
   it('rolls back resume and lease when conversation linking throws', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })

@@ -14,8 +14,8 @@ import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { appliedDrizzleNames } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
-import { SessionStore } from './store'
 import { storeDatabaseOpenerInstalled } from './store-database'
+import { openTestStore } from './test-support/open-test-store'
 import { FIXTURE_DISABLED_ENV, schemaImagePath } from './test-support/pre-migrated-store'
 
 /**
@@ -45,7 +45,7 @@ describe('pre-migrated store fixture wiring [POD-523]', () => {
   })
 
   it('hands an ordinary store a database already at the head of the chain', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // @ts-expect-error private db — this test's subject is how the db was built
     const ledger = appliedDrizzleNames(store.db)
     expect(ledger.size).toBe(DRIZZLE_MIGRATIONS.length)

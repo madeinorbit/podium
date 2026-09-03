@@ -21,8 +21,8 @@
 import { asSessionId, asUserId, type SessionId, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../../relay'
-import { SessionStore } from '../../../store'
 import { OPERATOR } from '../../../test-support/capabilities'
+import { openTestStore } from '../../../test-support/open-test-store'
 import {
   type SessionStatePrincipal,
   SessionStateRegistry,
@@ -38,7 +38,7 @@ const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
 
 function fixture() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
@@ -452,7 +452,7 @@ describe('the composer draft rejects a stale revision instead of overwriting', (
    * "prove the instrument can say YES first" rule.
    */
   function flaggedFixture() {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.settings.setSettings({
       ...store.settings.getSettings(),
       experimental: { 'draft-sync': true },

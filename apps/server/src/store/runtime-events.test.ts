@@ -7,7 +7,8 @@ import {
 } from '../modules/sessions/runtime-event-gate'
 import { mergeLatestTranscriptPage, mergeTranscriptItems } from '../modules/sessions/terminal'
 import { SessionRegistry } from '../relay'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import type { RuntimeEventLogRecord } from './events'
 
 function stateEvent(input: {
@@ -107,7 +108,7 @@ function bindContract(registry: SessionRegistry, store: SessionStore) {
 
 describe('durable runtime observation gate', () => {
   it('accepts a generation-one live event after an empty bootstrap snapshot', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
@@ -148,7 +149,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('keeps live-tail and completion-reconcile overlap exact after reload', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
@@ -323,7 +324,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('never projects a rejected complete event and preserves one interrupt across restart', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const rejectedItem = {
@@ -389,7 +390,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('projects causal failure detail into SessionMeta, beside the turn event', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
@@ -459,7 +460,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('owns recency/board after readiness and enforces restart, segment, epoch, and terminal fences', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const initial = registry.modules.sessions.sessionById(sessionId)
@@ -746,7 +747,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('rolls event, checkpoint, and session recency back together when ingress persistence fails', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const before = registry.modules.sessions.sessionById(sessionId)?.lastActiveAt ?? ''
@@ -790,7 +791,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('replays after a server kill while an asynchronous board effect is pending', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     const initial = registry.modules.sessions.sessionById(sessionId)
@@ -854,7 +855,7 @@ describe('durable runtime observation gate', () => {
   })
 
   it('accepts a process exit after the final turn epoch is closed', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
 
@@ -991,7 +992,7 @@ describe('causal failure ownership', () => {
     // predicate its checkpoint alone claimed ownership, so its `errored`
     // recovery ask was dropped as a duplicate of a causal failure that does not
     // exist, and a session waiting on a human went silent.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
@@ -1028,7 +1029,7 @@ describe('causal failure ownership', () => {
   })
 
   it('a LIVE turn/failed in the current turn is ownership', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
@@ -1058,7 +1059,7 @@ describe('causal failure ownership', () => {
     // A session that failed, recovered, and later goes `errored` through the
     // legacy path must still be able to ask: the old failure is not evidence
     // about this one.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(
@@ -1099,7 +1100,7 @@ describe('causal failure ownership', () => {
     // `projectBoard` materializes failures from live events only, so counting a
     // replayed failure as ownership would silence the shadow with nothing
     // standing in its place.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const sessionId = bindContract(registry, store)
     send(

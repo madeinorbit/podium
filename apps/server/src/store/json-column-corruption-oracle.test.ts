@@ -111,7 +111,8 @@ import { is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import * as schema from '../migrations/schema'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 // ---------------------------------------------------------------------------
 // the raw seam
@@ -329,7 +330,7 @@ const shipOrderInput = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
   }) as ShipOrder
 
 function seed(): Fixture {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
 
   // --- issues ---------------------------------------------------------------
   store.issues.upsertIssue(issueRow())

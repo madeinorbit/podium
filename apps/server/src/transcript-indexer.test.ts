@@ -5,9 +5,10 @@ import { asMachineId } from '@podium/model'
 import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TranscriptIndexer } from './modules/memory/transcript-indexer'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
 import { forceFeature } from './test-support/features'
+import { openTestStore } from './test-support/open-test-store'
 
 // The indexer only runs where a transcript index exists, and that is the
 // `command-palette` flag read at store construction (PDM-25).
@@ -61,7 +62,7 @@ describe('TranscriptIndexer', () => {
   })
 
   function setup() {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-index-'))
     const fs = new FakeDaemonFs()
     const indexer = new TranscriptIndexer({
@@ -188,7 +189,7 @@ describe('TranscriptIndexer', () => {
   })
 
   it('degrades to a no-op without throwing when FTS5 is unavailable', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     cleanups.push(() => store.close())
     // Simulate the no-FTS runtime: the availability flag is what gates every path.
     Object.assign(store, { transcriptFtsAvailable: false })
@@ -222,7 +223,7 @@ describe('TranscriptIndexer', () => {
     segments: { nativeId: string; content: string }[],
     options?: ConstructorParameters<typeof TranscriptIndexer>[1],
   ) {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-backfill-'))
     cleanups.push(() => {
       store.close()

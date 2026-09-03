@@ -22,8 +22,9 @@ import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import type { LedgerDeps } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../../store'
+import type { SessionStore } from '../../../store'
 import { StaleIssueRevisionError } from '../../../store/issue-revision'
+import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '../service'
 import { issueTestPlumbing } from './test-plumbing'
 
@@ -45,7 +46,7 @@ interface Harness {
 }
 
 const open = (): Harness => {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   let during: { fn: () => void; when: 'before' | 'after' } | null = null
   let fail = false
   const transact: LedgerDeps['transact'] = (fn) => {

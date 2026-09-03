@@ -9,8 +9,9 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 type RestartKind = 'daemon-only' | 'server-only' | 'server-and-daemon'
 
@@ -124,7 +125,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // A server restart reopens the same owned host machine; reminting here
       // would model a replacement machine and invalidate every durable binding.
       const hostMachineId = asMachineId(randomUUID())
-      let store = new SessionStore(dbPath, hostMachineId)
+      let store = openTestStore(dbPath, hostMachineId)
       let registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
       registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
@@ -271,7 +272,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           // a replaced daemon folds the frozen provider fixture again.
           registry.dispose()
           store.close()
-          store = new SessionStore(dbPath, hostMachineId)
+          store = openTestStore(dbPath, hostMachineId)
           registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
           registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))

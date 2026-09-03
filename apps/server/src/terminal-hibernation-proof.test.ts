@@ -4,7 +4,7 @@ import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 const at = (second: number) => `2026-07-19T12:00:${String(second).padStart(2, '0')}.000Z`
@@ -44,7 +44,7 @@ function harness({
   closing?: boolean
   terminalRetryable?: boolean
 } = {}) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const daemon: ControlMessage[] = []
   const registry = SessionRegistry.create(store, undefined, { instanceId })
   registries.push(registry)

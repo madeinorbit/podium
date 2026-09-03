@@ -1,7 +1,7 @@
 import {
-  asThreadId,
   asIssueId,
   asSessionId,
+  asThreadId,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -12,22 +12,23 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
   isAcceptedLiveTerminalEvent,
-  type StewardDeps,
   JANITOR_STEWARD_EVENT_LIMIT,
+  type StewardDeps,
   StewardService,
   subscriptionEventKinds,
   TRIGGER_RULES,
 } from './steward'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
+import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
 function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   // Most tests want the events they emit consumed — pin the cursor to the log
   // start, as if the steward had been enabled since boot. First-enable seeding
   // tests pass seedCursor: false to exercise the absent-row path.

@@ -9,9 +9,9 @@ import {
   resetIssueWireBuildCount,
 } from './modules/issues/instrumentation'
 import { SessionRegistry } from './relay'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -157,7 +157,7 @@ function seedSession(
 }
 
 function world(opts: { issues?: number; sessions?: number } = {}) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++) sessionIds.push(seedSession(store, i))
@@ -294,7 +294,7 @@ describe('issueProjection emission is unconditional with transitional legacy res
   })
 
   it('boot totalizes legacy cwd membership into the normalized snapshot the replica indexes', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(issueRow(0))
     const sessionId = seedSession(store, 0, null)
 

@@ -8,7 +8,7 @@ import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium
 // test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 async function tmpDbPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'podium-machines-'))
@@ -19,7 +19,7 @@ const hash = (t: string) => createHash('sha256').update(t).digest('hex')
 
 describe('machines store', () => {
   it('upserts, lists, renames, deletes a machine', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.machines.upsertMachine({
       id: 'm1',
       name: 'box',
@@ -40,7 +40,7 @@ describe('machines store', () => {
   })
 
   it('repos table is re-keyed to (machine_id, path) with origin_url', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/home/u/a', s.hostMachineId)
     s.repos.addRepo('/home/u/b', asMachineId('m2'), 'https://github.com/u/b')
     const rows = s.repos.listRepos()
@@ -52,7 +52,7 @@ describe('machines store', () => {
   })
 
   it('listRepoPaths returns a flat string[] for back-compat', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/abs/one', s.hostMachineId)
     s.repos.addRepo('/abs/two', asMachineId('m2'))
     const paths = s.repos.listRepoPaths()
@@ -61,7 +61,7 @@ describe('machines store', () => {
   })
 
   it('listRepos(machineId) filters to one machine', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/abs/local', s.hostMachineId)
     s.repos.addRepo('/abs/remote', asMachineId('m2'))
     expect(s.repos.listRepos(s.hostMachineId).map((r) => r.path)).toEqual(['/abs/local'])
@@ -71,7 +71,7 @@ describe('machines store', () => {
   })
 
   it('getMachine returns a record when it exists', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.machines.upsertMachine({
       id: 'm2',
       name: 'server',
@@ -87,7 +87,7 @@ describe('machines store', () => {
   })
 
   it('touchMachine updates last_seen_at and hostname', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.machines.upsertMachine({
       id: 'm3',
       name: 'box',
@@ -107,7 +107,7 @@ describe('machines store', () => {
 
   it('multi-machine migration is idempotent — re-opening the same file db is a no-op', async () => {
     const file = await tmpDbPath()
-    const s1 = new SessionStore(file)
+    const s1 = openTestStore(file)
     s1.machines.upsertMachine({
       id: 'm1',
       name: 'a',
@@ -146,7 +146,7 @@ describe('machines store', () => {
     // the same file is a different host as far as its own default is concerned, and
     // nothing rewrites rows behind it.
     const host = s1.hostMachineId
-    const s2 = new SessionStore(file)
+    const s2 = openTestStore(file)
     expect(s2.sessions.loadSessions()[0]?.machineId).toBe(host)
     expect(s2.machines.listMachines()).toHaveLength(1)
     expect(s2.repos.listRepoPaths()).toEqual(['/a'])

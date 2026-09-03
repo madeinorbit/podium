@@ -24,7 +24,8 @@ import { join } from 'node:path'
 import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { type IssueRow, type SessionRow, SessionStore } from '../apps/server/src/store'
+import type { IssueRow, SessionRow, SessionStore } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import { IssueAutoArchiveReader, SessionAutoArchiveReader } from '../packages/janitor/src/janitor'
 
 const OTHER_USER = asUserId('user:other')
@@ -128,7 +129,7 @@ describe('janitor auto-archive candidates over per-user read state [POD-1210]', 
     dbPath = join(dir, 'podium.db')
     priorStateDir = process.env.PODIUM_STATE_DIR
     process.env.PODIUM_STATE_DIR = dir
-    store = new SessionStore(dbPath)
+    store = openTestStore(dbPath)
     db = openDatabase(dbPath, { readOnly: true })
   })
 

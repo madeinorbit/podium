@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { asIssueId, asMachineId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { deriveRepoId } from './repo-id'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function db(store: SessionStore) {
   // @ts-expect-error private db — schema/migration assertions
@@ -65,7 +65,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 
 describe('repo_id schema (v8, #74)', () => {
   it('fresh DB has repo_id columns on repos and issues', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     for (const table of ['repos', 'issues']) {
       const cols = new Set(
         (db(s).prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
@@ -82,7 +82,7 @@ describe('repo_id schema (v8, #74)', () => {
   })
 
   it('addRepo derives repo_id (origin-based when given, path-fallback otherwise)', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/o/r')
     s.repos.addRepo('/b', asMachineId('m1'))
     const rows = s.repos.listRepos()
@@ -100,7 +100,7 @@ describe('repo_id schema (v8, #74)', () => {
   })
 
   it('two paths with the same origin share one repo_id', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/clone/one', asMachineId('m1'), 'git@github.com:o/r.git')
     s.repos.addRepo('/clone/two', asMachineId('m2'), 'https://github.com/o/r')
     const rows = s.repos.listRepos()
@@ -109,7 +109,7 @@ describe('repo_id schema (v8, #74)', () => {
   })
 
   it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
@@ -141,7 +141,7 @@ describe('repo_id schema (v8, #74)', () => {
   })
 
   it('upsertIssue dual-writes repo_id from the registered repo prefix match', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/repo', asMachineId('m1'), 'https://github.com/o/repo')
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
     expect(s.issues.getIssue('iss_1')?.repoId).toBe(
@@ -174,7 +174,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
       const file = join(dir, 'podium.db')
       // Plant the legacy row behind the repository, which is the only way to make
       // one: `addRepo` derives an id before it inserts.
-      const first = new SessionStore(file)
+      const first = openTestStore(file)
       db(first)
         .prepare(
           `INSERT INTO repos (machine_id, path, origin_url, added_at)
@@ -183,7 +183,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
         .run()
       first.close()
 
-      expect(() => new SessionStore(file)).toThrow(/legacy repo identity is unfilled.*repos: 1/s)
+      expect(() => openTestStore(file)).toThrow(/legacy repo identity is unfilled.*repos: 1/s)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -193,7 +193,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-issue-refusal-'))
     try {
       const file = join(dir, 'podium.db')
-      const first = new SessionStore(file)
+      const first = openTestStore(file)
       db(first)
         .prepare(
           `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
@@ -203,7 +203,7 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
         .run()
       first.close()
 
-      expect(() => new SessionStore(file)).toThrow(/legacy repo identity is unfilled.*issues: 1/s)
+      expect(() => openTestStore(file)).toThrow(/legacy repo identity is unfilled.*issues: 1/s)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -216,11 +216,11 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-repo-refusal-ok-'))
     try {
       const file = join(dir, 'podium.db')
-      const first = new SessionStore(file)
+      const first = openTestStore(file)
       first.repos.addRepo('/ordinary', first.hostMachineId)
       first.close()
 
-      const second = new SessionStore(file)
+      const second = openTestStore(file)
       expect(second.repos.listRepoPaths()).toEqual(['/ordinary'])
       second.close()
     } finally {
@@ -249,7 +249,7 @@ describe('stored repo ids are read, never re-derived', () => {
     // repo row claims, so the derivation below is unreachable for it — and the
     // counterfactual is right there, since deriving the same path under this host
     // gives a DIFFERENT id.
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.repos.addRepo('/legacy', asMachineId('11112222-3333-4444-5555-666677778888'))
 
     const stored = s.repos.listRepos()[0]?.repoId
@@ -270,7 +270,7 @@ describe('stored repo ids are read, never re-derived', () => {
     // issue whose repo was never registered was stored under the old namespace and
     // is looked up under the new one. Registering the repo — the ordinary state —
     // returns the stored id and makes the question moot; see the test above.
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     expect(s.repos.resolveRepoIdForPath('/nowhere')).toBe(
       deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
     )

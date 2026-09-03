@@ -13,16 +13,16 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
 const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
 
 function regWithTwoDaemons() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'm1',
     name: 'one',
@@ -330,7 +330,7 @@ async function handoffRegistry(
     withIssue?: boolean
   } = {},
 ) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'm1',
     name: 'source',

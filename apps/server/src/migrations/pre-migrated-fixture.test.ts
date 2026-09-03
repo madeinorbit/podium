@@ -7,14 +7,15 @@
  * that opt-out is real rather than asserted.
  */
 
-import { asMachineId } from '@podium/model'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
 import { installStoreDatabaseOpener, storeDatabaseOpenerInstalled } from '../store-database'
+import { openTestStore } from '../test-support/open-test-store'
 import {
   currentSchemaImage,
   FIXTURE_DISABLED_ENV,
@@ -133,12 +134,12 @@ describe('migration suites keep the full 54-step path [POD-523]', () => {
 
 describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
   it('reaches identical schema objects and rows', () => {
-    const chain = new SessionStore(':memory:', asMachineId('machine-under-test'))
+    const chain = openTestStore(':memory:', asMachineId('machine-under-test'))
     const fromChain = { schema: schemaObjects(raw(chain)), rows: allRows(raw(chain)) }
     chain.close()
 
     installPreMigratedStoreFixture()
-    const cloned = new SessionStore(':memory:', asMachineId('machine-under-test'))
+    const cloned = openTestStore(':memory:', asMachineId('machine-under-test'))
     const fromClone = { schema: schemaObjects(raw(cloned)), rows: allRows(raw(cloned)) }
     cloned.close()
 
@@ -151,7 +152,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
 
   it('carries the whole migration ledger, so nothing is left pending', () => {
     installPreMigratedStoreFixture()
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect([...appliedDrizzleNames(raw(store))].sort()).toEqual(
       DRIZZLE_MIGRATIONS.map((m) => m.name).sort(),
     )
@@ -163,7 +164,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     installPreMigratedStoreFixture()
 
     const fresh = join(dir, 'fresh.db')
-    const seeded = new SessionStore(fresh)
+    const seeded = openTestStore(fresh)
     expect(appliedDrizzleNames(raw(seeded)).size).toBe(DRIZZLE_MIGRATIONS.length)
     seeded.close()
 
@@ -174,7 +175,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     old.exec('PRAGMA foreign_keys = OFF')
     runDrizzleMigrations(old, DRIZZLE_MIGRATIONS.slice(0, 1))
     old.close()
-    const upgraded = new SessionStore(existing)
+    const upgraded = openTestStore(existing)
     // It advanced by its pending migrations rather than being replaced by the image.
     expect(appliedDrizzleNames(raw(upgraded)).size).toBe(DRIZZLE_MIGRATIONS.length)
     upgraded.close()
@@ -184,9 +185,9 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
 describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
   it('gives every store an independent database', () => {
     installPreMigratedStoreFixture()
-    const first = new SessionStore(':memory:')
+    const first = openTestStore(':memory:')
     first.repos.addRepo('/only-in-first', first.hostMachineId)
-    const second = new SessionStore(':memory:')
+    const second = openTestStore(':memory:')
     expect(second.repos.listRepoPaths()).toEqual([])
     expect(first.repos.listRepoPaths()).toEqual(['/only-in-first'])
     first.close()
@@ -196,7 +197,7 @@ describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
   it('never lets a write reach the shared image', () => {
     installPreMigratedStoreFixture()
     const before = Buffer.from(currentSchemaImage()).toString('base64')
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     // Enough writing to force page allocation and growth, not just a header touch:
     // ~4 MB against an 816 KB image, straight at the connection.
     raw(store).exec('CREATE TABLE zz_growth (x TEXT)')
@@ -206,7 +207,7 @@ describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
     store.close()
     expect(Buffer.from(currentSchemaImage()).toString('base64')).toBe(before)
     // And the next clone still sees an empty database.
-    const after = new SessionStore(':memory:')
+    const after = openTestStore(':memory:')
     expect(after.repos.listRepoPaths()).toEqual([])
     after.close()
   })
@@ -276,7 +277,7 @@ describe('the seam cannot reach production [POD-523]', () => {
     const decoy = join(dir, 'not-a-database.txt')
     writeFileSync(decoy, 'untouched')
     installPreMigratedStoreFixture()
-    const store = new SessionStore(join(dir, 'db', 'podium.db'))
+    const store = openTestStore(join(dir, 'db', 'podium.db'))
     store.close()
     expect(readFileSync(decoy, 'utf8')).toBe('untouched')
   })

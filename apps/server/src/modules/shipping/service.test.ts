@@ -4,26 +4,27 @@ import {
   asShipOrderId,
   asShipStepId,
   FIRST_ADMIN_USER_ID,
-  shipRepairRef,
   type IssueWire,
+  shipRepairRef,
 } from '@podium/model'
-import { shippingEvidenceFingerprint, type ShippingJobResult } from '@podium/protocol/daemon'
+import { type ShippingJobResult, shippingEvidenceFingerprint } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { IssueService } from '../issues/service'
-import { CompatibilityShippingPolicyResolver } from './policy'
 import type { ShippingPolicyResolver } from './policy'
+import { CompatibilityShippingPolicyResolver } from './policy'
+import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import {
   type AcceptedReviewEvidence,
   canonicalShippingDestination,
-  ShippingOrderAccessError,
-  shippingResourceHolderId,
-  ShippingService,
   type ResourceLease,
+  ShippingOrderAccessError,
+  ShippingService,
+  shippingResourceHolderId,
 } from './service'
-import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import { ShippingEvidenceRegistry } from './shipwright'
 
 const stores: SessionStore[] = []
@@ -61,7 +62,7 @@ function harness(
     beforeRepairAcknowledge?: (resultToken: string) => void
   } = {},
 ) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,
@@ -179,9 +180,9 @@ const approval = {
   },
 }
 
-type ShippingJob = NonNullable<ConstructorParameters<typeof ShippingService>[0]['daemon']>[
-  'shippingJob'
-]
+type ShippingJob = NonNullable<
+  ConstructorParameters<typeof ShippingService>[0]['daemon']
+>['shippingJob']
 
 const provedShippingJob = async (
   input: Parameters<ShippingJob>[0],

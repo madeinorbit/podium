@@ -24,10 +24,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { WorkflowOwnershipPort, WorkflowUserRef } from '@podium/commands'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
 import type { WorkflowMachineAccess } from './handlers/context'
 import { type WorkflowCaller, WorkflowService } from './service'
 import { driveWorkflows } from './test-support'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const NOW = '2026-07-30T00:00:00.000Z'
 const ALICE = 'user:alice'
@@ -156,7 +156,7 @@ function twoUserPolicy() {
 type Policy = ReturnType<typeof twoUserPolicy>
 
 function makeHarness(policy: Policy) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const service = new WorkflowService(
     {
       store: store.workflows,

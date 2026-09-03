@@ -2,7 +2,7 @@ import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { systemPrincipal, userCommandPrincipal } from '../../../command-principal'
-import { SessionStore } from '../../../store'
+import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './index'
 import { issueTestPlumbing } from './test-plumbing'
 
@@ -30,7 +30,7 @@ import { issueTestPlumbing } from './test-plumbing'
  */
 
 function harness() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,

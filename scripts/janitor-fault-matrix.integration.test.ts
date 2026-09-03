@@ -12,7 +12,8 @@ import {
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { MaintenanceService } from '../apps/server/src/modules/maintenance/service'
-import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import type { MessageRow, SessionStore } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import { JanitorService } from '../packages/janitor/src/janitor'
 
 const NOW = Date.parse('2026-07-18T00:00:00.000Z')
@@ -80,7 +81,7 @@ describe.each([
   'after-apply-before-ack',
 ] as const)('janitor crash boundary: %s [spec:SP-c29e]', (boundary) => {
   it('retries the deterministic command and commits the transition exactly once', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const message = dueMessage(`msg_${boundary}`)
     store.messages.addMessage(message)
     const server = maintenance(store)
@@ -118,7 +119,7 @@ describe.each([
 describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
   it('allows only one lease holder, then fences takeover after expiry', async () => {
     let now = NOW
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const server = maintenance(store, () => now)
     const firstRead = vi.fn(() => [])
     const secondRead = vi.fn(() => [])
@@ -166,7 +167,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
   it('accepts the fenced command after the server restarts between decision and apply', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-janitor-mid-migration-'))
     const dbPath = join(dir, 'podium.db')
-    let store = new SessionStore(dbPath)
+    let store = openTestStore(dbPath)
     const message = dueMessage('msg_restart')
     store.messages.addMessage(message)
     let server = maintenance(store)
@@ -179,7 +180,7 @@ describe('janitor lease and server-restart faults [spec:SP-c29e]', () => {
         if (!restarted) {
           restarted = true
           store.close()
-          store = new SessionStore(dbPath)
+          store = openTestStore(dbPath)
           server = maintenance(store)
         }
         return [observed(message)]

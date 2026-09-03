@@ -37,8 +37,8 @@ import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-a
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
-import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 
@@ -513,7 +513,7 @@ describe('the machine verb is read from the contract, per command', () => {
  */
 describe('the derived fleet router actually calls the gate', () => {
   function caller(ownerUserId: string | null, opts: { stateDir?: string } = {}) {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'machine-one',
@@ -841,7 +841,7 @@ describe('the derived fleet router actually calls the gate', () => {
  */
 describe('a paired machine belongs to whoever minted its code', () => {
   function service() {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),

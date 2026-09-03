@@ -1,12 +1,12 @@
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
 
 function harness() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const listSessions = vi.fn(() => [])
   const deps: IssueDeps = {
     store,
@@ -20,7 +20,7 @@ function harness() {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     ...issueTestPlumbing(),
     setSessionArchived: vi.fn(),

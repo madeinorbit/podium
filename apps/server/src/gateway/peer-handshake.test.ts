@@ -22,7 +22,7 @@ import {
 import { describe, expect, it, vi } from 'vitest'
 import { PairingManager } from '../hub/pairing'
 import { SessionRegistry } from '../relay'
-import { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import { wireDaemonSocket } from './daemon-socket'
 import { createMachineDirectory } from './machine-directory'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
@@ -51,7 +51,7 @@ function fakeWs() {
 }
 
 const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) => {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id,
     name: 'box',
@@ -422,7 +422,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   })
 
   it('pairing passes the peer name through and mints a token once', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const pairing = new PairingManager()
     const reg = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
@@ -454,7 +454,7 @@ describe('payload identity is inert at the real MachinesService', () => {
    * the same code still admits a NEW machineId (allowance branch).
    */
   it('a pair code cannot rebind an existing machine id', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'admin-laptop',
       name: 'Admin Laptop',

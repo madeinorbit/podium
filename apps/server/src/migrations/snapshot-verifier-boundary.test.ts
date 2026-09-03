@@ -15,7 +15,8 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import {
   type SnapshotIdentity,
   snapshotIdentity,
@@ -42,7 +43,7 @@ function tmpStore(runChild?: SnapshotVerifierDeps['runChild']): {
     runChild:
       runChild ?? (async () => ({ failure: { code: 'crashed', detail: 'no child in this test' } })),
   }
-  return { store: new SessionStore(dbPath, undefined, deps), dbPath, dir }
+  return { store: openTestStore(dbPath, undefined, deps), dbPath, dir }
 }
 
 afterEach(() => {

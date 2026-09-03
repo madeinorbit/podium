@@ -9,8 +9,9 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
+import { openTestStore } from './test-support/open-test-store'
 
 function deps(store: SessionStore): IssueDeps {
   return {
@@ -38,7 +39,7 @@ function rawDb(s: SessionStore): { prepare(q: string): { run(...a: unknown[]): u
 
 describe('IssueService boot quarantine', () => {
   it('constructs without touching the DB; hydration is explicit (init) or lazy', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const listSpy = vi.spyOn(store.issues, 'listIssueRows')
     const svc = IssueService.compose(deps(store))
     expect(listSpy).not.toHaveBeenCalled() // constructor no longer hydrates
@@ -47,7 +48,7 @@ describe('IssueService boot quarantine', () => {
   })
 
   it('a structurally corrupt row (NULL id) is skipped; the other rows load and boot proceeds', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const svc = IssueService.create(deps(store))
     const good1 = svc.create({ repoPath: '/r', title: 'healthy one', startNow: false })
     const good2 = svc.create({ repoPath: '/r', title: 'healthy two', startNow: false })
@@ -79,7 +80,7 @@ describe('IssueService boot quarantine', () => {
   })
 
   it('bad JSON in a column quarantines the VALUE but keeps the row', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const svc = IssueService.create(deps(store))
     const w = svc.create({ repoPath: '/r', title: 'keep me', startNow: false })
     rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)

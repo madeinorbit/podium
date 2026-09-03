@@ -4,8 +4,8 @@ import { join } from 'node:path'
 import { asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
 import { forceFeature } from '../../test-support/features'
+import { openTestStore } from '../../test-support/open-test-store'
 import { DaemonRequestBroker } from '../daemon-request'
 import { TranscriptLake } from './lake'
 import { TranscriptIndexer } from './transcript-indexer'
@@ -18,7 +18,7 @@ describe('TranscriptLake mirror fence', () => {
   })
 
   it('exposes pause/drain/resume without losing dirty mirror work', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-fence-'))
     const sent: { machineId: string; message: ControlMessage }[] = []
     const daemonRequest = new DaemonRequestBroker({
@@ -120,7 +120,7 @@ describe('TranscriptLake mirror fence', () => {
  */
 describe('a lake the deployment turned off', () => {
   it('constructs no mirror and no indexer', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const daemonRequest = new DaemonRequestBroker({
       toMachine: () => {},
       defaultMachine: () => asMachineId('m1'),
@@ -138,7 +138,7 @@ describe('a lake the deployment turned off', () => {
   })
 
   it('a lake with a dir does mirror — the flag is the only difference', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-on-'))
     const daemonRequest = new DaemonRequestBroker({
       toMachine: () => {},
@@ -184,7 +184,7 @@ describe('the transcript indexer follows the search flag', () => {
     const dbPath = join(dir, 'podium.db')
 
     forceFeature('command-palette', false)
-    const off = new SessionStore(dbPath)
+    const off = openTestStore(dbPath)
     off.conversations.registry.ensure({
       machineId,
       nativeId: 'native-a',
@@ -211,7 +211,7 @@ describe('the transcript indexer follows the search flag', () => {
     off.close()
 
     forceFeature('command-palette', true)
-    const on = new SessionStore(dbPath)
+    const on = openTestStore(dbPath)
     const indexer = new TranscriptIndexer({
       mirror: on.conversations.mirror,
       index: on.conversations.transcriptIndex,

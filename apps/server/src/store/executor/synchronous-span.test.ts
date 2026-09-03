@@ -13,7 +13,6 @@
 
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
 import { PostCommitError, StoreUnhealthyError } from './errors'
 import { postCommit } from './executor'
 import {
@@ -23,6 +22,7 @@ import {
   runSynchronousSpan,
   setSpanEffectSinks,
 } from './synchronous-span'
+import { openTestStore } from '../../test-support/open-test-store'
 
 let installed: SpanEffectSinks | undefined
 const reported: string[] = []
@@ -341,7 +341,7 @@ describe('the store seam', () => {
     // wrapping `transaction` itself: every other test in this file would pass
     // with the production store never wired to the bridge at all. This one is
     // the only thing that says the scope reaches a real span body.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     try {
       const order: string[] = []
       store.transact(() => {
@@ -355,7 +355,7 @@ describe('the store seam', () => {
   })
 
   it('drops the registered work when the transact body throws', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     try {
       const ran: string[] = []
       expect(() =>

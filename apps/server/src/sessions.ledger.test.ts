@@ -1,17 +1,18 @@
 import {
-  asUserId,
+  asMachineId,
   asSessionId,
+  asUserId,
   FIRST_ADMIN_USER_ID,
   type SessionMeta,
   SOLE_USER_ID,
-  asMachineId,
 } from '@podium/model'
 import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 type ProjectionEvent = {
   generation: number
@@ -76,7 +77,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   }
 
   it('(a) a throw between the row write and the change append rolls BOTH back', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
       now: () => 1_000,
@@ -230,7 +231,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   })
 
   it('(f) boot reconcile records offline row changes durably, with no fan-out', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     first.dispose()
@@ -443,7 +444,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
   })
 
   it('resets the internal generation across restart without disturbing durable ledger order', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(first.clientGateway, () => {})

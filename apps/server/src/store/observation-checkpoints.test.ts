@@ -1,12 +1,11 @@
 import { asSessionId } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { expect, it } from 'vitest'
-import { SessionStore } from '../store'
 
 const at = '2026-07-18T12:00:00.000Z'
 
 it('durably fences observation generations and rejects stale checkpoint writes', () => {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   try {
     const lease = store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
     expect(lease).toMatchObject({
@@ -109,7 +108,7 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-observation-rebind-'))
   const path = join(dir, 'podium.sqlite')
   try {
-    const first = new SessionStore(path)
+    const first = openTestStore(path)
     first.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', null)
     expect(
       first.observationCheckpoints.rebindExact({
@@ -127,7 +126,7 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
     })
     first.close()
 
-    const reopened = new SessionStore(path)
+    const reopened = openTestStore(path)
     expect(
       reopened.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
@@ -179,3 +178,4 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { openTestStore } from '../test-support/open-test-store'

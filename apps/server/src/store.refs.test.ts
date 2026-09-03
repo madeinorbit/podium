@@ -3,12 +3,13 @@
  * collision, transactional letter allocation, per-repo DRAFT counter, and the
  * migration backfill over colliding repo names.
  */
-import { asMachineId, asIssueId, asRepoId } from '@podium/model'
+import { asIssueId, asMachineId, asRepoId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function memStore(): SessionStore {
-  return new SessionStore(':memory:')
+  return openTestStore(':memory:')
 }
 
 describe('repo prefixes', () => {

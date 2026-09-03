@@ -1,9 +1,10 @@
-import { asThreadId, asIssueId, asSessionId } from '@podium/model'
-import { type SqlDatabase, type SqlParam } from '@podium/runtime/sqlite'
+import { asIssueId, asSessionId, asThreadId } from '@podium/model'
+import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { SessionStore, type MessageRow } from '../../../store'
+import type { MessageRow } from '../../../store'
 import { createBunStoreExecutor } from '../../../store/executor'
 import { MessagesRepository } from '../../../store/messages'
+import { openTestStore } from '../../../test-support/open-test-store'
 import { countContextAwarePendingMail } from './mail-pending'
 
 function counting(db: SqlDatabase, counts: Map<string, number>): SqlDatabase {
@@ -73,7 +74,7 @@ function message(input: {
 
 describe('countContextAwarePendingMail', () => {
   it('uses one grouped messages read while preserving reader visibility', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     try {
       const db = (store as unknown as { db: SqlDatabase }).db
       const counts = new Map<string, number>()
@@ -147,7 +148,7 @@ describe('countContextAwarePendingMail', () => {
   })
 
   it('trusts a durable delivery stamp when the reader receipt is missing', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     try {
       store.messages.addMessage({
         ...message({

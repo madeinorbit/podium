@@ -1,7 +1,7 @@
 import { asRepoId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
+import { openTestStore } from '../../test-support/open-test-store'
 
 /**
  * LockService + LocksRepository semantics [spec:SP-85d1]: grant, same-session
@@ -14,7 +14,7 @@ import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
 const REPO = '/repo'
 
 function harness(opts?: { alive?: Set<string>; workspace?: Map<string, string> }) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const alive = opts?.alive ?? new Set<string>()
   const workspace = opts?.workspace ?? new Map<string, string>()
   let nowMs = Date.parse('2026-07-13T12:00:00.000Z')

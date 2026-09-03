@@ -45,15 +45,16 @@ import {
   type SessionId,
 } from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import type { ControlMessage } from '@podium/protocol/daemon'
 
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
-import { SuperagentService } from '../superagent'
+import { openTestStore } from '../../test-support/open-test-store'
 import type { PortableStateFence } from '../server-transfer/portable-fence'
+import { SuperagentService } from '../superagent'
 
 // ---------------------------------------------------------------------------
 // Tags
@@ -198,7 +199,7 @@ export function makeOracle(
     now?: () => number
   } = {},
 ): Oracle {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   for (const machine of opts.offlineMachines ?? []) {
     store.machines.upsertMachine({
       id: machine.id,

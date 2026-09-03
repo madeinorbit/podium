@@ -1,10 +1,11 @@
-import { asMachineId, asIssueId, asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { sessionTitleRule } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * The nudge's own opening sentence, taken from the source of truth rather than
@@ -46,7 +47,7 @@ describe('server agent relay handler (P1b)', () => {
     // this the default fixture has a daemon SOCKET but no machines ROW, so a fleet
     // read comes back empty — and an empty array satisfies every per-row assertion
     // below without executing one of them. This seeding is what lets those fail.
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: machineId,
       name: 'ludovico',

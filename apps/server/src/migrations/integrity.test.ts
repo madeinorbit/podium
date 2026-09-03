@@ -14,10 +14,10 @@
  * fresh-schema equivalent for those tests, so they are dropped, not adapted.
  */
 
-import { FIRST_ADMIN_USER_ID, SOLE_USER_ID, asIssueId } from '@podium/model'
+import { asIssueId, FIRST_ADMIN_USER_ID, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueRow } from '../store'
-import { SessionStore } from '../store'
+import type { IssueRow, SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 /** White-box seam: the store's own SQLite connection (FKs enabled). */
 function rawDb(s: SessionStore): {
@@ -79,7 +79,7 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 
 describe('issue schema: FK behavior at runtime', () => {
   it('deleting an issue cascades onto labels/deps/comments/messages', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
     s.issues.setIssueLabels(asIssueId('iss_a'), ['ui'])
@@ -114,7 +114,7 @@ describe('issue schema: FK behavior at runtime', () => {
   })
 
   it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
     s.issues.upsertIssue(
       issueRow({ id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') }),
@@ -137,7 +137,7 @@ describe('issue schema: FK behavior at runtime', () => {
   })
 
   it('rejects a child row for an issue that does not exist', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     expect(() =>
       rawDb(s)
         .prepare(
@@ -149,7 +149,7 @@ describe('issue schema: FK behavior at runtime', () => {
   })
 
   it('CHECK rejects a garbage stage/type/priority at the SQL layer', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.issues.upsertIssue(issueRow({ id: asIssueId('iss_ok') }))
     const upd = (col: string, v: unknown) =>
       rawDb(s).prepare(`UPDATE issues SET ${col} = ? WHERE id = 'iss_ok'`).run(v)

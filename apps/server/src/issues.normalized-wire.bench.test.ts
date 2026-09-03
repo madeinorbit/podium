@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -7,9 +7,9 @@ import {
   resetIssueWireBuildCount,
 } from './modules/issues/instrumentation'
 import { SessionRegistry } from './relay'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * POD-797 residue path through the production composition root.
@@ -129,7 +129,7 @@ afterEach(() => {
 })
 
 function world() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   for (let i = 0; i < ISSUE_COUNT; i++) store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
   for (let i = 0; i < SESSION_COUNT; i++) sessionIds.push(seedSession(store, i))

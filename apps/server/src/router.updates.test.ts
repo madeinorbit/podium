@@ -10,8 +10,9 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * A resolved release target, WITH THE ARTIFACT A RESOLVED ONE ALWAYS HAS.
@@ -76,11 +77,7 @@ const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
  */
 function fileBackedStore(runChild?: SnapshotChildRunner): SessionStore {
   const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
-  const store = new SessionStore(
-    join(directory, 'podium.db'),
-    undefined,
-    runChild ? { runChild } : {},
-  )
+  const store = openTestStore(join(directory, 'podium.db'), undefined, runChild ? { runChild } : {})
   temporaryStores.push({ store, directory })
   return store
 }

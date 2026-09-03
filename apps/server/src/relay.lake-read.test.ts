@@ -4,8 +4,9 @@ import { join } from 'node:path'
 import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { forceFeature } from './test-support/features'
+import { openTestStore } from './test-support/open-test-store'
 
 // Lake reads resolve segments through the transcript index, which exists only
 // when the search flag is on (PDM-25).
@@ -46,7 +47,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
 
   function setup() {
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-read-'))
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       mirrorLakeDir: lakeDir,

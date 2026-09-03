@@ -25,14 +25,15 @@ import { IssueArtifactStore } from './modules/issues/artifact-store'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { ARTIFACT_READ_CAP_BYTES } from './modules/issues/service/crud'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
 function harness(sessions: SessionMeta[] = []) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const setSessionArchived = vi.fn()
   const clearSessionOffer = vi.fn()
   const onWorktreesChanged = vi.fn()
@@ -485,7 +486,7 @@ describe('IssueService unread (#124)', () => {
     // Mutable clock so a content patch can stamp updatedAt strictly after readAt
     // (computeUnread uses lastActivity > readAt, not >=).
     let clock = '2026-06-30T00:00:00.000Z'
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -587,7 +588,7 @@ describe('IssueService tuck-away (POD-333)', () => {
   it('untucks back to null, and a re-tuck keeps the ORIGINAL dismissal moment', () => {
     // Mutable clock so a repeated tuck could visibly move the stamp if it did.
     let clock = '2026-06-30T00:00:00.000Z'
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     /** Every change row the service published — see `issueTestPlumbing`. */
     const broadcast = vi.fn()
     const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -1382,7 +1383,6 @@ describe('new agent after worktree free (POD-580)', () => {
       ),
     ).toBe(true)
   })
-
 })
 
 describe('IssueService next-message defer (#430)', () => {
@@ -5098,7 +5098,9 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
         { path: 'artifacts/stty-size.txt', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
       ),
-    ).rejects.toThrow(/raster image files only.*raw terminal text and scrollback.*--terminal-evidence/)
+    ).rejects.toThrow(
+      /raster image files only.*raw terminal text and scrollback.*--terminal-evidence/,
+    )
     expect(snapshot).not.toHaveBeenCalled()
   })
 

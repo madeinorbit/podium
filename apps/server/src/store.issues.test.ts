@@ -1,7 +1,7 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function issueColumns(store: SessionStore): Set<string> {
   // @ts-expect-error reach the private db for a schema assertion
@@ -19,7 +19,7 @@ function tableNames(store: SessionStore): Set<string> {
 
 describe('issues schema migration (P1)', () => {
   it('fresh DB has all new rich-field columns', () => {
-    const cols = issueColumns(new SessionStore(':memory:'))
+    const cols = issueColumns(openTestStore(':memory:'))
     for (const c of [
       'priority',
       'type',
@@ -50,7 +50,7 @@ describe('issues schema migration (P1)', () => {
 
 describe('issues child tables (P1)', () => {
   it('creates issue_labels, issue_deps, issue_comments', () => {
-    const t = tableNames(new SessionStore(':memory:'))
+    const t = tableNames(openTestStore(':memory:'))
     expect(t.has('issue_labels')).toBe(true)
     expect(t.has('issue_deps')).toBe(true)
     expect(t.has('issue_comments')).toBe(true)
@@ -110,7 +110,7 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
 
 describe('needs-human question metadata round-trip (issue #53)', () => {
   it('persists options/askedBy/askedAt; corrupt options quarantine to null', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(
       baseRow({
         needsHuman: true,
@@ -148,7 +148,7 @@ function seedIssues(store: SessionStore, ...ids: string[]): void {
 
 describe('IssueRow rich fields round-trip (P1)', () => {
   it('persists and reads back new fields', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
     store.issues.upsertIssue(
       baseRow({
@@ -180,7 +180,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
   })
 
   it('defaults are applied for a minimal legacy-style insert', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(baseRow())
     const r = store.issues.getIssue('iss_x')!
     expect(r.priority).toBe(2)
@@ -189,7 +189,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
   })
 
   it('persists palette slots and clears them back to null', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(baseRow({ color: 'teal' }))
     expect(store.issues.getIssue('iss_x')?.color).toBe('teal')
     store.issues.upsertIssue(baseRow({ color: null }))
@@ -202,7 +202,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
 // the column is gone and the marker is one person's row.
 describe('per-user issue state (POD-1076)', () => {
   it('the three markers are NOT columns on the shared issue row', () => {
-    const cols = issueColumns(new SessionStore(':memory:'))
+    const cols = issueColumns(openTestStore(':memory:'))
     // The instrument can say YES about a column that IS there — without this,
     // every absence claim below would pass against a table it failed to read.
     expect(cols.has('stage')).toBe(true)
@@ -212,7 +212,7 @@ describe('per-user issue state (POD-1076)', () => {
   })
 
   it('persists all three markers on ONE (userId, issueId) row, per user', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read') }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
     store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
@@ -266,7 +266,7 @@ describe('per-user issue state (POD-1076)', () => {
 
 describe('issue soft-delete persistence', () => {
   it('adds deleted_at and round-trips its tombstone', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(issueColumns(store).has('deleted_at')).toBe(true)
     const deletedAt = '2026-07-13T10:00:00.000Z'
     store.issues.upsertIssue(baseRow({ deletedAt }))
@@ -278,13 +278,13 @@ describe('issue soft-delete persistence', () => {
 
 describe('needs_human data layer (P4)', () => {
   it('fresh DB has needs_human + human_question columns', () => {
-    const cols = issueColumns(new SessionStore(':memory:'))
+    const cols = issueColumns(openTestStore(':memory:'))
     expect(cols.has('needs_human'), 'missing column needs_human').toBe(true)
     expect(cols.has('human_question'), 'missing column human_question').toBe(true)
   })
 
   it('persists needsHuman + humanQuestion round-trip', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(
       baseRow({ id: asIssueId('iss_x'), needsHuman: true, humanQuestion: 'which API key?' }),
     )
@@ -294,7 +294,7 @@ describe('needs_human data layer (P4)', () => {
   })
 
   it('defaults needsHuman=false / humanQuestion=null when unset', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.issues.upsertIssue(
       baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }),
     )
@@ -306,7 +306,7 @@ describe('needs_human data layer (P4)', () => {
 
 describe('issue labels (P1)', () => {
   it('sets, reads (sorted), and lists distinct labels', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
     store.issues.setIssueLabels(asIssueId('iss_a'), ['ui', 'backend', 'ui'])
     store.issues.setIssueLabels(asIssueId('iss_b'), ['backend'])
@@ -315,7 +315,7 @@ describe('issue labels (P1)', () => {
   })
 
   it('setIssueLabels replaces the prior set', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a')
     store.issues.setIssueLabels(asIssueId('iss_a'), ['x', 'y'])
     store.issues.setIssueLabels(asIssueId('iss_a'), ['y', 'z'])
@@ -325,7 +325,7 @@ describe('issue labels (P1)', () => {
 
 describe('issue deps (P1)', () => {
   it('adds, lists (both directions), and removes deps', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
     store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
     store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
@@ -346,7 +346,7 @@ describe('issue deps (P1)', () => {
 
 describe('issue comments (P1)', () => {
   it('adds and lists comments oldest-first', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
     store.issues.addIssueComment({
       id: asIssueId('c1'),
@@ -389,11 +389,11 @@ describe('issue mail store (agent mail #103)', () => {
   })
 
   it('creates the issue_messages table', () => {
-    expect(tableNames(new SessionStore(':memory:')).has('issue_messages')).toBe(true)
+    expect(tableNames(openTestStore(':memory:')).has('issue_messages')).toBe(true)
   })
 
   it('add/list/count: ordered by created_at,id; count only unread', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
     store.issues.addIssueMessage(msg('msg_b', asIssueId('iss_a'), 't2'))
     store.issues.addIssueMessage(msg('msg_a', asIssueId('iss_a'), 't1'))
@@ -410,7 +410,7 @@ describe('issue mail store (agent mail #103)', () => {
   })
 
   it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a')
     store.issues.addIssueMessage(msg('msg_a'))
     expect(store.issues.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
@@ -422,7 +422,7 @@ describe('issue mail store (agent mail #103)', () => {
   })
 
   it('markRead is idempotent and never regresses a claimed message', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a')
     store.issues.addIssueMessage(msg('msg_a'))
     store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't1')
@@ -445,7 +445,7 @@ describe('issue mail store (agent mail #103)', () => {
   })
 
   it('deleteIssueChildRows removes the issue mailbox', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
     store.issues.addIssueMessage(msg('msg_a'))
     store.issues.addIssueMessage(msg('msg_z', asIssueId('iss_other')))
@@ -474,13 +474,13 @@ describe('subscriptions store (Phase B)', () => {
   })
 
   it('creates the subscriptions and subscription_deliveries tables', () => {
-    const t = tableNames(new SessionStore(':memory:'))
+    const t = tableNames(openTestStore(':memory:'))
     expect(t.has('subscriptions')).toBe(true)
     expect(t.has('subscription_deliveries')).toBe(true)
   })
 
   it('adds, lists (round-trips booleans), filters, and removes', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.addSubscription(sub())
     store.events.addSubscription(
       sub({ id: 'sub_b', subscriberId: 'iss_other', deliverNotify: true, createdAt: 't2' }),
@@ -502,14 +502,14 @@ describe('subscriptions store (Phase B)', () => {
   })
 
   it('listEnabledSubscriptions omits disabled rows', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.addSubscription(sub({ id: 'sub_on', enabled: true }))
     store.events.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
     expect(store.events.listEnabledSubscriptions().map((s) => s.id)).toEqual(['sub_on'])
   })
 
   it('setSubscriptionEnabled toggles the flag and getSubscription reflects it', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.addSubscription(sub({ id: 'sub_t', enabled: true }))
     expect(store.events.setSubscriptionEnabled('sub_t', false)).toBe(true)
     expect(store.events.getSubscription('sub_t')?.enabled).toBe(false)
@@ -522,7 +522,7 @@ describe('subscriptions store (Phase B)', () => {
   })
 
   it('markDelivered is idempotent per (subscription, event)', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(store.events.markDelivered('sub_a', 5)).toBe(true)
     expect(store.events.markDelivered('sub_a', 5)).toBe(false) // replay: already delivered
     expect(store.events.markDelivered('sub_a', 6)).toBe(true) // a different event delivers

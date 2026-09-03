@@ -1,7 +1,8 @@
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { WORKFLOW_CONTRACTS } from '@podium/commands'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type WorkflowCaller, WorkflowService } from './service'
 import { type DrivenWorkflowService, driveWorkflows } from './test-support'
 
@@ -48,7 +49,7 @@ describe('WorkflowService', () => {
   ])
 
   beforeEach(() => {
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     notices = []
     service = driveWorkflows(
       new WorkflowService({

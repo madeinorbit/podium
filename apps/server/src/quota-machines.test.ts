@@ -16,7 +16,7 @@ import type { AgentQuotaWire } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
   return {
@@ -33,7 +33,7 @@ function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
 }
 
 function regWithTwoDaemons() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'm1',
     name: 'podium-host',
@@ -100,7 +100,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
   })
 
   it('single-machine invariant: one online daemon → one entry with that machine agents', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'Solo',
@@ -128,7 +128,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
   })
 
   it('returns [] when no daemon is online', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(await reg.modules.rpc.agentQuotaAll()).toEqual([])
   })

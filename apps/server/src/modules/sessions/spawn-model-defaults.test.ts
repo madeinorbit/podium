@@ -1,9 +1,10 @@
-import { asAccountId } from '@podium/model'
 import type { AgentKind } from '@podium/model'
+import { asAccountId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
@@ -12,7 +13,7 @@ afterEach(() => {
 })
 
 function storeWithClaudeDefaults(accountId = 'native:claude-code'): SessionStore {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const settings = store.settings.getSettings()
   store.settings.setSettings({
     ...settings,
@@ -37,7 +38,9 @@ function makeRegistry(store: SessionStore): {
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const daemon: ControlMessage[] = []
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+    daemon.push(message),
+  )
   return { registry, daemon }
 }
 
@@ -77,7 +80,9 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     geometry: { cols: 80, rows: 24 },
   })
   expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-  expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+    ok: true,
+  })
   return latestSpawn(daemon)
 }
 

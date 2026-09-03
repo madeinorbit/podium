@@ -2,7 +2,7 @@ import { asUserId, asMachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * The relay seam: a per-session model/effort override must ride the `spawn` control
@@ -14,7 +14,7 @@ function captureSpawn(over: {
   model?: string
   effort?: string
 }) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.machines.upsertMachine({
     id: 'm1',
     name: 'one',

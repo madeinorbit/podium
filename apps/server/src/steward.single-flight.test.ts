@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { type StewardDeps, StewardService } from './steward'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * THE CURSOR IS THE THING BEING FENCED (POD-3258). A poll reads one durable
@@ -19,7 +19,7 @@ import { SessionStore } from './store'
  */
 describe('StewardService.tick single-flight (POD-3258)', () => {
   function harness() {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.events.setStewardState('cursor', '0')
     const sessions: SessionMeta[] = []
     const settings = normalizeSettings({

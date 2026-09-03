@@ -15,7 +15,8 @@ import { asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
@@ -155,7 +156,7 @@ describe('resolved runtime driver projection', () => {
 
 describe('Claude SDK continuity projection', () => {
   it('carries the persisted selected driver and exact resume ref through reload and resurrection', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const { reg, daemon } = makeRegistry(store)
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -226,7 +227,7 @@ describe('Claude SDK continuity projection', () => {
 })
 describe('legacy selected-driver lifecycle compatibility', () => {
   it('reattaches a reloaded legacy headless row with its selected concrete driver', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const first = makeRegistry(store)
     const { sessionId } = first.reg.modules.sessions.createSession({
       agentKind: 'opencode',
@@ -256,7 +257,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
   })
 
   it('revives a reloaded legacy headless row with its selected concrete driver', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const { reg, daemon } = makeRegistry(store)
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'opencode',
@@ -286,7 +287,9 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     expect(store.sessions.loadSessions().at(-1)?.requestedDriverId).toBeNull()
     expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
-    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+    await expect(
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+    ).resolves.toEqual({
       ok: true,
     })
     expect(spawns(daemon).at(-1)).toMatchObject({
@@ -296,7 +299,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
   })
 
   it('lets explicit requested configuration override a degraded selected driver', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const { reg, daemon } = makeRegistry(store)
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'opencode',
@@ -326,7 +329,9 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     })
     expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
-    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+    await expect(
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+    ).resolves.toEqual({
       ok: true,
     })
     expect(spawns(daemon).at(-1)).toMatchObject({
@@ -336,7 +341,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
   })
 
   it('does not turn a legacy selected terminal driver into an explicit request', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const first = makeRegistry(store)
     const { sessionId } = first.reg.modules.sessions.createSession({
       agentKind: 'codex',

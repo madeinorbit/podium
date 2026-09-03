@@ -63,14 +63,16 @@
  * docs/multi-user-readiness.md, docs/agents/pod-521-oracle-retirement.md
  * (the coverage map and why this file was kept).
  */
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { AMBIGUOUS_ADVANCE_MESSAGE, WORKFLOW_CONTRACTS } from '@podium/commands'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import type { WorkflowStepEvidence } from '@podium/protocol'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { isWorkflowQueryExposedOn } from './queries'
 import { isWorkflowProcExposedOn } from './registry'
 import { dispatchWorkflowRpc } from './rpc'
@@ -231,7 +233,7 @@ interface Harness {
 }
 
 function makeHarness(path = ':memory:'): Harness {
-  const store = new SessionStore(path)
+  const store = openTestStore(path)
   const notices: Array<{ sessionId: string; text: string }> = []
   const clock = { value: NOW }
   // The idempotency ledger, in memory. The server backs this with

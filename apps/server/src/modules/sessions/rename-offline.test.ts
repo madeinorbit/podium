@@ -45,8 +45,8 @@ import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 
 const registries: SessionRegistry[] = []
@@ -59,7 +59,7 @@ afterEach(() => {
  * controllable, so a revocation between enqueue and drain is expressible.
  */
 function revocableStack() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})

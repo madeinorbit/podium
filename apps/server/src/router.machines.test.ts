@@ -7,11 +7,11 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
 
 function machineCaller() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   // Pre-register a machine so listMachines returns it
   store.machines.upsertMachine({
     id: 'm1',
@@ -85,7 +85,7 @@ describe('machines router', () => {
 
 describe('sessions.create with machineId', () => {
   it('sessions.create accepts and forwards machineId', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm2',
       name: 'machine-two',
@@ -126,7 +126,7 @@ describe('sessions.create with machineId', () => {
   })
 
   it('sessions.create works without machineId (falls back to local)', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('machine-under-test')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})

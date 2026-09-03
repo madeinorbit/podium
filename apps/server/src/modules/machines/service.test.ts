@@ -8,8 +8,9 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, test } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
+import { openTestStore } from '../../test-support/open-test-store'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
@@ -258,7 +259,7 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
   // that rebuilds anyway, and would pass with invalidation removed entirely.
 
   function pairingService(): { svc: MachinesService; store: SessionStore } {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const codes = new Map<string, PairingGrant>()
     const svc = new MachinesService({
       instanceId: 'default',
@@ -352,7 +353,7 @@ describe('MachinesService inventory persistence (#222)', () => {
   }
 
   function makeStoreService(): { svc: MachinesService; store: SessionStore } {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const svc = new MachinesService({
       instanceId: 'default',
       store,
@@ -537,7 +538,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     broadcasts: (string | null | undefined)[]
   } {
     const dir = mkdtempSync(join(tmpdir(), 'podium-transfer-'))
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const broadcasts: (string | null | undefined)[] = []
     const known = new Set([OWNER_A, OWNER_B])
     let svc!: MachinesService
@@ -708,7 +709,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     reboot: () => MachinesService
   } {
     const dir = mkdtempSync(join(tmpdir(), 'podium-adopt-'))
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const known = new Set(opts.known ?? [ALICE, BOB])
     const build = (): MachinesService =>
       new MachinesService({

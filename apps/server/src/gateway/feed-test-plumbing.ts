@@ -25,7 +25,8 @@ import {
   Ledger,
   type VisibilityAnchorPort,
 } from '@podium/sync'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import { type ClientPrincipal, userClientPrincipal } from './client-principal'
 import { FeedServing } from './feed-serving'
 
@@ -71,7 +72,7 @@ export function feedTestPlumbing(
     retention?: FeedRetentionPort
   } = {},
 ): FeedTestPlumbing {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const ledger = new Ledger({
     ...(opts.visibility ? { visibility: opts.visibility } : {}),
     ...(opts.anchors ? { anchors: opts.anchors } : {}),

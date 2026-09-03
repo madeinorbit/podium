@@ -1,8 +1,8 @@
 import { asUserId, asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
 import { deriveVersionState, MachinesService } from './service'
+import { openTestStore } from '../../test-support/open-test-store'
 
 describe('deriveVersionState', () => {
   it('is unreported when the machine has not said', () => {
@@ -27,7 +27,7 @@ describe('deriveVersionState', () => {
   })
 
   it('projects the persisted report and recomputes state when the target moves', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
@@ -64,7 +64,7 @@ describe('deriveVersionState', () => {
   })
 
   it('composes the server target into the machine read model', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       targetVersion: () => '0.4.2',

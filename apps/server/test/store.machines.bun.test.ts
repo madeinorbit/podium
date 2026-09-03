@@ -9,7 +9,7 @@ import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { SessionStore } from '../src/store'
+import { openTestStore } from '../src/test-support/open-test-store'
 
 const hash = (t: string) => createHash('sha256').update(t).digest('hex')
 
@@ -19,7 +19,7 @@ function tmpDbPath(): string {
 
 describe('machines store [bun:sqlite]', () => {
   it('machine CRUD + timing-safe token check', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.upsertMachine({ id: 'm1', name: 'box', hostname: 'box', tokenHash: hash('secret') })
     expect(s.listMachines().map((m) => m.id)).toEqual(['m1'])
     expect(s.getMachineByToken('m1', 'secret')).toBe(true)
@@ -32,7 +32,7 @@ describe('machines store [bun:sqlite]', () => {
   })
 
   it('repos are re-keyed (machine_id, path) and adoptLocalRows rewrites attribution', () => {
-    const s = new SessionStore(':memory:')
+    const s = openTestStore(':memory:')
     s.addRepo('/home/u/a')
     s.addRepo('/home/u/b', 'm2', 'https://github.com/u/b')
     expect(s.listRepos('m2')[0]?.originUrl).toBe('https://github.com/u/b')
@@ -54,7 +54,7 @@ describe('machines store [bun:sqlite]', () => {
     db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run('schema_version', '3')
     db.close()
 
-    const store = new SessionStore(file)
+    const store = openTestStore(file)
     const rows = store.listRepos()
     expect(rows.find((r) => r.path === '/projects/alpha')?.machineId).toBe(store.hostMachineId)
     expect(rows.find((r) => r.path === '/projects/alpha')?.originUrl).toBeNull()

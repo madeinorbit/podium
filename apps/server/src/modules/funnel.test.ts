@@ -2,7 +2,7 @@ import type { MetadataChange } from '@podium/protocol'
 import type { AuthorityPort, ScopedChange, ScopedDelivery } from '@podium/sync'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import { EventBus } from './bus'
 import { WriteFunnel } from './funnel'
 
@@ -25,7 +25,7 @@ function recordingServing() {
 }
 
 function makeFunnel() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const bus = new EventBus()
   const serving = recordingServing()
   const onPublished = vi.fn()

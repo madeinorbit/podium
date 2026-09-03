@@ -6,8 +6,8 @@ import type { AgentObservation } from '@podium/protocol'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 // Agent action offer [spec:SP-c7f1] — service-level set/replace/clear, meta
 // surfacing, persistence across a restart, and clear-on-turn (queue path).
@@ -59,7 +59,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('carries artifact references [POD-120] on meta and across a restart', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -69,7 +69,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg, sessionId)?.artifacts).toEqual(artifacts)
     reg.dispose()
 
-    const reg2 = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     expect(metaOffer(reg2, sessionId)?.artifacts).toEqual(artifacts)
 
     // A replacing offer WITHOUT artifacts drops them (no sticky column).
@@ -77,7 +77,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     expect(metaOffer(reg2, sessionId)?.artifacts).toBeUndefined()
     reg2.dispose()
 
-    const reg3 = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg3 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     expect(metaOffer(reg3, sessionId)?.artifacts).toBeUndefined()
     reg3.dispose()
   })
@@ -221,7 +221,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     it('retires a row that boot could not parse into an in-memory offer', () => {
       const dir = trackTmp('podium-offer-')
       const file = join(dir, 'store.db')
-      const reg = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+      const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
       const { sessionId } = reg.modules.sessions.createSession({
         agentKind: 'claude-code',
         cwd: '/p',
@@ -233,7 +233,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
       db.prepare('UPDATE offers SET actions = ? WHERE session_id = ?').run('{not json', sessionId)
       db.close()
 
-      const reg2 = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+      const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
       // Boot dropped it from memory but left the row standing.
       expect(metaOffer(reg2, sessionId)).toBeUndefined()
       expect(reg2.sessionStore.sessions.offerCreatedAt(asSessionId(sessionId))).toBeTypeOf('string')
@@ -292,7 +292,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('persists the offer across a restart (reload from the same store file)', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -300,7 +300,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     reg.modules.sessions.setOffer({ sessionId, ...OFFER })
     reg.dispose()
 
-    const reg2 = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     const surfaced = metaOffer(reg2, sessionId)
     expect(surfaced?.message).toBe(OFFER.message)
     expect(surfaced?.actions).toEqual(OFFER.actions)
@@ -310,7 +310,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
   it('boot reconciliation: user input after the offer drops it on reload', () => {
     const dir = trackTmp('podium-offer-')
     const file = join(dir, 'store.db')
-    const reg = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -328,7 +328,7 @@ describe('agent action offer [spec:SP-c7f1]', () => {
     )
     db.close()
 
-    const reg2 = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     expect(metaOffer(reg2, sessionId)).toBeUndefined()
     reg2.dispose()
 

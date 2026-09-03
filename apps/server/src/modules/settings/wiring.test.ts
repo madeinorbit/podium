@@ -41,15 +41,15 @@ import { PairingManager } from '../../hub/pairing'
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
-import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { SECRET_SURFACE_ABSENT } from './authz'
 
 const SECRET = 'sk-ant-real-material-do-not-log'
 
 function harness(role: UserRole | undefined) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const registry = SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),

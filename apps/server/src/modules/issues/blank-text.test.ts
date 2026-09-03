@@ -1,7 +1,7 @@
 import { asSessionId, asUserId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { BLANK_TO_NULL_COLUMNS, normalizeBlankIssueText } from './blank-text'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
@@ -12,7 +12,7 @@ import { issueTestPlumbing } from './service/test-plumbing'
  * `persistWith` choke point rather than at any single caller.
  */
 function harness() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
     listSessions: () => [],

@@ -2,10 +2,10 @@ import { asIssueId } from '@podium/model'
 import type { SessionMeta } from '@podium/model'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
 import type { IssueService } from '../issues/service'
 import type { MessageDeliveryService } from '../messages/service'
 import { SessionReadToolkit } from './read-toolkit'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const ISSUE = {
   id: 'iss_status',
@@ -27,7 +27,7 @@ afterEach(() => {
 
 it('captures spawn values instead of drifting issue defaults in row, meta, and status', async () => {
   // SessionStore boot applies the bundled migration chain to this fresh database.
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})

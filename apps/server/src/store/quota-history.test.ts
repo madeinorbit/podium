@@ -1,13 +1,14 @@
 import type { QuotaSample } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 const SAMPLING = 15 * 60_000
 
 let store: SessionStore
 
 beforeEach(() => {
-  store = new SessionStore(':memory:')
+  store = openTestStore(':memory:')
 })
 
 function sample(over: Partial<QuotaSample> = {}): QuotaSample {

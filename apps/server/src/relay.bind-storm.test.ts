@@ -3,8 +3,8 @@ import type { SessionId, SessionMeta } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 // Boot-storm regression (the redeploy watchdog-kill incident): a daemon reattach
 // replays one `bind` per surviving session. Pre-fix, EVERY bind ran the full
@@ -21,7 +21,7 @@ describe('bind-storm regression', () => {
     ({ type: 'bind', sessionId, cmd: 'sh', cwd, agentKind: 'shell', geometry: G }) as const
 
   function makeStorm(opts: { sessions: number; issues: number }) {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.machines.upsertMachine({
       id: 'm1',
       name: 'one',

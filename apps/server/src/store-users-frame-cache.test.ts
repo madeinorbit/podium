@@ -1,7 +1,8 @@
 import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { type LegacyHandleHolder, probeLegacyStatements } from './store/executor'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * THE ACCOUNT FRAME CACHE [POD-1931].
@@ -34,7 +35,7 @@ const readProbe = (store: SessionStore): (() => number) => {
 }
 
 const freshStore = async (): Promise<SessionStore> => {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   await Promise.resolve()
   return store
 }

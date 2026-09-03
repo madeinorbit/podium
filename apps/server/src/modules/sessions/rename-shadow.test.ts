@@ -48,8 +48,8 @@ import { asSessionId, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { MIGRATED_COMMANDS, RENAME_PATH_ENV, renamePath } from './rename-adapter'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 import { SessionStateRegistry, soleHumanSessionStatePrincipal } from './session-state/registry'
@@ -62,7 +62,7 @@ afterEach(() => {
 
 /** One real stack. Two of these, seeded identically, are the shadow pair. */
 function stack() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})

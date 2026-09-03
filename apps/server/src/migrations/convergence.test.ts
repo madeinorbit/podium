@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import { BASELINE_MIGRATION } from './drizzle-manifest.generated'
 import { appliedDrizzleNames } from './index'
 
@@ -55,7 +55,7 @@ function tmpDbFile(name: string): string {
 describe('fresh drizzle-built database', () => {
   it('has the expected data tables and the baseline recorded as applied', () => {
     const file = tmpDbFile('fresh.db')
-    new SessionStore(file).close()
+    openTestStore(file).close()
 
     const tableNames = new Set(
       schemaOf(file)
@@ -74,10 +74,10 @@ describe('fresh drizzle-built database', () => {
 
   it('reopening the same file changes no schema object (idempotent)', () => {
     const file = tmpDbFile('reopen.db')
-    new SessionStore(file).close()
+    openTestStore(file).close()
     const before = schemaOf(file)
 
-    new SessionStore(file).close()
+    openTestStore(file).close()
 
     expect(schemaOf(file)).toEqual(before)
   })

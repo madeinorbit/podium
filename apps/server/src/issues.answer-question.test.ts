@@ -7,8 +7,8 @@ import type { IssueCommandDeps } from './modules/issues/command-ctx'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * issues.answerQuestion end-to-end over the command dispatcher (issue #53):
@@ -21,7 +21,7 @@ function harness(
   answerSessionQuestion?: IssueCommandDeps['answerSessionQuestion'],
   opts: { actorSessionId?: SessionId } = {},
 ) {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
     listSessions: () => [],

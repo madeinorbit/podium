@@ -5,9 +5,9 @@
 
 import type { SessionMeta, SessionMetaInput } from '@podium/model'
 import {
-  asThreadId,
   asIssueId,
   asSessionId,
+  asThreadId,
   FIRST_ADMIN_USER_ID,
   type SessionId,
 } from '@podium/model'
@@ -15,9 +15,9 @@ import { AGENT_RELAY_BLOCKING_TIMEOUT_MS } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import type { Capability } from '../../issue-authz'
 import { sessionsForIssue } from '../../issue-util'
-import type { IssueRow, MessageRow } from '../../store'
-import { SessionStore } from '../../store'
+import type { IssueRow, MessageRow, SessionStore } from '../../store'
 import { NotificationArbiter } from '../../store/notification-facts'
+import { openTestStore } from '../../test-support/open-test-store'
 import type { IssueService } from '../issues/service'
 import { SPAWN_BUDGET_PER_DAY, WAKE_COOLDOWN_MS } from './brakes'
 import { MessageGate } from './gate'
@@ -193,7 +193,7 @@ interface HarnessOpts {
 }
 
 function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
-  const store = opts?.store ?? new SessionStore(':memory:')
+  const store = opts?.store ?? openTestStore(':memory:')
   // Real rows so the legacy issue_messages mirror's FK holds.
   store.issues.upsertIssue(
     issueRow({ id: ISSUE.id, seq: ISSUE.seq, worktreePath: ISSUE.worktreePath }),
@@ -247,9 +247,7 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         queued.push(i)
         return opts?.queueText?.(i) ?? { ok: true, queued: true }
       },
-      ...(opts?.queuedMessagePosition
-        ? { queuedMessagePosition: opts.queuedMessagePosition }
-        : {}),
+      ...(opts?.queuedMessagePosition ? { queuedMessagePosition: opts.queuedMessagePosition } : {}),
       hasQueuedMessage: (_sessionId, sourceMessageId) =>
         opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
       interruptText: (i) => {
@@ -344,7 +342,7 @@ function queuedRow(id: string): MessageRow {
 
 describe('MessagesRepository (store CRUD)', () => {
   it('round-trips a row and walks the ledger', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const m = {
       ...queuedRow('msg_1'),
       attachments: [
@@ -376,7 +374,7 @@ describe('MessagesRepository (store CRUD)', () => {
   })
 
   it('an abandoned drain writes a TERMINAL row, and the second report changes nothing', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.messages.addMessage(queuedRow('msg_abandoned'))
     expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
 
@@ -446,19 +444,27 @@ describe('MessageDeliveryService.send', () => {
         now: () => new Date(clock++).toISOString(),
       },
     )
-    const first = svc.send({ kind: 'operator' }, {
-      to: { kind: 'session', id: asSessionId('s1') },
-      body: 'first queued turn',
-    })
-    const second = svc.send({ kind: 'operator' }, {
-      to: { kind: 'session', id: asSessionId('s1') },
-      body: 'second queued turn',
-    })
+    const first = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'first queued turn',
+      },
+    )
+    const second = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'second queued turn',
+      },
+    )
     expect(first).toMatchObject({ queued: true, position: 1, disposition: 'queued' })
     expect(second).toMatchObject({ queued: true, position: 2, disposition: 'queued' })
     expect(svc.message(second.message.id)).toMatchObject({ queuePosition: 2 })
 
-    expect(store.messages.markDelivered(first.message.id, asSessionId('s1'), 't-delivered')).toBe(true)
+    expect(store.messages.markDelivered(first.message.id, asSessionId('s1'), 't-delivered')).toBe(
+      true,
+    )
     expect(svc.message(second.message.id)).toMatchObject({ queuePosition: 1 })
     expect(
       svc.ledger({ sessionId: asSessionId('s1') }).find((row) => row.id === second.message.id),
@@ -1292,34 +1298,34 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.message).toMatchObject({ status: 'queued' })
   })
 
-  it.each(['wait', 'wake'] as const)(
-    'archived session target dead-letters before lifecycle=%s can revive it',
-    (lifecycle) => {
-      const { svc, queued } = harness([
-        session({
-          sessionId: asSessionId('s1'),
-          status: 'hibernated',
-          resumable: true,
-          archived: true,
-        }),
-      ])
-      const r = svc.send(
-        { kind: 'operator' },
-        {
-          to: { kind: 'session', id: asSessionId('s1') },
-          body: 'stay retired',
-          lifecycle,
-        },
-      )
+  it.each([
+    'wait',
+    'wake',
+  ] as const)('archived session target dead-letters before lifecycle=%s can revive it', (lifecycle) => {
+    const { svc, queued } = harness([
+      session({
+        sessionId: asSessionId('s1'),
+        status: 'hibernated',
+        resumable: true,
+        archived: true,
+      }),
+    ])
+    const r = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'stay retired',
+        lifecycle,
+      },
+    )
 
-      expect(r).toMatchObject({
-        ok: false,
-        disposition: 'dead_letter',
-        reason: 'dead-lettered: session is archived',
-      })
-      expect(queued).toHaveLength(0)
-    },
-  )
+    expect(r).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: session is archived',
+    })
+    expect(queued).toHaveLength(0)
+  })
 
   it('parked target + wake: rides the durable queue (queueText resurrects)', () => {
     const { svc, queued, store } = harness([
@@ -4847,7 +4853,7 @@ describe('duplicate delivery of a queue-parked message [POD-1703]', () => {
   it('counts requeues from the durable ledger, so a restart cannot hand back a fresh cap', () => {
     let clock = Date.parse('2026-08-26T00:00:00.000Z')
     const now = () => new Date(clock).toISOString()
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const live = [session({ sessionId: asSessionId('s1') })]
 
     const first = harness(live, { now, store })

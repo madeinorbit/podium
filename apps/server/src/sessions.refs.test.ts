@@ -5,10 +5,10 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function harness() {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const issue = reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
@@ -122,7 +122,7 @@ describe('session birth naming (#474)', () => {
   })
 
   it('boot backfill names historical unnamed sessions once, deterministically', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.repos.addRepo('/r/podium', store.hostMachineId)
     const reg1 = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const a = reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }).sessionId

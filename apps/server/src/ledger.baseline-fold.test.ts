@@ -1,7 +1,8 @@
 import { Ledger } from '@podium/sync'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { applyAfterCommit, spanOpen } from './store/executor/synchronous-span'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * THE BASELINE FOLD IS A COMMIT APPLICATION, NOT A SAVEPOINT RELEASE (POD-3328,
@@ -44,7 +45,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     ledger.authority.snapshot('conversation').map((v) => (v as { id: string }).id)
 
   it('drops a nested write the enclosing span rolled back', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = makeLedger(store)
     const cursorBefore = ledger.cursor()
 
@@ -80,7 +81,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
   })
 
   it('leaves a baseline that still dedups correctly after the rollback', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = makeLedger(store)
 
     expect(() =>
@@ -121,7 +122,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
   })
 
   it('still folds when the enclosing span commits', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = makeLedger(store)
     const cursorBefore = ledger.cursor()
 
@@ -158,7 +159,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // turn create-then-delete inside one enclosing span into a durable upsert
     // with no remove after it — a phantom row in the log for an entity the
     // transaction deleted. The pending overlay is what keeps that reader honest.
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const ledger = makeLedger(store)
     const cursorBefore = ledger.cursor()
 

@@ -8,9 +8,9 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
+import { openTestStore } from './test-support/open-test-store'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -35,7 +35,7 @@ describe('MemoryService omni-search', () => {
 
   /** A store + registry seeded with one hit per source for the word "capacitor". */
   function seed() {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -244,7 +244,7 @@ describe('MemoryService omni-search', () => {
   })
 
   it('batches issue ownership and grant reads for the native conversation list', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -354,7 +354,7 @@ describe('search.query tRPC', () => {
   })
 
   it('excludes every private memory source owned by another user', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -428,7 +428,7 @@ describe('search.query tRPC', () => {
   })
 
   it('filters hidden transcript ranks before normalizing visible results', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -480,7 +480,7 @@ describe('search.query tRPC', () => {
   })
 
   it('defaults unknown memory classes closed and counts to the visible slice', () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     expect(new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
     expect(MEMORY_EXISTENCE_POLICY).toEqual({ counts: 'visible-slice', facets: 'visible-slice' })
     store.close()
