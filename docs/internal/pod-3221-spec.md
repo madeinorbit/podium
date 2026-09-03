@@ -421,13 +421,29 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
   rows, re-entrant transact becomes a savepoint, a subscriber-initiated commit completes before
   the outer await resolves while batch N reaches every subscriber before N+1, a stale token
   rejects, parallel nested transactions reject, read-your-writes inside a body for every cached
-  aggregate, an exclusive request from a lease holder rejects, frames per burst equal one for the
-  boot reconcile and a bind-storm fixture, the watchdog reports through an injectable sink. Plus
-  the mutable-state model tests. These exist before the first async repository lands.
+  aggregate, an exclusive request from a lease holder rejects, one commit batch certifies exactly
+  one frame per connection on the boot-reconcile and bind-storm fixtures, the watchdog reports
+  through an injectable sink. Plus the mutable-state model tests. These exist before the first
+  async repository lands.
+
+  AMENDED 2026-09-03 (POD-3243, coordinator). This clause read "frames per burst equal one for
+  the boot reconcile and a bind-storm fixture" and was read as a claim about today's production
+  paths. It is not: it is a property of the SCHEDULER's own fixtures — one commit batch, one
+  certified frame. Today's production bind storm measures **two** frames per burst, a leading
+  immediate run plus one coalesced trailing flush, which `relay.bind-storm.test.ts` already pins
+  as 1..3. That leading run is existing behaviour and removing it is out of scope: the first
+  clause of this section is "no behaviour change on SQLite". The production arm is governed by
+  "hot paths do not regress" below, whose budget is no increase against the recorded baseline —
+  so a bind-storm baseline of two is correct as recorded and must not be tightened to one.
 - **Nothing runs after its commit.** The token, not the callback boundary, enforces it.
 - **Hot paths do not regress.** Query count per request on feed bootstrap and issue frame reads,
   and frames per burst, measured before and after; budget "no increase"; on Turso, query count
-  per request is round trips per request.
+  per request is round trips per request. The instrument is `scripts/measure-hot-paths.ts`
+  (POD-3243), run with `--conditions=@podium/source`; baselines are issue artifacts, never
+  committed. BASELINE RECORDED 2026-09-03 at fixture scale 50 sessions / 30 issues:
+  `feedBootstrap.queriesPerRequest` 44, `issueFrameReads.queriesPerRequest` 371,
+  `bootReconcile.framesPerBurst` 1, `bindStorm.framesPerBurst` 2. Reproduced independently by
+  the coordinator before landing; the gate was proven able to fail four ways.
 - **The file-level subsystem behaves as today.** Its code goes through the scheduler and
   behind the durability port; its behaviour does not change; the janitor's and the CLI's paths
   keep working on SQLite.
@@ -481,6 +497,19 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    capture stays gated behind `PODIUM_LOOP_PROFILE`.
 9. **Builder only; no relational API, no generic base repository.** Aggregate assembly keeps
    its multi-query shape, batched with `IN` lists where a loop is an obvious N+1.
+
+   MEASURED 2026-09-03 (POD-3243). The N+1s this rule exists for are located, and they are the
+   whole of the issue-frame cost. Of 371 queries per issue-frame read over 80 issue rows: 160
+   `issue_deps` by `from_id` plus 80 by `to_id`, 80 `issue_labels`, 50 `issue_comments` counts —
+   one query per row in every case — and one grouped comment count that is already batched and
+   shows the shape the rest should take. The `issues` table itself is read ZERO times in that
+   window: the POD-1931 frame cache works. Feed bootstrap's 44 is 27 single-row `machines`
+   lookups plus 9 `grants` reads. On Turso each of these is a round trip.
+
+   THE MECHANISM THAT CAN LOSE THIS: the frame cache is invalidated by `queueMicrotask`, so the
+   FIRST AWAIT anywhere in that read fan-out drops it and the `issues` reads come back. This is
+   the specific way the flip can move 371 upward, and it is why the read-scope work (B0.6) and
+   the array-callback batching (B0.2) land BEFORE the flip, not after.
 10. **Incremental, no schema redesign in the same change.** One package per commit; the schema
     edits this epic needs (column modes, JSON decisions) are made once by the coordinator and
     need no migration; no ordinal columns, no primary-key changes.
