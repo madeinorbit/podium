@@ -55,6 +55,11 @@ export interface ServerTransferDeps {
   sourceWireSchemaDigest: string
   rpc: ServerTransferRpc
   targetState(machineId: MachineId): ServerTransferTargetState
+  /** {@link targetState} for a whole fleet: ONE machines read, then a pure
+   *  function answering for any id (POD-3257). Total by construction, so a
+   *  caller in a loop never falls back to the per-machine form — which is the
+   *  point, since that form is what re-read the table. */
+  targetStateResolver(): (machineId: MachineId) => ServerTransferTargetState
   localPromotedTransfer():
     | PromotedTargetMetadata
     | undefined
@@ -222,13 +227,18 @@ export class ServerTransferService {
     const promotedSourceConnected = promoted
       ? this.deps.targetState(promoted.sourceMachineId).online
       : false
+    // ONE machines read for the whole fleet (POD-3257). `targetState` reads the
+    // WHOLE machines table to find one row, so asking it per machine inside the
+    // map below was a full-table scan per machine — quadratic in fleet size, and
+    // a round trip per machine on a networked backend.
+    const targetOf = this.deps.targetStateResolver()
     return {
       sourceMachineId: promoted?.sourceMachineId ?? this.deps.sourceMachineId,
       targetEligibility: machines.map(({ id }) => {
         if (id === this.deps.sourceMachineId) {
           return { targetMachineId: id, eligible: false, reason: 'current-server' } as const
         }
-        const target = this.deps.targetState(asMachineId(id))
+        const target = targetOf(asMachineId(id))
         // Structural before live, the canonical ordering of POD-2700 §3.2.
         if (!target.hasDaemon) {
           return { targetMachineId: id, eligible: false, reason: 'no-daemon' } as const

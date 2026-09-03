@@ -404,6 +404,31 @@ export class MessagesRepository {
       .run(messageId, sessionId, readAt)
   }
 
+  /**
+   * Which of `messageIds` exist on the substrate — the batched form of asking
+   * {@link getMessage} whether a row has a twin (POD-3257).
+   *
+   * Chunked at 500 like the other id-set readers here: SQLITE_MAX_VARIABLE_NUMBER
+   * is 999 on the builds this ships against, and an unread backlog is not bounded
+   * by anything this method can see.
+   *
+   * Existence only. A caller that needs the ROW still wants `getMessage`; this is
+   * for the predicate, which is where the one-query-per-row cost was.
+   */
+  existingMessageIds(messageIds: string[]): Set<string> {
+    const unique = [...new Set(messageIds)]
+    const out = new Set<string>()
+    const CHUNK = 500
+    for (let i = 0; i < unique.length; i += CHUNK) {
+      const chunk = unique.slice(i, i + CHUNK)
+      const rows = this.db
+        .prepare(`SELECT id FROM messages WHERE id IN (${chunk.map(() => '?').join(',')})`)
+        .all(...(chunk as never[])) as { id: string }[]
+      for (const r of rows) out.add(r.id)
+    }
+    return out
+  }
+
   /** Which of `messageIds` this session has already seen. */
   readReceipts(sessionId: SessionId, messageIds: string[]): Set<string> {
     if (messageIds.length === 0) return new Set()

@@ -71,11 +71,9 @@ export class IssueAssistantDigestModule {
       this.store.d.repoOp('status', row.worktreePath).catch(() => ({ ok: false, output: '' })),
       this.store.d.repoOp('log', row.worktreePath).catch(() => ({ ok: false, output: '' })),
     ])
+    const inScope = this.store.repoScopeFilter(row.repoPath)
     const others = [...this.store.rows.values()]
-      .filter(
-        (r) =>
-          r.id !== row.id && this.store.inRepoScope(r, row.repoPath) && !r.archived && !r.deletedAt,
-      )
+      .filter((r) => r.id !== row.id && inScope(r) && !r.archived && !r.deletedAt)
       .map((r) => ({ seq: r.seq, title: r.title, stage: r.stage, branch: r.branch }))
     const ctx = {
       issue: {

@@ -33,9 +33,12 @@ export function countContextAwarePendingMail(
   // Legacy fallback covers pre-substrate writers only. Shared ids: if a twin
   // exists on the substrate, trust that ledger (even when status is still
   // queued — those are already in `queued.count` above).
-  const legacyUnread = store.issues
-    .listIssueMessages(issueId, { status: 'unread' })
-    .filter((m) => !store.messages.getMessage(m.id))
+  const legacyRows = store.issues.listIssueMessages(issueId, { status: 'unread' })
+  // ONE existence query for the whole backlog, not one per row (POD-3257): the
+  // twin lookup is the only thing the predicate needed, and asking for it per
+  // row is a round trip per row on a networked backend.
+  const twinned = store.messages.existingMessageIds(legacyRows.map((m) => m.id))
+  const legacyUnread = legacyRows.filter((m) => !twinned.has(m.id))
   // A pre-substrate row carries no sender session, so self-nag cannot be
   // decided for it; the reader's own receipt still retires it.
   const seen = sessionId

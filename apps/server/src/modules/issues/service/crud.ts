@@ -667,17 +667,19 @@ export class IssueCrudModule {
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): void {
     try {
       const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
+      // One read of the deps and labels for the WHOLE repo, before the fanout.
+      // This walks every open row in the repo and used to pay a `listIssueDeps`
+      // plus a batch-less `toWire` — five queries per row — for a scan that
+      // usually emits nothing (POD-3257). Built after the close persisted, so
+      // `ready` is still computed against post-close state.
+      const batch = this.store.wireBatch()
+      const inScope = this.store.repoScopeFilter(closed.repoPath)
       for (const r of this.store.rows.values()) {
-        if (
-          r.id === closed.id ||
-          !this.store.inRepoScope(r, closed.repoPath) ||
-          this.store.isClosed(r)
+        if (r.id === closed.id || !inScope(r) || this.store.isClosed(r)) continue
+        const blocksClosed = (batch.depsByFrom.get(r.id) ?? []).some(
+          (d) => d.type === 'blocks' && d.toId === closed.id,
         )
-          continue
-        const blocksClosed = this.store.deps.store.issues
-          .listIssueDeps(r.id)
-          .some((d) => d.type === 'blocks' && d.toId === closed.id)
-        if (blocksClosed && this.store.toWire(r, commentCounts).ready) {
+        if (blocksClosed && this.store.toWire(r, commentCounts, batch).ready) {
           this.store.emitEvent('issue.ready', r.id, {
             seq: r.seq,
             unblockedBy: closed.seq,

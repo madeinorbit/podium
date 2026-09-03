@@ -44,10 +44,7 @@ import type { IssueDeps } from './types'
 
 const log = createLogger('server:issues')
 
-interface IssueWireBatch {
-  /** Computed ONCE per multi-issue serialize and shared — per-issue
-   *  `deps.listSessions()` calls were the boot-storm hot path. */
-  sessions: SessionMeta[]
+export interface IssueWireBatch {
   labelsByIssue: Map<string, string[]>
   depsByFrom: Map<string, { toId: IssueId; type: string }[]>
   dependentsByTo: Map<string, { fromId: IssueId; type: string }[]>
@@ -312,9 +309,14 @@ export class IssueStore {
   }
 
   /** blocked = open AND ≥1 `blocks` dep whose target issue is not closed. */
-  computeBlocked(row: IssueRow): boolean {
-    const blocksTargets = this.deps.store.issues
-      .listIssueDeps(row.id)
+  computeBlocked(row: IssueRow, batch?: IssueWireBatch): boolean {
+    // With a batch this reads nothing: the outgoing deps for the whole set were
+    // fetched once by {@link wireBatch}. Without one it is the single-row case
+    // and asks for its own row's deps, as it always did (POD-3257).
+    const outgoing = batch
+      ? (batch.depsByFrom.get(row.id) ?? [])
+      : this.deps.store.issues.listIssueDeps(row.id)
+    const blocksTargets = outgoing
       .filter((d) => d.type === 'blocks')
       .map((d) => this.rows.get(d.toId))
     return isIssueBlocked(row, blocksTargets)
@@ -331,8 +333,10 @@ export class IssueStore {
    *  this projection ever needed one — so the `listSessions()` call went with
    *  them. That is the O(issues x sessions) coupling the slice exists to remove,
    *  and removing the FIELDS without removing the CALL would have kept every
-   *  cost and shipped none of the benefit. `IssueWireBatch.sessions` survives for
-   *  the callers that still batch it; nothing in this method reads it.
+   *  cost and shipped none of the benefit. `IssueWireBatch.sessions` is GONE too
+   *  as of POD-3257 — it was a `listSessions()` per batch that no reader had
+   *  wanted since POD-797, and handing the batch to every list serializer would
+   *  have bought it once per call instead of once.
    *
    *  What a caller wanting membership does instead: read it from the SESSION
    *  side (`sessionId -> issueId`), which is where it is stored. `unreadFor`
@@ -375,14 +379,7 @@ export class IssueStore {
     const commentCount = commentCounts
       ? (commentCounts.get(row.id) ?? 0)
       : this.deps.store.issues.countIssueComments(row.id)
-    const blocked = batch
-      ? isIssueBlocked(
-          row,
-          (batch.depsByFrom.get(row.id) ?? [])
-            .filter((d) => d.type === 'blocks')
-            .map((d) => this.rows.get(d.toId)),
-        )
-      : this.computeBlocked(row)
+    const blocked = this.computeBlocked(row, batch)
     const deferred = this.isDeferred(row)
     const ready =
       isIssueStage(row.stage) &&
@@ -511,8 +508,19 @@ export class IssueStore {
    * it a write touching hundreds of rows pays hundreds of label queries and
    * hundreds of O(N) children scans, which is most of how a scope compaction
    * spent eight seconds blocking the event loop.
+   *
+   * PUBLIC AND USED BY EVERY MULTI-ROW READ SINCE POD-3257. `list` was the only
+   * caller, so every other list serializer paid four per-row queries — 120 of
+   * the 371 the issue-frame baseline measured. On a networked backend each one
+   * is a round trip, so a serializer that does not take a batch is an N+1 by
+   * construction; the two reads here answer for the whole set.
+   *
+   * `sessions` LEFT THE BATCH with POD-3257: `toWire` stopped reading it at
+   * POD-797 and nothing else ever did, so it was a `listSessions()` per batch
+   * bought for nobody — and handing the batch to more callers would have bought
+   * it once per call.
    */
-  private wireBatch(): IssueWireBatch {
+  wireBatch(): IssueWireBatch {
     const labelsByIssue = this.deps.store.issues.listIssueLabelsByIssue()
     const depsByFrom = new Map<string, { toId: IssueId; type: string }[]>()
     const dependentsByTo = new Map<string, { fromId: IssueId; type: string }[]>()
@@ -532,7 +540,6 @@ export class IssueStore {
       else childrenByParent.set(row.parentId, [row])
     }
     return {
-      sessions: this.deps.listSessions(),
       labelsByIssue,
       depsByFrom,
       dependentsByTo,
@@ -555,8 +562,9 @@ export class IssueStore {
       }
       return v
     }
+    const inScope = this.repoScopeFilter(repoPath)
     return [...this.rows.values()]
-      .filter((r) => this.inRepoScope(r, repoPath))
+      .filter((r) => inScope(r))
       .sort((a, b) => {
         const ga = a.repoId ?? a.repoPath
         const gb = b.repoId ?? b.repoPath
@@ -611,10 +619,31 @@ export class IssueStore {
    *  stable `repo_id` so every checkout of one origin unifies (#140); falls back to
    *  path equality only when a repo_id can't be resolved. `undefined` scope matches all. */
   inRepoScope(row: IssueRow, repoPath: string | undefined): boolean {
-    if (!repoPath) return true
-    const scope = this.deps.store.repos.resolveRepoIdForPath(repoPath)
-    const rowRepoId = row.repoId ?? this.deps.store.repos.resolveRepoIdForPath(row.repoPath)
-    return rowRepoId === scope
+    return this.repoScopeFilter(repoPath)(row)
+  }
+
+  /**
+   * {@link inRepoScope} as ONE predicate for a whole pass: the scope id and the
+   * path->repo_id resolver are read before the loop, so the per-row test is
+   * arithmetic over rows already in hand (POD-3257).
+   *
+   * Every list serializer used to hand `.filter` a lambda calling
+   * `resolveRepoIdForPath` per row — two store calls per row, and the second one
+   * re-materialized the whole `repos` table each time, which is the shape
+   * POD-1638 measured at 24206 reads of a 13-row table in one second.
+   *
+   * It is also why this is a filter FACTORY rather than a cheaper `inRepoScope`:
+   * an array callback may not contain a store call AT ALL once the store is
+   * async, because `.filter` cannot await one (spec section 2.5 item 5).
+   * Hoisting the read is the fix; memoizing it would not be.
+   *
+   * `inRepoScope` is the single-row case of this one, so the two cannot drift.
+   */
+  repoScopeFilter(repoPath: string | undefined): (row: IssueRow) => boolean {
+    if (!repoPath) return () => true
+    const resolve = this.deps.store.repos.repoIdResolver()
+    const scope = resolve(repoPath)
+    return (row: IssueRow) => (row.repoId ?? resolve(row.repoPath)) === scope
   }
 
   /** Resolve an issue reference to the internal id. Accepts the internal `iss_…` id
@@ -647,11 +676,13 @@ export class IssueStore {
     if (nice) {
       const repo = this.deps.store.repos.repoForPrefix(nice.prefix)
       if (repo) {
-        const repoId = repo.repoId ?? this.deps.store.repos.resolveRepoIdForPath(repo.path)
+        // One registry read for the scan, not one per row (POD-3257): every row
+        // without a stored repo_id used to re-resolve its path through the store
+        // from inside the filter.
+        const resolve = this.deps.store.repos.repoIdResolver()
+        const repoId = repo.repoId ?? resolve(repo.path)
         const matches = [...this.rows.values()].filter(
-          (r) =>
-            r.seq === nice.seq &&
-            (r.repoId ?? this.deps.store.repos.resolveRepoIdForPath(r.repoPath)) === repoId,
+          (r) => r.seq === nice.seq && (r.repoId ?? resolve(r.repoPath)) === repoId,
         )
         if (matches.length >= 1) return matches[0]!.id
       }
@@ -679,7 +710,8 @@ export class IssueStore {
     const seq = Number(m[1])
     let matches = [...this.rows.values()].filter((r) => r.seq === seq)
     if (matches.length > 1 && scopeRepoPath) {
-      const scoped = matches.filter((r) => this.inRepoScope(r, scopeRepoPath))
+      const inScope = this.repoScopeFilter(scopeRepoPath)
+      const scoped = matches.filter((r) => inScope(r))
       if (scoped.length > 0) matches = scoped
     }
     if (matches.length === 1) return matches[0]!.id
@@ -956,9 +988,17 @@ export class IssueStore {
     }[] = () => [],
     opts?: { touch?: boolean },
   ): { issues: IssueWire[]; result: T } {
-    const backups = new Map(
-      rows.map((row) => [row.id, this.deps.store.issues.getIssue(row.id)] as const),
-    )
+    // ONE read for every pre-image, not a `getIssue` per row (POD-3257). This is
+    // the restore-on-failure snapshot for a path built for shipping, where `rows`
+    // is hundreds long; on a networked backend the old shape was a round trip per
+    // row before the transaction even opened.
+    //
+    // `getIssues` returns only the rows that EXIST, so the absent ones are written
+    // back as null explicitly — every row id must have an entry, because the catch
+    // below restores by looking one up and a missing key would read as "no backup"
+    // for a row that genuinely had none.
+    const found = this.deps.store.issues.getIssues(rows.map((row) => row.id))
+    const backups = new Map(rows.map((row) => [row.id, found.get(row.id) ?? null] as const))
     for (const row of rows) {
       normalizeBlankIssueText(row)
       if (opts?.touch !== false) row.updatedAt = this.now()

@@ -36,7 +36,9 @@ function fixture() {
     bus,
     machines: { listMachines: () => [machine()], toMachine } as never,
     sessions: { createSession } as never,
-    authorize: () => undefined,
+    // SETUP ONLY (POD-3257 / spec rule 18): `authorize` became `authorizerFor`,
+    // which resolves the owner once and returns the per-machine check.
+    authorizerFor: () => () => undefined,
     cwdForMachine: () => '/repo',
   })
   return {
