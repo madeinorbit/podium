@@ -19,7 +19,7 @@ import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { killAbducoSession, spawnAbducoAgent } from './abduco.js'
+import { attachAbducoAgent, killAbducoSession, spawnAbducoAgent } from './abduco.js'
 import { ABDUCO_FEATURES, buildVendoredAbduco } from './abduco-bin.js'
 import { bunTerminalBackend } from './backends/index.js'
 import type { PtyProcess } from './backends/types.js'
@@ -292,6 +292,46 @@ describe.skipIf(!hasCompiler)('reconnecting to a running agent', () => {
       first.dispose()
     }, 40000)
   }
+})
+
+describe.skipIf(!hasCompiler)('the first ask after a size-neutral attach', () => {
+  it('costs exactly one SIGWINCH and no reflow, even when it asks for the size the agent already has', async () => {
+    // The case a daemon restart actually produces: the server's last-known size
+    // IS the agent's size, so the viewer's first ask asks for exactly that. It
+    // must still reach the agent — the master signals on every packet, so the ask
+    // is also the repaint — and it must not cost a row of reflow on the way. That
+    // is why a size-neutral attach opens its pty at a sentinel rather than at the
+    // caller's geometry [spec:SP-6144].
+    const label = createSession(newBin)
+    labels.push(label)
+    const o = await observe(label)
+
+    // Put the agent at a known size the way a viewer would, then let that client go.
+    const mover = attach(newBin, label, 111, 37)
+    await waitFor(() => signals(o.text()).length > 0, 'the agent to reach a known size')
+    expect(signals(o.text()).at(-1)).toContain('cols=111 rows=37')
+    mover.proc.kill('SIGKILL')
+    await wait(400)
+    const settled = signals(o.text()).length
+
+    // The daemon-shaped reattach: size-neutral, carrying the size it believes.
+    const session = attachAbducoAgent({ label, cols: 111, rows: 37, sizeNeutral: true })
+    try {
+      await wait(800)
+      expect(signals(o.text())).toHaveLength(settled) // the attach itself: silent
+
+      session.resize(111, 37) // the viewer asks — for what the agent already is
+      await waitFor(() => signals(o.text()).length > settled, 'the ask to reach the agent')
+      await wait(600) // a shrink-and-restore would land its second signal by now
+
+      expect(signals(o.text())).toHaveLength(settled + 1)
+      expect(signals(o.text()).at(-1)).toContain('cols=111 rows=37')
+      // Never a row short: no size but the one asked for ever reached the agent.
+      expect(o.text()).not.toContain('rows=36')
+    } finally {
+      session.dispose()
+    }
+  }, 40000)
 })
 
 describe.skipIf(!hasCompiler)('the birth size still has a producer', () => {

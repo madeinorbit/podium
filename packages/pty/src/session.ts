@@ -109,13 +109,12 @@ export function wrapPty(
     rows: number
     /**
      * This pty's size is not an opinion about the program's size — set on an
-     * abduco attach that carries `-N` [spec:SP-6144]. It makes `redraw()` repaint
-     * with Ctrl-L instead of the shrink-and-restore nudge below: the nudge is a
-     * REAL resize of the attach pty, the attach client forwards it, and the
-     * master applies it to the program, so a reconnect that believed a stale size
-     * would push that stale size onto a running agent — the very thing `-N`
-     * exists to prevent (measured: the restore lands on the next frame from a
-     * chatty agent and moves it).
+     * abduco attach that carries `-N`, whose pty is opened at a sentinel size
+     * [spec:SP-6144]. Until a viewer asks, `redraw()` therefore does not nudge:
+     * the nudge is a REAL resize of the attach pty, the attach client forwards
+     * it, and the master applies it to the program, so a reconnect would push a
+     * size nobody asked for onto a running agent (measured: the restore lands on
+     * the next frame from a chatty agent and moves it).
      */
     sizeNeutral?: boolean
   },
@@ -125,8 +124,9 @@ export function wrapPty(
   let seq = 0
   let disposed = false
   let cancelNudge: (() => void) | undefined
-  // Whether this pty's size has been announced to whatever is on the other end.
-  // Always true for an ordinary attach; a size-neutral one starts silent.
+  // Whether a viewer has asked this session for a size yet. Always true for an
+  // ordinary attach, whose pty size IS the program's; a size-neutral one starts
+  // at a sentinel and stays silent until the first ask.
   let announced = !init.sizeNeutral
   const frameCbs = new Set<(f: AgentFrame) => void>()
   const exitCbs = new Set<(code: number) => void>()
@@ -182,30 +182,24 @@ export function wrapPty(
     },
     resize(c, r) {
       if (disposed) return
-      const unchanged = c === cols && r === rows
       cols = c
       rows = r
-      // A size-neutral attach announced nothing, so this pty's dimensions say
-      // nothing about the program's — the two are deliberately out of step. An
-      // ask that happens to match them would change nothing here, raise no
-      // SIGWINCH in the attach client, and never reach the program: the viewer's
-      // request would vanish. One forced change makes the ask land, and only
-      // until this attach has announced a size at all [spec:SP-6144].
-      if (unchanged && !announced) proc.resize(c, Math.max(1, r - 1))
       announced = true
       proc.resize(c, r)
     },
     redraw(opts) {
       if (disposed) return
-      // A size-neutral attach may only ask the program to repaint, never move it.
-      if (init.sizeNeutral) {
-        proc.write(CTRL_L)
-        return
-      }
       // Idle shells ignore the SIGWINCH nudge below; Ctrl-L makes readline/zle
       // redraw the prompt regardless. Sent before the resize so the shrink's ack
       // frame (the restore trigger) is the repaint we just forced.
       if (opts?.hard) proc.write(CTRL_L)
+      // A size-neutral attach has no size to nudge WITH until a viewer has asked
+      // for one — its pty is a sentinel, deliberately unrelated to the program's
+      // size. Nudging from it would move the program, which is the whole thing
+      // this attach exists to avoid; and no repaint is owed, because the ask
+      // itself repaints (the master signals the program on every resize packet,
+      // even a same-size one). Shells still got their Ctrl-L just above.
+      if (init.sizeNeutral && !announced) return
       if (rows <= 1) {
         if (!opts?.hard) proc.write(CTRL_L) // Ctrl-L fallback when a one-row nudge is impossible
         return

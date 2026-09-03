@@ -1909,8 +1909,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
     // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
     // nudge, so without a Ctrl-L it shows blank until the user types. TUIs repaint
-    // on resize, so only shells take the hard path (the abduco attach below is
-    // size-neutral and repaints every kind with Ctrl-L; tmux still needs this).
+    // on resize, so only shells take the hard path. The abduco attach below is
+    // size-neutral, so it repaints nothing on its own — the first viewport
+    // request does — but a shell still gets this Ctrl-L, as it does today.
     const attach = {
       label: msg.durableLabel,
       cols: msg.geometry.cols,

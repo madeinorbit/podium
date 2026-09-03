@@ -1191,6 +1191,17 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
  */
 const ATTACH_REPAINT_FALLBACK_MS = 1000
 
+/**
+ * The size a size-neutral attach opens its pty at. `-N` means these dimensions
+ * are never announced, so they are never the program's size and the value is
+ * free — and it must NOT be the caller's last-known geometry, because a viewer's
+ * first ask is usually for exactly that: it would be a no-op change here and
+ * never reach the program, or would need a forced shrink-and-restore that moves
+ * the program by a row. A size no viewer can ask for keeps every real ask a
+ * single resize: one packet, one SIGWINCH, no reflow [spec:SP-6144].
+ */
+const SIZE_NEUTRAL_ATTACH_GEOMETRY = { cols: 1, rows: 1 } as const
+
 export function attachAbducoAgent(opts: {
   label: string
   /** Existing socket path, when recovery found a host-suffixed socket. */
@@ -1207,8 +1218,10 @@ export function attachAbducoAgent(opts: {
   repaintOnAttach?: boolean
   /**
    * Attach without announcing a size (`-N`): the running program is neither
-   * resized nor signalled by this attach, whatever cols/rows the attach pty is
-   * given. Every attach to an ALREADY RUNNING program wants this — a reconnect
+   * resized nor signalled by this attach. `cols`/`rows` are then IGNORED for the
+   * attach pty, which opens at a sentinel size — they stay the caller's record
+   * of the session's geometry, never a claim about the program's.
+   * Every attach to an ALREADY RUNNING program wants this — a reconnect
    * is not a viewer asking for a size, and the caller's last-known size may be
    * stale. The exception is the attach right after a create: the master's pty is
    * forked at abduco's own default (80x25, it has no tty), and that first
@@ -1223,11 +1236,12 @@ export function attachAbducoAgent(opts: {
     sizeNeutral: attach.sizeNeutral,
   })
   const backend = opts.backend ?? defaultPtyBackend()
+  const geometry = attach.sizeNeutral ? SIZE_NEUTRAL_ATTACH_GEOMETRY : opts
   const proc = backend.spawn({
     file: cmd as string,
     args,
-    cols: opts.cols,
-    rows: opts.rows,
+    cols: geometry.cols,
+    rows: geometry.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
   let ready = false
@@ -1247,21 +1261,21 @@ export function attachAbducoAgent(opts: {
   })
   session = withHardRepaint(
     wrapPty(filtered, {
-      cols: opts.cols,
-      rows: opts.rows,
+      cols: geometry.cols,
+      rows: geometry.rows,
       sizeNeutral: attach.sizeNeutral,
     }),
     opts.hardRepaint ?? false,
   )
   if (opts.repaintOnAttach ?? true) {
     if (attach.sizeNeutral) {
-      // A size-neutral session repaints with Ctrl-L rather than a resize, and a
+      // A size-neutral attach repaints nothing by itself — the viewer's first ask
+      // does that. All this can still deliver is a SHELL's hard Ctrl-L, and a
       // keystroke written before the attach client has taken the attach pty out
       // of canonical mode sits in its line buffer — echoed, and delivered glued
       // to whatever the viewer types next (measured: the agent read `0c796f0a`
       // as one chunk). So wait for the client's first byte, with a fallback for a
-      // session quiet enough that none comes. Benign when it still races: the
-      // agent sees one extra redraw key, and the daemon repaints again after bind.
+      // session quiet enough that none comes.
       repaintPending = true
       repaintTimer = setTimeout(flushRepaint, ATTACH_REPAINT_FALLBACK_MS)
       repaintTimer.unref?.()
