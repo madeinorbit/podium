@@ -830,7 +830,54 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     THE TEST TO APPLY at a site: if the transaction rolled back, would anything outside this process
     be wrong for having seen this? A log line: no. Everything else: probably yes, and it moves.
 
-20. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+20. **The sync adapter gets a NARROW PORT, not an exception and not a relocated executor.** Decided
+    2026-09-03 answering POD-3334.
+
+    `SyncRepository` is the one of the 34 constructor lines still taking the raw connection, because
+    it lives in `packages/sync` and the executor lives in `apps/server` — a package may not import
+    an app, and rule 2 deliberately keeps the executor inside persistence rather than in
+    `packages/runtime`.
+
+    THE ANSWER IS CANDIDATE 3, and it is not "a second vocabulary for the same object": a package
+    declaring the narrow interface it requires, satisfied structurally by the app, IS dependency
+    inversion, and it is the pattern this epic ALREADY set — POD-3249 injected that same
+    repository's two server-owned tables through exactly such a port, for exactly this reason. The
+    precedent is one file away.
+
+    Candidate 2 is refused: relocating the executor reverses POD-3248's placement decision and puts
+    half the interfaces outside the boundary lint's watched directories, which is what that decision
+    existed to prevent. Candidate 1 — a permanent stated exception — is refused as an END STATE
+    because its cost is two corrupted gates: `STAGE_A_UNCONVERTED` could never empty, and POD-3267
+    would have a legacy reader it cannot delete. A gate that cannot pass stops being read; that
+    lesson is already in the method.
+
+    INTERIM AND SEQUENCE: the exception stands as [0.12] committed it, because nothing else was
+    available today. The port is its own sub-issue and must land BEFORE Stage A's exit, so the exit
+    gate keeps its absolute wording — the array empties, no carve-out.
+
+21. **Applying a recorded decision MAY replace the assertion it falsifies, under three conditions.**
+    Decided 2026-09-03 answering POD-3335, which reported rather than asked and was right to.
+
+    The bar on modifying an existing test assertion exists to stop someone weakening an oracle to
+    fit their implementation. That purpose is not engaged when a decision was recorded FIRST and
+    applying it falsifies an assertion BY CONSTRUCTION — there, refusing the change means the
+    decision can never be applied. The conditions: the replacement must pin the DECISION itself, it
+    must be mutation-checked with the mutation named, and the owning issue must be told even when
+    closed, so the record lands where the next reader looks.
+
+    [0.12]'s change qualifies and stands. The coordinator verified it independently: demoting
+    `ship_steps.input_fence` from `mode: 'json'` reddens "keeps mode: 'json' only where the throw is
+    intended" by name, and the replacement catches a case the original could not — the original
+    compared two sets both derived from column type, so a quiet demotion was invisible to it.
+
+    THE GENERAL SHAPE, which is the valuable part and applies past this site: a Phase 0 artefact
+    that pins TODAY'S behaviour and a later issue that APPLIES a decision are two sides of one
+    assertion. The coverage census (0.2), the hot-path baseline (0.1) and the flip's measurement
+    gate are all in this position. WRITE THE ORACLE AGAINST THE CLASSIFICATION, NOT THE MECHANISM:
+    pin what each column's behaviour IS, not which drizzle mode implements it, and the decision
+    stops being able to falsify it.
+
+22. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
