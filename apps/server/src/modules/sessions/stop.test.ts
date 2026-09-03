@@ -22,6 +22,26 @@ type RepoOpStub = (
   machineId?: string,
 ) => Promise<{ ok: boolean; output: string }>
 
+/**
+ * `git worktree list --porcelain -z`, as the free path's removal authority reads
+ * it (`inspectRemovableWorktree` → `parseGitWorktreeList`). The fixture has to
+ * answer this op: a worktree the registry does not list is refused as "not
+ * registered as a linked git worktree", which is the whole point of the check.
+ */
+const gitWorktreeList = (entries: Array<{ path: string; branch?: string }>): string =>
+  entries
+    .map((entry) =>
+      [
+        `worktree ${entry.path}`,
+        'HEAD deadbeef',
+        entry.branch ? `branch refs/heads/${entry.branch}` : null,
+        '',
+      ]
+        .filter((field) => field !== null)
+        .join('\0'),
+    )
+    .join('\0')
+
 function makeRegistry(statusOutput = '## issue/x\n'): {
   reg: SessionRegistry
   daemon: ControlMessage[]
@@ -32,16 +52,47 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   registries.push(reg)
   const daemon: ControlMessage[] = []
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+  // Every issue in this file lives at `/r`, and recreating a freed worktree
+  // goes through `requireMachineForRepo` — an issue's machine must actually
+  // host the repo. The fixture states that once rather than each test carrying
+  // its own registration.
+  reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
   const rpc = (reg.modules.sessions as unknown as { rpc: { repoOp: RepoOpStub } }).rpc
-  let impl: RepoOpStub = async (op, cwd, args) => {
-    repoOps.push({ op, cwd, ...(args ? { args } : {}) })
+  // The path `status` was last asked about IS the worktree the free path is
+  // inspecting — `freeWorktreeKeepBranch` calls `status(worktreePath)` and then
+  // `worktreeList(repoPath)` — so the git registry answer is built from it
+  // instead of every test restating its own path.
+  let inspected: { path: string; branch?: string } | null = null
+  const noteInspected = (op: string, cwd: string, output: string): void => {
+    if (op !== 'status') return
+    const branch = output.match(/^## ([^\s.]+)/)?.[1]
+    inspected = { path: cwd, ...(branch ? { branch } : {}) }
+  }
+  const registryListing = (): { ok: boolean; output: string } => ({
+    ok: true,
+    output: gitWorktreeList([{ path: '/r', branch: 'main' }, ...(inspected ? [inspected] : [])]),
+  })
+  const base: RepoOpStub = async (op) => {
     if (op === 'status') return { ok: true, output: statusOutput }
-    if (op === 'worktreeRemove') return { ok: true, output: '' }
     if (op === 'worktreeAddExisting') return { ok: true, output: 'Preparing worktree' }
     return { ok: true, output: '' }
+  }
+  let stub: RepoOpStub = base
+  // WHO ANSWERS `worktreeList`. It is the fixture, not the individual test: the
+  // git worktree registry is infrastructure every free goes through (POD-1344's
+  // removal authority), and no test in this file is pinning it. A per-test stub
+  // that returns the catch-all empty output would otherwise read as "this path
+  // is not a registered linked worktree" and refuse the free before the
+  // behaviour under test runs.
+  const impl: RepoOpStub = async (op, cwd, args, machineId) => {
+    repoOps.push({ op, cwd, ...(args ? { args } : {}) })
+    const answer = await stub(op, cwd, args, machineId)
+    noteInspected(op, cwd, answer.output)
+    if (op === 'worktreeList' && answer.output === '') return registryListing()
+    return answer
   }
   rpc.repoOp = (op, cwd, args, machineId) => impl(op, cwd, args, machineId)
   return {
@@ -49,10 +100,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
     daemon,
     repoOps,
     setRepoOp: (fn) => {
-      impl = async (op, cwd, args, machineId) => {
-        repoOps.push({ op, cwd, ...(args ? { args } : {}) })
-        return fn(op, cwd, args, machineId)
-      }
+      stub = fn
     },
   }
 }
