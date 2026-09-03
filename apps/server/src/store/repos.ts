@@ -9,20 +9,14 @@
 
 import { asMachineId, type MachineId, type RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
-import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
+import type { TableWrites } from './table-writes'
 
 export function normalizeRepoPath(path: string): string {
   const trimmed = path.trim()
   if (/^\/+$/u.test(trimmed)) return '/'
   return trimmed.replace(/\/+$/u, '')
-}
-
-/** Statements whose execution can change what {@link ReposRepository} caches. */
-function writesRepoTables(sql: string): boolean {
-  return (
-    /^\s*(INSERT|UPDATE|DELETE|REPLACE)\b/iu.test(sql) && /\brepos\b|\brepo_prefixes\b/iu.test(sql)
-  )
 }
 
 export class ReposRepository {
@@ -36,21 +30,26 @@ export class ReposRepository {
    * table holding 13. Those reads block the server's single event loop and their
    * row materialization is the off-heap churn behind RSS swinging 350MB -> 1.2GB.
    *
-   * INVALIDATION IS STRUCTURAL FOR EVERY WRITE ISSUED THROUGH THIS CLASS: the
-   * `prepare` wrapper below drops the cache whenever a statement writing `repos`
-   * or `repo_prefixes` executes, so a mutator added here cannot forget to call an
-   * invalidate method.
+   * INVALIDATION HAS TWO HALVES, AND NEITHER IS THE SQL-TEXT PROXY THIS REPLACED
+   * (POD-3247). Inside this class, every method that writes `repos` or
+   * `repo_prefixes` calls {@link invalidateRegistry} before the write, and
+   * `store-repos-registry-cache-writers.test.ts` reads this file and fails a write
+   * path that does not — the same guard shape POD-1939 put on the issues row
+   * cache, and the reason a mutator added here still cannot forget.
    *
-   * IT IS NOT THE ONLY WRITER, and assuming so is what made the first version of
-   * this cache wrong. `SessionStore.migrateLegacyMachineIdentity` rewrites
-   * `repos.machine_id` on the store's RAW handle with SQL built from
-   * `sqlite_master` — dynamic table names, so neither the wrapper above nor a
-   * grep for `UPDATE repos` can see it, which is how it survived review. That
-   * path calls {@link invalidate} explicitly; `store.repo-id.test.ts` pins it.
+   * Outside it, the store announces writes per table ({@link TableWrites}) and this
+   * constructor subscribes to both tables.
    *
-   * Any future writer that bypasses this class owes the same call. If that list
-   * ever grows past one, this should become a notification the store owns rather
-   * than a courtesy each caller remembers.
+   * THAT SECOND HALF HAS NO CALLER IN THE TREE TODAY, AND IS NOT DEAD CODE. It had
+   * one until POD-3246: `SessionStore.migrateLegacyMachineIdentity` rewrote
+   * `repos.machine_id` on the raw handle with SQL built from `sqlite_master`, so
+   * the proxy — which recognised writes by reading the text of statements prepared
+   * on ITS handle — never saw it, and `listRepos()` served the pre-upgrade machine
+   * id on a live instance until POD-1638 caught it. That upgrade is now retired,
+   * which removes the writer and not the shape: every statement the async query
+   * layer runs through an executor is a writer this class never sees, and the
+   * announcement is what makes that harmless rather than the same bug again.
+   * `store/repos-read-cost.test.ts` drives it with no repository involved.
    */
   private cached: {
     rows: Record<string, unknown>[]
@@ -58,19 +57,6 @@ export class ReposRepository {
   } | null = null
 
   private readonly db: SqlDatabase
-
-  /**
-   * The UNWRAPPED handle, for transaction boundaries only.
-   *
-   * `transaction()` tracks nesting depth in a Map keyed by the database OBJECT
-   * IDENTITY, so opening a boundary on the wrapper below would read depth 0
-   * inside an already-open transaction and issue `BEGIN IMMEDIATE` within one
-   * ("cannot start a transaction within a transaction"). The wrapper and this
-   * share one underlying connection — statements prepared through either are
-   * inside whatever boundary is open — so the only thing that must use the
-   * original object is the depth bookkeeping.
-   */
-  private readonly txDb: SqlDatabase
 
   constructor(
     db: SqlDatabase,
@@ -80,40 +66,30 @@ export class ReposRepository {
      *  half of a path-fallback repo id for a path no repo row claims, and the owner
      *  stamped on rows imported from the legacy `repos.json`. */
     private readonly hostMachineId: MachineId,
+    /** The store's per-table write announcement, for the writers that never reach
+     *  this class. */
+    tableWrites: TableWrites,
   ) {
-    this.txDb = db
-    // Drop the cache from underneath any write issued through this connection,
-    // including ones this class does not know about.
-    this.db = {
-      prepare: (sql: string) => {
-        const st = db.prepare(sql)
-        if (!writesRepoTables(sql)) return st
-        // Delegating explicitly rather than spreading `st`: a spread would carry
-        // only OWN properties, so this would break silently against a driver
-        // whose statements expose their methods on a prototype.
-        return {
-          run: (...p: SqlParam[]) => {
-            this.cached = null
-            return st.run(...p)
-          },
-          get: (...p: SqlParam[]) => st.get(...p),
-          all: (...p: SqlParam[]) => st.all(...p),
-        }
-      },
-      exec: (sql: string) => {
-        if (writesRepoTables(sql)) this.cached = null
-        return db.exec(sql)
-      },
-      close: () => db.close(),
-    }
+    // The RAW handle, and no second one. The wrapper this replaces forced a second
+    // field: `transaction()` keys nesting depth on the database OBJECT IDENTITY, so
+    // a boundary opened on the wrapper read depth 0 inside an already-open
+    // transaction and issued `BEGIN IMMEDIATE` within one. With no wrapper there is
+    // one object, and it is the one every other repository and the store facade use.
+    this.db = db
+    for (const table of ['repos', 'repo_prefixes'])
+      tableWrites.subscribe(table, () => this.invalidateRegistry())
   }
 
   /**
-   * Drop the held registry read. For writers that do NOT go through this class —
-   * today only the boot machine-identity migration, which builds its UPDATE from
-   * `sqlite_master` on the store's raw handle.
+   * Drop the held registry read.
+   *
+   * Called by every write method of this class BEFORE its write — the order is the
+   * rule, not decoration, because invalidating afterwards leaves the window between
+   * the write and the drop, and a read taken in that window caches rows that the
+   * write has already made wrong. It is also what the store's write announcement
+   * runs, so the two halves of the invariant end in the same line.
    */
-  invalidate(): void {
+  invalidateRegistry(): void {
     this.cached = null
   }
 
@@ -228,6 +204,7 @@ export class ReposRepository {
     const existing = this.prefixForRepoId(repoId)
     if (existing) return existing
     const prefix = this.derivePrefixFor(repoName)
+    this.invalidateRegistry()
     this.db
       .prepare('INSERT OR IGNORE INTO repo_prefixes (repo_id, prefix) VALUES (?, ?)')
       .run(repoId, prefix)
@@ -251,6 +228,7 @@ export class ReposRepository {
     if (owner && owner.repo_id !== repoId) {
       throw new Error(`prefix ${prefix} is already used by another repo`)
     }
+    this.invalidateRegistry()
     this.db
       .prepare(
         `INSERT INTO repo_prefixes (repo_id, prefix) VALUES (?, ?)
@@ -267,7 +245,7 @@ export class ReposRepository {
    * ordinal.
    */
   nextDraftSeq(repoId: RepoId): number {
-    return transaction(this.txDb, () => {
+    return transaction(this.db, () => {
       const row = this.db
         .prepare('SELECT next_seq FROM repo_draft_seq WHERE repo_id = ?')
         .get(repoId) as { next_seq: number } | undefined
@@ -291,6 +269,7 @@ export class ReposRepository {
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
     const repoName = normalizedPath.split('/').pop() ?? null
     const repoId = deriveRepoId({ originUrl: origin, machineId, path: normalizedPath })
+    this.invalidateRegistry()
     this.db
       .prepare(
         'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
@@ -305,6 +284,7 @@ export class ReposRepository {
           throw new Error(`invalid repo prefix ${JSON.stringify(prefix)} — must match ^[A-Z]{2,5}$`)
         }
         if (this.isPrefixTaken(prefix)) throw new Error(`prefix ${prefix} is already in use`)
+        this.invalidateRegistry()
         this.db
           .prepare('INSERT OR IGNORE INTO repo_prefixes (repo_id, prefix) VALUES (?, ?)')
           .run(repoId, prefix)
@@ -328,6 +308,10 @@ export class ReposRepository {
       .all(machineId) as { path: string; repo_id: RepoId | null }[]
     const row = rows.find((r) => normalizeRepoPath(r.path) === normalizedPath)
     if (!row) return
+    // Ahead of the branches rather than in each: this method writes `repos` on
+    // every path below it, and the read it invalidates is one this method's own
+    // `prefixForRepoId` call takes back afterwards.
+    this.invalidateRegistry()
 
     const newId = deriveRepoId({ originUrl, machineId, path: normalizedPath })
     const upgrade =
@@ -366,6 +350,11 @@ export class ReposRepository {
       // Re-key the human-facing prefix from the path-fallback id onto the stable
       // origin-derived id (#474), unless the target already owns one.
       if (row.repo_id && row.repo_id !== newId && this.prefixForRepoId(newId) === null) {
+        // Again, because the condition above READ the prefix map and so re-held it:
+        // the drop at the top of this method is already spent by the time this
+        // statement runs. Invalidating before every write is not enough on its own —
+        // it has to be before every write with no cached read taken since.
+        this.invalidateRegistry()
         this.db
           .prepare('UPDATE OR IGNORE repo_prefixes SET repo_id = ? WHERE repo_id = ?')
           .run(newId, row.repo_id)
@@ -403,6 +392,7 @@ export class ReposRepository {
     const rows = this.db.prepare('SELECT path FROM repos WHERE machine_id = ?').all(machineId) as {
       path: string
     }[]
+    this.invalidateRegistry()
     const remove = this.db.prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
     for (const row of rows) {
       if (normalizeRepoPath(row.path) === normalizedPath) remove.run(machineId, row.path)
