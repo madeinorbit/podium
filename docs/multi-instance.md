@@ -161,7 +161,8 @@ The command combines four layers:
 3. `managed-account-spawn.integration.test.ts` drives the real Node PTY spawn path and proves
    the child receives blue's instance/session identity and exact durable label.
 4. `install-sh.test.sh` installs default and named bundles into a temporary home and proves a
-   named install/update target cannot overwrite the default bundle, command, or units.
+   named install/update target cannot overwrite the default bundle or command, and that the
+   named identity reaches the `install-finish` handoff that configures it.
 
 The process test uses explicit temporary roots and six reserved ports, so it can run alongside
 an operator's normal Podium instance without reading or stopping it.
