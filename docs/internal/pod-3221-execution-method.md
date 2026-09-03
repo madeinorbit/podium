@@ -37,8 +37,11 @@ Four phases. Each exit gate is a command that exits zero, or is named as a human
 
 ### Phase 0 — decide the interfaces and make every shared edit once
 
-1. Stage A prerequisite 5a (attribution at the execution seam) lands first, editing the three
-   existing probe tests onto the new seam; then the two measurements are captured on it.
+1. The two measurements are captured on today's probe seam first (issue 0.1); Stage A
+   prerequisite 5a (attribution at the execution seam, issue 0.13) then moves the profiler and
+   the three probe tests onto the client drizzle runs on and re-captures the baseline there. It
+   depends on the executor object from item 2 and must land before issues, users and repos
+   convert.
 2. The executor prototype, now including the production scheduler with its tests, the token,
    ambient routing, the three post-commit mechanisms with synchronous implementations, and the
    **executor object** every repository will take: `{ drizzle, transact, legacy }`, where
@@ -314,16 +317,17 @@ Prefix gives the order; edges in the tracker give the real dependencies (`podium
 | 0.7 | POD-3249 Sync adapter table injection | 0.0 |
 | 0.8 | POD-3250 Turso sync-append proof | 0.6 |
 | 0.9 | POD-3251 Turso remote spike | none |
-| 0.10 | POD-3252 Store boundary lint family | 0.0 |
+| 0.10 | POD-3252 Store boundary lint family | 0.0, 0.4 |
 | 0.11 | POD-3253 Issues writer-guard replacement | 0.0 |
 | 0.12 | POD-3254 Shared schema and constructor edits | 0.3, 0.6 |
-| A | POD-3255 Repository conversion waves (placeholder) | 0.0, 0.4, 0.5, 0.10, 0.11, 0.12 |
+| 0.13 | POD-3281 Attribution at execution seam (step 5a; probes and profiler onto the client drizzle runs on) | 0.0, 0.6 |
+| A | POD-3255 Repository conversion waves (placeholder) | 0.0, 0.4, 0.5, 0.10, 0.11, 0.12, 0.13 |
 | B0.1 | POD-3256 Hidden store reads | 0.6 |
 | B0.2 | POD-3257 Array-callback batched reads | none |
 | B0.3 | POD-3258 Timer single-flight guards | none |
 | B0.4 | POD-3259 Mutable process-state models | 0.6 |
 | B0.5 | POD-3260 Span side-effect classification | 0.6 |
-| B0.6 | POD-3261 Read-scope adoption and prefetch | 0.6, 0.1 |
+| B0.6 | POD-3261 Read-scope adoption and prefetch | 0.6, 0.1, 0.13 |
 | B0.7 | POD-3262 Test store helper and awaits | 0.6 |
 | B1 | POD-3263 Async port flip | A, B0.1–B0.7, 0.8 |
 | B2.1 | POD-3264 Scheduler lifecycle and shutdown | B1 |
@@ -332,7 +336,7 @@ Prefix gives the order; edges in the tracker give the real dependencies (`podium
 | B2.4 | POD-3267 Transitional instrument deletion | B1, B2.1 |
 | E.1 | POD-3268 Engine decision record | closed 2026-09-03: decision taken |
 | E.2 | POD-3269 Schema form and journal | archived 2026-09-03: not needed under one dialect |
-| E.3 | POD-3270 Durability port for Turso | B1 |
+| E.3 | POD-3270 Durability port for Turso | B1, B2.1 |
 | E.4 | POD-3271 Turso database import | E.5 |
 | E.5 | POD-3272 Turso backend enablement | B1, 0.9, E.3 |
 
