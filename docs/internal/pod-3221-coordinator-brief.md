@@ -88,3 +88,25 @@ must exist on that machine before the Turso items start.
 - No phase started before its checkpoint closes.
 - No landing on `main` or `dev/mw` before the close checkpoint; no sub-issue started from any
   branch other than the integration branch.
+
+## A `needs_user` session looks exactly like a dead one, and the remedy is opposite
+
+Added 2026-09-04, after POD-3358 sat for 65 minutes.
+
+The stall test in the tick — newest file mtime plus `pgrep -f <worktree>` — is correct for a dead
+session and gives a FALSE POSITIVE for a blocked one. A session waiting on a permission prompt has
+zero processes, has written nothing for hours, and still reports `live`. By the mtime/pgrep test it
+is indistinguishable from a corpse. The remedy is the opposite of a restart: answer the question.
+Restarting it discards a session that was working correctly and asking properly, and the new one
+hits the same prompt.
+
+SO THE PHASE FIELD IS NOT USELESS, IT IS JUST NOT SUFFICIENT. Read `agentState.phase` alongside the
+process check: `needs_user` means answer it, `errored` means `podium session continue`, and only
+`working` with no processes and no writes is a genuine stall. The tick's instruction to detect
+stalls by mtime rather than by phase is right about not TRUSTING the phase and wrong if it is read
+as ignoring it.
+
+WHAT POD-3358 WAS BLOCKED ON is also worth recording, because the next hosted-database worker will
+hit it: copying `.env` into its worktree for the TURSO_SPIKE credentials. The answer is yes — `.env`
+is gitignored at line 10, so it cannot be committed — but check that the file is absent from the
+worktree before saying so rather than assuming the ignore held.
