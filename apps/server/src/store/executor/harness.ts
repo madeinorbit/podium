@@ -18,7 +18,16 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { createBunSqliteDriver } from './bun-driver'
-import type { DriverSession, Lane, QueryClient, StoreDriver } from './driver'
+import type {
+  DriverLimits,
+  DriverSession,
+  FailureClass,
+  Lane,
+  QueryClient,
+  Statement,
+  StoreDriver,
+} from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 
 export interface Barrier {
@@ -77,6 +86,13 @@ function recordingDriver(
         note(statement.sql)
         return session.execute(statement)
       },
+      async executeBatch(statements) {
+        // ONE entry, not one per statement: whether a batch reached the driver
+        // as a single call is the whole question, and the individual SQL is
+        // visible in the results.
+        note(`BATCH[${statements.length}]`)
+        return session.executeBatch(statements)
+      },
       async begin(lane: Lane) {
         if (lane === 'write') note('BEGIN IMMEDIATE')
         return session.begin(lane)
@@ -108,6 +124,8 @@ function recordingDriver(
   return {
     kind: inner.kind,
     lanes: inner.lanes,
+    limits: inner.limits,
+    ...(inner.classify ? { classify: (error: unknown) => inner.classify?.(error) ?? 'fatal' } : {}),
     async open(lane) {
       return wrap(await inner.open(lane), `s${nextSessionId++}`)
     },
@@ -121,8 +139,136 @@ function recordingDriver(
           },
         }
       : {}),
-    client: (route) => inner.client(route),
+    client: (route, routeBatch) => inner.client(route, routeBatch),
     close: () => inner.close(),
+  }
+}
+
+/**
+ * A FULLY ASYNCHRONOUS driver with a hook on every operation, for the failures
+ * bun:sqlite cannot produce [POD-3310].
+ *
+ * bun:sqlite's boundaries are synchronous and infallible, so no test over it can
+ * open the gap the remote driver has at every one of them: `open` is a network
+ * call, `close` returns a connection to a pool, `commit` is held on the server,
+ * and any of them can reject or take arbitrarily long. Each hook may park (the
+ * test releases it), reject (the operation fails), or be absent (the operation
+ * succeeds immediately).
+ */
+export interface AsyncDriverHooks {
+  open?(lane: Lane, attempt: number): Promise<void>
+  executeBatch?(statements: readonly Statement[]): Promise<void>
+  begin?(lane: Lane): Promise<void>
+  execute?(statement: Statement): Promise<void>
+  commit?(attempt: number): Promise<void>
+  rollback?(): Promise<void>
+  close?(attempt: number): Promise<void>
+  enterSavepoint?(name: string): Promise<void>
+  releaseSavepoint?(name: string): Promise<void>
+  rollbackToSavepoint?(name: string): Promise<void>
+}
+
+export interface AsyncFakeDriver extends StoreDriver<QueryClient> {
+  /** Every operation, in order. */
+  readonly calls: readonly string[]
+  /** Sessions opened, and sessions whose `close` completed. */
+  readonly opens: number
+  readonly closes: number
+}
+
+export function asyncFakeDriver(
+  options: {
+    hooks?: AsyncDriverHooks
+    readConcurrency?: number
+    limits?: DriverLimits
+    classify?: (error: unknown) => FailureClass
+  } = {},
+): AsyncFakeDriver {
+  const hooks = options.hooks ?? {}
+  const calls: string[] = []
+  let opens = 0
+  let closes = 0
+  // Driver-wide, not per session: the hook's `attempt` counts operations across
+  // the whole driver, so "fail the first close only" means what it says.
+  let closeAttempts = 0
+  let commitAttempts = 0
+  const run = { changes: 0, lastInsertRowid: 0 }
+  const makeSession = (id: number): DriverSession => {
+    // Tagged per session, like `recordingDriver`: which session a statement
+    // reached is the whole question for a leaked scope, and results cannot
+    // show it.
+    const tag = `s${id}`
+    return {
+      async execute(statement) {
+        calls.push(`${tag}:execute:${statement.sql}`)
+        await hooks.execute?.(statement)
+        return statement.method === 'run' ? { rows: [], run } : { rows: [] }
+      },
+      async executeBatch(statements) {
+        calls.push(`${tag}:batch[${statements.length}]`)
+        await hooks.executeBatch?.(statements)
+        return statements.map((statement) =>
+          statement.method === 'run' ? { rows: [], run } : { rows: [] },
+        )
+      },
+      async begin(lane) {
+        calls.push(`${tag}:begin:${lane}`)
+        await hooks.begin?.(lane)
+      },
+      async commit() {
+        calls.push(`${tag}:commit`)
+        await hooks.commit?.(++commitAttempts)
+      },
+      async rollback() {
+        calls.push(`${tag}:rollback`)
+        await hooks.rollback?.()
+      },
+      async enterSavepoint(name) {
+        calls.push(`${tag}:enter:${name}`)
+        await hooks.enterSavepoint?.(name)
+      },
+      async releaseSavepoint(name) {
+        calls.push(`${tag}:release:${name}`)
+        await hooks.releaseSavepoint?.(name)
+      },
+      async rollbackToSavepoint(name) {
+        calls.push(`${tag}:rollbackTo:${name}`)
+        await hooks.rollbackToSavepoint?.(name)
+      },
+      async close() {
+        calls.push(`${tag}:close`)
+        await hooks.close?.(++closeAttempts)
+        closes++
+      },
+    }
+  }
+  return {
+    kind: 'async-fake',
+    lanes: { readConcurrency: options.readConcurrency ?? 0 },
+    limits: options.limits ?? {
+      writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS,
+      busyRetry: NO_BUSY_RETRY,
+    },
+    ...(options.classify ? { classify: options.classify } : {}),
+    async open(lane) {
+      const attempt = ++opens
+      calls.push(`open:${lane}`)
+      await hooks.open?.(lane, attempt)
+      return makeSession(attempt)
+    },
+    client: (route, routeBatch) => queryClientOver(route, routeBatch),
+    async close() {
+      calls.push('driver-close')
+    },
+    get calls() {
+      return calls
+    },
+    get opens() {
+      return opens
+    },
+    get closes() {
+      return closes
+    },
   }
 }
 
@@ -141,6 +287,23 @@ export interface HarnessOptions
   schema?: string
   /** Leave the reader connection out, to test what a driver without one does. */
   withoutReader?: boolean
+  /**
+   * Called for every `prepare` the DRIVER makes. The statement cache's whole
+   * claim is a count, and a count needs a counter.
+   */
+  onPrepare?: (sql: string) => void
+}
+
+/** The same connection, with its `prepare` calls announced. */
+function countingPrepares(db: SqlDatabase, onPrepare: (sql: string) => void): SqlDatabase {
+  return {
+    prepare(sql) {
+      onPrepare(sql)
+      return db.prepare(sql)
+    },
+    exec: (sql) => db.exec(sql),
+    close: () => db.close(),
+  }
 }
 
 const DEFAULT_SCHEMA = `
@@ -162,7 +325,7 @@ export function openHarness(options: HarnessOptions = {}): Harness {
   const entries: string[] = []
   const driver = recordingDriver(
     createBunSqliteDriver({
-      database: raw,
+      database: options.onPrepare ? countingPrepares(raw, options.onPrepare) : raw,
       ...(options.withoutReader
         ? {}
         : { openReader: () => openDatabase(path, { readOnly: true }) }),
@@ -176,6 +339,7 @@ export function openHarness(options: HarnessOptions = {}): Harness {
     ...(options.now ? { now: options.now } : {}),
     ...(options.effectSink ? { effectSink: options.effectSink } : {}),
     ...(options.onUnhealthy ? { onUnhealthy: options.onUnhealthy } : {}),
+    ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
   })
   const log: StatementLog = {
     entries,

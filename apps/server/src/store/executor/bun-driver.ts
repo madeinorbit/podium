@@ -17,6 +17,8 @@
 
 import type { SqlDatabase, SqlStatement } from '@podium/runtime/sqlite'
 import type {
+  BatchRouter,
+  DriverLimits,
   DriverSession,
   Lane,
   LanePolicy,
@@ -26,7 +28,7 @@ import type {
   StatementRouter,
   StoreDriver,
 } from './driver'
-import { queryClientOver } from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 
 export interface BunDriverOptions {
   /** The shared connection. The scheduler's queue owns it. */
@@ -48,15 +50,49 @@ export interface BunDriverOptions {
  */
 const BUN_LANES: LanePolicy = { readConcurrency: 0 }
 
+/**
+ * In-process and single-writer by construction: no server ends a transaction
+ * under us, and the scheduler's size-one queue means a second writer never
+ * reaches the engine, so there is no busy error to retry. Both numbers are
+ * DECLARED rather than assumed by the scheduler, because the remote driver's
+ * are neither (spec §6 rule 7: about 9 s and a real busy shape on Turso).
+ */
+const BUN_LIMITS: DriverLimits = {
+  writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS,
+  busyRetry: NO_BUSY_RETRY,
+}
+
 export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<QueryClient> {
   const readers: SqlDatabase[] = []
+  /**
+   * ONE prepared-statement cache per CONNECTION, owned here and cleared only
+   * when that connection closes.
+   *
+   * It used to live inside `session()`, which is built fresh for every scheduler
+   * lease over the same connection — so every root operation re-prepared every
+   * statement it used, which is the opposite of what the cache is for and would
+   * make a converted repository slower than the raw one it replaced.
+   */
+  const caches = new Map<SqlDatabase, Map<string, SqlStatement>>()
+  const cacheFor = (db: SqlDatabase): Map<string, SqlStatement> => {
+    const existing = caches.get(db)
+    if (existing) return existing
+    const made = new Map<string, SqlStatement>()
+    caches.set(db, made)
+    return made
+  }
   let closed = false
   return {
     kind: 'bun-sqlite',
     lanes: BUN_LANES,
+    limits: BUN_LIMITS,
     async open(lane) {
       if (closed) throw new Error('bun-sqlite driver is closed')
-      return session(options.database, lane === 'read' ? 'shared-read' : 'owner')
+      return session(
+        options.database,
+        lane === 'read' ? 'shared-read' : 'owner',
+        cacheFor(options.database),
+      )
     },
     ...(options.openReader
       ? {
@@ -64,22 +100,24 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
             if (closed) throw new Error('bun-sqlite driver is closed')
             const handle = (options.openReader as () => SqlDatabase)()
             readers.push(handle)
-            return session(handle, 'detached-reader', () => {
+            return session(handle, 'detached-reader', cacheFor(handle), () => {
               handle.close()
+              caches.delete(handle)
               const at = readers.indexOf(handle)
               if (at >= 0) readers.splice(at, 1)
             })
           },
         }
       : {}),
-    client(route: StatementRouter): QueryClient {
-      return queryClientOver(route)
+    client(route: StatementRouter, routeBatch: BatchRouter): QueryClient {
+      return queryClientOver(route, routeBatch)
     },
     async close() {
       if (closed) return
       closed = true
       for (const handle of readers.splice(0)) handle.close()
       options.database.close()
+      caches.clear()
       options.onClose?.()
     },
   }
@@ -87,15 +125,19 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
 
 type SessionRole = 'owner' | 'shared-read' | 'detached-reader'
 
-function session(db: SqlDatabase, role: SessionRole, onClose?: () => void): DriverSession {
+function session(
+  db: SqlDatabase,
+  role: SessionRole,
   /**
-   * One prepared statement per distinct SQL text, per connection. bun:sqlite
-   * makes `prepare` cheap but not free, and the repositories reuse a small,
-   * fixed set of texts — the cache is what keeps a converted repository from
-   * being slower than the raw one it replaced. A dynamic `IN` list is the case
-   * that would defeat it, which is why the Stage A checklist asks about it.
+   * One prepared statement per distinct SQL text, per connection — owned by the
+   * DRIVER and passed in, because a lease is not a connection. bun:sqlite makes
+   * `prepare` cheap but not free, and the repositories reuse a small, fixed set
+   * of texts. A dynamic `IN` list is the case that would defeat it, which is why
+   * the Stage A checklist asks about it.
    */
-  const prepared = new Map<string, SqlStatement>()
+  prepared: Map<string, SqlStatement>,
+  onClose?: () => void,
+): DriverSession {
   const statement = (sql: string): SqlStatement => {
     const hit = prepared.get(sql)
     if (hit) return hit
@@ -112,17 +154,42 @@ function session(db: SqlDatabase, role: SessionRole, onClose?: () => void): Driv
   const live = () => {
     if (closed) throw new Error('driver session is closed')
   }
+  const runOne = (request: Statement): StatementResult => {
+    const st = statement(request.sql)
+    const params = [...request.params]
+    if (request.method === 'run') return { rows: [], run: st.run(...params) }
+    if (request.method === 'get') {
+      const row = st.get(...params)
+      return { rows: row === undefined ? [] : [row] }
+    }
+    return { rows: st.all(...params) }
+  }
   return {
     async execute(request: Statement): Promise<StatementResult> {
       live()
-      const st = statement(request.sql)
-      const params = [...request.params]
-      if (request.method === 'run') return { rows: [], run: st.run(...params) }
-      if (request.method === 'get') {
-        const row = st.get(...params)
-        return { rows: row === undefined ? [] : [row] }
+      return runOne(request)
+    },
+    async executeBatch(requests: readonly Statement[]): Promise<readonly StatementResult[]> {
+      live()
+      if (requests.length === 0) return []
+      /**
+       * ATOMIC, like the remote `client.batch` this stands in for: all of it
+       * applies or none of it does. When the caller already has a transaction
+       * open, that transaction is the atomic boundary and a second one would be
+       * wrong; otherwise the batch opens and closes its own. A read-only session
+       * has nothing to make atomic.
+       */
+      const implicit = !open && role === 'owner'
+      if (implicit) db.exec('BEGIN IMMEDIATE')
+      try {
+        const results: StatementResult[] = []
+        for (const request of requests) results.push(runOne(request))
+        if (implicit) db.exec('COMMIT')
+        return results
+      } catch (error) {
+        if (implicit) db.exec('ROLLBACK')
+        throw error
       }
-      return { rows: st.all(...params) }
     },
     async begin(lane: Lane) {
       live()
@@ -161,7 +228,8 @@ function session(db: SqlDatabase, role: SessionRole, onClose?: () => void): Driv
     async close() {
       if (closed) return
       closed = true
-      prepared.clear()
+      // The cache belongs to the connection, not to this lease: clearing it
+      // here is what made it useless.
       onClose?.()
     },
   }

@@ -14,8 +14,8 @@
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
-import type { DriverSession, QueryClient, StoreDriver } from './driver'
-import { queryClientOver } from './driver'
+import type { DriverSession, QueryClient, Statement, StoreDriver } from './driver'
+import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import {
   ExclusiveInsideLeaseError,
   ParallelNestedTransactionError,
@@ -23,10 +23,11 @@ import {
   SchedulerClosedError,
   StaleTransactionError,
   StoreUnhealthyError,
+  TransactionPoisonedError,
 } from './errors'
-import { postCommit, type StoreExecutor } from './executor'
+import { createStoreExecutor, postCommit, type StoreExecutor } from './executor'
 import { createFrameFlusher } from './frame-flusher'
-import { barrier, type Harness, openHarness, settle } from './harness'
+import { asyncFakeDriver, barrier, type Harness, openHarness, settle } from './harness'
 import { createScheduler } from './scheduler'
 
 let harness: Harness | undefined
@@ -198,6 +199,33 @@ describe('reads against an open body', () => {
   })
 })
 
+describe('the prepared-statement cache', () => {
+  it('prepares each SQL text once per connection, across leases', async () => {
+    // WOULD CATCH the cache being owned by the LEASE: `session()` is built fresh
+    // for every scheduler operation over the same connection, so a cache created
+    // inside it re-prepares every statement on every root call — the opposite of
+    // the claim, and a local regression once repository calls become async.
+    const prepared: string[] = []
+    const h = open({ onPrepare: (sql) => prepared.push(sql) })
+
+    for (let i = 0; i < 3; i++) {
+      await h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, `row-${i}`)
+      })
+      await noteBodies(h.db)
+    }
+
+    expect(
+      prepared.filter((sql) => sql === insert),
+      'three writes, one prepare',
+    ).toHaveLength(1)
+    expect(
+      prepared.filter((sql) => sql === bodies),
+      'three reads, one prepare',
+    ).toHaveLength(1)
+  })
+})
+
 describe('re-entrancy', () => {
   it('turns a nested transact into a savepoint on the open transaction', async () => {
     // WOULD CATCH: re-entrancy keyed on handle identity (today's helper) rather
@@ -261,6 +289,96 @@ describe('re-entrancy', () => {
       // Once the branch closes, the parent is addressable again.
       expect(await noteBodies(tx.drizzle)).toEqual([])
     })
+  })
+})
+
+/**
+ * Savepoint boundaries are infallible on bun:sqlite and are ordinary statements
+ * on a network everywhere else, so every one of them can reject [POD-3310, V1
+ * medium]. What the executor may not do is leave the frame stack claiming
+ * something the engine does not hold.
+ */
+describe('asynchronous savepoint boundary failures', () => {
+  it('gives the parent back its addressability when the savepoint never opened', async () => {
+    const driver = asyncFakeDriver({
+      hooks: {
+        enterSavepoint: async () => {
+          throw new Error('SAVEPOINT failed')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    await executor.transact(async (tx) => {
+      await expect(tx.transact(async () => undefined)).rejects.toThrow('SAVEPOINT failed')
+      // WOULD CATCH `parent.child` left set by the failed entry: every later
+      // statement on the parent would be refused as a parallel nested scope.
+      await tx.drizzle.run(insert, 'after')
+    })
+
+    expect(driver.calls.filter((call) => call.endsWith(':commit'))).toEqual(['s1:commit'])
+    await executor.close()
+  })
+
+  it('poisons the transaction when the release fails, and rolls back instead of committing', async () => {
+    const driver = asyncFakeDriver({
+      hooks: {
+        releaseSavepoint: async () => {
+          throw new Error('RELEASE failed')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    const failure = await executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'outer')
+        // The body catches the boundary failure and carries on, which is the
+        // dangerous case: it must not be able to commit from here.
+        await expect(tx.transact(async () => undefined)).rejects.toThrow('RELEASE failed')
+        await expect(tx.drizzle.run(insert, 'after')).rejects.toBeInstanceOf(
+          TransactionPoisonedError,
+        )
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(TransactionPoisonedError)
+    expect((failure as TransactionPoisonedError).cause).toBeInstanceOf(Error)
+    expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual(['s1:rollback'])
+    await executor.close()
+  })
+
+  it('poisons the transaction when a rollback-to-savepoint fails, and keeps the body’s error', async () => {
+    const driver = asyncFakeDriver({
+      hooks: {
+        rollbackToSavepoint: async () => {
+          throw new Error('ROLLBACK TO failed')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    const failure = await executor
+      .transact(async (tx) => {
+        await expect(
+          tx.transact(async () => {
+            throw new Error('nested failed')
+          }),
+          // The body's own error is what the caller asked about; the boundary
+          // failure is what decides the transaction's fate.
+        ).rejects.toThrow('nested failed')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(TransactionPoisonedError)
+    expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual(['s1:rollback'])
+    await executor.close()
   })
 })
 
@@ -360,6 +478,7 @@ describe('the exclusive lane', () => {
 function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
   const session: DriverSession = {
     execute: async () => ({ rows: [] }),
+    executeBatch: async (statements) => statements.map(() => ({ rows: [] })),
     begin: async () => undefined,
     commit: async () => undefined,
     rollback: async () => undefined,
@@ -371,8 +490,9 @@ function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
   return {
     kind: 'lane-only',
     lanes: { readConcurrency },
+    limits: { writeBudgetMs: UNBOUNDED_WRITE_BUDGET_MS, busyRetry: NO_BUSY_RETRY },
     open: async () => session,
-    client: (route) => queryClientOver(route),
+    client: (route, routeBatch) => queryClientOver(route, routeBatch),
     close: async () => undefined,
   }
 }
@@ -413,6 +533,282 @@ describe('the remote lane policy', () => {
     parked.release()
     await Promise.all([...reads, exclusive, behind])
     expect(order.slice(-2)).toEqual(['exclusive', 'behind'])
+    await scheduler.close()
+  })
+})
+
+/**
+ * The remote failures bun:sqlite cannot produce. `open` and `close` are network
+ * calls there, so both can reject, and the scheduler's slot is what a rejection
+ * must never take with it.
+ */
+describe('scheduler liveness under driver failure', () => {
+  async function within<T>(promise: Promise<T>, ms = 100): Promise<T | 'blocked'> {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const guard = new Promise<'blocked'>((resolve) => {
+      timer = setTimeout(() => resolve('blocked'), ms)
+    })
+    try {
+      return await Promise.race([promise, guard])
+    } finally {
+      if (timer) clearTimeout(timer)
+    }
+  }
+
+  it('releases the slot when the driver’s open rejects', async () => {
+    // WOULD CATCH the wedge V1 reproduced: `take()` happens before `open()`, so
+    // a rejected connection acquisition — busy exhaustion, a network blip —
+    // keeps the write slot forever while the state still reads `accepting`.
+    const driver = asyncFakeDriver({
+      hooks: {
+        open: async (_lane, attempt) => {
+          if (attempt === 1) throw new Error('open failed')
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    await expect(scheduler.run('write', async () => 'first')).rejects.toThrow('open failed')
+
+    expect(await within(scheduler.run('write', async () => 'second'))).toBe('second')
+    expect(scheduler.state).toBe('accepting')
+    expect(await within(scheduler.close())).not.toBe('blocked')
+  })
+
+  it('releases the slot when the session’s close rejects', async () => {
+    // The other end of the same lease. `close()` returns the connection; a
+    // rejection there skipped `give()` and `pump()` exactly as `open` did.
+    const driver = asyncFakeDriver({
+      hooks: {
+        close: async (attempt) => {
+          if (attempt === 1) throw new Error('close failed')
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    await expect(scheduler.run('write', async () => 'first')).rejects.toThrow('close failed')
+
+    expect(await within(scheduler.run('write', async () => 'second'))).toBe('second')
+    expect(scheduler.state).toBe('accepting')
+    expect(await within(scheduler.close())).not.toBe('blocked')
+  })
+
+  it('keeps both failures when the body and the close both fail', async () => {
+    // Neither may be dropped: the body's failure is what the caller asked
+    // about, and a connection that never came back is the driver's problem.
+    const driver = asyncFakeDriver({
+      hooks: {
+        close: async (attempt) => {
+          if (attempt === 1) throw new Error('close failed')
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    const failure = await scheduler
+      .run('write', async () => {
+        throw new Error('body failed')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(AggregateError)
+    expect((failure as AggregateError).errors.map((error: Error) => error.message)).toEqual([
+      'body failed',
+      'close failed',
+    ])
+    expect(await within(scheduler.run('read', async () => 'after'))).toBe('after')
+    await scheduler.close()
+  })
+
+  it('lets a queued waiter through when the holder’s open rejects', async () => {
+    // The queued form of the same wedge: the second writer is already parked in
+    // the FIFO when the first lease fails to acquire its connection.
+    const parked = barrier()
+    const driver = asyncFakeDriver({
+      hooks: {
+        open: async (_lane, attempt) => {
+          if (attempt === 1) {
+            await parked.wait()
+            throw new Error('open failed')
+          }
+        },
+      },
+    })
+    const scheduler = createScheduler({ driver })
+
+    const first = scheduler.run('write', async () => 'first')
+    const queued = scheduler.run('write', async () => 'queued')
+    await parked.reached()
+    await settle()
+    parked.release()
+
+    await expect(first).rejects.toThrow('open failed')
+    expect(await within(queued)).toBe('queued')
+    await scheduler.close()
+  })
+})
+
+/**
+ * THE CAPABILITIES THE REMOTE PATH IS LOAD-BEARING ON [POD-3310, V1 finding 3].
+ *
+ * The contract had one-statement routing and nothing else, so E.5 would have had
+ * to change a supposedly-settled interface or reach around it. All three of
+ * these are measured facts about Turso, not speculation: a batch is 42x
+ * (POD-3251), the write transaction dies at about 9 s, and a concurrent writer
+ * gets a busy shape that only a bounded retry above the transaction can answer.
+ */
+describe('the batch capability', () => {
+  const run = (body: string): Statement => ({ sql: insert, params: [body], method: 'run' })
+
+  it('reaches the driver as ONE call, on the open transaction', async () => {
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.batch([run('a'), run('b'), run('c')])
+    })
+
+    // One entry, not three: a batch that resolved its scope per statement would
+    // be three round trips again, and would lose its atomicity.
+    expect(h.log.entries.filter((entry) => entry.includes('BATCH'))).toEqual(['s1:BATCH[3]'])
+    expect(await noteBodies(h.db)).toEqual(['a', 'b', 'c'])
+    expect(h.log.boundaries()).toEqual(['s1:BEGIN IMMEDIATE', 's1:COMMIT'])
+  })
+
+  it('routes a root batch ambiently, on the write lane, atomically', async () => {
+    const h = open()
+    // The second statement violates NOT NULL, so the batch fails as a unit.
+    await expect(
+      h.db.batch([run('kept'), { sql: insert, params: [null], method: 'run' }]),
+    ).rejects.toThrow()
+    expect(await noteBodies(h.db), 'all of it or none of it').toEqual([])
+
+    await h.db.batch([run('a'), run('b')])
+    expect(await noteBodies(h.db)).toEqual(['a', 'b'])
+  })
+
+  it('refuses a batch on a transaction whose scope has ended', async () => {
+    // The token rule is not per operation shape: a batch is as capable of
+    // running after its commit as a statement is.
+    const h = open()
+    let escaped: StoreExecutor<QueryClient> | undefined
+    await h.executor.transact(async (tx) => {
+      escaped = tx
+      await tx.drizzle.run(insert, 'committed')
+    })
+    await expect(
+      (escaped as StoreExecutor<QueryClient>).drizzle.batch([run('late')]),
+    ).rejects.toBeInstanceOf(StaleTransactionError)
+    expect(await noteBodies(h.db)).toEqual(['committed'])
+  })
+})
+
+describe('the declared write budget and busy retry', () => {
+  const busy = new Error('SQLITE_BUSY: database is locked')
+  const remoteLimits = {
+    writeBudgetMs: 9_000,
+    busyRetry: { attempts: 4, initialDelayMs: 10, maxDelayMs: 40 },
+  }
+  const classify = (error: unknown) => (error === busy ? ('busy' as const) : ('fatal' as const))
+
+  it('refuses a watchdog budget at or above the driver’s hard limit', () => {
+    // A watchdog above the engine's own limit can never fire first: it would
+    // report a transaction the server has already killed.
+    const driver = asyncFakeDriver({ limits: remoteLimits })
+    expect(() =>
+      createScheduler({ driver, watchdog: { budgetMs: 9_000, report: () => undefined } }),
+    ).toThrow(/not below/)
+
+    const ok = createScheduler({
+      driver: asyncFakeDriver({ limits: remoteLimits }),
+      watchdog: { budgetMs: 5_000, report: () => undefined },
+    })
+    expect(ok.state).toBe('accepting')
+  })
+
+  it('retries a busy BEGIN within the declared policy, and not a fatal one', async () => {
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        begin: async () => {
+          if (++attempts < 3) throw busy
+        },
+      },
+    })
+    const slept: number[] = []
+    const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
+
+    const result = await scheduler.run('write', async (lease) => {
+      await lease.begin('write')
+      return 'committed'
+    })
+
+    expect(result).toBe('committed')
+    expect(attempts).toBe(3)
+    expect(slept, 'the declared backoff, doubling to its cap').toEqual([10, 20])
+    await scheduler.close()
+  })
+
+  it('does not retry a failure the driver does not call busy', async () => {
+    // A retry of work that may already have applied is worse than a failure, so
+    // anything unclassified is fatal.
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      classify,
+      hooks: {
+        open: async () => {
+          attempts++
+          throw new Error('TRANSACTION_CLOSED')
+        },
+      },
+    })
+    const slept: number[] = []
+    const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
+
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow('TRANSACTION_CLOSED')
+    expect(attempts).toBe(1)
+    expect(slept).toEqual([])
+    await scheduler.close()
+  })
+
+  it('retries a busy acquisition, and stops at the declared deadline', async () => {
+    let attempts = 0
+    const driver = asyncFakeDriver({
+      // A short budget with a long backoff: the attempt count would allow five
+      // tries, the budget allows one retry.
+      limits: {
+        writeBudgetMs: 100,
+        busyRetry: { attempts: 5, initialDelayMs: 80, maxDelayMs: 160 },
+      },
+      classify,
+      hooks: {
+        open: async () => {
+          attempts++
+          throw busy
+        },
+      },
+    })
+    let clock = 0
+    const slept: number[] = []
+    const scheduler = createScheduler({
+      driver,
+      now: () => clock,
+      sleep: async (ms) => {
+        slept.push(ms)
+        clock += ms
+      },
+    })
+
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow(busy.message)
+    // Waiting longer than the transaction could have lived buys nothing.
+    expect(attempts).toBe(2)
+    expect(slept).toEqual([80])
+    expect(scheduler.state).toBe('accepting')
     await scheduler.close()
   })
 })
@@ -477,6 +873,104 @@ describe('post-commit', () => {
     expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
     expect(h.executor.health.healthy).toBe(false)
     await expect(h.executor.read(async () => undefined)).rejects.toBeInstanceOf(StoreUnhealthyError)
+  })
+
+  it('marks a mechanism-1 failure committed, and a later refusal not committed', async () => {
+    // WOULD CATCH the committed-error contract being wrong at exactly the point
+    // it matters: a caller handling the rejection of a mechanism-1 failure can
+    // otherwise not tell it from a rollback, and retrying it duplicates a
+    // durable write (spec §3.3, rule 7).
+    const h = open()
+    const failure = await h.executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed')
+        postCommit().applyCommit(() => {
+          throw new Error('baseline fold failed')
+        }, 'baseline')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(StoreUnhealthyError)
+    expect((failure as StoreUnhealthyError).committed).toBe(true)
+    expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
+
+    // The REFUSAL afterwards is the opposite case and must say so: the store is
+    // unhealthy, the work never ran, and nothing committed.
+    const refusal = await h.executor
+      .read(async () => undefined)
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+    expect(refusal).toBeInstanceOf(StoreUnhealthyError)
+    expect((refusal as StoreUnhealthyError).committed).toBe(false)
+  })
+
+  it('keeps a throwing effect sink out of the caller’s promise', async () => {
+    // WOULD CATCH a logging or telemetry adapter turning an ISOLATED effect
+    // failure into the transaction's rejection — and an unmarked one, so the
+    // caller reads a committed write as a failed one.
+    const lastResort: string[] = []
+    const h = open({
+      effectSink: () => {
+        throw new Error('sink failed')
+      },
+      onReportFailure: (_error, label) => lastResort.push(label),
+    })
+    const ran: string[] = []
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'committed')
+      postCommit().effect(() => {
+        throw new Error('socket gone')
+      }, 'sync-effect')
+      postCommit().effect(async () => {
+        throw new Error('notify gone')
+      }, 'async-effect')
+      postCommit().effect(() => {
+        ran.push('later')
+      }, 'later')
+    })
+
+    await h.executor.effectsSettled()
+    expect(lastResort, 'both the sync throw and the rejected promise').toEqual([
+      'sync-effect',
+      'async-effect',
+    ])
+    expect(ran, 'the effect after the failing ones still ran').toEqual(['later'])
+    expect(await noteBodies(h.db)).toEqual(['committed'])
+  })
+
+  it('keeps a throwing unhealthy reporter from replacing the committed error', async () => {
+    const lastResort: string[] = []
+    const h = open({
+      onUnhealthy: () => {
+        throw new Error('logger failed')
+      },
+      onReportFailure: (_error, label) => lastResort.push(label),
+    })
+
+    const failure = await h.executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed')
+        postCommit().applyCommit(() => {
+          throw new Error('baseline fold failed')
+        }, 'baseline')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    // The reporter's own failure must not become the caller's error: that would
+    // lose both the mechanism and the committed marker.
+    expect(failure).toBeInstanceOf(StoreUnhealthyError)
+    expect((failure as StoreUnhealthyError).committed).toBe(true)
+    expect(lastResort).toEqual(['baseline'])
+    expect(h.executor.health.healthy).toBe(false)
   })
 
   it('reports a durable follow-up failure as a committed failure and still drains the rest', async () => {
@@ -550,6 +1044,166 @@ describe('post-commit', () => {
       expect(ran, 'nothing runs before the commit').toEqual([])
     })
     expect(ran).toEqual(['outer', 'kept'])
+  })
+})
+
+/**
+ * THE TIMING THE TOKEN ACTUALLY CLAIMS [POD-3310, V1 finding 5].
+ *
+ * The landed harness proved the token only AFTER the outer promise resolved, so
+ * two mutations survived all 36 tests: moving `closeFrame(frame)` to after
+ * `await session.commit()`, and removing `assertAddressable(scope.frame)` only
+ * from the ambient router's transaction branch. Both need a commit that PARKS —
+ * a gap bun:sqlite's synchronous COMMIT does not have — and unawaited work
+ * issued from the body's own context while it is parked.
+ */
+describe('the token during an asynchronous commit', () => {
+  it('refuses the body’s unawaited work while the commit is parked', async () => {
+    const commitParked = barrier()
+    const escaped = barrier()
+    const driver = asyncFakeDriver({
+      hooks: {
+        commit: async () => {
+          await commitParked.wait()
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let leakedExplicit: Promise<unknown> | undefined
+    let leakedAmbient: Promise<unknown> | undefined
+
+    const done = executor.transact(async (tx) => {
+      // Neither is awaited by the body. Both resume from the body's own ALS
+      // context — the explicit handle and the ROOT-bound client, which is the
+      // ambient router's transaction branch.
+      leakedExplicit = escaped.wait().then(() => tx.drizzle.all(bodies))
+      leakedAmbient = escaped.wait().then(() => executor.drizzle.all(bodies))
+      await tx.drizzle.run(insert, 'body')
+    })
+
+    await commitParked.reached()
+    escaped.release()
+    await settle()
+
+    // The token died BEFORE the commit was issued, so both are refused while
+    // the commit is still open on the connection.
+    await expect(leakedExplicit).rejects.toBeInstanceOf(StaleTransactionError)
+    await expect(leakedAmbient).rejects.toBeInstanceOf(StaleTransactionError)
+
+    commitParked.release()
+    await done
+
+    // And neither statement ever reached the session: results alone cannot say
+    // this, because a statement run during the commit still returns rows.
+    expect(driver.calls.filter((call) => call.includes(':execute:'))).toEqual([
+      `s1:execute:${insert}`,
+    ])
+    await executor.close()
+  })
+
+  it('refuses a post-commit continuation that resumes after the drain', async () => {
+    // The same rule one phase later. The lease goes back to the scheduler when
+    // the drain ends, so a follow-up's unawaited promise must be refused, not
+    // issued on a connection somebody else now holds.
+    const escaped = barrier()
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let leaked: Promise<unknown> | undefined
+
+    await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      postCommit().followUp(() => {
+        leaked = escaped.wait().then(() => executor.drizzle.all(bodies))
+      }, 'leak')
+    })
+
+    escaped.release()
+    await expect(leaked).rejects.toBeInstanceOf(StaleTransactionError)
+    await executor.close()
+  })
+
+  it('sends a late external effect to the root, not to its released lease', async () => {
+    // WOULD CATCH the stale post-commit scope: an effect is never awaited, so
+    // its continuation resumes after the lease is released. Routed to that
+    // lease it addresses a connection the scheduler has handed back — on a
+    // reusable remote client that is an out-of-order write on somebody else's
+    // session, not an error.
+    const parked = barrier()
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      postCommit().effect(async () => {
+        await parked.wait()
+        await executor.drizzle.run(insert, 'from-effect')
+      }, 'late')
+    })
+
+    expect(driver.closes, 'the lease is back with the scheduler').toBe(1)
+    parked.release()
+    await executor.effectsSettled()
+
+    // A SECOND lease, taken through admission like any other root caller.
+    expect(driver.opens).toBe(2)
+    expect(driver.calls.filter((call) => call.includes(':execute:'))).toEqual([
+      `s1:execute:${insert}`,
+      `s2:execute:${insert}`,
+    ])
+    await executor.close()
+  })
+})
+
+describe('post-commit runner retention', () => {
+  it('holds no runner after writes whose post-commit work is done', async () => {
+    // WOULD CATCH the leak: the executor owned a strong `Set` a runner was only
+    // ever added to. One runner, queue, effect set and option closure per root
+    // write — including writes with no post-commit work at all — kept for the
+    // life of the process, with `effectsSettled()` scanning all of them.
+    const h = open()
+    for (let i = 0; i < 12; i++) {
+      await h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, `sequential-${i}`)
+      })
+    }
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        h.executor.transact(async (tx) => {
+          await tx.drizzle.run(insert, `burst-${i}`)
+          // A settled effect must not keep its runner either.
+          postCommit().effect(() => undefined, 'done')
+        }),
+      ),
+    )
+    await h.executor.effectsSettled()
+    await settle()
+
+    expect(h.executor.diagnostics.retainedRunners).toBe(0)
+  })
+
+  it('keeps a runner exactly until its delayed effect settles', async () => {
+    // The other half: removal must not race `effectsSettled()`, which would
+    // make the executor stop waiting for effects still in flight.
+    const parked = barrier()
+    const h = open()
+    const ran: string[] = []
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'committed')
+      postCommit().effect(async () => {
+        await parked.wait()
+        ran.push('late')
+      }, 'late')
+    })
+    await settle()
+    expect(h.executor.diagnostics.retainedRunners, 'still owed an effect').toBe(1)
+
+    const settled = h.executor.effectsSettled()
+    parked.release()
+    await settled
+    expect(ran, 'effectsSettled waited for the effect it still owned').toEqual(['late'])
+    await settle()
+    expect(h.executor.diagnostics.retainedRunners).toBe(0)
   })
 })
 

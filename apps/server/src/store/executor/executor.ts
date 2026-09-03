@@ -32,14 +32,25 @@ import {
   closeFrame,
   createFrame,
   currentScope,
+  poisonUnit,
   runInScope,
   type TransactionFrame,
 } from './context'
-import type { DriverSession, Lane, QueryClient, StatementRouter, StoreDriver } from './driver'
+import type {
+  BatchRouter,
+  DriverSession,
+  Lane,
+  QueryClient,
+  Statement,
+  StatementRouter,
+  StoreDriver,
+} from './driver'
 import {
   ExclusiveInsideLeaseError,
   NoPostCommitScopeError,
+  StaleTransactionError,
   StoreUnhealthyError,
+  TransactionPoisonedError,
   WriteInsideReadLeaseError,
 } from './errors'
 import { type PostCommitRegistrar, PostCommitRegistry, PostCommitRunner } from './post-commit'
@@ -54,6 +65,11 @@ export interface StoreExecutor<TClient = QueryClient> {
   readonly context: StoreContext
   transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
   read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
+}
+
+export interface StoreDiagnostics {
+  /** Post-commit runners still owned: those still draining or still settling effects. */
+  readonly retainedRunners: number
 }
 
 export interface StoreHealth {
@@ -74,6 +90,12 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
   outsideTransaction<T>(fn: (view: StoreExecutor<TClient>) => Promise<T>): Promise<T>
   readonly scheduler: Scheduler
   readonly health: StoreHealth
+  /**
+   * What the executor is still holding. `retainedRunners` is the one that grows
+   * with lifetime write volume if a runner is ever kept past its work, so it is
+   * the number a leak test can pin (spec §3.3).
+   */
+  readonly diagnostics: StoreDiagnostics
   /** Every external effect started on any lease so far has settled. */
   effectsSettled(): Promise<void>
   close(): Promise<void>
@@ -89,6 +111,12 @@ export interface StoreExecutorOptions<TClient> {
   effectSink?: (error: unknown, label: string) => void
   /** Called when mechanism 1 fails and the store becomes unhealthy. */
   onUnhealthy?: (error: unknown, label: string) => void
+  /**
+   * A report sink (`effectSink`, `onUnhealthy`) threw. Sinks are called through
+   * a guard so an adapter that throws cannot turn an isolated post-commit
+   * failure into an unmarked rejection of a committed write.
+   */
+  onReportFailure?: (error: unknown, label: string) => void
 }
 
 /**
@@ -141,8 +169,30 @@ export function createStoreExecutor<TClient>(
     )
   }
 
+  /**
+   * A runner belongs to ONE root operation, so the executor may only own it
+   * while it still has work. Held past that it is a leak with two costs: a
+   * queue, an effect set and an option closure retained per committed or
+   * rolled-back write for the lifetime of the process, and an `effectsSettled()`
+   * that scans every runner the store has ever created.
+   *
+   * Retirement waits for the effects, because they outlive the drain by design:
+   * dropping the runner at the end of the drain would make `effectsSettled()`
+   * blind to exactly the work it exists to wait for.
+   */
+  function retire(runner: PostCommitRunner): void {
+    void runner.effectsSettled().then(
+      () => runners.delete(runner),
+      () => runners.delete(runner),
+    )
+  }
+
   function newRunner(): PostCommitRunner {
-    const runner = new PostCommitRunner({ markUnhealthy, effectSink })
+    const runner = new PostCommitRunner({
+      markUnhealthy,
+      effectSink,
+      ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
+    })
     runners.add(runner)
     return runner
   }
@@ -162,10 +212,49 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'post-commit') {
       // The transaction is closed, so this is a root statement — but it stays
       // on the held lease, inside the scheduler's ordered operation.
+      assertDraining(scope)
       return scope.lease.session.execute(statement)
     }
     const lane: Lane = statement.method === 'run' ? 'write' : 'read'
     return scheduler.run(lane, (lease) => lease.session.execute(statement))
+  }
+
+  /**
+   * The post-commit half of the token rule. The lease is released when the
+   * drain ends, so a continuation that resolves after it — a follow-up promise
+   * the drain did not await — must be refused rather than issued on a
+   * connection the scheduler has already handed back.
+   */
+  function assertDraining(scope: { active(): boolean }): void {
+    if (scope.active()) return
+    throw new StaleTransactionError(
+      'the post-commit scope this operation addressed has ended, so its lease is released. ' +
+        'A promise the post-commit work did not await is the usual cause.',
+    )
+  }
+
+  /**
+   * The batch form of the ambient router. Same three routes, one driver call —
+   * a batch that resolved its scope per statement would be N round trips again
+   * and would lose the atomicity the batch is for.
+   */
+  const ambientBatchRouter: BatchRouter = async (statements) => {
+    assertHealthy()
+    const scope = currentScope()
+    if (scope.kind === 'transaction') {
+      assertAddressable(scope.frame)
+      return scope.frame.lease.session.executeBatch(statements)
+    }
+    if (scope.kind === 'post-commit') {
+      assertDraining(scope)
+      return scope.lease.session.executeBatch(statements)
+    }
+    return scheduler.run(batchLane(statements), (lease) => lease.session.executeBatch(statements))
+  }
+
+  /** A batch that writes anything takes the write lane: it is one transaction. */
+  function batchLane(statements: readonly Statement[]): Lane {
+    return statements.some((statement) => statement.method === 'run') ? 'write' : 'read'
   }
 
   function frameRouter(frame: TransactionFrame): StatementRouter {
@@ -176,13 +265,21 @@ export function createStoreExecutor<TClient>(
     }
   }
 
+  function frameBatchRouter(frame: TransactionFrame): BatchRouter {
+    return async (statements) => {
+      assertHealthy()
+      assertAddressable(frame)
+      return frame.lease.session.executeBatch(statements)
+    }
+  }
+
   const boundExecutors = new WeakMap<TransactionFrame, StoreExecutor<TClient>>()
 
   function executorForFrame(frame: TransactionFrame): StoreExecutor<TClient> {
     const cached = boundExecutors.get(frame)
     if (cached) return cached
     const bound: StoreExecutor<TClient> = {
-      drizzle: driver.client(frameRouter(frame)),
+      drizzle: driver.client(frameRouter(frame), frameBatchRouter(frame)),
       legacy: options.legacy,
       context: {},
       transact: (fn) => transactOn(frame, fn),
@@ -194,7 +291,15 @@ export function createStoreExecutor<TClient>(
 
   /** A frame over a session that the scheduler does not lease (the reader). */
   function detachedLease(session: DriverSession): Lease {
-    return { id: 0, lane: 'read', session, heldMs: () => 0 }
+    // No transaction and no scheduler slot: the reader connection is its own
+    // snapshot, so `begin` has nothing to open and nothing to retry.
+    return {
+      id: 0,
+      lane: 'read',
+      session,
+      begin: async () => undefined,
+      heldMs: () => 0,
+    }
   }
 
   async function runTopLevel<T>(
@@ -205,7 +310,9 @@ export function createStoreExecutor<TClient>(
   ): Promise<T> {
     const registry = new PostCommitRegistry()
     const frame = createFrame({ lane, lease, parent: undefined, postCommit: registry })
-    await lease.session.begin(lane)
+    // Through the LEASE, so the driver's bounded busy retry applies: this is
+    // the last point at which nothing of the body has run.
+    await lease.begin(lane)
     let result: T
     try {
       result = await runInScope({ kind: 'transaction', frame }, () => fn(executorForFrame(frame)))
@@ -218,9 +325,30 @@ export function createStoreExecutor<TClient>(
     // The token dies HERE: before the callback's result is returned and before
     // the connection is released. Anything the body left in flight now rejects.
     closeFrame(frame)
+    if (frame.unit.poisoned !== undefined) {
+      // A boundary failed somewhere under this transaction and the body carried
+      // on regardless. Committing would commit a frame stack that no longer
+      // describes what the engine holds.
+      registry.discard()
+      await lease.session.rollback()
+      throw new TransactionPoisonedError(
+        'the transaction is rolled back: a savepoint boundary failed, so what the engine held ' +
+          'open was no longer known and the commit could not be trusted.',
+        frame.unit.poisoned,
+      )
+    }
     await lease.session.commit()
     if (runner) {
-      await runInScope({ kind: 'post-commit', lease, runner }, () => runner.drain(registry))
+      // The scope dies when the drain does, for the same reason the frame's
+      // token dies before the commit: the lease goes back to the scheduler.
+      let draining = true
+      try {
+        await runInScope({ kind: 'post-commit', lease, runner, active: () => draining }, () =>
+          runner.drain(registry),
+        )
+      } finally {
+        draining = false
+      }
     }
     return result
   }
@@ -240,19 +368,39 @@ export function createStoreExecutor<TClient>(
     // turn is refused rather than racing for the savepoint stack.
     parent.child = frame
     const name = `podium_sp_${frame.depth}`
-    await parent.lease.session.enterSavepoint(name)
+    try {
+      await parent.lease.session.enterSavepoint(name)
+    } catch (error) {
+      // The scope never opened, so the parent gets its addressability back
+      // rather than being left with a child that will never close. Nothing ran
+      // inside it, and an outer COMMIT closes a savepoint that did get created.
+      closeFrame(frame)
+      throw error
+    }
     let result: T
     try {
       result = await runInScope({ kind: 'transaction', frame }, () => fn(executorForFrame(frame)))
     } catch (error) {
       closeFrame(frame)
       registry.discard()
-      await parent.lease.session.rollbackToSavepoint(name)
-      await parent.lease.session.releaseSavepoint(name)
+      try {
+        await parent.lease.session.rollbackToSavepoint(name)
+        await parent.lease.session.releaseSavepoint(name)
+      } catch (boundaryError) {
+        // The body's own error is what the caller asked about, so it still
+        // wins — but the transaction state is now unknown, and an outer body
+        // that catches this must not go on to commit on top of it.
+        poisonUnit(parent, boundaryError)
+      }
       throw error
     }
     closeFrame(frame)
-    await parent.lease.session.releaseSavepoint(name)
+    try {
+      await parent.lease.session.releaseSavepoint(name)
+    } catch (error) {
+      poisonUnit(parent, error)
+      throw error
+    }
     // A savepoint release is not a commit: the work follows whoever commits.
     registry.mergeInto(parent.postCommit)
     return result
@@ -302,21 +450,32 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'post-commit') {
       // A follow-up committing durably: the same lease, a fresh transaction,
       // and its own post-commit work queued behind the batch being drained.
+      assertDraining(scope)
       return runTopLevel(scope.lease, 'write', fn, scope.runner)
     }
-    return scheduler.run('write', (lease) => runTopLevel(lease, 'write', fn, newRunner()))
+    return scheduler.run('write', async (lease) => {
+      const runner = newRunner()
+      try {
+        return await runTopLevel(lease, 'write', fn, runner)
+      } finally {
+        retire(runner)
+      }
+    })
   }
 
   async function read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
     assertHealthy()
     const scope = currentScope()
     if (scope.kind === 'transaction') return readOn(scope.frame, fn)
-    if (scope.kind === 'post-commit') return runTopLevel(scope.lease, 'read', fn, undefined)
+    if (scope.kind === 'post-commit') {
+      assertDraining(scope)
+      return runTopLevel(scope.lease, 'read', fn, undefined)
+    }
     return scheduler.run('read', (lease) => runTopLevel(lease, 'read', fn, undefined))
   }
 
   const root: RootStoreExecutor<TClient> = {
-    drizzle: driver.client(ambientRouter),
+    drizzle: driver.client(ambientRouter, ambientBatchRouter),
     legacy: options.legacy,
     context: {},
     transact,
@@ -356,6 +515,9 @@ export function createStoreExecutor<TClient>(
     scheduler,
     get health() {
       return { healthy, error: healthError }
+    },
+    get diagnostics() {
+      return { retainedRunners: runners.size }
     },
     async effectsSettled() {
       await Promise.all([...runners].map((runner) => runner.effectsSettled()))
