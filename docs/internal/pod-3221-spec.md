@@ -628,8 +628,29 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    MEASURED ON TURSO (POD-3251, 2026-09-03). The write-transaction budget is about **9 seconds**,
    not the 5 this spec assumed: alive at an 8 s gap, dead at 10. Four constraints follow, and they
    bind the flip and E.5, not just the Turso backend:
-   - **No slow await inside a transaction body.** The budget is wall-clock on the server. This is
-     the same requirement as B0.5's span side-effect classification, now with a number on it.
+   - **No slow await inside a transaction body.** THE BUDGET BOUNDS THE GAP BETWEEN STATEMENTS, NOT
+     THE TRANSACTION'S TOTAL DURATION — corrected 2026-09-03 by POD-3250, which measured it: a
+     21.6 s transaction with a statement every 2 s COMMITS, while a 12.2 s one with a single idle
+     gap is reaped. My earlier wording, "the budget is wall-clock on the server", was wrong and
+     would have made the 250-row append (27.8 s of continuous statements) look impossible.
+     CONSEQUENCE FOR B2.2: a watchdog derived from `writeBudgetMs` must measure time SINCE THE LAST
+     STATEMENT, not elapsed time since BEGIN. A duration-based watchdog would kill healthy long
+     appends and miss the idle ones that actually die.
+
+   - **There is no fast busy error.** POD-3250 drove it: a second writer against a held write
+     transaction BLOCKS (5.0 s local, 10.6 s hosted) and then WINS, and the holder loses everything.
+     `driver.ts`'s header says a concurrent writer gets a busy error; it does not. Any retry policy
+     must be written against blocking, not against a fast refusal.
+
+   - **A raw batch inside an open transaction is NOT atomic.** Driving `tx.batch` with a failing
+     second statement leaves the first APPLIED, on both the local and hosted engines. So the
+     savepoint POD-3313 wraps around a batch is load-bearing rather than a precaution, and it costs
+     two round trips per batch — priced in POD-3250's document.
+
+   - **drizzle's builder emits PHYSICAL column names, and only drizzle's own execution path maps
+     them back.** A router-based driver that returns rows keyed by physical name hands the caller
+     objects whose fields do not match the schema's TypeScript names. Found by being bitten by it;
+     it bears directly on E.5's driver and on every converted repository that reads a returned row.
    - **`BEGIN IMMEDIATE` is available ONLY through `client.transaction("write")`.** A raw `BEGIN`
      executes successfully and is then silently useless, because each `execute()` is its own
      stream. A silent no-op is the worst failure mode available here, so the executor's libsql
