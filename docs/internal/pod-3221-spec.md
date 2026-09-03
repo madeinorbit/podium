@@ -918,7 +918,34 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     pin what each column's behaviour IS, not which drizzle mode implements it, and the decision
     stops being able to falsify it.
 
-22. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+22. **The transaction-port lint exempts DRIVER FILES BY NAME, never a directory and never a
+    marker.** Decided 2026-09-03 answering POD-3342, which spotted that the rule flags the one site
+    that must make the call.
+
+    The rule keeps transactions on the store's port. A driver IS that port's implementation, so
+    `client.transaction("write")` inside a `DriverSession.begin` is the rule being obeyed, not
+    broken. `bun-driver.ts` escapes today only by accident — bun:sqlite's `BEGIN IMMEDIATE` is a raw
+    statement rather than a `client.transaction()` call — and E.5's real libsql driver trips it on
+    day one.
+
+    THE EXEMPTION IS A NAMED FILE LIST, following the precedent rule 2 already sets for the
+    `SqlDatabase` driver seam (three files, named). Not candidate (a)'s directory: `store/executor/`
+    also holds the scheduler and the executor itself, and none of those may open a raw transaction —
+    a directory exemption would stop the rule watching the files it most needs to watch. Not
+    candidate (c)'s `DECISION` markers: Stage A's exit gate requires zero markers, so E.5 would need
+    a permanent one, which turns a completeness gate into a standing exception.
+
+    Candidate (b), exempting by symbol, is the theoretically right answer and is refused on
+    checkability: it needs the callee's declaring TYPE, and this epic has already learned (execution
+    method, POD-3257) that a name-matching scan cannot carry that weight. A named file list is
+    honest about being a list.
+
+    A SPIKE GETS NO BLANKET EXEMPTION. `store/spike/turso-append/` is an instrument: nothing imports
+    it and the composition root does not know it exists. Its driver file is named in the list like
+    any other; its measurement harness drives raw transactions deliberately and is exempted the same
+    way. It lands with a deletion issue, per the method's §7.
+
+23. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
