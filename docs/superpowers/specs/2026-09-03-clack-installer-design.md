@@ -194,6 +194,107 @@ prints a plain-text fallback report if it does not. rustup faces the same case a
 explicitly (rustup.sh:177, noexec `/tmp`). Reporting failure is part of the installer's job, so
 it cannot depend on the thing that failed.
 
+## Contracts
+
+### `SetupIO` (apps/cli/src/setup-ui.ts)
+
+```ts
+export const CANCEL: unique symbol
+export type Cancellable<T> = T | typeof CANCEL
+export function isCancel(v: unknown): v is typeof CANCEL
+
+export interface SetupIO {
+  intro(title: string): void
+  outro(message: string): void
+  note(body: string, title?: string): void
+  /** The copy-paste primitive: a box containing `command` and nothing else. */
+  command(command: string, caption?: string): void
+  step(message: string): void
+  success(message: string): void
+  warn(message: string): void
+  error(message: string): void
+  select<T>(o: {
+    message: string
+    options: { value: T; label: string; hint?: string }[]
+    initialValue?: T
+  }): Promise<Cancellable<T>>
+  text(o: {
+    message: string
+    placeholder?: string
+    defaultValue?: string
+    validate?: (v: string) => string | undefined
+  }): Promise<Cancellable<string>>
+  password(o: {
+    message: string
+    validate?: (v: string) => string | undefined
+  }): Promise<Cancellable<string>>
+  confirm(o: { message: string; initialValue?: boolean }): Promise<Cancellable<boolean>>
+  spinner(): { start(message: string): void; stop(message?: string, code?: number): void }
+}
+
+export function clackIO(): SetupIO
+export function scriptedIO(answers: unknown[]): { io: SetupIO; output: string[] }
+```
+
+`scriptedIO` takes **one ordered queue**, not a queue per widget: each prompt shifts the next
+answer regardless of its kind, and `CANCEL` in the array simulates Ctrl-C. This keeps the
+existing test style — an array of answers in flow order — so porting `cli-setup.test.ts` stays
+close to mechanical. `output` collects every non-prompt line for assertions.
+
+### `podium install-finish`
+
+Absent from the user-facing help.
+
+| flag | meaning |
+| --- | --- |
+| `--channel stable\|edge` | persist the update channel; default `stable` |
+| `--instance <id>` | which instance was installed; default `default` |
+| `--dest <path>` | where the payload landed (required) |
+| `--bin <path>` | the bin dir holding the launcher (required) |
+| `--command <name>` | the launcher's name — `podium`, or `podium-<instance>` (required) |
+| `--agents <csv>` | `codex,claude-code,grok` subset to install |
+| `--vps` | use `runVpsSetup` rather than the `runCliSetup` menu |
+| `--no-modify-path` | skip PATH persistence (`PODIUM_NO_MODIFY_PATH`) |
+| `--no-interactive` | never prompt, even on a terminal |
+| `--managed` / `--shared` | accepted, inert — see POD-3309 |
+
+The join token arrives as `PODIUM_JOIN_TOKEN` in the environment, not argv.
+
+### Module responsibilities
+
+| file | owns |
+| --- | --- |
+| `apps/cli/src/setup-ui.ts` | the clack-backed `SetupIO`, `clackIO`, `scriptedIO` |
+| `apps/cli/src/install-path.ts` | PATH snippet for sh/bash/zsh/fish; idempotent |
+| `apps/cli/src/install-supervision.ts` | user-bus probe, `XDG_RUNTIME_DIR` repair, persistence choice |
+| `apps/cli/src/install-agents.ts` | vendor agent installers + Claude checksum fallback |
+| `apps/cli/src/install-finish.ts` | the post-handoff flow that sequences the above |
+| `install.sh` | args, platform, bootstrap tools, download, verify, extract, handoff |
+
+`installSystemd` (apps/cli/src/cli-systemd.ts:474) already performs `loginctl enable-linger` and
+already returns an actionable `remedy` when there is no user bus, so `install-supervision.ts`
+adds only the `XDG_RUNTIME_DIR` recovery that install.sh:404-406 does today. The rest of the
+shell block is deleted, not moved.
+
+### Behavioural requirements
+
+Numbered so tests can cite them.
+
+- **R1** — Signature verification failing leaves `$DEST` untouched and exits non-zero.
+- **R2** — install.sh execs the installed binary only after verification *and* a successful
+  `--version` probe.
+- **R3** — When that probe fails, install.sh prints a plain-text report naming the command to
+  re-run, and exits non-zero.
+- **R4** — `install-finish` persists the update channel before any other step.
+- **R5** — The PATH snippet reaches the same file set as today, with the same marker, and a
+  second run adds nothing.
+- **R6** — With `PODIUM_JOIN_TOKEN` set, `install-finish` pairs without prompting.
+- **R7** — On a TTY with no join token and no `--no-interactive`, `install-finish` runs the
+  interactive setup.
+- **R8** — Without a TTY, `install-finish` prints the report and never prompts.
+- **R9** — Every command an operator is expected to copy is rendered through `command()`.
+- **R10** — `--managed` and `--shared` are accepted and change nothing.
+
 ## Testing
 
 - `scripts/install-sh.test.sh` (366 lines) shrinks to the bootstrap contract: arch selection,
@@ -213,16 +314,10 @@ it cannot depend on the thing that failed.
 :24-25. Nothing reads it — not later in install.sh, not anywhere in `apps/` or `packages/`.
 Both flags are accepted and have no effect today.
 
-Rewriting the arg parser forces a decision, and it is not mine to make silently:
-
-- **Wire it up** if managed-vs-shared was meant to reach the install (it plausibly relates to
-  the managed-session install shape in SP-d6e8), in which case what it should *do* needs
-  stating.
-- **Keep accepting and ignoring** them, so any script or docs passing `--managed` keeps working,
-  without carrying a dead variable into TypeScript.
-- **Reject them** as unknown args, which is honest but breaks anything that passes them.
-
-Defaulting to the middle option unless told otherwise.
+**Decided (2026-09-03):** handled separately, in POD-3309. This work keeps both flags accepted
+and inert — the rewritten parser recognises them and does nothing with them, so nothing passing
+`--managed` breaks and no dead variable is carried into TypeScript. Whether they should mean
+something is POD-3309's call, not this one's.
 
 ## Risks
 
