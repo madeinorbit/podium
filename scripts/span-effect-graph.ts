@@ -316,8 +316,8 @@ const NOT_A_SPAN_OPENER: readonly (SourceSite & { readonly why: string })[] = [
   },
   {
     file: 'apps/server/src/store/executor/executor.ts',
-    line: 676,
-    why: "the same declaration's implementation.",
+    line: 680,
+    why: "the same declaration's implementation. (Was 676; POD-3345's idle-gap clock moved it, and the lint REPORTED the move rather than following it silently, which is what pinning by line is for.)",
   },
   {
     file: 'packages/sync/src/authority/authority.ts',
@@ -454,6 +454,27 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  /* --- the sync adapter's narrow port over that same handle [POD-3338] ----- */
+  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlConnection.prepare': {
+    kind: 'contained',
+    why: "the sync adapter's port over the store's legacy connection. Structurally the same handle SqlDatabase.prepare names, declared separately only because a package may not import an app; it is a SQL statement and nothing outside the process can tell it ran. It stops being a port member when the adapter's own conversion wave lands.",
+  },
+  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlStatement.run': {
+    kind: 'contained',
+    why: 'a SQL statement, through the port above.',
+  },
+  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlStatement.get': {
+    kind: 'contained',
+    why: 'a SQL statement, through the port above.',
+  },
+  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlStatement.all': {
+    kind: 'contained',
+    why: 'a SQL statement, through the port above.',
+  },
+  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlConnection.exec': {
+    kind: 'contained',
+    why: 'a SQL statement, through the port above.',
+  },
   /* --- the raw SQLite handle, still in place until the flip ---------------- */
   'packages/runtime/src/sqlite/types.ts#SqlStatement.run': {
     kind: 'contained',
