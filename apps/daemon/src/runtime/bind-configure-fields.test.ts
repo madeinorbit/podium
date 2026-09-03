@@ -12,6 +12,7 @@
  * restated the answer would drift in lockstep with the thing it is checking.
  */
 
+import { readFileSync } from 'node:fs'
 import {
   type AgentSessionHandle,
   claudeSdkCapabilities,
@@ -19,7 +20,6 @@ import {
 } from '@podium/agent-runtime'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import { emitClaudeBinding } from './claude-sdk-driver'
 
@@ -43,7 +43,9 @@ async function bindFrameFor(driver: string): Promise<BindFrame> {
       sessionId: 'session-bind' as SessionId,
       cwd: '/w',
       agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
+      // No record and no geometry: this suite is about the capability fields,
+      // and since POD-3290 a bind's grid can only come from an applied-size
+      // record — there is no geometry to hand in here.
     },
     handleOn(driver),
   )

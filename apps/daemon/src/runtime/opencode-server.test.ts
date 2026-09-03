@@ -911,11 +911,18 @@ describe('the contract bind fact', () => {
      * a site that reverts to `ctx.runtime?.has(...)` tomorrow passes all three
      * tests above and ships the same defect.
      *
-     * So this reads the source and asserts the CALL SITES. Every `type: 'bind'`
-     * in the daemon either routes through the predicate or — for a server
-     * driver's own bind — hardcodes `true`, which is equivalent by construction
-     * because the handle is registered before that line runs. A NEW bind site
-     * appearing without one of those two shapes fails here.
+     * So this reads the source and asserts the CALL SITES. Every bind the daemon
+     * builds either routes through the predicate or — for a server driver's own
+     * bind — hardcodes `true`, which is equivalent by construction because the
+     * handle is registered before that line runs. A NEW bind site appearing
+     * without one of those two shapes fails here.
+     *
+     * THE MARKER IS `bindFrame(` SINCE POD-3290, not `type: 'bind'`. That
+     * literal now appears in exactly one file — the one builder — and
+     * `control/applied-geometry.test.ts` is the gate that keeps it there. So the
+     * two suites together still cover the whole surface: a hand-rolled bind
+     * anywhere fails that gate, and a bind built here without a contract fact
+     * fails this one.
      */
     const daemonSrc = join(import.meta.dirname, '..')
     const files = [
@@ -923,22 +930,26 @@ describe('the contract bind fact', () => {
       join(daemonSrc, 'runtime', 'opencode-driver.ts'),
       join(daemonSrc, 'runtime', 'codex-driver.ts'),
       join(daemonSrc, 'runtime', 'grok-driver.ts'),
+      // ADDED WITH THE BUILDER (POD-3290). The embedded Claude bind states the
+      // same two facts and was simply never in this list; now that every bind
+      // has one shape there is no reason to leave it out.
+      join(daemonSrc, 'runtime', 'claude-sdk-driver.ts'),
     ]
     let bindSites = 0
     for (const file of files) {
       const source = readFileSync(file, 'utf8')
       for (const [index, line] of source.split('\n').entries()) {
-        if (!line.includes("type: 'bind'")) continue
+        if (!line.includes('bindFrame(')) continue
         bindSites += 1
-        // The frame body, from `type: 'bind'` to the call's closing `})`. Taken
-        // by brace rather than by a line count: the opencode driver's bind
-        // carries a long comment explaining why it states the fact outright, and
-        // a fixed window would have "found" no fact there.
+        // The frame body, from the builder call to its closing `}),`. Taken by
+        // brace rather than by a line count: the opencode driver's bind carries
+        // a long comment explaining why it states the fact outright, and a fixed
+        // window would have "found" no fact there.
         const lines = source.split('\n')
         let body = ''
         for (let i = index; i < lines.length; i++) {
           body += `${lines[i]}\n`
-          if (/^\s{0,8}\}\)/.test(lines[i] ?? '')) break
+          if (/^\s{0,10}\}\),?$/.test(lines[i] ?? '')) break
         }
         expect(
           body.includes('sessionIsBehindContract(') || body.includes('runtimeContract: true'),
@@ -956,13 +967,14 @@ describe('the contract bind fact', () => {
       }
     }
     /**
-     * EIGHT today: launchSpawn, two handleReattach arms, three server-driver
+     * NINE today: launchSpawn, two handleReattach arms, three server-driver
      * launches, the ADOPT path that rebinds a surviving server after restart,
-     * and — added by `fix(runtime): let a parked server session come back` —
-     * `resumeJournalledServerSession`, which rebuilds a PARKED server session
-     * from its binding journal.
+     * `resumeJournalledServerSession` (added by `fix(runtime): let a parked
+     * server session come back`), which rebuilds a PARKED server session from
+     * its binding journal — and, counted here since POD-3290, the embedded
+     * Claude driver's `emitClaudeBinding`.
      *
-     * THE EIGHTH WAS DECIDED HERE, which is what the count is for. It states
+     * SEVERAL WERE DECIDED HERE, which is what the count is for. They state
      * `runtimeContract: true` and `driverId` outright rather than asking the
      * predicate — the second of the two shapes above, and legitimate for the
      * same reason a server driver's own bind is: the handle is registered
@@ -971,7 +983,7 @@ describe('the contract bind fact', () => {
      * The count is asserted so a new bind site cannot be added without coming
      * here and deciding what it reports.
      */
-    expect(bindSites).toBe(8)
+    expect(bindSites).toBe(9)
   })
 })
 

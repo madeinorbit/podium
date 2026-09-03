@@ -123,6 +123,7 @@ import {
   killAbducoSession,
   spawnAbducoAgent,
 } from '@podium/pty'
+import type { AppliedGeometryRecord } from '../control/applied-geometry'
 import {
   harnessChildStripEnv,
   harnessCompatEnv,
@@ -338,6 +339,16 @@ export interface OpencodeClientTerminalPorts {
    * later and better.
    */
   hasMaster?(label: string): boolean
+  /**
+   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290).
+   *
+   * Opening a client terminal is one of the few places the daemon really does
+   * put a session at a size — `geometry` below — and it is the only place that
+   * fact is knowable, since nothing else sees the spawn. Written here, read by
+   * the one bind builder and by the resize report; absent in a harness built
+   * without a daemon behind it.
+   */
+  appliedGeometry?: AppliedGeometryRecord
   geometry?: Geometry
   warmTtlMs?: number
   setTimer?(fn: () => void, ms: number): unknown
@@ -620,6 +631,17 @@ export function createOpencodeClientTerminals(
     if (!session.adopted && !record.preserveReplayOnRelaunch) {
       ports.frames(record.streamId, Buffer.from(CLIENT_GENERATION_RESET))
     }
+    /**
+     * AN APPLY SITE (POD-3290), and the only one outside `control/session.ts`.
+     *
+     * A CREATED client terminal really is opened at `geometry`, so the daemon
+     * has put this session at a grid and any later report may say so. An ADOPTED
+     * master is the opposite case and is deliberately excluded: it survived this
+     * daemon at a size of its own, and recording `geometry` for it would invent
+     * exactly the 120x40 that the server-family binds used to announce.
+     */
+    if (!session.adopted)
+      ports.appliedGeometry?.apply(record.streamId, geometry.cols, geometry.rows)
     record.preserveReplayOnRelaunch = false
     session.onFrame((frame) => {
       driverTiming.nativeCliStage(record.streamId, kind, 'native_cli_first_output', {
@@ -674,6 +696,9 @@ export function createOpencodeClientTerminals(
       record.generation.pendingBytes = 0
     }
     attachments.delete(sessionId)
+    // THE TERMINAL THAT WAS AT THAT SIZE IS GONE (POD-3290), so the daemon holds
+    // no applied grid for this session any more.
+    ports.appliedGeometry?.forget(sessionId)
     if (record) {
       disarm(record)
       // The relay keeps a coalescing entry per session stream. Nothing else

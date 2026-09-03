@@ -36,9 +36,9 @@
  */
 
 import {
+  type AgentSessionHandle,
   attachKindsForDriver,
   configureFieldsForDriver,
-  type AgentSessionHandle,
   createOpencodeRuntime,
   OPENCODE_SERVER_DRIVER_ID,
   type OpencodeRuntime,
@@ -49,6 +49,7 @@ import {
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import { type DaemonMessage, isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { type AppliedGeometryRecord, bindFrame } from '../control/applied-geometry'
 import { driverTiming } from './driver-timing'
 import { reportQueueAbandonment } from './queue-abandonment'
 
@@ -58,6 +59,17 @@ const log = createLogger('daemon:opencode-driver')
 export interface OpencodeSessionHost {
   send(msg: DaemonMessage): void
   host: OpencodeRuntimeHost
+  /**
+   * THIS DAEMON'S APPLIED-SIZE RECORD (POD-3290), read by `bindFrame` below and
+   * written by nothing in this file. A server-family session has no terminal at
+   * launch, so the record is empty and the bind is bare — which is the point:
+   * the `geometry: { cols: 120, rows: 40 }` that stood in this frame described a
+   * client nobody had opened, and the server took it for a report.
+   *
+   * Optional because a host can be built without a daemon behind it; absent
+   * reads as "applied nothing", which is the same bare bind.
+   */
+  appliedGeometry?: AppliedGeometryRecord
 }
 
 export interface OpencodeSessionLaunch {
@@ -308,38 +320,41 @@ export function createDaemonOpencodeRuntime(deps: OpencodeSessionHost): DaemonOp
        * server this session actually is; a fake `abduco -a …` would put a lie in
        * the one field an operator reads to find out what is running.
        *
-       * The geometry is nominal: nothing renders frames for this family, and the
-       * field is required by the frame. It is the size an `opencode attach`
-       * client would open at.
+       * NO GEOMETRY (POD-3290). What stood here was `{ cols: 120, rows: 40 }`,
+       * described in this very comment as "nominal" — the size an `opencode
+       * attach` client WOULD open at, for a launch that opens none. The server
+       * had no way to tell that from a report and marked W `current` on it. The
+       * grid is now the applied-size record's to state, through the one builder,
+       * and at launch this family has applied nothing.
        */
       driverTiming.sessionReady(handle.binding)
-      deps.send({
-        type: 'bind',
-        sessionId: input.sessionId,
-        cmd: `opencode serve (${handle.binding.driver})`,
-        cwd: input.cwd,
-        agentKind: 'opencode',
-        geometry: { cols: 120, rows: 40 },
-        /**
-         * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023).
-         *
-         * The server records this on the row and W4's migrated senders branch on
-         * it to decide between the contract and the legacy PTY path. A terminal
-         * session that got this wrong would take a slower route to the same
-         * place; a SERVER session that got it wrong would be handed to a path
-         * that types at a PTY this session does not have — the write would go
-         * nowhere and report success.
-         *
-         * Hardcoded `true` rather than probed, because reaching this line IS the
-         * proof: the handle above was constructed and registered.
-         */
-        runtimeContract: true,
-        driverId: handle.binding.driver,
-        // POD-3087: what this driver's configure() can change, read off its own
-        // declaration so no consumer has to keep a second copy of it.
-        configureFields: [...configureFieldsForDriver(handle.binding.driver)],
-        attachKinds: [...attachKindsForDriver(handle.binding.driver)],
-      })
+      deps.send(
+        bindFrame(deps.appliedGeometry, {
+          sessionId: input.sessionId,
+          cmd: `opencode serve (${handle.binding.driver})`,
+          cwd: input.cwd,
+          agentKind: 'opencode',
+          /**
+           * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023).
+           *
+           * The server records this on the row and W4's migrated senders branch on
+           * it to decide between the contract and the legacy PTY path. A terminal
+           * session that got this wrong would take a slower route to the same
+           * place; a SERVER session that got it wrong would be handed to a path
+           * that types at a PTY this session does not have — the write would go
+           * nowhere and report success.
+           *
+           * Hardcoded `true` rather than probed, because reaching this line IS the
+           * proof: the handle above was constructed and registered.
+           */
+          runtimeContract: true,
+          driverId: handle.binding.driver,
+          // POD-3087: what this driver's configure() can change, read off its own
+          // declaration so no consumer has to keep a second copy of it.
+          configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+          attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+        }),
+      )
       // …and the first state, so the badge is right before the first event
       // rather than after it.
       deps.send({ type: 'agentState', sessionId: input.sessionId, state: await handle.state() })

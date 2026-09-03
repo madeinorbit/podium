@@ -39,6 +39,7 @@ import { createBrowserOpenManager } from './browser-open'
 import { deliveryCaps } from './build-report'
 import { ensurePodiumCodexHooks } from './codex-hooks'
 import { ComposerSyncEngine } from './composer-sync'
+import { appliedGeometryFor } from './control/applied-geometry'
 import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
@@ -883,6 +884,10 @@ export async function createDaemonHostRuntime(args: {
    * wording.
    */
   const clientTerminals = createOpencodeClientTerminals({
+    // The one applied-size record this daemon owns (POD-3290). Opening a client
+    // terminal is a real apply, and this is the only wiring that lets that fact
+    // reach the frames which report a grid.
+    appliedGeometry: appliedGeometryFor(ctx),
     // One session-addressed relay for engine terminals and on-demand harness
     // client terminals. The latter intentionally returns the parent session id.
     frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
@@ -943,6 +948,9 @@ export async function createDaemonHostRuntime(args: {
   const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
   claudeRuntime = createDaemonClaudeSdkRuntime({
     send,
+    // Every bind this driver sends is built by the one builder, which reads
+    // this record and nothing else (POD-3290).
+    appliedGeometry: appliedGeometryFor(ctx),
     host: contractHost,
     // The instance agent home the transcript reader already resolves against
     // (control/transcripts.ts sourceForRead), so the SDK child writes its JSONL
@@ -964,6 +972,9 @@ export async function createDaemonHostRuntime(args: {
    */
   opencodeRuntime = createDaemonOpencodeRuntime({
     send,
+    // Every bind this driver sends is built by the one builder, which reads
+    // this record and nothing else (POD-3290).
+    appliedGeometry: appliedGeometryFor(ctx),
     host: createOpencodeHost({
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
@@ -991,6 +1002,9 @@ export async function createDaemonHostRuntime(args: {
   })
   opencode2Runtime = createDaemonOpencodeRuntime({
     send,
+    // Every bind this driver sends is built by the one builder, which reads
+    // this record and nothing else (POD-3290).
+    appliedGeometry: appliedGeometryFor(ctx),
     host: {
       ...createOpencodeHost({
         resources: (subject) => scopeMonitor.resources(subject),
@@ -1029,6 +1043,9 @@ export async function createDaemonHostRuntime(args: {
    */
   codexRuntime = createDaemonCodexRuntime({
     send,
+    // Every bind this driver sends is built by the one builder, which reads
+    // this record and nothing else (POD-3290).
+    appliedGeometry: appliedGeometryFor(ctx),
     host: createCodexHost({
       resources: (subject) => scopeMonitor.resources(subject),
       stageAttachment,
@@ -1058,6 +1075,9 @@ export async function createDaemonHostRuntime(args: {
   })
   grokRuntime = createDaemonGrokRuntime({
     send,
+    // Every bind this driver sends is built by the one builder, which reads
+    // this record and nothing else (POD-3290).
+    appliedGeometry: appliedGeometryFor(ctx),
     host: createGrokAcpHost({
       resources: (subject) => scopeMonitor.resources(subject),
       attachClient: async ({ sessionId, grokSessionId, workdir }) => {
