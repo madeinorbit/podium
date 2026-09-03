@@ -1,0 +1,645 @@
+/**
+ * THE QUEUE IS PROVEN, NOT ASSUMED [POD-3248, spec §5.1].
+ *
+ * Everything the scheduler exists for is a statement about what cannot happen
+ * BETWEEN two awaits, and a test that never parks a body inside its transaction
+ * cannot see any of it. So every test here drives the interleaving by hand: the
+ * bodies wait on barriers, the test releases them in the order it wants, and the
+ * driver's statement log is the oracle for the boundaries that results alone
+ * cannot show — two transactions that interleave still return the right rows
+ * most of the time.
+ *
+ * Each test names the failure it would catch, because "the scheduler works" is
+ * not a property and a green suite of happy paths would say exactly that.
+ */
+
+import { afterEach, describe, expect, it } from 'vitest'
+import type { DriverSession, QueryClient, StoreDriver } from './driver'
+import { queryClientOver } from './driver'
+import {
+  ExclusiveInsideLeaseError,
+  ParallelNestedTransactionError,
+  PostCommitError,
+  SchedulerClosedError,
+  StaleTransactionError,
+  StoreUnhealthyError,
+} from './errors'
+import { postCommit, type StoreExecutor } from './executor'
+import { createFrameFlusher } from './frame-flusher'
+import { barrier, type Harness, openHarness, settle } from './harness'
+import { createScheduler } from './scheduler'
+
+let harness: Harness | undefined
+
+function open(options: Parameters<typeof openHarness>[0] = {}): Harness {
+  harness = openHarness(options)
+  return harness
+}
+
+afterEach(async () => {
+  const current = harness
+  harness = undefined
+  await current?.close()
+})
+
+const insert = 'INSERT INTO notes (body) VALUES (?)'
+const bodies = 'SELECT body FROM notes ORDER BY id'
+
+async function noteBodies(client: { all: (sql: string) => Promise<unknown[]> }): Promise<string[]> {
+  const rows = (await client.all(bodies)) as { body: string }[]
+  return rows.map((row) => row.body)
+}
+
+/**
+ * Every transaction boundary in the log, checked for nesting. A second
+ * `BEGIN IMMEDIATE` before the first one's `COMMIT` is the failure the size-one
+ * queue exists to prevent, and it is invisible in query results.
+ */
+function assertNoInterleavedTransactions(entries: readonly string[]): void {
+  let openSession: string | undefined
+  for (const entry of entries) {
+    const [session, ...rest] = entry.split(':')
+    const statement = rest.join(':')
+    if (statement === 'BEGIN IMMEDIATE') {
+      expect(openSession, `a second BEGIN while ${openSession} was open`).toBeUndefined()
+      openSession = session
+      continue
+    }
+    if (statement === 'COMMIT' || statement === 'ROLLBACK') {
+      expect(session).toBe(openSession)
+      openSession = undefined
+    }
+  }
+  expect(openSession).toBeUndefined()
+}
+
+describe('serialisation', () => {
+  it('runs one write body at a time, in call order, and never opens a second BEGIN', async () => {
+    // WOULD CATCH: a queue that admits the next body while the first is parked
+    // on an await — the exact regression that turns "one writer" into two open
+    // transactions on one connection.
+    const h = open()
+    const order: string[] = []
+    const parked = barrier()
+
+    const first = h.executor.transact(async (tx) => {
+      order.push('first:start')
+      await parked.wait()
+      await tx.drizzle.run(insert, 'first')
+      order.push('first:end')
+    })
+    const second = h.executor.transact(async (tx) => {
+      order.push('second:start')
+      await tx.drizzle.run(insert, 'second')
+      order.push('second:end')
+    })
+
+    await parked.reached()
+    await settle()
+    expect(order).toEqual(['first:start'])
+
+    parked.release()
+    await Promise.all([first, second])
+
+    expect(order).toEqual(['first:start', 'first:end', 'second:start', 'second:end'])
+    expect(await noteBodies(h.db)).toEqual(['first', 'second'])
+    assertNoInterleavedTransactions(h.log.entries)
+  })
+
+  it('serialises a burst of writers started in one turn', async () => {
+    const h = open()
+    await Promise.all(
+      Array.from({ length: 8 }, (_, i) =>
+        h.executor.transact(async (tx) => {
+          // An await INSIDE the body: without the queue this is where the next
+          // body would slip in.
+          await settle(2)
+          await tx.drizzle.run(insert, `w${i}`)
+        }),
+      ),
+    )
+    expect(await noteBodies(h.db)).toEqual(Array.from({ length: 8 }, (_, i) => `w${i}`))
+    assertNoInterleavedTransactions(h.log.entries)
+  })
+})
+
+describe('rollback isolation', () => {
+  it('rolls back the body’s writes and rethrows the original error', async () => {
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'kept')
+    })
+    await expect(
+      h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, 'discarded')
+        throw new Error('body failed')
+      }),
+    ).rejects.toThrow('body failed')
+
+    expect(await noteBodies(h.db)).toEqual(['kept'])
+    expect(h.log.entries).toContain('s2:ROLLBACK')
+  })
+})
+
+describe('reads against an open body', () => {
+  it('does not let a root read observe a body’s uncommitted rows', async () => {
+    // WOULD CATCH: a read lane that runs concurrently on the write connection.
+    // On one connection an uncommitted row IS visible, so nothing but the queue
+    // stops the read from returning it.
+    const h = open()
+    const parked = barrier()
+    const observed: string[][] = []
+
+    const write = h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'uncommitted')
+      await parked.wait()
+    })
+    const read = h.executor.read(async (tx) => {
+      observed.push(await noteBodies(tx.drizzle))
+    })
+
+    await parked.reached()
+    await settle()
+    expect(observed, 'the read must still be queued behind the open body').toEqual([])
+
+    parked.release()
+    await Promise.all([write, read])
+    expect(observed).toEqual([['uncommitted']])
+  })
+
+  it('gives outsideTransaction the committed view from inside an open body', async () => {
+    // The one deliberate committed-view read. It must NOT see the body's own
+    // writes: that is the whole reason it exists, and a version that queued on
+    // the write lane would simply deadlock.
+    const h = open()
+    let seenOutside: string[] | undefined
+    let seenInside: string[] | undefined
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'in-flight')
+      seenInside = await noteBodies(tx.drizzle)
+      await h.executor.outsideTransaction(async (view) => {
+        seenOutside = await noteBodies(view.drizzle)
+      })
+    })
+
+    expect(seenInside).toEqual(['in-flight'])
+    expect(seenOutside).toEqual([])
+    expect(await noteBodies(h.db)).toEqual(['in-flight'])
+  })
+
+  it('refuses the committed-view read when the driver has no reader connection', async () => {
+    const h = open({ withoutReader: true })
+    await expect(
+      h.executor.transact(async () => {
+        await h.executor.outsideTransaction(async () => undefined)
+      }),
+    ).rejects.toThrow(/no reader connection/)
+  })
+})
+
+describe('re-entrancy', () => {
+  it('turns a nested transact into a savepoint on the open transaction', async () => {
+    // WOULD CATCH: re-entrancy keyed on handle identity (today's helper) rather
+    // than on the caller's scope. Keyed on the handle, a nested call from a
+    // DIFFERENT body would also see depth > 0 and silently join a transaction
+    // it has nothing to do with.
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'outer')
+      await tx.transact(async (inner) => {
+        await inner.drizzle.run(insert, 'inner')
+      })
+    })
+
+    expect(await noteBodies(h.db)).toEqual(['outer', 'inner'])
+    expect(h.log.boundaries()).toEqual([
+      's1:BEGIN IMMEDIATE',
+      's1:SAVEPOINT podium_sp_1',
+      's1:RELEASE podium_sp_1',
+      's1:COMMIT',
+    ])
+  })
+
+  it('rolls the savepoint back without losing the outer transaction', async () => {
+    const h = open()
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'outer')
+      await expect(
+        tx.transact(async (inner) => {
+          await inner.drizzle.run(insert, 'inner')
+          throw new Error('nested failed')
+        }),
+      ).rejects.toThrow('nested failed')
+      await tx.drizzle.run(insert, 'after')
+    })
+
+    expect(await noteBodies(h.db)).toEqual(['outer', 'after'])
+    expect(h.log.boundaries()).toContain('s1:ROLLBACK TO podium_sp_1')
+    expect(h.log.boundaries()).toContain('s1:COMMIT')
+  })
+
+  it('refuses two nested scopes at once, and a parent statement under an open child', async () => {
+    // Savepoints are a stack, not a tree: two branches would release each
+    // other's boundaries.
+    const h = open()
+    const parked = barrier()
+
+    await h.executor.transact(async (tx) => {
+      // The nested scope is claimed in the caller's own turn, before its first
+      // await, so a second branch opened in the same turn is refused rather
+      // than racing for the savepoint stack.
+      const branch = tx.transact(async () => {
+        await parked.wait()
+      })
+      await expect(tx.transact(async () => undefined)).rejects.toBeInstanceOf(
+        ParallelNestedTransactionError,
+      )
+      await expect(tx.drizzle.all(bodies)).rejects.toBeInstanceOf(ParallelNestedTransactionError)
+      parked.release()
+      await branch
+      // Once the branch closes, the parent is addressable again.
+      expect(await noteBodies(tx.drizzle)).toEqual([])
+    })
+  })
+})
+
+describe('the active transaction token', () => {
+  it('rejects an operation that reaches the transaction after its scope ended', async () => {
+    // "Nothing runs after its commit" is enforced by the TOKEN, not by the
+    // callback boundary: a promise the body never awaited resolves later, and
+    // would otherwise run its statement in autocommit.
+    const h = open()
+    let escaped: StoreExecutor<QueryClient> | undefined
+
+    await h.executor.transact(async (tx) => {
+      escaped = tx
+      await tx.drizzle.run(insert, 'committed')
+    })
+
+    const stale = escaped as StoreExecutor<QueryClient>
+    await expect(stale.drizzle.all(bodies)).rejects.toBeInstanceOf(StaleTransactionError)
+    await expect(stale.transact(async () => undefined)).rejects.toBeInstanceOf(
+      StaleTransactionError,
+    )
+    await expect(stale.read(async () => undefined)).rejects.toBeInstanceOf(StaleTransactionError)
+    expect(await noteBodies(h.db)).toEqual(['committed'])
+  })
+})
+
+describe('ambient routing', () => {
+  it('routes a root-bound call into the open transaction, so a body reads its own writes', async () => {
+    // This is what makes `store.x` usable from inside a body: a service holding
+    // the ROOT executor's repositories must see the transaction's own writes,
+    // or every cached aggregate rebuilt inside a span would be built from the
+    // pre-commit state.
+    const h = open()
+    let ambient: string[] | undefined
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'own-write')
+      ambient = await noteBodies(h.db)
+    })
+    expect(ambient).toEqual(['own-write'])
+    // One BEGIN: the ambient read joined the transaction rather than opening a
+    // scope of its own.
+    expect(h.log.boundaries()).toEqual(['s1:BEGIN IMMEDIATE', 's1:COMMIT'])
+  })
+
+  it('runs a root-bound call on the root when no transaction is open', async () => {
+    const h = open()
+    await h.db.run(insert, 'ambient')
+    expect(await noteBodies(h.db)).toEqual(['ambient'])
+  })
+})
+
+describe('the exclusive lane', () => {
+  it('refuses an exclusive request from a lease holder', async () => {
+    // It would wait for the lane it is already holding. A deadlock is a worse
+    // answer than a refusal.
+    const h = open()
+    await expect(
+      h.executor.transact(async () => {
+        await h.executor.exclusive(async () => undefined)
+      }),
+    ).rejects.toBeInstanceOf(ExclusiveInsideLeaseError)
+  })
+
+  it('runs alone: queued work waits for it and it waits for work in flight', async () => {
+    const h = open()
+    const order: string[] = []
+    const parked = barrier()
+
+    const write = h.executor.transact(async () => {
+      order.push('write:start')
+      await parked.wait()
+      order.push('write:end')
+    })
+    const exclusive = h.executor.exclusive(async () => {
+      order.push('exclusive')
+    })
+    const after = h.executor.transact(async () => {
+      order.push('after')
+    })
+
+    await parked.reached()
+    await settle()
+    expect(order).toEqual(['write:start'])
+    parked.release()
+    await Promise.all([write, exclusive, after])
+    expect(order).toEqual(['write:start', 'write:end', 'exclusive', 'after'])
+  })
+})
+
+/**
+ * A driver with a CONCURRENT READ LANE, which bun:sqlite does not have. On one
+ * connection `exclusive` and `write` are the same lane and no test can tell
+ * them apart, so the lane policy the libsql implementation will use (E.5) is
+ * pinned here instead: reads run concurrently, an exclusive request waits for
+ * everything in flight, and nothing queued behind it overtakes it.
+ */
+function laneOnlyDriver(readConcurrency: number): StoreDriver<QueryClient> {
+  const session: DriverSession = {
+    execute: async () => ({ rows: [] }),
+    begin: async () => undefined,
+    commit: async () => undefined,
+    rollback: async () => undefined,
+    enterSavepoint: async () => undefined,
+    releaseSavepoint: async () => undefined,
+    rollbackToSavepoint: async () => undefined,
+    close: async () => undefined,
+  }
+  return {
+    kind: 'lane-only',
+    lanes: { readConcurrency },
+    open: async () => session,
+    client: (route) => queryClientOver(route),
+    close: async () => undefined,
+  }
+}
+
+describe('the remote lane policy', () => {
+  it('runs reads concurrently, drains before an exclusive, and lets nothing overtake it', async () => {
+    const scheduler = createScheduler({ driver: laneOnlyDriver(3) })
+    const parked = barrier()
+    const order: string[] = []
+
+    const reads = [0, 1, 2].map((i) =>
+      scheduler.run('read', async () => {
+        order.push(`read${i}:start`)
+        await parked.wait()
+        order.push(`read${i}:end`)
+      }),
+    )
+    await settle()
+    expect(order, 'three reads share the lane').toEqual([
+      'read0:start',
+      'read1:start',
+      'read2:start',
+    ])
+
+    const exclusive = scheduler.run('exclusive', async () => {
+      order.push('exclusive')
+    })
+    const behind = scheduler.run('read', async () => {
+      order.push('behind')
+    })
+    await settle()
+    expect(order, 'the exclusive waits, and the read behind it does not overtake').toEqual([
+      'read0:start',
+      'read1:start',
+      'read2:start',
+    ])
+
+    parked.release()
+    await Promise.all([...reads, exclusive, behind])
+    expect(order.slice(-2)).toEqual(['exclusive', 'behind'])
+    await scheduler.close()
+  })
+})
+
+describe('post-commit', () => {
+  it('completes a subscriber-initiated durable commit before the outer await resolves, and delivers batch N to every subscriber before N+1', async () => {
+    // THE BUG THIS SHAPE PREVENTS is the sync kernel's ordered-pipe bug moved
+    // to the post-commit tail: a subscriber that commits re-entrantly from
+    // inside the delivery of batch N would, under a recursive drain, get batch
+    // N+1 to subscriber A before batch N ever reached subscriber B. Delta
+    // clients apply `seq !== cursor + 1 -> heal`, so that reorder is a
+    // permanent heal storm, not a cosmetic one.
+    const h = open()
+    const delivered: string[] = []
+    const subscribers = ['A', 'B']
+
+    const deliver = async (batch: number): Promise<void> => {
+      for (const name of subscribers) {
+        delivered.push(`${name}:${batch}`)
+        if (name === 'A' && batch === 1) {
+          // A projection writing a derived row: durable, re-entrant, and its
+          // own publication must queue behind the batch being delivered.
+          await h.executor.transact(async (tx) => {
+            await tx.drizzle.run(insert, 'derived')
+            postCommit().followUp(() => deliver(2), 'deliver:2')
+          })
+        }
+      }
+    }
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'primary')
+      postCommit().followUp(() => deliver(1), 'deliver:1')
+    })
+
+    expect(delivered).toEqual(['A:1', 'B:1', 'A:2', 'B:2'])
+    // Durable before the outer await resolved: read on a fresh scope, after.
+    expect(await noteBodies(h.db)).toEqual(['primary', 'derived'])
+    // Two transactions on the same lease: the follow-up's commit is inside the
+    // scheduler's ordered operation, so no other writer overtook publication.
+    expect(h.log.boundaries()).toEqual([
+      's1:BEGIN IMMEDIATE',
+      's1:COMMIT',
+      's1:BEGIN IMMEDIATE',
+      's1:COMMIT',
+    ])
+  })
+
+  it('marks the store unhealthy when a commit application fails, and says the write committed', async () => {
+    const h = open()
+    await expect(
+      h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed')
+        postCommit().applyCommit(() => {
+          throw new Error('baseline fold failed')
+        }, 'baseline')
+      }),
+    ).rejects.toBeInstanceOf(StoreUnhealthyError)
+
+    // The row IS there: the rejection is not a rollback and must never be read
+    // as one.
+    expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
+    expect(h.executor.health.healthy).toBe(false)
+    await expect(h.executor.read(async () => undefined)).rejects.toBeInstanceOf(StoreUnhealthyError)
+  })
+
+  it('reports a durable follow-up failure as a committed failure and still drains the rest', async () => {
+    const h = open()
+    const ran: string[] = []
+    const failure = await h.executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed')
+        postCommit().followUp(() => {
+          ran.push('first')
+          throw new Error('mail failed')
+        }, 'mail')
+        postCommit().followUp(() => {
+          ran.push('second')
+        }, 'nudge')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(PostCommitError)
+    expect((failure as PostCommitError).committed).toBe(true)
+    expect(ran).toEqual(['first', 'second'])
+    expect(h.executor.health.healthy).toBe(true)
+    expect(await noteBodies(h.db)).toEqual(['committed'])
+  })
+
+  it('isolates an external effect: it is reported, not rethrown, and the next effect still runs', async () => {
+    const reported: string[] = []
+    const h = open({ effectSink: (_error, label) => reported.push(label) })
+    const ran: string[] = []
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'committed')
+      postCommit().effect(() => {
+        throw new Error('socket gone')
+      }, 'broadcast')
+      postCommit().effect(async () => {
+        ran.push('notify')
+      }, 'notify')
+    })
+
+    await h.executor.effectsSettled()
+    expect(reported).toEqual(['broadcast'])
+    expect(ran).toEqual(['notify'])
+  })
+
+  it('discards a rolled-back savepoint’s post-commit work and keeps the parent’s', async () => {
+    // A savepoint release is not a commit: its tail belongs to whoever commits,
+    // and a rolled-back branch must publish nothing.
+    const h = open()
+    const ran: string[] = []
+    await h.executor.transact(async (tx) => {
+      postCommit().applyCommit(() => {
+        ran.push('outer')
+      }, 'outer')
+      await expect(
+        tx.transact(async () => {
+          postCommit().applyCommit(() => {
+            ran.push('inner')
+          }, 'inner')
+          throw new Error('branch failed')
+        }),
+      ).rejects.toThrow('branch failed')
+      await tx.transact(async () => {
+        postCommit().applyCommit(() => {
+          ran.push('kept')
+        }, 'kept')
+      })
+      expect(ran, 'nothing runs before the commit').toEqual([])
+    })
+    expect(ran).toEqual(['outer', 'kept'])
+  })
+})
+
+describe('frames per burst', () => {
+  it('publishes one frame for the boot-reconcile burst and one for a bind storm', async () => {
+    // WOULD CATCH the flip's most likely publication regression: with every
+    // commit awaited, a microtask-boundary flush turns a burst of N commits
+    // into N frames per connection. The flush signal is the scheduler going
+    // idle, so a burst is one frame however many commits it contains.
+    const h = open()
+    const frames: number[][] = []
+    const flusher = createFrameFlusher<number>({
+      scheduler: h.executor.scheduler,
+      flush: (batch) => frames.push([...batch]),
+    })
+
+    // Boot reconcile: one unit of work, many reconciled entities.
+    await h.executor.transact(async (tx) => {
+      for (let i = 0; i < 50; i++) {
+        await tx.drizzle.run(insert, `reconcile-${i}`)
+        flusher.publish(i)
+      }
+    })
+    expect(flusher.frames).toBe(1)
+    expect(frames[0]).toHaveLength(50)
+
+    // Bind storm: many commits issued as one burst.
+    await Promise.all(
+      Array.from({ length: 30 }, (_, i) =>
+        h.executor.transact(async (tx) => {
+          await tx.drizzle.run(insert, `bind-${i}`)
+          postCommit().effect(() => flusher.publish(i), 'publish')
+        }),
+      ),
+    )
+    await h.executor.effectsSettled()
+    expect(flusher.frames).toBe(2)
+    expect(frames[1]).toHaveLength(30)
+    flusher.stop()
+  })
+})
+
+describe('the watchdog', () => {
+  it('reports a body holding its connection past the budget, through the injected sink', async () => {
+    const reports: { lane: string; budgetMs: number }[] = []
+    let announce: () => void = () => undefined
+    const reported = new Promise<void>((resolve) => {
+      announce = resolve
+    })
+    const h = open({
+      watchdog: {
+        budgetMs: 1,
+        report: (report) => {
+          reports.push({ lane: report.lane, budgetMs: report.budgetMs })
+          announce()
+        },
+      },
+    })
+
+    // The body ends when the report arrives, so the test waits for the event
+    // rather than for a duration.
+    await h.executor.transact(async (tx) => {
+      await reported
+      await tx.drizzle.run(insert, 'slow')
+    })
+
+    expect(reports).toEqual([{ lane: 'write', budgetMs: 1 }])
+  })
+})
+
+describe('shutdown', () => {
+  it('drains queued work, then refuses new work', async () => {
+    const h = open()
+    const parked = barrier()
+    const first = h.executor.transact(async (tx) => {
+      await parked.wait()
+      await tx.drizzle.run(insert, 'first')
+    })
+    const queued = h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'queued')
+    })
+
+    await parked.reached()
+    const closing = h.executor.close()
+    parked.release()
+    await Promise.all([first, queued, closing])
+
+    await expect(h.executor.transact(async () => undefined)).rejects.toBeInstanceOf(
+      SchedulerClosedError,
+    )
+    harness = undefined
+  })
+})
