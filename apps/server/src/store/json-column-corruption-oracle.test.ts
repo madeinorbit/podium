@@ -7,8 +7,8 @@
  * ---------------------------------------------------------------------------
  *
  * The store is being moved off hand-written SQL onto Drizzle. Every column below
- * is declared `mode: 'json'` in `migrations/schema.ts`, which today is only a
- * MIGRATION-TIME declaration: the readers are raw `SELECT`s, and each one decides
+ * was declared `mode: 'json'` in `migrations/schema.ts` when this file was
+ * written, which was then only a MIGRATION-TIME declaration: the readers are raw `SELECT`s, and each one decides
  * for itself what a corrupt blob means. Some quarantine it to a safe default and
  * warn; some hand the junk straight through unchecked; some throw.
  *
@@ -23,9 +23,15 @@
  * the oracle: after the conversion, every assertion here must still hold, or the
  * conversion changed a durable failure mode and has to say so out loud.
  *
- * The column list is DERIVED from `schema.ts` at test time, not typed out. A 24th
- * `mode: 'json'` column fails `describes every mode: 'json' column in schema.ts`
- * by name until somebody classifies it here.
+ * The column list is DERIVED from `schema.ts` at test time, not typed out.
+ *
+ * WHAT [0.12] (POD-3254) THEN DID WITH IT, since it changes how to read the file:
+ * the decisions in the last column below are now APPLIED in `schema.ts`. Only the
+ * five whole-column THROW IS INTENDED cases are still `mode: 'json'`; the other
+ * eighteen are plain `text`, so their existing readers keep the quarantine or the
+ * passthrough pinned here. The assertions below therefore check two things rather
+ * than one — that all 23 classified columns still exist, and that the retained
+ * `mode: 'json'` set is exactly those five.
  *
  * ---------------------------------------------------------------------------
  * THE TABLE — observed behaviour, and the decision the conversion will apply
@@ -910,6 +916,17 @@ function declaredJsonColumns(): string[] {
   return found.sort()
 }
 
+/** Every column drizzle knows about, `<table>.<column>`, read out of `schema.ts`. */
+function declaredColumns(): string[] {
+  const found: string[] = []
+  for (const value of Object.values(schema)) {
+    if (!is(value, SQLiteTable)) continue
+    const config = getTableConfig(value)
+    for (const column of config.columns) found.push(`${config.name}.${column.name}`)
+  }
+  return found.sort()
+}
+
 /**
  * The header table's own rows, read back out of this file.
  *
@@ -933,15 +950,44 @@ function headerTableRows(): string[] {
     .sort()
 }
 
+/**
+ * The columns [0.12] (POD-3254) LEFT as `mode: 'json'` — the five the table above
+ * marks THROW IS INTENDED for the whole column, where drizzle's own parse failure
+ * IS the contract. Every other column in the table became plain `text` in the same
+ * commit, so that its reader keeps the quarantine or the passthrough pinned here.
+ *
+ * WRITTEN DOWN RATHER THAN DERIVED FROM THE TABLE, and the reason is
+ * `ship_orders.current_integration_receipt`: it throws in the only case pinned
+ * above (a stacked order) and so a derivation over the case kinds would demand
+ * `mode: 'json'` for it, but its behaviour depends on the ROW — a plain order
+ * quarantines — and a column mode cannot. Spec §6 rule 4 puts it with the
+ * quarantining columns for exactly that reason. A rule that is wrong for one of
+ * twenty-three is not a rule; this is the decision, spelled.
+ */
+const RETAINED_JSON_COLUMNS = [
+  'ship_orders.validation_profile',
+  'ship_steps.input_fence',
+  'ship_train_manifests.provider_ref',
+  'ship_train_manifests.validation_profile',
+  'ship_train_members.delivery_depends_on',
+].sort()
+
 describe('the corrupt-blob oracle', () => {
-  it("describes every mode: 'json' column in schema.ts, by name", () => {
-    // Derived, not typed out: a 24th JSON column lands in `declared` and fails
-    // here with its own name until somebody classifies it in the table above.
-    const declared = declaredJsonColumns()
+  it('classifies every column the conversion decisions were made from', () => {
+    // Derived from the entries, not typed out: the table above is what [0.12]
+    // consumed, and it must not shrink silently after the fact.
     const classified = [...new Set(JSON_COLUMNS.map(key))].sort()
-    expect(classified).toEqual(declared)
-    // And the header table's own count, so the prose cannot drift silently.
-    expect(declared.length).toBe(23)
+    expect(classified.length).toBe(23)
+    // Every classified column still EXISTS in schema.ts. Before [0.12] this was
+    // `columnType === 'SQLiteTextJson'` for all 23; the decisions turned
+    // eighteen of them into plain `text`, so the existence check is by name now.
+    expect(classified.filter((name) => !declaredColumns().includes(name))).toEqual([])
+  })
+
+  it("keeps mode: 'json' only where the throw is intended", () => {
+    // The decision itself, pinned: a nineteenth `mode: 'json'` column — or one of
+    // the five quietly demoted — fails here with its own name.
+    expect(declaredJsonColumns()).toEqual(RETAINED_JSON_COLUMNS)
   })
 
   it('names each case exactly once', () => {

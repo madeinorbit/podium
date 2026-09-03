@@ -46,6 +46,45 @@
  * the carve-outs the zod schemas already record. That token is what
  * `scripts/entity-id-audit.ts` reads, and it raises a ratcheted count, so an
  * excuse costs something rather than passing unnoticed.
+ *
+ * COLUMN MODES AND THE JSON DECISIONS (POD-3254, spec §6 rules 4 and 10). The
+ * async-store epic makes these two edits ONCE, here, so that no conversion wave
+ * has to touch this file. Neither emits SQL: the full DDL `drizzle-kit generate`
+ * produces from this schema is byte-identical before and after, snapshot `ddl`
+ * included, which is the check that was actually run rather than an assumption.
+ *
+ *  - **`mode: 'boolean'` on the fifteen 0/1 columns**, derived from the store's
+ *    own read and write idioms (`r.x === 1`, `Boolean(r.x)`, `x ? 1 : 0`) rather
+ *    than from column names: `sessions.archived`/`.headless`,
+ *    `superagent_threads.archived`, `machines.podium_managed`/`.supervised`,
+ *    `subscriptions.deliver_nudge`/`.deliver_notify`/`.enabled`,
+ *    `issues.needs_human`/`.archived`/`.draft`,
+ *    `superagent_pending_turns.first_turn`, `messages.expects_response`,
+ *    `automations.enabled`, `quota_windows.partial`. `sessions.ref_draft` looks
+ *    like one and is NOT: its domain type is `number | null`.
+ *
+ *    THE DEFAULTS STAY SQL LITERALS (sql tag, 0 and 1), AND THAT IS THE TRICK.
+ *    `mode` is type-level and the snapshot does not record it — but a default
+ *    does, and drizzle-kit emits `.default(false)` as `DEFAULT false`, which
+ *    diffs against the `DEFAULT 0` every existing migration wrote and would cost
+ *    a table rebuild on SQLite for no behaviour change. A SQL default is a
+ *    database literal, the same reason `$type<>` goes after `.default(…)` above.
+ *
+ *  - **`mode: 'json'` is kept on exactly five columns**, the ones the corrupt-blob
+ *    oracle (POD-3245) found throw today WITH THE THROW INTENDED:
+ *    `ship_steps.input_fence`, `ship_train_manifests.provider_ref` and
+ *    `.validation_profile`, `ship_train_members.delivery_depends_on`, and
+ *    `ship_orders.validation_profile`. The other eighteen are plain `text`,
+ *    because drizzle's JSON column throws on a corrupt value and their contract
+ *    is to QUARANTINE it or to pass it straight through — behaviour pinned per
+ *    case by the oracle, including `ship_orders.descendant_manifest` and
+ *    `.current_integration_receipt` (per-row), the three passthrough columns
+ *    (`settings_audit_events.detail_json`/`.redacted_paths`,
+ *    `podium_events.payload`), `workflow_events.payload_json` (no store reader,
+ *    by design — the conversion must not add one), and `ship_holds.actions`,
+ *    which throws by accident and keeps doing so until its own bug is fixed
+ *    outside this epic. A converted repository reads these as `string` and parses
+ *    through the quarantining helper it already uses.
  */
 
 import type {
@@ -183,14 +222,14 @@ export const sessions = sqliteTable(
     createdAt: text('created_at').notNull(),
     lastActiveAt: text('last_active_at').notNull(),
     name: text(),
-    archived: integer().default(0).notNull(),
+    archived: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     workState: text('work_state'),
     machineId: text('machine_id').$type<MachineId>().notNull(),
     lastOutputAt: text('last_output_at'),
     lastInputAt: text('last_input_at'),
     lastResumedAt: text('last_resumed_at'),
     spawnedBy: text('spawned_by'),
-    headless: integer().default(0).notNull(),
+    headless: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     issueId: text('issue_id').$type<IssueId>(),
     stoppedAt: text('stopped_at'),
     stopReason: text('stop_reason'),
@@ -278,7 +317,7 @@ export const sessionObservationCheckpoints = sqliteTable('session_observation_ch
   providerSessionId: text('provider_session_id'),
   bindingVersion: integer('binding_version').default(0).notNull(),
   observationGeneration: integer('observation_generation').default(0).notNull(),
-  checkpointJson: text('checkpoint_json', { mode: 'json' }),
+  checkpointJson: text('checkpoint_json'),
   updatedAt: text('updated_at').notNull(),
 })
 
@@ -306,7 +345,7 @@ export const sessionTerminalCandidates = sqliteTable('session_terminal_candidate
     () => sessionObservationCheckpoints.sessionId,
     { onDelete: 'cascade' },
   ).primaryKey(),
-  proofJson: text('proof_json', { mode: 'json' }).notNull(),
+  proofJson: text('proof_json').notNull(),
   confirmedAt: text('confirmed_at'),
   consumedAt: text('consumed_at'),
   updatedAt: text('updated_at').notNull(),
@@ -403,9 +442,9 @@ export const settingsAuditEvents = sqliteTable(
     actorId: text('actor_id'),
     onBehalfOf: text('on_behalf_of'),
     /** The redacted payload. Never the material. */
-    detailJson: text('detail_json', { mode: 'json' }).default({}).notNull(),
+    detailJson: text('detail_json').default('{}').notNull(),
     /** Which declared paths were withheld from `detail_json`. */
-    redactedPaths: text('redacted_paths', { mode: 'json' }).default([]).notNull(),
+    redactedPaths: text('redacted_paths').default('[]').notNull(),
     createdAt: text('created_at').notNull(),
   },
   (table) => [
@@ -676,7 +715,7 @@ export const superagentThreads = sqliteTable('superagent_threads', {
   watermarkTs: text('watermark_ts'),
   createdAt: text('created_at').notNull(),
   updatedAt: text('updated_at').notNull(),
-  archived: integer().default(0).notNull(),
+  archived: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
   repoPath: text('repo_path'),
   agentKind: text('agent_kind'),
   podiumSessionId: text('podium_session_id').$type<SessionId>(),
@@ -713,8 +752,9 @@ export const machines = sqliteTable('machines', {
   inventoryJson: text('inventory_json'),
   /** Pairing mode: managed hosts may receive copied native credentials. */ podiumManaged: integer(
     'podium_managed',
+    { mode: 'boolean' },
   )
-    .default(1)
+    .default(sql`1`)
     .notNull(),
   /**
    * SUPERSEDED by `update_channel_override` (POD-1882) and no longer read.
@@ -753,7 +793,7 @@ export const machines = sqliteTable('machines', {
   // decided independently from deliveryCapsJson; current Macs are ordinary fleet installs.
   // NULL is the honest reading for every row written before the field existed
   // and for a daemon that has not reported since.
-  supervised: integer('supervised'),
+  supervised: integer('supervised', { mode: 'boolean' }),
   buildReportedAt: text('build_reported_at'),
   // WHICH PODIUM COMPONENTS RUN HERE (POD-2700) — a JSON array of
   // `MachineComponent` ('daemon' | 'server'). The DURABLE structural axis, kept
@@ -1113,7 +1153,7 @@ export const podiumEvents = sqliteTable(
     kind: text().notNull(),
     subject: text().notNull(),
     repoPath: text('repo_path'),
-    payload: text({ mode: 'json' }).default({}).notNull(),
+    payload: text().default('{}').notNull(),
   },
   (table) => [
     index('idx_podium_events_repo').on(table.repoPath),
@@ -1168,10 +1208,10 @@ export const subscriptions = sqliteTable(
     event: text().notNull(),
     sourceKind: text('source_kind').notNull(),
     sourceRef: text('source_ref').notNull(),
-    deliverNudge: integer('deliver_nudge').default(1).notNull(),
-    deliverNotify: integer('deliver_notify').default(0).notNull(),
+    deliverNudge: integer('deliver_nudge', { mode: 'boolean' }).default(sql`1`).notNull(),
+    deliverNotify: integer('deliver_notify', { mode: 'boolean' }).default(sql`0`).notNull(),
     origin: text().default('custom').notNull(),
-    enabled: integer().default(1).notNull(),
+    enabled: integer({ mode: 'boolean' }).default(sql`1`).notNull(),
     createdAt: text('created_at').notNull(),
   },
   (table) => [index('idx_subscriptions_subscriber').on(table.subscriberId)],
@@ -1305,7 +1345,7 @@ export const issues = sqliteTable(
     notesUpdatedAt: text('notes_updated_at'),
     suggestedStage: text('suggested_stage'),
     suggestedReason: text('suggested_reason'),
-    blockedBy: text('blocked_by', { mode: 'json' }).default([]).notNull(),
+    blockedBy: text('blocked_by').default('[]').notNull(),
     dependencyNote: text('dependency_note'),
     prUrl: text('pr_url'),
     priority: integer().default(2).notNull(),
@@ -1350,9 +1390,9 @@ export const issues = sqliteTable(
     sortKey: text('sort_key'),
     color: text(),
     estimateMin: integer('estimate_min'),
-    needsHuman: integer('needs_human').default(0).notNull(),
+    needsHuman: integer('needs_human', { mode: 'boolean' }).default(sql`0`).notNull(),
     humanQuestion: text('human_question'),
-    humanQuestionOptions: text('human_question_options', { mode: 'json' }),
+    humanQuestionOptions: text('human_question_options'),
     humanQuestionAskedBy: text('human_question_asked_by'),
     humanQuestionAskedAt: text('human_question_asked_at'),
     panel: text(),
@@ -1360,9 +1400,9 @@ export const issues = sqliteTable(
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
     updatedAt: text('updated_at').notNull(),
-    archived: integer().default(0).notNull(),
+    archived: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     origin: text().default('human').notNull(),
-    draft: integer().default(0).notNull(),
+    draft: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     audience: text().default('human').notNull(),
     deletedAt: text('deleted_at'),
     /** Per-entity revision (ADR 2 D3) — authority-assigned, monotonic, bumped on
@@ -1429,7 +1469,7 @@ export const rootIntegrationReceipts = sqliteTable(
       onDelete: 'restrict',
     }).notNull(),
     approvedHeadSha: text('approved_head_sha').notNull(),
-    descendants: text('descendants', { mode: 'json' }).default([]).notNull(),
+    descendants: text('descendants').default('[]').notNull(),
   },
   (table) => [
     primaryKey({
@@ -1453,11 +1493,11 @@ export const shipOrders = sqliteTable(
     destination: text().notNull(),
     approvedBaseSha: text('approved_base_sha').notNull(),
     approvedHeadSha: text('approved_head_sha').notNull(),
-    descendantManifest: text('descendant_manifest', { mode: 'json' }).default([]).notNull(),
-    deliveryDependsOn: text('delivery_depends_on', { mode: 'json' }).default([]).notNull(),
+    descendantManifest: text('descendant_manifest').default('[]').notNull(),
+    deliveryDependsOn: text('delivery_depends_on').default('[]').notNull(),
     evidenceManifestRef: text('evidence_manifest_ref'),
-    currentIntegrationReceipt: text('current_integration_receipt', { mode: 'json' }),
-    providerRef: text('provider_ref', { mode: 'json' }),
+    currentIntegrationReceipt: text('current_integration_receipt'),
+    providerRef: text('provider_ref'),
     requestedByActorKind: text('requested_by_actor_kind').notNull(),
     requestedByActorId: text('requested_by_actor_id').notNull(),
     requestedByOnBehalfOf: text('requested_by_on_behalf_of'),
@@ -1854,8 +1894,8 @@ export const shipHolds = sqliteTable(
     reasonCode: text('reason_code').notNull(),
     headline: text().notNull(),
     detail: text().notNull(),
-    evidenceRefs: text('evidence_refs', { mode: 'json' }).default([]).notNull(),
-    actions: text({ mode: 'json' }).default([]).notNull(),
+    evidenceRefs: text('evidence_refs').default('[]').notNull(),
+    actions: text().default('[]').notNull(),
     raisedAt: text('raised_at').notNull(),
     resolvedAt: text('resolved_at'),
     resolution: text(),
@@ -2007,7 +2047,7 @@ export const superagentPendingTurns = sqliteTable(
     threadId: text('thread_id').$type<ThreadId>().notNull(),
     podiumSessionId: text('podium_session_id').$type<SessionId>().notNull(),
     payloadJson: text('payload_json').notNull(),
-    firstTurn: integer('first_turn').default(0).notNull(),
+    firstTurn: integer('first_turn', { mode: 'boolean' }).default(sql`0`).notNull(),
     createdAt: text('created_at').notNull(),
     actor: text('actor'),
     onBehalfOf: text('on_behalf_of'),
@@ -2056,7 +2096,7 @@ export const messages = sqliteTable(
     // `question`) sets this. It is the sole trigger for the stop-hook reminder and
     // the steward settle-nag — an ordinary message owes no reply, so receipt alone
     // (mechanically proven by the ledger, POD-834) never generates ack traffic.
-    expectsResponse: integer('expects_response').default(0).notNull(),
+    expectsResponse: integer('expects_response', { mode: 'boolean' }).default(sql`0`).notNull(),
     // Message-backed notification identity [spec:SP-ba61]. Both are null for
     // ordinary mail; consume/dismiss retires the matching arbiter fact.
     factKey: text('fact_key'),
@@ -2213,7 +2253,7 @@ export const workflowRevisions = sqliteTable(
     }).notNull(),
     version: integer().notNull(),
     instructions: text().notNull(),
-    stepsJson: text('steps_json', { mode: 'json' }).default([]).notNull(),
+    stepsJson: text('steps_json').default('[]').notNull(),
     createdByKind: text('created_by_kind').notNull(),
     createdById: text('created_by_id'),
     createdAt: text('created_at').notNull(),
@@ -2319,9 +2359,9 @@ export const workflowRunSteps = sqliteTable(
     assignedSessionId: text('assigned_session_id').$type<SessionId>(),
     attempt: integer().default(1).notNull(),
     summary: text().default('').notNull(),
-    evidenceJson: text('evidence_json', { mode: 'json' }).default({}).notNull(),
+    evidenceJson: text('evidence_json').default('{}').notNull(),
     observationJson: text('observation_json'),
-    warningsJson: text('warnings_json', { mode: 'json' }).default([]).notNull(),
+    warningsJson: text('warnings_json').default('[]').notNull(),
     startedAt: text('started_at'),
     completedAt: text('completed_at'),
   },
@@ -2354,7 +2394,7 @@ export const workflowEvents = sqliteTable(
     // in an audit trail — and because a `system` principal has none by
     // construction (ADR 3 Amendment 1 D14.2/D21).
     onBehalfOf: text('on_behalf_of'),
-    payloadJson: text('payload_json', { mode: 'json' }).default({}).notNull(),
+    payloadJson: text('payload_json').default('{}').notNull(),
     createdAt: text('created_at').notNull(),
   },
   (table) => [
@@ -2382,7 +2422,7 @@ export const automations = sqliteTable(
     createdByActor: text('created_by_actor').default('user:sole').notNull(),
     createdByOnBehalfOf: text('created_by_on_behalf_of').default('user:sole').notNull(),
     name: text().notNull(),
-    enabled: integer().default(0).notNull(),
+    enabled: integer({ mode: 'boolean' }).default(sql`0`).notNull(),
     repoPath: text('repo_path'),
     scheduleKind: text('schedule_kind').default('cron').notNull(),
     cron: text().notNull(),
@@ -2573,7 +2613,7 @@ export const quotaWindows = sqliteTable(
     lastPercent: real('last_percent').notNull(),
     sampleCount: integer('sample_count').notNull(),
     /** 1 when the window was already under way when first observed. */
-    partial: integer().notNull(),
+    partial: integer({ mode: 'boolean' }).notNull(),
     /** `live` | `backfill`. */
     source: text().notNull(),
     /** `[[minutesFromStart, percent], …]` — the burn curve, decimated on write. */
