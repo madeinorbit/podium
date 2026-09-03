@@ -53,8 +53,12 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
     // Intentional gaps — each must stay justified:
     //  - linear: set by the Linear import integration, not a human/agent flag;
     //  - mutationId: sync/idempotency plumbing, supplied by transports;
+    //  - id/startSessionId: client-minted identities an insert-shaped optimistic
+    //    UI reconciles against (POD-1722). Same class as mutationId — supplied by
+    //    a transport that already holds the row it is reconciling, which a CLI
+    //    invocation never does. A flag would let a human forge either identity;
     //  - origin: DERIVED from the caller, never accepted (#198/#348).
-    for (const k of ['linear', 'mutationId']) serverKeys.delete(k)
+    for (const k of ['linear', 'mutationId', 'id', 'startSessionId']) serverKeys.delete(k)
     expect(serverKeys.has('origin')).toBe(false) // forgeable-provenance regression guard
     const cliKeys = mapCliKeys(cliShape('create'))
     expect([...cliKeys].sort()).toEqual([...serverKeys].sort())

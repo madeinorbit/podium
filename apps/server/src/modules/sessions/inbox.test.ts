@@ -565,7 +565,7 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
     })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     const payload = decode(h.sent[0])
     expect(payload.startsWith(PASTE_OPEN)).toBe(true)
     // Exactly ONE terminator, and it is the one this code put on the end.
@@ -586,7 +586,7 @@ describe('SessionInbox authorization and identity', () => {
       ok: true,
     })
     const decode = (entry: unknown) =>
-      Buffer.from((entry as { data: string }).data, 'base64').toString()
+      Buffer.from((entry as { bytes: Uint8Array }).bytes).toString()
     expect(decode(h.sent[0])).toBe('hello[201~rm -rf ~/work')
   })
 
