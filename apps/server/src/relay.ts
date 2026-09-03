@@ -169,7 +169,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
-import { afterCommit } from './store/executor/synchronous-span'
+import { afterCommit, applyAfterCommit, spanOpen } from './store/executor/synchronous-span'
 import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
@@ -853,6 +853,11 @@ export class SessionRegistry {
       // span open — the common case, a top-level ledger.commit — `afterCommit`
       // runs the delivery at once, which is exactly where it happens today.
       postCommit: (step, label) => afterCommit(step, label),
+      // The BASELINE FOLD is mechanism 1 on the same commit, and it is a
+      // separate port because it is a separate contract: an outer rollback must
+      // take the fold with it, or process memory keeps claiming rows the
+      // database never kept [POD-3328, spec §3.3 mechanism 1].
+      applyCommit: { spanOpen, onCommit: applyAfterCommit },
       onPruneMetrics: (metrics) => {
         perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
         perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)

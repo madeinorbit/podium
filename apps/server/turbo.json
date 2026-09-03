@@ -1405,6 +1405,7 @@
         "src/issues.sort-key.test.ts",
         "src/issues.test.ts",
         "src/janitor-host.ts",
+        "src/ledger.baseline-fold.test.ts",
         "src/linear.ts",
         "src/llm-error.ts",
         "src/llm-roles.ts",

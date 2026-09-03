@@ -84,7 +84,13 @@
 import { createLogger } from '@podium/logger'
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { type Principal, principalRoutingId } from '@podium/protocol'
-import { ChangeBaseline, type ChangeLogStore, detectionKey, readChangesSince } from '../change-log'
+import {
+  type BaselineFold,
+  ChangeBaseline,
+  type ChangeLogStore,
+  detectionKey,
+  readChangesSince,
+} from '../change-log'
 import type {
   FeedScopingGrade,
   FeedVisibilityPolicy,
@@ -96,6 +102,7 @@ import type {
   AuthorityClock,
   AuthorityCommit,
   AuthorityCommitOutcome,
+  BaselineFoldPort,
   AuthorityPort,
   ChangeSubscriber,
   PostCommitEffectPort,
@@ -141,9 +148,21 @@ export interface AuthorityDeps {
    * and a fold that lagged its own append would make a second reconcile in the
    * same span re-derive changes it had already emitted. Its divergence on a
    * rolled-back outer span is a real and separate defect (POD-3328), not
-   * something to fix by moving it here.
+   * something to fix by moving it here: it is fixed by
+   * {@link AuthorityDeps.applyCommit}, which makes the fold wait for the
+   * outermost commit while a pending layer keeps the in-span readers — `stage`'s
+   * dedup and `reconcile`'s full-list diff — seeing exactly what they see today.
    */
   postCommit?: PostCommitEffectPort
+  /**
+   * Where the BASELINE FOLD waits for the outermost commit [POD-3328,
+   * spec §3.3 mechanism 1].
+   *
+   * Unset means "there is no unit of work to wait for", which is what every
+   * client adapter and every unit test wants: the fold applies as soon as the
+   * append returns, exactly as it did before this port existed.
+   */
+  applyCommit?: BaselineFoldPort
   /**
    * ADR 2 Amendment 1 D12.7 — the per-principal evaluation, REQUIRED.
    *
@@ -203,10 +222,29 @@ export class Authority implements AuthorityPort {
 
   /** Current durable values for one entity kind, used only for full snapshot assembly. */
   snapshot(entity: MetadataEntityKind): readonly unknown[] {
+    this.freshen()
     return this.baseline.values(entity)
   }
 
+  /**
+   * Drop a pending layer left behind by a span that rolled back (POD-3328).
+   *
+   * A staged batch reaches the committed baseline through its commit
+   * application and nowhere else, so a batch still staged when NO span is open
+   * belongs to a unit of work that ended without committing. Checking it on the
+   * way in — rather than being told on the way out — is what keeps the unsafe
+   * direction unreachable: nothing has to remember to report a rollback, and a
+   * report that never arrives cannot leave memory claiming a row the database
+   * never kept.
+   */
+  private freshen(): void {
+    if (!this.deps.applyCommit?.spanOpen()) this.baseline.discardPending()
+  }
+
   commit<T>(op: AuthorityCommit<T>): AuthorityCommitOutcome<T> {
+    // 0. Before the span opens, while "is a span open?" still answers about the
+    //    CALLER's span rather than this commit's own.
+    this.freshen()
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     op.authorize?.()
 
@@ -260,6 +298,7 @@ export class Authority implements AuthorityPort {
   }
 
   capture(specs: readonly StagedChangeSpec[]): readonly SequencedChange[] {
+    this.freshen()
     const eventTime = this.deps.now()
     const staged = this.stage(specs)
     const seqs = staged.length > 0 ? this.append(staged, eventTime) : []
@@ -270,6 +309,7 @@ export class Authority implements AuthorityPort {
     entity: MetadataEntityKind,
     rows: readonly { readonly id: string; readonly value: unknown }[],
   ): readonly SequencedChange[] {
+    this.freshen()
     const specs: StagedChangeSpec[] = rows.map((r) => ({
       entity,
       entityId: r.id,
@@ -503,17 +543,28 @@ export class Authority implements AuthorityPort {
     seqs: readonly number[],
   ): readonly SequencedChange[] {
     if (rows.length === 0) return []
-    for (const row of rows) {
-      if (row.spec.op === 'upsert') {
-        this.baseline.applyUpsert(
-          row.spec.entity,
-          row.spec.entityId,
-          row.spec.value,
-          row.payload as string,
-        )
-      } else {
-        this.baseline.applyRemove(row.spec.entity, row.spec.entityId)
-      }
+    const folds: BaselineFold[] = rows.map((row) =>
+      row.spec.op === 'upsert'
+        ? {
+            entity: row.spec.entity,
+            id: row.spec.entityId,
+            op: 'upsert',
+            value: row.spec.value,
+            key: detectionKey(row.spec.entity, row.spec.value, row.payload as string),
+          }
+        : { entity: row.spec.entity, id: row.spec.entityId, op: 'remove' },
+    )
+    const fold = this.deps.applyCommit
+    if (fold?.spanOpen()) {
+      // A SAVEPOINT RELEASE IS NOT A COMMIT (POD-3328). These rows are staged
+      // where the in-span readers can see them and reach the committed baseline
+      // only if the enclosing unit of work actually commits.
+      const token = this.baseline.stagePending(folds)
+      fold.onCommit(() => {
+        this.baseline.promotePending(token)
+      }, 'authority-baseline-fold')
+    } else {
+      for (const row of folds) this.baseline.apply(row)
     }
     const changes: SequencedChange[] = rows.map((row, i) => ({
       ...row.spec,
