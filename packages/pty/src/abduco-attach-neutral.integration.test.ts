@@ -38,6 +38,7 @@ let dir = ''
 let oldBin = '' // feature level 1: podium's -N patch compiled out
 let newBin = '' // feature level 2: the shipped build
 let fixture = ''
+let chattyFixture = ''
 let savedExplicit: string | undefined
 
 /**
@@ -59,11 +60,23 @@ process.on('SIGWINCH', () => {
 setInterval(() => {}, 3600_000)
 `
 
+/**
+ * The same witness, but talking. The repaint nudge restores the attach pty's size
+ * on the child's NEXT FRAME, so a silent child hides the leak that a busy one
+ * exposes — which is what makes a reconnect to a working agent the risky case.
+ */
+const CHATTY_FIXTURE_SRC = FIXTURE_SRC.replace(
+  'setInterval(() => {}, 3600_000)',
+  "setInterval(() => process.stdout.write('.'), 200)",
+)
+
 beforeAll(() => {
   if (!hasCompiler) return
   dir = mkdtempSync(join(tmpdir(), 'podium-attach-neutral-'))
   fixture = join(dir, 'winsize-log.mjs')
   writeFileSync(fixture, FIXTURE_SRC)
+  chattyFixture = join(dir, 'winsize-log-chatty.mjs')
+  writeFileSync(chattyFixture, CHATTY_FIXTURE_SRC)
   oldBin = buildVendoredAbduco(join(dir, 'old', 'abduco'), { features: 1 }) as string
   newBin = buildVendoredAbduco(join(dir, 'new', 'abduco'), { features: 2 }) as string
   savedExplicit = process.env.PODIUM_ABDUCO
@@ -228,6 +241,57 @@ describe.skipIf(!hasCompiler)('attach x master compatibility matrix', () => {
     await wait(700)
     expect(signals(o.text())).toHaveLength(settled)
   }, 30000)
+})
+
+describe.skipIf(!hasCompiler)('reconnecting to a running agent', () => {
+  /**
+   * The whole point, end to end through podium's own spawn path: a daemon that
+   * comes back believing a size the agent never had must not impose it. Both the
+   * attach itself AND the attach-time repaint have to stay off the agent's size —
+   * the repaint nudge is a real resize of the attach pty, and the attach client
+   * forwards it like any other.
+   */
+  for (const [name, preserveReplayOnAdopt] of [
+    ['with the attach-time repaint', false],
+    ['without it', true],
+  ] as const) {
+    it(`${name}, a reconnect at a stale size neither moves nor signals the agent`, async () => {
+      const label = `podium-attach-neutral-adopt-${process.pid}-${preserveReplayOnAdopt}`
+      labels.push(label)
+      const first = await spawnAbducoAgent({
+        label,
+        cmd: process.execPath,
+        args: [chattyFixture],
+        cols: 137,
+        rows: 43,
+      })
+      let buf = ''
+      first.onFrame((f) => {
+        buf += Buffer.from(f.data).toString('utf8')
+      })
+      await waitFor(() => /cols=137 rows=43/.test(buf), 'the agent to reach the spawn size', 12000)
+      await wait(500)
+      const settled = signals(buf).length
+
+      // A reconnect whose last-known geometry is WRONG — a stale belief, which is
+      // exactly what survives a daemon restart.
+      const again = await spawnAbducoAgent({
+        label,
+        cmd: process.execPath,
+        args: [chattyFixture],
+        cols: 90,
+        rows: 20,
+        preserveReplayOnAdopt,
+      })
+      expect(again.adopted).toBe(true)
+      await wait(1500) // the nudge restores on the agent's next frame; it is chatty
+
+      expect(signals(buf)).toHaveLength(settled)
+      expect(buf).not.toContain('cols=90')
+      again.dispose()
+      first.dispose()
+    }, 40000)
+  }
 })
 
 describe.skipIf(!hasCompiler)('the birth size still has a producer', () => {
