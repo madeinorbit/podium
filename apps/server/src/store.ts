@@ -298,12 +298,13 @@ export class SessionStore {
     this.approvals = new ApprovalsRepository(this.executor)
     this.interactions = new InteractionsRepository(this.executor)
     this.conversations = new ConversationsRepository(this.executor, this.hostMachineId)
-    // THE ONE REPOSITORY STILL HANDED THE CONNECTION, and not by oversight:
-    // `SyncRepository` lives in `@podium/sync`, which cannot import the store's
-    // executor without inverting the package dependency. Its conversion is the
-    // sync adapter's own, under the kernel's synchronous-by-decision rules
-    // (spec §2.4), so it stays on the handle this store opened [POD-3254].
-    this.sync = new SyncRepository(this.db, syncServerTables)
+    // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
+    // so it takes the narrow port the PACKAGE declares and this object satisfies
+    // structurally — `SyncStoreExecutor`, the same inversion `syncServerTables`
+    // uses one line's worth of reasoning away (POD-3338, spec §6 rule 20). It is
+    // still an UNCONVERTED repository: it reads `legacy` through the port and
+    // stays on `STAGE_A_UNCONVERTED` until its own conversion wave.
+    this.sync = new SyncRepository(this.executor, syncServerTables)
     this.auth = new AuthRepository(this.executor)
     this.superagent = new SuperagentRepository(this.executor)
     this.settings = new SettingsRepository(this.executor)

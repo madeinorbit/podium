@@ -28,6 +28,14 @@ export interface SqlDatabase {
   close(): void
 }
 
+/**
+ * The half of {@link SqlDatabase} a transaction SPAN touches: the boundary
+ * statements alone. Named so `transaction()` can say what it actually uses —
+ * `@podium/sync`'s adapter is handed a narrowed connection through its own port
+ * (POD-3338) and has no `close` to give.
+ */
+export type SqlTransactionScope = Pick<SqlDatabase, 'exec'>
+
 export interface OpenOptions {
   readOnly?: boolean
 }

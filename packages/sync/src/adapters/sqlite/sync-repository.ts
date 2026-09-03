@@ -10,15 +10,22 @@
  * READS BUT DOES NOT OWN: they are declared in `apps/server`'s schema, and a
  * package may not import from `apps/server`. So they are INJECTED — see
  * `./server-tables.ts` for why, and the constructor for what that buys.
+ *
+ * The CONNECTION arrives the same way and for the same reason: the store's
+ * executor, narrowed to the one member this adapter uses, through
+ * `./store-executor.ts` (POD-3338, spec §6 rule 20). Before that port this was
+ * the only repository in the set still handed a raw `SqlDatabase`, because the
+ * executor lives in `apps/server` and a package may not import an app.
  */
 
 import { asMutationId, type MutationId, type SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { type SqlDatabase, type SqlParam, transaction } from '@podium/runtime/sqlite'
+import { transaction } from '@podium/runtime/sqlite'
 import { getTableName } from 'drizzle-orm'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
 import type { SyncServerTables } from './server-tables'
+import type { SyncSqlConnection, SyncSqlParam, SyncStoreExecutor } from './store-executor'
 
 /**
  * A table identifier for interpolation into this repository's statements.
@@ -63,10 +70,33 @@ export class SyncRepository {
   private readonly queuedMessagesTable: string
   private readonly upstreamOutboxTable: string
 
-  constructor(
-    private readonly db: SqlDatabase,
-    tables: SyncServerTables,
-  ) {
+  /**
+   * The connection this adapter's statements run on, resolved ONCE from the
+   * executor's legacy handle.
+   *
+   * RESOLVED AT CONSTRUCTION, NOT PER STATEMENT, and the refusal below is why.
+   * `legacy` is optional on the port because it is optional on the executor: a
+   * fake or a remote driver has no `bun:sqlite` connection. An adapter built
+   * over one has to fail HERE, where the stack still says what was mis-wired,
+   * rather than at whichever statement happened to run first.
+   *
+   * IT IS ALSO THE SAME OBJECT the composition root's own spans run on, which
+   * is what keeps `transaction()` nesting-safe across the boundary: the helper
+   * keys its depth by handle identity, so a `SessionStore.transact` wrapping an
+   * `appendChanges` still degrades the inner span to a savepoint.
+   */
+  private readonly db: SyncSqlConnection
+
+  constructor(executor: SyncStoreExecutor, tables: SyncServerTables) {
+    const connection = executor.legacy
+    if (connection === undefined) {
+      throw new TypeError(
+        'SyncRepository needs the executor\'s legacy connection: this adapter still issues ' +
+          'synchronous statements, and the executor it was given has no raw handle to issue ' +
+          'them on (POD-3338).',
+      )
+    }
+    this.db = connection
     this.queuedMessagesTable = quoteIdentifier(getTableName(tables.queuedMessages))
     this.upstreamOutboxTable = quoteIdentifier(getTableName(tables.upstreamOutbox))
   }
@@ -92,7 +122,7 @@ export class SyncRepository {
     transaction(this.db, () => {
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
-        const params: SqlParam[] = []
+        const params: SyncSqlParam[] = []
         for (const row of chunk) {
           params.push(row.entity, row.entityId, row.op, row.payload, eventTime)
         }
