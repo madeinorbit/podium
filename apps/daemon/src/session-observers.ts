@@ -1352,7 +1352,16 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       })
     }
     if (screenProvider) {
-      const screenObserver = createTerminalScreenObserver(screenProvider, msg.geometry, {
+      /**
+       * THE HEADLESS SCREEN'S GRID, WHICH IS A HINT (POD-3279). This mirror
+       * parses the pty's output against some cols x rows and must be built at
+       * one. A spawn creates the child at its requested geometry, so that is the
+       * truth; a REATTACH applies no size at all, so the best available number is
+       * the server's last-known — never echoed back as a report, and corrected by
+       * the first applied resize through `onResize`.
+       */
+      const screenGeometry = msg.type === 'spawn' ? msg.geometry : msg.lastKnownGeometry
+      const screenObserver = createTerminalScreenObserver(screenProvider, screenGeometry, {
         onStateEvents: (events) => applyAgentStateEvents(msg.sessionId, events),
         onLoginSignal: () => deps.onAuthSignal?.(msg.sessionId),
       })

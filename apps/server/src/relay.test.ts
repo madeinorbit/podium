@@ -1867,7 +1867,7 @@ describe('SessionRegistry', () => {
         type: 'reattach',
         sessionId,
         durableLabel: `podium-${sessionId}`,
-        geometry: { cols: 173, rows: 47 },
+        lastKnownGeometry: { cols: 173, rows: 47 },
         observationGeneration: 2,
         binding: {
           transitionId: `reattach:${sessionId}:2`,

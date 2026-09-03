@@ -647,6 +647,17 @@ describe('DaemonMessage (daemon -> server)', () => {
       agentKind: 'grok',
       geometry,
     },
+    // A BIND THAT APPLIED NOTHING (POD-3279). The reattach shape: the daemon
+    // attached size-neutrally to a survivor and reports no geometry at all, which
+    // is a different statement from reporting a size — the case above is the old
+    // daemon's shape, and both have to parse.
+    {
+      type: 'bind',
+      sessionId: asSessionId('s-reattached'),
+      cmd: 'abduco -a podium-s-reattached',
+      cwd: '/w',
+      agentKind: 'claude-code',
+    },
     { type: 'agentFrame', sessionId: asSessionId('s1'), seq: 0, data: 'eA==' },
     { type: 'agentExit', sessionId: asSessionId('s1'), code: 0, observerGeneration: 7 },
     {
@@ -771,7 +782,7 @@ describe('Layer 3 reattach messages', () => {
       durableLabel: 'podium-s1',
       agentKind: 'claude-code' as const,
       cwd: '/p',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
       requestedDriverId: 'opencode-server',
     }
     expect(parseControlMessage(encode(msg))).toEqual(msg)

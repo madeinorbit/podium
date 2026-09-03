@@ -626,7 +626,7 @@ describe('startup reattach of a retired server session', () => {
       durableLabel: `podium-x-${SESSION}`,
       agentKind: 'codex',
       cwd: '/tmp',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
       binding: {
         transitionId: `reattach:${SESSION}`,
         machineAccess: 'allowed',
@@ -675,7 +675,7 @@ describe('startup reattach of a retired server session', () => {
         durableLabel: `podium-x-${SESSION}`,
         agentKind: 'codex',
         cwd: '/tmp',
-        geometry: { cols: 80, rows: 24 },
+        lastKnownGeometry: { cols: 80, rows: 24 },
         binding: {
           transitionId: `reattach:${SESSION}`,
           machineAccess: 'allowed',
@@ -739,7 +739,7 @@ describe('startup adoption failure', () => {
       durableLabel: `podium-x-${SESSION}`,
       agentKind: 'codex',
       cwd: '/tmp',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
       binding: {
         transitionId: `reattach:${SESSION}`,
         machineAccess: 'allowed',
@@ -795,7 +795,7 @@ describe('startup adoption error boundaries', () => {
         durableLabel: `podium-x-${SESSION}`,
         agentKind: 'codex',
         cwd: '/tmp',
-        geometry: { cols: 80, rows: 24 },
+        lastKnownGeometry: { cols: 80, rows: 24 },
         binding: {
           transitionId: `reattach:${SESSION}`,
           machineAccess: 'allowed',
@@ -856,7 +856,7 @@ describe('startup adoption error boundaries', () => {
       durableLabel: `podium-x-${SESSION}`,
       agentKind: 'codex',
       cwd: '/tmp',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
       binding: {
         transitionId: `reattach:${SESSION}`,
         machineAccess: 'allowed',
@@ -899,7 +899,7 @@ describe('startup adoption error boundaries', () => {
       durableLabel: `podium-x-${SESSION}`,
       agentKind: 'codex',
       cwd: '/tmp',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
       binding: {
         transitionId: `reattach:${SESSION}`,
         machineAccess: 'allowed',

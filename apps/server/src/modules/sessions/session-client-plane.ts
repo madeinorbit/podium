@@ -76,7 +76,11 @@ export class SessionClientPlane {
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
-      geometry: session.terminal.geometry,
+      // LAST-KNOWN, AND NAMED AS SUCH (POD-3279). The daemon builds its headless
+      // screens against this; it never puts the pty at it, and it never reports
+      // it back on `bind`. What this server knows W to be is not evidence about
+      // the size a surviving agent has actually been running at.
+      lastKnownGeometry: session.terminal.geometry,
       binding: {
         transitionId: `reattach:${session.sessionId}:${requestedGeneration}`,
         machineAccess: recoveryMachineAccess,

@@ -739,7 +739,7 @@ export class Session {
     this.title = title
   }
 
-  markLive(cmd: string, geometry: Geometry): void {
+  markLive(cmd: string, geometry: Geometry | undefined): void {
     // Reattaching to a surviving PTY is NOT activity — it must not restamp recency
     // (that reshuffled the whole ordering on every daemon redeploy). The persisted
     // lastActiveAt is authoritative; genuine activity (agentState/output) advances it.
@@ -753,9 +753,10 @@ export class Session {
       this.status = 'live'
       this.exitCode = undefined
     }
-    // BIND IS A REPORT (POD-3239 B6 / MODEL rule 1). The daemon is telling us the
-    // size the pty is actually running at, after any resize it was holding for a
-    // spawn still in flight — so we take it, we announce it, and W becomes
+    // BIND IS A REPORT, AND ONLY WHEN IT CARRIES ONE (POD-3239 B6 / MODEL rule 1,
+    // refined by POD-3279). With a geometry the daemon is telling us the size it
+    // actually applied — the spawn's requested grid, or a resize it was holding
+    // for a spawn still in flight — so we take it, we announce it, and W becomes
     // `current`. There is nothing to adopt-if-uncontrolled and nothing to
     // re-assert downwards: a viewer that wants a different size asks, and the
     // ask comes back as another report. That replaces both
@@ -763,7 +764,16 @@ export class Session {
     // spectator kept rendering a grid the pty had left) and `resyncGeometry`
     // (which pushed the server's belief down onto a pty that had just told us
     // what it was).
-    this.terminal.applyDaemonGeometry(geometry)
+    //
+    // WITHOUT ONE the daemon applied nothing — the ordinary reattach, where the
+    // attach is size-neutral and the surviving agent has been running at a size
+    // of its own. W KEEPS its last-known value (it still renders; inside the
+    // system only a daemon can have changed it) but nothing stands behind it, so
+    // it goes back to `unknown` and NOTHING is announced. Broadcasting our own
+    // last-known here would be the echo this branch exists to remove, wearing a
+    // server-side coat.
+    if (geometry) this.terminal.applyDaemonGeometry(geometry)
+    else this.terminal.markGeometryUnknown()
   }
 
   /**

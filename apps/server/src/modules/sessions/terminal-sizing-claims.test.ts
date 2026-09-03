@@ -622,3 +622,169 @@ describe('C10: SessionMeta.geometry is a required field carrying the server valu
     expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
   })
 })
+
+
+// ---------------------------------------------------------------------------
+// POD-3279: a bind that carries NO geometry
+// ---------------------------------------------------------------------------
+
+/**
+ * STAGE 3 OF THE SIZING REBUILD. `BindMessage.geometry` is optional now, and its
+ * absence is a statement: "I attached, I applied nothing, W is unknown to me."
+ * Before this the reattach bind carried `msg.geometry` — the size the SERVER had
+ * just told the daemon — so the server read its own belief back as a daemon
+ * report and flipped `geometryState` from `unknown` to `current` on a reconnect
+ * that had confirmed nothing.
+ *
+ * The rendered grid is deliberately unchanged by all of this (MODEL rule 6):
+ * last-known still renders, because inside this system only a daemon can have
+ * moved it. What changes is whether the row CLAIMS the number is confirmed.
+ */
+describe('POD-3279: a bind without geometry keeps W, marks it unknown, and announces nothing', () => {
+  /** A live session on the host daemon, bound once at 132x43 and watched. */
+  function boundSession(): {
+    reg: SessionRegistry
+    daemon: ControlMessage[]
+    sessionId: SessionId
+    session: Session
+    watcher: Sent
+  } {
+    const { reg, daemon } = registryFor()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'claude',
+      cwd: '/w',
+      agentKind: 'claude-code',
+      geometry: { cols: 132, rows: 43 },
+    })
+    const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(
+      sessionId,
+    ) as Session
+    const watcher = makeClient('c-watch')
+    watcher.viewVisible.add(sessionId)
+    watcher.viewModes = { [sessionId]: 'native' }
+    session.terminal.attachClient(watcher)
+    watcher.sent.length = 0
+    daemon.length = 0
+    return { reg, daemon, sessionId, session, watcher }
+  }
+
+  const bareBind = (sessionId: SessionId): Extract<import('@podium/protocol/daemon').DaemonMessage, { type: 'bind' }> => ({
+    type: 'bind',
+    sessionId,
+    cmd: `abduco -a podium-${sessionId}`,
+    cwd: '/w',
+    agentKind: 'claude-code',
+  })
+
+  it('after markReconnecting, a bare bind leaves W unknown — same grid, frozen revision, no frame', () => {
+    const { reg, sessionId, session, watcher } = boundSession()
+    expect(session.geometryState()).toBe('current')
+
+    // The daemon holding the bridge went away. W goes back to last-known-only.
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    expect(session.status).toBe('reconnecting')
+    expect(session.geometryState()).toBe('unknown')
+    const revision = session.terminal.geometryRevision
+    watcher.sent.length = 0
+
+    const send: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => send.push(m))
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+
+    // The session comes back LIVE — the bind is still proof the agent is there.
+    expect(session.status).toBe('live')
+    // But nothing confirmed the grid, so nothing about the grid changed or moved.
+    expect(session.geometryState()).toBe('unknown')
+    expect(session.terminal.geometry).toEqual({ cols: 132, rows: 43 })
+    expect(session.terminal.geometryRevision).toBe(revision)
+    expect(geometryFrames(watcher)).toEqual([])
+  })
+
+  it('ARMED: the same bind WITH a geometry reports, so the silence above is the absence', () => {
+    const { reg, sessionId, session, watcher } = boundSession()
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    expect(session.geometryState()).toBe('unknown')
+    const revision = session.terminal.geometryRevision
+    watcher.sent.length = 0
+
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bareBind(sessionId),
+      // A daemon that DID apply something at bind — a resize it was holding for
+      // this session — reports it, and that is a report like any other.
+      geometry: { cols: 200, rows: 60 },
+    })
+
+    expect(session.geometryState()).toBe('current')
+    expect(session.terminal.geometry).toEqual({ cols: 200, rows: 60 })
+    expect(session.terminal.geometryRevision).toBe(revision + 1)
+    expect(geometryFrames(watcher)).toEqual([
+      {
+        type: 'geometry',
+        sessionId,
+        cols: 200,
+        rows: 60,
+        geometryRevision: revision + 1,
+      },
+    ])
+  })
+
+  it('the published row says `unknown` after a bare bind — the claim the panel reads', () => {
+    const { reg, sessionId, session } = boundSession()
+    reg.gateway.detachDaemon(reg.sessionStore.hostMachineId)
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+
+    const row = reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
+    expect(SessionMeta.safeParse(row).success).toBe(true)
+    // The grid still RENDERS at last-known (rule 6) — the row carries it — but it
+    // is labelled for what it is.
+    expect(row?.geometry).toEqual({ cols: 132, rows: 43 })
+    expect(row?.geometryState).toBe('unknown')
+    expect(session.geometryState()).toBe('unknown')
+  })
+
+  it('a rehydrated session stays unknown through a bare bind, and the first ask ends it', () => {
+    // SERVER RESTART, not daemon restart: the row was read back from the store,
+    // so `geometryKnown` starts false and a rollback-restore does not invent a
+    // confirmation. This is the whole round trip that ends the `unknown`.
+    const { reg, daemon } = registryFor()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    const session = (reg as unknown as InternalRegistry).modules.sessions.sessions.get(
+      sessionId,
+    ) as Session
+    session.restoreDurableState(session.captureDurableState(), new Set())
+    expect(session.geometryState()).toBe('unknown')
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bareBind(sessionId))
+    expect(session.geometryState()).toBe('unknown')
+
+    // The first viewer to ask is what makes it current again.
+    const client = makeClient('c-ask')
+    client.viewVisible.add(sessionId)
+    client.viewModes = { [sessionId]: 'native' }
+    session.terminal.attachClient(client)
+    session.terminal.handleResize(client.id, 150, 50)
+    expect(resizesTo(daemon)).toEqual([{ cols: 150, rows: 50 }])
+    expect(session.geometryState()).toBe('unknown')
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'geometryApplied',
+      sessionId,
+      geometry: { cols: 150, rows: 50 },
+      cause: 'request',
+    })
+    expect(session.geometryState()).toBe('current')
+    expect(session.terminal.geometry).toEqual({ cols: 150, rows: 50 })
+  })
+})

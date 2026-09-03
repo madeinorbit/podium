@@ -534,7 +534,18 @@ export const ReattachMessage = z.object({
   durableLabel: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
-  geometry: Geometry,
+  /**
+   * THE SERVER'S LAST-KNOWN GRID, AND A HINT ONLY (POD-3279).
+   *
+   * NAMED FOR WHAT IT IS so the misuse cannot come back unnoticed. This is what
+   * the server last KNEW W to be, not a size anything applied — after a daemon
+   * restart the pty has been running at a size of its own all along. So it feeds
+   * the daemon's HEADLESS screens (the composer engine and the screen observers
+   * need some cols x rows to parse output against) and nothing else: it never
+   * reaches the pty (the reattach's abduco attach is size-neutral) and it is
+   * never echoed back on `bind`, which reports only what the daemon applied.
+   */
+  lastKnownGeometry: Geometry,
   /** Live machine-use verdict and retry identity for this reattach. */
   binding: SessionBindingReattachInstruction.optional(),
   // Lets the daemon classify the live transcript when seeding a survivor's state
@@ -667,9 +678,9 @@ export const GeometryAppliedMessage = z.object({
   /**
    * What caused the apply. ONE MEMBER ON PURPOSE: a viewer's request is the only
    * thing that produces this frame. The other report — birth and reattach —
-   * travels on `bind`, which already carries the effective geometry the daemon
-   * gave the pty, so a `cause: 'bind'` here would be a second name for a frame
-   * that exists and a wire value nothing sends.
+   * travels on `bind`, which carries a geometry when the daemon applied one, so
+   * a `cause: 'bind'` here would be a second name for a frame that exists and a
+   * wire value nothing sends.
    */
   cause: z.enum(['request']),
 })
@@ -681,7 +692,25 @@ export const BindMessage = z.object({
   cmd: z.string(),
   cwd: z.string(),
   agentKind: AgentKind,
-  geometry: Geometry,
+  /**
+   * THE GRID THE DAEMON APPLIED, AND ONLY THEN (MODEL rule 1, POD-3279).
+   *
+   * Present when this daemon actually put the pty at a size as part of this
+   * bind: at birth the spawn's requested geometry (the first attach's packet
+   * moves the child to it), and at a reattach the resize it was holding and
+   * dispatched before binding, if there was one.
+   *
+   * ABSENT MEANS "attached; applied nothing; W is unknown to me" — the ordinary
+   * reattach, where the attach is size-neutral and the agent has been running at
+   * a size of its own. The server keeps W at last-known and marks it `unknown`
+   * until the first viewer asks; it does NOT announce a geometry, because
+   * repeating its own last-known back to itself as news is the echo this field
+   * became optional to remove.
+   *
+   * Older daemons always send it. Their echo still reads as a report, which is
+   * the behaviour that shipped before this and so is not a regression.
+   */
+  geometry: Geometry.optional(),
   // Draft Sync v2 (POD-859): true when the daemon runs its composer scrape/inject
   // engine for this session. Surfaced in SessionMeta so a client retires its own
   // sampler/flush. Additive; older daemons omit it (no engine).

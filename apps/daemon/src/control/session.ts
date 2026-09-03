@@ -450,14 +450,41 @@ function reportGeometryApplied(
   })
 }
 
+/**
+ * WHAT THIS RETURNS IS WHAT THE DAEMON APPLIED (MODEL rule 1, POD-3279).
+ *
+ * `reported` is the size this bridge is being stood up at, when there is one: a
+ * spawn's requested geometry, which the first attach's packet moves the child
+ * to. A REATTACH passes `undefined` — the attach is size-neutral and the agent
+ * has been running at a size of its own — so the answer is whatever resize was
+ * held for this session and dispatched just above, or nothing at all. Nothing is
+ * a real answer: the bind that follows carries no geometry and the server keeps
+ * W `unknown` until the first viewer asks.
+ */
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
   session: AgentSession,
   agentKind: AgentKind,
   durableLabel: string,
-  geometry: Geometry,
-): Geometry {
+  reported: Geometry,
+): Geometry
+export function wireBridge(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  session: AgentSession,
+  agentKind: AgentKind,
+  durableLabel: string,
+  reported: Geometry | undefined,
+): Geometry | undefined
+export function wireBridge(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  session: AgentSession,
+  agentKind: AgentKind,
+  durableLabel: string,
+  reported: Geometry | undefined,
+): Geometry | undefined {
   ctx.bridges.set(sessionId, session)
   ctx.durableLabels.set(sessionId, durableLabel)
   const pending = ctx.pendingResizes.get(sessionId)
@@ -520,7 +547,7 @@ export function wireBridge(
       ctx.send({ type: 'agentExit', sessionId, code })
     })()
   })
-  return pending ? { cols: pending.cols, rows: pending.rows } : geometry
+  return pending ? { cols: pending.cols, rows: pending.rows } : reported
 }
 
 /**
@@ -1015,7 +1042,13 @@ async function adoptServerDriverSession(
       cmd: `${what} (${handle.binding.driver})`,
       cwd: workdir,
       agentKind: msg.agentKind,
-      geometry: msg.geometry ?? { cols: 120, rows: 40 },
+      // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). This
+      // is an ADOPT: the journalled server child was already running and
+      // `runtime.adoptJournalled` rebound it without putting anything at a size.
+      // What stood here was the reattach frame's own geometry with a hardcoded
+      // 120-column default behind it: a producer with no truth behind it either
+      // way, since the frame's field is only the server's last-known and the
+      // fallback was not even that.
       // The same fact the launch path states, and for the same reason: W4's
       // senders branch on it, and a rebound session that reported `false` would
       // be routed to a PTY it does not have.
@@ -1127,7 +1160,12 @@ async function resumeJournalledServerSession(
       // they disagree the adopted child is the one that has to be described.
       cwd: workdir,
       agentKind: msg.agentKind,
-      geometry: msg.geometry ?? { cols: 120, rows: 40 },
+      // NO GEOMETRY, BECAUSE NOTHING WAS APPLIED (MODEL rule 1, POD-3279). The
+      // frame is a `spawn`, but this function is the RESUME arm — it reaches
+      // here only by finding a journalled server child and adopting it, which
+      // starts no terminal and puts nothing at a size. The spawn's requested
+      // geometry would be an intent, not a report; the hardcoded default it
+      // fell back to was not even an intent.
       // The same fact the launch and reattach paths state, and for the same
       // reason: W4's senders branch on it, and a resumed session that reported
       // `false` would be routed to a PTY it does not have.
@@ -1642,14 +1680,12 @@ async function adoptOrResumeEmbeddedClaudeSession(
     } as const)
   try {
     const handle = await runtime.adopt(binding)
+    // NO GEOMETRY: adopting a surviving embedded child applies no size to it
+    // (MODEL rule 1, POD-3279). `msg.lastKnownGeometry` is the server's own
+    // belief, and echoing it back would report a size nothing here set.
     await emitClaudeBinding(
       ctx.send,
-      {
-        sessionId: msg.sessionId,
-        cwd: msg.cwd,
-        agentKind: 'claude-code',
-        geometry: msg.geometry,
-      },
+      { sessionId: msg.sessionId, cwd: msg.cwd, agentKind: 'claude-code' },
       handle,
     )
     log.info('adopted surviving Claude SDK session', {
@@ -1694,14 +1730,11 @@ async function adoptOrResumeEmbeddedClaudeSession(
       ) {
         throw new Error('Claude SDK resume did not preserve the exact session identity or ref')
       }
+      // NO GEOMETRY, for the same reason as the adopt above: a resume rebinds a
+      // conversation, it does not put anything at a size (POD-3279).
       await ensureClaudeBindingPublished(
         ctx.send,
-        {
-          sessionId: msg.sessionId,
-          cwd: msg.cwd,
-          agentKind: 'claude-code',
-          geometry: msg.geometry,
-        },
+        { sessionId: msg.sessionId, cwd: msg.cwd, agentKind: 'claude-code' },
         handle,
       )
       // The production machine source publishes from claude.launch before
@@ -1830,7 +1863,17 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
-      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, msg.geometry.cols, msg.geometry.rows)
+      // THE HEADLESS SCREEN'S GRID, NOT THE PTY'S. The composer engine parses
+      // output against some cols x rows and has to be built at one; the server's
+      // last-known is the best hint available and it never reaches the pty. The
+      // first applied report resizes the engine through the ordinary onResize
+      // path.
+      ctx.composerEngine.attach(
+        msg.sessionId,
+        msg.agentKind,
+        msg.lastKnownGeometry.cols,
+        msg.lastKnownGeometry.rows,
+      )
     }
     ctx.send({
       type: 'bind',
@@ -1838,7 +1881,12 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       cmd,
       cwd: msg.cwd,
       agentKind: msg.agentKind,
-      geometry: msg.geometry,
+      // NO GEOMETRY (MODEL rule 1, POD-3279). This daemon never lost the bridge,
+      // so this reattach applied nothing: no resize was dispatched and the pty is
+      // wherever it already was. Echoing `msg.lastKnownGeometry` here handed the
+      // server its own belief back as a daemon report, which is exactly the lie
+      // that made `geometryState` read `current` after a reconnect that confirmed
+      // nothing.
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
       // The driver handle actually exists for this session (POD-1761 W4). The
       // server records it and W4's senders branch on it — see BindMessage.
@@ -1914,8 +1962,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // request does — but a shell still gets this Ctrl-L, as it does today.
     const attach = {
       label: msg.durableLabel,
-      cols: msg.geometry.cols,
-      rows: msg.geometry.rows,
+      cols: msg.lastKnownGeometry.cols,
+      rows: msg.lastKnownGeometry.rows,
       hardRepaint: msg.agentKind === 'shell',
     }
     let found: { session: AgentSession; cmd: string } | undefined
@@ -1937,8 +1985,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     if (socketPath) {
       found = {
         // The agent has been running all along at a size of its own, and
-        // `msg.geometry` is only what the server last KNEW — after a daemon
-        // restart it can be stale. A reattach is not a viewer asking for a size,
+        // `msg.lastKnownGeometry` is only what the server last KNEW — after a
+        // daemon restart it can be stale. A reattach is not a viewer asking for a size,
         // so it neither resizes nor signals the agent; the first viewport request
         // after reconnect is what moves it [spec:SP-6144].
         session: attachAbducoAgent({ ...attach, socketPath, sizeNeutral: true }),
@@ -1958,13 +2006,17 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       })
       return
     }
-    const geometry = wireBridge(
+    // NOTHING REPORTED, BECAUSE THE ATTACH APPLIED NOTHING (POD-3279). The only
+    // geometry a reattach can honestly report is a resize this session was
+    // holding, which `wireBridge` dispatches and returns; with no held resize the
+    // answer is `undefined` and the bind below carries no geometry at all.
+    const applied = wireBridge(
       ctx,
       msg.sessionId,
       found.session,
       msg.agentKind,
       msg.durableLabel,
-      msg.geometry,
+      undefined,
     )
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
@@ -1976,11 +2028,18 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
-    ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
+    // THE HEADLESS SCREENS, AT THE BEST HINT THERE IS. The screen observers and
+    // the composer engine have to be built at some cols x rows to parse output
+    // against, and they are consumers of W like any viewer — so they take the
+    // resize this attach applied if there was one, and the server's last-known
+    // otherwise. Neither number reaches the pty; the first applied report moves
+    // them both through the ordinary onResize path.
+    const screens = applied ?? msg.lastKnownGeometry
+    ctx.observers.onResize?.(msg.sessionId, screens.cols, screens.rows)
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
-      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
+      ctx.composerEngine.attach(msg.sessionId, msg.agentKind, screens.cols, screens.rows)
     }
     ctx.send({
       type: 'bind',
@@ -1988,7 +2047,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       cmd: found.cmd,
       cwd: msg.cwd,
       agentKind: msg.agentKind,
-      geometry,
+      // ONLY A SIZE THIS ATTACH APPLIED (MODEL rule 1, POD-3279). Present when a
+      // held resize was dispatched at bind, absent otherwise — and absent is the
+      // ordinary case, because a size-neutral attach applies nothing. The server
+      // reads the absence as "W is unknown to me" and waits for the first ask.
+      ...(applied ? { geometry: applied } : {}),
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
       // The driver handle actually exists for this session (POD-1761 W4). The
       // server records it and W4's senders branch on it — see BindMessage.

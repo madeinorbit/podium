@@ -78,7 +78,7 @@ describe('causal observation wire compatibility', () => {
           durableLabel: 'podium-podium-1',
           agentKind: 'codex',
           cwd: '/repo',
-          geometry: { cols: 80, rows: 24 },
+          lastKnownGeometry: { cols: 80, rows: 24 },
         }),
       ),
     ).not.toHaveProperty('observationCheckpoint')

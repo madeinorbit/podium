@@ -36,7 +36,7 @@ function reattachMessage(sessionId: SessionId, resume: ResumeRef): never {
     durableLabel: `podium-${sessionId}`,
     agentKind: 'claude-code',
     cwd: '/project',
-    geometry: { cols: 80, rows: 24 },
+    lastKnownGeometry: { cols: 80, rows: 24 },
     resume,
     runtimeContract: 'claude-sdk',
     binding: {
@@ -99,6 +99,10 @@ describe('Claude SDK reattach control', () => {
         driverId: 'claude-sdk',
       }),
     )
+    // ADOPTING A SURVIVOR APPLIES NO SIZE (POD-3279), so its bind carries none.
+    // `objectContaining` above cannot see an extra field, which is exactly why
+    // the absence is asserted separately here.
+    expect(w.sent.find((message) => message.type === 'bind')).not.toHaveProperty('geometry')
     expect(w.sent).toContainEqual(
       expect.objectContaining({ type: 'sessionResumeRef', sessionId: SESSION_ID, resume: RESUME }),
     )
@@ -138,7 +142,10 @@ describe('Claude SDK reattach control', () => {
       cmd: 'Claude Agent SDK (embedded)',
       cwd: '/project',
       agentKind: 'claude-code',
-      geometry: { cols: 80, rows: 24 },
+      // NO `geometry` (POD-3279). Resuming an embedded child after process loss
+      // puts nothing at a size, so the bind reports none — and because this
+      // assertion is exact, a geometry reappearing here fails the test rather
+      // than passing unnoticed.
       runtimeContract: true,
       driverId: 'claude-sdk',
       // POD-3087: what this driver can change on a running session, read off its

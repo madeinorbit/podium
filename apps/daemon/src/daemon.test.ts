@@ -573,7 +573,7 @@ describe('daemon multi-bridge', () => {
       durableLabel: `podium-${sessionId}`,
       agentKind: 'claude-code',
       cwd: '/tmp',
-      geometry: G,
+      lastKnownGeometry: G,
     })
     // The fix: the already-held branch re-pushes the surviving idle phase.
     await waitFor(() => idleStates().length > before)
@@ -684,7 +684,7 @@ describe('daemon multi-bridge', () => {
       cwd,
       resume: { kind: 'claude-session', value: providerSessionId },
       pathHint: transcriptPath,
-      geometry: G,
+      lastKnownGeometry: G,
       observationGeneration: 8,
       observationBindingVersion: 2,
       observationProviderSessionId: providerSessionId,
@@ -1729,6 +1729,11 @@ describe('server-driver admission control path', () => {
         driverId: 'codex-app-server',
       }),
     )
+    // AND NO GEOMETRY (POD-3279). The frame is a spawn and carries one, but this
+    // arm ADOPTED a journalled child — it started no terminal and put nothing at
+    // a size, so it has nothing to report. The hardcoded 120-column fallback this
+    // replaces was a size no part of the system had ever applied.
+    expect(sent.find((msg) => msg.type === 'bind')).not.toHaveProperty('geometry')
   })
 
   /**
@@ -1857,7 +1862,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
@@ -1879,7 +1884,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: `podium-${goneId}-missing`,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() =>
         received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
@@ -1982,7 +1987,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: { cols: 120, rows: 45 },
+        lastKnownGeometry: { cols: 120, rows: 45 },
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await new Promise((r) => setTimeout(r, 800))
@@ -1990,6 +1995,15 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // even sent a redraw key. Nothing has asked it for anything.
       expect(painted()).toBe('')
       expect(painted()).not.toContain('cols=120')
+      // AND THE BIND SAYS SO (POD-3279). A real daemon, a real abduco survivor, a
+      // real size-neutral attach — and the frame that comes back reports no
+      // geometry at all, because this daemon applied none. It used to echo the
+      // 120x45 above straight back, which is how a stale server belief became a
+      // confirmed one across a restart.
+      const reattachBind = received.find(
+        (m) => m.type === 'bind' && m.sessionId === sessionId,
+      ) as Extract<DaemonMessage, { type: 'bind' }>
+      expect(reattachBind).not.toHaveProperty('geometry')
 
       // The first viewport request is what moves it — and, because the master
       // signals the program on every resize packet, is also what repaints it.
@@ -2183,7 +2197,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       // The fix: the reattaching daemon seeds a fresh idle state for the survivor.
@@ -2307,7 +2321,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
           durableLabel: label,
           agentKind: 'claude-code',
           cwd,
-          geometry: G,
+          lastKnownGeometry: G,
           resume: { kind: 'claude-session', value: resumeValue },
         })
         await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
@@ -2482,7 +2496,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
         durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       // The daemon re-binds: it replies with a fresh `bind` for this sessionId...
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
@@ -2504,7 +2518,7 @@ describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
         durableLabel: `podium-${goneId}-missing`,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() =>
         received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
@@ -3288,7 +3302,7 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
         durableLabel: 'podium-seedgate-1',
         agentKind: 'claude-code',
         cwd,
-        geometry: G,
+        lastKnownGeometry: G,
         resume: { kind: 'claude-session', value: resumeValue },
       }
       observers.initSessionObservers(
@@ -3606,7 +3620,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       durableLabel: `podium-${sessionId}`,
       agentKind: 'claude-code',
       cwd,
-      geometry: G,
+      lastKnownGeometry: G,
       resume: { kind: 'claude-session', value: resumeValue },
     })
 

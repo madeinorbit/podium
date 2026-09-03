@@ -39,7 +39,13 @@ export async function emitClaudeBinding(
     sessionId: SessionId
     cwd: string
     agentKind: 'claude-code'
-    geometry: Geometry
+    /**
+     * The grid this daemon put the session at, when it put it at one (MODEL
+     * rule 1, POD-3279). The launch path passes the size it created the child
+     * at; ADOPTING or RESUMING a survivor passes nothing, because rebinding a
+     * child that was already running applies no size to it.
+     */
+    geometry?: Geometry
   },
   handle: AgentSessionHandle,
 ): Promise<void> {
@@ -50,7 +56,7 @@ export async function emitClaudeBinding(
     cmd: 'Claude Agent SDK (embedded)',
     cwd: input.cwd,
     agentKind: input.agentKind,
-    geometry: input.geometry,
+    ...(input.geometry ? { geometry: input.geometry } : {}),
     runtimeContract: true,
     driverId: handle.binding.driver,
     // POD-3087: what this driver's configure() can change, read off its own
