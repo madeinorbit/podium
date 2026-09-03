@@ -44,18 +44,18 @@ import type { CountedClient } from './client'
  * The measured server-side budget for an interactive transaction.
  *
  * IT BOUNDS THE GAP BETWEEN STATEMENTS, NOT THE TRANSACTION'S DURATION, and the
- * distinction is not pedantry — the port's {@link DriverLimits.writeBudgetMs}
- * describes this as "the wall-clock a write transaction may be held", which
- * would make the literal 250-row append (27.8 s of continuous statements on the
- * hosted database) impossible. It is not: it commits. Measured both ways
- * (POD-3250 proof 9): a 21.6 s transaction with a statement every 2 s COMMITTED,
- * and a 12.2 s one with a single idle gap was reaped with
+ * distinction is not pedantry — read as a duration it would make the literal
+ * 250-row append (27.8 s of continuous statements on the hosted database)
+ * impossible. It is not: it commits. Measured both ways (POD-3250 proof 9): a
+ * 21.6 s transaction with a statement every 2 s COMMITTED, and a 12.2 s one with
+ * a single idle gap was reaped with
  * `SQLITE_BUSY: … the stream was idle for too long`.
  *
  * So a watchdog derived from this number has to measure TIME SINCE THE LAST
  * STATEMENT. One measuring time since `begin` would fire on transactions the
  * server is perfectly happy with, and would miss the one thing that actually
- * kills them.
+ * kills them. The port said "wall-clock … held" and its watchdog timed from
+ * `begin`; both were corrected against this measurement in POD-3345.
  *
  * DECLARED here rather than assumed by a caller because the scheduler refuses a
  * watchdog at or above it: a watchdog above the hard limit would report a
