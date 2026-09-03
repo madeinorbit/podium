@@ -16,8 +16,8 @@ bot: just open a pull request.
   `Bun.Terminal`.
 - **macOS:** Xcode Command Line Tools (`xcode-select --install`). A C compiler (`cc`/clang) compiles
   the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
-  sessions don't survive a daemon restart. `tmux` is used as a fallback, or set
-  `PODIUM_ABDUCO=/path/to/abduco` to point at a prebuilt binary.
+  sessions don't survive a daemon restart. Set `PODIUM_ABDUCO=/path/to/abduco` to point at a
+  prebuilt binary instead.
 - **Windows desktop:** Microsoft C++ Build Tools with the "Desktop development with C++"
   workload, Microsoft Edge WebView2, and the Rust MSVC host toolchain. Windows sessions use
   ConPTY, so they do not need the POSIX `abduco` compiler prerequisite.

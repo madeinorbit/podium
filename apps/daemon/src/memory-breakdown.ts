@@ -13,7 +13,7 @@ export interface ProcSample {
 }
 
 /** How to find a session's processes: its attach/PTY pid, and the durable label
- *  that the abduco/tmux master (not a daemon child!) carries in its cmdline. */
+ *  that the abduco master (not a daemon child!) carries in its cmdline. */
 export interface SessionProcessHint {
   sessionId: SessionId
   label: string

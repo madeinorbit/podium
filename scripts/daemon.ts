@@ -1,5 +1,5 @@
 /**
- * Live agent daemon process (split deployment): owns ALL per-agent work — abduco/tmux
+ * Live agent daemon process (split deployment): owns ALL per-agent work — abduco
  * PTY attach, transcript tailing, agent-state observation, discovery scans, host metrics.
  * Connects to the coordinating server over ws://localhost:<port>/daemon and reconnects
  * with backoff, so it can start before the server is ready and survive a server restart

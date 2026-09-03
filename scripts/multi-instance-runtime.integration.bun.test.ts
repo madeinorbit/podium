@@ -138,7 +138,6 @@ function instanceEnv(
     'PODIUM_HOME',
     'NOTIFY_SOCKET',
     'ABDUCO_SOCKET_DIR',
-    'TMUX_TMPDIR',
   ])
     delete env[key]
   Object.assign(env, {
@@ -426,7 +425,6 @@ describe('long instance durable sockets', () => {
       PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
       PODIUM_ABDUCO: process.env.PODIUM_ABDUCO,
       ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
-      TMUX_TMPDIR: process.env.TMUX_TMPDIR,
       PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
     }
     const restore = () => {
@@ -455,7 +453,6 @@ describe('long instance durable sockets', () => {
       process.env.PODIUM_STATE_DIR = stateDir
       process.env.PODIUM_ABDUCO = bin
       delete process.env.ABDUCO_SOCKET_DIR
-      delete process.env.TMUX_TMPDIR
       process.env.PODIUM_NO_SCOPE = '1'
       applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
       label = durableSessionLabel(sessionId, instanceId)

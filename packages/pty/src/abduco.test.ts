@@ -122,7 +122,7 @@ describe('abduco command builders', () => {
     session.dispose()
   })
 
-  it('preserves replay only for opted-in live-master adoption', async () => {
+  it('adopting a live master applies nothing and repaints nothing', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-adopt-policy-'))
     const label = 'podium-adopt-policy'
     const socketPath = join(dir, `${label}@${hostname()}`)
@@ -152,7 +152,6 @@ describe('abduco command builders', () => {
         rows: 24,
         env: { ABDUCO_SOCKET_DIR: dir },
         backend,
-        preserveReplayOnAdopt: true,
       })
       expect(replaying.adopted).toBe(true)
       expect(resizes).toEqual([])
@@ -447,7 +446,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     while (!out.includes('READY') && Date.now() - readyStart < 8000) await wait(25)
     expect(out).toContain('READY') // byte-transparency
     expect(out).not.toContain('\x1b[?1049h') // client attach chrome stripped
-    expect(title).toContain('FIXTURE-TITLE') // OSC passes through verbatim (no tmux set-titles needed)
+    expect(title).toContain('FIXTURE-TITLE') // OSC passes through verbatim
 
     session.write(Buffer.from('hi\r', 'utf8').toString('base64'))
     await wait(500)

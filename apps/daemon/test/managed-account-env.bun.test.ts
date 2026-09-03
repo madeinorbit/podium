@@ -124,7 +124,7 @@ async function dumpEnvOfSpawnedProcess(
     send: () => {},
     instanceId: 'default',
     homeDir: home,
-    backend: 'none', // bare PTY child: no abduco/tmux master can outlive this test
+    backend: 'none', // bare PTY child: no abduco master can outlive this test
     // A harness frame still launches a shell (see above). `-c` so the harness's
     // own instrumentation args, appended by the daemon, land as ignored
     // positional parameters instead of confusing bash.

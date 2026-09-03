@@ -20,7 +20,7 @@
  * apps/daemon in one process (check-boundaries rule 5, same allowance scripts/host.ts uses).
  *
  * PTY HYGIENE: Podium leaks detached PTY masters when a test forgets to reap (see the
- * agent-bridge notes). Backend is 'none' — a bare Bun.Terminal child, no abduco/tmux master to
+ * agent-bridge notes). Backend is 'none' — a bare Bun.Terminal child, no abduco master to
  * outlive us — and every spawn is disposed by explicit pid and confirmed dead. Nothing here
  * ever pattern-kills, which would be capable of killing the developer's live agents.
  */

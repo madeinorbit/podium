@@ -26,14 +26,10 @@ import {
   abducoHasSession,
   abducoSocketPath,
   attachAbducoAgent,
-  attachTmuxAgent,
   killAbducoSession,
-  killTmuxServer,
   reapStaleAbducoBindTemps,
   spawnAbducoAgent,
   spawnAgent,
-  spawnTmuxAgent,
-  tmuxHasSession,
   waitForAbducoSocket,
 } from '@podium/pty'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
@@ -535,7 +531,6 @@ export function wireBridge(
     const label = durableLabel
     void (async () => {
       if (ctx.backend === 'abduco' && (await abducoHasSession(label))) return
-      if (ctx.backend === 'tmux' && (await tmuxHasSession(label))) return
       // The agent has truly exited (master is gone). Uploads are one-shot prompt
       // inputs that were already consumed before the agent finished processing
       // them, so it's safe to remove the per-session upload dir on any real exit
@@ -700,11 +695,7 @@ export async function launchSpawn(
       stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
     const session =
-      ctx.backend === 'abduco'
-        ? await spawnAbducoAgent(spawnOpts)
-        : ctx.backend === 'tmux'
-          ? await spawnTmuxAgent(spawnOpts)
-          : spawnAgent(spawnOpts)
+      ctx.backend === 'abduco' ? await spawnAbducoAgent(spawnOpts) : spawnAgent(spawnOpts)
     driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
@@ -981,7 +972,7 @@ async function adoptServerDriverSession(
    * This consulted `ctx.opencodeRuntime` alone, so a codex session — which has
    * no entry in the OPENCODE journal — answered "not mine" and fell through to
    * the PTY path below, where the code's own words are that it "assumes a PTY:
-   * it asks whether an abduco socket or a tmux session still holds the durable
+   * it asks whether an abduco socket still holds the durable
    * label". The session came back `reattachFailed: session not found`, which is
    * verbatim the failure this function exists to prevent.
    *
@@ -1822,8 +1813,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
    *
    * This is the boot-time caller `adopt()` never had (found by POD-2056's lane,
    * which could not reach its own subject without it). Everything below this
-   * point assumes a PTY: it asks whether an abduco socket or a tmux session
-   * still holds the durable label. A server-family session has neither — its
+   * point assumes a PTY: it asks whether an abduco socket still holds the
+   * durable label. A server-family session has none — its
    * process is an `opencode serve` on a loopback port — so a restarted daemon
    * looked for a master that never existed, answered `reattachFailed: session
    * not found`, and left a perfectly healthy server running ORPHANED with the
@@ -1856,10 +1847,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    const cmd =
-      ctx.backend === 'tmux'
-        ? `tmux -L ${msg.durableLabel} attach`
-        : `abduco -a ${msg.durableLabel}`
+    const cmd = `abduco -a ${msg.durableLabel}`
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
@@ -1960,15 +1948,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // on resize, so only shells take the hard path. The abduco attach below is
     // size-neutral, so it repaints nothing on its own — the first viewport
     // request does — but a shell still gets this Ctrl-L, as it does today.
-    const attach = {
-      label: msg.durableLabel,
-      cols: msg.lastKnownGeometry.cols,
-      rows: msg.lastKnownGeometry.rows,
-      hardRepaint: msg.agentKind === 'shell',
-    }
     let found: { session: AgentSession; cmd: string } | undefined
-    // Backend-agnostic: try whichever durable host owns the label, so sessions
-    // created under tmux before an abduco upgrade still reattach (no flag day).
     let socketPath: string | undefined
     if (ctx.backend !== 'none') {
       reapStaleAbducoBindTemps()
@@ -1978,7 +1958,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         try {
           socketPath = await waitForAbducoSocket(msg.durableLabel, abducoEnv, { timeoutMs: 1500 })
         } catch {
-          // The durable host may be absent; keep the tmux compatibility fallback below.
+          // The durable host may be absent; `found` stays undefined and the
+          // reattach fails below.
         }
       }
     }
@@ -1989,13 +1970,18 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         // daemon restart it can be stale. A reattach is not a viewer asking for a size,
         // so it neither resizes nor signals the agent; the first viewport request
         // after reconnect is what moves it [spec:SP-6144].
-        session: attachAbducoAgent({ ...attach, socketPath, sizeNeutral: true }),
+        session: attachAbducoAgent({
+          label: msg.durableLabel,
+          socketPath,
+          hardRepaint: msg.agentKind === 'shell',
+          sizeNeutral: true,
+          // Read ONLY if this machine has no `-N` abduco build and the attach
+          // downgrades to one that does announce a size. Last-known is then the
+          // only size that keeps the agent and every viewer's render agreeing;
+          // the session reports it back as `appliedGeometry`.
+          fallbackGeometry: msg.lastKnownGeometry,
+        }),
         cmd: `abduco -a ${socketPath}`,
-      }
-    } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {
-      found = {
-        session: attachTmuxAgent(attach),
-        cmd: `tmux -L ${msg.durableLabel} attach`,
       }
     }
     if (!found) {
@@ -2010,14 +1996,12 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // geometry a reattach can honestly report is a resize this session was
     // holding, which `wireBridge` dispatches and returns; with no held resize the
     // answer is `undefined` and the bind below carries no geometry at all.
-    const applied = wireBridge(
-      ctx,
-      msg.sessionId,
-      found.session,
-      msg.agentKind,
-      msg.durableLabel,
-      undefined,
-    )
+    const applied =
+      wireBridge(ctx, msg.sessionId, found.session, msg.agentKind, msg.durableLabel, undefined) ??
+      // A machine without a `-N` abduco build downgrades to an attach that DOES
+      // announce a size, and the session says so. That is a size the daemon
+      // applied, so rule 1 rev 4 lets the bind report it.
+      found.session.appliedGeometry
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2176,14 +2160,13 @@ async function reapDurableHost(
   sessionId: SessionId,
   durableLabel: string,
 ): Promise<void> {
-  const stillRunning = async (): Promise<boolean> =>
-    (await abducoHasSession(durableLabel)) || (await tmuxHasSession(durableLabel))
+  const stillRunning = async (): Promise<boolean> => await abducoHasSession(durableLabel)
   try {
-    await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+    await killAbducoSession(durableLabel)
     let alive = await stillRunning()
     if (alive) {
       log.warn('the durable host survived a kill — retrying', { sessionId, durableLabel })
-      await Promise.all([killAbducoSession(durableLabel), killTmuxServer(durableLabel)])
+      await killAbducoSession(durableLabel)
       alive = await stillRunning()
     }
     if (alive) {

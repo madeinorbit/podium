@@ -792,7 +792,7 @@ describe('Layer 3 reattach messages', () => {
     const msg = {
       type: 'reattachFailed' as const,
       sessionId: asSessionId('s1'),
-      reason: 'no tmux session',
+      reason: 'no abduco session',
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })

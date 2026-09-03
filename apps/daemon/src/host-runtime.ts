@@ -16,12 +16,7 @@ import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
-import {
-  killAbducoSession,
-  killTmuxServer,
-  listLiveAbducoLabels,
-  reapStaleAbducoBindTemps,
-} from '@podium/pty'
+import { killAbducoSession, listLiveAbducoLabels, reapStaleAbducoBindTemps } from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -1219,7 +1214,7 @@ export async function createDaemonHostRuntime(args: {
       session.dispose()
       if (reapSessions && backend !== 'none') {
         const label = ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId)
-        durableReaps.push(Promise.all([killAbducoSession(label), killTmuxServer(label)]))
+        durableReaps.push(killAbducoSession(label))
       }
     }
     ctx.bridges.clear()

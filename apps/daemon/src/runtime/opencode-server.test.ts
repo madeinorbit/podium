@@ -980,7 +980,7 @@ describe('the contract bind fact', () => {
  *
  * `adopt()` was implemented and covered by four conformance properties, and
  * NOTHING CALLED IT. On a daemon restart `handleReattach` went straight to the
- * durable-host lookup, asked abduco and tmux whether they still held the
+ * durable-host lookup, asked abduco whether it still held the
  * session's label, got "no" from both — because a server-family session has no
  * PTY and never had a master — and answered `reattachFailed: session not found`
  * while a healthy `opencode serve` kept running orphaned on its port.

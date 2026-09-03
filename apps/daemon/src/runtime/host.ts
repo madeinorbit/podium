@@ -16,7 +16,7 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AttachmentStager } from '@podium/agent-runtime'
-import { abducoHasSession, scopeUnitName, tmuxHasSession } from '@podium/pty'
+import { abducoHasSession, scopeUnitName } from '@podium/pty'
 import type { DaemonContext } from '../control/context'
 import { launchSpawn, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
@@ -47,10 +47,7 @@ export function daemonRuntimeHost(
     // Absent on macOS, and honestly so: there is no transient scope there, and a
     // fabricated unit name would make `health()` report a cgroup nothing owns.
     scopeUnit: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),
-    // BACKEND-AGNOSTIC, like the reattach path: a session created under tmux
-    // before an abduco upgrade must still be adoptable, so both hosts are asked.
-    durableHostAlive: async (label) =>
-      (await abducoHasSession(label)) || (await tmuxHasSession(label)),
+    durableHostAlive: async (label) => await abducoHasSession(label),
     stopSession: (input) => stopSessionProcess(ctx, input),
     launch: (msg) => launchSpawn(ctx, msg),
     readTranscript: async (session, range) => {

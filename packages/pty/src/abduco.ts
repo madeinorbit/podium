@@ -14,6 +14,7 @@ import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
+import type { Geometry } from '@podium/model'
 import { ABDUCO_SUN_PATH_MAX, abducoSocketPathBytes } from '@podium/runtime/abduco-socket'
 import {
   abducoSocketPathname,
@@ -33,7 +34,7 @@ import { ABDUCO_FEATURES, resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
 import { type AgentSession, withHardRepaint, wrapPty } from './session.js'
-import { shellQuote } from './tmux.js'
+import { shellQuote } from './shell-quote.js'
 
 const log = createLogger('pty:abduco')
 
@@ -781,7 +782,7 @@ export function listLiveAbducoLabels(
  * Async, guard-free counterpart of {@link reclaimStaleScope} for the kill path:
  * stop the label's transient scope unit and clear its unit state. Best-effort —
  * no systemd, an unscoped spawn (fallback path), or an already-gone unit all
- * make these no-ops. tmux labels never had a scope, so it's a no-op there too.
+ * make these no-ops.
  */
 export async function stopSessionScope(
   label: string,
@@ -919,14 +920,6 @@ export interface AbducoSpawnOptions {
    * abduco itself and reads none of this.
    */
   stripEnv?: readonly string[]
-  /**
-   * Preserve replay already owned by a browser when adopting a live master.
-   * Such an adoption must not trigger the attach client's initial repaint,
-   * because that repaint clears retained scrollback. Defaults false so
-   * ordinary/headed reattach keeps its blank-screen recovery repaint.
-   */
-  preserveReplayOnAdopt?: boolean
-
   backend?: PtyBackend
   /**
    * What this master is, for the scope budget (POD-2413). `'attach'` is a
@@ -1026,7 +1019,7 @@ export function withComposedSocketPath(
 /**
  * Create a detached abduco session running the agent, then attach a client.
  * The session app inherits cwd/env from the CREATE call (abduco has no flags for
- * either); TERM/COLORTERM must be forced here — there is no tmux
+ * either); TERM/COLORTERM must be forced here — there is no durable-host
  * `default-terminal` equivalent. Initial pty geometry is abduco's 80x25 default;
  * the attach client immediately resizes to cols×rows (abduco sends the size and
  * SIGWINCHes the app group on attach).
@@ -1054,23 +1047,19 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // every later spawn/reattach readdir pays for them. Sweep first so the
   // lookups below see live sockets, not thousands of leftover `.abduco-<pid>`.
   reapStaleAbducoBindTemps(childEnv)
-  const attachTo = (
-    socketPath: string,
-    repaintOnAttach = true,
-    sizeNeutral = false,
-  ): AgentSession =>
+  /** Options every attach below shares; the geometry differs and is added per call. */
+  const attachCommon = {
+    label: opts.label,
+    ...(opts.env ? { env: opts.env } : {}),
+    ...(opts.backend ? { backend: opts.backend } : {}),
+  }
+  const attachCreated = async (): Promise<AgentSession> =>
     attachAbducoAgent({
-      label: opts.label,
-      socketPath,
+      ...attachCommon,
+      socketPath: await waitForAbducoSocket(opts.label, childEnv),
       cols: opts.cols,
       rows: opts.rows,
-      ...(opts.env ? { env: opts.env } : {}),
-      ...(opts.backend ? { backend: opts.backend } : {}),
-      repaintOnAttach,
-      sizeNeutral,
     })
-  const attachCreated = async (): Promise<AgentSession> =>
-    attachTo(await waitForAbducoSocket(opts.label, childEnv))
   /**
    * A durable label is a constant of its session, so a respawn (every Resume) can
    * find the previous master still holding the name. abduco answers that with
@@ -1085,8 +1074,18 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       socketPath,
     })
     // Adopting a LIVE master: its program is already running at a size of its
-    // own, so this attach must not move it.
-    return { ...attachTo(socketPath, !opts.preserveReplayOnAdopt, true), adopted: true }
+    // own, so this attach must not move it. `opts.cols`/`opts.rows` are what the
+    // CALLER wanted for a create, never a claim about the running program — so
+    // they reach it only as the `-N`-less downgrade's fallback [spec:SP-6144].
+    return {
+      ...attachAbducoAgent({
+        ...attachCommon,
+        socketPath,
+        sizeNeutral: true,
+        fallbackGeometry: { cols: opts.cols, rows: opts.rows },
+      }),
+      adopted: true,
+    }
   }
   const live = abducoSocketPath(opts.label, childEnv)
   if (live) return adopt(live)
@@ -1202,12 +1201,10 @@ const ATTACH_REPAINT_FALLBACK_MS = 1000
  */
 const SIZE_NEUTRAL_ATTACH_GEOMETRY = { cols: 1, rows: 1 } as const
 
-export function attachAbducoAgent(opts: {
+interface AbducoAttachCommon {
   label: string
   /** Existing socket path, when recovery found a host-suffixed socket. */
   socketPath?: string
-  cols: number
-  rows: number
   env?: Record<string, string>
   /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
   hardRepaint?: boolean
@@ -1216,27 +1213,57 @@ export function attachAbducoAgent(opts: {
    * Fresh attaches default true; explicit redraw remains available afterward.
    */
   repaintOnAttach?: boolean
-  /**
-   * Attach without announcing a size (`-N`): the running program is neither
-   * resized nor signalled by this attach. `cols`/`rows` are then IGNORED for the
-   * attach pty, which opens at a sentinel size — they stay the caller's record
-   * of the session's geometry, never a claim about the program's.
-   * Every attach to an ALREADY RUNNING program wants this — a reconnect
-   * is not a viewer asking for a size, and the caller's last-known size may be
-   * stale. The exception is the attach right after a create: the master's pty is
-   * forked at abduco's own default (80x25, it has no tty), and that first
-   * attach's resize packet is the only thing that moves the program to the
-   * requested size [spec:SP-6144].
-   */
-  sizeNeutral?: boolean
   backend?: PtyBackend
-}): AgentSession {
-  const attach = resolveAttachBin(opts.sizeNeutral ?? false)
+}
+
+/**
+ * An attach either announces a size to the running program or it does not, and
+ * the two carry different geometry — which is why this is a union rather than an
+ * optional flag beside a required `cols`/`rows`.
+ */
+export type AbducoAttachOptions =
+  | (AbducoAttachCommon & {
+      sizeNeutral?: false
+      /** Applied to the program: this attach's pty size IS the program's size. */
+      cols: number
+      rows: number
+    })
+  | (AbducoAttachCommon & {
+      /**
+       * Attach without announcing a size (`-N`): the running program is neither
+       * resized nor signalled by this attach, whose pty opens at a sentinel size.
+       * Every attach to an ALREADY RUNNING program wants this — a reconnect is
+       * not a viewer asking for a size, and the caller's last-known size may be
+       * stale. The exception is the attach right after a create: the master's pty
+       * is forked at abduco's own default (80x25, it has no tty), and that first
+       * attach's resize packet is the only thing that moves the program to the
+       * requested size [spec:SP-6144].
+       */
+      sizeNeutral: true
+      /**
+       * Used ONLY when no `-N` build exists and {@link resolveAttachBin}
+       * downgrades this to an ordinary attach — which then APPLIES this geometry
+       * to the running program, and reports it back as `appliedGeometry`. Never
+       * read on the `-N` path. Last-known is the right value: the downgraded
+       * attach re-grids the program, and any other size would leave the agent and
+       * every viewer's render disagreeing until someone asked.
+       */
+      fallbackGeometry: Geometry
+      cols?: never
+      rows?: never
+    })
+
+export function attachAbducoAgent(opts: AbducoAttachOptions): AgentSession {
+  const attach = resolveAttachBin(opts.sizeNeutral === true)
   const [cmd, ...args] = abducoAttachArgv(opts.socketPath ?? opts.label, attach.bin, {
     sizeNeutral: attach.sizeNeutral,
   })
   const backend = opts.backend ?? defaultPtyBackend()
-  const geometry = attach.sizeNeutral ? SIZE_NEUTRAL_ATTACH_GEOMETRY : opts
+  const geometry = attach.sizeNeutral
+    ? SIZE_NEUTRAL_ATTACH_GEOMETRY
+    : opts.sizeNeutral === true
+      ? opts.fallbackGeometry
+      : { cols: opts.cols, rows: opts.rows }
   const proc = backend.spawn({
     file: cmd as string,
     args,
@@ -1283,6 +1310,11 @@ export function attachAbducoAgent(opts: {
   }
   return {
     ...session,
+    // A size-neutral attach applied nothing and reports nothing; an ordinary one
+    // — including a size-neutral request DOWNGRADED for want of a `-N` build —
+    // pushed this size onto the program, so the caller may report it (SPEC-3
+    // rule 1 rev 4: a report carries a geometry only when the daemon applied one).
+    ...(attach.sizeNeutral ? {} : { appliedGeometry: geometry }),
     redrawWhenReady() {
       if (ready) {
         session.redraw()

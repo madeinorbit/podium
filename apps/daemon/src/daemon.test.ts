@@ -30,11 +30,8 @@ import {
 import {
   abducoHasSession,
   isAbducoAvailable,
-  isTmuxAvailable,
   killAbducoSession,
-  killTmuxServer,
   reapAbducoTestSessions,
-  tmuxHasSession,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
@@ -290,8 +287,8 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      // direct Bun.Terminal path keeps these fixtures/assertions deterministic (no tmux dependency)
-      tmux: false,
+      // direct Bun.Terminal path keeps these fixtures/assertions deterministic
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       // inject the deterministic fixture instead of real claude/codex
@@ -801,7 +798,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['gone-1'], diagnostics: [] }),
@@ -901,7 +898,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -1780,30 +1777,23 @@ describe('server-driver admission control path', () => {
 })
 
 describe('durable backend resolution', () => {
-  const both = { abduco: true, tmux: true }
-  const neither = { abduco: false, tmux: false }
+  const available = { abduco: true }
+  const neither = { abduco: false }
 
-  it('prefers abduco, falls back to tmux, then none', () => {
-    expect(resolveDurableBackend({}, both)).toBe('abduco')
-    expect(resolveDurableBackend({}, { abduco: false, tmux: true })).toBe('tmux')
+  it('prefers abduco, then none', () => {
+    expect(resolveDurableBackend({}, available)).toBe('abduco')
     expect(resolveDurableBackend({}, neither)).toBe('none')
   })
 
   it('an explicit backend wins (operator intent, even over availability probes)', () => {
-    expect(resolveDurableBackend({ backend: 'tmux' }, both)).toBe('tmux')
-    expect(resolveDurableBackend({ backend: 'none' }, both)).toBe('none')
+    expect(resolveDurableBackend({ backend: 'none' }, available)).toBe('none')
     expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
-  })
-
-  it('maps the legacy tmux boolean: true forces tmux, false forces none', () => {
-    expect(resolveDurableBackend({ tmux: true }, both)).toBe('tmux')
-    expect(resolveDurableBackend({ tmux: false }, both)).toBe('none')
   })
 
   it('explains a none-backend per platform: expected on Windows, missing tools elsewhere', () => {
     expect(noDurableBackendWarning('win32')).toContain('ConPTY')
     expect(noDurableBackendWarning('win32')).not.toContain('abduco')
-    expect(noDurableBackendWarning('linux')).toContain('neither abduco nor tmux')
+    expect(noDurableBackendWarning('linux')).toContain('abduco not found')
     // Both wordings must state the consequence the operator cares about.
     expect(noDurableBackendWarning('win32')).toContain('survive')
     expect(noDurableBackendWarning('linux')).toContain('survive')
@@ -2394,143 +2384,6 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
   }, 20000)
 })
 
-describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
-  it('keeps the tmux session alive after the daemon closes', async () => {
-    const sessionId = asSessionId(`survive-${process.pid}`)
-    const label = `podium-${sessionId}`
-    const wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    const port = (wss.address() as { port: number }).port
-
-    const received: DaemonMessage[] = []
-    let serverSocket!: WS
-    const connected = new Promise<void>((r) => {
-      wss.once('connection', (ws) => {
-        serverSocket = ws
-        handshakeAndCollect(ws, received)
-        r()
-      })
-    })
-
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-      agentRelay: { port: 0 },
-      tmux: true,
-      discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-    })
-    await connected
-
-    try {
-      serverSocket.send(
-        encode({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G }),
-      )
-      // wait for the daemon to confirm it bound the session
-      const start = Date.now()
-      while (!received.some((m) => m.type === 'bind' && m.sessionId === sessionId)) {
-        if (Date.now() - start > 5000) throw new Error('bind timed out')
-        await new Promise((r) => setTimeout(r, 20))
-      }
-      expect(await tmuxHasSession(label)).toBe(true)
-
-      // closing the daemon only detaches the tmux client — the agent server survives.
-      await daemon.close()
-      expect(await tmuxHasSession(label)).toBe(true)
-    } finally {
-      await killTmuxServer(label)
-      await new Promise<void>((r) => wss.close(() => r()))
-    }
-  })
-
-  it('reattach re-binds to a live tmux session, and reports failure for a missing one', async () => {
-    const sessionId = asSessionId(`reattach-${process.pid}`)
-    const label = `podium-${sessionId}`
-    const wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    const port = (wss.address() as { port: number }).port
-
-    const received: DaemonMessage[] = []
-    let serverSocket!: WS
-    const connected = new Promise<void>((r) => {
-      wss.once('connection', (ws) => {
-        serverSocket = ws
-        handshakeAndCollect(ws, received)
-        r()
-      })
-    })
-
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-      agentRelay: { port: 0 },
-      tmux: true,
-      discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-    })
-    await connected
-
-    const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
-    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
-      const startedAt = Date.now()
-      while (!fn()) {
-        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
-        await new Promise((r) => setTimeout(r, 20))
-      }
-    }
-    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
-
-    try {
-      // Spawn a session so a real podium-<id> tmux server exists.
-      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(await tmuxHasSession(label)).toBe(true)
-
-      // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
-      received.length = 0
-      send({
-        type: 'reattach',
-        sessionId,
-        durableLabel: label,
-        agentKind: 'claude-code',
-        cwd: '/tmp',
-        lastKnownGeometry: G,
-      })
-      // The daemon re-binds: it replies with a fresh `bind` for this sessionId...
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // ...and frames flow again from the re-attached tmux client.
-      await waitFor(() =>
-        received.some(
-          (m) =>
-            m.type === 'agentFrameBatch' &&
-            m.sessionId === sessionId &&
-            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        ),
-      )
-
-      // A reattach for a label that has no live tmux session → reattachFailed.
-      const goneId = `gone-${process.pid}`
-      send({
-        type: 'reattach',
-        sessionId: goneId,
-        durableLabel: `podium-${goneId}-missing`,
-        agentKind: 'claude-code',
-        cwd: '/tmp',
-        lastKnownGeometry: G,
-      })
-      await waitFor(() =>
-        received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
-      )
-    } finally {
-      await daemon.close()
-      await killTmuxServer(label)
-      await new Promise<void>((r) => wss.close(() => r()))
-    }
-  })
-})
-
 describe('daemon conversation discovery', () => {
   it('background quick scan pushes the worker delta as conversationsChanged', async () => {
     // The periodic scan runs on the worker and emits a delta; conversationsChanged
@@ -2560,7 +2413,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
@@ -2610,7 +2463,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
@@ -2663,7 +2516,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: client,
@@ -2731,7 +2584,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       // No background loop, so the ONLY indexRefresh job is the on-demand scan.
@@ -2770,7 +2623,7 @@ describe('daemon host metrics', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { intervalMs: 25 },
     })
@@ -2808,7 +2661,7 @@ describe('daemon host metrics', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false, intervalMs: 10 },
     })
@@ -2840,7 +2693,7 @@ describe('daemon memory breakdown', () => {
         bootstrapToken: 'test',
         hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
         agentRelay: { port: 0 },
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         workerClient: inlineWorkerClient(),
@@ -2908,7 +2761,7 @@ describe('Codex identity receipt recovery', () => {
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${(wss.address() as { port: number }).port}`,
         bootstrapToken: 'test',
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         hooks: { port: 0, settingsDir },
@@ -2982,7 +2835,7 @@ describe('agent state instrumentation', () => {
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       hooks: { port: 0, settingsDir },
@@ -3406,7 +3259,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:', homeDir },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })

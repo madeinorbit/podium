@@ -492,7 +492,7 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     deps: ['packages/protocol', 'packages/runtime', 'packages/model'],
   },
   // The PTY kernel split out of agent-bridge (POD-396, ADR 8 D4): backends,
-  // durable hosts (abduco/tmux + the vendored-C build), byte framing, OSC scan,
+  // durable hosts (abduco + the vendored-C build), byte framing, OSC scan,
   // redraw. It owns `pty-port`, which agent-bridge used to claim alongside
   // `harness-adapters` — feature ownership is exclusive, so the tag moves rather
   // than being duplicated. HARNESS-AGNOSTIC by construction: HARNESS_ADAPTER_HOME

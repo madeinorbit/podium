@@ -24,7 +24,7 @@ import type { DiscoveryWorkerClient } from '../worker-client'
 import type { SessionCwdTracker } from '../worktree-resolve'
 
 /** What holds the agent's PTY across daemon restarts. `none` = bare Bun.Terminal. */
-export type DurableBackend = 'abduco' | 'tmux' | 'none'
+export type DurableBackend = 'abduco' | 'none'
 
 /**
  * Everything a control-frame handler may touch, made explicit (#195). One

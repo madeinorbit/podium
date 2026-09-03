@@ -138,7 +138,7 @@ export function stripComments(source: string): string {
   /** Code emitted so far on this line, for the keyword check. */
   let codeRun = ''
   /** Open `${` interpolations and `{` blocks, so a nested template inside an
-   *  interpolation (`` `${x.replace(/'/g, `'\\''`)}` `` — real, tmux.ts:11)
+   *  interpolation (`` `${x.replace(/'/g, `'\\''`)}` `` — real, shell-quote.ts:9)
    *  doesn't let the inner backtick close the outer template. */
   const stack: ('tmpl' | 'brace')[] = []
   while (i < source.length) {
@@ -1192,7 +1192,7 @@ export const CHECKS: AuditCheck[] = [
   },
   {
     id: 'durable-host-sync-async-twins',
-    title: 'Sync/async abduco+tmux twins',
+    title: 'Sync/async durable-host twins',
     phase: 'POD-324',
     unit: 'blocking function that has an async twin (X + XAsync)',
     collect: (ctx) => {
@@ -1220,7 +1220,7 @@ export const CHECKS: AuditCheck[] = [
         )
       let durableHostFiles = 0
       for (const f of ctx.files) {
-        // POD-396 moved the durable hosts (abduco.ts, tmux.ts) out of
+        // POD-396 moved the durable hosts (abduco.ts) out of
         // agent-bridge into packages/pty. Both roots are listed rather than one
         // swapped for the other: a single hardcoded root turns a package MOVE
         // into "0 sites = twins deleted, POD-324 clear to close" — the phantom

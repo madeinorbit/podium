@@ -171,7 +171,7 @@ export interface TerminalRuntimeHost {
   /** Whether composer sync is running (Draft Sync v2) for this session. */
   draftSyncing(sessionId: SessionId): boolean
   /** The durable host label. THIS is the process identity: exactly one abduco or
-   *  tmux master owns it, and `adopt()` matches on it without a prefix. */
+   *  abduco master owns it, and `adopt()` matches on it without a prefix. */
   durableLabel(sessionId: SessionId): string
   /** The transient systemd scope bounding the label's process tree, where the
    *  platform has one. Absent is honest on macOS. */
@@ -1269,7 +1269,7 @@ export function createTerminalRuntime(host: TerminalRuntimeHost): TerminalRuntim
       resume: session.resume,
       process: {
         // EXACT, and opaque to the contract: the durable host label. Exactly one
-        // abduco/tmux master owns it, so an adopt on it cannot land on a
+        // abduco master owns it, so an adopt on it cannot land on a
         // neighbour the way a pid or a prefix could.
         key: session.label,
         ...(host.scopeUnit(session.label) ? { scopeUnit: host.scopeUnit(session.label) } : {}),

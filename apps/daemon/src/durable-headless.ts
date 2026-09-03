@@ -46,6 +46,13 @@ import {
 } from './headless-drivers.js'
 import { createPiStreamReducer } from './pi-stream.js'
 
+/**
+ * The pty size a durable headless turn runs at. No viewer ever looks at it, so
+ * this is a working default rather than a measurement — a harness that wraps its
+ * output needs SOME width, and this is it.
+ */
+const HEADLESS_GEOMETRY = { cols: 120, rows: 40 } as const
+
 interface DurableResult {
   ok: boolean
   requestDigest: string
@@ -722,10 +729,15 @@ export function runDurableHeadlessTurn(
       collect()
       if (settled || disposed) return
       if (await abducoHasSession(label)) {
-        // Reattaching to a harness that is already running: 120x40 is this
-        // path's spawn default, not a measurement of anything, so it must not be
-        // pushed onto the live process [spec:SP-6144].
-        attachment = attachAbducoAgent({ label, cols: 120, rows: 40, sizeNeutral: true })
+        // Reattaching to a harness that is already running: this attach must not
+        // push a size onto the live process [spec:SP-6144]. Nothing measured this
+        // harness's geometry — it has no viewer — so the downgrade fallback is
+        // the same spawn default the create below uses.
+        attachment = attachAbducoAgent({
+          label,
+          sizeNeutral: true,
+          fallbackGeometry: HEADLESS_GEOMETRY,
+        })
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
         // first collect() and the socket check.
@@ -744,8 +756,8 @@ export function runDurableHeadlessTurn(
           cmd: '/bin/sh',
           args: [paths.script],
           cwd: spec.cwd,
-          cols: 120,
-          rows: 40,
+          cols: HEADLESS_GEOMETRY.cols,
+          rows: HEADLESS_GEOMETRY.rows,
           ...(Object.keys(spawnEnv).length > 0 ? { env: spawnEnv } : {}),
           // The durable shell inherits the daemon environment before it execs
           // the harness. Delete manifest-declared account overrides at that

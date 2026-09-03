@@ -164,7 +164,7 @@ describe('daemon update grant over the live server socket', () => {
         identityDir,
         hooks: { port: 0, settingsDir: runtimeDir },
         agentRelay: { port: 0 },
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         restartAfterUpdate: () => {

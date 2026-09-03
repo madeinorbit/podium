@@ -2036,7 +2036,7 @@ describe('SessionRegistry', () => {
     reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
       type: 'reattachFailed',
       sessionId,
-      reason: 'no tmux session',
+      reason: 'no abduco session',
     })
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('exited')
   })

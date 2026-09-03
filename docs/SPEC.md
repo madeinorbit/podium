@@ -32,7 +32,7 @@ Clients (web: mobile + desktop; native apps later)
         │
      Daemon  ── installed per dev machine (mac laptop, Linux VPS…). Interfaces with harnesses.
         │
-   Harnesses ── native agent CLIs wrapped in tmux. Full terminal: view, type, scroll.
+   Harnesses ── native agent CLIs in a durable PTY. Full terminal: view, type, scroll.
 ```
 
 - **Sync engine** powers offline-first; tolerant of bad networks.
@@ -55,7 +55,7 @@ PTY-scraping is a **last resort**, only for what's visible nowhere else. Codex f
 
 | Term | Meaning |
 |------|---------|
-| **Harness** | A native agent CLI (Claude Code, Codex) running in a tmux-wrapped PTY. |
+| **Harness** | A native agent CLI (Claude Code, Codex) running in a durable (abduco-hosted) PTY. |
 | **Session** | One running agent or shell instance. |
 | **Work pane** | A named panel holding a session (agent or shell). Named auto-by-content or by the user. |
 | **Workstream** | **The central unit of attention.** A thread of work spanning multiple tasks/stages (spec → build → bugfix), wrapping one or more native sessions that share context. Shows status, blockers, and last recap; you steer here and drop into a session's PTY for the wheel. Pin, ice, or archive even if unfinished. *(Shorthand: "stream.")* |
@@ -70,7 +70,7 @@ PTY-scraping is a **last resort**, only for what's visible nowhere else. Codex f
 ### 5.2 Command Center
 The main surface, organized around a **board of workstreams** — the home view, where you see status and where attention is needed at a glance. From any workstream you drop into the modes below. Three modes:
 
-- **Dev mode** — the substrate / "take the wheel" view: a configurable terminal grid (tmux-like; bar: Dorothy's "Terminals") onto the workstream's live native sessions. Recent sessions listed at top. One click to browser (testing) or diff/code (manual edits).
+- **Dev mode** — the substrate / "take the wheel" view: a configurable terminal grid (bar: Dorothy's "Terminals") onto the workstream's live native sessions. Recent sessions listed at top. One click to browser (testing) or diff/code (manual edits).
 - **Product mode** — *what* you're working on: status, what's next, plan. Each task shows running/done; click into the terminal. Superagent reads each agent's outcome (via the structured channels in §3.1) and keeps a concise status per workstream — reuse the agent's own recaps where possible (Claude emits `away_summary`, shown as "recap: …", in the transcript).
 - **Spec mode** — meta-chats about product/specs. Main view is a markdown/HTML doc you can jump into discussion on. The agent always has context for where in the doc you are; instructed to research decisions and ask you questions. The mode where the human supplies context and makes executive calls, then agents run.
 
@@ -91,7 +91,7 @@ The hard technical bar. Split into **fidelity** (must work) and **intelligence**
 - Copy/paste **both directions** — agent → local machine, and local → any agent input field (mouse-select on desktop, finger-select on mobile).
 - No zoom issues (e.g. no accidental mobile zoom when tapping an input).
 - Explicit spectate ↔ control switch where needed.
-- Take over the terminal's name (Claude `/rename`, tmux equivalents) as the work-pane name; generate one if unset.
+- Take over the terminal's name (Claude `/rename` and equivalents) as the work-pane name; generate one if unset.
 - *(Stretch)* image paste.
 - *(Optional)* toggle native ↔ parsed view.
 

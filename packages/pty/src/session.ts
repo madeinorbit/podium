@@ -59,6 +59,13 @@ export interface AgentSession {
    * than report a fresh launch.
    */
   readonly adopted?: boolean
+  /**
+   * The geometry this attach ANNOUNCED to the running program, when it announced
+   * one. Absent on a size-neutral attach, which applies nothing — so a caller
+   * reporting "what I applied" reports exactly this and nothing when it is
+   * absent [spec:SP-6144].
+   */
+  readonly appliedGeometry?: Geometry
 }
 
 /**

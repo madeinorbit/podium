@@ -558,13 +558,6 @@ export function createOpencodeClientTerminals(
        */
       scopeRole: 'attach',
       /**
-       * A surviving client master already has browser-owned replay. Its initial
-       * PTY attach must not resize/repaint the TUI before spawn can report
-       * `adopted`; fresh generations still use the default initial repaint.
-       */
-      preserveReplayOnAdopt: true,
-
-      /**
        * THE SAME PROVIDER KEYS THE SERVE HALF DELETES, deleted here too.
        *
        * It is the same binary reading the same config, and abduco hands the app
