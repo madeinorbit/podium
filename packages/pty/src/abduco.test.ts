@@ -164,7 +164,7 @@ describe('abduco command builders', () => {
       // the attach client would forward to a program nobody asked to move
       // [spec:SP-6144].
       replaying.redraw()
-      expect(writes).toEqual(['0c'])
+      expect(writes).toEqual(['0c']) // explicit, so immediate
       expect(resizes).toEqual([])
       replaying.dispose()
 
@@ -179,7 +179,11 @@ describe('abduco command builders', () => {
         backend,
       })
       expect(ordinary.adopted).toBe(true)
-      expect(writes).toEqual(['0c']) // an ordinary adoption still repaints on attach
+      // An ordinary adoption still repaints on attach — deferred until the attach
+      // client is up (this fake never emits, so the fallback timer delivers it).
+      const until = Date.now() + 4000
+      while (writes.length === 0 && Date.now() < until) await new Promise((r) => setTimeout(r, 25))
+      expect(writes).toEqual(['0c'])
       expect(resizes).toEqual([])
       ordinary.dispose()
     } finally {
