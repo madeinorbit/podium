@@ -525,6 +525,26 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    (`store/executor/bun-driver.ts`), so the lint family has a single line to allow rather than a
    package boundary to reason about.
 
+   CONTRACT WIDENED 2026-09-03 (POD-3310, after V1's review) so E.5 inherits an interface built for
+   the remote path instead of having to change a settled one. `StoreDriver` gains required `limits:
+   DriverLimits` (`writeBudgetMs`, `busyRetry`) and an optional `classify(error)`; `client(route,
+   routeBatch)` and `QueryClient.batch()` carry batching; `DriverSession` gains a required
+   `executeBatch`; `Lease.begin(lane)` MUST be called instead of `session.begin(lane)` or the busy
+   retry does not apply. `SchedulerOptions` gains `sleep`, `StoreExecutorOptions` gains
+   `onReportFailure`. New exports: `TransactionPoisonedError`, `StoreDiagnostics`,
+   `TransactionUnit`, `BatchRouter`, `BusyRetryPolicy`, `DriverLimits`, `FailureClass`,
+   `NO_BUSY_RETRY`, `UNBOUNDED_WRITE_BUDGET_MS`. Two refusals callers can now see:
+   `TransactionPoisonedError` (a savepoint boundary failed, so the unit refuses and the top level
+   rolls back rather than committing) and `StaleTransactionError` from a post-commit continuation
+   that outlived its drain.
+
+   AND THE TESTING LESSON, which applies past this issue: V1 found two token-timing mutations that
+   survived all 36 harness tests. The gap was not the assertions — it was that bun:sqlite's COMMIT
+   is SYNCHRONOUS and INFALLIBLE, so no test could place anything between the token closing and the
+   commit finishing. The fix was a fake driver that PARKS the commit on a barrier. Any harness that
+   only ever drives a synchronous local driver is blind to the entire class of async-boundary
+   defect this epic exists to introduce; build the parking fake before trusting a green.
+
    THE INTERFACE SHAPE THAT MATTERS DOWNSTREAM: the query client is built from a ROUTER, one
    async callback per statement. That is the only shape both drizzle drivers accept — sqlite-proxy
    takes exactly sql/params/method — and it is what makes ambient routing possible at all. E.5's
