@@ -809,7 +809,28 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     read scope is the natural home for "what state does this pass see" — but B0.6 inheriting the
     question is not an answer to it.
 
-19. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+19. **A diagnostic log inside a span STAYS. Anything a caller can observe does not.** Decided
+    2026-09-03 answering POD-3260, which kept one and asked for the rule rather than leaving its
+    judgement in a ledger.
+
+    THE LINE: a call inside a transaction body is a side effect this epic must move only if
+    something outside the process can OBSERVE it or DEPEND on it. A `log.warn` recording that a
+    corrupt column was quarantined has no observer inside the system: no subscriber, no ordering
+    guarantee, no caller branching on it. Moving it post-commit would make it arrive AFTER the
+    rollback it is describing, or not at all — strictly worse diagnostics for a strictly notional
+    purity win. The store's quarantine warnings (`store/helpers.ts`, `store/issues.ts`) stay where
+    they are.
+
+    WHAT DOES NOT QUALIFY, and the distinction is observability rather than kind: an event
+    published to subscribers, a mail nudge, a cache mirror another reader consults, a metric a test
+    asserts on, anything whose absence changes what a caller sees. Those move to the post-commit
+    mechanisms even when they look like "just a notification" — POD-3260 found all seven lock spans
+    sending mail nudges inside their transaction, and mail is durable and observed.
+
+    THE TEST TO APPLY at a site: if the transaction rolled back, would anything outside this process
+    be wrong for having seen this? A log line: no. Everything else: probably yes, and it moves.
+
+20. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
