@@ -558,6 +558,28 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    A reviewer meeting an uncalled mechanism should read this paragraph before proposing its removal;
    the conversion waves are what will call it.
 
+   WRITE INTENT IS NOT `method === 'run'` (POD-3316 / POD-3318, 2026-09-03). This is the most
+   consequential finding of the three executor reviews, because it is not an executor bug — it is a
+   wrong assumption that Stage A would have built on top of.
+
+   `executor.ts:220` selects the lane with `statement.method === 'run' ? 'write' : 'read'`, and
+   `batchLane` does the same. But `method` is a RESULT-DECODING instruction, not write intent.
+   drizzle's async sqlite-proxy path prepares every `INSERT`, `UPDATE` and `DELETE` that carries a
+   `RETURNING` clause with method `all` — verified in
+   `node_modules/drizzle-orm/sqlite-core/async/{insert,update,delete}.js:12`, where the argument is
+   literally `this.config.returning ? "all" : "run"`. So under the query layer this epic is
+   adopting, a `RETURNING` write is classified as a READ.
+
+   The consequences are exactly the ones the scheduler exists to prevent: such writes bypass the
+   single write slot, may run concurrently with a real writer, and on a driver with `openReader`
+   may be handed a read-only connection. This is not hypothetical syntax — the store already has an
+   atomic `INSERT ... RETURNING` claim in `store/notification-facts.ts:38`.
+
+   THE RULE: the driver contract must carry EXPLICIT write intent from the caller, and read
+   capability must be a separate declaration from result shape. No conversion may rely on `method`
+   to mean anything about whether a statement writes. Until POD-3318 lands, treat any `RETURNING`
+   write as a site that needs the coordinator, not a judgement call.
+
    THE INTERFACE SHAPE THAT MATTERS DOWNSTREAM: the query client is built from a ROUTER, one
    async callback per statement. That is the only shape both drizzle drivers accept — sqlite-proxy
    takes exactly sql/params/method — and it is what makes ambient routing possible at all. E.5's
