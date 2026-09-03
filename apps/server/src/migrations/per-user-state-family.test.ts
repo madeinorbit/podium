@@ -266,70 +266,58 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
       message: columns(db, 'issue_messages').filter((c) => c !== 'read_at'),
     }
 
-    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    // STOPS AT THE MIGRATION UNDER TEST, unlike every case above. The property
+    // here is "*this* migration drops exactly five columns and loses nothing
+    // else", so the chain is cut immediately after it. Running past the cut made
+    // the expectation carry a hand-written list of the columns LATER migrations
+    // add to these three tables — columns that are not this migration's subject
+    // at all, inherited only by running too far. That list went stale when
+    // POD-3102 added `sessions.requested_driver_id` (20260830003000) and this
+    // test failed on the mainline for four days for a schema change it has no
+    // opinion about (POD-3346, POD-3347).
+    //
+    // Cutting here is STRICTLY STRONGER, not just quieter. With the list, an
+    // unintended later column and a legitimate one both looked like "add a line
+    // to the list", so the assertion could not tell them apart and caught
+    // neither. At the cut the expected set is pinned exactly — the observed
+    // pre-state minus the five columns this migration removes, both sides
+    // derived by PRAGMA from a real database — so an unexpected column at THIS
+    // migration's boundary is a real failure, and no additive migration to
+    // `sessions`, `issues` or `issue_messages` can ever redden it again.
+    //
+    // And running past the cut did not merely blur the classification, it lost
+    // the property outright. `20260802035017_drop-local-machine-defaults` and
+    // `20260803030000_session-attribution-pair` REBUILD `sessions` later in the
+    // chain, and a rebuild copies only the columns its INSERT names — so at the
+    // end of the chain a column this migration failed to drop is dropped anyway,
+    // and a stray column it added is erased anyway. Mutation-checked both ways
+    // (POD-3347): deleting `ALTER TABLE sessions DROP COLUMN read_at` from this
+    // migration, and adding a stray column to it, both left the full-chain shape
+    // GREEN and both redden this assertion at the cut.
+    //
+    // Deriving the expectation from `schema.ts` instead was considered and
+    // rejected: an accidental column there would land on BOTH sides of the
+    // comparison and gut the guard. The fix is to narrow the SUBJECT, not to
+    // derive the expectation.
+    //
+    // "A later migration did not accidentally drop a column" is a property of
+    // THAT migration and belongs to its own test; the full chain is still
+    // exercised end to end by the FRESH-database case below.
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS.slice(0, cutIndex() + 1))
 
     // Exactly the five columns are gone and NOTHING else is: a column-drop
     // migration that rebuilt a table and lost an unrelated column would still
     // satisfy every marker assertion above.
     //
-    // Compared as SETS, not sequences. A later migration in the chain rebuilds
-    // `sessions` again (POD-318 drops the `machine_id` default), and a rebuild
-    // re-emits the schema's declaration order rather than appending — so column
-    // ORDER is not a property this suite can pin, while column MEMBERSHIP, which is
-    // what "lost an unrelated column" means, still is.
+    // Compared as SETS, not sequences, because MEMBERSHIP is what "lost an
+    // unrelated column" means. Order is not a property this suite pins: a
+    // migration that rebuilds a table re-emits the schema's declaration order
+    // rather than appending, so a sequence comparison would fail on a rebuild
+    // that lost nothing.
     const sorted = (xs: string[]) => [...xs].sort()
-    expect(sorted(columns(db, 'sessions'))).toEqual(
-      sorted([
-        ...before.session,
-        'owner_user_id',
-        // POD-1516's attribution pair — added by a later migration in the same
-        // chain, so it is an ADDITION to record here, not a column this
-        // migration lost.
-        'created_by_actor_kind',
-        'created_by_actor_id',
-        'created_by_on_behalf_of',
-        // These fields are later additive migrations in the union chain.
-        'selected_driver_id',
-        // POD-3102's experimental-driver request (20260830003000) — the driver the
-        // START ASKED FOR, kept separately from `selected_driver_id`, which records
-        // what the launch actually resolved to. Another later additive migration in
-        // the chain, so it belongs in this ADDITIONS list and is not a column this
-        // migration lost.
-        'requested_driver_id',
-        // Main's conversation binding migration is another additive field.
-        'conversation_binding',
-        // OOM attribution is recorded by a later additive migration.
-        'oom_killed_at',
-        // Native login shells are purpose-marked by a later additive migration.
-        'login_harness',
-        // The runtime model/effort request (POD-3081) — another later additive
-        // migration, and a pair rather than one column because "asked for a
-        // different model" and "asked for a different effort" are separately
-        // settable. Listed here for the same reason every entry above it is: an
-        // ADDITION the chain makes, not something this migration lost.
-        'requested_model',
-        'requested_effort',
-      ]),
-    )
-    expect(sorted(columns(db, 'issues'))).toEqual(
-      sorted([
-        ...before.issue,
-        'owner_user_id',
-        'visibility',
-        'created_by_actor',
-        'created_by_on_behalf_of',
-        'actor',
-        'on_behalf_of',
-        // POD-1085's landing stamp — same story as the session pair above: added
-        // by a later migration in the same chain, so it is an ADDITION to record
-        // here, not a column this migration lost.
-        'landed_at',
-        'landed_sha',
-      ]),
-    )
-    expect(sorted(columns(db, 'issue_messages'))).toEqual(
-      sorted([...before.message, 'actor', 'on_behalf_of']),
-    )
+    expect(sorted(columns(db, 'sessions'))).toEqual(sorted(before.session))
+    expect(sorted(columns(db, 'issues'))).toEqual(sorted(before.issue))
+    expect(sorted(columns(db, 'issue_messages'))).toEqual(sorted(before.message))
 
     // And the shared rows themselves survive with their own values.
     const s = db.prepare('SELECT title, last_active_at FROM sessions WHERE id = ?').get('s-1')
