@@ -69,7 +69,7 @@ import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
+import { FeedIdentityRegistry, SyncRepository, syncStoreExecutorOver } from '@podium/sync'
 import { freeDiskBytes } from './backup'
 import { syncServerTables } from './sync-server-tables'
 
@@ -252,7 +252,10 @@ function remintRestoredEpoch(
   // `'restore'` is not decoration: D1's hard case is that there is NO restore
   // code path to hook (a restore is `cp podium.db`), so the recorded cause is the
   // only evidence afterwards about which generation is which.
-  const repo = new SyncRepository(db, syncServerTables)
+  // The restore path opens a database of its own and has no store, so there is
+  // no executor to hand over: it supplies the port's one field directly
+  // (POD-3338). The store's own construction passes its executor.
+  const repo = new SyncRepository(syncStoreExecutorOver(db), syncServerTables)
   const registry = new FeedIdentityRegistry(
     {
       readIdentity: () => repo.readFeedIdentity(),

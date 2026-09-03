@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { addSink } from '@podium/logger'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { syncStoreExecutorOver } from './adapters/sqlite/store-executor'
 import { SyncRepository } from './adapters/sqlite/sync-repository'
 import {
   createTestSyncDatabase,
@@ -491,7 +492,7 @@ describe('Ledger commit atomicity (sqlite)', () => {
   function makeSqliteFixture() {
     const db = createTestSyncDatabase()
     db.exec('CREATE TABLE issues (id TEXT PRIMARY KEY, title TEXT)')
-    const repo = new SyncRepository(db, testSyncServerTables)
+    const repo = new SyncRepository(syncStoreExecutorOver(db), testSyncServerTables)
     const transact = createTestTransact(db)
     const insertIssue = (id: string, title: string) =>
       db.prepare('INSERT INTO issues (id, title) VALUES (?, ?)').run(id, title)

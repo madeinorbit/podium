@@ -2,6 +2,7 @@ import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sql
 import { sql } from 'drizzle-orm'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { SyncServerTables } from './server-tables'
+import { type SyncStoreExecutor, syncStoreExecutorOver } from './store-executor'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -77,7 +78,19 @@ export const testSyncServerTables: SyncServerTables = {
  * this fixture did not have them.
  */
 export function createTestSyncRepository(): SyncRepository {
-  return new SyncRepository(createTestSyncDatabase(), testSyncServerTables)
+  return new SyncRepository(createTestSyncExecutor(), testSyncServerTables)
+}
+
+/**
+ * The EXECUTOR PORT over a fresh fixture database (POD-3338).
+ *
+ * `SyncRepository` takes the store's executor narrowed to what it uses
+ * (`./store-executor.ts`), and this package's tests have no store to build one
+ * from — so they hand it the same one-field object the backup/restore path
+ * does, over a connection from {@link createTestSyncDatabase}.
+ */
+export function createTestSyncExecutor(): SyncStoreExecutor {
+  return syncStoreExecutorOver(createTestSyncDatabase())
 }
 
 /** The bare in-memory DB behind {@link createTestSyncRepository}, for tests

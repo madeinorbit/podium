@@ -8,7 +8,7 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SqlDatabase } from './types'
+import type { SqlTransactionScope } from './types'
 
 const log = createLogger('runtime:sqlite')
 
@@ -19,7 +19,7 @@ const log = createLogger('runtime:sqlite')
  * could observe a stale depth. WeakMap so a closed/discarded handle carries no
  * bookkeeping garbage.
  */
-const depths = new WeakMap<SqlDatabase, number>()
+const depths = new WeakMap<SqlTransactionScope, number>()
 
 /**
  * Nesting-safe transaction: BEGIN IMMEDIATE at depth 0, SAVEPOINT at depth > 0.
@@ -38,7 +38,7 @@ const depths = new WeakMap<SqlDatabase, number>()
  *   COMMIT throws; the cleanup below is guarded so THAT original error is
  *   reported instead of being masked by the follow-up rollback failure.
  */
-export function transaction<T>(db: SqlDatabase, fn: () => T): T {
+export function transaction<T>(db: SqlTransactionScope, fn: () => T): T {
   const depth = depths.get(db) ?? 0
   // Namespaced savepoint per depth (podium_sp_1, podium_sp_2, ...): unique per
   // nesting level AND unlikely to collide with any savepoint a callback might
