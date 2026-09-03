@@ -37,7 +37,7 @@ export class IssueCommentsMailModule {
    */
   addComment(id: string, author: string, body: string, principal: CommandPrincipal): IssueWire {
     const issueId = this.store.resolveRef(id)
-    const row = this.store.rowOrThrow(issueId)
+    const row = this.store.draftOrThrow(issueId)
     const attribution = attributionOf(principal)
     return this.store.persistWith(row, () =>
       this.store.deps.store.issues.addIssueComment({

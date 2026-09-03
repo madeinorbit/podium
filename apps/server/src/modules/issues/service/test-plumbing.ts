@@ -27,11 +27,19 @@ export function issueTestPlumbing(
    * rather than on the fact that a message went out.
    */
   onPublished: (change: MetadataChange) => void = () => {},
+  /**
+   * The ledger's transact seam, overridable so a test can run something INSIDE
+   * an open write span [POD-3259]. That is how the mutable-state model tests
+   * produce an interleaving while the store is still synchronous: re-entering
+   * the registry from inside the span is the same window an awaited commit will
+   * open, and it is the only way to open one today.
+   */
+  opts: { transact?: LedgerDeps['transact'] } = {},
 ): Pick<IssueDeps, 'funnel' | 'ledger' | 'publishSpecs'> {
   const ledger = new Ledger({
     repo: memoryChangeLogStore(),
     now: Date.now,
-    transact: (fn) => fn(),
+    transact: opts.transact ?? ((fn) => fn()),
   })
   ledger.onAppended((changes) => {
     for (const change of changes) onPublished(change)

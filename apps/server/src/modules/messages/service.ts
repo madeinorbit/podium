@@ -2506,12 +2506,21 @@ export class MessageDeliveryService {
     via: 'echo' | 'boundary' | 'injection' | 'ack',
   ): void {
     const at = this.deps.now()
-    // Frees the cache entry, and no longer RESETS the budget (POD-1703): the
-    // count lives in `message.requeued` events now, so a re-read would recover
-    // it. Harmless either way — a delivered row is not pending and is never
-    // re-attempted — but do not read this line as handing back a fresh cap.
-    this.requeueCounts.delete(message.id)
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
+      // THE MIRRORS MOVE WITH THE COMMIT [POD-3259, spec §6 rule 12]. All three
+      // of these are process-owned state describing a durable transition, and
+      // all three now sit AFTER the write that makes the transition true, in the
+      // same turn it resolves in.
+      //
+      // `requeueCounts.delete` used to stand BEFORE the write. That is harmless
+      // while nothing can run between the two lines and wrong the moment the
+      // write awaits: a delivery that fails to commit would have handed the
+      // message a fresh retry cap it did not earn, and a requeue landing in the
+      // gap would have its count dropped by a delivery that never happened. It
+      // still no longer RESETS the budget (POD-1703) — the count lives in
+      // `message.requeued` events, so a re-read would recover it — but a cache
+      // entry freed for a write that rolled back is a lie either way.
+      this.requeueCounts.delete(message.id)
       this.forgetLiveQueuedForExit(sessionId, message.id)
       // Delivery consumes the legacy issue_messages mirror row too, or
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have

@@ -90,6 +90,35 @@ export class SessionRepository {
   private readonly sessionProjectionListeners = new Set<(event: SessionProjectionEvent) => void>()
   private volatileSessionMutationVersion = 0
   private readonly pendingVolatileSessions = new Map<SessionId, PendingVolatileState>()
+  /**
+   * THE COMMITTED DURABLE SNAPSHOT PER SESSION [POD-3259, spec §3.6].
+   *
+   * A `Session` is process-owned mutable state with TWO halves, and the model
+   * for this registry is the line between them:
+   *
+   *  - the DURABLE METADATA half — everything {@link Session.captureDurableState}
+   *    returns — is what a row is built from. It is snapshotted BEFORE the write
+   *    that persists it, that snapshot is what gets installed as the committed
+   *    baseline once the commit returns, and a failed commit rolls the live
+   *    object back to the previous baseline. It may not be treated as settled
+   *    while a persist is in flight.
+   *  - the LIVE TERMINAL half — frames, the cursor, geometry, the activity
+   *    counters, and the four {@link SessionVolatileField}s a rollback preserves
+   *    (`geometry`, `status`, `machineId`, `handoffTarget`) — MAY change while
+   *    persistence is awaiting, and deliberately does: a pty does not stop
+   *    producing output because a metadata row is being written. Those fields
+   *    are re-captured by the volatile sweep rather than rolled back, which is
+   *    why {@link Session.restoreDurableState} takes a preserve set at all.
+   *
+   * A ROLLBACK RESTORES THE LATEST BASELINE, NOT THE ONE ITS WRITE PINNED, and
+   * that is worth stating because the opposite is the tempting answer. A
+   * version-pinned rollback — "stand down if another persist committed while I
+   * was in flight" — was written here first and removed: this map holds the
+   * LATEST committed state, so restoring it is right whether or not somebody
+   * else committed in the gap, while standing down leaves the failed write's own
+   * uncommitted fields on the live object. Two writers touching different fields
+   * is what separates the two, and the refusing version loses that case.
+   */
   private readonly capturedSessionStates = new Map<SessionId, SessionDurableState>()
   /** True while an activity flush is running — see {@link flushActivity}. */
   private flushingActivity = false
@@ -257,7 +286,7 @@ export class SessionRepository {
       }
       for (const [sessionId, pendingState] of pending) {
         const session = this.sessions.get(sessionId)
-        if (session) this.capturedSessionStates.set(sessionId, session.captureDurableState())
+        if (session) this.commitDurableBaseline(sessionId, session.captureDurableState())
         if (this.pendingVolatileSessions.get(sessionId)?.version === pendingState.version) {
           this.pendingVolatileSessions.delete(sessionId)
         }
@@ -275,6 +304,16 @@ export class SessionRepository {
       this.scheduleVolatileSessionCapture(SessionRepository.VOLATILE_CAPTURE_RETRY_MS)
       throw err
     }
+  }
+
+  /** Install a committed durable snapshot as the session's new baseline. */
+  private commitDurableBaseline(sessionId: SessionId, state: SessionDurableState): void {
+    this.capturedSessionStates.set(sessionId, state)
+  }
+
+  /** The committed durable baseline for a session, for tests and diagnostics. */
+  committedDurableState(sessionId: SessionId): SessionDurableState | undefined {
+    return this.capturedSessionStates.get(sessionId)
   }
 
   /** Synchronous dispose/test barrier: drain the complete pending set. */
@@ -332,6 +371,12 @@ export class SessionRepository {
    */
   persist(session: Session, additionalWrite: () => void = () => {}): void {
     const pending = this.pendingVolatileSessions.get(session.sessionId)
+    // THE DRAFT [POD-3259]. The row this write persists is built from the
+    // session's durable half AS IT IS NOW, so that half is snapshotted now —
+    // before the commit, not re-read from the live object after it. Re-reading
+    // afterwards would bake whatever changed DURING the write into the committed
+    // baseline, and the next rollback would restore a state no commit ever saw.
+    const draft = session.captureDurableState()
     let changes: MetadataChange[]
     try {
       const committed = this.ports.ledger.commit({
@@ -351,6 +396,9 @@ export class SessionRepository {
       changes = committed.changes
     } catch (err) {
       const captured = this.capturedSessionStates.get(session.sessionId)
+      // The LATEST committed baseline, deliberately — see the field's doc for
+      // why a version-pinned refusal is the wrong answer here. The live terminal
+      // half survives this either way.
       if (captured) session.restoreDurableState(captured, pending?.preserve)
       else this.sessions.delete(session.sessionId)
       throw err
@@ -362,7 +410,9 @@ export class SessionRepository {
       this.pendingVolatileSessions.delete(session.sessionId)
       if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
     }
-    this.capturedSessionStates.set(session.sessionId, session.captureDurableState())
+    // INSTALL THE DRAFT, not a fresh capture: the committed baseline is what was
+    // written, not what the live object happens to hold now.
+    this.commitDurableBaseline(session.sessionId, draft)
     this.publishSessionProjection(changes)
   }
 
@@ -557,7 +607,7 @@ export class SessionRepository {
         session.resume.value,
       )
     }
-    this.capturedSessionStates.set(session.sessionId, session.captureDurableState())
+    this.commitDurableBaseline(session.sessionId, session.captureDurableState())
   }
 
   loadFromStore(): void {
