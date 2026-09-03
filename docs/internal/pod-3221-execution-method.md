@@ -133,6 +133,25 @@ violations against the base — see below. No
 worker issue writes a spec; workers report in their handoff and the coordinator records at the
 checkpoint.
 
+A NAME-MATCHING SCAN CANNOT CARRY A COMPLETENESS GATE (POD-3257, 2026-09-03). This method's first
+principle is that completeness comes from the compiler and a lint, never from grep — and here is the
+concrete proof, found by a worker on its own work rather than by a reviewer.
+
+POD-3257 hoisted a repeated read out of a callback, exactly as rule 18 required. The site
+(`native-login.ts:69`) then DROPPED OFF its own scanner's results — not because the store read moved
+out of the callback, but because the callback now calls a local const instead of
+`this.deps.authorize(...)`, and the scanner matches by NAME. The read is still there, behind a
+closure the scan cannot follow. Only the `// DECISION POD-<n>` marker still carries that site.
+
+TWO CONSEQUENCES, both binding:
+- The zero-marker exit gate is NOT a completeness proof on its own. A marker can outlive the scan
+  that found its site, and a legitimate refactor can hide a site from the scan without touching the
+  hazard. When auditing Stage A's exit, the markers are the record of what was FOUND, not evidence
+  that nothing else exists.
+- Any lint written for a rule of this shape must resolve callees through the TYPE CHECKER. Matching
+  on names both misses the closure case above and floods on `Map.get`/`Map.has`. POD-3257 explicitly
+  did not propose its scanner as a lint for this reason, which was the right call.
+
 GATE CORRECTED 2026-09-03 (POD-3252, POD-3314). This exit read "`bun run lint:boundaries` green"
 and that gate is UNACHIEVABLE on this base and always was: `lint:boundaries` exits 1 on `dev/mw`
 itself at f910e2671 with 26 architecture-manifest and 53 dependency-boundary violations, none of
