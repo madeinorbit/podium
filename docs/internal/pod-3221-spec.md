@@ -750,7 +750,35 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     Candidate 2 (ambient intent through the ALS) was not chosen: it makes intent invisible at the
     call site, and its unmarked case is precisely the silent-write hazard above.
 
-17. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+17. **B-prep may use a TRANSITIONAL post-commit bridge, and the coordinator owns its store.ts
+    edit.** Decided 2026-09-03 answering POD-3260, which was right to stop before moving any site.
+
+    THE PROBLEM: `postCommit()` throws without an executor transaction scope, and NOTHING outside
+    `apps/server/src/store/executor/` imports the executor — verified, zero importers. Production
+    spans are `SessionStore.transact` (`apps/server/src/store.ts:507`) delegating to
+    `@podium/runtime`'s `transaction`. So a span body cannot call the mechanisms' API today, and
+    B0.5 could otherwise only produce a ledger while every side effect stayed where it is.
+
+    THE BRIDGE: `SessionStore.transact` opens a transaction scope carrying a `PostCommitRegistry`
+    and, after the OUTERMOST commit, drains it SYNCHRONOUSLY, refusing any step that returns a
+    thenable. Savepoint-depth spans merge into the parent registry via the existing
+    `PostCommitRegistry.mergeInto`. Nothing inside a span is async today, so this preserves current
+    ordering exactly — a durable follow-up stays durable by the time `transact` returns, which
+    callers like `LockService.steal` rely on. At the flip the bridge is deleted and the executor's
+    real runner takes over with the call sites unchanged.
+
+    IT MUST CARRY THE COMMITTED GUARANTEE. A follow-up that throws runs after the transaction has
+    committed, so it must not surface as a rollback — the same property POD-3310 gave mechanism 1.
+    The bridge rejects with `committed: true` semantics, or the flip inherits a worse contract than
+    the one it replaces.
+
+    It is an INSTRUMENT: it lands with its deletion issue filed, per the method's §7.
+
+    WHO WRITES WHAT: the worker writes the bridge as its own module under `store/executor`; the
+    COORDINATOR applies the `store.ts` edit. Not ceremony — POD-3254 owns `store.ts:227-262` (the 34
+    constructor lines) in the same window, and one hand on that file is how the two stay orderable.
+
+18. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
