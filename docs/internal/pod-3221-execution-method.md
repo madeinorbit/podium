@@ -128,9 +128,28 @@ next phase is ready until the checkpoint closes.
    sync-append proof on Turso (0.8).
 
 Exit: the interfaces built by 0.6 and the numbers from 0.8 and 0.9 recorded in the spec by the
-coordinator at R1 (human gate); everything else landed; `bun run lint:boundaries` green. No
+coordinator at R1 (human gate); everything else landed; `bun run lint:boundaries` shows ZERO NEW
+violations against the base — see below. No
 worker issue writes a spec; workers report in their handoff and the coordinator records at the
 checkpoint.
+
+GATE CORRECTED 2026-09-03 (POD-3252, POD-3314). This exit read "`bun run lint:boundaries` green"
+and that gate is UNACHIEVABLE on this base and always was: `lint:boundaries` exits 1 on `dev/mw`
+itself at f910e2671 with 26 architecture-manifest and 53 dependency-boundary violations, none of
+them this epic's, byte-identical across `dev/mw`, the integration tip and a worker branch. Filed
+outside the epic as POD-3314.
+
+An absolute-green gate that cannot go green is worse than no gate: the first worker to meet it
+either stops, or learns to read past a red, and after that a REAL violation is invisible. So every
+gate in this epic that names a whole-tree lint or suite is a DELTA gate — the failure set is
+byte-identical to a control run of the same command at the base commit, compared as a set of names
+and not as a count. Where the epic's own new rules are concerned the gate stays absolute: the
+boundary family's own fixtures must be green, and `STAGE_A_UNCONVERTED` must be empty at Stage A's
+exit. Those are achievable because the epic owns them.
+
+The same correction applies to `bun run test`, which cannot pass on this base either — its
+workspace typecheck fails in `@podium/mobile` (POD-3303), a package that does not depend on
+`@podium/server`, so no change inside this epic can turn it green.
 
 **Checkpoint R1** reviews the subtree, the measurements and the spike numbers, decomposes the
 Phase A placeholder into wave issues, and confirms the wave plan with the human.
