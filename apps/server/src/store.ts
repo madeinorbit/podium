@@ -45,6 +45,7 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { runSynchronousSpan } from './store/executor/synchronous-span'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
@@ -503,9 +504,17 @@ export class SessionStore {
   /** Run `fn` atomically on the shared connection (nesting-safe: BEGIN at depth
    *  0, SAVEPOINT inside an open transaction). Narrow seam for cross-aggregate
    *  atomic writes — the write-seam Ledger binds an entity write and its change
-   *  append into one span ([spec:SP-3fe2] #255) — without exposing the db handle. */
+   *  append into one span ([spec:SP-3fe2] #255) — without exposing the db handle.
+   *
+   *  The span also carries a POST-COMMIT SCOPE [POD-3260, spec section 6 rule 17],
+   *  so a body can register work through postCommit() and have it run after the
+   *  OUTERMOST commit rather than inside the transaction. The scope is opened
+   *  OUTSIDE transaction(), which is what makes the drain run after COMMIT rather
+   *  than after the callback returns. runSynchronousSpan is an instrument: at the
+   *  flip the executor's own runner takes the drain over and this wrapper goes,
+   *  filed as POD-3327. */
   transact<T>(fn: () => T): T {
-    return transaction(this.db, fn)
+    return runSynchronousSpan(() => transaction(this.db, fn))
   }
 
   close(): void {

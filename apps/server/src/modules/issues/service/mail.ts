@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto'
 import type { IssueWire, IssueId, SessionId } from '@podium/model'
 import { attributionOf, type CommandPrincipal } from '../../../command-principal'
 import type { IssueMessageRow } from '../../../store'
+import { afterCommit } from '../../../store/executor/synchronous-span'
 import type { IssueStore } from './core'
 import { countContextAwarePendingMail } from './mail-pending'
 import type { IssueReportsModule } from './reads'
@@ -73,9 +74,20 @@ export class IssueCommentsMailModule {
     this.store.deps.funnel.run({
       write: () => this.store.deps.store.issues.addIssueMessage(message),
     })
-    try {
-      this.store.deps.onMailSent?.(row, message)
-    } catch {}
+    // THE ROW IS DURABLE, THE NUDGE IS AN EXTERNAL EFFECT [POD-3260, spec §3.3].
+    // The two halves of a send have different contracts and always did; what was
+    // missing is that the nudge ran inside whatever span the CALLER had open.
+    // `LockService` sends grant and steal mail from inside its lock transaction
+    // (`grantTo`, `steal`), so the delivery hook fired — waking an agent, writing
+    // a nudge — for a message a rollback could still take away. The durable write
+    // above is unchanged and stays nested: it is atomic with the grant that
+    // caused it, and spec §3.3 says durable mail is never reclassified as
+    // best-effort. With no span open this runs exactly where it does today.
+    afterCommit(() => {
+      try {
+        this.store.deps.onMailSent?.(row, message)
+      } catch {}
+    }, 'issue-mail-nudge')
     return message
   }
 

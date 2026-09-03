@@ -103,3 +103,10 @@ export {
   type StatementProbe,
   StatementProbeHub,
 } from './statement-probe'
+export {
+  afterCommit,
+  restoreSpanEffectSinks,
+  runSynchronousSpan,
+  type SpanEffectSinks,
+  setSpanEffectSinks,
+} from './synchronous-span'

@@ -106,6 +106,20 @@ export type { ChangeLogReadRow, ChangeLogWriteRow }
 export type TransactPort = <T>(fn: () => T) => T
 
 /**
+ * Runs an EXTERNAL EFFECT once the outermost unit of work has committed
+ * (spec §3.3 mechanism 3, POD-3260) — injected for the same reason
+ * {@link TransactPort} is: the kernel states the ordering, the adapter owns the
+ * span it is ordered against.
+ *
+ * The step is synchronous and returns nothing, because that is all this port is
+ * for: an effect nobody waits for and whose failure is isolated by the adapter,
+ * never reported to the caller as a rollback. An adapter with no notion of a
+ * commit boundary — every client replica — simply leaves it unset and the effect
+ * runs at once.
+ */
+export type PostCommitEffectPort = (step: () => void, label: string) => void
+
+/**
  * The Authority's clock — epoch milliseconds, injected.
  *
  * This is the clock ADR 1 D3 names as the ONLY one `field-LWW` may arbitrate on

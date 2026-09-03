@@ -169,6 +169,7 @@ import { WorkflowService } from './modules/workflows/service'
 import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
+import { afterCommit } from './store/executor/synchronous-span'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -763,6 +764,11 @@ export class SessionRegistry {
       repo: this.store.sync,
       now: () => this.now(),
       transact: (fn) => this.store.transact(fn),
+      // Subscriber delivery waits for the OUTERMOST commit, not for the nested
+      // savepoint this commit may be [POD-3260, spec §3.3 mechanism 3]. With no
+      // span open — the common case, a top-level ledger.commit — `afterCommit`
+      // runs the delivery at once, which is exactly where it happens today.
+      postCommit: (step, label) => afterCommit(step, label),
       onPruneMetrics: (metrics) => {
         perf.record('phase', 'changeLogPrune.total', metrics.totalDurationMs, DEPLOYMENT)
         perf.record('phase', 'changeLogPrune.maxSlice', metrics.maxUninterruptedSliceMs, DEPLOYMENT)
