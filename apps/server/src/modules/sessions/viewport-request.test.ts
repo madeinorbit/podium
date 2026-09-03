@@ -223,6 +223,68 @@ describe('T3: the seq watermark is per (connection, session), and every rejectio
     expect(terminal.requestsDuplicate).toBe(0)
   })
 
+  it('a RE-ATTACH on the same socket starts the watermark over', () => {
+    // THE BUG THE BROWSER CHECK CAUGHT. The seq counter lives on the client's
+    // `SessionConnection`, which a detach destroys — so the next attach
+    // legitimately starts again at 1. The panel remounts its terminal whenever
+    // its mount gate flips, which detaches and re-attaches on the SAME socket,
+    // and a watermark that survived that rejected every request the new
+    // attachment made: silently, forever, with the pane stuck at whatever size
+    // it happened to have when the previous one ended.
+    const { terminal, toDaemon } = makeTerminal(true)
+    const client = controllerOf(terminal, 'c-remount')
+    terminal.handleViewportRequest(client.id, request({ seq: 1 }))
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }])
+    toDaemon.length = 0
+
+    terminal.detachClient(client.id)
+    terminal.attachClient(client)
+
+    terminal.handleViewportRequest(client.id, request({ seq: 1, geometry: { cols: 90, rows: 30 } }))
+
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 90, rows: 30 }])
+    expect(terminal.requestsDuplicate).toBe(0)
+  })
+
+  it('the ATTACH is what clears it, on its own', () => {
+    // The clear is in both `attachClient` and `detachClient`, and the test above
+    // exercises them together — so each gets its own case. This one arms the
+    // attach: a client carrying a watermark it never detached (a reclaimed
+    // socket, a re-attach the server saw no detach for) is still heard.
+    const { terminal, toDaemon } = makeTerminal(true)
+    const client = controllerOf(terminal, 'c-attach-clear')
+    client.viewportSeq.set(SESSION, 9)
+
+    terminal.attachClient(client)
+    terminal.handleViewportRequest(client.id, request({ seq: 1 }))
+
+    expect(resizesTo(toDaemon)).toEqual([{ cols: 132, rows: 43 }])
+    expect(terminal.requestsDuplicate).toBe(0)
+  })
+
+  it('the DETACH clears it too, so a stranded watermark cannot outlive the attachment', () => {
+    const { terminal } = makeTerminal(true)
+    const client = controllerOf(terminal, 'c-detach-clear')
+    terminal.handleViewportRequest(client.id, request({ seq: 5 }))
+    expect(client.viewportSeq.get(SESSION)).toBe(5)
+
+    terminal.detachClient(client.id)
+
+    expect(client.viewportSeq.has(SESSION)).toBe(false)
+  })
+
+  it('ARMED: WITHOUT a re-attach, seq 1 twice is still a duplicate', () => {
+    const { terminal, toDaemon } = makeTerminal(true)
+    const client = controllerOf(terminal, 'c-no-remount')
+    terminal.handleViewportRequest(client.id, request({ seq: 1 }))
+    toDaemon.length = 0
+
+    terminal.handleViewportRequest(client.id, request({ seq: 1, geometry: { cols: 90, rows: 30 } }))
+
+    expect(resizesTo(toDaemon)).toEqual([])
+    expect(terminal.requestsDuplicate).toBe(1)
+  })
+
   it('a claiming request takes control and forwards its size in one mutation', () => {
     const { terminal, toDaemon } = makeTerminal(true)
     const owner = controllerOf(terminal, 'c-owner')

@@ -442,6 +442,18 @@ export class SessionTerminal {
 
   attachClient(client: ClientConn, sinceSeq?: number): void {
     this.clients.set(client.id, client)
+    // A FRESH ATTACH IS A FRESH CONVERSATION ABOUT THIS SESSION, so the viewport
+    // watermark starts over (POD-3239 B6).
+    //
+    // The seq counter lives on the CLIENT's `SessionConnection`, and a detach
+    // destroys that object — so the next attach legitimately starts again at 1.
+    // One socket can attach, detach and re-attach a session (the panel remounts
+    // its terminal whenever its mount gate flips), and a watermark that survived
+    // that would reject every request the new attachment ever makes as a
+    // duplicate: silently, forever, with the pane stuck at whatever size it
+    // happened to have. Clearing it here is what keeps "dies with the
+    // connection" true of the attachment rather than only of the socket.
+    client.viewportSeq.delete(this.init.sessionId)
     if (this.controllerId === null) this.setController(client.id, client)
     const oldest = this.outputLog[0]?.seq
     const newest = this.outputLog.at(-1)?.seq
@@ -633,6 +645,7 @@ export class SessionTerminal {
   detachClient(clientId: string): void {
     const client = this.clients.get(clientId)
     client?.viewports.delete(this.init.sessionId)
+    client?.viewportSeq.delete(this.init.sessionId)
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
     this.reconcileWatchLevel()
@@ -782,9 +795,18 @@ export class SessionTerminal {
    * session rows for.
    */
   handleViewportRequest(clientId: string, request: ViewportRequest): boolean {
-    const client = this.clients.get(clientId)
-    if (!client) return false
     const sessionId = this.init.sessionId
+    const client = this.clients.get(clientId)
+    if (!client) {
+      // NOT A REFUSAL, AND NOT A SILENT DROP EITHER. There is no viewer here to
+      // have been refused — this connection is not attached to this session, so
+      // it is not counted against {@link requestsGated}, which measures refusals
+      // of real renderers. It IS named, because a request arriving in the window
+      // between a detach and the re-attach that follows it is exactly the kind
+      // of thing that used to vanish without a word.
+      log.debug('request:unattached', { sessionId, clientId, geometry: request.geometry })
+      return false
+    }
 
     const watermark = client.viewportSeq.get(sessionId) ?? 0
     if (request.seq <= watermark) {
