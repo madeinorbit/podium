@@ -469,7 +469,13 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
 - Full-text search sits behind a `SearchIndex` port with the FTS5 implementation; whole raw
   statements are allowed there only, with parameters bound.
 
-  BLOCKED, AND THIS IS A DECISION FOR THE HUMAN (POD-3251, 2026-09-03). **FTS5 does not exist on
+  OUT OF SCOPE FOR THIS EPIC (human decision, 2026-09-03). Full-text search is treated as
+  unsupported on the cloud version for now, and the CLOUD epic is putting it behind a flag. This
+  epic therefore does not need a non-MVCC Turso database and does not redesign hosted search; E.5's
+  full-text arm is out of scope rather than blocked, and POD-3272 no longer waits on it. The
+  measured facts below stay on record for whoever implements that flag.
+
+  FTS5 does not exist on Turso as provisioned (POD-3251, 2026-09-03). **FTS5 does not exist on
   Turso as provisioned.** Both databases report `PRAGMA journal_mode = mvcc` and refuse every
   virtual table: `Tursodb error: Parse error: Virtual tables are not supported in MVCC mode`.
   Verified independently by the coordinator with a control — a plain `CREATE TABLE` on the same
