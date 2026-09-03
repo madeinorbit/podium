@@ -98,6 +98,7 @@ import type {
   AuthorityCommitOutcome,
   AuthorityPort,
   ChangeSubscriber,
+  PostCommitEffectPort,
   TransactPort,
 } from './ports'
 import {
@@ -118,6 +119,28 @@ export interface AuthorityDeps {
   now: AuthorityClock
   /** ADR 2 D10's unit of work, injected. Unit tests may pass `(fn) => fn()`. */
   transact: TransactPort
+  /**
+   * Runs subscriber delivery once the OUTERMOST unit of work has committed
+   * [POD-3260, spec §3.3 mechanism 3]. Optional; delivery is immediate without
+   * it, which is what every test and the client adapters want.
+   *
+   * WHY IT IS NEEDED, and it is not the case the code was written for. `commit`
+   * already broadcasts on the far side of ITS OWN span (step 4 below), which is
+   * correct when that span is the whole transaction. It is not correct when this
+   * commit is NESTED inside a caller's wider one — `IssueAttachOrchestrator`
+   * wraps a whole attach in one `transact`, and every `ledger.commit` inside it
+   * is a SAVEPOINT. "After my savepoint released" is not "after the transaction
+   * committed": the outer body can still throw, and every subscriber has already
+   * been told about changes the database then rolls back.
+   *
+   * The BASELINE FOLD deliberately does not move with the delivery. It is
+   * mechanism 1, it is what `reconcile` diffs its next full-list pass against,
+   * and a fold that lagged its own append would make a second reconcile in the
+   * same span re-derive changes it had already emitted. Its divergence on a
+   * rolled-back outer span is a real and separate defect (POD-3328), not
+   * something to fix by moving it here.
+   */
+  postCommit?: PostCommitEffectPort
   /**
    * ADR 2 Amendment 1 D12.7 — the per-principal evaluation, REQUIRED.
    *
@@ -485,7 +508,16 @@ export class Authority implements AuthorityPort {
       ...row.spec,
       seq: seqs[i] as number,
     }))
-    this.broadcast(changes)
+    // The fold above is mechanism 1 and stays here; the DELIVERY is mechanism 3
+    // and waits for the outermost commit when the adapter can tell us when that
+    // is. See {@link AuthorityDeps.postCommit} for why the two separate.
+    if (this.deps.postCommit) {
+      this.deps.postCommit(() => {
+        this.broadcast(changes)
+      }, 'authority-broadcast')
+    } else {
+      this.broadcast(changes)
+    }
     return changes
   }
 

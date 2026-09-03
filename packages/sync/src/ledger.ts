@@ -6,7 +6,7 @@ import type {
   StagedChangeSpec as KernelChangeSpec,
   ScopedChange,
 } from './authority/change-lifecycle'
-import type { AuthorityCommit } from './authority/ports'
+import type { AuthorityCommit, PostCommitEffectPort } from './authority/ports'
 import {
   CHANGE_KEEP_ROWS,
   CHANGE_MAX_AGE_MS,
@@ -112,6 +112,14 @@ export interface LedgerDeps {
    *  nesting-safe `transaction(db, fn)` over the shared connection). Unit
    *  tests may pass a pass-through `(fn) => fn()`. */
   transact: <T>(fn: () => T) => T
+  /**
+   * Runs subscriber delivery after the OUTERMOST unit of work commits
+   * [POD-3260, spec §3.3 mechanism 3]. Passed straight to the Authority — see
+   * `AuthorityDeps.postCommit` for why a nested commit's own span is not the
+   * boundary that matters. Unset means immediate, which is what the tests and
+   * every client adapter want.
+   */
+  postCommit?: PostCommitEffectPort
   /** Monotonic clock seam for deterministic maintenance scheduling tests. */
   monotonicNow?: () => number
   /** Records each retention job's total duration and max uninterrupted slice. */
@@ -184,6 +192,7 @@ export class Ledger {
       store: deps.repo,
       now: deps.now,
       transact: deps.transact,
+      ...(deps.postCommit === undefined ? {} : { postCommit: deps.postCommit }),
       // THE DEVICE-GRADE HALF, DECLARED RATHER THAN DEFAULTED (POD-1077).
       //
       // POD-1075 landed real `UserAccount`s, per-user `client_sessions` and grant

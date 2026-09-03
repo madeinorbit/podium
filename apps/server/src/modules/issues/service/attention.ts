@@ -11,6 +11,7 @@ import {
 } from '../../../command-principal'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import type { IssueRow, Subscription } from '../../../store'
+import { afterCommit } from '../../../store/executor/synchronous-span'
 import type { IssueStore } from './core'
 import type { IssueCrudModule } from './crud'
 import type { IssueReportsModule } from './reads'
@@ -220,9 +221,21 @@ export class IssueAttentionModule {
     if (prevId) this.deleteIfEmptyDraft(prevId)
     this.store.broadcastList()
     if (prevId && (opts.newSpinoff || opts.newSubissue)) {
-      void this.maybeTakeOriginWorktree(prevId, target.id).catch((err: unknown) => {
-        log.warn('hopscotch worktree take-over failed', { err, from: prevId, to: target.id })
-      })
+      // AN EXTERNAL EFFECT, and the only asynchronous one in this method
+      // [POD-3260, spec §3.3 mechanism 3]. `IssueAttachOrchestrator` wraps this
+      // whole attach in one `transact`, so the git take-over used to START
+      // inside the open transaction and then run on beyond it: a worktree moved
+      // for an attach the outer body could still roll back, and — once the store
+      // awaits — a git process holding the write connection open for its own
+      // duration. Registered instead, so it begins after the commit. With no
+      // span open it starts exactly where it does today.
+      const from = prevId
+      const to = target.id
+      afterCommit(() => {
+        void this.maybeTakeOriginWorktree(from, to).catch((err: unknown) => {
+          log.warn('hopscotch worktree take-over failed', { err, from, to })
+        })
+      }, 'hopscotch-worktree-take-over')
     }
     return this.store.toWire(this.store.rowOrThrow(target.id))
   }
@@ -609,11 +622,27 @@ export class IssueAttentionModule {
    */
   public onIssueArchived(row: IssueRow): void {
     this.cascadeArchiveSessions(row)
-    void this.gitWorkflow()
-      .releaseWorktreeIfIdle(row.id, systemPrincipal('archive'))
-      .catch((err: unknown) => {
-        log.warn('archive could not free the worktree', { err, issueId: row.id })
-      })
+    // THE FREE IS AN EXTERNAL EFFECT and waits for the commit [POD-3260, spec
+    // §3.3 mechanism 3]. The auto-archive sweep reaches this from inside
+    // `MaintenanceService`'s span (its `write()` wraps every pure job in
+    // `funnel.run` -> `store.transact`), so the round trip to the issue's
+    // machine used to START inside the open transaction: a worktree freed for an
+    // archive the span could still roll back, and — once the store awaits — a
+    // remote call holding the write connection for its own duration. The
+    // fire-and-forget shape and its `catch` are unchanged; only the moment it
+    // begins moves, and with no span open it begins exactly where it did.
+    //
+    // `cascadeArchiveSessions` deliberately stays in the span: it is durable
+    // session writes plus in-process live-session state, which is POD-3259's
+    // category (mutable process-owned objects), not this one's.
+    const issueId = row.id
+    afterCommit(() => {
+      void this.gitWorkflow()
+        .releaseWorktreeIfIdle(issueId, systemPrincipal('archive'))
+        .catch((err: unknown) => {
+          log.warn('archive could not free the worktree', { err, issueId })
+        })
+    }, 'archive-worktree-free')
   }
 
   /** Cascade an issue archive onto its member sessions (issue #133). Archiving an

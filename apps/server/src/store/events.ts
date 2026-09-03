@@ -9,6 +9,7 @@ import type { SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { afterCommit } from './executor/synchronous-span'
 import type { Subscription } from './types'
 
 export interface PodiumEventRecord {
@@ -267,14 +268,27 @@ export class EventsRepository {
     // not have. The listener is documented as non-throwing, and this call is not
     // guarded here on purpose — a swallow at both ends hides a wiring fault
     // behind a pane that simply never updates.
+    //
+    // AND AFTER THE COMMIT, when this append is inside one [POD-3260, spec §3.3
+    // mechanism 3]. Publication is an EXTERNAL EFFECT, and "after the insert" is
+    // not the same statement as "after the commit": a caller that appends inside
+    // a transaction was announcing a row that the enclosing span could still roll
+    // back, so a listener saw an event the log ended up not having — the exact
+    // direction this comment was written to prevent, one level up. The 22 call
+    // sites that reach this from a span body needed no change: the rule belongs
+    // at the one place the announcement happens, not on a list somebody has to
+    // keep complete. `persistManyWith` already did this by hand with
+    // `announce: false` plus `announceEvent`, and that convention still works
+    // unchanged — this makes it the default rather than the exception.
     if (options.announce !== false) {
-      this.appendListener?.(id, {
+      const announced = {
         ts: e.ts,
         kind: e.kind,
         subject: e.subject,
         repoPath: e.repoPath ?? null,
         payload: e.payload ?? {},
-      })
+      }
+      afterCommit(() => this.appendListener?.(id, announced), `podium-event:${e.kind}`)
     }
     return id
   }
