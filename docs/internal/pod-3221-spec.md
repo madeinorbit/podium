@@ -778,7 +778,38 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     COORDINATOR applies the `store.ts` edit. Not ceremony — POD-3254 owns `store.ts:227-262` (the 34
     constructor lines) in the same window, and one hand on that file is how the two stay orderable.
 
-18. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+18. **Batching may not change WHEN an authorization input is read. Split the site.** Decided
+    2026-09-03 answering POD-3325, which was right that this is a rule and not a local judgement.
+
+    TAKE THE HALF THAT HAS NO SEMANTIC QUESTION, NOW: `authorize` at `relay.ts:1153` calls
+    `store.users.get(ownerUserId)` with the SAME id on every iteration. That is an unambiguous
+    defect with no liveness dimension — hoist it. Verified: the id does not vary in the loop.
+
+    LEAVE THE GRANT READ PER DECISION until the question below is answered. `ownershipFromMachines`
+    reads grants once per machine because ADR 9 D2 rule 4 evaluates a grant LIVE, so a revoked share
+    stops the next apply with no invalidation step. Batching it makes an authorization pass
+    snapshot-consistent instead, and TODAY those are indistinguishable — the loop is synchronous, so
+    nothing can commit between two iterations. AFTER THE FLIP they diverge: the pass acquires awaits
+    and a revocation committed mid-pass is honoured by the live form and missed by the snapshot one.
+    So the safe-today answer and the safe-after-the-flip answer differ, which is exactly why this is
+    not a hoist.
+
+    THE GENERAL RULE, which applies past these two sites: a batched read is a mechanical improvement
+    only when the values it batches cannot change during the batch's window. Where they can, and
+    where the answer is an authorization decision, the batch changes the semantics and needs the
+    rule that governs those semantics amended first — never a conversion commit deciding it in
+    passing. `modules/messages/mailbox.ts:446` is the same shape on the write side and inherits this.
+
+    THE OPEN QUESTION, escalated because ADR 9 D2 rule 4 is a decision on record and amending it is
+    the human's: is the LIVE obligation per DECISION or per PASS? Per-pass is arguably the more
+    defensible semantics — every machine in one answer judged against one state, rather than an
+    answer stitched from two states that never coexisted — and it is what makes the batch legal. It
+    must be settled before B1, because that is when the two forms stop being equivalent. It is on
+    the R3 pre-flip checkpoint. B0.6 must state what consistency its read scope provides, since a
+    read scope is the natural home for "what state does this pass see" — but B0.6 inheriting the
+    question is not an answer to it.
+
+19. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
