@@ -270,7 +270,7 @@ interface Lease {
   expiresAt: number
 }
 
-interface ResourceLease {
+export interface ResourceLease {
   lost: boolean
   expiresAt?: number
   ttlMs?: number
@@ -3414,35 +3414,47 @@ export class ShippingService {
         }) === true,
     }
     const renewEveryMs = Math.max(250, Math.floor((ttlSeconds * 1_000) / 3))
-    lease.timer = setInterval(() => {
-      if (!this.resourceLeaseLive(lease)) return
-      // SINGLE-FLIGHT PER LEASE (POD-3258). `renew` reaches the lock service,
-      // which is a read-decide-write over the durable lock rows, and this timer
-      // fires every ttl/3 — so a renew that takes longer than a third of the TTL
-      // is met by the next tick while it is still out. Two renews for one lease
-      // race on `lease.lost` and `lease.expiresAt`: the loser's stale verdict can
-      // overwrite the winner's, either extending a lease that was actually lost
-      // or condemning one that was renewed. Skipped, not queued — the tick is
-      // pure heartbeat, and the next one is a third of a TTL away, which is the
-      // margin the cadence was chosen to leave.
-      if (lease.renewing === true) return
-      lease.renewing = true
-      try {
-        if (!lease.renew?.()) {
-          lease.lost = true
-        } else {
-          lease.expiresAt = Date.now() + ttlSeconds * 1_000
-        }
-      } catch {
-        lease.lost = true
-      } finally {
-        lease.renewing = false
-      }
-      if (lease.lost && lease.timer) clearInterval(lease.timer)
-    }, renewEveryMs)
+    lease.timer = setInterval(() => this.renewResourceLeaseTick(lease, ttlSeconds), renewEveryMs)
     lease.timer.unref?.()
     this.activeResourceLeases.add(lease)
     return lease
+  }
+
+  /**
+   * One renew tick for a resource lease.
+   *
+   * SINGLE-FLIGHT PER LEASE (POD-3258). `renew` reaches the lock service, which
+   * is a read-decide-write over the durable lock rows, and this tick fires every
+   * ttl/3 — so a renew that takes longer than a third of the TTL is met by the
+   * next tick while it is still out. Two renews for one lease race on
+   * `lease.lost` and `lease.expiresAt`: the loser's stale verdict can overwrite
+   * the winner's, either extending a lease that was actually lost or condemning
+   * one that was renewed. Skipped, not queued — the tick is pure heartbeat, and
+   * the next one is a third of a TTL away, which is the margin the cadence was
+   * chosen to leave.
+   *
+   * A NAMED METHOD RATHER THAN THE INTERVAL'S CLOSURE, so the fence is testable:
+   * fake timers will not re-fire an interval that is currently executing, so an
+   * anonymous callback here has no seam a unit test can produce an overlap
+   * through. This is the same extraction the other guarded passes in this epic
+   * took (`runStalledSweep`, `runTurnReap`, `runTick`).
+   */
+  renewResourceLeaseTick(lease: ResourceLease, ttlSeconds: number): void {
+    if (!this.resourceLeaseLive(lease)) return
+    if (lease.renewing === true) return
+    lease.renewing = true
+    try {
+      if (!lease.renew?.()) {
+        lease.lost = true
+      } else {
+        lease.expiresAt = Date.now() + ttlSeconds * 1_000
+      }
+    } catch {
+      lease.lost = true
+    } finally {
+      lease.renewing = false
+    }
+    if (lease.lost && lease.timer) clearInterval(lease.timer)
   }
 
   private releaseResources(

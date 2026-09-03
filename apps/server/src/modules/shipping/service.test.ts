@@ -21,6 +21,7 @@ import {
   ShippingOrderAccessError,
   shippingResourceHolderId,
   ShippingService,
+  type ResourceLease,
 } from './service'
 import type { ShippingRepairContext, ShippingRepairPort } from './repair-contract'
 import { ShippingEvidenceRegistry } from './shipwright'
@@ -2239,60 +2240,82 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
    * out. Two renews for one lease race on `lease.lost` and `lease.expiresAt`:
    * the loser's stale verdict can overwrite the winner's, either extending a
    * lease that was actually lost or condemning one that was renewed.
+   *
+   * Driven through `renewResourceLeaseTick` rather than the interval, because
+   * fake timers will not re-fire an interval that is currently executing — a
+   * nested advance produces no second call, and the test would pass vacuously
+   * whether the fence existed or not.
    */
-  it('a lease renew skips a tick that lands on a renew already running', async () => {
-    vi.useFakeTimers()
-    let markCommitStarted!: () => void
-    const commitStarted = new Promise<void>((resolve) => {
-      markCommitStarted = resolve
-    })
-    let finishCommit!: () => void
-    const daemon: NonNullable<
-      ConstructorParameters<typeof ShippingService>[0]['daemon']
-    >['shippingJob'] = async (input, machineId) => {
-      if (input.action === 'start' && input.operation === 'commit-merge-group') {
-        markCommitStarted()
-        return new Promise<ShippingJobResult>((resolve) => {
-          finishCommit = () => {
-            void provedShippingJob(input, machineId).then(resolve)
-          }
-        })
-      }
-      return provedShippingJob(input, machineId)
-    }
-
+  it('a lease renew skips a tick that lands on a renew already running', () => {
+    const { service } = harness()
     let renews = 0
     let reentered = false
-    // Renews that happened DURING the nested advance — i.e. the overlapping
-    // tick only. Counting total renews instead would also count the legitimate
-    // ticks the surrounding time advance is entitled to fire.
+    // Renews that happened DURING the re-entrant call — the overlapping tick
+    // only, which is the thing the fence is supposed to refuse.
     let renewsDuringReentry = -1
-    const renew = vi.fn(() => {
-      renews += 1
-      if (!reentered) {
-        reentered = true
-        // Fire this lease's renew interval again from inside the renew.
-        const before = renews
-        vi.advanceTimersByTime(40_000)
-        renewsDuringReentry = renews - before
-      }
-      return true
-    })
-    const resourceAdmission = { acquire: vi.fn(() => true), renew, release: vi.fn() }
-    const { issues, service } = harness(daemon, { resourceAdmission })
-    const issue = issues.create({ repoPath: '/repo', title: 'renew fence', startNow: false })
-    issues.update(issue.id, { stage: 'review' })
-    const { order } = await service.enqueue({ issueId: issue.id, ...approval })
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + 120_000,
+      ttlMs: 120_000,
+      renew: () => {
+        renews += 1
+        if (!reentered) {
+          reentered = true
+          const before = renews
+          service.renewResourceLeaseTick(lease, 120)
+          renewsDuringReentry = renews - before
+        }
+        return true
+      },
+    }
 
-    const running = service.runOrder(order.id)
-    await commitStarted
-    await vi.advanceTimersByTimeAsync(40_000)
+    service.renewResourceLeaseTick(lease, 120)
 
     expect(reentered).toBe(true)
     expect(renewsDuringReentry).toBe(0)
+    expect(renews).toBe(1)
+    expect(lease.lost).toBe(false)
+    service.dispose()
+  })
 
-    finishCommit()
-    await running
+  it('a later, non-overlapping lease renew runs normally', () => {
+    const { service } = harness()
+    let renews = 0
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + 120_000,
+      ttlMs: 120_000,
+      renew: () => {
+        renews += 1
+        return true
+      },
+    }
+
+    service.renewResourceLeaseTick(lease, 120)
+    service.renewResourceLeaseTick(lease, 120)
+
+    expect(renews).toBe(2)
+    service.dispose()
+  })
+
+  it('releases the lease fence when a renew throws, and marks the lease lost', () => {
+    const { service } = harness()
+    let renews = 0
+    const lease: ResourceLease = {
+      lost: false,
+      expiresAt: Date.now() + 120_000,
+      ttlMs: 120_000,
+      renew: () => {
+        renews += 1
+        throw new Error('lock service is gone')
+      },
+    }
+
+    service.renewResourceLeaseTick(lease, 120)
+
+    expect(renews).toBe(1)
+    expect(lease.lost).toBe(true)
+    expect(lease.renewing).toBe(false)
     service.dispose()
   })
 })

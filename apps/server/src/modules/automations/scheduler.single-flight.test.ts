@@ -19,22 +19,30 @@ describe('AutomationScheduler single-flight (POD-3258)', () => {
     try {
       let passes = 0
       let reentered = false
+      let armed = false
       const scheduler = new AutomationScheduler({
         tick: () => {
           passes += 1
-          // Re-enter exactly once, from inside the first pass.
-          if (!reentered) {
+          // Re-enter exactly once, from inside a pass the interval drives.
+          if (armed && !reentered) {
             reentered = true
             vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
           }
         },
       })
       scheduler.start()
+      // Past the boot one-shot FIRST. `start` assigns the interval only after
+      // the boot pass returns, so re-entering from inside that pass would have
+      // nothing to fire and the test would pass vacuously.
       vi.advanceTimersByTime(AUTOMATIONS_BOOT_DELAY_MS)
+      expect(passes).toBe(1)
+      armed = true
+
+      vi.advanceTimersByTime(AUTOMATIONS_INTERVAL_MS)
       scheduler.dispose()
 
       expect(reentered).toBe(true)
-      expect(passes).toBe(1)
+      expect(passes).toBe(2)
     } finally {
       vi.useRealTimers()
     }

@@ -17,10 +17,12 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
     try {
       let sweeps = 0
       let reentered = false
+      let armed = false
       const archive = new IssueAutoArchive({
         sweepAutoArchive: () => {
           sweeps += 1
-          if (!reentered) {
+          // Re-enter exactly once, from inside a pass the interval drives.
+          if (armed && !reentered) {
             reentered = true
             vi.advanceTimersByTime(AUTO_ARCHIVE_INTERVAL_MS)
           }
@@ -28,11 +30,18 @@ describe('IssueAutoArchive single-flight (POD-3258)', () => {
         },
       })
       archive.start()
+      // Past the boot one-shot FIRST. `start` assigns the interval only after
+      // the boot pass returns, so re-entering from inside that pass would have
+      // nothing to fire and the test would pass vacuously.
       vi.advanceTimersByTime(AUTO_ARCHIVE_BOOT_DELAY_MS)
+      expect(sweeps).toBe(1)
+      armed = true
+
+      vi.advanceTimersByTime(AUTO_ARCHIVE_INTERVAL_MS)
       archive.dispose()
 
       expect(reentered).toBe(true)
-      expect(sweeps).toBe(1)
+      expect(sweeps).toBe(2)
     } finally {
       vi.useRealTimers()
     }
