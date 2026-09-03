@@ -1,3 +1,4 @@
+import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -125,5 +126,84 @@ describe('pathHint — what the operator still has to do in THIS shell', () => {
     const hint = pathHint('/x/bin', false, 'podium', '/a:/b')
     expect(hint).toContain('/x/bin')
     expect(hint).not.toContain('New shells')
+  })
+})
+
+/**
+ * The proof the shell test used to carry, moved here with the code (POD-3274).
+ *
+ * POD-327 was not "the snippet has the right text" — it was that the NEXT LOGIN found nothing.
+ * Only a real shell reading real startup files can answer that, so this spawns one. `env -i`
+ * scrubs the environment, so a host that already has podium on PATH cannot mask a regression;
+ * the assertion is the RESOLVED path, not merely a zero exit.
+ */
+describe('a real login shell finds the command afterwards [R5]', () => {
+  let home: string
+  beforeEach(() => {
+    home = mkdtempSync(join(tmpdir(), 'podium-path-login-'))
+  })
+  afterEach(() => {
+    rmSync(home, { recursive: true, force: true })
+  })
+
+  const CLEAN_PATH = '/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin'
+  const has = (shell: string) => {
+    try {
+      execFileSync('command', ['-v', shell], { stdio: 'ignore', shell: true })
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /** Startup files write to STDOUT, so the answer must be DELIMITED rather than read off the
+   *  whole stream — stock Debian's /etc/bash.bashrc prints a sudo hint under a fresh $HOME,
+   *  and `bash -i` emits it on every such host. */
+  const resolveVia = (shell: string, args: string[]): string => {
+    const out = execFileSync(
+      shell,
+      [...args, '-c', 'printf "podium-probe:%s\n" "$(command -v podium)"'],
+      {
+        env: { HOME: home, PATH: CLEAN_PATH, TERM: 'dumb' },
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+      },
+    )
+    const line =
+      out
+        .split('\n')
+        .filter((l) => l.startsWith('podium-probe:'))
+        .pop() ?? ''
+    return line.slice('podium-probe:'.length)
+  }
+
+  for (const [shell, args] of [
+    ['sh', ['-l']],
+    ['bash', ['-l']],
+    ['bash', ['-i']],
+  ] as const) {
+    it(`${shell} ${args[0]} resolves podium after persistPath`, () => {
+      if (!has(shell)) return // nothing to prove on a host without this shell
+      const bin = join(home, '.local/bin')
+      mkdirSync(bin, { recursive: true })
+      writeFileSync(join(bin, 'podium'), '#!/bin/sh\nexit 0\n', { mode: 0o755 })
+      persistPath(bin, home, allShells)
+      expect(resolveVia(shell, [...args])).toBe(join(bin, 'podium'))
+    })
+  }
+
+  it('sourcing ~/.profile twice does not stack duplicate PATH entries', () => {
+    const bin = join(home, '.local/bin')
+    mkdirSync(bin, { recursive: true })
+    persistPath(bin, home, allShells)
+    const out = execFileSync('sh', ['-c', '. "$HOME/.profile"; . "$HOME/.profile"; echo "$PATH"'], {
+      env: { HOME: home, PATH: CLEAN_PATH },
+      encoding: 'utf8',
+    })
+    const copies = out
+      .trim()
+      .split(':')
+      .filter((p) => p === bin).length
+    expect(copies).toBe(1)
   })
 })

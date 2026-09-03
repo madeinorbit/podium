@@ -20,13 +20,16 @@ function installerUrl(channel: VpsReleaseChannel): string {
 export function buildVpsBootstrapCommand(channel: VpsReleaseChannel): string {
   const url = installerUrl(channel)
   // Keep the command inspectable without returning to `curl | sh`: curl must finish a complete
-  // file before a shell executes it. Running that file also leaves stdin attached to the SSH TTY,
-  // which the interactive `setup --vps` step requires.
+  // file before a shell executes it.
+  //
+  // `--vps` rather than a chained `podium setup --vps` [POD-3274]: install.sh now hands off to
+  // the installed binary itself, so the VPS flow runs inside the one command. Chaining a second
+  // one meant an operator who lost the tail of a pasted line got an installed-but-unconfigured
+  // box; there is no tail to lose now.
   return (
     'tmp="$(mktemp)" && ' +
     'trap \'rm -f "$tmp"\' EXIT HUP INT TERM && ' +
     `curl -fsSL "${url}" -o "$tmp" && ` +
-    `sh "$tmp" --channel ${channel} --agents codex,claude-code,grok && ` +
-    '"$HOME/.local/bin/podium" setup --vps'
+    `sh "$tmp" --channel ${channel} --agents codex,claude-code,grok --vps`
   )
 }

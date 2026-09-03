@@ -6,7 +6,10 @@ describe('fresh VPS bootstrap command', () => {
     const command = buildVpsBootstrapCommand('edge')
 
     expect(command).toContain('--agents codex,claude-code,grok')
-    expect(command).toContain('setup --vps')
+    // ONE command, not two [POD-3274]: install.sh hands off to the binary, which runs the VPS
+    // flow itself. A chained second command left a truncated paste installed-but-unconfigured.
+    expect(command).toContain('--vps')
+    expect(command).not.toContain('setup --vps')
     expect(command).toContain('curl -fsSL')
     expect(command).toContain('-o "$tmp"')
     expect(command.length).toBeLessThan(320)
