@@ -122,7 +122,6 @@ describe('abduco command builders', () => {
     session.dispose()
   })
 
-
   it('preserves replay only for opted-in live-master adoption', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-adopt-policy-'))
     const label = 'podium-adopt-policy'
@@ -131,11 +130,12 @@ describe('abduco command builders', () => {
     chmodSync(socketPath, 0o600)
 
     const resizes: Array<{ cols: number; rows: number }> = []
+    const writes: string[] = []
     const proc: PtyProcess = {
       pid: 4242,
       onData: () => {},
       onExit: () => {},
-      write: () => {},
+      write: (data: Uint8Array) => writes.push(Buffer.from(data).toString('hex')),
       resize: (cols: number, rows: number) => resizes.push({ cols, rows }),
       kill: () => {},
     }
@@ -156,13 +156,20 @@ describe('abduco command builders', () => {
       })
       expect(replaying.adopted).toBe(true)
       expect(resizes).toEqual([])
+      expect(writes).toEqual([]) // no attach-time repaint at all
 
-      // Suppression is attach-time only; a later explicit redraw stays real.
+      // Suppression is attach-time only; a later explicit redraw stays real —
+      // but on an adopted (size-neutral) attach it repaints with Ctrl-L rather
+      // than the shrink-and-restore nudge, because that nudge is a real resize
+      // the attach client would forward to a program nobody asked to move
+      // [spec:SP-6144].
       replaying.redraw()
-      expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+      expect(writes).toEqual(['0c'])
+      expect(resizes).toEqual([])
       replaying.dispose()
 
       resizes.length = 0
+      writes.length = 0
       const ordinary = await spawnAbducoAgent({
         label,
         cmd: 'unused-for-live-master',
@@ -172,7 +179,8 @@ describe('abduco command builders', () => {
         backend,
       })
       expect(ordinary.adopted).toBe(true)
-      expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+      expect(writes).toEqual(['0c']) // an ordinary adoption still repaints on attach
+      expect(resizes).toEqual([])
       ordinary.dispose()
     } finally {
       rmSync(dir, { recursive: true, force: true })

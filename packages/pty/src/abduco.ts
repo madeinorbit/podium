@@ -1184,6 +1184,13 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
  * redraw()'s shrink/restore is ack-based (restores after the app's first frame), so
  * it lands correctly even while the abduco client is still connecting.
  */
+/**
+ * How long a size-neutral attach waits for its client to connect before
+ * repainting anyway. Long enough for a local socket attach, short enough that a
+ * reconnected viewer is not left looking at nothing.
+ */
+const ATTACH_REPAINT_FALLBACK_MS = 1000
+
 export function attachAbducoAgent(opts: {
   label: string
   /** Existing socket path, when recovery found a host-suffixed socket. */
@@ -1226,11 +1233,17 @@ export function attachAbducoAgent(opts: {
   let ready = false
   let repaintPending = false
   let session: AgentSession
-  const filtered = stripAttachChrome(proc, () => {
-    ready = true
+  let repaintTimer: ReturnType<typeof setTimeout> | undefined
+  const flushRepaint = (): void => {
+    if (repaintTimer) clearTimeout(repaintTimer)
+    repaintTimer = undefined
     if (!repaintPending) return
     repaintPending = false
     session.redraw()
+  }
+  const filtered = stripAttachChrome(proc, () => {
+    ready = true
+    flushRepaint()
   })
   session = withHardRepaint(
     wrapPty(filtered, {
@@ -1240,7 +1253,20 @@ export function attachAbducoAgent(opts: {
     }),
     opts.hardRepaint ?? false,
   )
-  if (opts.repaintOnAttach ?? true) session.redraw()
+  if (opts.repaintOnAttach ?? true) {
+    if (attach.sizeNeutral) {
+      // A size-neutral session repaints with Ctrl-L rather than a resize, and a
+      // keystroke written before the attach client has taken the attach pty out
+      // of canonical mode sits in its line buffer — echoed, and delivered glued
+      // to whatever the viewer types next (measured: the agent read `0c796f0a`
+      // as one chunk). So wait for the client's first byte, with a fallback for a
+      // session quiet enough that none comes. Benign when it still races: the
+      // agent sees one extra redraw key, and the daemon repaints again after bind.
+      repaintPending = true
+      repaintTimer = setTimeout(flushRepaint, ATTACH_REPAINT_FALLBACK_MS)
+      repaintTimer.unref?.()
+    } else session.redraw()
+  }
   return {
     ...session,
     redrawWhenReady() {
@@ -1252,6 +1278,8 @@ export function attachAbducoAgent(opts: {
     },
 
     dispose() {
+      if (repaintTimer) clearTimeout(repaintTimer)
+      repaintTimer = undefined
       try {
         proc.kill('SIGKILL')
       } catch {

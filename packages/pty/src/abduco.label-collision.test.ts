@@ -119,9 +119,14 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
       // Round-trip input to prove this is the SAME, still-live agent (abduco
       // replays no history, so liveness is the only observable).
       resumed.write(Buffer.from('yo\r', 'utf8').toString('base64'))
+      // An adopted attach is size-neutral, so it repaints with Ctrl-L (0x0c)
+      // instead of a resize [spec:SP-6144]. That keystroke can still be in flight
+      // when this input goes out, and the agent then reads both as one chunk —
+      // harmless, but it means the echo is not always the typed bytes alone.
+      const typed = /ECHO\[(?:0c)?796f/
       const echoStart = Date.now()
-      while (!out2.includes('ECHO[796f') && Date.now() - echoStart < 8000) await wait(25)
-      expect(out2).toContain('ECHO[796f')
+      while (!typed.test(out2) && Date.now() - echoStart < 8000) await wait(25)
+      expect(out2).toMatch(typed)
     } finally {
       resumed.dispose()
       await killAbducoSession(label)
