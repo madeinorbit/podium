@@ -356,6 +356,11 @@ export function createStoreExecutor<TClient>(
       // `begin` was issued while the drain still held the lease and resolved
       // after it ended. The body has not run, and the session is no longer ours
       // to roll back on.
+      //
+      // The close here is hygiene and NOT observable: `executorForFrame` is
+      // only ever called inside `runInScope` for this same frame, so a frame
+      // whose body never ran hands out no handle and is never the current
+      // scope. Nothing can address it, so no test can distinguish its absence.
       closeFrame(frame)
       registry.discard()
       throw leaseReleased()
@@ -463,6 +468,11 @@ export function createStoreExecutor<TClient>(
       // The parent returned while this savepoint was being opened, and rolled
       // the whole unit back. The body must not run, and there is nothing left
       // to roll back to on a session the scheduler has taken back.
+      //
+      // Hygiene, and not observable, for the reason given at the same branch in
+      // `runTopLevel`: the body never ran, so no handle escaped. The
+      // `parent.child` this clears cannot be seen either — `assertAddressable`
+      // refuses on the parent's own dead token long before it looks at a child.
       closeFrame(frame)
       registry.discard()
       throw enclosingScopeEnded(parent)

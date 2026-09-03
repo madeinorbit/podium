@@ -182,6 +182,16 @@ export function asyncFakeDriver(
     readConcurrency?: number
     limits?: DriverLimits
     classify?: (error: unknown) => FailureClass
+    /**
+     * Offer the connection OUTSIDE the lanes, so `outsideTransaction` is
+     * reachable on a driver whose sessions do not self-invalidate.
+     *
+     * bun:sqlite's session throws once it is closed, which means a test over it
+     * cannot tell a token refusal from the engine noticing on the executor's
+     * behalf — and the remote client this stands in for notices nothing: a
+     * statement issued on a returned connection simply runs.
+     */
+    withReader?: boolean
   } = {},
 ): AsyncFakeDriver {
   const hooks = options.hooks ?? {}
@@ -193,11 +203,11 @@ export function asyncFakeDriver(
   let closeAttempts = 0
   let commitAttempts = 0
   const run = { changes: 0, lastInsertRowid: 0 }
-  const makeSession = (id: number): DriverSession => {
+  let readerOpens = 0
+  const makeSession = (tag: string): DriverSession => {
     // Tagged per session, like `recordingDriver`: which session a statement
     // reached is the whole question for a leaked scope, and results cannot
     // show it.
-    const tag = `s${id}`
     return {
       async execute(statement) {
         calls.push(`${tag}:execute:${statement.sql}`)
@@ -254,8 +264,16 @@ export function asyncFakeDriver(
       const attempt = ++opens
       calls.push(`open:${lane}`)
       await hooks.open?.(lane, attempt)
-      return makeSession(attempt)
+      return makeSession(`s${attempt}`)
     },
+    ...(options.withReader
+      ? {
+          async openReader(): Promise<DriverSession> {
+            calls.push('open:reader')
+            return makeSession(`r${++readerOpens}`)
+          },
+        }
+      : {}),
     client: (route, routeBatch) => queryClientOver(route, routeBatch),
     async close() {
       calls.push('driver-close')

@@ -1427,6 +1427,77 @@ describe('scopes that outlive the lease they run on', () => {
     await executor.close()
   })
 
+  it('refuses a handle leaked out of a transaction whose body threw', async () => {
+    // WOULD CATCH the frame that is not closed on the ROLLBACK arm. The token
+    // tests all follow a transaction that COMMITS, so a `closeFrame` removed
+    // from the catch arm leaves every FAILED transaction's handle addressable
+    // — on a connection the scheduler has already handed back.
+    const driver = asyncFakeDriver()
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    const boom = new Error('the body failed')
+    let escaped: StoreExecutor<QueryClient> | undefined
+
+    await expect(
+      executor.transact(async (tx) => {
+        escaped = tx
+        await tx.drizzle.run(insert, 'rolled back')
+        throw boom
+      }),
+    ).rejects.toBe(boom)
+
+    await expect(
+      (escaped as StoreExecutor<QueryClient>).drizzle.run(insert, 'late'),
+    ).rejects.toBeInstanceOf(StaleTransactionError)
+
+    // And it never reached the session. This driver's sessions do NOT
+    // self-invalidate, which is the point: on bun:sqlite the engine would have
+    // refused it for us and the token would have proved nothing.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      's1:rollback',
+      's1:close',
+    ])
+    await executor.close()
+  })
+
+  it('refuses a committed-view handle leaked out of the outsideTransaction body', async () => {
+    // WOULD CATCH the detached read frame that is never closed. The token
+    // check added on the way IN refuses a stale CALLER; this is the teardown on
+    // the way OUT, without which the reader frame stays addressable for the
+    // life of the process and a leaked `view` keeps issuing statements on a
+    // reader session the executor believes it has finished with.
+    const driver = asyncFakeDriver({ withReader: true })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+    let escaped: StoreExecutor<QueryClient> | undefined
+
+    await executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'body')
+      await executor.outsideTransaction(async (view) => {
+        escaped = view
+        await view.drizzle.all(bodies)
+      })
+    })
+
+    await expect(
+      (escaped as StoreExecutor<QueryClient>).drizzle.all(bodies),
+    ).rejects.toBeInstanceOf(StaleTransactionError)
+
+    // ONE statement on the reader, the one inside the body.
+    expect(driver.calls).toEqual([
+      'open:write',
+      's1:begin:write',
+      `s1:execute:${insert}`,
+      'open:reader',
+      `r1:execute:${bodies}`,
+      'r1:close',
+      's1:commit',
+      's1:close',
+    ])
+    await executor.close()
+  })
+
   it('refuses a durable follow-up’s transaction whose promise the follow-up dropped', async () => {
     // WOULD CATCH the same escape one phase later. The drain can only wait for
     // what a step RETURNS, so a follow-up that starts a transaction and drops
