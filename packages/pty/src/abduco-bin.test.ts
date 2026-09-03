@@ -254,6 +254,9 @@ describe('C9: abduco resolution order', () => {
       expect(existsSync(resolved as string)).toBe(true)
     },
     120_000,
+  )
+})
+
 // ---------------------------------------------------------------------------
 // R1 — a managed binary that actually runs [spec:SP-6144]
 //
