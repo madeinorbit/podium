@@ -11,6 +11,7 @@ import { asMachineId, type MachineId, type RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import type { TableWrites } from './table-writes'
 
 export function normalizeRepoPath(path: string): string {
@@ -59,7 +60,7 @@ export class ReposRepository {
   private readonly db: SqlDatabase
 
   constructor(
-    db: SqlDatabase,
+    executor: StoreExecutor<QueryClient>,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
@@ -75,7 +76,7 @@ export class ReposRepository {
     // a boundary opened on the wrapper read depth 0 inside an already-open
     // transaction and issued `BEGIN IMMEDIATE` within one. With no wrapper there is
     // one object, and it is the one every other repository and the store facade use.
-    this.db = db
+    this.db = legacyHandle(executor)
     for (const table of ['repos', 'repo_prefixes'])
       tableWrites.subscribe(table, () => this.invalidateRegistry())
   }

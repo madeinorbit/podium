@@ -36,6 +36,7 @@ import type {
   PendingInteractionWire,
 } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -107,7 +108,11 @@ function toRow(r: Record<string, unknown>): InteractionRow {
 }
 
 export class InteractionsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * Record an ask. Returns the row that is now open for this fingerprint —

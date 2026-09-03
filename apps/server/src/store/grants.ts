@@ -30,6 +30,7 @@
 import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
 export const MACHINE_RESOURCE_KIND = 'machine'
@@ -129,7 +130,11 @@ export class GrantsRepository {
     audience.add(grantee)
     this.visibilityAudiences.set(key, audience)
   }
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /** Every edge on one resource, read LIVE (D16.1). Unparseable rows are omitted. */
   listForResource(resourceKind: string, resourceId: string): GrantRow[] {

@@ -16,6 +16,7 @@ import { asUserId, resolveTelegramPrincipal } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { TelegramBindingsRepository } from './telegram-bindings'
 
 const ALICE = asUserId('user:alice')
@@ -30,7 +31,7 @@ beforeEach(() => {
   // directly rather than through `SessionStore` because these tests must plant
   // rows the repository would never write.
   db = openMigratedTestDatabase()
-  bindings = new TelegramBindingsRepository(db)
+  bindings = new TelegramBindingsRepository(createBunStoreExecutor({ database: db }))
 })
 
 const binding = (

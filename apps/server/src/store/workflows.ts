@@ -1,5 +1,5 @@
-import { asUserId } from '@podium/model'
 import type { SessionId, UserId, MachineId, AccountId } from '@podium/model'
+import { asUserId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
   ExecutionProfileWire,
@@ -22,6 +22,7 @@ import {
 } from '@podium/protocol'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /**
  * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
@@ -161,7 +162,11 @@ function toRunStep(row: Raw): RunStep {
 }
 
 export class WorkflowsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   ownerOf(kind: string, id: string): string | null {
     let row: { owner_user_id?: UserId | null } | undefined

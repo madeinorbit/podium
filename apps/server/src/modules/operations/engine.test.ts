@@ -4,6 +4,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
+import { createBunStoreExecutor } from '../../store/executor'
 import {
   ADOPTION_FAILED_ERROR_CODE,
   DEFAULT_WAITING_GRACE_MS,
@@ -65,7 +66,7 @@ function fakeClock() {
 function harness() {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const store = new OperationStore(db)
+  const store = new OperationStore(createBunStoreExecutor({ database: db }))
   const registry = new OperationKindRegistry()
   const clock = fakeClock()
   let minted = 0
@@ -1494,7 +1495,7 @@ describe('observers', () => {
   it('announces every persisted transition, and only after it is persisted', async () => {
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    const store = new OperationStore(db)
+    const store = new OperationStore(createBunStoreExecutor({ database: db }))
     const registry = new OperationKindRegistry()
     registry.register(testKind())
     const seen: string[] = []

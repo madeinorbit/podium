@@ -19,6 +19,7 @@ import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
@@ -27,7 +28,7 @@ let sessions: SessionsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(db)
+  sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
 })
 
 const DIED_AT = '2026-08-20T10:00:00.000Z'

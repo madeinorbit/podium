@@ -8,6 +8,7 @@ import { readPositionAdvanceInput } from '@podium/commands'
 import { asUserId, FIRST_ADMIN_USER_ID, type UserId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { type CommandPrincipal, userCommandPrincipal } from '../../command-principal'
+import { createBunStoreExecutor } from '../../store/executor'
 import { UserReadPositionRepository } from '../../store/user-read-position'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { type ReadPositionAuthzDeps, readPositionActor, readPositionAuthzFailure } from './authz'
@@ -74,7 +75,7 @@ describe('the actor comes from the principal, and the input cannot supply one', 
 describe('a refused principal does not write', () => {
   it('gate refusal means the repository is never called; the positive control writes', () => {
     const db = openMigratedTestDatabase()
-    const repo = new UserReadPositionRepository(db)
+    const repo = new UserReadPositionRepository(createBunStoreExecutor({ database: db }))
     const service = new ReadPositionService({ cursors: repo })
 
     const refusal = readPositionAuthzFailure('readPosition.advance', deps(undefined))

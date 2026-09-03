@@ -17,6 +17,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -72,7 +73,11 @@ function rowToRun(r: Record<string, unknown>): AutomationRunRow {
 }
 
 export class AutomationsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   list(): AutomationRow[] {
     const rows = this.db

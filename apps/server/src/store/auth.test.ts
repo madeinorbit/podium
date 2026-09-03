@@ -2,12 +2,13 @@ import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { beforeEach, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { AuthRepository } from './auth'
+import { createBunStoreExecutor } from './executor'
 
 let repo: AuthRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  repo = new AuthRepository(db)
+  repo = new AuthRepository(createBunStoreExecutor({ database: db }))
 })
 
 const FUTURE = '2999-01-01T00:00:00.000Z'
@@ -64,9 +65,9 @@ it('round-trips mobile device metadata, activity, and owner-scoped row revocatio
   expect(
     repo.deleteOwnedMobileClientSession('session-bbbbbbbbbbbb', FIRST_ADMIN_USER_ID),
   ).toBeUndefined()
-  expect(
-    repo.deleteOwnedMobileClientSession('session-aaaaaaaaaaaa', FIRST_ADMIN_USER_ID),
-  ).toBe('mobile-a')
+  expect(repo.deleteOwnedMobileClientSession('session-aaaaaaaaaaaa', FIRST_ADMIN_USER_ID)).toBe(
+    'mobile-a',
+  )
 })
 
 // REMOVED, not ported: 'labels an upstream provisioning token as upstream'.

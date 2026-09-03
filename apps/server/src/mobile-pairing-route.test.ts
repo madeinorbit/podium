@@ -11,6 +11,7 @@ import {
   registerMobilePairingRoutes,
 } from './mobile-pairing-route'
 import { AuthRepository } from './store/auth'
+import { createBunStoreExecutor } from './store/executor'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
 
 const AUTH_TOKEN = 'browser-session-token-abcdefghijklmnopqrstuvwxyz'
@@ -40,7 +41,7 @@ async function post(path: string, body: unknown, headers: Record<string, string>
 }
 
 beforeEach(() => {
-  store = new AuthRepository(openMigratedTestDatabase())
+  store = new AuthRepository(createBunStoreExecutor({ database: openMigratedTestDatabase() }))
   store.createClientSession(hashToken(AUTH_TOKEN), FIRST_ADMIN_USER_ID, '2999-01-01T00:00:00.000Z')
   pairing = new MobilePairingManager()
   peerAddress = '198.51.100.10'

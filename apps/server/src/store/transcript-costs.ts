@@ -19,6 +19,7 @@
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -100,7 +101,11 @@ const toCost = (row: Row): TranscriptCost => ({
 })
 
 export class TranscriptCostsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * Bank one harvest. Transactional over the whole batch: a walk is one

@@ -9,6 +9,7 @@ import type { SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import { afterCommit } from './executor/synchronous-span'
 import type { Subscription } from './types'
 
@@ -87,7 +88,11 @@ export class EventsRepository {
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
 
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /** Install the post-append announcement. One listener: this is the feed's
    *  seam, not a general event bus (the orchestrator already has one). */

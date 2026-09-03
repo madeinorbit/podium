@@ -13,6 +13,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import { parseJsonColumn } from './helpers'
 import type {
   PendingSuperagentTurnRow,
@@ -23,7 +24,11 @@ import type {
 } from './types'
 
 export class SuperagentRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
   seedGlobalThread(ownerUserId: UserId = FIRST_ADMIN_USER_ID): void {

@@ -18,6 +18,7 @@ import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export interface UserAccountRow {
   id: string
@@ -47,7 +48,11 @@ export interface UserCredentialRow {
 }
 
 export class UsersRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * THE FRAME READ CACHE [POD-1931].

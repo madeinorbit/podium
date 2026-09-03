@@ -1,5 +1,6 @@
 import { isTerminalOperationState, type Operation, parseOperation } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from '../../store/executor'
 
 /**
  * Persistence for durable operations (POD-2097) — the `operations` table and
@@ -88,7 +89,11 @@ export const DEFAULT_OPERATION_HISTORY_LIMIT = 20
 export const DEFAULT_RETENTION = 20
 
 export class OperationStore {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   insert(operation: PersistedOperation): void {
     this.db

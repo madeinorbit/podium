@@ -30,7 +30,6 @@ import {
   ShipTrainValidationProfile,
   serializeShipTrainManifest,
 } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import {
   ShippingJobRequestMessage,
   ShippingJobResult,
@@ -39,6 +38,8 @@ import {
   shippingTrainProofsMatch,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 type SqlRow = Record<string, unknown>
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
@@ -350,7 +351,11 @@ export interface RootIntegrationReceiptStore {
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   shippingEvidence(ref: string): StoredShippingEvidence | null {
     const row = this.db

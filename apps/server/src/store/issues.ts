@@ -22,6 +22,7 @@ import {
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -69,11 +70,15 @@ export class IssuesRepository {
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
 
+  private readonly db: SqlDatabase
+
   constructor(
-    private readonly db: SqlDatabase,
+    executor: StoreExecutor<QueryClient>,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
-  ) {}
+  ) {
+    this.db = legacyHandle(executor)
+  }
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
    *  and whatever it had already cached is dropped.

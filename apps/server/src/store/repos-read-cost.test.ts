@@ -31,7 +31,7 @@ import { asMachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { probeLegacyStatements } from './executor'
+import { createBunStoreExecutor, probeLegacyStatements } from './executor'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
 
@@ -58,7 +58,15 @@ beforeEach(() => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
   tableWrites = new TableWrites()
-  repos = new ReposRepository(rawDb, () => {}, asMachineId(HOST), tableWrites)
+  // The probe patches `prepare` ON `rawDb` IN PLACE, and the executor's legacy
+  // field is that same object, so the repository's statements are still observed
+  // through the constructor change [POD-3281, POD-3254].
+  repos = new ReposRepository(
+    createBunStoreExecutor({ database: rawDb }),
+    () => {},
+    asMachineId(HOST),
+    tableWrites,
+  )
   repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
   repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()

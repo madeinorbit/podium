@@ -17,6 +17,7 @@ import {
   type UserId,
 } from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import { requireUserId } from './helpers'
 import type {
   OfferMap,
@@ -32,10 +33,14 @@ import type {
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
 export class SessionsRepository {
+  private readonly db: SqlDatabase
+
   constructor(
-    private readonly db: SqlDatabase,
+    executor: StoreExecutor<QueryClient>,
     private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
-  ) {}
+  ) {
+    this.db = legacyHandle(executor)
+  }
 
   // ---- sessions ----
   loadSessions(): SessionRow[] {

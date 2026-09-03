@@ -32,6 +32,7 @@
 import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /**
  * Rebuild the attribution pair from its three columns — the same shape
@@ -81,7 +82,11 @@ function toBinding(r: Record<string, unknown>): TelegramChatBinding | undefined 
 }
 
 export class TelegramBindingsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /** Every binding, for the resolver to answer over. Unreadable rows are omitted
    *  — see {@link toAttribution} on why omission is the fail-closed direction. */

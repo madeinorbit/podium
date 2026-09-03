@@ -6,11 +6,16 @@
  */
 
 import type { SessionId } from '@podium/model'
-import type { ReaderRef } from '../modules/sessions/read-toolkit'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import type { ReaderRef } from '../modules/sessions/read-toolkit'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export class ReadWatermarksRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   getRecapWatermark(reader: ReaderRef, sessionId: SessionId): string | null {
     const r = this.db

@@ -1,6 +1,7 @@
 import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { ApprovalOp, ApprovalStatus } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 /** One approval-broker row [spec:SP-edbb] as stored (wire enrichment — machine
  *  name, issue seq/title — happens in the service layer). */
@@ -32,7 +33,11 @@ function toRow(r: Record<string, unknown>): ApprovalRow {
 }
 
 export class ApprovalsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   insert(row: {
     id: string

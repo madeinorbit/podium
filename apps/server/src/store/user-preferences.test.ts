@@ -28,6 +28,7 @@ import { normalizeSettings } from '@podium/runtime'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { createBunStoreExecutor } from './executor'
 import { SettingsRepository } from './settings'
 
 /** The second person. POD-315 mints real accounts; the storage is keyed for them
@@ -43,7 +44,7 @@ let db: ReturnType<typeof openDatabase>
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  settings = new SettingsRepository(db)
+  settings = new SettingsRepository(createBunStoreExecutor({ database: db }))
 })
 
 describe('a preference row belongs to one person', () => {

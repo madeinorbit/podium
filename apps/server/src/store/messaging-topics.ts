@@ -3,9 +3,10 @@
  * ↔ superagent thread for the messaging bridge across restarts.
  */
 
-import { asIssueId, asThreadId } from '@podium/model'
 import type { IssueId, ThreadId } from '@podium/model'
+import { asIssueId, asThreadId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export interface MessagingIssueTopicRow {
   issueId: IssueId
@@ -16,7 +17,11 @@ export interface MessagingIssueTopicRow {
 }
 
 export class MessagingTopicsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   listForChat(chatId: string): MessagingIssueTopicRow[] {
     const rows = this.db

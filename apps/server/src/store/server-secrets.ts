@@ -36,6 +36,7 @@ import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey, type
 import { PortableCredentialBundle } from '@podium/protocol'
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 interface SecretRow {
   key: string
@@ -49,7 +50,11 @@ function nativeLoginTransferKey(principalUserId: UserId, transferId: string): st
 }
 
 export class ServerSecretsRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * The material for one key, or `undefined` when none is configured.

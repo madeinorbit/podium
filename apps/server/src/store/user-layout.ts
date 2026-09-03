@@ -24,6 +24,7 @@
 
 import { isLayoutKey, type LayoutSnapshot, type UserId } from '@podium/model'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 interface LayoutRow {
   key: string
@@ -31,7 +32,11 @@ interface LayoutRow {
 }
 
 export class UserLayoutRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /**
    * One person's layout snapshot — every key they have set, as a plain map.

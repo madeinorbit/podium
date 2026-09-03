@@ -2,6 +2,7 @@ import { asIssueId, asSessionId } from '@podium/model'
 import type { LiveServerMessage } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { ApprovalsRepository } from '../../store/approvals'
+import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { ApprovalService } from './service'
 
@@ -18,7 +19,7 @@ import { ApprovalService } from './service'
 describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () => {
   function harness() {
     const db = openMigratedTestDatabase()
-    const store = new ApprovalsRepository(db)
+    const store = new ApprovalsRepository(createBunStoreExecutor({ database: db }))
     let listExecutingCalls = 0
     const clock = { ms: 1_000_000 }
     /** Swapped by the test once a row is executing, so only the sweep re-enters. */

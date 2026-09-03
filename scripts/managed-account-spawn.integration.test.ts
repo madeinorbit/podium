@@ -38,6 +38,7 @@ import type { DaemonContext } from '../apps/daemon/src/control/context'
 import { sessionHandlers } from '../apps/daemon/src/control/session'
 import { resolveAccountEnv } from '../apps/server/src/modules/sessions/account-env'
 import { AccountsRepository } from '../apps/server/src/store/accounts'
+import { createBunStoreExecutor } from '../apps/server/src/store/executor'
 
 const CREDENTIAL = 'sk-test-xyz'
 
@@ -61,7 +62,7 @@ function openAccountsDatabase() {
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
 function managedAccountEnv(): Record<string, string> | undefined {
   const db = openAccountsDatabase()
-  const accounts = new AccountsRepository(db)
+  const accounts = new AccountsRepository(createBunStoreExecutor({ database: db }))
   accounts.upsert({
     id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
@@ -289,7 +290,7 @@ describe('managed account -> real spawned process env (#216)', () => {
 
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
     const db = openAccountsDatabase()
-    const accounts = new AccountsRepository(db)
+    const accounts = new AccountsRepository(createBunStoreExecutor({ database: db }))
     accounts.upsert({
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',

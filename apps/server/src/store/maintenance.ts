@@ -1,5 +1,6 @@
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export interface MaintenanceLeaseRow {
   name: string
@@ -25,7 +26,11 @@ function mapLease(row: Record<string, unknown>): MaintenanceLeaseRow {
 
 /** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
 export class MaintenanceRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   getLease(name: string): MaintenanceLeaseRow | undefined {
     const row = this.db.prepare('SELECT * FROM maintenance_leases WHERE name = ?').get(name) as

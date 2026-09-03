@@ -5,19 +5,20 @@
  */
 
 import {
-  asThreadId,
-  asSessionId,
+  type ActorRef,
   actorAgent,
   actorSystem,
   actorUser,
   asAgentIdentityId,
+  asSessionId,
+  asThreadId,
   asUserId,
-  type ActorRef,
   type IssueId,
   type SessionId,
 } from '@podium/model'
 import { RuntimeAttachmentRef, type QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
 /** A message recipient principal: `issue`/`session` carry an id; `operator` has none. */
@@ -117,7 +118,11 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
 }
 
 export class MessagesRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   addMessage(m: MessageRow): void {
     this.db

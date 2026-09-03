@@ -24,8 +24,9 @@
  * belong to the wrong person.
  */
 
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { UserId } from '@podium/model'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
 
 export interface ClientSessionMetadata {
   sessionId?: string
@@ -49,7 +50,11 @@ export interface ClientSessionRow {
 }
 
 export class AuthRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  private readonly db: SqlDatabase
+
+  constructor(executor: StoreExecutor<QueryClient>) {
+    this.db = legacyHandle(executor)
+  }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
    *  token. `userId` is the person the device resolves to — today always the

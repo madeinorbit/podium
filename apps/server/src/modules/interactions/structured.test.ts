@@ -26,6 +26,7 @@ import type { SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import type { InteractionAnswer, PendingInteraction } from '@podium/protocol'
 import { beforeEach, describe, expect, it } from 'vitest'
+import { createBunStoreExecutor } from '../../store/executor'
 import { InteractionsRepository } from '../../store/interactions'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { SYSTEM_INBOX_PRINCIPAL } from '../sessions/inbox'
@@ -68,7 +69,9 @@ function harness(
     // A REAL migrated database, like every sibling suite: the aggregate's
     // idempotence comes from the row's own `status = 'asked'` guard, and a fake
     // store would prove the test's guard rather than the aggregate's.
-    store: new InteractionsRepository(openMigratedTestDatabase()),
+    store: new InteractionsRepository(
+      createBunStoreExecutor({ database: openMigratedTestDatabase() }),
+    ),
     now: () => '2026-08-14T00:00:01.000Z',
     publish: (row) => published.push(row.id),
     deliver: async (input) => {
