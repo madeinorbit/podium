@@ -8,7 +8,7 @@
  * The bus, however, already narrates every transition (`session.stateChanged`
  * carries prev AND next), and `podium_events` is subject-indexed. This module
  * mirrors the fleet-level `AgentConcurrencyHistory` recorder one level down:
- * one `session.phase` event per real phase flip, keyed by the session id.
+ * one `session.phase_sample` event per real phase flip, keyed by the session id.
  *
  * The log is observational. Append failures are swallowed for the same reason
  * the concurrency recorder swallows them: a full or read-only event store must
@@ -21,7 +21,17 @@ import type { AgentPhase, SessionId } from '@podium/model'
 import type { EventsRepository } from '../../store/events'
 import type { EventBus } from '../bus'
 
-export const SESSION_PHASE_EVENT = 'session.phase'
+/**
+ * This recorder OWNS its kind, exactly as the fleet concurrency recorder owns
+ * `fleet.agent_concurrency`. It must not reuse `session.phase` (POD-3331): that
+ * kind is the notification service's semantic transition log, whose readers
+ * (steward triggers, the superagent's turn watcher) expect one row per real
+ * flip carrying `agentKind`/`cwd`/`verdict`. Sharing it appended a SECOND row
+ * per transition and — because this recorder deliberately keeps the opening
+ * edge a waterfall segment starts from — a prev-undefined seed row that the
+ * semantic log is designed never to contain.
+ */
+export const SESSION_PHASE_EVENT = 'session.phase_sample'
 /** Matches the waterfall's maximum lookback; older history is clipped anyway. */
 export const SESSION_ACTIVITY_WINDOW_MS = 48 * 60 * 60 * 1_000
 
