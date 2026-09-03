@@ -373,18 +373,47 @@ export class ReposRepository {
    * host's real id because that is the machine the caller is talking about.
    */
   resolveRepoIdForPath(repoPath: string): RepoId {
-    const normalizedRepoPath = normalizeRepoPath(repoPath)
-    const match = this.listRepos()
-      .map((r) => ({ ...r, path: normalizeRepoPath(r.path) }))
-      .filter(
+    return this.repoIdResolver()(repoPath)
+  }
+
+  /**
+   * {@link resolveRepoIdForPath} for a WHOLE SET: the registry is read once and the
+   * returned function is pure, so a caller resolving N paths pays one read instead
+   * of N store calls (POD-3257).
+   *
+   * The per-call form is the one-path case of this one, so there is no second
+   * resolution rule to keep in step — the ordering below IS the rule, and both
+   * entry points get it.
+   *
+   * Why a caller cannot just memoize `resolveRepoIdForPath` instead: a memo still
+   * calls the store on a miss, and a store call is what a predicate handed to
+   * `.filter` may not contain once the store is async (spec section 2.5). The
+   * resolution has to be OUT of the callback, not merely cheaper inside it.
+   *
+   * Sorted longest-first ONCE rather than per path: `Array.prototype.sort` is
+   * stable, so among roots of equal length the `listRepos` order still decides,
+   * exactly as it did when only the matching subset was sorted.
+   *
+   * THE RETURNED FUNCTION HOLDS A SNAPSHOT, so do not keep one across a write to
+   * `repos` or `repo_prefixes`: the registry cache invalidates on such a write and
+   * `resolveRepoIdForPath` would re-read, while a resolver taken earlier would keep
+   * answering from the pre-write registry. Take it inside the pass that uses it —
+   * which is every caller today, all of them read-only loops.
+   */
+  repoIdResolver(): (repoPath: string) => RepoId {
+    const roots = this.listRepos()
+      .map((r) => ({ repoId: r.repoId, path: normalizeRepoPath(r.path) }))
+      .sort((a, b) => b.path.length - a.path.length)
+    const hostMachineId = this.hostMachineId
+    return (repoPath: string): RepoId => {
+      const normalizedRepoPath = normalizeRepoPath(repoPath)
+      const match = roots.find(
         (r) =>
           normalizedRepoPath === r.path ||
           normalizedRepoPath.startsWith(r.path === '/' ? r.path : `${r.path}/`),
       )
-      .sort((a, b) => b.path.length - a.path.length)[0]
-    return (
-      match?.repoId ?? deriveRepoId({ machineId: this.hostMachineId, path: normalizedRepoPath })
-    )
+      return match?.repoId ?? deriveRepoId({ machineId: hostMachineId, path: normalizedRepoPath })
+    }
   }
 
   removeRepo(path: string, machineId: MachineId): void {

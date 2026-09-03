@@ -433,6 +433,11 @@ describe('IssueService event emission', () => {
     // succeed and the throw hits exactly the ready fanout's read path.
     const origAppend = store.events.appendEvent.bind(store)
     const origDeps = store.issues.listIssueDeps.bind(store)
+    // SETUP ONLY (POD-3257): the fanout now reads every dep ONCE instead of
+    // per row, so the seam that arms the failure has to name that read too.
+    // Both are armed rather than swapped, so this pins "a read error in the
+    // fanout" and not which read the fanout happens to make.
+    const origAllDeps = store.issues.listAllIssueDeps.bind(store)
     let armed = false
     vi.spyOn(store.events, 'appendEvent').mockImplementation((e) => {
       const id = origAppend(e)
@@ -442,6 +447,10 @@ describe('IssueService event emission', () => {
     vi.spyOn(store.issues, 'listIssueDeps').mockImplementation((fromId) => {
       if (armed) throw new Error('boom')
       return origDeps(fromId)
+    })
+    vi.spyOn(store.issues, 'listAllIssueDeps').mockImplementation(() => {
+      if (armed) throw new Error('boom')
+      return origAllDeps()
     })
     expect(svc.close(a.id).stage).toBe('done')
     expect(store.issues.getIssue(a.id)?.stage).toBe('done')

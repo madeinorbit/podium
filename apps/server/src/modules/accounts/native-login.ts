@@ -24,7 +24,13 @@ export class NativeLoginService {
       machines: MachinesService
       sessions: SessionLifecycle
       bus: EventBus
-      authorize(ownerUserId: UserId, machineId: MachineId): string | undefined
+      /** Refusal reason for using a machine, with the OWNER resolved ONCE and the
+       *  per-machine check returned as a function (spec rule 18 / POD-3325).
+       *
+       *  Shaped this way because the caller asks about several machines under one
+       *  owner: reading the owner per machine was a defect, while the per-machine
+       *  GRANT read inside the returned function is deliberate and stays live. */
+      authorizerFor(ownerUserId: UserId): (machineId: MachineId) => string | undefined
       cwdForMachine(machineId: MachineId): string
     },
   ) {
@@ -64,11 +70,19 @@ export class NativeLoginService {
             (agent) => agent.kind === input.harness && agent.installed,
           ),
       )
+    // SPLIT PER SPEC RULE 18 (POD-3325). The owner row is read ONCE for the whole
+    // scan instead of once per candidate.
+    //
+    // DECISION POD-3325 — what remains inside the callback is the per-machine
+    // GRANT read, left there deliberately: ADR 9 D2 rule 4 evaluates a grant
+    // LIVE, so batching it would make this pass snapshot-consistent instead.
+    // Today the loop is synchronous and the two are indistinguishable; after the
+    // flip they diverge. Whether the live obligation is per decision or per pass
+    // is escalated to the R3 pre-flip checkpoint.
+    const authorize = this.deps.authorizerFor(input.ownerUserId)
     const authorized = input.machineId
       ? candidates
-      : candidates.filter(
-          (candidate) => this.deps.authorize(input.ownerUserId, candidate.id) === undefined,
-        )
+      : candidates.filter((candidate) => authorize(candidate.id) === undefined)
     const machine = input.machineId
       ? authorized.find((candidate) => candidate.id === input.machineId)
       : (authorized.find((candidate) =>
@@ -77,7 +91,7 @@ export class NativeLoginService {
           ),
         ) ?? authorized[0])
     if (!machine) throw new Error(`no online machine can run ${input.harness} login`)
-    const refusal = this.deps.authorize(input.ownerUserId, machine.id)
+    const refusal = authorize(machine.id)
     if (refusal) throw new Error(refusal)
 
     const spawned = this.deps.sessions.createSession({

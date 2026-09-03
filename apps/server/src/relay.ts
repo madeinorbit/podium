@@ -129,6 +129,7 @@ import { ReadPositionService } from './modules/read-position/service'
 import { retireSourceAfterTransfer } from './modules/server-transfer/lifecycle'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
 import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
+import type { ServerTransferTargetState } from './modules/server-transfer/service'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
@@ -945,6 +946,27 @@ export class SessionRegistry {
           : undefined
       },
     })
+    // ONE machines read, then a pure per-machine answer (POD-3257). The
+    // single-machine dep below is this one applied to one id, so the eligibility
+    // rules cannot drift between the fleet path and the point lookup — and a
+    // caller looping over the fleet no longer re-reads the whole table per
+    // machine.
+    const targetStateResolver = (): ((machineId: MachineId) => ServerTransferTargetState) => {
+      const byId = new Map(machines.listMachines().map((m) => [m.id, m] as const))
+      const digest = wireSchemaDigest()
+      return (machineId) => {
+        const machine = byId.get(machineId)
+        return {
+          exists: machine !== undefined,
+          online: machines.hasDaemon(machineId),
+          capable: machine?.wireSchemaDigest === digest,
+          // POD-2700. `undefined` components mean NOT RECORDED, which must not
+          // refuse — same reading as everywhere else — so only an evaluated row
+          // that lacks the component answers `false`.
+          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
+        }
+      }
+    }
     const serverTransfer = new ServerTransferService({
       stateRoot: stateDir(),
       sourceInstanceId: options.instanceId,
@@ -958,18 +980,8 @@ export class SessionRegistry {
       sourceWireSchemaDigest: wireSchemaDigest(),
       rpc: serverTransferRpcAdapter(rpc),
       localPromotedTransfer: () => readPromotedTargetMetadata(stateDir()),
-      targetState: (machineId) => {
-        const machine = machines.listMachines().find((candidate) => candidate.id === machineId)
-        return {
-          exists: machine !== undefined,
-          online: machines.hasDaemon(machineId),
-          capable: machine?.wireSchemaDigest === wireSchemaDigest(),
-          // POD-2700. `undefined` components mean NOT RECORDED, which must not
-          // refuse — same reading as everywhere else — so only an evaluated row
-          // that lacks the component answers `false`.
-          hasDaemon: machine?.components === undefined || machine.components.includes('daemon'),
-        }
-      },
+      targetStateResolver,
+      targetState: (machineId) => targetStateResolver()(machineId),
       sourceHealthy: () => this.store.checkpointForTransfer(),
       checkpoint: () => this.store.checkpointForTransfer(),
       fence: async () => {
@@ -1071,6 +1083,10 @@ export class SessionRegistry {
             },
           },
           machines: {
+            // DECISION POD-3325 — one ownershipRows() scan plus one grants read
+            // per machine asked about, on a predicate the kernel calls in a
+            // loop. Same ruling blocks batching it: rule 4 wants the grant read
+            // live per decision.
             mayUse: (machineId) =>
               principal.kind === 'system' ||
               checkMachineUse(principal, machineId, ownershipFromMachines(machines)) === undefined,
@@ -1150,16 +1166,27 @@ export class SessionRegistry {
       machines,
       sessions: sessionsSvc,
       bus: this.bus,
-      authorize: (ownerUserId, machineId) => {
+      // SPLIT PER SPEC RULE 18 (POD-3325). The USER read is hoisted: the caller
+      // loops over candidate machines with one fixed `ownerUserId`, so reading
+      // the same row per candidate was an unambiguous defect with no liveness
+      // dimension. The GRANT read deliberately stays inside the per-machine
+      // function — ADR 9 D2 rule 4 evaluates a grant LIVE, and whether that
+      // obligation is per decision or per pass is escalated to R3, not decided
+      // here.
+      authorizerFor: (ownerUserId) => {
         const user = this.store.users.get(ownerUserId)
-        if (user?.role !== 'admin') return 'native provider login requires an admin account'
+        if (user?.role !== 'admin') return () => 'native provider login requires an admin account'
         const principal = userCommandPrincipal(ownerUserId, user.role)
-        const access = checkMachineUse(principal, machineId, ownershipFromMachines(machines))
-        return access === 'absent'
-          ? `unknown machine '${machineId}'`
-          : access === 'unauthorized'
-            ? 'you do not have access to start login on this machine'
-            : undefined
+        return (machineId) => {
+          // DECISION POD-3325 — one ownershipRows() scan plus one grants read per
+          // machine, kept live on purpose. See the comment above.
+          const access = checkMachineUse(principal, machineId, ownershipFromMachines(machines))
+          return access === 'absent'
+            ? `unknown machine '${machineId}'`
+            : access === 'unauthorized'
+              ? 'you do not have access to start login on this machine'
+              : undefined
+        }
       },
       cwdForMachine: (machineId) => this.store.repos.listRepoPaths(machineId)[0] ?? '/',
     })

@@ -186,7 +186,7 @@ function makeService(
   overrides: Partial<ConstructorParameters<typeof ServerTransferService>[0]> = {},
 ) {
   let counter = 0
-  return new ServerTransferService({
+  const deps = {
     stateRoot: root,
     sourceInstanceId: 'instance-1',
     sourceMachineId: asMachineId('source-1'),
@@ -205,6 +205,13 @@ function makeService(
     snapshotAvailableBytes: () => 2_000_000_000,
     uuid: () => `transfer-${++counter}`,
     ...overrides,
+  }
+  return new ServerTransferService({
+    // SETUP ONLY (POD-3257): the batched resolver defaults to whichever
+    // single-machine stub is in effect, so a test that overrides `targetState`
+    // still controls both paths and no case had to be respelled.
+    targetStateResolver: () => deps.targetState,
+    ...deps,
   })
 }
 

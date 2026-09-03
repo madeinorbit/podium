@@ -164,25 +164,25 @@ export class LoginPropagationService {
       return { status: 'skipped', reason: 'target is not observed logged out' }
     }
 
-    const catalog = buildLoginCatalog(this.deps.store.machines.listMachines())
+    // The catalog is built FROM this list, and the donor predicate below then
+    // asked the store for each machine again, one row at a time, inside `.some`
+    // and `.find` (POD-3257). Same rows, one read: `getMachine` selects the same
+    // columns through the same mapper with no filter, so an owner read from this
+    // map is the row `getMachine` would have returned.
+    const machines = this.deps.store.machines.listMachines()
+    const ownerByMachineId = new Map(machines.map((m) => [m.id, m.ownerUserId]))
+    const catalog = buildLoginCatalog(machines)
+    const isDonor = (machine: { harness: string; machineId: MachineId }): boolean =>
+      machine.harness === input.harness &&
+      machine.machineId !== input.input.targetMachineId &&
+      this.deps.machines.hasDaemon(machine.machineId) &&
+      ownerByMachineId.get(machine.machineId) === input.ownerUserId
     const entry = catalogEntriesForHarness(catalog, input.harness).find((candidate) =>
-      candidate.machines.some(
-        (machine) =>
-          machine.harness === input.harness &&
-          machine.machineId !== input.input.targetMachineId &&
-          this.deps.machines.hasDaemon(machine.machineId) &&
-          this.deps.store.machines.getMachine(machine.machineId)?.ownerUserId === input.ownerUserId,
-      ),
+      candidate.machines.some(isDonor),
     )
     if (!entry) return { status: 'failed', reason: 'no online donor login found' }
 
-    const donor = entry.machines.find(
-      (machine) =>
-        machine.harness === input.harness &&
-        machine.machineId !== input.input.targetMachineId &&
-        this.deps.machines.hasDaemon(machine.machineId) &&
-        this.deps.store.machines.getMachine(machine.machineId)?.ownerUserId === input.ownerUserId,
-    )
+    const donor = entry.machines.find(isDonor)
     if (!donor) return { status: 'failed', reason: 'no online donor login found' }
 
     const kind = input.harness as PortableCredentialBundle['kind']
