@@ -47,8 +47,19 @@ duplicate that interface or take a dependency across a boundary the epic is in t
 drawing, and the first would have made "the port works remotely" unfalsifiable.
 
 It is NOT wired into the server. Nothing imports it; the composition root does not know it
-exists. `@libsql/client` was added as a **devDependency of `apps/server`** — the only shared-file
-edit in this issue, and the reason the tests are runnable at all.
+exists — so it is an **instrument** under the execution method's §7, and its deletion is filed as
+POD-3343. The document you are reading is the durable artefact; the code is the scaffolding that
+produced it.
+
+`@libsql/client` is a **devDependency of `apps/server`**, accepted by the coordinator as a
+DECISION rather than a setup edit (2026-09-03): the integration tests cannot run without it, and a
+devDependency does not ship.
+
+The driver and the measurement harness are named in the transaction-port lint's
+`TRANSACTION_OPENERS` (spec §6 rule 22, answering POD-3342) — a driver is the port's
+implementation, so `client.transaction("write")` there is the rule being obeyed. The exemption is
+a named list, never a directory: `store/executor/` also holds the scheduler and the executor,
+neither of which may open a raw transaction, and two fixtures pin both edges of that.
 
 | File | What it is |
 |---|---|

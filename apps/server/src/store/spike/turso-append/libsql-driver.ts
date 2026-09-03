@@ -170,9 +170,9 @@ class LibsqlSession implements DriverSession {
   async begin(lane: Lane): Promise<void> {
     if (lane === 'exclusive') return
     // The driver IS the port's implementation, so this is the one call site the
-    // rule's own doc comment describes as correct. Marked rather than exempted
-    // until POD-3342 says which of the two the rule wants.
-    this.tx = await this.client.transaction(lane === 'write' ? 'write' : 'read') // DECISION POD-3342
+    // transaction-port rule exists to require rather than forbid. This file is
+    // named in the lint's `TRANSACTION_OPENERS` for that reason (spec §6 rule 22).
+    this.tx = await this.client.transaction(lane === 'write' ? 'write' : 'read')
   }
 
   async commit(): Promise<void> {

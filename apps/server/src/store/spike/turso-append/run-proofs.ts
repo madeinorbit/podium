@@ -373,8 +373,9 @@ async function proofBatchAtomicityInsideTransaction(
   const slice = await openSlice(config)
   try {
     // Deliberately raw: this probe exists to see the engine behaviour underneath
-    // the port, so going through the port would answer its own question.
-    const tx = await slice.counted.client.transaction('write') // DECISION POD-3342
+    // the port, so going through the port would answer its own question. This
+    // file is named in the lint's `TRANSACTION_OPENERS` (spec §6 rule 22).
+    const tx = await slice.counted.client.transaction('write')
     try {
       const count = async (): Promise<number> => {
         const r = await tx.execute('SELECT COUNT(*) AS n FROM changes')
@@ -521,7 +522,7 @@ async function proofBudgetIsIdleNotTotal(config: Parameters<typeof openSlice>[0]
 
     // ARM A — 20 s of wall clock, never idle for more than 2 s.
     // Raw for the same reason: the budget probe times the stream itself.
-    const chatty = await slice.counted.client.transaction('write') // DECISION POD-3342
+    const chatty = await slice.counted.client.transaction('write')
     const startedA = performance.now()
     let armA = ''
     try {
@@ -539,7 +540,7 @@ async function proofBudgetIsIdleNotTotal(config: Parameters<typeof openSlice>[0]
     line('20 s transaction, statement every 2 s', armA)
 
     // ARM B — one 12 s gap and nothing else.
-    const idle = await slice.counted.client.transaction('write') // DECISION POD-3342
+    const idle = await slice.counted.client.transaction('write')
     const startedB = performance.now()
     let armB = ''
     try {
