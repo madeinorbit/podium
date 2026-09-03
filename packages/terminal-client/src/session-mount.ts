@@ -236,7 +236,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const sameGrid = (left: Grid, right: Grid): boolean =>
     left.cols === right.cols && left.rows === right.rows
 
-  trace('mount')
+  // WHAT THIS MOUNT WAS ASKED FOR, beside what it ended up at (`view.grid` in
+  // every entry). The two disagreeing is the whole diagnosis of a terminal born
+  // at the wrong size: a missing `initialGeometry` is a wiring gap somewhere
+  // above, an ignored one is a bug here.
+  trace('mount', {
+    initialGeometry: opts.initialGeometry ?? null,
+    geometryState: opts.geometryState ?? null,
+  })
 
   const proposeViewport = (): Grid | undefined =>
     viewportEl === el ? view.proposeFit() : view.proposeFitIn(viewportEl)
@@ -704,6 +711,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   if (opts.test) {
     const api = {
       state: () => connection.state(),
+      /**
+       * THE LOCAL GRID — what xterm is actually at (POD-3239).
+       *
+       * `state()` above returns the SERVER's grid, which is a different fact, and
+       * 0a's capture had to scrape `.xterm-screen`'s pixel box to get this one —
+       * a reading that depends on which renderer loaded and on the font. The two
+       * disagreeing is the whole subject of this issue, so both are readable.
+       */
+      grid: () => ({ cols: view.cols(), rows: view.rows() }),
       echoLatency: () => connection.echoLatency(),
       diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
       // Client switch-latency traces [POD-701]. Read through the introspection

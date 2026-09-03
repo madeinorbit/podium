@@ -593,9 +593,23 @@ if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
       nativeSubagentCount: 0,
     },
   })
+  // AFTER THE BIND, and the order is the whole fixture. `bind` is itself a
+  // geometry report (MODEL rule 1), and the daemon binds the keyecho jig at the
+  // 80x24 spawn default — so a report sent before it is immediately and
+  // correctly overwritten. Wait for the session to go live, then report.
+  let live = false
+  for (let attempt = 0; attempt < 80 && !live; attempt++) {
+    live =
+      server.registry.modules.sessions
+        .listSessions()
+        .find((row) => row.sessionId === sessionId)?.status === 'live'
+    if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  if (!live) throw new Error('PODIUM_E2E_TERMINAL_SIZING: the session never became live')
   // MOVE W THROUGH THE ONE WRITER (POD-3239 B6): the daemon's report. Writing
   // the terminal's geometry directly would be the fixture asserting a value the
-  // production path is supposed to own, and would not exercise the broadcast.
+  // production path is supposed to own, and would not exercise the broadcast the
+  // client's row depends on.
   server.registry.modules.sessions.onSessionDaemonFrame(principal, {
     type: 'geometryApplied',
     sessionId,
