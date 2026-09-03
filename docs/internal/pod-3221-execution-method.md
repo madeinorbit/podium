@@ -6,6 +6,17 @@ judged, how a problem no rule covers becomes a decision instead of a local fix, 
 coordinator stops to review and replan. The revisions that produced it, with their reviews, are
 in `pod-3221-history-execution-method.md`.
 
+## 0. Branching
+
+The epic has one **integration branch**: `issue/3221-i-want-to-move-our-podium-sql-queries-to`,
+checked out in the coordinator's worktree and started from `dev/mw`. Every sub-issue's branch
+is created from it (the sub-issues carry it as their parent branch) and lands back into it,
+behind its merge lock (`podium merge-lock` from the integration worktree). `main` and `dev/mw`
+are not touched during the epic. At the close checkpoint, after the complete result has been
+tested on the integration branch, the coordinator rebases it onto the current `dev/mw` and
+merges it back into `dev/mw`; `main` is left alone. "Landed" everywhere below means landed on
+the integration branch.
+
 ## 1. Four principles
 
 1. **Completeness comes from the compiler and a lint, never from grep or memory.** A stage is
@@ -146,7 +157,7 @@ with the human.
 
 ### Phase B-prep — remove the hidden dependencies while everything is still synchronous
 
-One agent per category, landable in small commits on main: hidden reads (B0.1), array-callback
+One agent per category, landable in small commits on the integration branch: hidden reads (B0.1), array-callback
 batched reads (B0.2), timer guards (B0.3), mutable process-state models with their tests over
 an injected async fake (B0.4), span side-effect classification into the three mechanisms (B0.5),
 read-scope adoption with the frame caches, the visibility prefetch and admission inside the read
@@ -170,7 +181,7 @@ convert in the branch; a "no rule" is resolved by the coordinator inside the fre
 reviewers; the mechanical test-diff rule. Every branch that rebases across the landed flip runs
 the codemod before it lands.
 
-The post-flip list on main, no freeze: lifecycle and awaited shutdown with the migration bracket
+The post-flip list on the integration branch, no freeze: lifecycle and awaited shutdown with the migration bracket
 and the parked-transaction test (B2.1); the watchdog (B2.2); the ADR amendments (B2.3); deletion
 of the synchronous helper, the synchronous port types, the executor's legacy field and the
 codemod (B2.4).
@@ -192,19 +203,42 @@ and migration ledger verified (E.4).
 Exit: the spec's §5.2 as commands and evidence.
 
 **Checkpoint R5** walks the definition of done item by item with evidence, verifies every
-temporary instrument is deleted, and confirms closure with the human.
+temporary instrument is deleted, tests the complete result on the integration branch, then with
+the human's confirmation rebases the integration branch onto the current `dev/mw` and merges it
+back into `dev/mw`. `main` is left alone.
 
 ## 6. Coordinator checkpoints
 
 Five issues, one between each pair of phases and one at the end. Each has the same standing
 instruction: review the whole subtree and every handoff and artifact of the phase just finished;
-review the state of the work on main, the measurements against their baselines, the gates, the
+review the state of the work on the integration branch, the measurements against their baselines, the gates, the
 decision markers and decision issues, and anything deferred; replan by adding, removing,
 re-sequencing or rewriting sub-issues and briefs and writing new specs where the design changed;
 check in with the human before any change to scope, the definition of done, the sequence, the
 freeze timing or a decision on record; close only when the next phase's ready issues have briefs
 that match the current spec and method and the human has confirmed. Each checkpoint's brief adds
 the questions specific to its position.
+
+## 6a. Review points
+
+The human does not review every sub-issue. Six independent review issues sit at the points
+where a mistake would be expensive to find later, each with the same standing instruction (a
+fresh reviewer session with no prior context, a different model from the implementers where
+possible, reviewing the landed commits rather than the issues' claims, running the gate
+commands, reading the removed lines of every test file, hunting escape hatches and unfiled
+decision markers, delivering a review artifact and an issue mail with a verdict) plus what is
+specific to that point. A review gates the checkpoint that follows it; the coordinator resolves
+every critical and high finding before that checkpoint closes.
+
+| Review | Reviews | Gates |
+|---|---|---|
+| V1 Executor prototype review | 0.6, with every harness test proven able to fail | 0.8, 0.12, 0.13, B0.1, B0.4, B0.5, B0.6, B0.7 |
+| V2 Phase 0 landing review | every other Phase 0 landing, spike and proof numbers reproduced | R1 |
+| per-wave reviews | each conversion wave, created with the wave at R1; two reviewers for the five large repositories | the next wave touching the same families |
+| V3 Stage A conversion review | the whole converted store, the five large repositories in full | R2 |
+| V4 B-prep review | all of B-prep, inventory re-run | R3 |
+| V5 Flip review (two reviewers) | the flip branch before it merges | B2.1 to B2.4, R4 |
+| V6 Post-flip and Turso review | B2.1 to B2.4, E.3, E.4, E.5 | R5 |
 
 ## 7. What is deleted, and when
 
@@ -254,30 +288,36 @@ Prefix gives the order; edges in the tracker give the real dependencies
 | 0.10 | POD-3252 Store boundary lint family | 0.0, 0.4 |
 | 0.11 | POD-3253 Issues writer-guard replacement | 0.0 |
 | 0.12 | POD-3254 Shared schema and constructor edits | 0.3, 0.6 |
-| 0.13 | POD-3281 Attribution at execution seam | 0.0, 0.6 |
-| R1 | POD-3284 Phase 0 checkpoint and replan | every Phase 0 issue |
-| A | POD-3255 Repository conversion waves (placeholder, filled at R1) | R1 and its Phase 0 prerequisites |
-| R2 | POD-3285 Phase A checkpoint and replan | A |
+| V1 | POD-3291 Executor prototype review | 0.6 |
+| 0.13 | POD-3281 Attribution at execution seam | 0.6, V1 |
+| V2 | POD-3292 Phase 0 landing review | every other Phase 0 issue, V1 |
+| R1 | POD-3284 Phase 0 checkpoint and replan | every Phase 0 issue, V2 |
+| A | POD-3255 Repository conversion waves (placeholder, filled at R1 with one review sub-issue per wave) | R1 and its Phase 0 prerequisites |
+| V3 | POD-3293 Stage A conversion review | A |
+| R2 | POD-3285 Phase A checkpoint and replan | A, V3 |
 | B0.1 | POD-3256 Hidden store reads | 0.6 |
 | B0.2 | POD-3257 Array-callback batched reads | none |
 | B0.3 | POD-3258 Timer single-flight guards | none |
 | B0.4 | POD-3259 Mutable process-state models | 0.6 |
 | B0.5 | POD-3260 Span side-effect classification | 0.6 |
 | B0.6 | POD-3261 Read-scope adoption and prefetch | 0.6, 0.1, 0.13 |
-| B0.7 | POD-3262 Test store helper and awaits | 0.6 |
-| R3 | POD-3286 Pre-flip checkpoint and replan | R2, B0.1 to B0.7, 0.8 |
+| B0.7 | POD-3262 Test store helper and awaits | 0.6, V1 |
+| V4 | POD-3294 B-prep review | B0.1 to B0.7 |
+| R3 | POD-3286 Pre-flip checkpoint and replan | R2, B0.1 to B0.7, 0.8, V4 |
 | B1 | POD-3263 Async port flip | R3 |
-| B2.1 | POD-3264 Scheduler lifecycle and shutdown | B1 |
-| B2.2 | POD-3265 Transaction watchdog | B1 |
-| B2.3 | POD-3266 ADR amendments | B1 |
-| B2.4 | POD-3267 Transitional instrument deletion | B1, B2.1 |
-| R4 | POD-3287 Post-flip checkpoint and replan | B1, B2.1 to B2.4 |
+| V5 | POD-3295 Flip review (two reviewers) | B1 |
+| B2.1 | POD-3264 Scheduler lifecycle and shutdown | B1, V5 |
+| B2.2 | POD-3265 Transaction watchdog | B1, V5 |
+| B2.3 | POD-3266 ADR amendments | B1, V5 |
+| B2.4 | POD-3267 Transitional instrument deletion | B1, B2.1, V5 |
+| R4 | POD-3287 Post-flip checkpoint and replan | B1, B2.1 to B2.4, V5 |
 | E.3 | POD-3270 Durability port for Turso | R4, B1, B2.1 |
 | E.5 | POD-3272 Turso backend enablement | R4, 0.9, E.3, B1, H |
 | E.4 | POD-3271 Turso database import | E.5, H |
-| R5 | POD-3288 Epic close checkpoint | E.4, E.5, B2.4 |
+| V6 | POD-3296 Post-flip and Turso review | B2.1 to B2.4, E.3, E.4, E.5 |
+| R5 | POD-3288 Epic close checkpoint | E.4, E.5, B2.4, V6 |
 | E.1 | POD-3268 Engine decision record | closed: decision taken 2026-09-03 |
 | E.2 | POD-3269 Schema form and journal | archived: not needed under one dialect |
 
-Ready at the start: H, 0.0 to 0.6, B0.2, B0.3. The Turso items wait on H. The placeholder A is
-filled at R1.
+Ready at the start: H, 0.1 to 0.7, 0.11, B0.2, B0.3 (0.0 is closed). The Turso items wait on
+H. The placeholder A is filled at R1. Also in the table: 0.8 and 0.12 depend on V1.

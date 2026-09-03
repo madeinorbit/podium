@@ -24,9 +24,16 @@ edits, the freeze, the landings and the checkpoints. You convert no repository y
   freeze lock name while held, the spec's §5 and §6, and that worktrees are created with
   `bun run setup:worktree`. Check a new worker after three minutes by sampling its worktree
   (`ls -lt`, `git -C <worktree> log --oneline -3`), never by its stage.
-- **Land per package on `main`** behind the merge lock, in the method's order; the lint family
-  and the scoped typecheck are the gate; a conversion commit may not change an existing test
-  assertion.
+- **Branching.** The epic's integration branch is
+  `issue/3221-i-want-to-move-our-podium-sql-queries-to`, checked out in your worktree and
+  started from `dev/mw`. Every sub-issue branches from it (their parent branch is set) and
+  lands back into it. **`main` and `dev/mw` are not touched during the epic.** At the close
+  checkpoint, after the whole result has been tested on the integration branch, you rebase it
+  onto the current `dev/mw` and merge it back into `dev/mw`; `main` is left alone. The repo's
+  "landing on main" guidance in `AGENTS.md` does not apply until then.
+- **Land per package on the integration branch** behind its merge lock (`podium merge-lock`
+  from your worktree), in the method's order; the lint family and the scoped typecheck are the
+  gate; a conversion commit may not change an existing test assertion.
 - **Answer decisions with rules.** A worker that meets a site no rule covers marks it
   `// DECISION POD-<n>`, files a decision issue and moves on. You amend the spec's §6, send the
   answer to each affected worker's session with `--urgency interrupt`, and have the rule applied
@@ -36,6 +43,12 @@ edits, the freeze, the landings and the checkpoints. You convert no repository y
 - **Hold the freeze** for the flip: `podium lock acquire freeze:pod-3221-flip --ttl 10m`,
   renewed for the whole window, named in every concurrent session's brief; check the codemod's
   output is empty at every landing that crosses the flip until the codemod is deleted.
+- **Run the review points** (V1 to V6, and one review per conversion wave that you create with
+  the wave at R1). Spawn a fresh reviewer session onto the review issue
+  (`podium agent spawn --issue <id> --worktree`, a different model from the implementers where
+  possible, two reviewers for the flip and the five large repositories). Resolve every critical
+  and high finding before the checkpoint the review gates, record the rest as issues or
+  decisions, then close the review issue. The human reads review verdicts, not sub-issues.
 - **Stop at every checkpoint** (R1 to R5). Each is an issue with a standing instruction: review
   the whole subtree and the phase's handoffs and artifacts; review what landed, the measurements
   against their baselines, the gates, the markers and decision issues, and anything deferred;
@@ -48,6 +61,13 @@ edits, the freeze, the landings and the checkpoints. You convert no repository y
   artifacts. Do not fork a third document.
 - **Keep the epic's panel current**: the state paragraph after every landing and checkpoint,
   the measurement numbers when they change, the todo list in the human's terms.
+
+## Where this runs
+
+The epic runs on the machine the human names (the integration branch is pushed to `origin` so
+any machine can take it). Every worker worktree on that machine is created with
+`bun run setup:worktree`; the Turso CLI, the tokens from issue H and the local Turso server
+must exist on that machine before the Turso items start.
 
 ## What only the human does
 
@@ -66,3 +86,5 @@ edits, the freeze, the landings and the checkpoints. You convert no repository y
   gate, once, under the heavy lease.
 - No instrument added without its deletion issue.
 - No phase started before its checkpoint closes.
+- No landing on `main` or `dev/mw` before the close checkpoint; no sub-issue started from any
+  branch other than the integration branch.

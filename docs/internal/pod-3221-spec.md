@@ -50,9 +50,10 @@ singleton, and the executor carries a context slot, empty today.
 ### 2.1 Runtime and driver
 
 - Bun is the only shipped runtime; the release is one `bun --compile` binary
-  (`scripts/build-bun.ts`, four targets). No native addon may enter the binary; the libsql
-  *remote* client is pure JavaScript, the default `@libsql/client` entry loads a native package
-  and must not be used.
+  (`scripts/build-bun.ts`, four targets). Since PDM-25 on `dev/mw` there is no Node SQLite
+  driver at all: `openDatabase` refuses a non-Bun runtime. No native addon may enter the
+  binary; the libsql *remote* client is pure JavaScript, the default `@libsql/client` entry
+  loads a native package and must not be used.
 - The persistence seam is `SqlDatabase` (`packages/runtime/src/sqlite/types.ts`): sync
   `prepare`/`run`/`get`/`all`/`exec`/`close` with positional parameters. One shared connection
   per process. The nesting-safe `transaction(db, fn)` helper
@@ -68,7 +69,7 @@ singleton, and the executor carries a context slot, empty today.
 | What | Count | Where |
 |---|---|---|
 | Repository classes | 34 | `apps/server/src/store/*.ts`, `store/conversations/*`, `modules/operations/store.ts`, `packages/sync/src/adapters/sqlite/sync-repository.ts` |
-| `.prepare(` sites in repositories (non-test) | 529 | shipping 77, issues 59, sessions 42, workflows 33, messages 33, repos 28 |
+| `.prepare(` sites in repositories (non-test) | about 570 on `dev/mw` as of 2026-09-03 (529 at the 2026-09-02 audit) | shipping 77, issues 59, sessions 42, workflows 33, messages 33, repos 28 at the audit |
 | Repository method signatures | ~620 | |
 | `transaction(this.db, …)` inside repositories | 41 | shipping 19 |
 | Store call sites from services (non-test) | 574 | 45 files; relay.ts 56, superagent/service.ts 56, issues/service/reads.ts 43 |
@@ -86,7 +87,8 @@ is complete: 84 `sqliteTable` in `apps/server/src/migrations/schema.ts` and 4 in
 `packages/sync/src/adapters/sqlite/schema.ts`; text ISO timestamps, integer 0/1 booleans, JSON as
 text with 23 `mode: 'json'` columns, 64 CHECK constraints, 36 `brandedRef()` calls; `$type<…>()`
 on 134 columns so brands flow through inference (the limit in `branded-ref.ts` concerns
-`references()` only). 87 migrations, all generated, inlined into `drizzle-manifest.generated.ts`;
+`references()` only). 97 migrations on `dev/mw` as of 2026-09-03 (87 at the audit), all
+generated, inlined into `drizzle-manifest.generated.ts`;
 FTS5 tables are created per boot (`store/conversations/index.ts:17`), not in migrations. The
 snapshots do not record column `mode`, so mode changes need no migration. ADR 6 D5.3 currently
 says repositories keep raw SQL; it is amended by this epic.
@@ -409,8 +411,11 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
   the reviewer rule at the flip is mechanical: changed test lines differ only by `await`,
   `async` or the helper rename. Where an `INSERT OR REPLACE` named only some columns, the reset
   of the others stays explicit.
-- **Landed per package on `main`, each commit revertible alone.** No long-lived branch except
-  the flip, which is days under a freeze.
+- **Landed per package on the epic's integration branch, each commit revertible alone.** The
+  integration branch starts from `dev/mw`; `main` and `dev/mw` are not touched until the epic's
+  close checkpoint, after the whole result has been tested, when the integration branch is
+  merged back into `dev/mw`. No long-lived worker branch except the flip, which is days under a
+  freeze.
 - **The queue is proven, not assumed.** Deterministic interleaving tests: serialisation, no
   interleaved `BEGIN`, rollback isolation, a reader during an open body sees only committed
   rows, re-entrant transact becomes a savepoint, a subscriber-initiated commit completes before
