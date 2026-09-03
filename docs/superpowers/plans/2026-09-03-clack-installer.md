@@ -379,6 +379,12 @@ git commit -m "feat(install): shrink install.sh to a bootstrap that execs the ve
 
 ## Stage 3 — agents behind the handoff
 
+> **Merged into Stage 2 during execution.** `exec` is terminal: once install.sh hands off it
+> cannot come back to install agents, so agents could not stay in the shell alongside the
+> handoff. Reading the shell test also surfaced that install.sh:430-441 deliberately pairs
+> BEFORE installing agents, because a one-use join code can expire during three vendor
+> downloads — `install-finish` had that order backwards until a test pinned it.
+
 ### Task 7: `install-agents.ts`
 
 **Files:**
