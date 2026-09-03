@@ -308,6 +308,61 @@ export async function appendChangesBatched(
 }
 
 /**
+ * The append run INSIDE a transaction the caller already opened, on a savepoint.
+ *
+ * This is the nested-publish shape POD-3260 found, and it exists here so the
+ * proof can DETECT the failure rather than assume it away. The plain
+ * {@link appendChangesLiteral} opens and commits its own transaction, so a
+ * rollback there can never revoke a seq anyone has seen — the append's own
+ * failure is the only way out. That is a comfortable case and not the dangerous
+ * one.
+ *
+ * The dangerous one is this: the append SUCCEEDS, hands its seqs back to a
+ * caller that may publish them, and only then does an ENCLOSING span roll back.
+ * `sqlite_sequence` is transactional, so the counter goes back with it — and the
+ * next unrelated change is issued a seq a replica has already been told about.
+ * A replica holding that cursor treats the genuine change as one it has already
+ * seen, so the stale row SUPPRESSES the correct one. That is worse than a gap:
+ * a gap heals, and this does not.
+ *
+ * Nothing here fixes that, and the fix is not in the append — it is the rule
+ * that seqs may not escape a span that can still roll back. What this function
+ * buys is that the proof can show the reuse happening on the remote engine
+ * instead of reasoning that it must.
+ */
+export async function appendChangesNested(
+  session: DriverSession,
+  db: QueryDb,
+  rows: readonly ChangeWriteRow[],
+  eventTime: number,
+  savepoint: string,
+  options: AppendOptions = {},
+): Promise<number[]> {
+  if (rows.length === 0) return []
+  const seqs: number[] = []
+  await session.enterSavepoint(savepoint)
+  try {
+    let chunkIndex = 0
+    for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
+      const chunk = rows.slice(start, start + CHUNK_SIZE)
+      const result = await session.execute(insertChunk(db, chunk, eventTime))
+      if (!result.run) throw new Error('driver returned no run result for the change insert')
+      const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
+      for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
+      for (const s of latestStatements(db, chunk, first)) await session.execute(s)
+      await options.afterChunk?.(chunkIndex)
+      chunkIndex += 1
+    }
+    await session.releaseSavepoint(savepoint)
+    return seqs
+  } catch (error) {
+    await session.rollbackToSavepoint(savepoint)
+    await session.releaseSavepoint(savepoint)
+    throw error
+  }
+}
+
+/**
  * THE HIGHEST SEQ EVER ASSIGNED, read from `sqlite_sequence`.
  *
  * Not `MAX(seq) FROM changes`, and the difference is the whole reason this read

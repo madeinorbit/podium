@@ -22,6 +22,7 @@ import { acquireLock, readLock } from './locks'
 import {
   appendChangesBatched,
   appendChangesLiteral,
+  appendChangesNested,
   changesSince,
   latestChangeStates,
   maxChangeSeq,
@@ -426,6 +427,75 @@ async function proofBatchAtomicityInsideTransaction(
 }
 
 /**
+ * PROOF 10 — a seq handed back by a nested append is REUSED when the enclosing
+ * span rolls back, and this proof can see it happen.
+ *
+ * POD-3260 found this class on the synchronous side: a rolled-back change hands
+ * its seq back, the next unrelated change reuses it, and a replica holding that
+ * cursor treats the genuine change as one it has already seen — so the stale row
+ * SUPPRESSES the correct one. Proof 4 does not cover it and would not have found
+ * it: there the append opens and commits its own transaction, so a rollback
+ * revokes seqs nobody could have published. The counter going back is SAFE
+ * there, which is why proof 4 reports it as a good result.
+ *
+ * Here the append SUCCEEDS and returns its seqs — the moment at which a caller
+ * may publish them — and only then does the enclosing span roll back. The
+ * question this asks is whether the remote engine behaves like SQLite in the way
+ * that makes the hazard real. If it does, the second append is handed the same
+ * numbers, addressing entirely different rows.
+ *
+ * A "no" here would be the surprising answer and worth the run either way.
+ */
+async function proofNestedRollbackReusesSeq(
+  config: Parameters<typeof openSlice>[0],
+): Promise<void> {
+  console.log('\nPROOF 10 — does a rolled-back enclosing span hand the same seqs out twice?')
+  const slice = await openSlice(config)
+  try {
+    const session = await slice.driver.open('write')
+    let first: number[] = []
+    let second: number[] = []
+    try {
+      await session.begin('write')
+      // The enclosing span — the one that will change its mind after the append
+      // has already handed its numbers out.
+      await session.enterSavepoint('sp_outer')
+
+      // The inner append SUCCEEDS. Its seqs are returned to the caller — this is
+      // exactly the point at which the real code would publish them.
+      first = await appendChangesNested(session, slice.db, upsertRows(5, 'v'), 1_000, 'sp_publish')
+      line('nested append returned', `${first[0]}..${first[first.length - 1]}`)
+
+      // ...and only now does the enclosing span give up.
+      await session.rollbackToSavepoint('sp_outer')
+      line('enclosing span rolled back', true)
+
+      second = await appendChangesNested(session, slice.db, upsertRows(5, 'w'), 2_000, 'sp_next')
+      line('the NEXT, unrelated append got', `${second[0]}..${second[second.length - 1]}`)
+      await session.commit()
+    } catch (error) {
+      await session.rollback()
+      line('probe failed', error instanceof Error ? error.message.slice(0, 120) : String(error))
+    } finally {
+      await session.close()
+    }
+
+    const reused = first.length > 0 && second.length > 0 && first[0] === second[0]
+    line('SEQS WERE REUSED', reused)
+
+    const rows = await slice.withSession((s) => changesSince(s, slice.db, 0))
+    line('rows now in the log', rows.map((r) => `${r.seq}=${r.entityId}`).join(' '))
+    line(
+      `a replica told about seq ${first[0]} now sees a DIFFERENT row there`,
+      reused && rows.some((r) => r.seq === first[0] && r.entityId.startsWith('w')),
+    )
+    line('=> the proof detects the POD-3260 class', reused)
+  } finally {
+    await slice.close()
+  }
+}
+
+/**
  * PROOF 9 — the write budget is an IDLE budget, not a total one.
  *
  * The distinction decides whether the append path is viable at all, and the
@@ -504,6 +574,7 @@ async function runAll(name: string, config: Parameters<typeof openSlice>[0]): Pr
   await proofRollbackUndoesCounter(config)
   await proofBatchAtomicityInsideTransaction(config)
   await proofWriterContention(config)
+  await proofNestedRollbackReusesSeq(config)
   await proofBudgetIsIdleNotTotal(config)
   await proofRoundTrips(config)
 }

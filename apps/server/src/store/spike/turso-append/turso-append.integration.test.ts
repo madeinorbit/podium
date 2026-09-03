@@ -27,6 +27,7 @@ import { acquireLock, readLock } from './locks'
 import {
   appendChangesBatched,
   appendChangesLiteral,
+  appendChangesNested,
   changesSince,
   latestChangeStates,
   maxChangeSeq,
@@ -172,6 +173,99 @@ describe.skipIf(SQLD === undefined)('change-log append over libsql', () => {
         appendChangesLiteral(s, slice.db, upsertRows(5, 'g'), 2_000),
       )
       expect(next).toEqual([1, 2, 3, 4, 5])
+    })
+  }, 60_000)
+
+  it('REUSES a seq it already handed out when the enclosing span rolls back', async () => {
+    // POD-3260's class, pinned on the remote client rather than reasoned about.
+    //
+    // This test asserts the DANGEROUS behaviour, which is unusual and deliberate.
+    // The test above it asserts that a failed append rolls its counter back and
+    // calls that correct — and it IS correct there, because that append owns its
+    // transaction, so a rollback revokes seqs nobody could have published.
+    //
+    // Here the append SUCCEEDS and returns its seqs — the moment the real code
+    // would publish them — and the ENCLOSING span rolls back afterwards. The
+    // counter goes back with it, and the next unrelated change is handed numbers
+    // a replica has already been told about. That replica treats the genuine
+    // change as one it has seen, so the stale row SUPPRESSES the correct one.
+    // Worse than a gap: a gap heals and this does not.
+    //
+    // Nothing in the append can fix it; the rule is that seqs must not escape a
+    // span that can still roll back. What this test does is make sure the proof
+    // would SEE it, so a regression cannot hide behind "that cannot happen".
+    await withSlice(async (slice) => {
+      const session = await slice.driver.open('write')
+      let first: number[] = []
+      let second: number[] = []
+      try {
+        await session.begin('write')
+        await session.enterSavepoint('sp_outer')
+        first = await appendChangesNested(
+          session,
+          slice.db,
+          upsertRows(5, 'v'),
+          1_000,
+          'sp_publish',
+        )
+        await session.rollbackToSavepoint('sp_outer')
+        second = await appendChangesNested(session, slice.db, upsertRows(5, 'w'), 2_000, 'sp_next')
+        await session.commit()
+      } finally {
+        await session.close()
+      }
+
+      expect(first).toEqual([1, 2, 3, 4, 5])
+      // The same numbers, for entirely different rows.
+      expect(second).toEqual(first)
+
+      const rows = await slice.withSession((s) => changesSince(s, slice.db, 0))
+      expect(rows.map((r) => r.entityId)).toEqual(['w0', 'w1', 'w2', 'w3', 'w4'])
+      // A replica told "seq 1 is v0" would now be served w0 at seq 1.
+      expect(rows.find((r) => r.seq === first[0])?.entityId).toBe('w0')
+    })
+  }, 60_000)
+
+  it('rolls a FAILED nested append back to its savepoint, leaving the outer span intact', async () => {
+    // The nested shape's own failure path, which the test above does not reach
+    // because its append succeeds. Without it, a nested append that threw
+    // mid-way would leave its earlier chunks applied inside the enclosing
+    // transaction — the chunk-by-chunk commit this whole proof rules out,
+    // wearing a savepoint as a disguise.
+    await withSlice(async (slice) => {
+      const session = await slice.driver.open('write')
+      try {
+        await session.begin('write')
+        // A committed neighbour in the same outer span: the failed append must
+        // not take this with it.
+        const kept = await appendChangesNested(
+          session,
+          slice.db,
+          upsertRows(2, 'k'),
+          1_000,
+          'sp_kept',
+        )
+        expect(kept).toEqual([1, 2])
+
+        await expect(
+          appendChangesNested(session, slice.db, upsertRows(5, 'd'), 2_000, 'sp_doomed', {
+            // Thrown AFTER the chunk has inserted and its `change_latest` rows
+            // have been written — the only window in which a partially applied
+            // nested append could survive into the outer span.
+            afterChunk: () => {
+              throw new Error('deliberate failure inside the nested append')
+            },
+          }),
+        ).rejects.toThrow('deliberate failure')
+
+        await session.commit()
+      } finally {
+        await session.close()
+      }
+
+      // The neighbour survived; the doomed append left nothing.
+      const rows = await slice.withSession((s) => changesSince(s, slice.db, 0))
+      expect(rows.map((r) => r.entityId)).toEqual(['k0', 'k1'])
     })
   }, 60_000)
 

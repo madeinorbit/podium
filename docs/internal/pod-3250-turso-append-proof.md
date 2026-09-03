@@ -26,7 +26,11 @@ Measured 2026-09-03 from `flatblock`. Slice at `apps/server/src/store/spike/turs
    the *holder* is the one that loses its work. The retry policy below is written against that
    behaviour instead.
 
-3. **The write budget bounds the GAP between statements, not the transaction's duration.** A
+3. **A seq already handed out is re-issued when an enclosing span rolls back** — POD-3260's
+   class, reproduced here on the remote client. The append cannot fix it; the rule is that seqs
+   must not escape a revocable span. This proof now has a test that would see a regression.
+
+4. **The write budget bounds the GAP between statements, not the transaction's duration.** A
    21.6 s transaction with a statement every 2 s committed on the hosted database; a 12.2 s one
    with a single idle gap was reaped. Spec §3.7 currently reads as a total-duration budget, and
    under that reading the 250-row append — 27.8 s of continuous statements — would be
@@ -55,7 +59,7 @@ edit in this issue, and the reason the tests are runnable at all.
 | `locks.ts` | lock acquisition — the read-decide-write contrast case |
 | `backend.ts` | starts a real `sqld` on a free port over a persistent directory |
 | `fixture.ts` | one appended-to database on whichever backend the caller names |
-| `turso-append.integration.test.ts` | 15 assertions, CI-runnable against local `sqld` |
+| `turso-append.integration.test.ts` | 17 assertions, CI-runnable against local `sqld` |
 | `run-proofs.ts` | the same proofs against the hosted database — what produced this document |
 
 **Round trips are counted at the transport, not at the call site.** `@libsql/client` takes a
@@ -77,6 +81,7 @@ Both engines, same result, unless the row says otherwise.
 | 4 | Does it roll back the `AUTOINCREMENT` counter too? | **yes** | **yes** |
 | 6 | Does the sequence survive the server process restarting? | yes, head 120 → next 121 | not applicable¹ |
 | 8 | Is a RAW batch inside an open transaction atomic? | **no** | **no** |
+| 10 | Does a rolled-back ENCLOSING span re-issue seqs already handed out? | **yes** | **yes** |
 
 ¹ Only the local server can be stopped and restarted. On the hosted database the closest
 equivalent — a fresh client against the same database after the previous one closed — is what
@@ -97,6 +102,38 @@ rows, B's `381..430` address B's, and A's `431..530` address A's again.
 it does so on Turso as well. A test that only checked "no rows left behind" would pass either
 way; the consequence of the other answer is that a failed append burns its seqs and every later
 append starts after a gap.
+
+### Proof 10 — the seq-reuse class POD-3260 found, reproduced on the remote client
+
+The coordinator asked whether this proof would CATCH POD-3260's failure rather than assume it
+away. It would not have, as first written, and now it does.
+
+**Proof 4 does not cover it and reports the opposite conclusion.** There the append owns its own
+transaction, so a rollback revokes seqs nobody could have published — the counter going back is
+*safe*, and proof 4 correctly calls it a good result. The dangerous case is the other one: the
+append SUCCEEDS, hands its seqs back to a caller that may publish them, and only then does an
+ENCLOSING span roll back.
+
+Measured, identically on both engines:
+
+```
+nested append returned                    1..5          (entities v0..v4)
+enclosing span rolled back                true
+the NEXT, unrelated append got            1..5          (entities w0..w4)
+rows now in the log                       1=w0 2=w1 3=w2 4=w3 5=w4
+```
+
+A replica told "seq 1 is `v0`" is now served `w0` at seq 1. It holds a cursor at 5, sees nothing
+new, and treats five genuine changes as ones it has already applied — **the stale row suppresses
+the correct one.** That is worse than a gap: a gap heals, because a consumer applying
+`seq !== cursor + 1` re-bootstraps. This does not heal at all.
+
+**Nothing in the append can fix it, and it is not a Turso defect** — `sqlite_sequence` is
+transactional on SQLite and the hosted engine faithfully reproduces that. The rule lives above
+the append: **a seq may not escape a span that can still roll back.** POD-3260 fixed the
+nested-publish case on this branch; what this proof adds is a test that would see a regression
+instead of a document that says it cannot happen
+(*REUSES a seq it already handed out when the enclosing span rolls back*).
 
 ### Proof 8 makes the port's savepoint load-bearing
 
@@ -286,7 +323,7 @@ SQL to a raw connection has to map results back, and a cast will not tell it tha
 
 ## What the tests are worth
 
-Fifteen assertions, `apps/server/src/store/spike/turso-append/turso-append.integration.test.ts`,
+Seventeen assertions, `apps/server/src/store/spike/turso-append/turso-append.integration.test.ts`,
 in the **integration lane** — the file is named `*.integration.test.ts`, which the unit lane
 already excludes and the integration lane already includes, so no shared config or shard
 manifest changed. `bun scripts/server-test-shards.ts verify` reports no drift.
@@ -301,13 +338,14 @@ names the property rather than merely turning something red:
 
 | Mutation | Test killed |
 |---|---|
-| seq range off by one (`last - count + 2`) | 7 of 15, including all three contiguity tests |
+| seq range off by one (`last - count + 2`) | 9 of 17, including all three contiguity tests |
 | commit instead of rollback on a failed append | *rolls the whole append back … INCLUDING the counter* |
 | read rows by the drizzle field name (`r.entityId`) | *derives each range from the statement that wrote it* |
 | head from `MAX(seq) FROM changes` | *reads the head from `sqlite_sequence`* |
 | drop the savepoint around an in-transaction batch | *keeps a failed batch … from applying its prefix* |
 | lease never expires (invert the expiry comparison) | *grants a free lease, refuses a held one, takes over an expired one* |
 | always grant (drop the incumbent check) | that test **and** *costs a round trip for the decision …* |
+| nested append does not roll back to its savepoint on failure | *rolls a FAILED nested append back to its savepoint* |
 
 **One of those mutations survived first time round, and the test was wrong rather than the
 mutation harmless.** The head-pruning test originally deleted `seq <= 150` of 200 rows — but
