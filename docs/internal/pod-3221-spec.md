@@ -521,9 +521,12 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    `apps/server/src/store/executor/`, NOT in `packages/runtime`. The executor's drizzle field is
    the query layer, and this rule keeps drizzle inside persistence; splitting the scheduler out
    would put half these interfaces outside the directories the 0.10 lint family watches, for no
-   second consumer. `packages/runtime` keeps `SqlDatabase`, imported by exactly one file
-   (`store/executor/bun-driver.ts`), so the lint family has a single line to allow rather than a
-   package boundary to reason about.
+   second consumer. `packages/runtime` keeps `SqlDatabase`, imported by three files in the driver seam
+   (`store/executor/bun-driver.ts`, plus `driver.ts` for the `SqlParam`/`SqlRunResult` vocabulary
+   any driver needs including libsql, and `harness.ts` which opens a real database), so the lint
+   family has a small named exemption rather than a package boundary to reason about. Corrected
+   2026-09-03 from "exactly one file" — POD-3252 checked against the landed code; the count moved,
+   the shape did not.
 
    CONTRACT WIDENED 2026-09-03 (POD-3310, after V1's review) so E.5 inherits an interface built for
    the remote path instead of having to change a settled one. `StoreDriver` gains required `limits:
