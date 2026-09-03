@@ -142,6 +142,38 @@ describe('issue frame read cache', () => {
     expect(store.issues.getIssue('iss_a')).toBeNull()
   })
 
+  /**
+   * THE ARM THE HAPPY CASE NEVER WALKS [POD-3261, spec rule 14].
+   *
+   * A write disables caching for the rest of the scope, and the comment on that
+   * flag says why: a row read INSIDE an open transaction must not be served
+   * after that transaction rolls back. Every other test here walks the commit
+   * arm, where clearing the cache on the write is enough on its own — so
+   * deleting the disable flag entirely leaves the whole suite green while the
+   * guard is gone. This is the rollback arm, where the two differ.
+   *
+   * Without the flag, the read below returns `in_progress` from a cache holding
+   * a row the database rolled back.
+   */
+  it('does not serve a row a rolled-back transaction put in the cache', async () => {
+    const store = await freshStore()
+    store.issues.upsertIssue(issue('iss_a'))
+    await Promise.resolve()
+    expect(store.issues.getIssue('iss_a')?.stage).toBe('backlog')
+
+    expect(() =>
+      store.transact(() => {
+        store.issues.upsertIssue(issue('iss_a', { stage: 'in_progress' }))
+        // The read that would fill the cache from inside the transaction.
+        expect(store.issues.getIssue('iss_a')?.stage).toBe('in_progress')
+        throw new Error('rolled back')
+      }),
+    ).toThrow('rolled back')
+
+    // Same turn, so the cache is still the one the transaction touched.
+    expect(store.issues.getIssue('iss_a')?.stage).toBe('backlog')
+  })
+
   it('getIssues serves the frame and still asks for the ids it has not seen', async () => {
     const store = await freshStore()
     store.issues.upsertIssue(issue('iss_a'))

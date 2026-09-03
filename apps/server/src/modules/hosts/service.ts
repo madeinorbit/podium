@@ -3,6 +3,7 @@ import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@
 import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
+import { withReadScope } from '../../store/executor/read-scope'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
 
@@ -176,8 +177,19 @@ export class HostsService {
       machineId,
       name: this.deps.machineName(machineId),
     }
-    const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
-    this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
+    // ONE READ SCOPE PER SAMPLE [POD-3261]. `maybeAutoHibernate` asks
+    // `deps.sessions()` four to six times per machine — idle-live counting,
+    // shell-idle, the backstop, the unobserved report, and once more per
+    // hibernate attempt — and that projection resolves whether each session's
+    // issue is CLOSED. POD-1931 measured that as 280 full scans of the `issues`
+    // table in four minutes and 2.6 s of blocked event loop, and fixed it with a
+    // memo that lived for one synchronous turn. The memo is now held by the read
+    // scope, so this is the pass that has to open one: without it the memo has
+    // nothing to live in once these calls acquire awaits, and the scans return.
+    withReadScope(() => {
+      const idleCapUnmet = this.maybeAutoHibernate(machineId, tagged)
+      this.latestHostMetrics.set(machineId, { ...tagged, idleCapUnmet })
+    })
     this.broadcastHostMetrics()
   }
 

@@ -21,6 +21,7 @@ import {
 } from '@podium/model'
 import { letterForIndex } from '@podium/protocol'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { currentReadScope, readScopeSlot } from './executor/read-scope'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -33,7 +34,7 @@ export class IssuesRepository {
   quarantinedRowCount = 0
 
   /**
-   * THE FRAME READ CACHE [POD-1931].
+   * THE ROW READ CACHE [POD-1931], HELD BY THE READ SCOPE [POD-3261].
    *
    * The publish fan-out is O(events x sessions), and every pass resolves the
    * owning issue of every session it admits. Measured on the live server: ONE
@@ -42,24 +43,31 @@ export class IssuesRepository {
    * same JSON columns over and over, with RSS climbing to 4.6GB and the GC that
    * followed costing another 12-14 seconds of stall.
    *
-   * A row cannot change inside a frame that never yields, so within one
-   * synchronous turn the second read of an id is the first read's answer. The
-   * cache holds MAPPED rows and hands out a shallow COPY per call, so callers
-   * keep the fresh-object-per-read contract they had before for their own
-   * fields; only the parse is shared, not the object.
+   * A row cannot change inside a read scope, so the second read of an id inside
+   * one is the first read's answer. The cache holds MAPPED rows and hands out a
+   * shallow COPY per call, so callers keep the fresh-object-per-read contract
+   * they had before for their own fields; only the parse is shared, not the
+   * object.
    *
-   * `queueMicrotask` is the invalidation because a microtask cannot run inside a
-   * synchronous frame: the cache lives exactly as long as the turn that filled
-   * it, and the first `await` anywhere re-reads.
+   * WHAT CHANGED, AND WHY IT HAD TO. The cache used to be a field on this
+   * repository invalidated by `queueMicrotask` — sound only because a microtask
+   * cannot run inside a synchronous turn, which is to say sound only while the
+   * store is synchronous. The first `await` anywhere in the fan-out drops it,
+   * and this epic's whole business is putting awaits in that fan-out. The
+   * lifetime is now a {@link ReadScope}, which a pass opens around itself and
+   * which becomes a real read lease at the flip; the microtask turn survives
+   * only as the scope's fallback owner, in `read-scope.ts`, and dies with it.
+   *
+   * `disabled` is the frame-that-writes rule, unchanged: a scope that WRITES
+   * issues does not cache at all, because populating a cache from inside an
+   * open transaction would survive a rollback for the rest of the scope, and no
+   * read path is worth that. Write scopes are rare; the passes this exists for
+   * are pure fan-out reads.
    */
-  private rowCache: Map<string, IssueRow | null> | undefined
-  /**
-   * A frame that WRITES issues does not cache at all. Populating a cache from
-   * inside an open transaction would survive a rollback for the rest of the
-   * turn, and no read path is worth that; write frames are rare, and the frames
-   * this exists for are pure fan-out reads.
-   */
-  private rowCacheDisabledForFrame = false
+  private readonly rowCacheSlot = readScopeSlot<{
+    readonly rows: Map<string, IssueRow | null>
+    disabled: boolean
+  }>(() => ({ rows: new Map(), disabled: false }))
 
   constructor(
     private readonly db: SqlDatabase,
@@ -76,25 +84,16 @@ export class IssuesRepository {
    *  caught the day it is added. It also explains why the handle is not wrapped
    *  to do this automatically. */
   private invalidateRowCache(): void {
-    this.rowCache = undefined
-    if (this.rowCacheDisabledForFrame) return
-    this.rowCacheDisabledForFrame = true
-    queueMicrotask(() => {
-      this.rowCacheDisabledForFrame = false
-    })
+    const held = currentReadScope().slot(this.rowCacheSlot)
+    held.rows.clear()
+    held.disabled = true
   }
 
-  /** The current frame's cache, opened on first use and closed by the microtask
-   *  that ends the frame. Undefined while a write has disabled caching. */
+  /** The current scope's cache, opened on first use and discarded when the
+   *  scope ends. Undefined once a write in this scope has disabled caching. */
   private frameRows(): Map<string, IssueRow | null> | undefined {
-    if (this.rowCacheDisabledForFrame) return undefined
-    if (this.rowCache) return this.rowCache
-    const opened = new Map<string, IssueRow | null>()
-    this.rowCache = opened
-    queueMicrotask(() => {
-      if (this.rowCache === opened) this.rowCache = undefined
-    })
-    return opened
+    const held = currentReadScope().slot(this.rowCacheSlot)
+    return held.disabled ? undefined : held.rows
   }
 
   upsertIssue(

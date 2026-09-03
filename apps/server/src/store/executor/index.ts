@@ -75,6 +75,14 @@ export {
   probeLegacyStatements,
 } from './legacy-handle-probe'
 export {
+  currentReadScope,
+  inExplicitReadScope,
+  type ReadScope,
+  type ReadScopeSlotKey,
+  readScopeSlot,
+  withReadScope,
+} from './read-scope'
+export {
   type PostCommitRegistrar,
   PostCommitRegistry,
   PostCommitRunner,

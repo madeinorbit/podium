@@ -170,6 +170,7 @@ import { inferRepoFromRoots } from './repo-registry'
 import { JANITOR_STEWARD_EVENT_LIMIT, StewardService } from './steward'
 import { SessionStore } from './store'
 import { afterCommit } from './store/executor/synchronous-span'
+import { currentReadScope, readScopeSlot } from './store/executor/read-scope'
 
 // Re-exported so repo-registry/superagent/tests keep importing the daemon-RPC
 // result shapes from './relay'.
@@ -1275,18 +1276,20 @@ export class SessionRegistry {
         ...(event.ownerUserId ? { principalUserId: event.ownerUserId } : {}),
       })
     })
-    // The frame-scoped closed-issue memo behind the `sessions()` projection
-    // below. `queueMicrotask` is the invalidation because a microtask cannot run
-    // inside a synchronous frame — the memo therefore lives exactly as long as
-    // the turn that filled it, and the first `await` anywhere re-reads.
-    let closedIssueIdsMemo: Set<string> | undefined
-    const closedIssueIdsThisFrame = (): Set<string> => {
-      if (closedIssueIdsMemo !== undefined) return closedIssueIdsMemo
+    // The closed-issue memo behind the `sessions()` projection below, held for
+    // the lifetime of a READ SCOPE [POD-3261]. It used to be invalidated by
+    // `queueMicrotask`, which is sound only while nothing in the pass yields —
+    // the first `await` anywhere drops it and the full scans come back. The
+    // slot is a read-through cache with no invalidation of its own, exactly as
+    // the memo was: whether an issue is CLOSED cannot change inside one scope.
+    const closedIssueIdsSlot = readScopeSlot<{ ids: Set<string> | undefined }>(() => ({
+      ids: undefined,
+    }))
+    const closedIssueIdsInScope = (): Set<string> => {
+      const held = currentReadScope().slot(closedIssueIdsSlot)
+      if (held.ids !== undefined) return held.ids
       const closed = this.store.issues.closedIssueIds()
-      closedIssueIdsMemo = closed
-      queueMicrotask(() => {
-        closedIssueIdsMemo = undefined
-      })
+      held.ids = closed
       return closed
     }
     const hosts = new HostsService(
@@ -1311,7 +1314,7 @@ export class SessionRegistry {
           // which is what the re-read after a hibernate attempt depends on;
           // whether an ISSUE is closed cannot change inside a frame that never
           // yields, so the memo returns the same answer the query would.
-          const closed = closedIssueIdsThisFrame()
+          const closed = closedIssueIdsInScope()
           return [...liveSessions.values()].map((session) => ({
             sessionId: session.sessionId,
             machineId: session.machineId,

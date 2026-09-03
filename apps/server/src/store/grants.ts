@@ -103,6 +103,26 @@ export class GrantsRepository {
     return [...(this.visibilityAudiences.get(resourceKind + ':' + resourceId) ?? [])]
   }
 
+  /**
+   * The resource ids of one kind that this process has noted an audience for
+   * [POD-3261].
+   *
+   * The set {@link visibilityAudienceFor} can answer non-empty for, enumerated
+   * — which is what lets a caller that would otherwise ask per resource ask
+   * once. It reads the same in-memory map and takes no query, so a caller may
+   * use it to SIZE a batched read; it is not itself an authorization answer and
+   * nothing may be decided from membership in it. `visibilityAudienceFor`
+   * remains the only door to the audience.
+   */
+  visibilityAudienceResourceIds(resourceKind: string): string[] {
+    const prefix = `${resourceKind}:`
+    const ids: string[] = []
+    for (const key of this.visibilityAudiences.keys()) {
+      if (key.startsWith(prefix)) ids.push(key.slice(prefix.length))
+    }
+    return ids
+  }
+
   private noteVisibilityAudience(resourceKind: string, resourceId: string, grantee: string): void {
     const key = resourceKind + ':' + resourceId
     const audience = this.visibilityAudiences.get(key) ?? new Set<string>()
