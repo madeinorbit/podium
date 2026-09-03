@@ -44,6 +44,7 @@ describe('setup route', () => {
     expect(await res.json()).toEqual({
       needsSetup: true,
       mode: null,
+      modeSource: 'default',
       state: 'unconfigured',
       reason: 'setup_required',
       dataPlane: 'blocked',
@@ -76,11 +77,21 @@ describe('setup route', () => {
       'controlPlane',
       'dataPlane',
       'mode',
+      // `modeSource` names WHICH LAYER answered for `mode` — one of 'env' |
+      // 'file' | 'default' — and never the value, the variable or the path
+      // behind it. It is admissible here because the value it describes is
+      // already on this response, so provenance of an already-public fact
+      // discloses strictly less than the fact; and the SetupGate has no
+      // authenticated channel to ask on, since it runs before login exists.
+      'modeSource',
       'needsSetup',
       'reason',
       'state',
     ])
     expect(body.mode).toBe('daemon')
+    // A LAYER NAME, not the config content: this is the whole reason the field
+    // is allowed above, so it is pinned rather than assumed.
+    expect(body.modeSource).toBe('file')
     expect(body.needsSetup).toBe(false)
   })
 
@@ -91,6 +102,7 @@ describe('setup route', () => {
     expect(await response.json()).toEqual({
       needsSetup: true,
       mode: null,
+      modeSource: 'default',
       state: 'unconfigured',
       reason: 'setup_required',
       dataPlane: 'blocked',
