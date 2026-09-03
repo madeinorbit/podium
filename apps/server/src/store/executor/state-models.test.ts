@@ -2,12 +2,16 @@
  * THE MUTABLE-STATE MODELS, over an injected async persistence function that
  * parks on a barrier [POD-3248, spec §3.6, method step 14a].
  *
- * These are the failures the compiler cannot see at the flip. Every one of them
- * needs a write to be IN FLIGHT — parked between "the row was staged" and "the
- * row committed" — because that gap does not exist today and every one of these
- * sites is correct only because it does not. So the persistence function here
- * is a barrier the test releases by hand, and each case names the site shape it
- * stands for.
+ * These are the failures the compiler cannot see at the flip. The ones that
+ * need a write to be IN FLIGHT — parked between "the row was staged" and "the
+ * row committed" — park it, because that gap does not exist today and those
+ * sites are correct only because it does not: the persistence function is a
+ * barrier the test releases by hand.
+ *
+ * The REFUSAL tests are deliberately sequential and say so where they stand:
+ * a stale pinned version and a failed mutex holder are contracts about what a
+ * caller may do AFTER a completed write, and parking one would prove nothing
+ * the sequential form does not. Each case names the site shape it stands for.
  */
 
 import { afterEach, describe, expect, it } from 'vitest'
@@ -65,18 +69,29 @@ describe('draft-then-install', () => {
     expect(registry.snapshot('i1')).toEqual({ id: 'i1', stage: 'shipping', revision: 2 })
   })
 
-  it('leaves the installed row untouched when the write fails', async () => {
+  it('leaves the installed row untouched while the failing write is in flight, and after', async () => {
     // The rollback case, with nothing to roll back: the shared object was never
-    // mutated, so there is no restore-by-assignment to get wrong.
+    // mutated, so there is no restore-by-assignment to get wrong. The write is
+    // parked so the claim covers the gap as well as the outcome — a draft
+    // installed eagerly would be observable HERE and restored by the time the
+    // rejection arrives.
+    const parked = barrier()
     const registry = new DraftRegistry<IssueRow>(async () => {
-      await settle(2)
+      await parked.wait()
       throw new Error('write failed')
     })
     const seeded = { id: 'i1', stage: 'review', revision: 1 }
     registry.seed('i1', seeded)
-    await expect(registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))).rejects.toThrow(
-      'write failed',
+    const failing = registry.update('i1', (row) => ({ ...row, stage: 'shipping' }))
+
+    await parked.reached()
+    await settle()
+    expect(registry.snapshot('i1'), 'nothing is installed while the write is in flight').toBe(
+      seeded,
     )
+
+    parked.release()
+    await expect(failing).rejects.toThrow('write failed')
     expect(registry.snapshot('i1')).toBe(seeded)
   })
 })
@@ -120,29 +135,54 @@ describe('write-lease-before-read', () => {
     // leaves the process holding a value no committed row backs.
     harness = openHarness()
     const state = new LeasedState<{ count: number }>(harness.executor, { count: 0 })
-    await expect(
-      harness.executor.transact(async () => {
-        await state.update(
-          (value) => ({ count: value.count + 1 }),
-          async () => undefined,
-        )
-        throw new Error('enclosing span failed')
-      }),
-    ).rejects.toThrow('enclosing span failed')
+    const parked = barrier()
+    const observed: number[] = []
+
+    const failing = harness.executor.transact(async () => {
+      await state.update(
+        (value) => ({ count: value.count + 1 }),
+        async () => {
+          await parked.wait()
+        },
+      )
+      throw new Error('enclosing span failed')
+    })
+    const read = state.read((value) => observed.push(value.count))
+
+    await parked.reached()
+    await settle()
+    expect(observed, 'the reader is queued behind the enclosing span').toEqual([])
+
+    parked.release()
+    await expect(failing).rejects.toThrow('enclosing span failed')
+    await read
+    expect(observed, 'the mirror never went up for the queued reader').toEqual([0])
     expect(await state.read((value) => value.count)).toBe(0)
   })
 
-  it('does not install the mirror when the write rolls back', async () => {
+  it('does not install the mirror when the write rolls back, in flight or after', async () => {
     harness = openHarness()
     const state = new LeasedState<{ count: number }>(harness.executor, { count: 0 })
-    await expect(
-      state.update(
-        (value) => ({ count: value.count + 1 }),
-        async () => {
-          throw new Error('write failed')
-        },
-      ),
-    ).rejects.toThrow('write failed')
+    const parked = barrier()
+    const observed: number[] = []
+
+    const failing = state.update(
+      (value) => ({ count: value.count + 1 }),
+      async () => {
+        await parked.wait()
+        throw new Error('write failed')
+      },
+    )
+    const read = state.read((value) => observed.push(value.count))
+
+    await parked.reached()
+    await settle()
+    expect(observed, 'the reader is queued behind the failing write').toEqual([])
+
+    parked.release()
+    await expect(failing).rejects.toThrow('write failed')
+    await read
+    expect(observed).toEqual([0])
     expect(await state.read((value) => value.count)).toBe(0)
   })
 })
@@ -181,6 +221,9 @@ describe('versioned mutex', () => {
   })
 
   it('refuses a caller whose decision was taken at an older version', async () => {
+    // DELIBERATELY SEQUENTIAL: the contract is about a decision taken before a
+    // COMPLETED write, so the pinned version is stale by the time it is offered.
+    // Parking a write here would prove nothing this does not.
     const mutex = new VersionedMutex()
     const pinned = mutex.version
     await mutex.run(async () => undefined)
@@ -191,6 +234,8 @@ describe('versioned mutex', () => {
   })
 
   it('does not poison the queue when one holder fails', async () => {
+    // DELIBERATELY SEQUENTIAL: what is under test is the state of the tail AFTER
+    // a holder has already failed.
     const mutex = new VersionedMutex()
     await expect(
       mutex.run(async () => {

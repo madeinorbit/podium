@@ -21,7 +21,11 @@
 
 import { AsyncLocalStorage } from 'node:async_hooks'
 import type { Lane } from './driver'
-import { ParallelNestedTransactionError, StaleTransactionError } from './errors'
+import {
+  ParallelNestedTransactionError,
+  StaleTransactionError,
+  TransactionPoisonedError,
+} from './errors'
 import type { PostCommitRegistry, PostCommitRunner } from './post-commit'
 import type { Lease } from './scheduler'
 
@@ -35,6 +39,18 @@ export interface TransactionToken {
   active(): boolean
 }
 
+/**
+ * State shared by a top-level transaction and every savepoint under it.
+ *
+ * `poisoned` holds the boundary failure that made the engine's transaction
+ * state unknown. It is on the UNIT rather than the frame because a savepoint's
+ * failure is the whole transaction's problem: the frame stack no longer
+ * describes what the engine holds.
+ */
+export interface TransactionUnit {
+  poisoned: unknown
+}
+
 /** One `transact` scope: the top-level transaction, or a savepoint under it. */
 export interface TransactionFrame {
   readonly id: number
@@ -43,6 +59,7 @@ export interface TransactionFrame {
   readonly depth: number
   readonly parent: TransactionFrame | undefined
   readonly token: TransactionToken
+  readonly unit: TransactionUnit
   readonly postCommit: PostCommitRegistry
   /** The open nested scope, if any. Only the innermost frame is addressable. */
   child: TransactionFrame | undefined
@@ -106,6 +123,7 @@ export function createFrame(input: {
     lease: input.lease,
     depth: input.parent ? input.parent.depth + 1 : 0,
     parent: input.parent,
+    unit: input.parent ? input.parent.unit : { poisoned: undefined },
     postCommit: input.postCommit,
     child: undefined,
     active: true,
@@ -126,6 +144,13 @@ export function createFrame(input: {
  * savepoint is open is the same interleaving in the other direction.
  */
 export function assertAddressable(frame: TransactionFrame): void {
+  if (frame.unit.poisoned !== undefined) {
+    throw new TransactionPoisonedError(
+      `transaction ${frame.id} is poisoned: a savepoint boundary failed, so what the engine ` +
+        'still holds open is unknown and nothing further may be issued on it.',
+      frame.unit.poisoned,
+    )
+  }
   if (!frame.active) {
     throw new StaleTransactionError(
       `transaction ${frame.id} is closed: an operation reached it after its scope ended. ` +
@@ -139,6 +164,14 @@ export function assertAddressable(frame: TransactionFrame): void {
         'supported: savepoints are a stack.',
     )
   }
+}
+
+/**
+ * Record a boundary failure on the frame's unit. The FIRST one is kept: it is
+ * the point after which the transaction state stopped being known.
+ */
+export function poisonUnit(frame: TransactionFrame, cause: unknown): void {
+  if (frame.unit.poisoned === undefined) frame.unit.poisoned = cause
 }
 
 /** Close a frame. Called before its body's result is returned, always. */

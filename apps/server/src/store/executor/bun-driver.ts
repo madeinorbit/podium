@@ -64,6 +64,23 @@ const BUN_LIMITS: DriverLimits = {
 
 export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<QueryClient> {
   const readers: SqlDatabase[] = []
+  /**
+   * ONE prepared-statement cache per CONNECTION, owned here and cleared only
+   * when that connection closes.
+   *
+   * It used to live inside `session()`, which is built fresh for every scheduler
+   * lease over the same connection — so every root operation re-prepared every
+   * statement it used, which is the opposite of what the cache is for and would
+   * make a converted repository slower than the raw one it replaced.
+   */
+  const caches = new Map<SqlDatabase, Map<string, SqlStatement>>()
+  const cacheFor = (db: SqlDatabase): Map<string, SqlStatement> => {
+    const existing = caches.get(db)
+    if (existing) return existing
+    const made = new Map<string, SqlStatement>()
+    caches.set(db, made)
+    return made
+  }
   let closed = false
   return {
     kind: 'bun-sqlite',
@@ -71,7 +88,11 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
     limits: BUN_LIMITS,
     async open(lane) {
       if (closed) throw new Error('bun-sqlite driver is closed')
-      return session(options.database, lane === 'read' ? 'shared-read' : 'owner')
+      return session(
+        options.database,
+        lane === 'read' ? 'shared-read' : 'owner',
+        cacheFor(options.database),
+      )
     },
     ...(options.openReader
       ? {
@@ -79,8 +100,9 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
             if (closed) throw new Error('bun-sqlite driver is closed')
             const handle = (options.openReader as () => SqlDatabase)()
             readers.push(handle)
-            return session(handle, 'detached-reader', () => {
+            return session(handle, 'detached-reader', cacheFor(handle), () => {
               handle.close()
+              caches.delete(handle)
               const at = readers.indexOf(handle)
               if (at >= 0) readers.splice(at, 1)
             })
@@ -95,6 +117,7 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
       closed = true
       for (const handle of readers.splice(0)) handle.close()
       options.database.close()
+      caches.clear()
       options.onClose?.()
     },
   }
@@ -102,15 +125,19 @@ export function createBunSqliteDriver(options: BunDriverOptions): StoreDriver<Qu
 
 type SessionRole = 'owner' | 'shared-read' | 'detached-reader'
 
-function session(db: SqlDatabase, role: SessionRole, onClose?: () => void): DriverSession {
+function session(
+  db: SqlDatabase,
+  role: SessionRole,
   /**
-   * One prepared statement per distinct SQL text, per connection. bun:sqlite
-   * makes `prepare` cheap but not free, and the repositories reuse a small,
-   * fixed set of texts — the cache is what keeps a converted repository from
-   * being slower than the raw one it replaced. A dynamic `IN` list is the case
-   * that would defeat it, which is why the Stage A checklist asks about it.
+   * One prepared statement per distinct SQL text, per connection — owned by the
+   * DRIVER and passed in, because a lease is not a connection. bun:sqlite makes
+   * `prepare` cheap but not free, and the repositories reuse a small, fixed set
+   * of texts. A dynamic `IN` list is the case that would defeat it, which is why
+   * the Stage A checklist asks about it.
    */
-  const prepared = new Map<string, SqlStatement>()
+  prepared: Map<string, SqlStatement>,
+  onClose?: () => void,
+): DriverSession {
   const statement = (sql: string): SqlStatement => {
     const hit = prepared.get(sql)
     if (hit) return hit
@@ -201,7 +228,8 @@ function session(db: SqlDatabase, role: SessionRole, onClose?: () => void): Driv
     async close() {
       if (closed) return
       closed = true
-      prepared.clear()
+      // The cache belongs to the connection, not to this lease: clearing it
+      // here is what made it useless.
       onClose?.()
     },
   }

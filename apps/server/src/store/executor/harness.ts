@@ -284,6 +284,23 @@ export interface HarnessOptions
   schema?: string
   /** Leave the reader connection out, to test what a driver without one does. */
   withoutReader?: boolean
+  /**
+   * Called for every `prepare` the DRIVER makes. The statement cache's whole
+   * claim is a count, and a count needs a counter.
+   */
+  onPrepare?: (sql: string) => void
+}
+
+/** The same connection, with its `prepare` calls announced. */
+function countingPrepares(db: SqlDatabase, onPrepare: (sql: string) => void): SqlDatabase {
+  return {
+    prepare(sql) {
+      onPrepare(sql)
+      return db.prepare(sql)
+    },
+    exec: (sql) => db.exec(sql),
+    close: () => db.close(),
+  }
 }
 
 const DEFAULT_SCHEMA = `
@@ -305,7 +322,7 @@ export function openHarness(options: HarnessOptions = {}): Harness {
   const entries: string[] = []
   const driver = recordingDriver(
     createBunSqliteDriver({
-      database: raw,
+      database: options.onPrepare ? countingPrepares(raw, options.onPrepare) : raw,
       ...(options.withoutReader
         ? {}
         : { openReader: () => openDatabase(path, { readOnly: true }) }),

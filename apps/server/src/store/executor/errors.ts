@@ -33,6 +33,25 @@ export class StaleTransactionError extends StoreExecutorError {}
  */
 export class ParallelNestedTransactionError extends StoreExecutorError {}
 
+/**
+ * A transaction boundary failed and the engine's transaction state is no longer
+ * known, so the unit is refused rather than guessed at.
+ *
+ * A remote `RELEASE` or `ROLLBACK TO` that rejects on the network leaves the
+ * caller unable to say whether the savepoint is still open. Committing on top
+ * of that would commit a local frame stack that no longer describes the remote
+ * transaction, so everything under the unit refuses from here and the top level
+ * rolls back.
+ */
+export class TransactionPoisonedError extends StoreExecutorError {
+  constructor(
+    message: string,
+    override readonly cause: unknown,
+  ) {
+    super(message)
+  }
+}
+
 /** `exclusive` was requested from inside a lease it would have to wait for. */
 export class ExclusiveInsideLeaseError extends StoreExecutorError {}
 

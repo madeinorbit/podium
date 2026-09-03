@@ -32,6 +32,7 @@ import {
   closeFrame,
   createFrame,
   currentScope,
+  poisonUnit,
   runInScope,
   type TransactionFrame,
 } from './context'
@@ -49,6 +50,7 @@ import {
   NoPostCommitScopeError,
   StaleTransactionError,
   StoreUnhealthyError,
+  TransactionPoisonedError,
   WriteInsideReadLeaseError,
 } from './errors'
 import { type PostCommitRegistrar, PostCommitRegistry, PostCommitRunner } from './post-commit'
@@ -323,6 +325,18 @@ export function createStoreExecutor<TClient>(
     // The token dies HERE: before the callback's result is returned and before
     // the connection is released. Anything the body left in flight now rejects.
     closeFrame(frame)
+    if (frame.unit.poisoned !== undefined) {
+      // A boundary failed somewhere under this transaction and the body carried
+      // on regardless. Committing would commit a frame stack that no longer
+      // describes what the engine holds.
+      registry.discard()
+      await lease.session.rollback()
+      throw new TransactionPoisonedError(
+        'the transaction is rolled back: a savepoint boundary failed, so what the engine held ' +
+          'open was no longer known and the commit could not be trusted.',
+        frame.unit.poisoned,
+      )
+    }
     await lease.session.commit()
     if (runner) {
       // The scope dies when the drain does, for the same reason the frame's
@@ -354,19 +368,39 @@ export function createStoreExecutor<TClient>(
     // turn is refused rather than racing for the savepoint stack.
     parent.child = frame
     const name = `podium_sp_${frame.depth}`
-    await parent.lease.session.enterSavepoint(name)
+    try {
+      await parent.lease.session.enterSavepoint(name)
+    } catch (error) {
+      // The scope never opened, so the parent gets its addressability back
+      // rather than being left with a child that will never close. Nothing ran
+      // inside it, and an outer COMMIT closes a savepoint that did get created.
+      closeFrame(frame)
+      throw error
+    }
     let result: T
     try {
       result = await runInScope({ kind: 'transaction', frame }, () => fn(executorForFrame(frame)))
     } catch (error) {
       closeFrame(frame)
       registry.discard()
-      await parent.lease.session.rollbackToSavepoint(name)
-      await parent.lease.session.releaseSavepoint(name)
+      try {
+        await parent.lease.session.rollbackToSavepoint(name)
+        await parent.lease.session.releaseSavepoint(name)
+      } catch (boundaryError) {
+        // The body's own error is what the caller asked about, so it still
+        // wins — but the transaction state is now unknown, and an outer body
+        // that catches this must not go on to commit on top of it.
+        poisonUnit(parent, boundaryError)
+      }
       throw error
     }
     closeFrame(frame)
-    await parent.lease.session.releaseSavepoint(name)
+    try {
+      await parent.lease.session.releaseSavepoint(name)
+    } catch (error) {
+      poisonUnit(parent, error)
+      throw error
+    }
     // A savepoint release is not a commit: the work follows whoever commits.
     registry.mergeInto(parent.postCommit)
     return result

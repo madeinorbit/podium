@@ -23,6 +23,7 @@ import {
   SchedulerClosedError,
   StaleTransactionError,
   StoreUnhealthyError,
+  TransactionPoisonedError,
 } from './errors'
 import { createStoreExecutor, postCommit, type StoreExecutor } from './executor'
 import { createFrameFlusher } from './frame-flusher'
@@ -198,6 +199,27 @@ describe('reads against an open body', () => {
   })
 })
 
+describe('the prepared-statement cache', () => {
+  it('prepares each SQL text once per connection, across leases', async () => {
+    // WOULD CATCH the cache being owned by the LEASE: `session()` is built fresh
+    // for every scheduler operation over the same connection, so a cache created
+    // inside it re-prepares every statement on every root call — the opposite of
+    // the claim, and a local regression once repository calls become async.
+    const prepared: string[] = []
+    const h = open({ onPrepare: (sql) => prepared.push(sql) })
+
+    for (let i = 0; i < 3; i++) {
+      await h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, `row-${i}`)
+      })
+      await noteBodies(h.db)
+    }
+
+    expect(prepared.filter((sql) => sql === insert), 'three writes, one prepare').toHaveLength(1)
+    expect(prepared.filter((sql) => sql === bodies), 'three reads, one prepare').toHaveLength(1)
+  })
+})
+
 describe('re-entrancy', () => {
   it('turns a nested transact into a savepoint on the open transaction', async () => {
     // WOULD CATCH: re-entrancy keyed on handle identity (today's helper) rather
@@ -261,6 +283,96 @@ describe('re-entrancy', () => {
       // Once the branch closes, the parent is addressable again.
       expect(await noteBodies(tx.drizzle)).toEqual([])
     })
+  })
+})
+
+/**
+ * Savepoint boundaries are infallible on bun:sqlite and are ordinary statements
+ * on a network everywhere else, so every one of them can reject [POD-3310, V1
+ * medium]. What the executor may not do is leave the frame stack claiming
+ * something the engine does not hold.
+ */
+describe('asynchronous savepoint boundary failures', () => {
+  it('gives the parent back its addressability when the savepoint never opened', async () => {
+    const driver = asyncFakeDriver({
+      hooks: {
+        enterSavepoint: async () => {
+          throw new Error('SAVEPOINT failed')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    await executor.transact(async (tx) => {
+      await expect(tx.transact(async () => undefined)).rejects.toThrow('SAVEPOINT failed')
+      // WOULD CATCH `parent.child` left set by the failed entry: every later
+      // statement on the parent would be refused as a parallel nested scope.
+      await tx.drizzle.run(insert, 'after')
+    })
+
+    expect(driver.calls.filter((call) => call.endsWith(':commit'))).toEqual(['s1:commit'])
+    await executor.close()
+  })
+
+  it('poisons the transaction when the release fails, and rolls back instead of committing', async () => {
+    const driver = asyncFakeDriver({
+      hooks: {
+        releaseSavepoint: async () => {
+          throw new Error('RELEASE failed')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    const failure = await executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'outer')
+        // The body catches the boundary failure and carries on, which is the
+        // dangerous case: it must not be able to commit from here.
+        await expect(tx.transact(async () => undefined)).rejects.toThrow('RELEASE failed')
+        await expect(tx.drizzle.run(insert, 'after')).rejects.toBeInstanceOf(
+          TransactionPoisonedError,
+        )
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(TransactionPoisonedError)
+    expect((failure as TransactionPoisonedError).cause).toBeInstanceOf(Error)
+    expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual(['s1:rollback'])
+    await executor.close()
+  })
+
+  it('poisons the transaction when a rollback-to-savepoint fails, and keeps the body’s error', async () => {
+    const driver = asyncFakeDriver({
+      hooks: {
+        rollbackToSavepoint: async () => {
+          throw new Error('ROLLBACK TO failed')
+        },
+      },
+    })
+    const executor = createStoreExecutor<QueryClient>({ driver })
+
+    const failure = await executor
+      .transact(async (tx) => {
+        await expect(
+          tx.transact(async () => {
+            throw new Error('nested failed')
+          }),
+          // The body's own error is what the caller asked about; the boundary
+          // failure is what decides the transaction's fate.
+        ).rejects.toThrow('nested failed')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(TransactionPoisonedError)
+    expect(driver.calls.filter((call) => /:(commit|rollback)$/.test(call))).toEqual(['s1:rollback'])
+    await executor.close()
   })
 })
 

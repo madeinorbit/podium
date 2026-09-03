@@ -20,6 +20,7 @@ export {
   assertAddressable,
   currentScope,
   type StoreScope,
+  type TransactionUnit,
   type TransactionFrame,
   type TransactionToken,
 } from './context'
@@ -52,6 +53,7 @@ export {
   StaleTransactionError,
   StoreExecutorError,
   StoreUnhealthyError,
+  TransactionPoisonedError,
   WriteInsideReadLeaseError,
 } from './errors'
 export {
