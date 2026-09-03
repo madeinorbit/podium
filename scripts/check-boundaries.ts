@@ -1734,6 +1734,10 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // Test-fixture BUILD output. Named as well as covered by the `test-support`
   // segment above, because it is the file the plan called out by path.
   'apps/server/src/test-support/pre-migrated-store.build.ts',
+  // The Turso append proof's measurement harness (POD-3250): the round-trip and
+  // latency table it prints IS its product, same category as the perf harnesses
+  // above. It is a spike, not wired into the server, and nothing imports it.
+  'apps/server/src/store/spike/turso-append/run-proofs.ts',
 ])
 
 /**
