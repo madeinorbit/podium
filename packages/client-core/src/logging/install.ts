@@ -9,6 +9,7 @@ import {
   type LogRecord,
   removeSink,
   setLogLevel,
+  setNamespaceFloor,
   setProcessContext,
 } from '@podium/logger'
 import type { MachineId } from '@podium/model'
@@ -19,7 +20,7 @@ import {
   type LevelController,
   setActiveLevelController,
 } from './level-command'
-import { setActiveCrashReporter } from './runtime'
+import { setActiveCrashReporter, setActiveLogFlusher } from './runtime'
 
 /**
  * THE CLIENT COMPOSITION ROOT, shared by every client that ships logs to its
@@ -34,6 +35,11 @@ import { setActiveCrashReporter } from './runtime'
  * | console | follows config (`warn` by default) | the developer looking now |
  * | ring buffer | `trace`, always | the flight recorder |
  * | forwarding | follows config (`warn` by default) | the operator later |
+ *
+ * ...with one deliberate exception to "`warn` by default": {@link
+ * ClientLoggingOptions.floors} names namespaces that are worth more than that
+ * permanently, which is how the update path's own trace reaches the operator's
+ * server at all.
  *
  * The ring buffer is what makes `debug` worth writing in this codebase: those
  * records cost memory and nothing else until a crash fires, at which point they
@@ -59,6 +65,17 @@ export interface LogTransport {
   crash(input: LogsCrashInput): Promise<void>
 }
 
+/**
+ * The transport for a document that is about to stop existing.
+ *
+ * Separate from {@link LogTransport} because the RETURN TYPE is the contract: it
+ * answers whether the browser accepted the payload for delivery, synchronously,
+ * rather than promising an outcome nobody will be around to read.
+ */
+export interface UnloadLogTransport {
+  forward(input: LogsForwardInput): boolean
+}
+
 export interface ClientLoggingOptions {
   transport: LogTransport
   /** `web` | `desktop` | `mobile`. The client's own self-description. */
@@ -80,6 +97,35 @@ export interface ClientLoggingOptions {
   platform?: string
   /** Client default. Spec: `warn`. */
   level?: LogLevel
+  /**
+   * How to ship the buffer when the page is going away — a `keepalive` fetch or
+   * `navigator.sendBeacon`. Without one, {@link ClientLogging.flushOnUnload}
+   * does nothing and a record written just before a navigation is lost with it.
+   */
+  unloadTransport?: UnloadLogTransport
+  /**
+   * NAMESPACES WORTH MORE THAN THE CLIENT DEFAULT — `{ 'web:updates*': 'info' }`.
+   *
+   * The client default is `warn` and that is right for a browser: nobody is
+   * reading, and everything written is also being POSTed. It is wrong for the
+   * few namespaces whose readers are all in the future. The update path is the
+   * one this arrived for: `reload-handshake.ts` narrated every phase of every
+   * Reload click at `info`, and not one of those lines ever left the tab, so
+   * every question about what a click did was answered by a shrug (POD-3224).
+   *
+   * A FLOOR, not an override, and the difference matters here more than
+   * anywhere: an operator who raises this client to `debug` is almost always
+   * doing it to watch exactly these namespaces, and a most-specific-wins rule
+   * would have capped them at `info` at the moment of asking. See
+   * `setNamespaceFloor`.
+   *
+   * Because the forwarding sink pins no threshold of its own, a floor lifts what
+   * is FORWARDED and what is printed together — the same one-knob property the
+   * boot level has. Keeping that affordable is a call-site obligation: what goes
+   * at `info` is a transition or an outcome, and anything that repeats on a
+   * timer goes at `debug`, where it costs the flight recorder and nothing else.
+   */
+  floors?: Readonly<Record<string, LogLevel>>
   ringCapacity?: number
   /** Off in tests, where a captured record is the assertion. */
   console?: boolean
@@ -101,6 +147,11 @@ export interface ClientLogging {
   snapshot(): LogRecord[]
   /** Settle whatever the forwarding sink is holding. */
   flush(): Promise<void>
+  /**
+   * Hand the buffer over synchronously, for `pagehide` and for the moment before
+   * a self-triggered navigation. Returns how many records were handed off.
+   */
+  flushOnUnload(): number
   dispose(): void
 }
 
@@ -126,6 +177,8 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
   })
   const boot = options.level ?? 'warn'
   setLogLevel(boot)
+  const floors = Object.entries(options.floors ?? {})
+  for (const [pattern, level] of floors) setNamespaceFloor(pattern, level)
   // The boot level is captured HERE because this is the only place that knows
   // it: an operator's reset says "back to your default" rather than naming one,
   // so a later change to that default cannot strand a stale level in somebody's
@@ -148,6 +201,16 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
     // server can mark the gap in the per-origin file at the place the gap is,
     // and count it apart from its own drops (POD-3167).
     send: (records, meta) => options.transport.forward({ origin: origin(), records, ...meta }),
+    ...(options.unloadTransport
+      ? {
+          sendOnUnload: (records, meta) =>
+            (options.unloadTransport as UnloadLogTransport).forward({
+              origin: origin(),
+              records,
+              ...meta,
+            }),
+        }
+      : {}),
     ...(options.batchSize !== undefined ? { batchSize: options.batchSize } : {}),
     ...(options.flushIntervalMs !== undefined ? { flushIntervalMs: options.flushIntervalMs } : {}),
   })
@@ -175,13 +238,17 @@ export function installClientLogging(options: ClientLoggingOptions): ClientLoggi
     },
   })
   setActiveCrashReporter(reporter)
+  setActiveLogFlusher(() => forwarding.flushOnUnload())
 
   return {
     reporter,
     levels,
     snapshot: () => ring.snapshot(),
     flush: () => forwarding.flush(),
+    flushOnUnload: () => forwarding.flushOnUnload(),
     dispose: () => {
+      for (const [pattern] of floors) setNamespaceFloor(pattern, null)
+      setActiveLogFlusher(null)
       setActiveCrashReporter(null)
       setActiveLevelController(null)
       levels.dispose()

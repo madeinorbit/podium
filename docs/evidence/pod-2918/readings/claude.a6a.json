@@ -1,0 +1,80 @@
+{
+  "cell": "A6A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a6a",
+  "at": "2026-08-27T03:41:48.309Z",
+  "pin": {
+    "cell": "A6A",
+    "at": "2026-08-27T03:41:48.342Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5103620 kB",
+      "SwapFree": "37018568 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "keystrokes echoed, resize refit, and second viewer saw the same screen",
+  "control": {
+    "fired": true,
+    "what": "the first native viewer receiving an attached terminal stream",
+    "detail": "attached=1; screenBytes=6708"
+  },
+  "evidence": [
+    "MARKER            P2874-A6A-MTAZ912Y",
+    "FIRST SCREEN      true in 502ms",
+    "SECOND SCREEN     true in 0ms",
+    "GEOMETRY BEFORE   {\"cols\":80,\"rows\":24}",
+    "GEOMETRY AFTER    {\"cols\":100,\"rows\":30}",
+    "RESIZE BYTES      11805",
+    "SECOND REPLAY     true",
+    "SCREEN 1 TAIL     \"imitresetsAug28,1pm(Europe/Berlin)\\n(B]0; Claude Code P2874-A6A-MTAZ912Y Gitifying\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\nClaudeCodev2.1.231\\nTipsforgettingstarted\\nWelcomebackMichael!AskClaudetocreateanewapporclonea\\nWhat'snew\\nAddedthe`SendFeedback`tool:whensometh\\nAdded`{id,text,cooldownSessions,priori\\nOpus5(1Mcontext)ClaudeMaxAddedatiponBashpermissionpromptspoi\\nmike.wirth@gmail.com'sOrganization/release-notesformore\\n/tmp/pod-2918/probes/claude-a6a\\n2MCPserversneedauthenticationrun/mcp\\nP2874-A6A-MTAZ912Y\\n*Gitifying\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n]0; Claude Code]0; Review session P2874-A6A-MTAZ912YSlithering\\n(1s1tokens)\\n Slithering (1s   1 tokens)\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\n3\\n5\\n]0; Review session P2874-A6A-MTAZ912Y6\\n28\\n9\\n*12 tokens)\"",
+    "SCREEN 2 TAIL     \"imitresetsAug28,1pm(Europe/Berlin)\\n(B]0; Claude Code P2874-A6A-MTAZ912Y Gitifying\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\nClaudeCodev2.1.231\\nTipsforgettingstarted\\nWelcomebackMichael!AskClaudetocreateanewapporclonea\\nWhat'snew\\nAddedthe`SendFeedback`tool:whensometh\\nAdded`{id,text,cooldownSessions,priori\\nOpus5(1Mcontext)ClaudeMaxAddedatiponBashpermissionpromptspoi\\nmike.wirth@gmail.com'sOrganization/release-notesformore\\n/tmp/pod-2918/probes/claude-a6a\\n2MCPserversneedauthenticationrun/mcp\\nP2874-A6A-MTAZ912Y\\n*Gitifying\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n]0; Claude Code]0; Review session P2874-A6A-MTAZ912YSlithering\\n(1s1tokens)\\n Slithering (1s   1 tokens)\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\n*\\n3\\n5\\n]0; Review session P2874-A6A-MTAZ912Y6\\n28\\n9\\n*12 tokens)\""
+  ],
+  "data": {
+    "sid": "faf2b9b2-952a-41b7-9604-33213938b5a4",
+    "marker": "P2874-A6A-MTAZ912Y",
+    "firstScreen": {
+      "ok": true,
+      "ms": 502
+    },
+    "secondScreen": {
+      "ok": true,
+      "ms": 0
+    },
+    "beforeGeometry": {
+      "cols": 80,
+      "rows": 24
+    },
+    "afterGeometry": {
+      "cols": 100,
+      "rows": 30
+    },
+    "geometryOk": true,
+    "resizeBytes": 11805
+  }
+}

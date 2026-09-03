@@ -1,0 +1,24 @@
+POD-2810 AFTER — same rig, same command, same arm; the only difference is the two
+product files this change touches.
+
+[claude] session b9ab8538-23aa-49fa-b89e-d0538c6ea2c9 created; 45000ms for the TUI to come up
+[claude] bound driver claude-pty (family terminal)
+[claude] TUI priming: nothing to clear
+
+| harness | driver | verdict | phases seen | EVER working | output bytes | growing intervals |
+|---|---|---|---|---|---|---|
+| claude | claude-pty | **PASS** | working=60 | true | 72413 | 59/59 |
+
+--- claude (claude-pty) — PASS: reported working while producing 72413 bytes of output
+    +  1407ms  phase=working    ptyBytes=   2444  transcriptChars=0
+    + 11620ms  phase=working    ptyBytes=  15071  transcriptChars=0
+    + 21883ms  phase=working    ptyBytes=  24639  transcriptChars=0
+    + 32213ms  phase=working    ptyBytes=  30387  transcriptChars=0
+    + 42582ms  phase=working    ptyBytes=  44502  transcriptChars=0
+    + 52802ms  phase=working    ptyBytes=  60515  transcriptChars=0
+    + 61928ms  phase=working    ptyBytes=  72413  transcriptChars=  0
+
+  cursor           {"transcript":0,"hook":1}
+  lastAcceptedLive {"transcript":0,"hook":1}     <- the edge the defect lost
+  turnEpoch        1
+  phase            working

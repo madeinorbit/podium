@@ -19,9 +19,11 @@
  * Speaks @podium/protocol geometry types.
  */
 
+export * from '@podium/runtime/scope'
 export * from './abduco.js'
 export * from './abduco-bin.js'
 export * from './backends/index.js'
+export * from './cgroup.js'
 export * from './osc-title.js'
 export * from './session.js'
 export * from './tmux.js'

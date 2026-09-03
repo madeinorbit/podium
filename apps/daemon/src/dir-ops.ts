@@ -173,18 +173,19 @@ async function renameFolder(
   return to
 }
 
-async function git(cwd: string, args: string[]): Promise<string> {
+async function git(cwd: string, args: string[], env: NodeJS.ProcessEnv): Promise<string> {
   const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
     timeout: GIT_TIMEOUT_MS,
     maxBuffer: 1024 * 1024,
+    env,
   })
   return stdout.trim()
 }
 
 /** Is this git identity field set anywhere git would read it? */
-async function configured(cwd: string, key: string): Promise<boolean> {
+async function configured(cwd: string, key: string, env: NodeJS.ProcessEnv): Promise<boolean> {
   try {
-    return (await git(cwd, ['config', '--get', key])) !== ''
+    return (await git(cwd, ['config', '--get', key], env)) !== ''
   } catch {
     // `git config --get` exits 1 for "not set", which execFile reports as a
     // rejection. Unset is the answer, not a failure.
@@ -212,9 +213,14 @@ async function configured(cwd: string, key: string): Promise<boolean> {
  * asked to sign. `--no-verify` skips hooks a global template may have installed
  * — a seed commit is not the place to run someone's pre-commit suite.
  */
-async function initRepository(path: string, folderName: string, machine: string): Promise<void> {
+async function initRepository(
+  path: string,
+  folderName: string,
+  machine: string,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
   try {
-    await git(path, ['init', '-b', 'main'])
+    await git(path, ['init', '-b', 'main'], env)
   } catch (err) {
     if (code(err) === 'ENOENT') {
       throw new DirOpError(`git is not installed on ${machine}`)
@@ -222,8 +228,8 @@ async function initRepository(path: string, folderName: string, machine: string)
     // `-b` needs git >= 2.28. Older git still initialises fine; name the branch
     // afterwards so the result is the same repository either way.
     try {
-      await git(path, ['init'])
-      await git(path, ['symbolic-ref', 'HEAD', 'refs/heads/main'])
+      await git(path, ['init'], env)
+      await git(path, ['symbolic-ref', 'HEAD', 'refs/heads/main'], env)
     } catch (fallbackErr) {
       throw new DirOpError(`Could not run git init: ${reason(fallbackErr)}`)
     }
@@ -234,20 +240,17 @@ async function initRepository(path: string, folderName: string, machine: string)
   await writeFile(join(path, 'README.md'), `# ${folderName}\n`, 'utf8')
 
   const identity: string[] = []
-  if (!(await configured(path, 'user.name'))) identity.push('-c', 'user.name=Podium')
-  if (!(await configured(path, 'user.email'))) identity.push('-c', `user.email=podium@${machine}`)
+  if (!(await configured(path, 'user.name', env))) identity.push('-c', 'user.name=Podium')
+  if (!(await configured(path, 'user.email', env)))
+    identity.push('-c', `user.email=podium@${machine}`)
 
   try {
-    await git(path, ['add', '-A'])
-    await git(path, [
-      ...identity,
-      '-c',
-      'commit.gpgsign=false',
-      'commit',
-      '--no-verify',
-      '-m',
-      'Initial commit',
-    ])
+    await git(path, ['add', '-A'], env)
+    await git(
+      path,
+      [...identity, '-c', 'commit.gpgsign=false', 'commit', '--no-verify', '-m', 'Initial commit'],
+      env,
+    )
   } catch (err) {
     throw new DirOpError(`Could not create the first commit: ${reason(err)}`)
   }
@@ -264,8 +267,9 @@ async function initRepository(path: string, folderName: string, machine: string)
 export async function runDirOp(
   op: DirOp,
   input: { parentPath: string; name: string; currentName?: string },
-  options: { homePath: string; machine: string },
+  options: { homePath: string; machine: string; env?: NodeJS.ProcessEnv },
 ): Promise<{ path?: string; error?: string }> {
+  const env = { ...(options.env ?? process.env) }
   try {
     if (op === 'renameFolder') {
       if (input.currentName === undefined) return { error: 'Nothing to rename' }
@@ -278,7 +282,7 @@ export async function runDirOp(
     if (op === 'createFolder') return { path }
 
     try {
-      await initRepository(path, normalizeSegment(input.name), options.machine)
+      await initRepository(path, normalizeSegment(input.name), options.machine, env)
     } catch (err) {
       // The folder is real and the user can see it; report both halves.
       return { path, error: err instanceof DirOpError ? err.message : reason(err) }

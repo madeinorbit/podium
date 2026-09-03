@@ -88,8 +88,10 @@ export function declaredValue<T>(declared: Declared<T>): T | undefined {
 export interface HarnessLaunchOptions {
   /** Working directory the agent runs in (a project or worktree path). */
   cwd: string
+  /** Instance agent home; adapters may use it for per-session state selectors. */
+  homeDir?: string
   /** Stable Podium row identity for this interactive launch. Harnesses may use
-   *  it only as runtime correlation metadata; it is not a native resume id. */
+   *  it for runtime correlation or instance-scoped state selectors; it is not a native resume id. */
   podiumSessionId?: SessionId
   /** Present to resume an existing on-disk conversation; absent to start fresh. */
   resume?: ResumeRef
@@ -148,6 +150,8 @@ export interface HarnessExecOptions {
   mcpConfig?: string
   /** Tools pre-approved so they run headlessly without a permission prompt. */
   allowedTools?: string[]
+  /** Command environment used to resolve the harness executable. */
+  env?: HarnessEnvironment
 }
 
 export interface HarnessExecSpec {
@@ -184,6 +188,8 @@ export interface HarnessLogin {
   identity?: LoginIdentity
   freshness?: number
 }
+
+export type HarnessEnvironment = Readonly<Record<string, string | undefined>>
 
 /** Complete, bounded output from a non-interactive native login probe. */
 export interface LoginCommandResult {
@@ -223,14 +229,39 @@ export interface HarnessExecutableDeclaration {
 export interface HarnessInventory {
   executable: HarnessExecutableDeclaration
   /** Read-only local credential/profile detection. Uneven support is explicit. */
-  detectLogin(homeDir: string): HarnessLogin
+  detectLogin(homeDir: string, env?: HarnessEnvironment): HarnessLogin
   /** Authoritative native login probe. Local detection is only its compatibility fallback. */
   loginCommandProbe: Declared<HarnessLoginCommandProbe>
   /** Native interactive authentication entry point. The daemon launches this in
    * a PTY; the server and browser never encode provider OAuth behavior. */
   loginCommand: Declared<{ cmd: string; args: readonly string[] }>
-  loginIdentity: Declared<(homeDir: string) => LoginIdentity | undefined>
+  loginIdentity: Declared<(homeDir: string, env?: HarnessEnvironment) => LoginIdentity | undefined>
   portableCredential: Declared<PortableCredential>
+  /**
+   * Env vars that OVERRIDE this CLI's stored login — the ones a spawn must not
+   * let the child inherit (POD-2296).
+   *
+   * Every harness reference in `docs/agent-harness-reference/` records the same
+   * hazard in its own vocabulary: a provider credential in the environment wins
+   * over the account `<cli> login` stored on disk. Inherited, that is invisible
+   * — the session runs, answers, and bills an account the operator never chose,
+   * while Podium's own login readout still names the one on disk. Measured on
+   * Claude Code 2.1.224: the SAME home holding a `max` subscription credential
+   * reports `subscriptionType: null, apiKeySource: ANTHROPIC_API_KEY` and prints
+   * "API Usage Billing" once `ANTHROPIC_API_KEY` is in the environment.
+   *
+   * SCOPE — credentials that select a different ACCOUNT, nothing else. Not org
+   * selectors (`OPENAI_ORGANIZATION`), not endpoint or provider redirects
+   * (`CLAUDE_CODE_USE_BEDROCK`, `CODEX_API_BASE`): those change where a session
+   * runs, which an operator may set deliberately for a whole machine, and
+   * removing them would silently undo that choice. Not `CLAUDE_CODE_OAUTH_TOKEN`
+   * either — it is a SUBSCRIPTION credential, the documented way to log a
+   * headless box in at all, so stripping it would leave such a machine with no
+   * login rather than the right one.
+   *
+   * Empty array = this harness has no such variable (declare it, don't omit it).
+   */
+  foreignCredentialEnv: readonly string[]
 }
 
 /** Prefer a recognizable name + email without duplicating equal values. */
@@ -263,6 +294,8 @@ export interface HeadlessExecOptions {
   /** The pinned harness session id (pre-minted for grok/cursor). */
   /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
   sessionId?: string
+  /** Command environment used to resolve the harness executable. */
+  env?: HarnessEnvironment
 }
 
 export interface HarnessHeadless {
@@ -275,7 +308,7 @@ export interface HarnessHeadless {
   driver: 'claude-sdk' | 'codex-json' | 'resume-exec'
   /** The stdout protocol emitted by one headless turn. The daemon parses this
    * transport shape without branching on which harness selected it. */
-  outputFormat: 'claude-stream-json' | 'codex-jsonl' | 'opencode-jsonl' | 'text'
+  outputFormat: 'claude-stream-json' | 'codex-jsonl' | 'opencode-jsonl' | 'pi-jsonl' | 'text'
   /**
    * How the persistent session id is allocated on the FIRST turn:
    *   'sdk-session-uuid' — server-minted UUID passed via the SDK's sessionId;
@@ -291,7 +324,13 @@ export interface HarnessHeadless {
    *  merged over the child's environment — codex passes its MCP bearer token here
    *  (POD-1021). */
   buildExec: Declared<
-    (opts: HeadlessExecOptions) => { cmd: string; args: string[]; env?: Record<string, string> }
+    (opts: HeadlessExecOptions) => {
+      cmd: string
+      args: string[]
+      env?: Record<string, string>
+      /** Delivered on the child's stdin (then EOF) — pi reads its prompt there. */
+      stdin?: string
+    }
   >
 }
 
@@ -331,6 +370,8 @@ export interface HarnessObserveInput {
   resumeValue?: string
   /** Discovery homeDir override (tests / isolated HOME). */
   homeDir?: string
+  /** Product-owned native transcript root, separate from the harness account home. */
+  transcriptRoot?: string
   /** Freshness floor for spawn-time session discovery, so a new pane can't
    *  latch onto an older sibling session in the same cwd. Omitted on reattach
    *  so discovery has no floor. */
@@ -423,7 +464,11 @@ export interface TranscriptSourceInput {
   /** Recorded segment evidence: absolute transcript path, checked before any
    *  cwd-derived location (conversation registry §3.3). */
   pathHint?: string
+  /** Stable Podium row identity used by providers with a shared native store. */
+  podiumSessionId?: SessionId
   homeDir?: string
+  /** Product-owned native transcript root, separate from the harness account home. */
+  transcriptRoot?: string
 }
 
 export interface HarnessTranscript {
@@ -470,6 +515,385 @@ export function fileTranscript(
       return fileChainSource(chain, recordToItems)
     },
   }
+}
+
+// ---------------------------------------------------------------------------
+// The runtime axis — how this CLI can be DRIVEN (POD-1761 W1).
+// docs/2026-08-07-agent-runtime-architecture.html §2, §3 "Manifest integration".
+// ---------------------------------------------------------------------------
+
+/**
+ * ONE AXIS INSTEAD OF MORE FLAGS.
+ *
+ * The manifest already answers "how do I launch this CLI interactively"
+ * (`launch`), "how do I run one shot" (`exec`) and "does it have a persistent
+ * headless mode" (`headless`). Those three grew independently and each carries
+ * its own launch shape. `runtime` is the axis they fold INTO: it says which
+ * DRIVER FAMILIES this harness supports and how to reach each one, so that
+ * codex-terminal → codex-server becomes a `select()` result rather than a new
+ * flag every consumer has to learn.
+ *
+ * DECLARATIONS ONLY IN W1. Nothing reads this yet — W3 wires the terminal
+ * driver behind it and W5 the opencode server driver. It lands now, ahead of
+ * both, because a manifest field that arrives WITH its first consumer gets
+ * shaped by that consumer's convenience; one that arrives first has to be
+ * argued from the harnesses.
+ *
+ * WHY `terminal` IS REQUIRED AND THE OTHER TWO ARE NOT. Every harness Podium
+ * ships can be driven by emulating a user at a TUI — that is the current stack,
+ * and §2's decision is that it is a PERMANENT tier, not a deprecation path: it
+ * is the fallback when an embedded/server driver is not admitted, and the only
+ * way to run harnesses that never grow a protocol. A `server` or `embedded` spec
+ * is a capability a vendor either shipped or did not, so both are `Declared<T>`
+ * and say WHY when absent.
+ */
+export interface AgentRuntimeAxis {
+  /**
+   * The harness's own server, and how to launch and address it. Unsupported ⇒
+   * this CLI has no server mode, so the server family is simply unavailable and
+   * `select()` must never return one of its ids.
+   */
+  server: Declared<ServerRuntimeSpec>
+  /** Additional server mechanisms shipped by the same harness. */
+  serverAlternatives?: readonly ServerRuntimeSpec[]
+  /**
+   * The harness ships a library rather than a server, and the runtime hosts the
+   * agent loop in a worker child it owns. Unsupported ⇒ no SDK to host.
+   */
+  embedded: Declared<EmbeddedRuntimeSpec>
+  /** ALWAYS PRESENT: today's `launch()` + composer + state providers, named as a
+   *  driver family rather than as "the way sessions work". */
+  terminal: TerminalRuntimeSpec
+  /**
+   * Which driver to use for one session. A PURE function of the selection
+   * context — no clock, no filesystem, no network — because the server plans a
+   * spawn with it and the machine performs one with it, and the two must agree.
+   *
+   * TOTAL: it always returns an id, because a caller planning a spawn has no
+   * sensible branch for "no answer". When `ctx.available` contains any candidate
+   * the policy ranks, the answer is one of those. When it contains NONE — an
+   * unusable or not-yet-probed machine — the answer is this harness's TERMINAL
+   * driver id, which the caller must treat as a diagnostic ("this machine
+   * reports it cannot run this harness") rather than as a green light.
+   *
+   * The alternative — returning `undefined` and making every caller invent a
+   * fallback — pushes the same decision to N call sites and guarantees they
+   * disagree. See {@link selectRuntimeDriver}, which is where the rule is
+   * implemented once.
+   */
+  select(ctx: SelectionContext): DriverId
+}
+
+/**
+ * THE DRIVER TAXONOMY IS DEFINED HERE, and `@podium/agent-runtime` re-exports it.
+ *
+ * The direction is forced: agent-runtime imports this package, never the
+ * reverse, and a cycle would be rejected by turbo, `declared-deps` and the layer
+ * manifest alike. So the names the MANIFEST needs — the families, the driver
+ * ids, the three `*RuntimeSpec` shapes and the selection context — live beside
+ * the manifest that declares them, and the runtime package aliases them rather
+ * than keeping a second copy reconciled by a test.
+ *
+ * CLOSED on purpose: a driver lands as code in `packages/agent-runtime`, so a
+ * new id is a deliberate edit here rather than a string that typos silently.
+ */
+/**
+ * The three ways a harness can be driven (spec §2). A harness may support
+ * several; `select()` picks one per session at spawn.
+ *
+ * `terminal` IS A PERMANENT TIER, NOT A DEPRECATION PATH: it is the fallback
+ * for Claude when the SDK is not admitted, the interactive login path, and the
+ * only way to run a harness that never grows a protocol. What changes is its
+ * RANK — it stops being the definition of a session and becomes one driver
+ * behind one contract.
+ */
+export type DriverFamily = 'server' | 'embedded' | 'terminal'
+
+export const DRIVER_IDS = [
+  /** `codex app-server` over JSON-RPC on a per-session unix socket (W6). */
+  'codex-app-server',
+  /** `opencode serve` over HTTP + SSE on a secret-guarded loopback port (W5). */
+  'opencode-server',
+  /** OpenCode 2 preview server over its experimental API contract. */
+  'opencode2-server',
+  /** `grok agent stdio` over ACP JSON-RPC (W7). */
+  'grok-acp',
+  /** The Claude Agent SDK loop, hosted in a runtime-owned worker child. */
+  'claude-sdk',
+  /** Today's interactive Claude CLI under abduco, wrapped (W3). */
+  'claude-pty',
+  /** The same terminal mechanism for harnesses with no protocol (grok, cursor). */
+  'generic-pty',
+  /** The in-memory reference driver the conformance corpus runs against. */
+  'fake',
+] as const
+
+/** A CONST ARRAY rather than a bare union, so the set exists at RUN time too:
+ *  the conformance corpus checks that every manifest names a driver this build
+ *  knows, and a type-only union cannot be iterated to do that. */
+export type DriverId = (typeof DRIVER_IDS)[number]
+
+/** What `select()` is allowed to decide on. `auth` is the load-bearing axis:
+ *  Claude on subscription/API-key/Bedrock/Vertex can select the embedded SDK
+ *  when that driver is explicitly requested; otherwise it stays on terminal. */
+export interface SelectionContext {
+  auth: 'subscription' | 'api-key' | 'bedrock' | 'vertex' | 'logged-out' | 'unknown'
+  platform: NodeJS.Platform
+  /** Driver ids this machine can actually run right now: binary present,
+   *  version in the pinned range. May be EMPTY on a machine that has not been
+   *  probed or cannot run this harness at all — see `select()` for what that
+   *  answers. */
+  available: readonly DriverId[]
+  /** The operator's explicit choice, honoured over the policy's own preference —
+   *  but still only if it is available. */
+  preference?: DriverId
+  role?: 'interactive' | 'executor'
+}
+
+/**
+ * How to launch and address the harness's own server.
+ *
+ * `transport` is not decoration: it is the security posture. A unix socket at
+ * mode 0600 authenticates by filesystem permission; a loopback TCP port
+ * authenticates by NOTHING unless a secret is required, and an unauthenticated
+ * per-session HTTP server holding a credentialed agent is not acceptable even on
+ * loopback — every local process and user can reach it (spec §6). Hence
+ * `requiresPerSessionSecret`, which the opencode driver must honour and the
+ * conformance suite tests.
+ */
+export interface ServerRuntimeSpec {
+  driverId: DriverId
+  kind: 'jsonrpc' | 'http-sse'
+  /** argv that starts the server. The port/socket is chosen per session by the
+   *  driver, so this is the STEM, not a complete command line. */
+  spawn: readonly string[]
+  /**
+   * `stdio` IS THE CHILD'S OWN PIPE PAIR, added by W6 after measuring codex.
+   *
+   * The plan expected a per-session unix socket there and codex does create one
+   * — but it is a daemon CONTROL socket that closes the connection on a JSON-RPC
+   * `initialize`, including through codex's own proxy bridge. An inherited pipe
+   * is the actual client channel, and for spec section 6's purposes it is the
+   * strongest of the three: no filesystem object, no port, nothing for another
+   * local process to reach by name. Hence `requiresPerSessionSecret: false` for
+   * a reason rather than as an omission.
+   */
+  transport: 'unix-socket' | 'loopback-tcp' | 'stdio'
+  /**
+   * MANDATORY for loopback TCP: an unauthenticated per-session HTTP server
+   * holding a credentialed agent is reachable by every local process and user,
+   * which is not acceptable even on loopback. This is the POLICY, declared in
+   * W1 because it is an architectural commitment rather than a protocol detail.
+   */
+  requiresPerSessionSecret: boolean
+  /**
+   * The env var the secret rides in — SPAWN ENV, NEVER ARGV (the hook-port
+   * discipline, unchanged), and named here so a driver cannot invent one.
+   *
+   * ABSENT UNTIL THE DRIVER VERIFIES IT. The exact variable is a fact about a
+   * vendor's pre-1.0 CLI, and W1 has no client with which to check it; writing a
+   * plausible name here would be a guess that reads as a citation.
+   */
+  secretEnvVar?: string
+  /** Where the OpenAPI document lives, for the drivers that generate a client. */
+  openapiPath?: string
+  /**
+   * The harness versions this driver speaks. The server family's crown jewels
+   * ride pre-1.0, vendor-internal protocols — codex app-server has already
+   * renamed its approval methods once. The stance is the codex-hooks
+   * minor-version gate: refuse loudly with a machine diagnostic, never guess.
+   *
+   * `Declared<T>`, and UNSUPPORTED in W1 for every harness, because a range is a
+   * claim about which wire shapes this build has actually been tested against.
+   * The driver items (W5, W6) pin it against recorded fixtures. An invented
+   * range would be worse than none: it would let a driver start against a
+   * protocol nobody verified while looking like it had been checked.
+   */
+  versionRange: Declared<string>
+  /**
+   * THE HARNESS'S OWN TUI, POINTED AT A SESSION THIS SERVER IS ALREADY RUNNING
+   * (POD-2823).
+   *
+   * A server-family session has no PTY, so the daemon PRODUCES one on demand by
+   * running the vendor's stock client beside the engine — `opencode attach`,
+   * `codex resume --remote`, `grok --resume`. Until POD-2823 the daemon decided
+   * what to run by asking WHICH HARNESS THIS IS, in nine places, which is the
+   * defect this epic exists to remove: the policy layer knew three names and a
+   * fourth driver meant editing a branch nobody remembers exists.
+   *
+   * `Declared<T>` because a stock client is a thing a vendor either ships or
+   * does not. UNSUPPORTED is a real answer — a server-family harness with no
+   * attachable TUI simply has no Native view, and the daemon refuses the attach
+   * with the reason declared here rather than spawning something that opens the
+   * wrong conversation.
+   */
+  clientTerminal: Declared<ClientTerminalSpec>
+}
+
+/**
+ * WHERE THE RUNNING ENGINE IS, in the shape this harness's `transport` implies.
+ *
+ * The three server harnesses differ here in exactly the way `transport` already
+ * says they do, which is why this is one field and not three payload shapes:
+ *
+ * - `loopback-tcp` (opencode) — `address` is the loopback URL, and because
+ *   `requiresPerSessionSecret` is true the credentials come with it.
+ * - `unix-socket` (codex) — `address` is the 0600 socket path the stock TUI
+ *   dials directly. Filesystem permission is the authentication, so no secret.
+ * - `stdio` (grok) — there is NOTHING to address. The engine's channel is a
+ *   private pipe pair, and the client reopens the conversation from the native
+ *   store instead. `address` absent is that fact, not an omission.
+ */
+export interface ClientTerminalEndpoint {
+  address?: string
+  /** Set only where {@link ServerRuntimeSpec.requiresPerSessionSecret} is. */
+  username?: string
+  secret?: string
+}
+
+export interface ClientTerminalLaunchOptions {
+  /** The session's working directory. */
+  cwd: string
+  /**
+   * THE CONVERSATION TO REOPEN — the resume ref's VALUE, whatever this harness
+   * calls it (an opencode session id, a codex thread id, a grok session id).
+   *
+   * Required, and there is no "just open the client" mode: a client terminal
+   * that lands in a DIFFERENT conversation is worse than a refusal, because it
+   * looks like the session's screen. Callers that have no conversation yet
+   * refuse before they get here.
+   */
+  conversation: string
+  endpoint: ClientTerminalEndpoint
+  /** Command environment used to resolve the client executable. */
+  env?: HarnessEnvironment
+}
+
+/**
+ * What a harness declares about its own client terminal, so the daemon's
+ * attach path never learns a harness name.
+ */
+export interface ClientTerminalSpec {
+  /**
+   * THIS HARNESS'S SLOT IN THE DURABLE LABEL `podium-<token>-attach-<sessionId>`.
+   *
+   * Podium owns the shape; the harness owns its token, because the token is
+   * what keeps three parked abduco masters for one session distinguishable. It
+   * is also the reason this is a declaration rather than a derivation from the
+   * harness id: the label is DURABLE — a master outlives the daemon — so
+   * changing it orphans a live client, and a value that can be recomputed from
+   * a name is a value that silently changes when the name does.
+   *
+   * Short on purpose. The session's own scope label must never be a SUBSTRING
+   * of this one (memory attribution is a substring test), which the
+   * `-attach-` infix guarantees regardless of token.
+   */
+  labelToken: string
+  /**
+   * The argv that reopens `conversation` in this harness's stock TUI.
+   *
+   * This is the whole of what used to be four separate name checks in the
+   * daemon: which command to run, which resume-ref shape to put the
+   * conversation in, whether an out-of-band engine address rides on argv, and
+   * whether per-session server credentials ride in the env.
+   */
+  launch(opts: ClientTerminalLaunchOptions): LaunchSpec
+  /**
+   * MAY THIS CLIENT KEEP RUNNING WHILE THE VIEWER IS IN CHAT?
+   *
+   * A server-family session shows its CLI through a separate stock TUI that the
+   * daemon starts on the switch INTO Native. What happens on the switch back out
+   * is the question this answers, and it is a fact about the harness's client
+   * rather than a policy this layer gets to pick:
+   *
+   *   `false` — the client must be torn down, because it holds a writer to the
+   *     engine that would outlive the control lease. Codex's TUI dials the
+   *     per-session Unix listener directly; leaving it warm would let queued
+   *     keystrokes bypass the daemon's lease gate.
+   *   `true` — the client may be PARKED: its abduco client is dropped, its
+   *     master and TUI keep running, and the next switch back in RECONNECTS to
+   *     the same generation. Nothing can type into a parked client, because the
+   *     only writer is the daemon's own handle and that is exactly what the park
+   *     drops — so the lease obligation is met by having no writer at all,
+   *     rather than by killing the process.
+   *
+   * REQUIRED, so a fourth harness has to answer it. The alternative — an
+   * optional flag defaulting to "tear it down" — is how the safe-looking answer
+   * becomes the one nobody chose. Spec §5 asks for parking; this is the per
+   * harness fact that says where it is allowed.
+   */
+  parkOnRelease: boolean
+}
+
+/** The harness ships a library; the runtime hosts the loop in a worker child it
+ *  owns — deliberately NOT in the supervisor's heap, so a runaway embedded
+ *  session cannot OOM the daemon (spec §6). */
+export interface EmbeddedRuntimeSpec {
+  driverId: DriverId
+  module: string
+  /** Auth modes the SDK actually supports headlessly. Claude lists subscription
+   *  here so a ToS-admitted machine can select `claude-sdk` for OAuth as well as
+   *  API-key / Bedrock / Vertex; without that admission, select() stays on
+   *  terminal. */
+  auth: readonly ('subscription' | 'api-key' | 'bedrock' | 'vertex')[]
+}
+
+/** Today's stack, named. There is no new mechanism here — `launch()` above is
+ *  still the spawn — but the family needs an id and needs to say what it can
+ *  prove about a send. */
+export interface TerminalRuntimeSpec {
+  driverId: DriverId
+  /**
+   * How this harness's terminal driver proves a send was accepted, in preference
+   * order. `hook` is available only where a CAUSAL hook exists — Claude's
+   * `UserPromptSubmit` — and where it does not, `transcript-echo` is the
+   * fallback and `unverified` is the honest outcome when even that times out.
+   */
+  sendProof: readonly ('hook' | 'transcript-echo')[]
+  /** Provider-poll state transitions are this terminal driver's lifecycle source. */
+  lifecycleFromState?: boolean
+}
+
+/**
+ * The shared body of every `select()`: honour an available preference that is
+ * valid for this harness (plus either terminal sibling), else take the first
+ * available driver in the harness's own ranked order.
+ *
+ * `ranked` MUST end with this harness's terminal driver id, and that is not a
+ * convention — it is what makes the function total. The terminal family is
+ * always present (§2), so it is always a legal answer, and a selection policy
+ * that could return "nothing" would push a fallback decision into every caller.
+ * The last entry is returned even when `available` does not list it: a machine
+ * reporting no runnable driver at all is an inventory problem, and answering it
+ * with a driver id that then fails to start is a better diagnostic than
+ * answering it with silence.
+ *
+ * Five one-line `select()` implementations rather than five copies of this
+ * logic — the per-harness variance is the ORDER, which is the thing worth
+ * reading in each manifest.
+ */
+export function selectRuntimeDriver(
+  ctx: SelectionContext,
+  ranked: readonly [...DriverId[], DriverId],
+): DriverId {
+  const available = new Set(ctx.available)
+  // An explicit operator choice wins over the policy — but only if the machine
+  // can actually run it AND this harness declares it. Without the second half,
+  // a machine-wide preference for one harness's healthy server can route a
+  // different harness into that server family. Terminal ids are interchangeable
+  // at the launch seam, so either terminal preference still explicitly opts out
+  // of a harness's preferred server driver.
+  if (
+    ctx.preference &&
+    available.has(ctx.preference) &&
+    (ranked.includes(ctx.preference) ||
+      ctx.preference === 'claude-pty' ||
+      ctx.preference === 'generic-pty')
+  ) {
+    return ctx.preference
+  }
+  for (const id of ranked) if (available.has(id)) return id
+  return ranked[ranked.length - 1] as DriverId
 }
 
 // ---------------------------------------------------------------------------
@@ -540,6 +964,25 @@ export interface AgentManifest {
   capabilities: HarnessCapabilities
   /** The resume.kind stamped on this harness's native conversations. */
   resumeKind: string
+  /**
+   * Environment isolation owned by this harness.
+   *
+   * `removeInherited` names controls that describe a parent invocation of the
+   * same CLI, never machine configuration for the child Podium owns.
+   * `instanceHome` names a CLI-specific home selector that must follow a named
+   * instance's HOME; otherwise an ambient selector can redirect the child back
+   * into the daemon operator's real harness state.
+   *
+   * Required (empty is a decision) so a newly added harness cannot silently
+   * inherit its parent's identity.
+   */
+  environment: {
+    removeInherited: readonly string[]
+    instanceHome?: {
+      variable: string
+      relativeDir: string
+    }
+  }
   /** Machine-local installation and account discovery owned by this harness. */
   inventory: HarnessInventory
   /** Interactive spawn command (fresh vs resume, model/effort flags, argv prompt). */
@@ -550,8 +993,17 @@ export interface AgentManifest {
    *  harness cannot serve superagent/work-LLM turns; callers pick another. */
   exec: Declared<(opts: HarnessExecOptions) => HarnessExecSpec>
   /** Persistent headless sessions. Unsupported ⇒ no headless driver; the session
-   *  must run interactively over a PTY. */
+   *  must run interactively over a PTY.
+   *  SUPERSEDED IN DIRECTION by `runtime` below (POD-1761): a superagent thread
+   *  becomes an ordinary runtime session with no attach, and this axis retires
+   *  once server drivers carry the harnesses that use it. Still authoritative
+   *  today — nothing reads `runtime` yet. */
   headless: Declared<HarnessHeadless>
+  /** WHICH DRIVER FAMILIES this CLI supports and how to reach each (POD-1761).
+   *  Required, so a new harness cannot land without saying how it is driven —
+   *  the same totality argument as every other field here. Declarations only in
+   *  W1: W3 wires the terminal driver behind it, W5 the opencode server one. */
+  runtime: AgentRuntimeAxis
   /** Hook/observer state provider. Unsupported ⇒ phase stays 'unknown' rather
    *  than being guessed from another harness's output conventions. */
   state: Declared<AgentStateProvider>
@@ -623,6 +1075,37 @@ export interface HarnessCapabilities {
   observationProtocol: 'claude-causal' | 'codex-exact' | 'generic'
   /** A submitted CR needs transcript/state verification and bounded retry. */
   submitVerification: boolean
+  /**
+   * WHEN THIS HARNESS'S COMPOSER IS KNOWN TO ACCEPT TYPED INPUT (POD-2823).
+   *
+   * A PTY bind makes a session LIVE before the CLI has mounted its composer.
+   * Bytes written into that window are accepted by the pty and dropped by the
+   * app — a send that leaves no trace anywhere, which is the worst shape a lost
+   * message can have. Every harness has the window; what varies is how Podium
+   * can tell it has closed, and that is what this declares.
+   *
+   * - `on-bind` — no window worth guarding. The composer takes input as soon as
+   *   the session is live.
+   * - `process-settle` — the window is VISIBLE: the process reports `starting`
+   *   until its TUI is up, so waiting for the status to settle is proof enough.
+   *   Grok, whose first-turn no-op POD-549 measured.
+   * - `confirmed-turn` — the window is INVISIBLE. `live` says nothing about the
+   *   composer, so the only proof an input landed is the user turn appearing in
+   *   the transcript. The first send after a bind is routed through the queue
+   *   and confirmed; later sends type directly. Claude Code.
+   *
+   * IT REPLACED A HARNESS NAME, AND IT IS NOT `submitVerification`. The server
+   * asked `agentKind === 'claude-code' && needsSubmitVerification(agentKind)`,
+   * and the literal was there because the capability OVER-MATCHES: grok declares
+   * `submitVerification: true` as well, so reading that field alone would have
+   * put every post-first-turn grok send behind a readiness proof it does not
+   * need. Two harnesses share the verification property and do NOT share this
+   * one; conflating them is what made a name check look necessary.
+   *
+   * SINGLE-VALUED on purpose: a harness has one answer to "how do I know the
+   * composer is up", and two booleans could say both or neither.
+   */
+  composerReadiness: 'on-bind' | 'process-settle' | 'confirmed-turn'
   /**
    * The first user turn cannot be started by bracketed-paste into a fresh TUI.
    * Chat send must type the prompt as raw keystrokes (the native-view path)

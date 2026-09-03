@@ -1,5 +1,6 @@
 import type { DraftIssueArtifactInput } from '@podium/commands'
 import type { MachineId, SessionId } from '@podium/model/browser'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Store } from '@/app/store'
 import { hasFileItems } from './transfer-items'
@@ -7,11 +8,14 @@ import { hasFileItems } from './transfer-items'
 /**
  * FILE PASTE, DROP AND ATTACH (POD-405, extracted from ChatView).
  *
- * One part owning both attachment destinations. Existing-session chat writes a
- * workspace upload and gives its path to the harness. The home composer keeps
- * browser bytes in memory so draft creation can store them on the issue without
- * a staging file. The composer renders the strip; this owns the state machine
- * behind each chip (`uploading` → `ready` | `failed`).
+ * One part owning every destination a file can take. Picked from the file
+ * dialog, dropped on the composer or pasted from the clipboard, read as base64,
+ * and then one of three things: staged through the live runtime contract and
+ * sent as an out-of-band reference; uploaded to the session's workspace, whose
+ * path prefixes the prose for cold-start and pre-contract sessions; or, for the
+ * home composer, kept as browser bytes so draft creation can store them on the
+ * issue without a staging file. The composer renders the strip; this owns the
+ * state machine behind each chip (`uploading` → `ready` | `failed`).
  *
  * IMAGES WERE NEVER THE POINT, only the first case (POD-1203). Everything below
  * the mime check was already format-blind — the harness reads an attachment by
@@ -36,6 +40,8 @@ export interface Attachment {
    *  — a document chip shows its name and nothing else. */
   previewUrl: string
   path?: string
+  ref?: RuntimeAttachmentRef
+  error?: string
   /** Browser bytes retained for a direct issue attachment. This mode never
    *  writes a staging file into a daemon or checkout. */
   dataBase64?: string
@@ -59,11 +65,17 @@ export interface UseAttachmentsResult {
   processFiles: (files: File[]) => Promise<void>
   remove: (id: string) => void
   clear: () => void
+  /** Spend only files that were ready for this submit. Failed chips remain so
+   * the user can see and remove or retry the refusal instead of losing it. */
+  clearReady: () => void
   /** True while any chip is still uploading — the send button waits for it. */
   uploading: boolean
-  /** The uploaded paths ready to ride into the prompt, with their chip labels. */
+  /** Legacy paths still prefix cold-start prose; staged refs travel out-of-band;
+   *  draft artifacts carry browser bytes straight onto a new issue. */
   ready: () => {
     paths: string[]
+    legacyPaths: string[]
+    refs: RuntimeAttachmentRef[]
     tags: { kind: 'image' | 'file'; label: string }[]
     draftArtifacts: DraftIssueArtifactInput[]
   }
@@ -117,15 +129,39 @@ export function useAttachments(opts: {
         const res = await trpc.sessions.uploadImage.mutate({
           sessionId,
           filename: file.name,
-          mimeType: file.type,
+          mimeType: file.type || 'application/octet-stream',
           dataBase64,
           ...(target ? { machineId: target } : {}),
         })
+        if ('refusal' in res) {
+          const error =
+            res.refusal.detail ??
+            (res.refusal.reason === 'unsupported'
+              ? 'This agent cannot accept file attachments.'
+              : 'This file could not be attached.')
+          setAttachments((prev) =>
+            prev.map((a) => (a.id === id ? { ...a, error, state: 'failed' } : a)),
+          )
+          return
+        }
         setAttachments((prev) =>
-          prev.map((a) => (a.id === id ? { ...a, path: res.path, state: 'ready' } : a)),
+          prev.map((a) =>
+            a.id === id
+              ? {
+                  ...a,
+                  path: res.path,
+                  ...('attachment' in res ? { ref: res.attachment } : {}),
+                  state: 'ready' as const,
+                }
+              : a,
+          ),
         )
       } catch {
-        setAttachments((prev) => prev.map((a) => (a.id === id ? { ...a, state: 'failed' } : a)))
+        setAttachments((prev) =>
+          prev.map((a) =>
+            a.id === id ? { ...a, error: 'This file could not be attached.', state: 'failed' } : a,
+          ),
+        )
       }
     },
     [destination, sessionId, trpc],
@@ -171,7 +207,11 @@ export function useAttachments(opts: {
     const again = latest.current.filter((a) => a.file)
     if (again.length === 0) return
     setAttachments((prev) =>
-      prev.map((a) => (a.file ? { ...a, state: 'uploading' as const, path: undefined } : a)),
+      prev.map((a) =>
+        a.file
+          ? { ...a, state: 'uploading' as const, path: undefined, ref: undefined, error: undefined }
+          : a,
+      ),
     )
     for (const a of again) void upload(a.id, a.file as File, machineId)
   }, [destination, machineId, upload])
@@ -184,6 +224,8 @@ export function useAttachments(opts: {
     )
     return {
       paths: readyOnes.flatMap((a) => (a.path ? [a.path] : [])),
+      legacyPaths: readyOnes.flatMap((a) => (!a.ref && a.path ? [a.path] : [])),
+      refs: readyOnes.flatMap((a) => (a.ref ? [a.ref] : [])),
       // The tag kind is what the transcript renders the chip as, and `previewUrl`
       // is already the answer to "can this be shown as a picture?" — reuse it
       // rather than testing the mime a second time and getting a different answer.
@@ -217,6 +259,10 @@ export function useAttachments(opts: {
       [],
     ),
     clear: useCallback(() => setAttachments([]), []),
+    clearReady: useCallback(
+      () => setAttachments((prev) => prev.filter((attachment) => attachment.state === 'failed')),
+      [],
+    ),
     uploading: attachments.some((a) => a.state === 'uploading'),
     ready,
     dropHandlers: {

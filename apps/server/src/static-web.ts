@@ -1,8 +1,68 @@
 import { existsSync, readFileSync, statSync } from 'node:fs'
 import { basename, extname, join, normalize, sep } from 'node:path'
 import { brotliCompress, gzip, constants as zlibConstants } from 'node:zlib'
+import { createLogger } from '@podium/logger'
 import { desktopShellLocation, mobileEntryRedirect } from '@podium/model'
 import type { Context, Hono } from 'hono'
+
+/**
+ * A STALE PAGE, SEEN FROM THE SERVER (POD-3224, question 12).
+ *
+ * The coordinator cannot ask a browser which bundle it is holding, and `/version`
+ * carries no client identity — so "which open pages are stale?" had no
+ * server-side answer at all, only whatever each client chose to forward.
+ *
+ * But a stale page ANNOUNCES itself, exactly once per lazy chunk it still needs:
+ * it asks for a content-hashed asset that this dist no longer contains. Those
+ * URLs are immutable by construction (a new build is a new URL), so a 404 on one
+ * is never a typo and never a cache miss — it is a document running code from a
+ * dist that has been replaced underneath it. That is the same event the client
+ * reports as `assets === 'replaced'` and as a Vite preload error, observed from
+ * the other end, and it needs no cooperation from the page.
+ *
+ * `server:updates`, because the reader is following an update.
+ *
+ * RATE-LIMITED, AND ITS INPUTS CLAMPED, because unlike every other line in this
+ * issue this one is driven by an UNAUTHENTICATED request whose path and
+ * `Referer` an outsider chooses. A converged fleet emits none of these; a
+ * scanner walking hashed-looking URLs would otherwise emit one per request, with
+ * its own text in them. So: at most {@link STALE_ASSET_LOG_PER_MINUTE} a minute,
+ * with the suppressed count carried on the next line that gets through, and
+ * every attacker-controlled string cut to {@link STALE_ASSET_FIELD_MAX}.
+ *
+ * The cap is well above what a real stale page produces — a document has tens of
+ * unloaded chunks, not hundreds — so the signal survives the limit intact.
+ */
+const log = createLogger('server:updates')
+
+const STALE_ASSET_LOG_PER_MINUTE = 30
+const STALE_ASSET_FIELD_MAX = 256
+
+let staleWindowStartedAt = 0
+let staleInWindow = 0
+let staleSuppressed = 0
+
+/** Clamp a caller-supplied string to something a log line can hold. */
+function clampField(value: string | undefined): string | undefined {
+  if (value === undefined) return undefined
+  return value.length <= STALE_ASSET_FIELD_MAX ? value : `${value.slice(0, STALE_ASSET_FIELD_MAX)}…`
+}
+
+/** May this occurrence be logged? Counts the ones it refuses. */
+function admitStaleAssetLog(now: number): { admit: boolean; suppressed: number } {
+  if (now - staleWindowStartedAt >= 60_000) {
+    staleWindowStartedAt = now
+    staleInWindow = 0
+  }
+  if (staleInWindow >= STALE_ASSET_LOG_PER_MINUTE) {
+    staleSuppressed += 1
+    return { admit: false, suppressed: staleSuppressed }
+  }
+  staleInWindow += 1
+  const suppressed = staleSuppressed
+  staleSuppressed = 0
+  return { admit: true, suppressed }
+}
 
 /**
  * Backend route prefixes that must never be shadowed by the SPA index.html.
@@ -424,14 +484,38 @@ export function registerMobileRouting(
     expoMobilePresent: () => boolean
     redirectPhoneRoot?: boolean
     operatorEntryAvailable?: () => boolean
+    /**
+     * WHERE THE UI ACTUALLY IS, when it is not here (PDM-26, `appUrl`).
+     *
+     * An API-only server has no web dir, so every route below currently ends in
+     * a 404 or bounces between `/` and `/desktop` — the operator typed the
+     * address they were given and got nothing. With an app URL those requests
+     * have somewhere true to go. Read per request so a Settings write is
+     * followed without a restart, like every other read on this path.
+     */
+    appUrl?: () => string | undefined
   },
 ): void {
   const present = opts.expoMobilePresent
+  /**
+   * The UI lives elsewhere and there is nothing here to serve — send the browser
+   * there rather than 404ing it. Only when this server has no web bundle: a
+   * server that CAN serve the page keeps serving it, because a redirect would
+   * take a working local UI away from an operator on the box.
+   */
+  const toAppUrl = (c: Context): Response | undefined => {
+    const target = opts.appUrl?.()
+    if (!target) return undefined
+    const url = new URL(c.req.url)
+    return c.redirect(`${target}${url.pathname}${url.search}`)
+  }
   // Carries the ?desktop marker, which tells apps/web's browser-side redirect
   // that the Expo build is genuinely absent rather than bouncing back to it.
   const toDesktopShell = (c: Context) => c.redirect(desktopShellLocation(new URL(c.req.url).search))
   app.get('/', async (c, next) => {
     const url = new URL(c.req.url)
+    const away = toAppUrl(c)
+    if (away) return away
     if (opts.redirectPhoneRoot !== false) {
       const target = mobileEntryRedirect({
         pathname: url.pathname,
@@ -447,8 +531,10 @@ export function registerMobileRouting(
     }
     await next()
   })
-  app.get('/desktop', toDesktopShell)
+  app.get('/desktop', (c) => toAppUrl(c) ?? toDesktopShell(c))
   const mobileFallback = async (c: Context, next: () => Promise<void>) => {
+    const away = toAppUrl(c)
+    if (away) return away
     if (opts.operatorEntryAvailable?.() === false) return c.redirect('/setup/mobile')
     if (!present()) return toDesktopShell(c)
     await next()
@@ -521,7 +607,23 @@ export function registerWebStatic(
     }
     // A missing FILE is a 404, not the web page. Only navigations fall through
     // to the shell [POD-421].
-    if (!isNavigationRequest(pathname, c)) return c.notFound()
+    if (!isNavigationRequest(pathname, c)) {
+      if (isImmutableAsset(filePath)) {
+        const gate = admitStaleAssetLog(Date.now())
+        if (gate.admit) {
+          const referer = clampField(c.req.header('referer'))
+          log.info('a page asked for an asset this dist no longer has', {
+            path: clampField(pathname),
+            asset: clampField(basename(filePath)),
+            ...(referer ? { referer } : {}),
+            ...(c.req.header('sec-fetch-dest') ? { dest: c.req.header('sec-fetch-dest') } : {}),
+            // Says a gap exists rather than letting one pass unremarked.
+            ...(gate.suppressed > 0 ? { suppressedSinceLast: gate.suppressed } : {}),
+          })
+        }
+      }
+      return c.notFound()
+    }
     // index.html goes out through ONE path — the fallback — even when it was
     // asked for by name. The service worker precaches `/index.html` explicitly,
     // so it uses this same path.

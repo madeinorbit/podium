@@ -64,6 +64,29 @@ export const sharedVitestConfig = {
       // '@podium/harness/metadata' to '<index.ts>/metadata'. 99 apps/server suites
       // failed to import with "Cannot find package", which is the exact hazard the
       // model/sync/composer entries above already anchor against.
+      // ANCHORED for the same reason harness is, and for the same live hazard:
+      // `@podium/agent-runtime` exposes a `./metadata` open entrypoint, so a bare
+      // string alias would rewrite it to '<index.ts>/metadata'. Added by POD-2021,
+      // the first item whose suites import the package by name — W1's own
+      // conformance corpus reaches its source through relative paths.
+      {
+        find: /^@podium\/agent-runtime$/,
+        replacement: fileURLToPath(
+          new URL('./packages/agent-runtime/src/index.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@podium\/agent-runtime\/metadata$/,
+        replacement: fileURLToPath(
+          new URL('./packages/agent-runtime/src/metadata.ts', import.meta.url),
+        ),
+      },
+      {
+        find: /^@podium\/agent-runtime\/testing$/,
+        replacement: fileURLToPath(
+          new URL('./packages/agent-runtime/src/testing/index.ts', import.meta.url),
+        ),
+      },
       {
         find: /^@podium\/harness$/,
         replacement: fileURLToPath(new URL('./packages/harness/src/index.ts', import.meta.url)),

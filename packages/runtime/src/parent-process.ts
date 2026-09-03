@@ -27,12 +27,13 @@ import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
 import { existsSync, mkdirSync, openSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { resolveInstallDir } from './config'
+import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode } from './config'
 import { readConnectivity } from './connectivity'
 import {
   clearParentRequest,
   PARENT_HANDOVER_SIGNAL,
   type ParentRequest,
+  parentOutcomePath,
   readParentRequest,
   writeParentOutcome,
   writeParentResult,
@@ -445,6 +446,24 @@ export class ParentProcess {
       log.warn('parent signalled but no request file present')
       return
     }
+    /**
+     * THE ASK, AS IT ARRIVED (POD-3224, question 14).
+     *
+     * The server logs that it asked; only this says the parent HEARD. Between
+     * those two lines sit a file write and a signal, and a request that never
+     * arrived and a request that arrived and hung produced exactly the same
+     * evidence on both sides: nothing.
+     */
+    log.info('parent received an update request', {
+      requestId: request.requestId,
+      kind: request.kind,
+      expectedVersion: request.expectedVersion,
+      requestedAt: request.requestedAt,
+      pinned: request.pinnedPubkey !== undefined,
+      ...(request.releaseHadMigrations !== undefined
+        ? { releaseHadMigrations: request.releaseHadMigrations }
+        : {}),
+    })
     this.handoverInFlight = (async () => {
       try {
         if (request.kind === 'swap') {
@@ -607,35 +626,72 @@ export class ParentProcess {
     return this.childOrder.includes('daemon')
   }
 
+  /**
+   * THE HEALTH GATE'S VERDICT, AND THE LAST PROBE BEHIND IT (POD-3224, q14).
+   *
+   * This gate decides whether a handover commits or a machine rolls back, and it
+   * used to answer a bare boolean. A failure was logged as "boot health gate
+   * failed" with the expected version and nothing else — so "the successor never
+   * came up", "it came up on the wrong version" and "the server was fine but its
+   * daemon never reconnected" were one indistinguishable outcome, on the path
+   * where getting it wrong costs a rollback.
+   *
+   * The gate polls every 200 ms for up to a minute, so only the OUTCOME is
+   * logged, carrying the probe it was last refused by.
+   */
   private async waitForHealthy(expectedVersion: string, budgetMs: number): Promise<boolean> {
     const deadline = this.deps.now() + budgetMs
+    const startedAt = this.deps.now()
     const wantsDaemon = this.requiresDaemon()
     const wantsServer = this.childOrder.includes('server')
+    let last: Record<string, unknown> = {}
+    const settle = (ok: boolean, why: 'healthy' | 'timed-out' | 'terminating'): boolean => {
+      const fields = {
+        expectedVersion,
+        phase: this.snap.phase,
+        wantsServer,
+        wantsDaemon,
+        waitedMs: this.deps.now() - startedAt,
+        ...last,
+      }
+      if (ok) log.info('parent health gate passed', fields)
+      else if (why === 'terminating')
+        log.info('parent health gate abandoned; shutting down', fields)
+      else log.warn('parent health gate timed out', { ...fields, budgetMs })
+      return ok
+    }
     while (this.deps.now() < deadline) {
-      if (this.terminating) return false
+      if (this.terminating) return settle(false, 'terminating')
       if (!wantsServer && wantsDaemon) {
         const probe = await this.deps.probeDaemonHealth()
         const versionOk =
           expectedVersion === 'dev' || !expectedVersion || probe.appVersion === expectedVersion
+        last = { connected: probe.connected, appVersion: probe.appVersion, versionOk }
         const ok =
           this.snap.phase === 'handover_incoming'
             ? isDaemonHandoverHealthy(probe, expectedVersion)
             : probe.connected && versionOk
-        if (ok) return true
+        if (ok) return settle(true, 'healthy')
         await this.deps.sleep(200)
         continue
       }
       const probe = await this.deps.probeHealth(this.deps.port)
       const versionOk =
         expectedVersion === 'dev' || !expectedVersion || probe.serverVersion === expectedVersion
+      last = {
+        serverRunning: probe.serverRunning,
+        serverVersion: probe.serverVersion,
+        daemonConnected: probe.daemonConnected,
+        versionOk,
+      }
       const ok = wantsDaemon
         ? isHandoverHealthy(probe, expectedVersion) ||
           (expectedVersion === 'dev' && probe.serverRunning && probe.daemonConnected)
         : probe.serverRunning && versionOk
-      if (ok) return true
+      if (ok) return settle(true, 'healthy')
       await this.deps.sleep(200)
     }
-    return false
+    return settle(false, 'timed-out')
   }
 
   /**
@@ -675,6 +731,11 @@ export class ParentProcess {
       PODIUM_HOME: this.installDir,
       PODIUM_UNDER_PARENT: '1',
       [PARENT_HAS_SERVER_ENV]: this.childOrder.includes('server') ? '1' : '0',
+      // A child's stdio is ours (see childStdio), so its records belong in the
+      // same sink as ours. It cannot work that out for itself: the deletes below
+      // remove the very evidence `resolveLoggingMode` reads, so state the answer
+      // rather than leaving the child to infer it from a truncated env (POD-3177).
+      [LOGGING_MODE_ENV]: resolveLoggingMode(this.env),
     }
     // Children must not inherit the parent's notify socket — the parent pets systemd.
     delete childEnv.NOTIFY_SOCKET
@@ -821,6 +882,14 @@ export class ParentProcess {
         },
         this.deps.stateDir,
       )
+      // THE NOTE IS THE ONLY THING THAT CROSSES TO THE NEXT SERVER, and the
+      // next server folds it into the operation it adopts. Recording that it was
+      // written is what distinguishes "the successor never mentioned a rollback"
+      // from "the note was never on disk to be read".
+      log.info('parent wrote its outcome note for the next server to read', {
+        outcome: 'rollback-unavailable',
+        path: parentOutcomePath(this.deps.stateDir),
+      })
     } catch (error) {
       log.error('could not write the parent outcome report', { err: error })
     }
@@ -834,6 +903,10 @@ export class ParentProcess {
     await this.stopChildren()
     restoreOldBundle(this.installDir)
     const restored = await this.readInstalledVersion()
+    log.warn('rolled back; the machine is on the previous bundle again', {
+      because,
+      version: restored,
+    })
     this.snap = clearPostUpdate(emptyParentSnapshot('booting'))
     this.publish()
     try {
@@ -846,6 +919,11 @@ export class ParentProcess {
         },
         this.deps.stateDir,
       )
+      log.info('parent wrote its outcome note for the next server to read', {
+        outcome: 'rolled-back',
+        version: restored,
+        path: parentOutcomePath(this.deps.stateDir),
+      })
     } catch (error) {
       log.error('could not write the parent outcome report', { err: error })
     }

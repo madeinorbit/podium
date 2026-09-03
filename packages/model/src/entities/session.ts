@@ -194,11 +194,46 @@ export type AgentNeed = z.infer<typeof AgentNeed>
 export const AgentError = z.object({
   class: z.string(), // harness error class, e.g. rate_limit / server_error / billing_error
   retryable: z.boolean(), // true → a blind "continue" is worth offering
+  /** Provider wording that explains the class, bounded before it reaches the wire. */
+  detail: z.string().trim().min(1).max(1000).optional(),
 })
 export type AgentError = z.infer<typeof AgentError>
 
+const AGENT_ERROR_LABELS: Record<string, string> = {
+  usage_limit: 'Usage limit reached',
+  billing_error: 'Billing problem',
+  authentication: 'Provider authentication failed',
+  rate_limit: 'Provider rate limit reached',
+  overloaded: 'Provider is temporarily overloaded',
+  server_error: 'Provider server error',
+  transcript_identity_unavailable: 'Transcript identity unavailable',
+  network_error: 'Provider connection failed',
+  context_overflow: 'Context window exceeded',
+  host_death: 'Model host process died',
+}
+
+/** Human-facing failure copy shared by chat, status badges and send refusals. */
+export function formatAgentError(error: AgentError): string {
+  const normalized = error.class.trim()
+  const fallback = normalized.replace(/[_-]+/g, ' ').trim()
+  const label = AGENT_ERROR_LABELS[normalized] ?? (fallback || 'Provider error')
+  return error.detail ? label + ': ' + error.detail : label
+}
+
+/** Whether the provider error needs a credential refresh rather than a blind retry. */
+export function isAgentAuthenticationError(error: Pick<AgentError, 'class'>): boolean {
+  return /auth|login|credential|unauthor|forbidden|api[_-]?key/i.test(error.class)
+}
+
+/** The action sentence for a blocked send, shared by server and client surfaces. */
+export function agentErrorRecoveryInstruction(error: Pick<AgentError, 'class'>): string {
+  return isAgentAuthenticationError(error)
+    ? 'Re-authenticate with the provider, then choose “I signed in — retry”.'
+    : 'Fix the provider issue, then choose “Resume the session”.'
+}
+
 /** One live native harness subagent (Claude Task/Agent tool, etc.).
- *  Identity rides the hook channel (`agent_id` / `agent_type` on SubagentStart
+ *  Identity rides on the hook channel (`agent_id` / `agent_type` on SubagentStart
  *  / SubagentStop); optional so older daemons omit it. [spec:SP-dae6] */
 export const NativeSubagent = z.object({
   /** UNBRANDED: a HARNESS-minted `agent_id` off the hook channel. Deliberately
@@ -231,12 +266,35 @@ export const AgentRuntimeState = z.object({
   idle: IdleVerdict.optional(), // present when phase === 'idle'
   need: AgentNeed.optional(), // present when phase === 'needs_user'
   error: AgentError.optional(), // present when phase === 'errored'
+  /** A harness explicitly reported that its normal state channel is unavailable.
+   *  Present only with phase=unknown; this is observed uncertainty, not idle. */
+  observationGap: z.object({ reason: z.enum(['transcript_disabled']) }).optional(),
   /** Winning daemon observation provenance; never a user or provider-account identity. */
   stateSource: z.enum(['hook', 'poll', 'classifier']).optional(),
   stateConfidence: z.number().min(0).max(1).optional(),
   stateObservedAt: z.string().optional(),
 })
 export type AgentRuntimeState = z.infer<typeof AgentRuntimeState>
+
+/**
+ * IS A LIVE NATIVE MENU ON SCREEN, right now, for this session?
+ *
+ * The one predicate that decides whether typed digits may touch a PTY, stated
+ * once because two callers already ask it and a third was about to
+ * (POD-2414). `needs_user` + `need.kind === 'question'` is the ONLY shape a
+ * drawn menu produces: `idle` with an `idle.kind` of `question` is a textual
+ * question with no menu behind it, where digits would land as message text,
+ * and a `working` agent must never receive a stray digit from a menu that has
+ * already closed.
+ *
+ * Deliberately says nothing about session STATUS. A session can be `starting`
+ * with a menu up — Claude's onboarding and trust dialogs are exactly that —
+ * and refusing those is what left a startup-blocked session visible but
+ * unanswerable.
+ */
+export function isNativeMenuLive(state: AgentRuntimeState | null | undefined): boolean {
+  return state?.phase === 'needs_user' && state.need?.kind === 'question'
+}
 
 // ---------------------------------------------------------------------------
 // Session aggregate
@@ -337,7 +395,7 @@ export const SessionMetaEntity = z.object({
   readAt: z.string().nullable().catch(null).default(null),
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt: z.string().optional(),
-  stopReason: z.enum(['self', 'parent', 'forced', 'exited']).optional(),
+  stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
   /** Server-DERIVED: there is activity the operator hasn't seen —
    *  `lastActiveAt > readAt`, or `readAt` is null (never opened). Defaulted so a
    *  pre-field cached payload still validates (unread → false). */
@@ -388,6 +446,13 @@ export const SessionMetaEntity = z.object({
   /** The reasoning-effort tier OBSERVED on assistant turns (transcript top-level
    *  `effort`) — the observed counterpart of the spawn-time `effort` request. */
   observedEffort: z.string().optional(),
+  /** The model/effort this session was last ASKED for at RUNTIME, through
+   *  `sessions.configure` (POD-3081). Absent until someone changes it, and then
+   *  `model`/`effort` above still record how the session was LAUNCHED — three
+   *  distinct facts a reader can follow in order: launched as, asked for,
+   *  answering as. See `SessionLiveOverlay` for why none of them is a column. */
+  requestedModel: z.string().optional(),
+  requestedEffort: z.string().optional(),
   /** Latest exact harness-reported context-window usage. Absent when the
    * harness transcript does not expose both used tokens and window capacity. */
   contextUsagePercent: z.number().finite().min(0).max(100).optional(),
@@ -415,6 +480,65 @@ export const SessionMetaEntity = z.object({
    *  scrape/inject engine. A client uses it to retire its own native sampler +
    *  chat→native flush (the daemon owns that now). Absent/false = legacy path. */
   draftSyncEngine: z.boolean().optional(),
+  /** Runtime driver the daemon actually bound. Transient live fact; absent for
+   * older daemons and legacy sessions that have no agent-runtime handle. Never
+   * infer this from the requested runtime contract. */
+  driverId: z.string().min(1).optional(),
+  /** Manifest-default or machine-wide server preference that degraded to
+   * driverId. Transient and daemon-reported; absent when selection was honoured. */
+  requestedDriverId: z.string().min(1).optional(),
+  /**
+   * The FAMILY of the driver in `driverId` (POD-2290) — the fact a client needs
+   * to pick a surface, projected so no client has to learn driver ids.
+   *
+   * `terminal` sessions have a PTY behind the native view. `server` and
+   * `embedded` ones do NOT: their agent runs as a server child or an in-process
+   * loop, nothing ever attaches, and a panel that offers the terminal view for
+   * them shows a spinner that can never resolve.
+   *
+   * TRANSIENT, EXACTLY LIKE `driverId`, which it is derived from — absent for an
+   * older daemon, a legacy session with no runtime handle, a row that has not
+   * bound yet, and a parked row whose binding did not survive. **Absent means
+   * UNKNOWN, and every client must read unknown as "assume a terminal"**: that
+   * is what keeps a PTY session's behaviour identical to before this field
+   * existed, and it is the safe direction — a wrongly-hidden terminal strands a
+   * session the operator can drive, while a wrongly-offered one costs a pane
+   * they can switch away from.
+   *
+   * DELIBERATELY NOT DERIVED FROM `resume.kind`. That is the DURABLE
+   * server-family tell (`isServerFamilyResumeKind`) and it is a per-HARNESS
+   * fact, so it is equally true of PTY-driven codex, grok and opencode rows.
+   * The server's reap guard reaches for it only as a FALLBACK — it prefers the
+   * bound `driverId`, and takes the per-harness tell just for rows that hold
+   * none — and it can afford that fallback because there failing closed is
+   * cheap. For a VIEW the same guess takes the terminal away from a session
+   * that has one, so this side fails open instead.
+   */
+  driverFamily: z.enum(['server', 'embedded', 'terminal']).optional(),
+  /**
+   * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE WHILE IT RUNS (POD-3087) — the
+   * `configure.fields` its capabilities declare, reported by the daemon on bind.
+   *
+   * It exists because `driverFamily` above CANNOT answer this, and the gap is
+   * not academic: `grok-acp` is family `server` and declares `configure` for
+   * `permissionMode` alone — it sends no model on `session/new` or
+   * `session/prompt` — so a model picker gated on the family is offered on a
+   * session that can only refuse it.
+   *
+   * TRANSIENT, exactly like `driverId` and `driverFamily`, which it travels
+   * with: it describes a live handle, and one that outlived its process would
+   * offer a control for a driver that is gone.
+   *
+   * ABSENT vs EMPTY, and every consumer must branch on the difference. **Absent
+   * means UNKNOWN** — an older daemon, or a row that has not bound yet — and a
+   * client must keep its previous behaviour rather than read it as "cannot".
+   * **Empty means NOTHING** — the daemon answered, and this driver changes no
+   * setting on a running session. Only the second licenses hiding a control;
+   * reading absent as empty hides it on every session during a rolling upgrade,
+   * which is the failure this comment exists to prevent.
+   */
+  configureFields: z.array(z.string().min(1)).optional(),
+  attachKinds: z.array(z.enum(['engine', 'client'])).optional(),
   /** Number of durable server-held messages waiting to be typed into this agent
    *  once it is back (docs/spec/outbox-write-path.md §2.2). Absent = none. Like
    *  snoozedUntil/draftUpdatedAt this is pending USER intent, orthogonal to the

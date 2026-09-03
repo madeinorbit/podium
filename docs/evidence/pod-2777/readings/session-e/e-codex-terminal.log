@@ -1,0 +1,54 @@
+ok  no other probe is driving this rig
+  ok  server pid=2477614 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 15e5afe
+  ok  daemon pid=2477703 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 15e5afe
+  ok  exactly one daemon (pid 2477703) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 15e5afe
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f","short":"15e5afe","spawnedSha":"15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f","serverPid":2477614,"daemonPid":2477703,"webSourceSha":"15e5afe","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f (web bundle 15e5afe, server pid 2477614, daemon pid 2477703)
+==============================================================================
+session 5578d199-3c0e-41e5-a611-11545d7e2c11 created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   BLOCKED  joined at the tail of the preview stream (0 frame at seq=?)
+   control: FIRED — 2 frame(s), first at +4ms
+   JOINED            33539ms after the send, phase=working at that moment
+   FRAMES            0
+   THE TURN ENDED    within the sampling window, and a lone trailing frame is what
+                     a viewer arriving at the fence sees. Not evidence about the
+                     preview plane: re-run with a longer prompt or a shorter
+                     P2777_JOIN_MS to measure this cell on this harness.
+   FINE WATCH        NOT acquired
+
+── interrupt — interrupt a running turn
+   PASS  turn stopped 512ms after interrupt, but nothing marks it
+   control: FIRED — 0 preview frame(s) and 6964 new transcript chars — tokens are being produced; phase=working, 0 preview frame(s), 6964 new transcript chars, 32554 new terminal bytes
+   WAS RUNNING       0 preview frame(s) and 6964 new transcript chars — tokens are being produced; phase=working, 0 preview frame(s), 6964 new transcript chars, 32554 new terminal bytes
+   INTERRUPT SENT    {"ok":true,"requested":"keystroke"}
+   SETTLED           phase left 'working' after 512ms
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              6964 chars at the call -> 6964 chars at settle
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    32554 at the call -> +679 after 6s -> +679 after 12s
+   AFTER THE CALL    phase=idle status=live error=none
+   SCORED ON         phase leaving 'working'
+
+==============================================================================
+RESULT  codex / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+stream          BLOCKED   fired     joined at the tail of the preview stream (0 frame at seq=?)
+interrupt       PASS      fired     turn stopped 512ms after interrupt, but nothing marks it
+==============================================================================
+written /tmp/pod-2777/results/codex.terminal.json

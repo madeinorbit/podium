@@ -1,0 +1,17 @@
+{
+  "at": "2026-08-30T06:14:30.645Z",
+  "issue": "POD-3112",
+  "kind": "r11-ui-lifecycle-verification",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "6f0cbfda93f48f98109ab40e5084f91f773c62ac",
+  "instance": "p3112-oc-ui-lifecycle-r11",
+  "ports": [
+    20321,
+    47330,
+    47331
+  ],
+  "providerPrompts": 0,
+  "verdict": "REFUSED",
+  "reason": "Error: identity {\"sessionId\":\"150fe0d6-b52a-41a3-a2db-3e8e2d80216e\",\"agentKind\":\"opencode\",\"accountId\":\"native:opencode\",\"title\":\"issue-1-r11-lifecycle-ui-boundary\",\"cwd\":\"/tmp/pod-3112-oc-ui-lifecycle-r11/dummy-repo/.worktrees/issue-1-r11-lifecycle-ui-boundary\",\"status\":\"live\",\"controllerId\":\"c0\",\"geometry\":{\"cols\":99,\"rows\":30},\"epoch\":0,\"clientCount\":1,\"createdAt\":\"2026-08-30T06:14:31.673Z\",\"lastActiveAt\":\"2026-08-30T06:14:31.673Z\",\"origin\":{\"kind\":\"spawn\"},\"archived\":false,\"readAt\":null,\"unread\":true,\"machineId\":\"d5494578-d245-4917-b39d-3182c4500195\",\"machineName\":\"flatblock\",\"neverBound\":true,\"configureFields\":[],\"driverId\":\"generic-pty\",\"requestedDriverId\":\"opencode-server\",\"driverFamily\":\"terminal\",\"spawnedBy\":\"user\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"user:sole\"},\"onBehalfOf\":\"user:sole\"},\"issueId\":\"iss_ba769074-fbfa-4598-b62b-15fa1509e1ae\",\"refIssueId\":\"iss_ba769074-fbfa-4598-b62b-15fa1509e1ae\",\"refLetter\":\"B\",\"condition\":\"logged-out\",\"harnessHandoff\":false,\"harnessPromptModeHints\":false,\"displayRef\":\"DUM-1-B\"}",
+  "finishedAt": "2026-08-30T06:14:31.996Z"
+}

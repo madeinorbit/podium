@@ -1,0 +1,25 @@
+==============================================================================
+A6a  terminal attach and type   harness=opencode
+==============================================================================
+session fcbbf261-6abe-452b-8060-a79e892a85da created
+BOUND DRIVER       opencode-server (family server)
+STATUS             live
+TUI PRIMING        nothing to clear
+
+ATTACHED FRAME     {"resumed":false,"outputSeen":false,"epoch":0,"geometry":{"cols":120,"rows":40},"controllerId":"c0"}
+CONTROL            terminal produced 14876 byte(s) on attach, before any keystroke
+                   the product's own durable counter says outputSeen=false
+
+1. ECHO            typed "ECHO-23VEKL" -> ECHOED on screen (+97 bytes)
+2. RESIZE          ->100x30 repainted 6026 byte(s); ->160x45 repainted 19917 byte(s)
+3. SECOND VIEWER   received 69187 byte(s); 1/1 of its last lines also on viewer 1; sees the typed mark: yes
+
+   viewer 1 tail:
+     | [>0qP+q4d73\[?1016$p[?2027$p[?2031$p[?1004$p[?2004$p[?2026$p                                        
+   viewer 2 tail:
+     | [>0qP+q4d73\[?1016$p[?2027$p[?2031$p[?1004$p[?2004$p[?2026$p                                        
+
+==============================================================================
+A6a  PASS   echo=true  resize-repaint=25943B  second-viewer=69187B/1 shared lines
+     control FIRED — 14876 terminal byte(s) before any keystroke
+==============================================================================

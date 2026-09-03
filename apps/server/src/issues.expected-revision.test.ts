@@ -328,6 +328,7 @@ describe('mutationId dedupe (ADR 2 D11.7 / ADR 3 D1)', () => {
       'setLabels',
       'setPlacement',
       'setTucked',
+      'start',
       'undefer',
       'update',
     ])
@@ -423,9 +424,17 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
     // the line above asks: the per-command rows below run over this same list,
     // so `setPlacement` is already being asserted to declare a conflict class,
     // and it does. POD-781 added no command — its queued kinds all name
-    // contracts that were already here. Shipping then added `ship`,
-    // `cancelShip`, and `resolveShipHold`; the per-command rows below verify all
-    // three declare a conflict class and agree with their input schemas.
+    // contracts that were already here.
+    //
+    // 46 → 49 is the Shipping command boundary (POD-889): `issues.ship`, `issues.cancelShip`
+    // and `issues.resolveShipHold`. Re-read, not re-baselined — all three declare
+    // `conflict: 'cmd'`, so the three per-command rows below already hold them:
+    // each is asserted to declare a class, to omit `expectedRevision` from its
+    // input (a 'cmd' contract that carried the field would advertise a
+    // precondition the dispatcher never checks), and to state a `conflictRule`.
+    // Shipping arbitrates on its own durable generation/custody fences rather
+    // than on an issue revision, which is what 'cmd' says and why exp-rev would
+    // be the wrong class for them.
     expect(mutations).toHaveLength(49)
   })
 
@@ -472,8 +481,13 @@ describe('registry totality (ADR 3 D13.2 — declared per contract, never guesse
       expect(def.conflictRule, `${name} is a query and has no rule to state`).toBeUndefined()
     }
     // Non-vacuity: the loop met the queries, not an empty registry.
-    // Shipping's delivery receipt and durable artifact reads are the two query
-    // additions since this canary last moved.
+    //
+    // 25 → 27 is `issues.artifactRead` (POD-1999's CLI read-back) and
+    // `issues.deliveryReceipt` (the Shipping boundary's receipt lookup). Both are
+    // reads, so both belong here rather than in the mutation census above, and the
+    // loop this count guards has already asserted each of them writes `'n/a'`
+    // rather than staying silent — which is the whole point of the rewrite noted
+    // above, and the reason bumping this number does not soften anything.
     expect(queries).toBe(27)
   })
 })

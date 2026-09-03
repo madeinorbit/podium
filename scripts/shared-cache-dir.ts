@@ -29,26 +29,39 @@ function stableRealpath(path: string): string {
   }
 }
 
+/** True when `path` is a git directory: every one, common or per-worktree, carries HEAD. */
+function isGitDir(path: string): boolean {
+  return existsSync(join(path, 'HEAD'))
+}
+
+/**
+ * The common repository for a git directory: `<common>/worktrees/<name>[/rest]` becomes
+ * `<common>[/rest]`. The `rest` matters for a submodule checked out inside a linked
+ * worktree, whose git directory is `<common>/worktrees/<name>/modules/<path>`; the main
+ * checkout's copy of that submodule lives at `<common>/modules/<path>`, and the two are one
+ * repository with one cache. The `worktrees` segment must sit directly under a git
+ * directory: a checkout that merely lives in a folder called `worktrees` is left alone, and
+ * bare repositories and Windows separators are both legitimate.
+ */
+export function commonGitDir(gitDir: string): string {
+  const parts = resolve(gitDir).split(sep)
+  for (let i = 1; i + 1 < parts.length; i += 1) {
+    if (parts[i] !== 'worktrees') continue
+    const parent = parts.slice(0, i).join(sep) || sep
+    if (!isGitDir(parent)) continue
+    return commonGitDir([...parts.slice(0, i), ...parts.slice(i + 2)].join(sep))
+  }
+  return parts.join(sep)
+}
+
 function projectCacheIdentity(root: string): string {
   const dotGit = join(root, '.git')
   if (!existsSync(dotGit)) return stableRealpath(root)
-  const stat = statSync(dotGit)
-  const statTarget = stat.isFile() ? readFileSync(dotGit, 'utf8') : ''
-  const match = statTarget.match(/^gitdir: (.+)$/m)
-  const gitDir = match ? (match[1] ?? '') : dotGit
+  if (!statSync(dotGit).isFile()) return stableRealpath(commonGitDir(dotGit))
+  const match = readFileSync(dotGit, 'utf8').match(/^gitdir: (.+)$/m)
+  const gitDir = match?.[1] ?? dotGit
   const absoluteGitDir = isAbsolute(gitDir) ? gitDir : resolve(root, gitDir)
-  // A linked worktree's gitfile points at <common-git-dir>/worktrees/<name>.
-  // Resolve this structurally instead of looking for a literal `worktrees` path segment:
-  // bare repositories and Windows path separators are both legitimate.
-  const worktreesParent = resolve(absoluteGitDir, '..', '..')
-  if (
-    stat.isFile() &&
-    absoluteGitDir !== worktreesParent &&
-    resolve(absoluteGitDir, '..').endsWith(`${sep}worktrees`)
-  ) {
-    return stableRealpath(worktreesParent)
-  }
-  return stableRealpath(absoluteGitDir)
+  return stableRealpath(commonGitDir(absoluteGitDir))
 }
 
 /** 16 hex chars of the common git dir — the per-repository, per-host cache identity. */

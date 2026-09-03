@@ -32,6 +32,9 @@ type Phase =
 
 export interface SetupStatus extends Partial<ServerReadiness> {
   needsSetup?: unknown
+  /** WHICH LAYER answered for `mode` (PDM-26). `'env'` means the deployment
+   *  already chose, and the wizard's mode step is a dead control. */
+  modeSource?: unknown
 }
 
 // Bounded backoff for an unreachable backend before surfacing an error (vs. retrying forever).
@@ -112,6 +115,8 @@ export function classifySetupStatus(
 interface ProbeResult {
   readonly phase: Exclude<Phase, 'loading' | 'unreachable' | 'stale-build'>
   readonly readiness?: ServerReadiness
+  /** The deployment set `PODIUM_MODE`, so the wizard must not offer a mode step. */
+  readonly modeForcedByEnv?: boolean
 }
 
 async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
@@ -132,6 +137,7 @@ async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
   return {
     phase: classifySetupStatus(data, window.location, undefined, localSetupHint),
     ...(isServerReadiness(data) ? { readiness: data } : {}),
+    ...(data.modeSource === 'env' ? { modeForcedByEnv: true } : {}),
   }
 }
 
@@ -141,7 +147,11 @@ async function probeSetup(httpOrigin: string): Promise<ProbeResult> {
 async function probeRemoteReadiness(httpOrigin: string): Promise<ProbeResult> {
   try {
     const response = await fetch(`${httpOrigin}/readiness`)
-    if (!response.ok) return { phase: 'ready' }
+    // 503 IS AN ANSWER, not a failure (PDM-26): a blocked data plane now says so
+    // in the status code as well as the body, and the body is exactly what it
+    // always was. Treating it as unreachable here would wave a remote desktop
+    // straight past the setup screen it exists to show.
+    if (!response.ok && response.status !== 503) return { phase: 'ready' }
     const status: unknown = await response.json()
     if (!isServerReadiness(status)) {
       return {
@@ -165,6 +175,9 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   /** The readiness behind the phase, so the restart-required screen can say WHICH
    *  setting this process is stale on instead of "something changed" (POD-2766). */
   const [readiness, setReadiness] = useState<ServerReadiness | undefined>(undefined)
+  /** The deployment set `PODIUM_MODE` (PDM-26): the wizard skips its mode step
+   *  rather than drawing a choice that has already been made for the operator. */
+  const [modeForcedByEnv, setModeForcedByEnv] = useState(false)
   const [attempt, setAttempt] = useState(0)
   // Snapshot this before any effects run. The parallel replica open can create a namespace
   // marker during this boot, but only a replica retained from an earlier boot makes offline
@@ -211,6 +224,7 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
           // restart-required screen reads it to NAME what is stale, and `publish`
           // may hand the phase straight to React.
           setReadiness(next.readiness)
+          setModeForcedByEnv(next.modeForcedByEnv === true)
           publish(next.phase)
         })
         .catch(() => {
@@ -351,7 +365,11 @@ export function SetupGate({ children }: { children: ReactNode }): ReactNode {
   if (phase === 'setup') {
     return (
       <Suspense fallback={null}>
-        <SetupView httpOrigin={httpOrigin} onSaved={onSetupSaved} />
+        <SetupView
+          httpOrigin={httpOrigin}
+          onSaved={onSetupSaved}
+          {...(modeForcedByEnv ? { modeForcedByEnv: true } : {})}
+        />
       </Suspense>
     )
   }

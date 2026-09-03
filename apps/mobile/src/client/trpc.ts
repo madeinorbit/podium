@@ -1,5 +1,6 @@
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
+  parseServer,
   parseServerOrigin,
   resolveServerConfig,
   type ServerConfig,
@@ -97,6 +98,26 @@ interface MobileTrpcExtras {
   messages: {
     ledger: QueryProcedure<{ sessionId: SessionId; limit: number }, unknown[]>
     cancel: MutationProcedure<{ id: string }>
+  }
+  /**
+   * THE BLOCKING-ASK ANSWER (POD-2414).
+   *
+   * §4 requires a blocking ask to be answerable from the phone as well as from
+   * the web and the CLI, and the aggregate's answer command is one procedure for
+   * all of them. Declared here rather than in the shared seam because the shared
+   * seam is what the store/actions layer calls, and nothing shared answers an
+   * interaction — the two SHELLS do, and the desktop reads the server's router
+   * type directly.
+   *
+   * `answer` is the already-typed arm: the card the phone renders comes from
+   * `pendingInteractionCard`, which carries the typed value, so the phone never
+   * builds one and never needs the free-text arm the CLI uses.
+   */
+  interactions: {
+    answer: MutationProcedure<
+      { id: string; answer: { kind: string } },
+      { ok: boolean; reason?: string; detail?: string }
+    >
   }
   superagent: {
     // THE SHADOW TYPES ARE GONE (POD-332, audit item `superagent-shadow-types`).
@@ -204,6 +225,35 @@ export function envServer(): string | undefined {
   return process.env?.EXPO_PUBLIC_PODIUM_SERVER
 }
 
+function envSameSite(): boolean {
+  if (typeof process === 'undefined') return false
+  return process.env?.EXPO_PUBLIC_PODIUM_SAME_SITE === 'true'
+}
+
+/**
+ * The build-time server origin, but only when the BUILD also declared it
+ * same-site with the page it is stamping (PDM-24). `undefined` otherwise, which
+ * is every build that says nothing — so web behaviour is unchanged by default.
+ *
+ * Why a web session may follow it at all, when native injection may not: the
+ * session cookie belongs to the API host and is `SameSite=Lax`, and same-site is
+ * exactly the condition under which the browser attaches it to what this page
+ * asks for, including the socket upgrade. The cookie rationale at `webProfile`
+ * is not weakened here; this names the one deployment that satisfies it.
+ *
+ * A FLAG, NOT A HEURISTIC. Deciding "same site" in the page means deriving the
+ * registrable domain from a hostname, which needs the public suffix list to be
+ * right; being wrong means sending credentials to a host that merely looks like
+ * a neighbour. The build knows, so the build says.
+ */
+export function sameSiteBuildServer(): string | undefined {
+  const declared =
+    (globalThis as { __PODIUM_SAME_SITE__?: boolean }).__PODIUM_SAME_SITE__ === true ||
+    envSameSite()
+  if (!declared) return undefined
+  return (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ ?? envServer()
+}
+
 export function readServerConfig(): ServerConfig {
   if (activeRuntimeConfig) return activeRuntimeConfig
   const injected = (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__ ?? envServer()
@@ -226,13 +276,20 @@ export function readServerConfig(): ServerConfig {
     if (parsed) return { ...parsed, override: true }
     throw new Error('native server profile has not been selected')
   }
-  // Web sessions are page-origin cookie sessions. Only the page's explicit
-  // ?server override may redirect them; native build-time injection is ignored.
+  // Web sessions are page-origin cookie sessions. Two things may redirect them:
+  // the page's explicit ?server override, and a build that declared its server
+  // same-site with the page (see `sameSiteBuildServer`). Native build-time
+  // injection on its own still may not.
+  //
+  // ?server FIRST, because `resolveServerConfig` prefers what it is handed:
+  // passing the build origin unconditionally would make the development
+  // override unreachable on exactly the builds that need it most.
   //
   // Through the narrowed `location` above rather than `window.location`: the
   // early return has already established it is present, and reaching for the
   // property a second time is the exact spelling that throws on a device.
-  return resolveServerConfig(location)
+  if (parseServer(location.search)) return resolveServerConfig(location)
+  return resolveServerConfig(location, sameSiteBuildServer())
 }
 
 export function setActiveServerRuntime(

@@ -14,10 +14,12 @@ import type {
 import { chatSendRoute, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/viewmodels'
 import { asMutationId, type SessionOffer } from '@podium/model'
 import type { SessionId, TranscriptItem } from '@podium/model/browser'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { Store } from '@/app/store'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
-import type { PendingItem, QueuedChatMessage } from './chat'
+import type { DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
+import { deadLetteredOperatorMessages } from './chat'
 import type { UseHeadlessTurnResult } from './use-headless-turn'
 
 interface TranscriptBridge {
@@ -67,12 +69,18 @@ export interface UseChatSendOptions {
   superThread: SuperThreadRef | undefined
   compact: boolean
   active: boolean
-  composer: Pick<ComposerState, 'sendable' | 'canResume'>
+  composer: Pick<ComposerState, 'sendable' | 'canResume' | 'refusalReason'>
   ownThreadIds: ReadonlySet<string> | undefined
   blocks: readonly ChatBlock[]
   session:
     | {
-        agentState?: { phase?: string; since?: string } | undefined
+        agentState?:
+          | {
+              phase?: string
+              since?: string
+              error?: { class: string; retryable: boolean; detail?: string }
+            }
+          | undefined
         offer?: SessionOffer | null | undefined
       }
     | undefined
@@ -87,11 +95,19 @@ export interface UseChatSendOptions {
 export interface UseChatSendResult {
   pending: PendingItem[]
   queuedMessages: QueuedChatMessage[]
+  /** Dead-lettered ledger rows, restored so a failed delivery stays visible. */
+  failedMessages: DeadLetteredChatMessage[]
   justSent: boolean
   ctxSeq: number | null
   draft: string
   setDraft: (text: string) => void
-  send: (fullText: string, tags?: PendingItem['tags'], toolPaths?: string[]) => Promise<void>
+  /** Send composed text plus out-of-band staged refs. */
+  send: (
+    fullText: string,
+    tags?: PendingItem['tags'],
+    toolPaths?: string[],
+    attachments?: readonly RuntimeAttachmentRef[],
+  ) => Promise<void>
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   dismissOffer: (offerAt: string) => Promise<void>
   retryPending: (id: string) => Promise<void>
@@ -152,10 +168,26 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
     [sessionId, headless, superThread, composer, ownThreadIds],
   )
   const [ctxSeq, setCtxSeq] = useState<number | null>(null)
+  /**
+   * DEAD-LETTERED ROWS, RESTORED (POD-1761). A delivery the authority gave up on
+   * is terminal, so it is not in the queued projection the controller keeps —
+   * but dropping it off the surface is what made a failed send look like a send
+   * that never happened. Derived from the controller's OWN ledger read rather
+   * than a second query of the same rows, and formatted here because the wording
+   * is the web ledger's (`deadLetterDeliveryLine`).
+   */
+  const [failedMessages, setFailedMessages] = useState<DeadLetteredChatMessage[]>([])
 
   const deliver = useCallback(
-    async (turn: ConversationPendingTurn): Promise<{ state: 'queued' | 'sent' }> => {
+    async (
+      turn: ConversationPendingTurn,
+    ): Promise<{ state: 'queued' | 'sent'; position?: number }> => {
       if (route.kind === 'session' || route.kind === 'resume') setPanelMode(sessionId, 'chat')
+      // Staged refs only exist for a live agent session; every other route has
+      // no wire to carry them, so refuse rather than silently drop the files.
+      if (turn.attachments?.length && route.kind !== 'session') {
+        throw new Error('file attachments require a live agent session')
+      }
       switch (route.kind) {
         case 'superagent-turn':
         case 'concierge':
@@ -173,15 +205,17 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
           const result = await trpc.sessions.sendText.mutate({
             sessionId,
             text: turn.wire,
+            ...(turn.attachments?.length ? { attachments: [...turn.attachments] } : {}),
             mutationId: turn.deliveryId,
           })
           assertSendAccepted(result)
-          return {
-            state:
-              result.disposition === 'queued' || result.disposition === 'accepted'
-                ? 'queued'
-                : 'sent',
+          if (result.disposition === 'queued' || result.disposition === 'accepted') {
+            return {
+              state: 'queued',
+              ...(result.position !== undefined ? { position: result.position } : {}),
+            }
           }
+          return { state: 'sent' }
         }
         case 'resume':
           await resumeAndSend(sessionId, turn.wire, asMutationId(turn.deliveryId))
@@ -256,6 +290,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
         : {
             readQueue: () =>
               operationsRef.current.trpc.messages.ledger.query({ sessionId, limit: 100 }),
+            onQueueRows: (rows) => setFailedMessages(deadLetteredOperatorMessages(rows, sessionId)),
             retract: (id: string) =>
               operationsRef.current.trpc.messages.cancel.mutate({ id }).then(() => undefined),
           }),
@@ -278,6 +313,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       controller.updateContext({
         agentSince: session?.agentState?.since,
         agentPhase: session?.agentState?.phase,
+        agentError: session?.agentState?.error,
         offer: session?.offer ?? null,
         canInterrupt,
         latestOperatorPrompt,
@@ -286,6 +322,7 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
       canInterrupt,
       controller,
       latestOperatorPrompt,
+      session?.agentState?.error,
       session?.agentState?.phase,
       session?.agentState?.since,
       session?.offer,
@@ -301,13 +338,19 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   }, [onInitialPendingSettled, state.pending])
 
   const send = useCallback(
-    async (fullText: string, tags?: PendingItem['tags'], toolPaths?: string[]) => {
+    async (
+      fullText: string,
+      tags?: PendingItem['tags'],
+      toolPaths?: string[],
+      attachments?: readonly RuntimeAttachmentRef[],
+    ) => {
       pinToBottom()
       await controller.submit({
         text: fullText,
         wire: fullText,
         ...(tags && tags.length > 0 ? { tags } : {}),
         ...(toolPaths && toolPaths.length > 0 ? { toolPaths } : {}),
+        ...(attachments && attachments.length > 0 ? { attachments } : {}),
       })
     },
     [controller, pinToBottom],
@@ -321,8 +364,15 @@ export function useChatSend(opts: UseChatSendOptions): UseChatSendResult {
   )
 
   return {
-    pending: state.projected.pending,
+    // The controller records a failed turn's reason as `error`; the bubble that
+    // renders it calls the same fact `failure` (POD-2604). Bridged here, at the
+    // one seam where a controller turn becomes a web pending item, rather than
+    // teaching either side the other's word for it.
+    pending: state.projected.pending.map((turn) =>
+      turn.error === undefined ? turn : { ...turn, failure: turn.error },
+    ),
     queuedMessages: state.projected.queued,
+    failedMessages,
     justSent: state.justSent,
     ctxSeq,
     draft: state.draft,

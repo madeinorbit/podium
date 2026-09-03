@@ -107,13 +107,30 @@ import { AgentKind, HarnessAgent } from './agent'
 /** External provider account identifier; it is not a Podium entity id. */
 const ProviderAccountIdField = z.string().optional()
 
+/** The probe answered no installation question before its shared budget expired. */
+export const AgentProbeError = z.object({
+  reason: z.literal('timed-out'),
+  timeoutMs: z.number().int().positive(),
+})
+export type AgentProbeError = z.infer<typeof AgentProbeError>
+
+/** Human-facing duration for an inconclusive inventory verdict. */
+export function probeTimeoutDescription(error?: AgentProbeError): string {
+  if (!error) return 'timed out'
+  const seconds = Math.ceil(error.timeoutMs / 1000)
+  return `timed out after ${seconds}s`
+}
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
 export const AgentInventory = z.object({
   kind: HarnessAgent,
-  installed: z.boolean(),
-  /** Parsed from `<cli> --version`; absent when not installed / parse failed. */
+  /** `null` means the bounded version probe timed out, so presence is unknown. */
+  installed: z.boolean().nullable(),
+  /** Why presence is unknown. Absent when the probe reached a definitive answer. */
+  probeError: AgentProbeError.optional(),
+  /** Parsed from `<cli> --version`; absent unless definitely installed. */
   version: z.string().optional(),
   /** Resolved binary path when installed (may be a bare PATH name). */
   path: z.string().optional(),
@@ -139,8 +156,11 @@ export type AgentInventory = z.infer<typeof AgentInventory>
  *  PATH. */
 export const ToolInventory = z.object({
   name: z.string(),
-  installed: z.boolean(),
-  /** Parsed from `<name> --version`; absent when not installed / parse failed. */
+  /** `null` means the bounded version probe timed out, so presence is unknown. */
+  installed: z.boolean().nullable(),
+  /** Why presence is unknown. Absent when the probe reached a definitive answer. */
+  probeError: AgentProbeError.optional(),
+  /** Parsed from `<name> --version`; absent unless definitely installed. */
   version: z.string().optional(),
   /** Resolved binary path when installed (may be a bare PATH name). */
   path: z.string().optional(),
@@ -157,6 +177,18 @@ export const Inventory = z.object({
   podiumVersion: z.string().optional(),
   /** All 5 HarnessAgent kinds, present or not. */
   agents: z.array(AgentInventory),
+  /** Concrete runtime drivers admitted by this daemon's manifest and live
+   * version/auth gates. Optional for older daemons; terminal drivers are
+   * included so API consumers can distinguish a complete report. */
+  runtimeDrivers: z
+    .array(
+      z.object({
+        harness: HarnessAgent,
+        id: z.string().min(1),
+        family: z.enum(['terminal', 'server', 'embedded']),
+      }),
+    )
+    .optional(),
   /** Non-harness CLIs (currently just `gh` for #214). Defaulted so an
    *  inventory_json blob persisted before this field parses back cleanly. */
   tools: z.array(ToolInventory).default([]),
@@ -228,6 +260,55 @@ export const HostMetricsWire = z.object({
    *  are an existence leak is deliberately undecided. Marked `SEE` because it is
    *  health-shaped; whoever draws the projection may move it to `USE`. */
   idleCapUnmet: z.number().int().nonnegative().optional(),
+  /**
+   * Client terminals on this machine that nobody is watching — what could be
+   * reclaimed under pressure WITHOUT touching a session (spec §5: attachments
+   * are pure convenience and go first, the session engine is untouched).
+   *
+   * A COUNT, on the same §3.1.2 boundary and for the same reason as
+   * `idleCapUnmet` above: health-shaped, `SEE`, and whether counts are an
+   * existence leak stays deliberately undecided. It names no session — which is
+   * also all the pressure policy needs, since the machine picks WHICH to close
+   * (it holds the ages and the viewer state; the server holds the threshold).
+   * Optional for mixed-version fleets: absent means a daemon that predates
+   * attachments, not a machine with none.
+   */
+  reclaimableAttachments: z.number().int().nonnegative().optional(),
+  /**
+   * What this machine's AGENT SESSIONS are using, against the aggregate
+   * throttle their slice carries (POD-2413; spec §6).
+   *
+   * `memory` above is the whole host, which cannot say WHOSE pressure it is: a
+   * browser and a fleet of runaway agents produce the same number, and only one
+   * of them is fixed by parking a session. This pair is the attributable
+   * signal — the sessions slice's `memory.current` and its `MemoryHigh` — so
+   * the reclaim policy can act on evidence about sessions rather than on a
+   * host-wide proxy.
+   *
+   * `SEE`, and no session is named: an aggregate is exactly what the policy
+   * needs, since the machine picks which session to give back. Optional for
+   * mixed-version fleets and for every host without cgroups.
+   */
+  sessionsMemory: z
+    .object({
+      currentBytes: byteCount,
+      highBytes: byteCount,
+      /**
+       * PSI `full avg10` for the slice: the share of the last ten seconds in
+       * which EVERY runnable session task was blocked on memory at once.
+       *
+       * THIS is the pressure signal; the two byte counts are context. cgroup
+       * `memory.current` counts reclaimable page cache and the kernel only
+       * reclaims at the high line, so a build-heavy slice sits pinned at its
+       * watermark with memory genuinely free — acting on "current >= high"
+       * would park sessions on a host under no pressure at all. `full` rather
+       * than `some` for the same reason at one remove: some-stalling is what an
+       * ordinary parallel build does all the time. Optional: a kernel without
+       * PSI reports nothing rather than a zero.
+       */
+      stalledPct: z.number().nonnegative().optional(),
+    })
+    .optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 

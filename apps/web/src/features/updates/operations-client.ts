@@ -16,7 +16,8 @@
  */
 import type { Operation } from '@podium/protocol'
 import { parseOperation } from '@podium/protocol'
-import { SERVER_UNAVAILABLE_MESSAGE, type makeTrpc } from '@/app/trpc'
+import { type makeTrpc, SERVER_UNAVAILABLE_MESSAGE } from '@/app/trpc'
+import { updatesLog } from '@/lib/logging/update-logs'
 
 export type Trpc = ReturnType<typeof makeTrpc>
 
@@ -116,22 +117,72 @@ export async function readLatestOperation(trpc: Trpc): Promise<Operation | null>
  */
 export async function startUpdate(trpc: Trpc, surface?: string): Promise<void> {
   try {
-    await trpc.updates.start.mutate(surface ? { surface } : undefined)
+    const answer = await trpc.updates.start.mutate(surface ? { surface } : undefined)
+    // THE ANSWER IS READ EVEN THOUGH IT IS NOT RETURNED (POD-3224).
+    //
+    // This function still answers nothing — folding the returned operation is a
+    // behaviour change, and this issue is about seeing, not deciding. But the
+    // server DID say which operation the click produced, or that one was already
+    // running, and throwing that on the floor unrecorded is why "I pressed
+    // Update and the offer came back" has never been diagnosable: nobody could
+    // tell a start that never happened from a start whose operation the next
+    // poll simply had not folded yet.
+    noteStartAnswer('start', answer)
   } catch (error) {
     if (!isMissingProcedure(error)) throw error
+    updatesLog.info('this server has no updates.start; falling back to converge', {})
     await trpc.updates.converge.mutate()
   }
 }
 
-/** Retry is a NEW operation over the remainder (§3.2); an old server just re-converges. */
+/**
+ * What `updates.start` / `updates.retry` answered, as one forwarded line.
+ *
+ * The shape is `{ operationId, alreadyRunning, operation }` (updates/trpc.ts),
+ * but this reads it DEFENSIVELY: the whole reason this module writes every verb
+ * twice is that the bundle and the server are routinely different builds, and a
+ * log line is the last thing that should throw when they disagree.
+ */
+function noteStartAnswer(action: 'start' | 'retry', answer: unknown): void {
+  const value = (answer ?? {}) as {
+    operationId?: unknown
+    alreadyRunning?: unknown
+    operation?: { id?: unknown; state?: unknown; steps?: unknown }
+  }
+  const operationId =
+    typeof value.operationId === 'string'
+      ? value.operationId
+      : typeof value.operation?.id === 'string'
+        ? value.operation.id
+        : undefined
+  updatesLog.info('the server answered an update mutation', {
+    action,
+    ...(operationId ? { operationId } : { operationId: 'unnamed' }),
+    // `true` means a second surface pressed the button on an update that was
+    // already running — the single-flight answer, and the one a caller most
+    // often mistakes for a refusal.
+    alreadyRunning: value.alreadyRunning === true,
+    ...(typeof value.operation?.state === 'string' ? { state: value.operation.state } : {}),
+    ...(Array.isArray(value.operation?.steps)
+      ? { steps: (value.operation.steps as { id?: unknown }[]).map((step) => step.id).join(',') }
+      : {}),
+  })
+}
+
 export async function retryUpdate(trpc: Trpc, operationId?: string): Promise<void> {
   // Nothing to retry the remainder OF: start a fresh operation instead of
   // asking the server about an id we do not have.
-  if (!operationId) return startUpdate(trpc)
+  if (!operationId) {
+    updatesLog.info('retry had no operation to retry; starting a fresh one', {})
+    return startUpdate(trpc)
+  }
   try {
-    await trpc.updates.retry.mutate({ id: operationId })
+    noteStartAnswer('retry', await trpc.updates.retry.mutate({ id: operationId }))
   } catch (error) {
     if (!isMissingProcedure(error)) throw error
+    updatesLog.info('this server has no updates.retry; starting a fresh operation', {
+      operationId,
+    })
     await startUpdate(trpc)
   }
 }
@@ -145,5 +196,11 @@ export interface CancelOutcome {
 /** A refusal is a RETURNED VALUE, not an exception — see operations/trpc.ts. */
 export async function cancelOperation(trpc: Trpc, id: string): Promise<CancelOutcome> {
   const result = (await trpc.operations.cancel.mutate({ id })) as CancelOutcome
+  updatesLog.info('the server answered a cancel', {
+    operationId: id,
+    canceled: result.canceled,
+    ...(result.refused ? { refused: result.refused } : {}),
+    ...(result.step ? { step: result.step } : {}),
+  })
   return result
 }

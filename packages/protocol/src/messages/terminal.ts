@@ -254,6 +254,9 @@ export const AttachedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
+  /** Monotonic per-session revision for authoritative geometry. Optional so
+   * older peers remain wire-compatible during the additive rollout. */
+  geometryRevision: z.number().int().nonnegative().optional(),
   epoch: z.number().int().nonnegative(),
   // True when the following frames are an incremental catch-up from the client's
   // `sinceSeq` cursor: the client keeps its screen and appends. Absent/false = a
@@ -272,7 +275,8 @@ export const AttachedMessage = z.object({
 export const TerminalOutcomeMessage = z.object({
   type: z.literal('terminalOutcome'),
   sessionId: SessionIdField,
-  outcome: z.enum(['unauthorized', 'unreachable']),
+  outcome: z.enum(['unauthorized', 'unreachable', 'unsupported']),
+  detail: z.string().min(1).optional(),
 })
 export type TerminalOutcomeMessage = z.infer<typeof TerminalOutcomeMessage>
 
@@ -289,18 +293,25 @@ export const ControllerChangedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
+  /** Monotonic per-session revision for authoritative geometry. */
+  geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Server's authoritative PTY size, per session — lets spectators letterbox.
 export const GeometryMessage = z.object({
   type: z.literal('geometry'),
   sessionId: SessionIdField,
   ...Geometry.shape,
+  /** Monotonic per-session revision for authoritative geometry. */
+  geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Shared in both directions: daemon -> server AND server -> client (identical shape).
 export const AgentExitMessage = z.object({
   type: z.literal('agentExit'),
   sessionId: SessionIdField,
   code: z.number().int(),
+  /** Runtime observer generation that owned this process. Additive because
+   * terminal/legacy bridges do not have a causal runtime envelope. */
+  observerGeneration: z.number().int().positive().optional(),
 })
 
 // ---- Daemon <-> server: spawn/reattach/kill + PTY relay ----
@@ -387,6 +398,33 @@ export type SessionBindingAdoptLaunchInstruction = z.infer<
   typeof SessionBindingAdoptLaunchInstruction
 >
 
+/**
+ * HOW A SPAWN ASKS TO BE DRIVEN THROUGH THE CONTRACT (POD-1761 W3, widened by W5).
+ *
+ * `true` — drive this session through the contract with whatever driver the
+ * harness manifest's `select()` policy picks, which today means the terminal
+ * one for every harness. This is W3's meaning, unchanged.
+ *
+ * A DRIVER ID — drive it through the contract with THAT driver specifically.
+ * This is the operator's explicit per-spawn override (spec §9 phase 3): it is
+ * how one session runs on `opencode-server` while every other session on the
+ * same daemon stays terminal, and it is why the default needs no change at all.
+ *
+ * WIDENED RATHER THAN JOINED BY A SECOND FIELD, deliberately. The two would
+ * always have to be read together — "contract on, and also this driver" — and a
+ * pair of independently-optional fields has a fourth state ("a driver, but the
+ * contract off") that means nothing and that every reader would have to decide
+ * about separately.
+ *
+ * TYPED AS A BARE STRING HERE, and validated at the daemon. `DriverId` is
+ * defined in `@podium/harness`, which sits ABOVE this package — the same
+ * direction that keeps the driver taxonomy out of the `runtime` message family.
+ * An unknown id is refused where the driver registry is, which is the only place
+ * that can tell a typo from a driver this build does not ship.
+ */
+export const RuntimeContractRequest = z.union([z.boolean(), z.string().min(1)])
+export type RuntimeContractRequest = z.infer<typeof RuntimeContractRequest>
+
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: SessionIdField,
@@ -442,6 +480,18 @@ export const SpawnMessage = z.object({
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
+   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
+   * builds a driver handle beside the existing bridge and answers `runtime*`
+   * frames for it. Absent/false = the legacy path only, byte for byte.
+   *
+   * PER-SPAWN as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
+   * session can be flagged without flipping a machine: the daemon takes the OR
+   * of the two, which is what lets the e2e lane prove the flag-on path while
+   * every other session on the same daemon stays on the legacy one.
+   */
+  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -467,6 +517,9 @@ export const ReattachMessage = z.object({
   // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
   // composer engine for this reattached session only when true.
   draftSync: z.boolean().optional(),
+  /** Prior daemon-reported server preference (manifest or machine) that
+   * degraded for this live session. Echoed on reattach so reconnect preserves it. */
+  requestedDriverId: z.string().min(1).optional(),
   /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
@@ -480,6 +533,18 @@ export const ReattachMessage = z.object({
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
+   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
+   * builds a driver handle beside the existing bridge and answers `runtime*`
+   * frames for it. Absent/false = the legacy path only, byte for byte.
+   *
+   * PER-SESSION as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
+   * session can be flagged without flipping a machine: the daemon takes the OR
+   * of the two, which is what lets the e2e lane prove the flag-on path while
+   * every other session on the same daemon stays on the legacy one.
+   */
+  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
@@ -496,15 +561,50 @@ export const SessionBindingRetireMessage = z.object({
   durableLabel: z.string().optional(),
 })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
-// 3=unwatched). Drives the daemon's output scheduler.
+// 3=unwatched), plus whether any visible client is rendering its native surface.
+// The latter activates an on-demand harness TUI for server-family sessions.
 export const SessionPriorityMessage = z.object({
   type: z.literal('sessionPriority'),
   sessionId: SessionIdField,
   priority: z.number().int().min(0).max(3),
+  nativeView: z.boolean().optional(),
 })
-export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: SessionIdField })
+export const RedrawMessage = z.object({
+  type: z.literal('redraw'),
+  sessionId: SessionIdField,
+  /** The server has no retained bytes for the attaching page, so the runtime
+   *  must produce a repaint even when its client terminal survived adoption. */
+  replayRequired: z.boolean().optional(),
+})
 
 // daemon -> server
+/**
+ * THE DRIVER THIS DAEMON HAS DECIDED TO USE, SENT BEFORE IT LAUNCHES ANYTHING
+ * (POD-2290).
+ *
+ * `bind` already reports the driver — but `bind` is the frame that marks a
+ * session LIVE, so it cannot arrive until the harness is up. Measured on the
+ * POD-2290 drive instance: an `opencode` session sat `starting` with no driver
+ * fact for TWELVE SECONDS while `opencode serve` booted. Twelve seconds is not
+ * a paint glitch; it is long enough for the operator to open the session, read
+ * the wrong pane, and watch it change under them.
+ *
+ * That window is not information the clients lack — it is information nobody
+ * SENT. The daemon knows which driver it will use the moment
+ * `resolveRuntimeDriver` answers, which is before the probe's subject is even
+ * started. This frame carries that decision at that moment.
+ *
+ * A DECISION, NOT A PREDICTION. It is emitted after the policy has run against
+ * this machine's real probe and login state, so it is what the daemon WILL do,
+ * not what the manifest would prefer. `bind` still reports the bound driver
+ * afterwards and still wins: a launch that fails and falls back must not be
+ * described by the plan it abandoned.
+ */
+export const DriverSelectedMessage = z.object({
+  type: z.literal('driverSelected'),
+  sessionId: SessionIdField,
+  driverId: z.string().min(1),
+})
 export const BindMessage = z.object({
   type: z.literal('bind'),
   sessionId: SessionIdField,
@@ -516,6 +616,60 @@ export const BindMessage = z.object({
   // engine for this session. Surfaced in SessionMeta so a client retires its own
   // sampler/flush. Additive; older daemons omit it (no engine).
   draftSyncEngine: z.boolean().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, REPORTED BY THE PARTY THAT DECIDED IT (POD-1761 W4).
+   *
+   * True when the daemon actually built a driver handle for this session — i.e.
+   * `bindRuntimeContract` registered it. The server cannot compute this itself:
+   * the daemon takes the OR of a machine-wide env var it owns and the per-spawn
+   * field, and it declines the flag for profileless harnesses (a shell has no
+   * turns to be honest about). A server that inferred the answer from the field
+   * it sent would be wrong in both directions — flagged-by-env sessions it never
+   * asked for, and asked-for sessions the daemon refused.
+   *
+   * This is what W4's migrated senders branch on: a receipt only exists for a
+   * session with a driver behind it, so the branch has to key on the driver, not
+   * on an intent. Additive; older daemons omit it (legacy path only).
+   */
+  runtimeContract: z.boolean().optional(),
+  /**
+   * The runtime driver this daemon actually bound, reported from the live
+   * handle's binding rather than inferred from the spawn request. Absent means
+   * either an older daemon or a legacy session with no runtime handle.
+   */
+  driverId: z.string().min(1).optional(),
+  /** Manifest-default or machine-wide server preference that degraded to
+   * `driverId`. Per-spawn server preferences refuse instead. */
+  requestedDriverId: z.string().min(1).optional(),
+  /**
+   * WHAT THIS SESSION'S DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087) —
+   * the `configure.fields` its capabilities declare, carried so a CLIENT can
+   * decide whether to offer a model or effort control.
+   *
+   * IT CANNOT BE DERIVED FROM `driverId` ON THE FAR SIDE, and that is the whole
+   * reason it is on the wire. The server and the web client would each need
+   * their own copy of every driver's capability declaration to answer it, which
+   * is the drift pair this axis has already been burned by once. The daemon has
+   * the live driver; it answers, and nobody downstream guesses.
+   *
+   * NOR FROM `driverFamily`, the nearest fact already published, which is too
+   * coarse in a way that matters: `grok-acp` is family `server` and declares
+   * `configure` for `permissionMode` ALONE — it sends no model on `session/new`
+   * or `session/prompt`, so a model change has nothing to change there. Gating a
+   * picker on the family offers it on a session that can only refuse.
+   *
+   * APPENDED AT THE END, like every additive field before it: the golden wire
+   * corpus samples this frame, and a member added last leaves the existing
+   * samples byte-identical.
+   *
+   * ABSENT vs EMPTY, and the difference is real. Absent = an older daemon that
+   * does not report this, and a client must fall back to its previous behaviour
+   * rather than concluding "cannot". EMPTY = a daemon that DID report, and the
+   * answer is that this driver changes nothing — a TUI, whose model is an argv
+   * fact. Only the second licenses hiding the control.
+   */
+  configureFields: z.array(z.string().min(1)).optional(),
+  attachKinds: z.array(z.enum(['engine', 'client'])).optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

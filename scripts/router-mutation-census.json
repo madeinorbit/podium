@@ -3,7 +3,7 @@
   "$note": "Every top-level `<name>: t.router(` literal in apps/server/src/router.ts is accounted for exactly once, either as `migrated` (writes derived from a contract table) or in `pending` with the hand-written `.mutation(` keys it still carries. `total` may only go DOWN. A key in the router and not here is a finding; a key here and not in the router is a finding too \u2014 the census is not allowed to rot. A router in NEITHER list is a finding, so a whole new router cannot arrive unnoticed.",
   "total": 0,
   "migrated": {
-    "$note": "Writes DERIVED from their contract tables \u2014 POD-380/381/382 (sessions), POD-1350 (layout), POD-731/732 (workflows), POD-729 (messages), POD-383 (superagent), POD-384 (machines/repos/discovery), POD-386 (specs). Zero hand-written mutations, with the single documented exception below. Adding one here is the regression these cutovers exist to prevent.",
+    "$note": "Writes DERIVED from their contract tables \u2014 POD-380/381/382 (sessions), POD-1350 (layout), POD-731/732 (workflows), POD-729 (messages), POD-383 (superagent), POD-384 (machines/repos/discovery), POD-386 (specs), POD-2020 (interactions). Zero hand-written mutations, with the single documented exception below. Adding one here is the regression these cutovers exist to prevent.",
     "routers": [
       "sessions",
       "layout",
@@ -19,6 +19,7 @@
       "workflows",
       "specs",
       "approvals",
+      "interactions",
       "conversations",
       "perf",
       "logs",

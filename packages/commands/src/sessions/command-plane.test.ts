@@ -23,16 +23,19 @@ const defs = Object.entries(sessionCommandPlane.defs)
 const OFFLINE_ELIGIBLE_EXCEPTION = 'resumeAndSend'
 
 describe('the command-plane table', () => {
-  it('covers exactly the twelve command-plane procs, and neither handoff nor ask', () => {
+  it('covers exactly the thirteen command-plane procs, and neither handoff nor ask', () => {
     // NINE were POD-381's. `stop` and `uploadImage` were added by POD-382, which had
     // to delete the last hand-written session mutations from router.ts and could only
-    // do that by giving them contracts. `ask` was briefly here too and was REMOVED at
+    // do that by giving them contracts. `configure` is POD-3081's, the first command
+    // in this table that changes a running session's SETTINGS rather than its
+    // lifecycle or its input. `ask` was briefly here too and was REMOVED at
     // the integration merge: POD-729 cut it over to the mail table, and two contracts
     // for one command is a fork. The list is exact rather than a `toContain` so a
-    // twelfth arrival has to edit this line — and so a command silently REMOVED from
-    // the table cannot pass either.
+    // fourteenth arrival has to edit this line — and so a command silently REMOVED
+    // from the table cannot pass either.
     expect(commandPlaneNames().sort()).toEqual([
       'sessions.answerAskUserQuestion',
+      'sessions.configure',
       'sessions.continue',
       'sessions.create',
       'sessions.hibernate',
@@ -129,10 +132,29 @@ describe('the command-plane table', () => {
     expect(create.safeParse({ cwd: '/p' }).success).toBe(true)
     // A non-uuid client id must be refused before it can reach the durable-label
     // path — POD-379 pins that refusal.
-    expect(create.safeParse({ cwd: '/p', sessionId: asSessionId('../../evil') }).success).toBe(false)
+    expect(create.safeParse({ cwd: '/p', sessionId: asSessionId('../../evil') }).success).toBe(
+      false,
+    )
     const send = sessionCommandPlane.defs.sendText.input
     expect(send.safeParse({ sessionId: asSessionId('s'), text: '' }).success).toBe(false)
-    expect(send.safeParse({ sessionId: asSessionId('s'), text: 'x'.repeat(32_769) }).success).toBe(false)
+    expect(
+      send.safeParse({
+        sessionId: asSessionId('s'),
+        text: '',
+        attachments: [
+          {
+            id: 'staged-1',
+            path: '/staged/a.png',
+            filename: 'a.png',
+            mediaType: 'image/png',
+            kind: 'image',
+          },
+        ],
+      }).success,
+    ).toBe(true)
+    expect(send.safeParse({ sessionId: asSessionId('s'), text: 'x'.repeat(32_769) }).success).toBe(
+      false,
+    )
   })
 
   it('answerAskUserQuestion cannot express a payload-supplied answerer at all', () => {
@@ -180,17 +202,64 @@ describe('the command-plane table', () => {
     ).toBe(false)
   })
 
-  it.each(['first line\nsecond line', 'first line\rsecond line', 'first line\r\nsecond line'])(
-    'answerAskUserQuestion rejects line breaks in free text: %j',
-    (freeText) => {
-      const input = sessionCommandPlane.defs.answerAskUserQuestion.input
+  it.each([
+    'first line\nsecond line',
+    'first line\rsecond line',
+    'first line\r\nsecond line',
+  ])('answerAskUserQuestion rejects line breaks in free text: %j', (freeText) => {
+    const input = sessionCommandPlane.defs.answerAskUserQuestion.input
 
-      expect(
-        input.safeParse({
-          sessionId: asSessionId('s'),
-          choices: [{ freeText, otherIndex: 3 }],
-        }).success,
-      ).toBe(false)
-    },
-  )
+    expect(
+      input.safeParse({
+        sessionId: asSessionId('s'),
+        choices: [{ freeText, otherIndex: 3 }],
+      }).success,
+    ).toBe(false)
+  })
+})
+
+/**
+ * THE SCHEMA IS A BOUNDARY IN BOTH DIRECTIONS (POD-2113).
+ *
+ * `sessions.create`'s input schema strips what it does not name, so a field
+ * absent here is a field the server never sees — however correct everything
+ * downstream is. The agent-runtime per-spawn override was written end to end
+ * (the daemon resolves it, refuses an unknown id by name, degrades an
+ * unavailable one) and none of it ever ran, because zod deleted the field at
+ * this line. POD-2086 found it by driving a real instance: spawning with a
+ * deliberately bogus driver id returned 200 and started a healthy PTY session,
+ * when the registry is documented to refuse exactly that.
+ *
+ * These parse the SCHEMA rather than the handler, because the schema is where
+ * the field was lost and a handler test would have passed throughout.
+ */
+describe('sessions.create carries the agent-runtime override', () => {
+  const parse = (extra: Record<string, unknown>) =>
+    sessionCommandPlaneInputs.create.parse({ cwd: '/w', mutationId: 'm1', ...extra })
+
+  it('keeps a DRIVER ID, which is the explicit per-spawn opt-in', () => {
+    expect(parse({ runtimeContract: 'opencode-server' }).runtimeContract).toBe('opencode-server')
+  })
+
+  it('keeps `true`, which means "the contract, with the manifest\'s own choice"', () => {
+    expect(parse({ runtimeContract: true }).runtimeContract).toBe(true)
+  })
+
+  it('keeps an UNKNOWN id so the daemon can refuse it BY NAME', () => {
+    // The tell that exposed the bug. If this is stripped, a typo silently
+    // produces a working terminal session and the operator reads that as proof
+    // the override works. The daemon owns the refusal; the schema's only job is
+    // to let the typo reach it.
+    expect(parse({ runtimeContract: 'not-a-real-driver' }).runtimeContract).toBe(
+      'not-a-real-driver',
+    )
+  })
+
+  it('leaves it ABSENT when nothing asked, which is the unchanged default', () => {
+    expect('runtimeContract' in parse({})).toBe(false)
+  })
+
+  it('REFUSES an empty string rather than passing a meaningless override on', () => {
+    expect(() => parse({ runtimeContract: '' })).toThrow()
+  })
 })

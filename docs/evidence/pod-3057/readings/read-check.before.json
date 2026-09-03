@@ -1,0 +1,82 @@
+{
+  "cell": "READ",
+  "driver": "claude-sdk",
+  "arm": "before",
+  "cwd": "/tmp/pod-3057n/probes/read-check-before",
+  "at": "2026-08-28T15:28:13.399Z",
+  "pin": {
+    "arm": "before",
+    "at": "2026-08-28T15:28:13.414Z",
+    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "productTreeClean": true,
+    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "serverPid": "1743735",
+    "daemonPid": "1743830",
+    "tosOnDaemon": true,
+    "agentHome": "/home/mgw/.local/state/podium/p3057n/agent-home",
+    "port": "19958"
+  },
+  "verdict": "FAIL",
+  "summary": "the session stream holds the conversation and sessions.read answers with an empty page",
+  "control": {
+    "fired": true,
+    "what": "a real assistant reply carrying the needle on the session stream",
+    "detail": "assistant=true; streamItems=2"
+  },
+  "evidence": [
+    "DRIVER            {\"sessionId\":\"4811a558-6cec-4802-9f81-15ee7ecbb923\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblo",
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "NEEDLE            P3057-MTD3W4IQ",
+    "STREAM ITEMS      2 (needle=true)",
+    "SESSIONS.READ     0 items (needle=false)",
+    "SESSIONS.RECAP    {\"sessionId\":\"4811a558-6cec-4802-9f81-15ee7ecbb923\",\"recap\":\"No transcript items found for this session.\",\"watermark\":null,\"newItems\":0,\"delta\":false}",
+    "DISK reader home  {\"dir\":\"/home/mgw/.local/state/podium/p3057n/agent-home/.claude/projects/-tmp-pod-3057n-probes-read-check-before\",\"present\":false,\"files\":[],\"withNeedle\":[]}",
+    "DISK operator home{\"dir\":\"/home/mgw/.claude/projects/-tmp-pod-3057n-probes-read-check-before\",\"present\":true,\"files\":[\"ad43af87-c5d7-4784-bd11-6104241ef86e.jsonl\"],\"withNeedle\":[\"ad43af87-c5d7-4784-bd11-6104241ef86e.jsonl\"]}"
+  ],
+  "data": {
+    "sid": "4811a558-6cec-4802-9f81-15ee7ecbb923",
+    "needle": "P3057-MTD3W4IQ",
+    "cwd": "/tmp/pod-3057n/probes/read-check-before",
+    "streamItems": [
+      {
+        "id": "claude-sdk-user-4811a558-6cec-4802-9f81-15ee7ecbb923-1",
+        "role": "user",
+        "ts": "2026-08-28T15:28:15.865Z",
+        "text": "Reply with exactly this token and nothing else: P3057-MTD3W4IQ"
+      },
+      {
+        "id": "c4d27152-2472-437c-b9f2-6a2bedda8db8",
+        "role": "assistant",
+        "ts": "2026-08-28T15:28:19.286Z",
+        "text": "P3057-MTD3W4IQ"
+      }
+    ],
+    "readItems": [],
+    "disk": {
+      "readerHome": {
+        "dir": "/home/mgw/.local/state/podium/p3057n/agent-home/.claude/projects/-tmp-pod-3057n-probes-read-check-before",
+        "present": false,
+        "files": [],
+        "withNeedle": []
+      },
+      "operatorHome": {
+        "dir": "/home/mgw/.claude/projects/-tmp-pod-3057n-probes-read-check-before",
+        "present": true,
+        "files": [
+          "ad43af87-c5d7-4784-bd11-6104241ef86e.jsonl"
+        ],
+        "withNeedle": [
+          "ad43af87-c5d7-4784-bd11-6104241ef86e.jsonl"
+        ]
+      }
+    },
+    "recap": {
+      "sessionId": "4811a558-6cec-4802-9f81-15ee7ecbb923",
+      "recap": "No transcript items found for this session.",
+      "watermark": null,
+      "newItems": 0,
+      "delta": false
+    }
+  }
+}

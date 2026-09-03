@@ -3,16 +3,15 @@ import {
   type MissionProgress,
   missionCrewLabel,
   missionProgress,
-  panelLabel,
   missionRootFor,
   missionSessions as missionSessionsOf,
+  panelLabel,
   sessionNeedsHuman,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
@@ -20,8 +19,9 @@ import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
-import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
+import { IssueColorSheet } from '../components/IssueColorSheet'
+import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -30,8 +30,8 @@ import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
 import { issueAgentKind, modelLabel } from '../lib/agent-models'
-import { mostRelevantSession } from '../lib/mission-session'
 import { issueCloseBlockers } from '../lib/issue-close'
+import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, space } from '../theme/theme'
 

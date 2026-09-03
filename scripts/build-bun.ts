@@ -46,7 +46,7 @@ import { fileURLToPath } from 'node:url'
 import { timeReleaseBuildSync } from '@podium/runtime/release-build-timing'
 import { writeSystemdFiles } from '../apps/cli/src/cli-systemd'
 import { DISCOVERY_WORKER_ENTRY } from '../apps/daemon/src/discovery-worker-embed.js'
-import { JANITOR_WORKER_ENTRY } from '../apps/janitor/src/janitor-worker-embed.js'
+import { JANITOR_WORKER_ENTRY } from '../packages/janitor/src/janitor-worker-embed.js'
 /**
  * The dev-label rules, from the one place that defines them (POD-2502). The
  * leaf, not the barrel: this script builds the product, and the protocol's

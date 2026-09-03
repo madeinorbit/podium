@@ -1,0 +1,114 @@
+{
+  "id": "A1c",
+  "label": "[single supersedes parent BLOCKED]",
+  "arm": "headless",
+  "verdict": "FAIL",
+  "summary": "after one exactly UUID+session-stamped Grok child was killed and confirmed gone, the product accepted the dead-session message as queued position 1 but lost it through the full delayed outcome window",
+  "control": {
+    "fired": true,
+    "what": "the same grok-acp/server session answered a live send before its exact child was killed",
+    "detail": "live reply arrived; exactly one UUID+session child existed; exact PID death was confirmed"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A1b / A1c  sending when the session cannot take it now   harness=grok",
+    "selected row      a1c",
+    "==============================================================================",
+    "",
+    "A1b  send while busy",
+    "------------------------------------------------------------------------------",
+    "",
+    "A1c  send to a DEAD session",
+    "------------------------------------------------------------------------------",
+    "  session 1028e0df-87c1-47dd-84f5-97f209d3641e",
+    "  product driver   grok-acp family=server",
+    "  CONTROL          a send to this session WHILE ALIVE was answered: true",
+    "  target stamp     uuid=e0b523e5-bf56-44dd-8d23-5de50e233337 source=/home/mgw/.local/state/podium/grok2927/instance.json",
+    "  target processes 1 exact stamped PID(s) before kill",
+    "                     pid=2408886 cwd=/tmp/pod-2927-grok-a70/cells/a1c-superseding/repo cmd=/home/mgw/.local/bin/grok agent stdio",
+    "  SIGKILL target   pid=2408886 sent=true",
+    "  after child kill row: status=live",
+    "  exact PID gone   true; remaining stamped target PIDs=(none)",
+    "  dead confirmed   true",
+    "  send to dead     {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}",
+    "  typed refusal    false",
+    "  offers resume    false",
+    "  accepted         true",
+    "  delayed outcome  LOST after <=120s",
+    "",
+    "  A1c FAIL",
+    "      FAIL: the send was accepted, but the assistant nonce never reached a",
+    "      delayed terminal outcome. A durable user row is not delivery; this is",
+    "      the accepted-then-lost message the row exists to forbid.",
+    "",
+    "==============================================================================",
+    "A1b  SKIPPED",
+    "A1c  FAIL",
+    "=============================================================================="
+  ],
+  "data": {
+    "sessionId": "1028e0df-87c1-47dd-84f5-97f209d3641e",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "instanceId": "grok2927",
+    "instanceUuid": "e0b523e5-bf56-44dd-8d23-5de50e233337",
+    "stampSource": "/home/mgw/.local/state/podium/grok2927/instance.json",
+    "exactStampedTargets": 1,
+    "targetPid": 2408886,
+    "targetPidGone": true,
+    "remainingExactStampedTargets": 0,
+    "sendReceipt": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "typedRefusal": false,
+    "resumeOffered": false,
+    "accepted": true,
+    "delayedOutcome": "lost",
+    "delayedWindowMs": 120000,
+    "grokVersion": "0.2.118 (1e1687c1cf) [stable]"
+  },
+  "cwd": "/tmp/pod-2927-grok-a70/cells/a1c-superseding/repo",
+  "pin": {
+    "codeCommit": "a70ffc0f8a72d73d3ae10189ac7f471b622739c9",
+    "codeTree": "87132e21835438964d15e234d22d9339df028069",
+    "server": {
+      "pid": 2404043,
+      "spawnSha": "a70ffc0f8a72d73d3ae10189ac7f471b622739c9",
+      "startTimeTicks": "17466652",
+      "cwd": "/tmp/pod-2927-epic-a70"
+    },
+    "daemon": {
+      "pid": 2404278,
+      "spawnSha": "a70ffc0f8a72d73d3ae10189ac7f471b622739c9",
+      "startTimeTicks": "17466986",
+      "cwd": "/tmp/pod-2927-epic-a70"
+    },
+    "servedWeb": {
+      "sourceSha": "a70ffc0",
+      "bundleVersion": "bundle+DuauHW6_",
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "builtAt": "2026-08-27T12:49:57.466Z"
+    }
+  },
+  "criterionClauses": {
+    "productDriver": "PASS \u2014 product reported grok-acp/server before the destructive control",
+    "liveSendPositiveControl": "PASS \u2014 exact live reply arrived",
+    "exactDeadTargetAttribution": "PASS \u2014 one child carried the named marker UUID and exact target session ID; name and CWD were not used for attribution",
+    "deadSessionConfirmed": "PASS \u2014 SIGKILL sent to PID 2408886 and that exact stamped PID was confirmed gone",
+    "typedRefusalOrResumeOffered": "FAIL \u2014 receipt was accepted/queued with no typed refusal or resume offer",
+    "neverLostMessage": "FAIL \u2014 accepted message produced no delayed assistant nonce in the full 120-second window"
+  },
+  "admission": {
+    "diskFreeGiB": 12,
+    "memAvailableKb": 4426460,
+    "swapFreeKb": 37141988,
+    "load1": 5.52,
+    "testHeavyLease": "free",
+    "health": "ok"
+  },
+  "localTimestamp": "2026-08-27 14:55:35 CEST",
+  "defect": "POD-2980"
+}

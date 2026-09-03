@@ -1,0 +1,71 @@
+{
+  "at": "2026-08-30T04:36:40.257Z",
+  "timezone": "Europe/Berlin (UTC+02:00)",
+  "issue": "POD-3112",
+  "kind": "r7-ui-control-refusal-not-acceptance",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "d954387e81cc29e5b8432cc06a66ecbee95db4d9",
+  "evidenceHeadBeforeDrive": "ae45036e36f34f1fcfdef17810fe2ee9e21ed29f",
+  "productDiffOutsideDocs": false,
+  "instance": "p3112-oc-ui-stop-r7",
+  "stateRoot": "/home/mgw/.local/state/podium/p3112-oc-ui-stop-r7",
+  "agentHome": "/home/mgw/.local/state/podium/p3112-oc-ui-stop-r7/agent-home",
+  "dummyRepo": "/tmp/pod-3112-oc-ui-stop-r7/dummy-repo",
+  "worktree": "/tmp/pod-3112-oc-ui-stop-r7/dummy-repo/.worktrees/issue-2-r7-seeded-workspace",
+  "ports": [20317, 47322, 47323],
+  "pins": {
+    "serverSpawnSha": "d954387e81cc29e5b8432cc06a66ecbee95db4d9",
+    "daemonSpawnSha": "d954387e81cc29e5b8432cc06a66ecbee95db4d9",
+    "servedWebSourceSha": "ae45036",
+    "servedWebAppVersion": "dev+ae45036",
+    "servedWebBundleVersion": "bundle+RWywN3On",
+    "appsWebIdenticalFromEpicThroughEvidenceHead": true,
+    "opencodeVersion": "1.18.25",
+    "opencodeSha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "experiment": {
+    "runtimeDriversEnabled": false,
+    "experimentalDriverRowsVisible": 0
+  },
+  "setup": {
+    "providerFreeShellOnly": true,
+    "purpose": "make the standard New panel menu reachable from a real task workspace"
+  },
+  "instrumentInvalidAttempt": {
+    "sessionId": "b5bf5b2b-51f1-4dc8-84b1-1054e2971581",
+    "standardNewOpenCodeClicked": true,
+    "runtimeContractTrueCaptured": true,
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "requestedDriverId": null,
+    "nativeFirst": true,
+    "providerPrompts": 0,
+    "discardReason": "the scorer incorrectly required requestedDriverId even though manifest selection is expressed by runtimeContract true"
+  },
+  "correctedAttempt": {
+    "sessionId": "f58b5e87-4ba1-4850-8b4e-9b0ec49b1769",
+    "standardNewOpenCodeClicked": true,
+    "runtimeContractTrueCaptured": true,
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "requestedDriverId": null,
+    "nativeFirst": true,
+    "authenticatedAttachedCli": true,
+    "daemonFineWatchAcquiredAt": "2026-08-30T04:35:27.953Z",
+    "daemonFineWatchReleasedAt": "2026-08-30T04:36:40.257Z",
+    "attachedObservationWindowMs": 72304,
+    "providerPrompts": 1,
+    "longNativePromptSent": true,
+    "controlSamplesConfigured": 240,
+    "controlSampleIntervalMs": 250,
+    "workingObserved": false,
+    "screenLengthGrowthObserved": false,
+    "productStopReached": false,
+    "followUpReached": false
+  },
+  "verdict": "REFUSED",
+  "reason": "the required working plus output-growth positive control did not fire, so Stop, durable interrupt, and continuity cannot be scored",
+  "acceptanceTsvRowsWritten": 0,
+  "providerDrives": 1,
+  "providerPrompts": 1
+}

@@ -5,8 +5,8 @@ import {
   convergedObservation,
   desiredParentUnit,
   devLegacyDefinitions,
-  legacyDevObservation,
   leftoverParentUnit,
+  legacyDevObservation,
   legacyUnitNames,
   legacyVpsObservation,
   type MigrationAction,
@@ -133,10 +133,65 @@ describe('3-unit VPS happy path', () => {
     expect(obs.installedUnits).toEqual(['podium.service'])
     expect(obs.enabledUnits).toEqual(['podium.service'])
     expect(obs.installedUnits).not.toEqual(
-      expect.arrayContaining(['podium-server.service', 'podium-janitor.service', 'podium-daemon.service']),
+      expect.arrayContaining([
+        'podium-server.service',
+        'podium-janitor.service',
+        'podium-daemon.service',
+      ]),
     )
     expect(armedIfKilled(obs)).toBe('new')
     expect(obs.cannotRestart).toBe(false)
+  })
+})
+
+describe('the legacy janitor unit is retired, not inherited (PDM-27)', () => {
+  // Nothing renders a janitor unit any more: every server hosts the janitor as
+  // a worker thread. An install that already HAS one must still be walked off
+  // it, and this is the assertion that the migration — the only code left that
+  // knows the name — does that, on the default and on a named instance.
+  for (const instanceId of ['default', 'blue']) {
+    const unit =
+      instanceId === 'default' ? 'podium-janitor.service' : `podium-${instanceId}-janitor.service`
+
+    it(`masks then stops and disables ${unit} before the parent takes over`, () => {
+      const masked = walkUntil(
+        legacyVpsObservation(instanceId),
+        (_obs, action) => action.type === 'start-parent',
+      )
+      // Mask first: `Restart=always` on the legacy units would otherwise fight
+      // the new parent's takeover bind.
+      expect(masked.obs.maskedUnits).toContain(unit)
+      expect(masked.obs.installedUnits).toContain(unit)
+
+      const { obs, steps } = walkUntil(
+        legacyVpsObservation(instanceId),
+        (_obs, action) => action.type === 'noop',
+        (next, action) =>
+          action.type === 'await-healthy' ? { ...next, parentHealthy: true } : next,
+      )
+      expect(steps.map((s) => s.type)).toContain('retire-legacy')
+      expect(obs.installedUnits).not.toContain(unit)
+      expect(obs.enabledUnits).not.toContain(unit)
+      // …and a kill here reboots into the parent alone, never back into a
+      // second janitor beside the server's own.
+      expect(armedIfKilled(reboot(obs))).toBe('new')
+      expect(reboot(obs).liveRoles).not.toContain('janitor')
+    })
+  }
+
+  it('a detached install reclaims the leftover janitor PROCESS the same way', () => {
+    const { obs, steps } = walkUntil(
+      {
+        ...legacyVpsObservation(),
+        persistence: 'detached',
+        installedUnits: [],
+        enabledUnits: [],
+        activeUnits: [],
+      },
+      (_obs, action) => action.type === 'noop',
+    )
+    expect(steps.map((s) => s.type)).toEqual(['spawn-detached-parent', 'noop'])
+    expect(obs.liveRoles).not.toContain('janitor')
   })
 })
 
@@ -189,7 +244,10 @@ describe('kill at each transition state — never neither', () => {
   })
 
   it('killing after health timeout aborts onto fully-armed legacy, not neither', () => {
-    const { obs } = walkUntil(legacyVpsObservation(), (_o, action) => action.type === 'await-healthy')
+    const { obs } = walkUntil(
+      legacyVpsObservation(),
+      (_o, action) => action.type === 'await-healthy',
+    )
     const timedOut: TopologyObservation = { ...obs, healthTimedOut: true, parentHealthy: false }
     expect(planMigration(timedOut).type).toBe('abort-keep-legacy')
     const aborted = applyAction(timedOut, planMigration(timedOut))

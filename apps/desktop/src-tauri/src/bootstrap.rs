@@ -152,6 +152,12 @@ pub fn build_update_channel() -> UpdateChannel {
 pub struct DesktopConfig {
     pub mode: Option<String>,
     pub server_url: Option<String>,
+    /// WHERE THE UI FOR `server_url` LIVES, when it is not that server (PDM-34).
+    ///
+    /// Written by the local server at connect/join time from the remote's advertised
+    /// `appUrl`; absent for every install whose server serves its own UI, which is the
+    /// case this shell has always handled and still handles identically.
+    pub ui_url: Option<String>,
     /// Stable local listen port (`resolvePort` / webview origin). See [`resolve_local_port`].
     pub port: Option<u16>,
     /// A valid user choice from config.json. Absence and unknown values deliberately remain
@@ -175,9 +181,20 @@ pub enum LaunchAction {
     LocalServerOnly,
     /// Spawn the local `podium` (which reads config → daemon mode → connects to `server_url`);
     /// the window points at the remote (no local server to wait for).
-    LocalDaemon { server_url: String },
-    /// Spawn nothing; the window points at the remote server.
-    ClientOnly { server_url: String },
+    LocalDaemon {
+        server_url: String,
+        /// The origin the WINDOW loads, when the server does not serve the UI itself
+        /// (PDM-34). `None` — every self-hosted install — keeps today's behaviour of
+        /// loading the server's own URL. Only the window target and the IPC capability
+        /// origin follow it; the daemon still dials `server_url`.
+        ui_url: Option<String>,
+    },
+    /// Spawn nothing; the window points at the remote server (or, under split hosting,
+    /// at `ui_url` — see [`LaunchAction::LocalDaemon`]).
+    ClientOnly {
+        server_url: String,
+        ui_url: Option<String>,
+    },
 }
 
 /// What a desktop supervisor should do when its locally-hosted backend exits.
@@ -262,6 +279,13 @@ pub fn read_config() -> DesktopConfig {
         server_url: json
             .get("serverUrl")
             .and_then(|v| v.as_str())
+            .map(str::to_string),
+        // Empty is not a UI origin, and treating it as one would send the window
+        // to an unparseable URL instead of to the server that does work.
+        ui_url: json
+            .get("uiUrl")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
             .map(str::to_string),
         port: json.get("port").and_then(|v| v.as_u64()).and_then(|n| {
             u16::try_from(n).ok().filter(|p| *p > 0)
@@ -425,6 +449,7 @@ pub fn classify_backend_exit(
     let current_action = resolve_launch(
         current_config.mode.as_deref(),
         current_config.server_url.as_deref(),
+        current_config.ui_url.as_deref(),
     );
     let same_host_role = matches!(
         (initial_action, &current_action),
@@ -462,7 +487,7 @@ pub fn classify_backend_exit(
         };
     }
 
-    let LaunchAction::LocalDaemon { server_url } = current_action else {
+    let LaunchAction::LocalDaemon { server_url, .. } = current_action else {
         return BackendExitDecision::Hold {
             reason: format!(
                 "desktop backend role changed without a daemon target: {current_action:?}"
@@ -689,17 +714,29 @@ pub fn initialize_update_channel(
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
 /// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
+///
+/// `ui_url` rides along on the two remote actions rather than deciding any of them: under
+/// split hosting it changes only what the WINDOW loads, never what this box runs or what
+/// its daemon dials. A `uiUrl` with no `serverUrl` is therefore not a mode — it falls
+/// through to LocalAllInOne exactly as it does today.
 /// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium server`, no daemon,
 ///   window → local port). Previously this fell through to LocalAllInOne, silently running a
 ///   local daemon + agents on a hub-only box (#176).
 /// - everything else (all-in-one / unset / missing serverUrl) → LocalAllInOne
-pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAction {
+pub fn resolve_launch(
+    mode: Option<&str>,
+    server_url: Option<&str>,
+    ui_url: Option<&str>,
+) -> LaunchAction {
+    let ui_url = ui_url.filter(|url| !url.is_empty()).map(str::to_string);
     match (mode, server_url) {
         (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::ClientOnly {
             server_url: url.to_string(),
+            ui_url,
         },
         (Some("daemon"), Some(url)) if !url.is_empty() => LaunchAction::LocalDaemon {
             server_url: url.to_string(),
+            ui_url,
         },
         (Some("server"), _) => LaunchAction::LocalServerOnly,
         _ => LaunchAction::LocalAllInOne,
@@ -1106,9 +1143,41 @@ pub fn webview_http_url(server_url: &str) -> String {
 /// Decide what a remote-mode (client/daemon) window loads. The relay page is same-origin with its
 /// HTTP API and WebSocket. Validation happens first so an insecure non-loopback page never loads
 /// and never reaches the native capability grant path.
-pub fn remote_window_target(server_url: &str) -> Result<(WebviewUrl, String), String> {
-    validated_webview_http_url(server_url)
-        .map(|url| (WebviewUrl::External(url), String::new()))
+///
+/// SPLIT HOSTING (PDM-34): when the server told us its UI lives elsewhere, `ui_url` wins and the
+/// window loads the app host instead. The page is then NOT same-origin with the API — but it is
+/// same-SITE, which is what the 1006 failure and the session cookie both actually turn on, and the
+/// app host stamps `window.__PODIUM_SERVER__` into its own shell, so no injection is needed here
+/// either. The app host goes through the SAME transport policy as the server: a `ui_url` that will
+/// not parse, or that the policy refuses, is IGNORED rather than fatal — the validated server URL
+/// still works, and a window on it beats no window at all. Split hosting is never a reason to load
+/// a page the policy would refuse.
+pub fn remote_window_target(
+    server_url: &str,
+    ui_url: Option<&str>,
+) -> Result<(WebviewUrl, String), String> {
+    if let Some(url) = ui_url
+        .filter(|url| !url.is_empty())
+        .and_then(|url| validated_webview_http_url(url).ok())
+    {
+        return Ok((WebviewUrl::External(url), String::new()));
+    }
+    validated_webview_http_url(server_url).map(|url| (WebviewUrl::External(url), String::new()))
+}
+
+/// The origin a remote-mode window will actually LOAD — the one the IPC capability grants
+/// have to name (`main.rs`), the cookie has to reach, and nothing else keys off.
+///
+/// It exists as its own function so the grant and the navigation cannot answer the question
+/// differently: a capability derived from the server URL while the window sits on the app host
+/// is a dead grant, and a dead grant looks like a native bridge that silently does nothing.
+pub fn remote_window_origin_url(server_url: &str, ui_url: Option<&str>) -> String {
+    match ui_url.filter(|url| !url.is_empty()) {
+        // The SAME acceptance test `remote_window_target` applies, or the grant would name an
+        // app host the window was refused permission to load.
+        Some(ui_url) if validated_webview_http_url(ui_url).is_ok() => ui_url.to_string(),
+        _ => webview_http_url(server_url),
+    }
 }
 
 /// One HTTP/1.0 GET against the loopback backend. Returns the status line's code and the
@@ -1844,7 +1913,7 @@ mod tests {
 
     #[test]
     fn remote_window_target_loads_the_secure_relay_url_directly() {
-        let (url, injection) = remote_window_target("https://relay.example:55555")
+        let (url, injection) = remote_window_target("https://relay.example:55555", None)
             .expect("secure remote transport is allowed");
         // Same-origin load: an external relay URL, and NO injected server global.
         assert!(
@@ -1855,16 +1924,17 @@ mod tests {
 
     #[test]
     fn remote_window_target_rejects_an_invalid_or_insecure_url() {
-        assert!(remote_window_target("not a url").is_err());
-        assert!(remote_window_target("http://podium.example").is_err());
+        assert!(remote_window_target("not a url", None).is_err());
+        assert!(remote_window_target("http://podium.example", None).is_err());
     }
 
     #[test]
     fn resolve_launch_client_with_url_is_client_only() {
         assert_eq!(
-            resolve_launch(Some("client"), Some("ws://h:1")),
+            resolve_launch(Some("client"), Some("ws://h:1"), None),
             LaunchAction::ClientOnly {
-                server_url: "ws://h:1".to_string()
+                server_url: "ws://h:1".to_string(),
+                ui_url: None,
             }
         );
     }
@@ -1872,9 +1942,10 @@ mod tests {
     #[test]
     fn resolve_launch_daemon_with_url_is_local_daemon() {
         assert_eq!(
-            resolve_launch(Some("daemon"), Some("ws://h:1")),
+            resolve_launch(Some("daemon"), Some("ws://h:1"), None),
             LaunchAction::LocalDaemon {
-                server_url: "ws://h:1".to_string()
+                server_url: "ws://h:1".to_string(),
+                ui_url: None,
             }
         );
     }
@@ -1882,7 +1953,7 @@ mod tests {
     #[test]
     fn resolve_launch_all_in_one_is_local() {
         assert_eq!(
-            resolve_launch(Some("all-in-one"), None),
+            resolve_launch(Some("all-in-one"), None, None),
             LaunchAction::LocalAllInOne
         );
     }
@@ -1891,32 +1962,183 @@ mod tests {
     fn resolve_launch_server_mode_is_server_only() {
         // #176: a hub-only box must NOT get a local daemon + agents.
         assert_eq!(
-            resolve_launch(Some("server"), None),
+            resolve_launch(Some("server"), None, None),
             LaunchAction::LocalServerOnly
         );
         // A stray serverUrl in config doesn't change it — the server runs locally.
         assert_eq!(
-            resolve_launch(Some("server"), Some("ws://h:1")),
+            resolve_launch(Some("server"), Some("ws://h:1"), None),
             LaunchAction::LocalServerOnly
         );
     }
 
     #[test]
     fn resolve_launch_unset_is_local() {
-        assert_eq!(resolve_launch(None, None), LaunchAction::LocalAllInOne);
+        assert_eq!(resolve_launch(None, None, None), LaunchAction::LocalAllInOne);
     }
 
     #[test]
     fn resolve_launch_client_without_url_falls_back_to_local() {
         // No serverUrl → can't connect remotely; behave as all-in-one rather than break.
         assert_eq!(
-            resolve_launch(Some("client"), None),
+            resolve_launch(Some("client"), None, None),
             LaunchAction::LocalAllInOne
         );
         assert_eq!(
-            resolve_launch(Some("daemon"), Some("")),
+            resolve_launch(Some("daemon"), Some(""), None),
             LaunchAction::LocalAllInOne
         );
+    }
+
+    /// PDM-34: under split hosting the UI is a different origin from the API, and the
+    /// window has to follow the UI while everything else keeps following the server.
+    #[test]
+    fn resolve_launch_carries_the_ui_url_on_both_remote_modes() {
+        assert_eq!(
+            resolve_launch(
+                Some("client"),
+                Some("wss://api.meetpodium.com"),
+                Some("https://app.meetpodium.com")
+            ),
+            LaunchAction::ClientOnly {
+                server_url: "wss://api.meetpodium.com".to_string(),
+                ui_url: Some("https://app.meetpodium.com".to_string()),
+            }
+        );
+        assert_eq!(
+            resolve_launch(
+                Some("daemon"),
+                Some("wss://api.meetpodium.com"),
+                Some("https://app.meetpodium.com")
+            ),
+            LaunchAction::LocalDaemon {
+                server_url: "wss://api.meetpodium.com".to_string(),
+                ui_url: Some("https://app.meetpodium.com".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_treats_an_empty_ui_url_as_absent() {
+        assert_eq!(
+            resolve_launch(Some("client"), Some("wss://api.example"), Some("")),
+            LaunchAction::ClientOnly {
+                server_url: "wss://api.example".to_string(),
+                ui_url: None,
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_ui_url_alone_is_not_a_mode() {
+        // It changes what a remote window LOADS; it never decides that this box is remote.
+        assert_eq!(
+            resolve_launch(Some("client"), None, Some("https://app.meetpodium.com")),
+            LaunchAction::LocalAllInOne
+        );
+        assert_eq!(
+            resolve_launch(Some("server"), Some("wss://h:1"), Some("https://app.example")),
+            LaunchAction::LocalServerOnly
+        );
+    }
+
+    #[test]
+    fn remote_window_target_loads_the_app_host_when_the_server_advertised_one() {
+        let (url, injection) = remote_window_target(
+            "wss://api.meetpodium.com",
+            Some("https://app.meetpodium.com"),
+        )
+        .expect("secure remote transport is allowed");
+        assert!(
+            matches!(url, WebviewUrl::External(u) if u.as_str() == "https://app.meetpodium.com/")
+        );
+        // Still none: the app host stamps __PODIUM_SERVER__ into its own shell.
+        assert_eq!(injection, "");
+    }
+
+    #[test]
+    fn remote_window_target_ignores_an_unusable_ui_url_and_keeps_the_server() {
+        // A window on the server URL beats no window at all. `http://app.example` is the
+        // security case: split hosting must not become a way past the transport policy.
+        for bad in ["not a url", "file:///etc/passwd", "", "http://app.example"] {
+            let (url, injection) = remote_window_target("https://relay.example:55555", Some(bad))
+                .expect("the server URL is still secure");
+            let loaded = match url {
+                WebviewUrl::External(u) => u.to_string(),
+                other => panic!("expected an external URL, got {other:?}"),
+            };
+            assert_eq!(
+                loaded, "https://relay.example:55555/",
+                "ui_url {bad:?} should have been ignored"
+            );
+            assert_eq!(injection, "");
+        }
+    }
+
+    #[test]
+    fn remote_window_origin_url_is_the_origin_the_window_actually_loads() {
+        // The IPC capability grants are derived from this; if it disagreed with
+        // remote_window_target the native bridge would be granted to nobody.
+        assert_eq!(
+            remote_window_origin_url(
+                "wss://api.meetpodium.com",
+                Some("https://app.meetpodium.com")
+            ),
+            "https://app.meetpodium.com"
+        );
+        assert_eq!(
+            remote_window_origin_url("wss://relay.example:55555", None),
+            "https://relay.example:55555"
+        );
+        assert_eq!(
+            remote_window_origin_url("wss://relay.example:55555", Some("not a url")),
+            "https://relay.example:55555"
+        );
+        // A ui_url the transport policy refuses is not the loaded origin either.
+        assert_eq!(
+            remote_window_origin_url("wss://relay.example:55555", Some("http://app.example")),
+            "https://relay.example:55555"
+        );
+    }
+
+    #[test]
+    fn read_config_reads_the_ui_url() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("podium-cfg-uiurl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+
+        let split_hosted = concat!(
+            r#"{"mode":"daemon","serverUrl":"wss://api.meetpodium.com","#,
+            r#""uiUrl":"https://app.meetpodium.com"}"#
+        );
+        std::fs::write(tmp.join("config.json"), split_hosted).unwrap();
+        assert_eq!(
+            read_config().ui_url.as_deref(),
+            Some("https://app.meetpodium.com")
+        );
+
+        // A self-hosted config has no such key, and an empty one is not a value.
+        std::fs::write(
+            tmp.join("config.json"),
+            r#"{"mode":"daemon","serverUrl":"wss://relay","uiUrl":""}"#,
+        )
+        .unwrap();
+        assert_eq!(read_config().ui_url, None);
+        std::fs::write(
+            tmp.join("config.json"),
+            r#"{"mode":"daemon","serverUrl":"wss://relay"}"#,
+        )
+        .unwrap();
+        assert_eq!(read_config().ui_url, None);
+
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -2120,6 +2342,7 @@ mod tests {
     fn restarted_daemon_crash_only_respawns_and_cannot_restart_again() {
         let initial = LaunchAction::LocalDaemon {
             server_url: "wss://new.example".to_string(),
+            ui_url: None,
         };
         let config = DesktopConfig {
             mode: Some("daemon".to_string()),

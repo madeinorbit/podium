@@ -1,9 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { delimiter, dirname, join } from 'node:path'
+import { dirname, join } from 'node:path'
+import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-runtime'
+import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
 import {
   agentStateProviderFor,
   bindHarnessLaunch,
+  type DriverId,
   declaredValue,
   harnessCapabilitiesFor,
   type LaunchFile,
@@ -11,7 +14,13 @@ import {
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { type AgentKind, asMachineId, type Geometry, type SessionId } from '@podium/model'
+import {
+  type AgentKind,
+  type AgentRuntimeState,
+  asMachineId,
+  type Geometry,
+  type SessionId,
+} from '@podium/model'
 import {
   type AgentSession,
   abducoHasSession,
@@ -30,12 +39,294 @@ import {
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
 import type { Tier } from '../output-scheduler'
+import { emitClaudeBinding, ensureClaudeBindingPublished } from '../runtime/claude-sdk-driver'
+import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { driverTiming } from '../runtime/driver-timing'
+import { runtimeContractEnabledFor, runtimeDriverByEnv } from '../runtime/flag'
+import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
+import { handleFor, runtimeDriverIdFor, sessionIsBehindContract } from '../runtime/handlers'
+import { reapInstanceSessionProcesses } from '../runtime/instance-process-reaper'
+import {
+  opencode2VersionProbe,
+  opencode2VersionProbeForExecutable,
+  opencodeVersionProbe,
+  opencodeVersionProbeForExecutable,
+} from '../runtime/opencode-server'
+import {
+  availableDriverIds,
+  droppedDriverPreference,
+  isEmbeddedDriver,
+  isServerDriver,
+  isServerDriverId,
+  runtimeDriverIntentForSpawn,
+  selectionAuthForLogin,
+  spawnNamedServerDriver,
+  terminalProfileFor,
+  unhonouredSpawnDriver,
+} from '../runtime/registry'
+import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import type { ControlHandlers, DaemonContext } from './context'
+import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
+
+export { harnessCompatEnv } from './session-env'
+
 import { sourceForRead } from './transcripts'
 
 const log = createLogger('daemon:session')
+
+const nativeClientHolder = (sessionId: SessionId): string => `podium-native:${sessionId}`
+
+/**
+ * THE REFUSALS THAT CLEAR ON THEIR OWN (POD-2489).
+ *
+ * A take-over attach is a single-writer handoff, and codex refuses it outright
+ * while a turn is open or an ask is unanswered: `busy` and `needs_user` are the
+ * driver saying NOT RIGHT NOW, not NOT EVER. The reconcile below used to treat
+ * every refusal alike and return, and nothing rescheduled it — so a user who
+ * opened Native mid-turn had the request dropped on the floor, and only toggling
+ * to Chat and back made the view ask again.
+ *
+ * EVERY OTHER REFUSAL STAYS TERMINAL, and the distinction is not a severity
+ * ranking. `unsupported` and `not_running` are standing facts about this machine
+ * and this session; `session_ended` is final; `lease_held` names SOMEBODY ELSE as
+ * the one human-controller, and retrying against it is precisely the interleaving
+ * the lease exists to prevent. Only a refusal the session itself will stop
+ * issuing is worth re-arming.
+ */
+const TRANSIENT_ATTACH_REFUSALS: ReadonlySet<RefusalReason> = new Set(['busy', 'needs_user'])
+
+/**
+ * How many transient refusals one Native request may spend.
+ *
+ * The retry is armed by a STATE CHANGE, not a timer, so this bound is not about
+ * pacing — it is what stops a session flapping between idle and working from
+ * re-attempting the handoff forever. Leaving Native clears the count (see the
+ * release arm below), so the user's own toggle is always a fresh start.
+ *
+ * THE CAP IS SCOPED TO THE HAZARD IT NAMES, and getting that wrong is the one
+ * regression this fix shipped and had to take back. Answered asks were charged
+ * against the same three, and codex's own driver says answering an approval is
+ * the moment a turn RESUMES — so every answered-triggered attach is refused
+ * `busy` and cost an attempt. A three-approval turn is ordinary, and it emptied
+ * the budget BEFORE the idle frame that would have succeeded: the user was left
+ * exactly where this issue started, on a path the pre-fix daemon handled. So an
+ * answered ask ATTEMPTS WITHOUT SPENDING (`spendBudget: false`), and only state
+ * frames are rationed. Answered events cannot flap — each one is a real human,
+ * policy or superagent action, bounded by the asks in the turn.
+ */
+const NATIVE_ATTACH_RETRY_LIMIT = 3
+
+/**
+ * A REFUSED NATIVE REQUEST, RE-ARMED BY THE SESSION'S OWN STATE (POD-2489).
+ *
+ * Called for every `agentState` frame this daemon emits, from the outbound sink
+ * in `frame-sink.ts` — the same tap the terminal driver reads, and for the same
+ * reason: the frame is already computed and already carries the fact, so a second
+ * observer channel would only be a second thing to keep in sync. A session with
+ * no refused request costs one map lookup here.
+ *
+ * THE TRIGGER SURFACE IS `idle`, AND SAYING SO PRECISELY MATTERS, because the two
+ * transient refusals do not reach it by the same route.
+ *
+ *   `busy` — the ordinary case. The turn ends, codex emits its state change, the
+ *   phase is `idle`, and the retry fires. This is the path the bug report
+ *   describes and the one the tests drive.
+ *
+ *   `needs_user` — reaches `idle` LATE, and in one case not at all. A session
+ *   with an open ask reports the phase `needs_user`, which is the refusal
+ *   restated and is dropped here, so nothing fires at the moment the ask is
+ *   answered: codex's `closeAsk()` folds the phase without emitting a state
+ *   event. What does arrive is the turn's own end — answering an approval
+ *   resumes the turn, and `closeTurn()` emits `idle` — so the take-over lands at
+ *   turn end rather than at the answer. The case with NO frame at all is
+ *   narrower: a turn that ENDS with an ask still open (`closeTurn` sets `idle`
+ *   unconditionally), after which answering emits nothing (POD-2494).
+ *   {@link nativeClientInteractionAnswered} covers both — it makes the common
+ *   case prompt instead of late, and the narrow one possible at all.
+ *
+ * `working` and `compacting` are likewise the refusal restated: spending one of a
+ * small budget on either would burn it before the session reached the phase that
+ * clears it. `ended` cannot be honoured at all, so the request is dropped rather
+ * than spending an attempt proving it.
+ *
+ * `errored` IS DELIBERATELY NOT HERE. It looks like it belongs — a failed turn is
+ * a turn that is over — but only codex's `attach()` can refuse transiently, so
+ * only a codex session can ever be in this map, and the codex driver never
+ * assigns that phase (opencode is the only driver that does, and its attach
+ * refuses only `lease_held`/`unsupported`). An arm no reachable session can take
+ * is not caution, it is a comment that lies.
+ *
+ * THE RETRY GOES THROUGH THE RECONCILE, never around it — so it re-reads the
+ * request set (the user may have left Native since), takes the lease through the
+ * same `attach` call, and serializes against any in-flight transition.
+ */
+export function nativeClientStateObserved(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  state: AgentRuntimeState,
+): void {
+  const retries = ctx.nativeClientRetries
+  if (!retries?.has(sessionId)) return
+  if (state.phase === 'ended') {
+    retries.delete(sessionId)
+    return
+  }
+  if (state.phase !== 'idle') return
+  reconcileNativeClientTerminal(ctx, sessionId)
+}
+
+/**
+ * THE OTHER HALF OF THE TRIGGER SURFACE (POD-2489): an ask that just got answered.
+ *
+ * Opening Native to answer a prompt is the most natural thing a person does with
+ * the native TUI, and it is exactly the request codex refuses — `needs_user`,
+ * because an unanswered ask blocks the single-writer handoff. State frames alone
+ * get there LATE rather than never: the phase while the ask is open IS
+ * `needs_user`, which the observer drops, and `closeAsk()` folds the phase
+ * without emitting a state event — so the attach used to wait for the turn that
+ * the answer restarted to finish. In the narrow POD-2494 case, a turn that ENDS
+ * with an ask still open, it never got there at all.
+ *
+ * THE CAUSAL STREAM CARRIES WHAT THE STATE STREAM DROPPED. `closeAsk()` does emit
+ * `{t:'interaction', ev:'answered'}`, and that event crosses the same outbound
+ * sink as the state frames — so the fact was always there, just not in the frame
+ * the other tap reads. Hanging the re-arm off the event rather than off the
+ * daemon's own `answer` verb also covers the answers the daemon never issued: a
+ * policy or the superagent resolving an ask clears the block just as well.
+ *
+ * IT DOES NOT SPEND THE RETRY BUDGET, and that is not a detail — see
+ * {@link NATIVE_ATTACH_RETRY_LIMIT}. Answering an approval RESUMES the turn, so
+ * this attach is usually refused `busy`; and `closeAsk()` emits `answered`
+ * before its own "another ask is still open" return, so answering one of two
+ * fires here while the session is still blocked on the other. Charged, an
+ * ordinary three-approval turn emptied the budget before the idle frame that
+ * would have worked.
+ *
+ * THE GUARD IS LOAD-BEARING, not a fast path: without an owed retry this
+ * session never asked for Native, and the reconcile would take its RELEASE arm —
+ * closing a client terminal and dropping a lease for every answered ask on every
+ * server session.
+ */
+export function nativeClientInteractionAnswered(ctx: DaemonContext, sessionId: SessionId): void {
+  if (!ctx.nativeClientRetries?.has(sessionId)) return
+  reconcileNativeClientTerminal(ctx, sessionId, { spendBudget: false })
+}
+
+/**
+ * Reconcile one server-family session's on-demand original harness TUI.
+ *
+ * `spendBudget` IS WHAT KEEPS TWO DIFFERENT HAZARDS FROM SHARING ONE COUNTER.
+ * See {@link NATIVE_ATTACH_RETRY_LIMIT}: state frames can flap and must be
+ * capped; an answered ask cannot, and charging it the same way spent the whole
+ * budget before the frame that would have worked ever arrived.
+ */
+export function reconcileNativeClientTerminal(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  { spendBudget = true }: { spendBudget?: boolean } = {},
+): void {
+  const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
+  const transitions = (ctx.nativeClientTransitions ??= new Map<SessionId, Promise<void>>())
+  if (transitions.has(sessionId)) return
+  let applied: boolean | undefined
+  /**
+   * A REFUSAL RETURNS WITHOUT SETTING `applied`, so the `.finally` re-run guard
+   * below declines and a request the user cancelled DURING a refusing attach
+   * leaves its map entry behind. It self-heals: the entry is only ever read by
+   * the two re-arm functions above, both of which route into this reconcile,
+   * which re-reads the request set and takes the release arm. The same window
+   * used to leave the lease unreleased with nothing to notice.
+   */
+  const transition = (async () => {
+    for (;;) {
+      const wanted = requests.has(sessionId)
+      const handle = handleFor(ctx, sessionId)
+      if (!handle || handle.binding.family !== 'server') return
+      if (wanted) {
+        driverTiming.attachRequested(handle.binding)
+        const result = await handle.attach({
+          mode: 'takeover',
+          holder: nativeClientHolder(sessionId),
+        })
+        driverTiming.attachResult(handle.binding, result)
+        if ('reason' in result) {
+          const retries = (ctx.nativeClientRetries ??= new Map<SessionId, number>())
+          const held = retries.get(sessionId) ?? 0
+          const transient = TRANSIENT_ATTACH_REFUSALS.has(result.reason)
+          // A free attempt still leaves the request armed at the count it had:
+          // an answered ask neither proves the session unreachable nor costs one
+          // of the three tries the flapping cap is there to ration.
+          const spent = spendBudget ? held + 1 : held
+          const rearmed = transient && spent <= NATIVE_ATTACH_RETRY_LIMIT
+          if (rearmed) retries.set(sessionId, spent)
+          else retries.delete(sessionId)
+          log.warn('could not attach the native client terminal', {
+            sessionId,
+            reason: result.reason,
+            detail: result.detail,
+            // The request is still live: the session's next attachable state
+            // change re-runs this reconcile. `false` is the old behaviour and
+            // now means what it says — nobody is coming back for this one.
+            rearmed,
+            ...(rearmed ? { attempt: spent, charged: spendBudget } : {}),
+          })
+          return
+        }
+        // Attached: the request is honoured, so nothing is owed a retry.
+        ctx.nativeClientRetries?.delete(sessionId)
+        const pending = ctx.pendingResizes.get(sessionId)
+        if (pending && ctx.clientTerminals?.resize(sessionId, pending.cols, pending.rows)) {
+          ctx.pendingResizes.delete(sessionId)
+        }
+      } else {
+        // LEAVING NATIVE RETIRES A PENDING RETRY. The bounded re-arm above exists
+        // to honour a request the user still has open; firing it after they went
+        // back to Chat would take the lease behind their back.
+        ctx.nativeClientRetries?.delete(sessionId)
+        /**
+         * REVOKING THE WRITER IS THE OBLIGATION; KILLING THE CLIENT WAS ONE WAY
+         * OF MEETING IT (POD-2823, POD-3045).
+         *
+         * The obligation is codex's. Its stock TUI owns a direct WebSocket to
+         * the Codex Unix listener, so releasing the lease must revoke that
+         * writer before another client can take control — and for a writer the
+         * daemon does not hold, ending the process is the only revocation there
+         * is. That is why this arm used to close every client terminal outright.
+         *
+         * WHAT WAS WRONG WAS READING THAT AS A RULE ABOUT VIEW SWITCHES. It is
+         * a fact about one harness's client, and applied to opencode it cost
+         * the CLI its keyboard: every switch back into Native cold-started
+         * `opencode attach`, whose startup discards stdin part-way through, so
+         * a viewer who switched and typed got no echo from a terminal that was
+         * visibly painting (POD-3045). The client's only writer there is the
+         * daemon's own handle.
+         *
+         * So `release()` asks the harness — `clientTerminal.parkOnRelease` —
+         * and closes exactly where the answer is no. It is still not asked
+         * WHICH harness this is: the attachment remembers its own kind, so this
+         * arm cannot get it wrong for a driver that does not exist yet, and a
+         * fourth harness has to answer the question rather than inherit an
+         * answer nobody chose.
+         */
+        await ctx.clientTerminals?.release(sessionId)
+        await handle.lease.release(nativeClientHolder(sessionId))
+      }
+      applied = wanted
+      if (wanted === requests.has(sessionId)) return
+    }
+  })()
+    .catch((err) => log.warn('native client terminal transition failed', { err, sessionId }))
+    .finally(() => {
+      transitions.delete(sessionId)
+      // A request can change after the final equality check but before cleanup.
+      // Re-run once the slot is free; attach and release are both idempotent.
+      if (applied !== undefined && requests.has(sessionId) !== applied)
+        reconcileNativeClientTerminal(ctx, sessionId)
+    })
+  transitions.set(sessionId, transition)
+}
 
 /**
  * Per-harness env every session of that kind needs to be driven through Podium's
@@ -52,16 +343,6 @@ const log = createLogger('daemon:session')
  * Spawn-time only — a session already running with enhancement on keeps it until
  * it is relaunched.
  */
-const HARNESS_COMPAT_ENV: Partial<Record<AgentKind, Record<string, string>>> = {
-  codex: { CODEX_TUI_DISABLE_KEYBOARD_ENHANCEMENT: '1' },
-}
-
-/** The compatibility env for a harness ({} for kinds that need none). Pure so the
- *  floor is asserted without standing up a spawn. */
-export function harnessCompatEnv(agentKind: AgentKind): Record<string, string> {
-  return HARNESS_COMPAT_ENV[agentKind] ?? {}
-}
-
 /**
  * Env vars bound into EVERY spawned session so its `podium` CLI can reach the
  * daemon's loopback relay for this exact session. PODIUM_SESSION_ID is bound at
@@ -90,49 +371,19 @@ export function sessionRelayEnv(
   endpoint: string,
   instanceId: string,
   agentKind: AgentKind,
+  instanceUuid?: string,
 ): Record<string, string> {
-  // PODIUM_SESSION_ID is a deliberate informational/identity var: the `podium`
-  // CLI reads the session id from the relay URL's path, so this isn't consumed
-  // by the relay path today — it's exposed for the session itself and future consumers.
+  // PODIUM_SESSION_ID is an explicit process-ownership stamp. The daemon's
+  // process census consumes it; the podium CLI still reads its session id
+  // from the relay URL's path.
   return {
     PODIUM_INSTANCE: instanceId,
+    ...(instanceUuid ? { PODIUM_INSTANCE_UUID: instanceUuid } : {}),
     PODIUM_SESSION_INSTANCE: instanceId,
     PODIUM_SESSION_ID: sessionId,
     PODIUM_SESSION_RELAY: endpoint,
     ...(agentKind === 'shell' ? {} : { PODIUM_AGENT_RELAY: endpoint }),
   }
-}
-
-/** Merge the server-resolved session env (managed credentials, #216) under
- *  Podium's own per-session bindings. Podium's win a collision on purpose: an
- *  injected credential must never be able to shadow the agent-relay wiring.
- *  The result is an OVERLAY — the PTY layer layers it over the full process.env. */
-export function spawnEnv(
-  opts: {
-    sessionEnv?: Record<string, string>
-    harnessEnv?: Record<string, string>
-    podiumEnv: Record<string, string>
-  },
-  processEnv: NodeJS.ProcessEnv = process.env,
-): Record<string, string> {
-  const podiumCliPath = processEnv.PODIUM_CLI_PATH?.trim()
-  const merged: Record<string, string> = {
-    ...(opts.sessionEnv ?? {}),
-    ...(opts.harnessEnv ?? {}),
-    ...opts.podiumEnv,
-    // The desktop owns this binding. Managed credentials and harness adapters cannot
-    // redirect agents to a stale or unrelated Podium CLI. [spec:SP-d6e8]
-    ...(podiumCliPath ? { PODIUM_CLI_PATH: podiumCliPath } : {}),
-  }
-  if (podiumCliPath) {
-    // The runtime has already recovered the machine's command environment. Keep the
-    // desktop-owned CLI as a distinct overlay above it, never as an input to it. [spec:SP-d6e8]
-    const inherited = merged.PATH ?? processEnv.PATH ?? ''
-    merged.PATH = [dirname(podiumCliPath), ...inherited.split(delimiter)]
-      .filter((entry, index, entries) => entry && entries.indexOf(entry) === index)
-      .join(delimiter)
-  }
-  return merged
 }
 
 export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
@@ -191,9 +442,16 @@ export function wireBridge(
   ctx.durableLabels.set(sessionId, durableLabel)
   const pending = ctx.pendingResizes.get(sessionId)
   ctx.pendingResizes.delete(sessionId)
-  if (pending) session.resize(pending.cols, pending.rows)
+  if (pending) {
+    session.resize(pending.cols, pending.rows)
+    ctx.observers.onResize?.(sessionId, pending.cols, pending.rows)
+  }
   session.onFrame((frame) => {
+    driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_first_output', {
+      bytes: frame.data.byteLength,
+    })
     countFrame(frame.data.byteLength)
+    ctx.observers.onFrame?.(sessionId, frame.data)
     ctx.outputScheduler.enqueue(sessionId, frame.data)
     // Draft Sync v2 (POD-859): feed the composer engine the raw PTY bytes when it's
     // running for this (flagged) session.
@@ -245,7 +503,23 @@ export function wireBridge(
   return pending ? { cols: pending.cols, rows: pending.rows } : geometry
 }
 
-async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+/**
+ * Start the process for a spawn instruction.
+ *
+ * EXPORTED for the Agent Runtime contract's `create()`/`resume()` (POD-1761 W3),
+ * which must go THROUGH this path rather than around it — the launch-file
+ * materialization, the instrumentation env and the observer wiring below are
+ * exactly what makes a contract-driven session byte-identical to a
+ * server-spawned one. `handleSpawn` stays private because its binding transition
+ * is server-authored: a driver on the machine has no principal to author one
+ * with, so it takes the launch and leaves the binding to the frame that carries
+ * an authenticated one.
+ */
+export async function launchSpawn(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+  runtimeSelection: { requestedDriverId?: string } = {},
+): Promise<void> {
   try {
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
     // is known before the agent has run a single hook. Every server-side spawn funnels
@@ -279,6 +553,7 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     }
     const launchOptions = {
       cwd: msg.cwd,
+      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       podiumSessionId: msg.sessionId,
       ...(msg.resume ? { resume: msg.resume } : {}),
       ...(newSessionId ? { newSessionId } : {}),
@@ -289,6 +564,12 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       runtimeDir,
       ...(msg.env ? { env: msg.env } : {}),
     }
+    // loginCommand is intentionally a static argv declaration: the production
+    // branch below binds it to the current generation's verified executable and
+    // command environment. Resolving here would duplicate that snapshot and let
+    // login drift from the executable the rest of the launch uses. The injected
+    // ctx.launch branch is a legacy/test seam; production host runtime always
+    // supplies the binder for this path.
     const cmd = loginCommand
       ? ctx.harnessRuntime
         ? bindHarnessLaunch(await ctx.harnessRuntime.current(), msg.loginHarness!, {
@@ -300,6 +581,12 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
         ? await ctx.harnessRuntime.launch(msg.agentKind, launchOptions)
         : ctx.launch(msg.agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
+    // OpenCode creates its SQLite parent lazily. Create the Podium-owned
+    // directory before the PTY starts so two fresh sessions cannot race on a
+    // missing per-session store directory.
+    if (msg.agentKind === 'opencode' && !msg.loginHarness && cmd.env?.OPENCODE_DB) {
+      mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
+    }
     const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
     const provider = agentStateProviderFor(msg.agentKind)
     let extraArgs: string[] = []
@@ -337,9 +624,11 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
             ctx.agentRelayEndpointFor(msg.sessionId),
             ctx.instanceId,
             msg.agentKind,
+            ctx.instanceUuid,
           ),
           ...browserOpenEnv(ctx.settingsDir),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+          ...harnessInstanceEnv(msg.loginHarness ?? msg.agentKind, ctx.homeDir),
           // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
           ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
           // Globally-installed hooks are env-gated per session by their adapter.
@@ -349,6 +638,19 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
           ...harnessCompatEnv(msg.agentKind),
         },
       }),
+      // The session's account is the one its HOME is logged into — which is only
+      // true if this harness's own credential vars cannot reach it by inheritance
+      // from the daemon (POD-2296). `env` above cannot express that: unsetting a
+      // credential is a delete, not an empty string.
+      //
+      // `loginHarness` FIRST, and it is not a nicety: a native login pane is filed
+      // as agentKind 'shell' (it runs `<cli> login`, not the agent), and 'shell' is
+      // exactly the kind this rule exempts. Read the other way round, the one pane
+      // whose whole purpose is to establish an account would be the one pane that
+      // let an inherited key outrank it — `claude login` under a stray
+      // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
+      // environment" instead.
+      stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
     const session =
       ctx.backend === 'abduco'
@@ -356,15 +658,21 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
         : ctx.backend === 'tmux'
           ? await spawnTmuxAgent(spawnOpts)
           : spawnAgent(spawnOpts)
+    driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
+      adopted: session.adopted,
+    })
     const geometry = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label, msg.geometry)
     // Stand up the agent-state tracker, harness observer, resume transcript tail
-    // and seeded phase. A fresh spawn's CLI isn't up yet, so seed on the first
-    // frame. Same call on reattach keeps the two paths from drifting.
+    // and seeded phase. The frame tap buffers the bounded gap between bridge
+    // wiring and this setup so screen-derived state still sees the first screen.
     ctx.observers.initSessionObservers(msg, session, provider, {
       seedOnFrame: true,
       startedAtMs: spawnStartedAt,
       ...(newSessionId ? { newSessionId } : {}),
     })
+    ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
+    await bindRuntimeContract(ctx, msg, false)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
     // session. attach() is a no-op for harnesses without a driver.
     if (msg.draftSync) {
@@ -388,7 +696,25 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       agentKind: msg.agentKind,
       geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4). The
+      // server records it and W4's senders branch on it — see BindMessage.
+      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+      // one would report `false` for a server-family session and route its
+      // sends down the legacy PTY path, for a session that has no PTY.
+      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
+      ...(runtimeSelection.requestedDriverId
+        ? { requestedDriverId: runtimeSelection.requestedDriverId }
+        : {}),
     })
+    const handle = handleFor(ctx, msg.sessionId)
+    if (handle) driverTiming.sessionReady(handle.binding)
   } catch (err) {
     removeSessionInstructions(ctx, msg.sessionId)
     // Nothing ever bound, so a resize held for this spawn has no PTY to reach and
@@ -399,10 +725,63 @@ async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       sessionId: msg.sessionId,
       message: err instanceof Error ? err.message : String(err),
     })
+    driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
   }
 }
 export const MISSING_SESSION_BINDING_MESSAGE =
   'server-minted SessionBinding instruction is required'
+
+/**
+ * Put this session behind the Agent Runtime contract, when the flag says so
+ * (POD-1761 W3).
+ *
+ * CALLED FROM BOTH THE SPAWN AND THE REATTACH PATHS, immediately after the
+ * observers are wired, because those are the two moments a session acquires a
+ * live bridge — and a driver handle without a bridge would answer `not_running`
+ * to everything, which is true but useless.
+ *
+ * FLAG OFF RETURNS ON THE FIRST LINE. That is the whole of the "zero diff"
+ * claim on this path: no handle, no queue, no observation tap entry, and the
+ * legacy machinery above ran exactly as it always has.
+ */
+async function bindRuntimeContract(
+  ctx: DaemonContext,
+  msg: SpawnControl | ReattachControl,
+  rebind: boolean,
+): Promise<void> {
+  if (!ctx.agentRuntime) return
+  if (!runtimeContractEnabledFor(ctx.runtimeContractEnabled, msg.runtimeContract)) return
+  const profile = terminalProfileFor(msg.agentKind)
+  // A shell has no turns, no transcript and no state channel — there is nothing
+  // for a driver to be honest about, so the flag simply does not reach it.
+  if (!profile) return
+  try {
+    await ctx.agentRuntime.bindTerminal(
+      {
+        sessionId: msg.sessionId,
+        agentKind: msg.agentKind,
+        cwd: msg.cwd,
+        resume: msg.resume ?? null,
+        ...(msg.observationGeneration !== undefined
+          ? { observerGeneration: msg.observationGeneration }
+          : {}),
+        ...(msg.observationBindingVersion !== undefined
+          ? { bindingVersion: msg.observationBindingVersion }
+          : {}),
+        rebind,
+      },
+      profile,
+    )
+  } catch (err) {
+    // A DRIVER THAT CANNOT BE BUILT MUST NOT TAKE THE SESSION DOWN WITH IT. The
+    // legacy path is already wired and working at this point; the flagged path is
+    // additive, so its failure is a diagnostic, not a spawn error.
+    log.warn('could not put the session behind the runtime contract', {
+      err,
+      sessionId: msg.sessionId,
+    })
+  }
+}
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   if ((!msg.binding && !msg.adoptedBinding) || (msg.binding && msg.adoptedBinding)) {
@@ -413,6 +792,13 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
     })
     return
   }
+  const requestedDriverId = spawnNamedServerDriver(msg.runtimeContract)
+  driverTiming.sessionRequested({
+    sessionId: msg.sessionId,
+    harness: msg.agentKind,
+    ...(requestedDriverId ? { requestedDriverId } : {}),
+    ...(msg.initialPrompt ? { initialPrompt: true } : {}),
+  })
   const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
   if (msg.adoptedBinding) {
     const outcome = await ctx.sessionBinding.transition({
@@ -463,9 +849,855 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
       return
     }
   }
-  await launchSpawn(ctx, msg)
+  /**
+   * THE FORK BETWEEN A PTY SESSION AND A SERVER SESSION (POD-1761 W5).
+   *
+   * It is HERE and not inside `launchSpawn`, and the placement is the point: a
+   * server-family session has no PTY to launch, no durable master to reclaim and
+   * no bridge to wire, so routing it through the PTY spawn path and then undoing
+   * the parts that do not apply would be worse than a branch. The binding
+   * transition ABOVE still ran, because who owns a session is not a question
+   * about how it is driven.
+   *
+   * Every spawn is offered to the harness policy. Server-capable harnesses take
+   * their own server driver when its three-valued probe admits this machine; an
+   * absent, unsupported or unprobeable driver falls through to the PTY path.
+   * Claude's embedded SDK is selected only by an explicit per-spawn request;
+   * ordinary Claude spawns stay on the terminal path.
+   */
+  const runtimeLaunch = await launchServerDriverSession(ctx, msg)
+  if (runtimeLaunch.handled) return
+  await launchSpawn(ctx, msg, runtimeLaunch)
 }
 
+/**
+ * Start this session on a server-family driver, or answer `false` for "not
+ * mine".
+ *
+ * A REQUEST THAT CANNOT BE HONOURED EITHER REFUSES OR DEGRADES, and each case
+ * below says which and why. This comment has been wrong in both directions: it
+ * once claimed every outcome was a refusal, which was the opposite of what the
+ * code did on the case it named (POD-2023 review, 7.1; a third case arrived with
+ * POD-2056's measurement), and the code then degraded on a case that should
+ * always have refused (POD-2113). The rule the cases share is that a fact about
+ * the MACHINE may be papered over, and an instruction from THIS SPAWN may not:
+ *
+ *   - AN UNKNOWN DRIVER ID REFUSES, loudly, with the id in the message. This
+ *     build ships no such driver, so it is a typo or a spawn from a newer
+ *     server, and an operator who asked for `opencode-sever` and got a working
+ *     terminal session would read it as proof the override works.
+ *   - AN UNSUPPORTED DRIVER FROM THE MACHINE-WIDE DEFAULT DEGRADES to whatever
+ *     the manifest ranks next, which today is terminal. The machine's opencode
+ *     answered and the gate refused its version; `selectRuntimeDriver` already
+ *     drops a preference the machine cannot run, and honouring it anyway would
+ *     turn a stale `PODIUM_RUNTIME_DRIVER` into a machine where NO session can
+ *     start. Pinned by `opencode-server.test.ts`'s "DEGRADES an opt-in the
+ *     machine cannot run".
+ *   - THE SAME REQUEST MADE PER-SPAWN REFUSES (POD-2113). An id on the spawn
+ *     frame is not a setting anyone forgot; it is this session's reason for
+ *     existing, and every operator who sends one is testing whether the driver
+ *     works. Silently answering with a terminal session gave them the one
+ *     outcome that looks exactly like the answer they wanted. Degrading is right
+ *     for a value inherited from a machine and wrong for a value typed for a
+ *     session, so the split is on WHERE the id came from, not on what it says.
+ *   - A DRIVER WE COULD NOT PROBE REFUSES, when the spawn named it explicitly.
+ *     Added after POD-2056 measured `opencode --version` at 11–15s on the build
+ *     host against a 15s budget: losing that race made an explicit
+ *     `runtimeContract: 'opencode-server'` become a PTY session, and it did so
+ *     invisibly — the session went live, the row still said `runtimeContract:
+ *     true` (the TERMINAL driver had registered), and the first send came back
+ *     `unverified`, which reads as a model problem four steps from the cause.
+ *     "This machine's opencode is too old" is a fact about the machine and
+ *     degrading on it is honest; "I could not find out" is a fact about load,
+ *     and an operator who NAMED the driver would rather be told.
+ *
+ * The difference is whether the REQUEST is meaningless, genuinely unsatisfiable
+ * here, or merely unanswered — and only the middle one is safe to paper over.
+ */
+/**
+ * Re-bind a surviving server-family session after a daemon restart, or answer
+ * `false` for "not mine".
+ *
+ * SILENT WHEN THERE IS NO JOURNAL ENTRY, which is the common case: every
+ * terminal session reaches this function and none of them has one. The entry is
+ * written by the server driver's own launch, so its presence IS the statement
+ * that this session was server-driven.
+ */
+
+async function adoptServerDriverSession(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+): Promise<boolean> {
+  /**
+   * EVERY SERVER-FAMILY REGISTRY IS ASKED, not just the first one (POD-2024).
+   *
+   * This consulted `ctx.opencodeRuntime` alone, so a codex session — which has
+   * no entry in the OPENCODE journal — answered "not mine" and fell through to
+   * the PTY path below, where the code's own words are that it "assumes a PTY:
+   * it asks whether an abduco socket or a tmux session still holds the durable
+   * label". The session came back `reattachFailed: session not found`, which is
+   * verbatim the failure this function exists to prevent.
+   *
+   * A session appears in exactly ONE journal by construction — the spawn path
+   * chose a driver once and that driver's launch wrote the entry — so this is a
+   * lookup rather than a precedence, and the first entry found is the answer.
+   */
+  const runtime = ctx.agentRuntime
+  if (!runtime) return false
+  const reapFailedAdoption = (): void => {
+    // Adoption failure is terminal for this startup probe: the server will
+    // record the reattach failure, so retaining the journal would leave a
+    // credentialed child with no owner. Reap from the journal identity rather
+    // than calling adopt again — Codex/Grok adoption starts a replacement.
+    void beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo).catch(
+      (err) => {
+        log.warn('could not start reaping a failed server reattach', {
+          err,
+          sessionId: msg.sessionId,
+        })
+      },
+    )
+  }
+  let adoption: Awaited<ReturnType<typeof runtime.adoptJournalled>>
+  try {
+    adoption = await runtime.adoptJournalled(msg.sessionId)
+  } catch (err) {
+    reapFailedAdoption()
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+  if (!adoption.found) return false
+  const { handle, what, workdir } = adoption
+  if (!handle) {
+    /**
+     * THE JOURNAL SAID SERVER, AND NOTHING ANSWERED. Reported as a reattach
+     * FAILURE rather than fallen through to the PTY path: falling through
+     * would spawn nothing, find no durable host and report the same failure
+     * one layer down with a reason that names abduco — which would send the
+     * next reader looking for a master that was never supposed to exist.
+     */
+    reapFailedAdoption()
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: `the ${what} session recorded in the binding journal could not be rebound`,
+    })
+    return true
+  }
+  try {
+    ctx.send({
+      type: 'bind',
+      sessionId: msg.sessionId,
+      cmd: `${what} (${handle.binding.driver})`,
+      cwd: workdir,
+      agentKind: msg.agentKind,
+      geometry: msg.geometry ?? { cols: 120, rows: 40 },
+      // The same fact the launch path states, and for the same reason: W4's
+      // senders branch on it, and a rebound session that reported `false` would
+      // be routed to a PTY it does not have.
+      runtimeContract: true,
+      driverId: handle.binding.driver,
+      // POD-3087. Reported wherever `driverId` is, because the two answer the
+      // same question — which live driver holds this session — and a bind that
+      // named the driver but not what it can change leaves a client guessing at
+      // exactly the thing this field exists to stop it guessing.
+      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+    })
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    log.info('adopted a surviving server-family session', {
+      sessionId: msg.sessionId,
+      driver: handle.binding.driver,
+    })
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
+    return true
+  } catch (err) {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+}
+
+/**
+ * A SPAWN FOR A SESSION THE SERVER FAMILY ALREADY JOURNALS IS A RESUME (POD-2775).
+ *
+ * `sessions.resume` reaches this machine as a `spawn` frame — the very frame a
+ * brand-new session arrives on, distinguished only by carrying the row's resume
+ * ref. `launchServerDriverSession` turned every one of them into
+ * `runtime.create()`, and `createWithId` REFUSES a session that already holds a
+ * binding-journal entry. That refusal is correct on its own terms: two live
+ * children under one session id is the POD-2249 double-spawn.
+ *
+ * But a PARKED server session holds exactly such an entry, deliberately — the
+ * park arm of `beginServerDriverReap` keeps it, because the entry is the address
+ * the conversation lives at. So resuming a hibernated codex session put the row
+ * on `exited` with `already has a persisted server journal` against it, and it
+ * stayed there: every retry is the same frame and fails identically. Measured on
+ * a live instance, on a park whose process teardown was completely clean — this
+ * is not the reap above it, and fixing the reap does not touch it.
+ *
+ * ADOPT IS THE PATH THAT ALREADY EXISTS AND ALREADY MEANS THIS. For the server
+ * family `adopt()` is defined as resume-not-rebind: codex starts a fresh
+ * app-server and `thread/resume`s the journalled thread, keeping the session id,
+ * the transcript, the resume ref and the turn epoch, and announcing the new
+ * process by bumping the binding version. It is what the REATTACH path has
+ * always used ({@link adoptServerDriverSession}); the resume path simply never
+ * asked for it.
+ *
+ * ONLY WHEN NO HANDLE IS LIVE. A journal entry beside a live handle is a session
+ * this daemon is already running, and a redelivered frame for one must not start
+ * a second child. That case keeps its existing behaviour exactly — it falls
+ * through to the create, which refuses it.
+ *
+ * A FAILED ADOPTION IS A SPAWN ERROR, not a fall-through to the PTY path. The
+ * journal says this conversation belongs to a server driver; launching a
+ * terminal against it would answer a resume with a different session wearing the
+ * same id.
+ */
+async function resumeJournalledServerSession(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+): Promise<boolean> {
+  const runtime = ctx.agentRuntime
+  if (!runtime) return false
+  if (runtime.serverHandleFor(msg.sessionId)) return false
+  let adoption: Awaited<ReturnType<typeof runtime.adoptJournalled>>
+  try {
+    adoption = await runtime.adoptJournalled(msg.sessionId)
+  } catch (err) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+  if (!adoption.found) return false
+  const { handle, what, workdir, reason } = adoption
+  if (!handle) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      // THE DRIVER'S OWN WORDS WHERE THERE ARE ANY. Each refusal in this path
+      // names a different repair — a journal naming another incarnation, a
+      // conversation the harness no longer has — and the generic sentence sent
+      // the operator to the daemon log for all of them.
+      message: reason
+        ? `the ${what} session recorded in the binding journal could not be resumed: ${reason}`
+        : `the ${what} session recorded in the binding journal could not be resumed`,
+    })
+    return true
+  }
+  try {
+    ctx.send({
+      type: 'bind',
+      sessionId: msg.sessionId,
+      cmd: `${what} (${handle.binding.driver})`,
+      // THE JOURNAL'S WORKDIR, like the reattach path uses. The frame's `cwd` is
+      // where the server thinks the session lives; the journal is where the
+      // conversation was actually opened, and codex resumes a thread relative to
+      // that. They agree unless a worktree moved under a parked session, and if
+      // they disagree the adopted child is the one that has to be described.
+      cwd: workdir,
+      agentKind: msg.agentKind,
+      geometry: msg.geometry ?? { cols: 120, rows: 40 },
+      // The same fact the launch and reattach paths state, and for the same
+      // reason: W4's senders branch on it, and a resumed session that reported
+      // `false` would be routed to a PTY it does not have.
+      runtimeContract: true,
+      driverId: handle.binding.driver,
+      // POD-3087. Reported wherever `driverId` is, because the two answer the
+      // same question — which live driver holds this session — and a bind that
+      // named the driver but not what it can change leaves a client guessing at
+      // exactly the thing this field exists to stop it guessing.
+      configureFields: [...configureFieldsForDriver(handle.binding.driver)],
+      attachKinds: [...attachKindsForDriver(handle.binding.driver)],
+    })
+    ctx.send({ type: 'agentState', sessionId: msg.sessionId, state: await handle.state() })
+    log.info('resumed a parked server-family session from its binding journal', {
+      sessionId: msg.sessionId,
+      driver: handle.binding.driver,
+    })
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
+    return true
+  } catch (err) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+    return true
+  }
+}
+
+type ServerDriverLaunchResult = { handled: true } | { handled: false; requestedDriverId?: string }
+
+/** The only server binary admission may probe after applying the login gate. */
+export function admissionProbeDriver(
+  preferred: string | undefined,
+  selectionAuth: ReturnType<typeof selectionAuthForLogin>,
+): string | undefined {
+  if (selectionAuth === 'logged-out') return undefined
+  return preferred && isServerDriverId(preferred) ? preferred : undefined
+}
+
+export function resolvedAdmissionExecutable(
+  preferred: string | undefined,
+  executables: ReadonlyMap<string, { readonly path: string }> | undefined,
+): string | undefined {
+  if (preferred === 'opencode-server') return executables?.get('opencode')?.path
+  if (preferred === 'opencode2-server') return executables?.get('opencode2')?.path
+  return undefined
+}
+
+/**
+ * Emit the operator-facing record for a permitted runtime-driver degradation
+ * (machine-wide or manifest-default) and return the preferred id for the bind
+ * projection.
+ * Keeping both consequences behind one guard prevents the log and read surface
+ * from disagreeing about whether a degradation happened.
+ */
+export function reportDriverPreferenceDegrade(input: {
+  sessionId: SessionId
+  agentKind: AgentKind
+  preference: string | undefined
+  resolved: DriverId
+  reason: string
+}): string | undefined {
+  const dropped = droppedDriverPreference(input)
+  if (dropped === undefined) return undefined
+  log.warn('the preferred runtime driver was not available; using fallback', {
+    sessionId: input.sessionId,
+    preferred: dropped,
+    resolved: input.resolved,
+    agentKind: input.agentKind,
+    reason: input.reason,
+  })
+  return dropped
+}
+
+/**
+ * TELL THE SERVER WHICH DRIVER THIS SESSION IS GETTING, BEFORE STARTING IT
+ * (POD-2290).
+ *
+ * `bind` carries the same fact and carries it too late: it is the frame that
+ * marks the session live, so on the drive instance an `opencode` session went
+ * twelve seconds with no driver fact at all while `opencode serve` booted. The
+ * web panel has to choose a view during those twelve seconds, and with nothing
+ * to go on it chose the terminal — which for this family is a pane that can
+ * never attach.
+ *
+ * Called at each point where the DECISION exists and before the thing decided
+ * upon is started. Never called on a refusal path: a spawn that is about to
+ * error has no driver, and announcing one would leave the row describing a
+ * session that never ran.
+ */
+function announceDriverSelection(
+  ctx: DaemonContext,
+  sessionId: SpawnControl['sessionId'],
+  driverId: string,
+): void {
+  driverTiming.driverSelected(sessionId, driverId)
+  ctx.send({ type: 'driverSelected', sessionId, driverId })
+}
+
+type ServerDriverProbeVerdict =
+  | { drivable: true }
+  | {
+      drivable: false
+      reason: 'unsupported' | 'unprobeable'
+      diagnostic: { title: string; body: string }
+    }
+
+export type ServerDriverAdmissionProbe = (
+  driverId: string,
+  policy?: { retryInconclusive?: boolean },
+  executablePath?: string,
+) => Promise<ServerDriverProbeVerdict>
+
+const defaultServerDriverAdmissionProbe: ServerDriverAdmissionProbe = (
+  driverId,
+  policy,
+  executablePath,
+) =>
+  driverId === 'codex-app-server'
+    ? codexAppServerVersionProbe(undefined, policy)
+    : driverId === 'opencode2-server'
+      ? executablePath
+        ? opencode2VersionProbeForExecutable(executablePath, policy)
+        : opencode2VersionProbe(undefined, policy)
+      : driverId === 'grok-acp'
+        ? grokAcpVersionProbe(undefined, policy)
+        : executablePath
+          ? opencodeVersionProbeForExecutable(executablePath, policy)
+          : opencodeVersionProbe(undefined, policy)
+
+export async function launchServerDriverSession(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+  probeDriver: ServerDriverAdmissionProbe = defaultServerDriverAdmissionProbe,
+): Promise<ServerDriverLaunchResult> {
+  const { preferred } = runtimeDriverIntentForSpawn({
+    agentKind: msg.agentKind,
+    perSpawn: msg.runtimeContract,
+    machineDefault: runtimeDriverByEnv(),
+  })
+  const embeddedRequested =
+    msg.runtimeContract === 'claude-sdk' && isEmbeddedDriver(msg.agentKind, 'claude-sdk')
+  if (!preferred && !embeddedRequested) {
+    // No server/embedded driver is in play: ordinary Claude, cursor, or a shell.
+    // The answer is the terminal one and it is known without probing
+    // anything, so say so now rather than leaving the clients to infer it from
+    // a `bind` that is still seconds away. `terminalProfileFor` is undefined
+    // only for a kind with no manifest — a shell — which has no driver to name.
+    const terminal = terminalProfileFor(msg.agentKind)
+    if (terminal) announceDriverSelection(ctx, msg.sessionId, terminal.driverId)
+    return { handled: false }
+  }
+  /**
+   * WHAT *THIS SPAWN* SAID, as opposed to what the machine was configured to
+   * prefer. `requested` has the env default folded in and cannot tell them
+   * apart; every refusal below keys on this instead, and the reason is the rule
+   * this function's docstring states — a fact about the MACHINE may be papered
+   * over, an instruction from THIS SPAWN may not.
+   */
+  const namedHere = spawnNamedServerDriver(msg.runtimeContract)
+  // Login is cheaper and more authoritative than availability for a headless
+  // default: a known logout always selects the PTY login path, so probing a
+  // server binary first can only delay the same answer.
+  const loginState = ctx.harnessLoginState(msg.agentKind)
+  const selectionAuth = selectionAuthForLogin(msg.agentKind, loginState, msg.env)
+  const terminalLoginReason =
+    selectionAuth === 'logged-out'
+      ? loginState === 'out'
+        ? `harness '${msg.agentKind}' is logged out; its terminal path provides interactive login`
+        : `harness '${msg.agentKind}' login is not confirmed yet; its terminal path provides interactive login`
+      : undefined
+  /**
+   * Probe the one preferred server driver, whether the preference came from the
+   * harness policy, the machine default, or this spawn. Each driver has its own
+   * binary and version range, so one harness's healthy probe must never vouch for
+   * another. The REFUSAL below still keys on `namedHere`: an unprobeable
+   * manifest or machine default degrades, while a per-spawn server id refuses.
+   */
+  const admissionInventory =
+    preferred === 'opencode-server' || preferred === 'opencode2-server'
+      ? await ctx.harnessRuntime?.current()
+      : undefined
+  const resolvedOpencodeExecutable = resolvedAdmissionExecutable(
+    preferred,
+    admissionInventory?.executables,
+  )
+  const probeFor = (driverId: string) =>
+    probeDriver(
+      driverId,
+      namedHere === driverId ? { retryInconclusive: true } : undefined,
+      driverId === 'opencode-server' || driverId === 'opencode2-server'
+        ? resolvedOpencodeExecutable
+        : undefined,
+    )
+  const preferredServer = admissionProbeDriver(preferred, selectionAuth)
+  const preferredProbe = preferredServer === undefined ? undefined : await probeFor(preferredServer)
+  const namedProbe = namedHere ? preferredProbe : undefined
+  /**
+   * REFUSED ONLY WHEN *THIS SPAWN* NAMED THE DRIVER — the fix to a defect this
+   * very check used to have (POD-2113, found by review).
+   *
+   * It read `isServerDriverId(requested)`, so a machine-wide
+   * `PODIUM_RUNTIME_DRIVER` triggered it too. `ok` is false on ENOENT as well as
+   * on a timeout and an `unprobeable` verdict is only briefly memoized, so
+   * on a daemon whose PATH lacks the binary — installed under `~/.opencode/bin`
+   * while the daemon starts from a systemd unit, which is the normal case — one
+   * env var refused every spawn of every harness. That is precisely "a stale
+   * env var kills every spawn on the box", the outcome this whole function
+   * argues must never happen, and it was the docstring three lines up that was
+   * telling the truth while the code was not. W6's second driver doubled the
+   * ways in without changing the shape.
+   *
+   * `namedHere === requested` whenever this fires (the per-spawn field wins in
+   * `runtimeDriverFor`), so `namedProbe` is this driver's own probe.
+   */
+  if (namedProbe !== undefined && !namedProbe.drivable && namedProbe.reason === 'unprobeable') {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `${namedProbe.diagnostic.title}: ${namedProbe.diagnostic.body}`,
+    })
+    driverTiming.sessionFailed(
+      msg.sessionId,
+      `${namedProbe.diagnostic.title}: ${namedProbe.diagnostic.body}`,
+    )
+    return { handled: true }
+  }
+  const runtime = ctx.agentRuntime
+  if (!runtime) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: 'machine runtime is not composed',
+    })
+    driverTiming.sessionFailed(msg.sessionId, 'machine runtime is not composed')
+    return { handled: true }
+  }
+  const resolution = runtime.resolveDriver({
+    agentKind: msg.agentKind,
+    requested: msg.runtimeContract,
+    machineDefault: runtimeDriverByEnv(),
+    // Only the preferred server is probed and admitted. An explicit terminal
+    // request therefore avoids every server probe.
+    available: availableDriverIds({
+      grokDrivable: preferredServer === 'grok-acp' && preferredProbe?.drivable === true,
+      opencodeDrivable: preferredServer === 'opencode-server' && preferredProbe?.drivable === true,
+      opencode2Drivable:
+        preferredServer === 'opencode2-server' && preferredProbe?.drivable === true,
+      codexDrivable: preferredServer === 'codex-app-server' && preferredProbe?.drivable === true,
+    }),
+    platform: process.platform,
+    auth: selectionAuth,
+  })
+  if (!resolution.ok) {
+    ctx.send({ type: 'spawnError', sessionId: msg.sessionId, message: resolution.reason })
+    driverTiming.sessionFailed(msg.sessionId, resolution.reason)
+    return { handled: true }
+  }
+  if (
+    (isServerDriver(msg.agentKind, resolution.driverId) ||
+      isEmbeddedDriver(msg.agentKind, resolution.driverId)) &&
+    resolution.capabilities.placement !== 'dedicated'
+  ) {
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `runtime driver '${resolution.driverId}' does not provide dedicated server placement`,
+    })
+    driverTiming.sessionFailed(
+      msg.sessionId,
+      `runtime driver '${resolution.driverId}' does not provide dedicated server placement`,
+    )
+    return { handled: true }
+  }
+
+  /**
+   * THIS SPAWN NAMED A SERVER DRIVER AND DID NOT GET IT — REFUSED (POD-2113).
+   *
+   * Without this the request dies right here, in silence: `resolution.driverId`
+   * is a terminal driver, `isServerDriver` is false, the function answers "not
+   * mine", and the spawn falls through to the PTY launch. The operator gets a
+   * healthy session that obeyed nothing — and no signal afterwards either, since
+   * the row records `runtimeContract: true` (the TERMINAL driver registered) and
+   * no read surface carries a driver id at all.
+   *
+   * The refuse/degrade split itself lives in {@link unhonouredSpawnDriver},
+   * where it can be tested without a daemon.
+   */
+  const unhonoured = unhonouredSpawnDriver({
+    perSpawn: msg.runtimeContract,
+    resolved: resolution.driverId,
+  })
+  if (unhonoured !== undefined) {
+    // WHY, not just WHAT. The two reasons want different fixes — upgrade this
+    // machine's binary, or stop asking a harness for a driver it does not
+    // declare — and "could not honour it" alone sends an operator to neither.
+    //
+    // THE PROBE OF THE DRIVER THAT WAS REFUSED, not opencode's. This line read
+    // `probe` unconditionally until W6 landed a second server family, at which
+    // point a refused `codex-app-server` explained itself with opencode's
+    // version diagnostic — an answer about the wrong binary, which is worse than
+    // no answer because it sends the operator to upgrade something that was
+    // never asked about.
+    let why: string
+    if (terminalLoginReason !== undefined) {
+      why = terminalLoginReason
+    } else {
+      const unhonouredProbe = await probeFor(unhonoured)
+      why = unhonouredProbe.drivable
+        ? `harness '${msg.agentKind}' does not declare it (this spawn resolved to '${resolution.driverId}')`
+        : `${unhonouredProbe.diagnostic.title}: ${unhonouredProbe.diagnostic.body}`
+    }
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: `this spawn asked for runtime driver '${unhonoured}' and it cannot be honoured here — ${why}`,
+    })
+    driverTiming.sessionFailed(
+      msg.sessionId,
+      `this spawn asked for runtime driver '${unhonoured}' and it cannot be honoured here — ${why}`,
+    )
+    return { handled: true }
+  }
+  /**
+   * THE DECISION, ANNOUNCED ONLY AFTER EVERY REFUSAL (POD-2290). Starting the
+   * process is the slow part clients cannot guess through, so the decision must
+   * still precede either the server launch or the terminal fallback. A refused
+   * spawn launches neither, and therefore must not persist a phantom driver as
+   * though it did.
+   */
+  announceDriverSelection(ctx, msg.sessionId, resolution.driverId)
+  if (
+    !isServerDriver(msg.agentKind, resolution.driverId) &&
+    !isEmbeddedDriver(msg.agentKind, resolution.driverId)
+  ) {
+    /**
+     * THE DEGRADE THAT SURVIVES, SAID OUT LOUD.
+     *
+     * A manifest-default or machine-wide server preference this box cannot run
+     * degrades deliberately, so an unsupported binary or transient probe miss
+     * cannot kill the spawn. The warning is the machine-level operational trace;
+     * the same guard supplies preferred-versus-actual to bind.
+     *
+     * Explicit per-spawn server ids never reach here: the refusal above keeps
+     * their refuse-not-degrade contract. Explicit terminal ids produce no
+     * dropped server preference and therefore no warning.
+     */
+    const dropped = droppedDriverPreference({
+      preference: preferred,
+      resolved: resolution.driverId,
+    })
+    let requestedDriverId: string | undefined
+    if (dropped !== undefined) {
+      let reason: string
+      if (terminalLoginReason !== undefined) {
+        reason =
+          loginState === 'out'
+            ? 'harness is logged out; terminal provides interactive login'
+            : 'harness login is not confirmed yet; terminal provides interactive login'
+      } else {
+        const droppedProbe = await probeFor(dropped)
+        reason = droppedProbe.drivable
+          ? 'the harness does not declare it'
+          : droppedProbe.diagnostic.title
+      }
+      requestedDriverId = reportDriverPreferenceDegrade({
+        sessionId: msg.sessionId,
+        agentKind: msg.agentKind,
+        preference: dropped,
+        resolved: resolution.driverId,
+        reason,
+      })
+    }
+    return {
+      handled: false,
+      ...(requestedDriverId ? { requestedDriverId } : {}),
+    }
+  }
+  /**
+   * WHICH REGISTRY, chosen by the DRIVER the resolution picked rather than by
+   * the harness name (POD-1761 W6). The two are not the same question: a
+   * harness can declare a server driver this build does not wire, and picking
+   * by harness would hand the session to whichever registry happened to be
+   * first.
+   */
+  /**
+   * RESUME BEFORE CREATE (POD-2775). A session the server family already
+   * journals is being brought back, not brought into existence — see
+   * {@link resumeJournalledServerSession} for why the create below cannot serve
+   * it and what the journal entry is for.
+   */
+  if (isServerDriver(msg.agentKind, resolution.driverId)) {
+    if (await resumeJournalledServerSession(ctx, msg)) return { handled: true }
+  }
+  try {
+    const spec: SessionSpec = {
+      harness: msg.agentKind,
+      selection: {
+        auth: selectionAuth,
+        platform: process.platform,
+        available: [resolution.driverId],
+        preference: resolution.driverId,
+        role: 'interactive',
+      },
+      workdir: msg.cwd,
+      model: {
+        ...(msg.model ? { model: msg.model } : {}),
+        ...(msg.effort ? { effort: msg.effort } : {}),
+      },
+      instructions: {
+        supported: false,
+        reason: 'interactive server instructions are not carried by the spawn frame adapter',
+      },
+      /**
+       * NO MCP CONFIG IS FORWARDED, AND THAT IS A DECLARED GAP RATHER THAN AN
+       * OVERSIGHT (POD-1761 W6).
+       *
+       * The codex driver and its host implement the mount end to end —
+       * `codexAppServerConfigArgs` builds the `-c mcp_servers.…` overrides
+       * through the manifest's own verified `codexMcpArgs`, and
+       * `SessionSpec.mcpServers` carries the declaration to it. What does not
+       * exist is a SOURCE: `mcpConfig` is a headless/harness-exec field, and the
+       * interactive `spawn` frame has never carried one, because interactive
+       * sessions mount MCP through the CLI's own config file. Inventing a field
+       * here would be a wire change beyond this item; passing an empty one would
+       * make the driver report a tool mount it did not make. So an app-server
+       * session mounts whatever `~/.codex/config.toml` already declares, and the
+       * spawn-frame field is POD-1761's to schedule.
+       */
+      mcpServers: {
+        supported: false,
+        reason: 'interactive sessions mount MCP through the harness native config file',
+      },
+      ...(msg.env ? { env: msg.env } : {}),
+      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+    }
+    if (isEmbeddedDriver(msg.agentKind, resolution.driverId) && msg.resume) {
+      await runtime.resume(msg.resume, spec, msg.sessionId)
+    } else {
+      await runtime.create(spec, msg.sessionId)
+    }
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
+  } catch (err) {
+    // A server that would not start is a SPAWN ERROR, reported on the frame the
+    // UI already renders. The alternative — falling back to a PTY — would hide
+    // exactly the failure the operator is trying to see.
+    ctx.send({
+      type: 'spawnError',
+      sessionId: msg.sessionId,
+      message: err instanceof Error ? err.message : String(err),
+    })
+    driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
+  }
+  return { handled: true }
+}
+
+/**
+ * Rebind a surviving embedded Claude handle, or resume it under the durable
+ * Podium id when the original daemon process is gone.
+ *
+ * ADOPT IS SAME-DAEMON; RESUME IS PROCESS-GONE. Trying adoption first is the
+ * exact identity check that prevents a second SDK core for a live session.
+ */
+async function adoptOrResumeEmbeddedClaudeSession(
+  ctx: DaemonContext,
+  msg: ReattachControl,
+): Promise<boolean> {
+  const runtime = ctx.agentRuntime
+  if (!runtime || !isEmbeddedDriver(msg.agentKind, 'claude-sdk')) return false
+  const existing = runtime.handleFor(msg.sessionId)
+  const existingClaude =
+    existing &&
+    existing.binding.driver === 'claude-sdk' &&
+    existing.binding.family === 'embedded' &&
+    existing.binding.harness === 'claude-code'
+      ? existing
+      : undefined
+  const requested = msg.runtimeContract === 'claude-sdk'
+  if (!requested && !existingClaude) return false
+  const fail = (reason: string): true => {
+    ctx.send({
+      type: 'reattachFailed',
+      sessionId: msg.sessionId,
+      reason,
+    })
+    return true
+  }
+  if (requested && existing && !existingClaude) {
+    return fail(`session '${msg.sessionId}' is already bound to '${existing.binding.driver}'`)
+  }
+  if (
+    existingClaude &&
+    msg.resume &&
+    (!existingClaude.binding.resume ||
+      existingClaude.binding.resume.kind !== msg.resume.kind ||
+      existingClaude.binding.resume.value !== msg.resume.value)
+  ) {
+    return fail('Claude SDK reattach resume ref does not match the surviving binding')
+  }
+  const binding =
+    existingClaude?.binding ??
+    ({
+      sessionId: msg.sessionId,
+      driver: 'claude-sdk' as const,
+      family: 'embedded' as const,
+      harness: 'claude-code' as const,
+      workdir: msg.cwd,
+      resume: msg.resume ?? null,
+      process: { key: `claude-sdk:${msg.sessionId}` },
+      bindingVersion: 1,
+    } as const)
+  try {
+    const handle = await runtime.adopt(binding)
+    await emitClaudeBinding(
+      ctx.send,
+      {
+        sessionId: msg.sessionId,
+        cwd: msg.cwd,
+        agentKind: 'claude-code',
+        geometry: msg.geometry,
+      },
+      handle,
+    )
+    log.info('adopted surviving Claude SDK session', {
+      sessionId: msg.sessionId,
+      mode: 'same-daemon',
+    })
+    return true
+  } catch (adoptionError) {
+    if (!requested) {
+      return fail(adoptionError instanceof Error ? adoptionError.message : String(adoptionError))
+    }
+    if (!msg.resume) return fail('Claude SDK session has no resume ref')
+    try {
+      const handle = await runtime.resume(
+        msg.resume,
+        {
+          harness: 'claude-code',
+          selection: {
+            auth: 'unknown',
+            platform: process.platform,
+            available: ['claude-sdk'],
+            preference: 'claude-sdk',
+            role: 'interactive',
+          },
+          workdir: msg.cwd,
+          model: {},
+          instructions: {
+            supported: false,
+            reason: 'reattach supplied no hidden instruction channel',
+          },
+          mcpServers: {
+            supported: false,
+            reason: 'reattach supplied no inline MCP configuration',
+          },
+        },
+        msg.sessionId,
+      )
+      if (
+        handle.binding.sessionId !== msg.sessionId ||
+        handle.binding.resume?.kind !== msg.resume.kind ||
+        handle.binding.resume?.value !== msg.resume.value
+      ) {
+        throw new Error('Claude SDK resume did not preserve the exact session identity or ref')
+      }
+      await ensureClaudeBindingPublished(
+        ctx.send,
+        {
+          sessionId: msg.sessionId,
+          cwd: msg.cwd,
+          agentKind: 'claude-code',
+          geometry: msg.geometry,
+        },
+        handle,
+      )
+      // The production machine source publishes from claude.launch before
+      // resume resolves. The ensure seam is deliberately weaker than emit:
+      // alternate adapters still publish, while a later reattach may emit the
+      // same surviving handle again to refresh its live capabilities.
+      log.info('resumed Claude SDK session after process loss', {
+        sessionId: msg.sessionId,
+        mode: 'process-gone',
+      })
+      return true
+    } catch (error) {
+      return fail(error instanceof Error ? error.message : String(error))
+    }
+  }
+}
 // Reattach is the hot path on (re)connect: a burst of ~30 arrives at once. Each is
 // independent, so handle them off the synchronous message dispatch — async existence
 // checks (never a blocking fork+exec on the loop), idempotent (a reconnect re-sends
@@ -508,6 +1740,22 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     const failure = bindingFailureMessage(outcome)
     if (failure) {
+      // A daemon restart can leave a server-family child behind after its parent
+      // dies uncleanly. When the server's reattach verdict says the session row
+      // is gone, the durable binding journal is now a ghost: reap by its recorded
+      // identity before reporting the failure, so a credentialed child cannot
+      // survive until reboot. Other binding failures are not proof that the row
+      // is gone and must not kill a still-owned session.
+      if (outcome.status === 'denied' && outcome.reason === 'not-found') {
+        void beginServerDriverReap(ctx, msg.sessionId, { retire: true }, ctx.serverReapIo).catch(
+          (err) => {
+            log.warn('could not reap a missing server session during reattach', {
+              err,
+              sessionId: msg.sessionId,
+            })
+          },
+        )
+      }
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
@@ -516,6 +1764,28 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       return
     }
   }
+  /**
+   * A SERVER-FAMILY SESSION IS REBOUND HERE, BEFORE THE DURABLE-HOST LOOKUP.
+   *
+   * This is the boot-time caller `adopt()` never had (found by POD-2056's lane,
+   * which could not reach its own subject without it). Everything below this
+   * point assumes a PTY: it asks whether an abduco socket or a tmux session
+   * still holds the durable label. A server-family session has neither — its
+   * process is an `opencode serve` on a loopback port — so a restarted daemon
+   * looked for a master that never existed, answered `reattachFailed: session
+   * not found`, and left a perfectly healthy server running ORPHANED with the
+   * row reporting it dead.
+   *
+   * The journal is what makes this exact rather than hopeful: it holds the
+   * process key, the port and the secret, and `host.adopt` matches the key and
+   * then health-probes with that secret before claiming anything. A recycled
+   * port answers nothing on this credential, which is precisely the
+   * discrimination "adopting the wrong process is worse than not adopting"
+   * demands.
+   */
+  if (await adoptOrResumeEmbeddedClaudeSession(ctx, msg)) return
+  if (await adoptServerDriverSession(ctx, msg)) return
+
   const existing = ctx.bridges.get(msg.sessionId)
   if (existing) {
     // Capture legacy state before observer replacement. A freshly fenced
@@ -531,6 +1801,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         seedOnFrame: false,
       })
     }
+    await bindRuntimeContract(ctx, msg, true)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     const cmd =
       ctx.backend === 'tmux'
         ? `tmux -L ${msg.durableLabel} attach`
@@ -548,6 +1820,20 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       agentKind: msg.agentKind,
       geometry: msg.geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4). The
+      // server records it and W4's senders branch on it — see BindMessage.
+      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+      // one would report `false` for a server-family session and route its
+      // sends down the legacy PTY path, for a session that has no PTY.
+      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
+      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
     })
     existing.redraw()
     // Re-push agent state for the same reason we re-seed the transcript below: a
@@ -616,10 +1902,11 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     let socketPath: string | undefined
     if (ctx.backend !== 'none') {
       reapStaleAbducoBindTemps()
-      socketPath = abducoSocketPath(msg.durableLabel)
+      const abducoEnv = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
+      socketPath = abducoSocketPath(msg.durableLabel, abducoEnv)
       if (socketPath === undefined) {
         try {
-          socketPath = await waitForAbducoSocket(msg.durableLabel, process.env, { timeoutMs: 1500 })
+          socketPath = await waitForAbducoSocket(msg.durableLabel, abducoEnv, { timeoutMs: 1500 })
         } catch {
           // The durable host may be absent; keep the tmux compatibility fallback below.
         }
@@ -662,6 +1949,9 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     ctx.observers.initSessionObservers(msg, found.session, agentStateProviderFor(msg.agentKind), {
       seedOnFrame: false,
     })
+    ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
+    await bindRuntimeContract(ctx, msg, true)
+    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
     if (msg.draftSync) {
       ctx.composerEngine.attach(msg.sessionId, msg.agentKind, geometry.cols, geometry.rows)
     }
@@ -673,6 +1963,20 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
       agentKind: msg.agentKind,
       geometry,
       ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+      // The driver handle actually exists for this session (POD-1761 W4). The
+      // server records it and W4's senders branch on it — see BindMessage.
+      // ASKS EVERY REGISTRY (POD-2023): a predicate that knew only the terminal
+      // one would report `false` for a server-family session and route its
+      // sends down the legacy PTY path, for a session that has no PTY.
+      ...(sessionIsBehindContract(ctx, msg.sessionId) ? { runtimeContract: true } : {}),
+      ...(driverId
+        ? {
+            driverId,
+            configureFields: [...configureFieldsForDriver(driverId)],
+            attachKinds: [...attachKindsForDriver(driverId)],
+          }
+        : {}),
+      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
     })
     // attachAbducoAgent nudges the PTY before the bridge is wired, so that
     // initial repaint can be lost. Nudge once more after bind to make a fresh
@@ -681,18 +1985,79 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   })
 }
 
-function stopSessionProcess(
+/**
+ * The daemon half of the survival table: drop the bridge, stop the observers,
+ * reap the durable host, and clean the session's per-session dirs.
+ *
+ * EXPORTED for the runtime contract's `stop`/`hibernate`/`kill` (POD-1761 W3) —
+ * all three reap the same way on this side, and the DIFFERENCE between them is
+ * the server's row transition, which is where it has always been. A driver that
+ * reimplemented any part of this would be the second place a session's teardown
+ * lived.
+ */
+export function stopSessionProcess(
   ctx: DaemonContext,
   msg: { sessionId: SessionId; durableLabel?: string },
+  opts: { retire?: boolean } = {},
 ): void {
   const session = ctx.bridges.get(msg.sessionId)
+  const runtimeHandle = ctx.agentRuntime?.handleFor(msg.sessionId)
   ctx.observers.clearSession(msg.sessionId)
+  ctx.agentRuntime?.clearTerminal(msg.sessionId)
   ctx.pendingResizes.delete(msg.sessionId)
+  ctx.nativeClientRequests?.delete(msg.sessionId)
+  // The request is gone, so the retry it was owed is too — there is no session
+  // left to become idle, and a stale entry would outlive the id.
+  ctx.nativeClientRetries?.delete(msg.sessionId)
+  void ctx.clientTerminals?.close(msg.sessionId)
   if (session) {
     session.dispose()
     ctx.bridges.delete(msg.sessionId)
     ctx.outputScheduler.remove(msg.sessionId)
   }
+  // Embedded runtimes have no PTY bridge or durable-host identity for the
+  // generic kill path to reap. End the live handle explicitly so a Claude SDK
+  // child is stopped and any queued receipts are reported before its in-memory
+  // registry is discarded. Server-family handles stay with beginServerDriverReap,
+  // which owns their bounded transport teardown and process proof.
+  if (runtimeHandle?.binding.family === 'embedded') {
+    void runtimeHandle.kill().catch((error) => {
+      log.warn('could not stop the embedded runtime session', {
+        error,
+        sessionId: msg.sessionId,
+      })
+    })
+  }
+  // A server-family session has no bridge and no durable host — its process is
+  // behind a runtime handle (or, post-restart, a binding-journal entry), and
+  // before POD-2249 this function reaped neither: stop parked the row while
+  // `opencode serve` ran on, kill deleted the row and left a credentialed
+  // child. The reap runs IN ADDITION to the durable reap below, never instead
+  // of it: a session with both a stale server journal and a genuine durable
+  // host (a driver switch across a resume) has both incarnations reaped. Two
+  // receipts for one session are harmless — the server acts only on
+  // `killed:false`, and a receipt for an identity that was never there is a
+  // truthful "nothing to kill".
+  void beginServerDriverReap(ctx, msg.sessionId, { retire: opts.retire === true }).catch((err) => {
+    log.warn('could not start reaping the server-driver session', {
+      err,
+      sessionId: msg.sessionId,
+    })
+  })
+  void reapInstanceSessionProcesses({
+    instanceUuid: ctx.instanceUuid,
+    sessionId: msg.sessionId,
+  })
+    .then((result) => {
+      if (result.examined > 0 && result.remaining > 0)
+        log.warn('instance-owned session processes survived escalation', {
+          sessionId: msg.sessionId,
+          ...result,
+        })
+    })
+    .catch((err) => {
+      log.warn('could not reap instance-owned session processes', { err, sessionId: msg.sessionId })
+    })
   // Reap the durable host unconditionally — NOT only when a bridge exists.
   // Generic kill is process policy (hibernate, stop, handoff); retirement is a
   // separate server-authored binding transition.
@@ -772,7 +2137,35 @@ export function dispatchInputBytes(
   if (bytes.includes(0x0d) || bytes.includes(0x0a)) {
     ctx.observers.recordInputOrigin(metadata.sessionId, metadata.inputOrigin)
   }
-  ctx.bridges.get(metadata.sessionId)?.writeBytes(bytes)
+  const bridge = ctx.bridges.get(metadata.sessionId)
+  // The client terminal is a leased takeover surface, not a second write
+  // path. Once Chat releases the native request, stale frames must not reach
+  // the warm abduco master.
+  if (
+    !bridge &&
+    ctx.nativeClientRequests?.has(metadata.sessionId) &&
+    ctx.clientTerminals?.input(metadata.sessionId, bytes)
+  ) {
+    ctx.composerEngine.onInputByte(metadata.sessionId)
+    return
+  }
+  if (!bridge && sessionIsBehindContract(ctx, metadata.sessionId)) {
+    // Chat sends for a server-family session use `runtimeSendRequest`; Native
+    // bytes reach the client terminal above. Anything arriving here has
+    // neither surface and is malformed/stale rather than silently accepted.
+    log.warn('discarding input bytes for a bridgeless contract session', {
+      sessionId: metadata.sessionId,
+      bytes: bytes.byteLength,
+    })
+  }
+  if (
+    bridge &&
+    metadata.inputOrigin === 'human' &&
+    (bytes.includes(0x0d) || bytes.includes(0x0a))
+  ) {
+    driverTiming.nativePromptSubmitted(metadata.sessionId)
+  }
+  bridge?.writeBytes(bytes)
   // Input-byte tap (POD-859 §3): a client typing into the PTY means the native
   // replica is hot, so the engine defers injection. No-op for unflagged sessions.
   ctx.composerEngine.onInputByte(metadata.sessionId)
@@ -793,6 +2186,7 @@ export const sessionHandlers: Pick<
   | 'agentObservationRebindAck'
   | 'sessionResumeRefAck'
   | 'sessionPriority'
+  | 'reclaimAttachments'
   | 'sessionOpenUrlCallback'
   | 'sessionOpenUrlDismiss'
 > = {
@@ -819,11 +2213,11 @@ export const sessionHandlers: Pick<
         if (failure) {
           log.warn('could not retire the binding', { sessionId: msg.sessionId, reason: failure })
         }
-        stopSessionProcess(ctx, msg)
+        stopSessionProcess(ctx, msg, { retire: true })
       })
       .catch((err) => {
         log.warn('could not retire the binding', { err, sessionId: msg.sessionId })
-        stopSessionProcess(ctx, msg)
+        stopSessionProcess(ctx, msg, { retire: true })
       })
   },
   sessionResumeRefConflict: (ctx, msg) => {
@@ -851,7 +2245,9 @@ export const sessionHandlers: Pick<
     // PTY at 80x24 under a client rendering a fitted grid (POD-628). Last one wins
     // — an in-flight session has no screen to reflow, only a size to be born at.
     if (bridge) bridge.resize(msg.cols, msg.rows)
-    else ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+    else if (!ctx.clientTerminals?.resize(msg.sessionId, msg.cols, msg.rows))
+      ctx.pendingResizes.set(msg.sessionId, { cols: msg.cols, rows: msg.rows })
+    ctx.observers.onResize?.(msg.sessionId, msg.cols, msg.rows)
     ctx.composerEngine.onResize(msg.sessionId, msg.cols, msg.rows)
   },
   draftTarget: (ctx, msg) => {
@@ -859,7 +2255,8 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    ctx.bridges.get(msg.sessionId)?.redraw()
+    if (!ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired))
+      ctx.bridges.get(msg.sessionId)?.redraw()
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)
@@ -874,6 +2271,29 @@ export const sessionHandlers: Pick<
   },
   sessionPriority: (ctx, msg) => {
     ctx.outputScheduler.setPriority(msg.sessionId, msg.priority as Tier)
+    /**
+     * THE SAME FRAME IS THE VIEWER SIGNAL A CLIENT TERMINAL'S IDLE CLOCK NEEDS
+     * (POD-2059). It is computed from the live client set and sent on every
+     * change, so tier 3 — `unwatched` — is precisely "the last viewer left this
+     * session", and anything below it is "somebody has it open". An attachment
+     * belongs to a session, so that is the association: hold the warm window off
+     * while the session is watched, start it when it is not.
+     *
+     * `nativeView` is also the exact subscription signal for the attachment:
+     * switching to Chat parks it and starts the warm TTL even though the session
+     * remains visible.
+     */
+    const nativeView = msg.nativeView === true
+    ctx.clientTerminals?.viewers(msg.sessionId, nativeView)
+    const requests = (ctx.nativeClientRequests ??= new Set<SessionId>())
+    if (nativeView) requests.add(msg.sessionId)
+    else requests.delete(msg.sessionId)
+    reconcileNativeClientTerminal(ctx, msg.sessionId)
+  },
+  reclaimAttachments: (ctx) => {
+    // Host pressure, decided by the server that owns the threshold. Attachments
+    // go BEFORE any session is parked (spec §5) — see the frame's own comment.
+    void ctx.clientTerminals?.reclaimUnwatched()
   },
   sessionOpenUrlCallback: (ctx, msg) => {
     void ctx.browserOpen.callback(msg)

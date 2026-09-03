@@ -2,13 +2,18 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
-import { NetworkStep, type NetworkSaveController } from '@/features/setup/network-step'
+import { type NetworkSaveController, NetworkStep } from '@/features/setup/network-step'
+import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
 interface NetworkInfo {
   mode: string | null
   publicUrl: string | null
   serverUrl: string | null
+  /** Where the web UI is served from, when it is not this server (PDM-26). */
+  appUrl?: string | null
+  /** Credentialed cross-site origins this deployment allows. */
+  allowedOrigins?: string[]
 }
 
 /**
@@ -24,6 +29,9 @@ export function NetworkSection({
   onSaveStateChange?: (state: NetworkSaveController | null) => void
 } = {}): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
+  const forcedPublicUrl = useForcedSetting('publicUrl')
+  const forcedAppUrl = useForcedSetting('appUrl')
+  const forcedOrigins = useForcedSetting('allowedOrigins')
   // undefined = loading, null = failed. Do not guess that this is a host until mode is known:
   // the host form can change topology, so briefly showing it on a worker is unsafe.
   const [info, setInfo] = useState<NetworkInfo | null | undefined>(undefined)
@@ -91,7 +99,60 @@ export function NetworkSection({
       title="Network"
       hint="Choose how phones, browsers, and other machines reach this Podium server."
     >
-      <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
+      {forcedPublicUrl.forced ? (
+        <>
+          <Row label="Public URL">
+            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
+              {info.publicUrl ?? <span className="text-muted-foreground">not set</span>}
+            </span>
+          </Row>
+          <p className="mt-2 settings-prose text-warning">{forcedNotice(forcedPublicUrl.env)}</p>
+        </>
+      ) : (
+        <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
+      )}
+      {/*
+        WHERE THE UI IS, when it is not here. Read-only and shown only when set:
+        an operator who never split their hosting has no such thing, and a row
+        saying "not set" would invite them to look for a setting that would only
+        break their install. Split hosting is configured by the deployment, so
+        the value arrives through the environment and there is nothing to edit
+        here — the provenance notice says which variable holds it.
+      */}
+      {info.appUrl && (
+        <>
+          <Row
+            label="Web app URL"
+            description="Browsers and desktop apps are sent here for the interface; this server answers the API."
+          >
+            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
+              {info.appUrl}
+            </span>
+          </Row>
+          {forcedAppUrl.forced && (
+            <p className="mt-2 settings-prose text-muted-foreground">
+              {forcedNotice(forcedAppUrl.env)}
+            </p>
+          )}
+        </>
+      )}
+      {(info.allowedOrigins?.length ?? 0) > 0 && (
+        <>
+          <Row
+            label="Allowed browser origins"
+            description="Sites allowed to sign in to this server from another origin."
+          >
+            <span className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground">
+              {info.allowedOrigins?.join(', ')}
+            </span>
+          </Row>
+          {forcedOrigins.forced && (
+            <p className="mt-2 settings-prose text-muted-foreground">
+              {forcedNotice(forcedOrigins.env)}
+            </p>
+          )}
+        </>
+      )}
     </Section>
   )
 }

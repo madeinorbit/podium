@@ -57,8 +57,12 @@ export const opencodeStateProvider: AgentStateProvider = {
 
 export function observeOpencodeState(opts: {
   cwd: string
+  /** Stable Podium row identity; used to select a session-owned store. */
+  podiumSessionId?: string
   resumeValue?: string
   homeDir?: string
+  /** Explicit store path for tests/embedders that already selected one. */
+  databasePath?: string
   startedAtMs?: number
   pollMs?: number
   statTick?: StatTick
@@ -78,6 +82,10 @@ export function observeOpencodeState(opts: {
   let lastObservedModel: string | undefined
   let lastObservedEffort: string | undefined
   let firstTranscript = true
+  let identityFailureReported = false
+  const completedAbortedMessageIds = new Set<string>()
+  const emittedInterruptMarkerIds = new Set<string>()
+  let turnAwaitingTerminal = false
 
   // A single opencode DB handle reused across every ~700ms poll tick (was opened
   // and closed per tick, per call). A `readOnly` SQLite handle re-reads the latest
@@ -85,8 +93,15 @@ export function observeOpencodeState(opts: {
   // query error drops the handle (via `dropDb`) so the next call reopens — a broken
   // handle is never reused. Closed once in `stop()`.
   let db: OpencodeDb | undefined
+  const databasePathFor = (rt: OpencodeRuntime): string | undefined =>
+    opts.databasePath ??
+    rt.opencodeDbPathForSession({
+      homeDir: opts.homeDir,
+      podiumSessionId: opts.podiumSessionId,
+      resumeValue: opts.resumeValue,
+    })
   const getDb = (rt: OpencodeRuntime): OpencodeDb => {
-    db ??= rt.openOpencodeDb(opts.homeDir)
+    db ??= rt.openOpencodeDb(opts.homeDir, databasePathFor(rt))
     return db
   }
   const dropDb = (): void => {
@@ -114,6 +129,9 @@ export function observeOpencodeState(opts: {
     lastObservedModel = undefined
     lastObservedEffort = undefined
     firstTranscript = true
+    completedAbortedMessageIds.clear()
+    emittedInterruptMarkerIds.clear()
+    turnAwaitingTerminal = false
     // Force the next poll tick to read regardless of the mtime gate, so a freshly
     // attached session isn't skipped on a coincidentally-equal mtime.
     lastPollMtimeMs = undefined
@@ -124,7 +142,6 @@ export function observeOpencodeState(opts: {
       lastObservedEffort = observed.effort
       opts.onModel?.(observed.model, observed.effort)
     }
-    void emitTranscript(true)
   }
 
   const discover = async (): Promise<void> => {
@@ -134,40 +151,30 @@ export function observeOpencodeState(opts: {
     const handle = getDb(rt)
     if (!handle) return
     try {
-      const session = rt.findLatestOpencodeSession(
+      const candidates = rt.findOpencodeSessions(
         handle,
         opts.cwd,
         startedAtMs - FRESH_SESSION_MARGIN_MS,
       )
+      if (candidates.length === 0) return
+      const databasePath = databasePathFor(rt)
+      if (!databasePath) {
+        if (!identityFailureReported) {
+          identityFailureReported = true
+          opts.onEvents([
+            {
+              kind: 'turn_failed',
+              errorClass: 'transcript_identity_unavailable',
+              retryable: false,
+              detail:
+                'OpenCode transcript withheld: no session-specific store was selected; refusing cwd-based discovery.',
+            },
+          ])
+        }
+        return
+      }
+      const session = candidates[0]
       if (session && !stopped) attach(session)
-    } catch {
-      dropDb()
-    }
-  }
-
-  const emitTranscript = async (reset = false): Promise<void> => {
-    if (!attached || !opts.onTranscriptItems) return
-    const rt = await maybeLoadOpencodeRuntime()
-    if (!rt || !attached) return
-    const handle = getDb(rt)
-    if (!handle) return
-    try {
-      const rows = firstTranscript
-        ? rt.loadOpencodeTranscriptTail(handle, attached.id)
-        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
-      if (rows.length === 0) return
-      const last = rows.at(-1)
-      if (last) {
-        lastPartTime = last.timeUpdated
-        lastPartId = last.partId
-      }
-      // Cursor-stamp via the SAME helper the on-demand read uses, so a live delta's
-      // cursors interoperate with a paged read's (dedup / subscribe-from-cursor).
-      const items = rt.stampOpencodeItems(rows, attached.id)
-      if (items.length > 0) {
-        opts.onTranscriptItems(items, reset || firstTranscript)
-        firstTranscript = false
-      }
     } catch {
       dropDb()
     }
@@ -183,7 +190,10 @@ export function observeOpencodeState(opts: {
       const session = rt.getOpencodeSession(handle, attached.id)
       if (!session) return
       const observed = parseOpencodeModel(session.model)
-      if (observed.model && (observed.model !== lastObservedModel || observed.effort !== lastObservedEffort)) {
+      if (
+        observed.model &&
+        (observed.model !== lastObservedModel || observed.effort !== lastObservedEffort)
+      ) {
         lastObservedModel = observed.model
         lastObservedEffort = observed.effort
         opts.onModel?.(observed.model, observed.effort)
@@ -201,14 +211,18 @@ export function observeOpencodeState(opts: {
       }
       lastCompacting = session.timeCompacting
 
-      const rows = rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
+      const rows = firstTranscript
+        ? rt.loadOpencodeTranscriptTail(handle, attached.id)
+        : rt.loadOpencodeMessageParts(handle, attached.id, lastPartTime, lastPartId)
       if (rows.length > 0) {
+        let resetForAbortedMessage = false
         const last = rows.at(-1)
         if (last) {
           lastPartTime = last.timeUpdated
           lastPartId = last.partId
         }
         for (const row of rows) {
+          if (row.timeUpdated < startedAtMs) continue
           const messageInfo = parseJson(row.messageData)
           const part = parseJson(row.partData)
           const role = messageInfo ? stringField(messageInfo, 'role') : undefined
@@ -218,9 +232,23 @@ export function observeOpencodeState(opts: {
           // replay from restamping recency to "now".
           const at = isoFromMs(row.timeUpdated)
           const rowEvents: AgentStateEvent[] = []
-          if (role === 'user' && partType === 'text') rowEvents.push({ kind: 'prompt_submitted' })
-          else if (partType === 'text' || partType === 'tool') rowEvents.push({ kind: 'activity' })
+          const aborted = messageInfo ? rt.isOpencodeMessageAborted(messageInfo) : false
+          if (aborted) {
+            // The synthetic row confirms the verdict. Every ordinary row still repeats
+            // the aborted envelope and must remain silent even when it arrives later.
+            if (partType === 'interrupt' && !completedAbortedMessageIds.has(row.messageId)) {
+              completedAbortedMessageIds.add(row.messageId)
+              resetForAbortedMessage = true
+              turnAwaitingTerminal = false
+              rowEvents.push({ kind: 'turn_completed', verdict: { kind: 'interrupted' } })
+            }
+          } else if (role === 'user' && partType === 'text') {
+            turnAwaitingTerminal = true
+            rowEvents.push({ kind: 'prompt_submitted' })
+          } else if (partType === 'text' || partType === 'tool')
+            rowEvents.push({ kind: 'activity' })
           else if (partType === 'step-finish') {
+            turnAwaitingTerminal = false
             rowEvents.push({
               kind: 'turn_completed',
               verdict: rt.classifyOpencodeIdleText(
@@ -231,9 +259,28 @@ export function observeOpencodeState(opts: {
           events.push(...withEventTime(rowEvents, at))
         }
         if (opts.onTranscriptItems) {
-          const items = rt.stampOpencodeItems(rows, attached.id)
-          if (items.length > 0) opts.onTranscriptItems(items, false)
+          // An abort changes the meaning of every row in its assistant message.
+          // Rebuild from the durable tail once so text already rendered before
+          // the error envelope arrived is removed, while the stable provider
+          // marker remains the sole visible interruption record.
+          const transcriptRows = resetForAbortedMessage
+            ? rt.loadOpencodeTranscriptTail(handle, attached.id)
+            : rows
+          const transcriptReset = resetForAbortedMessage || firstTranscript
+          const items = rt
+            .stampOpencodeItems(transcriptRows, attached.id)
+            .filter(
+              (item) =>
+                transcriptReset ||
+                item.event !== 'interrupt' ||
+                !emittedInterruptMarkerIds.has(item.id),
+            )
+          for (const item of items) {
+            if (item.event === 'interrupt') emittedInterruptMarkerIds.add(item.id)
+          }
+          if (items.length > 0 || transcriptReset) opts.onTranscriptItems(items, transcriptReset)
         }
+        firstTranscript = false
       }
       if (events.length > 0) opts.onEvents(events)
     } catch {
@@ -241,16 +288,27 @@ export function observeOpencodeState(opts: {
     }
   }
 
-  // The hot path: run the two per-tick reads only when the DB (or its WAL sidecars)
+  // The hot path: run the per-tick read only when the DB (or its WAL sidecars)
   // changed since the last tick. An unknown mtime (stat failed) reads anyway.
+  //
+  // ONE READER PER CURSOR (POD-2801). The first tick reads one bounded tail;
+  // later ticks read cursor deltas. Rows older than this observation are sent
+  // only to the transcript plane, while rows at or after startedAtMs drive both
+  // transcript and state. A freshly minted resume id therefore cannot make an
+  // initial-tail reader consume the first live turn before the state reader.
+  //
+  // An open turn overrides the mtime gate. OpenCode can commit step-finish less
+  // than one filesystem timestamp tick after its text row. Equality then is not
+  // proof that the provider store is unchanged: skipping forever strands the
+  // causal turn at activity. A durable user row opens this confirmation loop;
+  // the provider step-finish or abort row closes it. Idle sessions keep the gate.
   const pollOnce = async (): Promise<void> => {
     if (stopped || !attached) return
     const rt = await maybeLoadOpencodeRuntime()
     if (!rt || stopped || !attached) return
-    const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir)
-    if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs) return
+    const mtimeMs = rt.opencodeDbMtimeMs(opts.homeDir, databasePathFor(rt))
+    if (mtimeMs !== undefined && mtimeMs === lastPollMtimeMs && !turnAwaitingTerminal) return
     lastPollMtimeMs = mtimeMs
-    await emitTranscript(false)
     await tick()
   }
 
@@ -297,17 +355,26 @@ export function observeOpencodeState(opts: {
 
 async function opencodeBootEvents(opts: {
   cwd: string
+  podiumSessionId?: string
   resumeValue?: string
   homeDir?: string
+  databasePath?: string
 }): Promise<AgentStateEvent[]> {
   const rt = await maybeLoadOpencodeRuntime()
   if (!rt) return [{ kind: 'session_started' }]
-  const db = rt.openOpencodeDb(opts.homeDir)
+  const databasePath =
+    opts.databasePath ??
+    rt.opencodeDbPathForSession({
+      homeDir: opts.homeDir,
+      podiumSessionId: opts.podiumSessionId,
+      resumeValue: opts.resumeValue,
+    })
+  const db = rt.openOpencodeDb(opts.homeDir, databasePath)
   if (!db) return [{ kind: 'session_started' }]
   try {
     const sessionId = opts.resumeValue
     if (!sessionId) return [{ kind: 'session_started' }]
-    const last = lastAssistantText(rt, db, sessionId)
+    const last = lastAssistantCompletion(rt, db, sessionId)
     if (last) {
       // Stamp the assistant row's time_updated so re-seeding this idle session on
       // reattach restores its real last-active time, not the reattach moment.
@@ -315,7 +382,9 @@ async function opencodeBootEvents(opts: {
       return [
         {
           kind: 'turn_completed',
-          verdict: rt.classifyOpencodeIdleText(last.text),
+          verdict: last.interrupted
+            ? { kind: 'interrupted' }
+            : rt.classifyOpencodeIdleText(last.text),
           ...(at ? { at } : {}),
         },
       ]
@@ -324,6 +393,35 @@ async function opencodeBootEvents(opts: {
   } finally {
     db.close()
   }
+}
+
+function lastAssistantCompletion(
+  rt: OpencodeRuntime,
+  db: OpencodeDb,
+  sessionId: string,
+): { text?: string; timeUpdated: number; interrupted: boolean } | undefined {
+  if (!db) return undefined
+  const rows = rt.loadOpencodeTranscriptTail(db, sessionId, 200)
+  let latestMessageId: string | undefined
+  let latestTimeUpdated = 0
+  let latestInterrupted = false
+  for (let i = rows.length - 1; i >= 0; i--) {
+    const row = rows[i]
+    if (!row) continue
+    const messageInfo = parseJson(row.messageData)
+    if (stringField(messageInfo ?? {}, 'role') !== 'assistant') continue
+    latestMessageId ??= row.messageId
+    if (row.messageId !== latestMessageId) break
+    latestTimeUpdated = Math.max(latestTimeUpdated, row.timeUpdated)
+    latestInterrupted ||= messageInfo ? rt.isOpencodeMessageAborted(messageInfo) : false
+    const part = parseJson(row.partData)
+    if (stringField(part ?? {}, 'type') !== 'text') continue
+    const text = stringField(part ?? {}, 'text')
+    if (text) return { text, timeUpdated: latestTimeUpdated, interrupted: latestInterrupted }
+  }
+  return latestMessageId
+    ? { timeUpdated: latestTimeUpdated, interrupted: latestInterrupted }
+    : undefined
 }
 
 function lastAssistantText(
@@ -374,15 +472,15 @@ function parseOpencodeModel(raw: string | null | undefined): {
   } catch {
     return {}
   }
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return {}
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
   const record = value as Record<string, unknown>
-  const id = typeof record.id === "string" && record.id.trim() ? record.id.trim() : undefined
+  const id = typeof record.id === 'string' && record.id.trim() ? record.id.trim() : undefined
   const provider =
-    typeof record.providerID === "string" && record.providerID.trim()
+    typeof record.providerID === 'string' && record.providerID.trim()
       ? record.providerID.trim()
       : undefined
   const model = id ? (id.includes('/') || !provider ? id : provider + '/' + id) : undefined
   const effort =
-    typeof record.variant === "string" && record.variant.trim() ? record.variant.trim() : undefined
+    typeof record.variant === 'string' && record.variant.trim() ? record.variant.trim() : undefined
   return { ...(model ? { model } : {}), ...(effort ? { effort } : {}) }
 }

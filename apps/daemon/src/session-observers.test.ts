@@ -1453,6 +1453,153 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
     }
   })
 
+  // THE TRANSCRIPT FILE DOES NOT EXIST WHEN THE PROMPT HOOK ARRIVES, and that is
+  // the ordinary first turn of every claude session rather than a contrived race.
+  // Claude posts no SessionStart at all, so the first hook Podium ever sees is
+  // the UserPromptSubmit; it has not written the conversation's .jsonl by then.
+  // `applyClaudeHook` used to return without folding when the capture threw, and
+  // UserPromptSubmit is the only hook that opens a turn epoch — so the epoch
+  // stayed closed, the Stop that came minutes later was refused for having no
+  // open epoch, and the session reported `idle` through a whole turn: 79,922
+  // bytes of PTY output over 53 of 59 one-second intervals, phase `idle` at all
+  // 60 polls, on the POD-2801 rig. [POD-2810]
+  //
+  // Every other causal test here writes the file first, which is exactly why the
+  // suite was green while driving it did not work — so this one must not, and the
+  // Stop below writes it at the point claude really does.
+  it('folds the prompt hook that arrives before claude has created the transcript', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'podium-claude-late-transcript-'))
+    const transcript = join(dir, 'claude-late.jsonl')
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+    })
+    const sessionId = asSessionId('podium-late-transcript')
+    observers.initSessionObservers(
+      {
+        type: 'spawn',
+        sessionId,
+        agentKind: 'claude-code',
+        cwd: dir,
+        geometry: G,
+        durableLabel: 'podium-podium-late-transcript',
+        observationGeneration: 3,
+        observationBindingVersion: 2,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('claude-code'),
+      { seedOnFrame: false },
+    )
+    const observationsSent = () => sent.filter((m) => m.type === 'agentObservation')
+    try {
+      const prompt = {
+        hook_event_name: 'UserPromptSubmit',
+        session_id: 'claude-late',
+        transcript_path: transcript,
+        cwd: dir,
+        prompt_id: 'prompt-1',
+      }
+      observers.onHookPayload(sessionId, prompt)
+      await vi.waitFor(() => expect(observationsSent()).toHaveLength(1))
+      const snapshot = observationsSent()[0]!
+      expect(snapshot.observation).toMatchObject({
+        provenance: 'bootstrap',
+        transitionKind: 'snapshot',
+        state: { phase: 'idle' },
+      })
+      // The condition under test, stated rather than assumed: with no file to
+      // stat, the bootstrap can only fence a segment of unknown file identity.
+      expect(
+        parseClaudeTranscriptSegmentId(snapshot.observation.providerCursor.segmentId),
+      ).toMatchObject({ device: 'missing', inode: 'missing' })
+
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId,
+        observerGeneration: 3,
+        bindingVersion: 2,
+        transitionId: snapshot.observation.transitionId,
+        result: 'snapshot_applied',
+        acceptedCursor: snapshot.observation.providerCursor,
+      })
+
+      // THE EDGE THE DEFECT LOST. The buffered prompt hook is replayed while the
+      // file is STILL missing, and must open the turn anyway: the hook is
+      // claude's own report, and the transcript only supplies a position.
+      await vi.waitFor(() => expect(observationsSent()).toHaveLength(2))
+      const opened = observationsSent()[1]!
+      expect(opened.observation).toMatchObject({
+        provenance: 'live',
+        transitionKind: 'turn_opened',
+        priorPhase: 'idle',
+        nextPhase: 'working',
+        turnEpoch: 1,
+      })
+      // Held at the accepted transcript position; the hook plane is what advances,
+      // which is what keeps the cursor strictly after the bootstrap checkpoint.
+      expect(opened.observation.providerCursor.components).toEqual({ transcript: 0, hook: 1 })
+      expect(
+        acceptAgentObservation(
+          {
+            ...(snapshot.observation as unknown as SessionObservationCheckpointV1),
+            providerCursor: snapshot.observation.providerCursor,
+            turnEpoch: 0,
+            turnState: snapshot.observation.state,
+            terminalFence: null,
+            acceptedTransitionIds: [snapshot.observation.transitionId],
+            lastTransitionId: snapshot.observation.transitionId,
+          },
+          {
+            provider: 'claude-code',
+            providerSessionId: 'claude-late',
+            bindingVersion: 2,
+            observationGeneration: 3,
+          },
+          opened.observation,
+          new Date().toISOString(),
+        ).kind,
+      ).toBe('live_transition_accepted')
+
+      observers.onObservationAck({
+        type: 'agentObservationAck',
+        sessionId,
+        observerGeneration: 3,
+        bindingVersion: 2,
+        transitionId: opened.observation.transitionId,
+        result: 'live_transition_accepted',
+        acceptedCursor: opened.observation.providerCursor,
+      })
+
+      // AND THE TURN STILL CLOSES. Claude has flushed the file by the time it
+      // stops, so this hook captures a real device/inode: the observer must
+      // rotate onto that segment naming the bootstrap's as its predecessor,
+      // or the server would refuse the successor as an unproven rotation.
+      await writeFile(
+        transcript,
+        `${JSON.stringify({ type: 'assistant', message: { role: 'assistant', content: 'BANANA' } })}\n`,
+      )
+      observers.onHookPayload(sessionId, { ...prompt, hook_event_name: 'Stop' })
+      await vi.waitFor(() => expect(observationsSent()).toHaveLength(3))
+      const closed = observationsSent()[2]!
+      expect(closed.observation).toMatchObject({
+        transitionKind: 'turn_terminal',
+        priorPhase: 'working',
+        nextPhase: 'idle',
+      })
+      const rotated = parseClaudeTranscriptSegmentId(closed.observation.providerCursor.segmentId)
+      expect(rotated?.device).not.toBe('missing')
+      expect(rotated?.inode).not.toBe('missing')
+      expect(closed.observation.providerCursor.predecessorSegmentId).toBe(
+        opened.observation.providerCursor.segmentId,
+      )
+    } finally {
+      observers.clearSession(sessionId)
+      await rm(dir, { recursive: true, force: true })
+    }
+  })
+
   it('buffers live hooks behind one bootstrap ack and preserves the submitted steward origin', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-claude-causal-'))
     const transcript = join(dir, 'claude-1.jsonl')
@@ -2720,6 +2867,243 @@ describe('Claude causal daemon emission [spec:SP-cdb2]', () => {
       observers.clearSession(asSessionId('podium-clock'))
       await rm(dir, { recursive: true, force: true })
     }
+  })
+})
+
+
+describe('Grok accepted rebind transcript bridge', () => {
+  it('keeps legacy late-created chat_history live and exactly-once across reload', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-transcript-rebind-'))
+    const cwd = '/repo/grok-transcript-rebind'
+    const nativeId = 'grok-native-rebind'
+    const sessionId = asSessionId('podium-grok-transcript-rebind')
+    const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), nativeId)
+    const chatHistory = join(sessionDir, 'chat_history.jsonl')
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: nativeId, cwd } }))
+    await writeFile(join(sessionDir, 'updates.jsonl'), '')
+
+    const statTick = new ManualStatTick()
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+      statTick,
+    })
+    const spawn = {
+      type: 'spawn' as const,
+      sessionId,
+      agentKind: 'grok' as const,
+      cwd,
+      geometry: G,
+      durableLabel: 'podium-grok-transcript-rebind',
+      observationGeneration: 1,
+      observationBindingVersion: 1,
+      observationProviderSessionId: null,
+    }
+    observers.initSessionObservers(
+      spawn,
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false, newSessionId: nativeId },
+    )
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === 'agentObservationRebind')).toBe(true)
+    })
+    const rebind = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'agentObservationRebind' }> =>
+        message.type === 'agentObservationRebind',
+    )!
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId,
+      provider: 'grok',
+      rebindId: rebind.rebindId,
+      priorObserverGeneration: 1,
+      priorBindingVersion: 1,
+      nextProviderSessionId: nativeId,
+      providerSessionId: nativeId,
+      result: 'accepted',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: null,
+    })
+
+    await writeFile(
+      chatHistory,
+      [
+        JSON.stringify({ type: 'system', content: 'hidden' }),
+        JSON.stringify({ uuid: 'grok-user-token', type: 'user', content: 'user token' }),
+        JSON.stringify({ uuid: 'grok-assistant-token', type: 'assistant', content: 'assistant token' }),
+      ].join('\n') + '\n',
+    )
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+    })
+    const live = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(live.items.map((item) => [item.id, item.role, item.text])).toEqual([
+      ['grok-user-token', 'user', 'user token'],
+      ['grok-assistant-token', 'assistant', 'assistant token'],
+    ])
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+
+    observers.clearSession(sessionId)
+    const reloadStart = sent.length
+    observers.initSessionObservers(
+      {
+        ...spawn,
+        resume: { kind: 'grok-session', value: nativeId },
+        observationGeneration: 2,
+        observationBindingVersion: 2,
+        observationProviderSessionId: nativeId,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false },
+    )
+    await vi.waitFor(() => {
+      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(true)
+    })
+    const replay = sent.slice(reloadStart).find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(replay.reset).toBe(true)
+    expect(replay.items.map((item) => item.id)).toEqual(['grok-user-token', 'grok-assistant-token'])
+
+    observers.clearSession(sessionId)
+    await rm(home, { recursive: true, force: true })
+  })
+
+  it('rebinds to a late-created product transcript on the shared tick and reloads once', async () => {
+    const home = await mkdtemp(join(tmpdir(), 'podium-grok-current-transcript-'))
+    const cwd = '/repo/grok-current-transcript'
+    const nativeId = 'grok-current-native-id'
+    const sessionId = asSessionId('podium-grok-current-transcript')
+    const sessionDir = join(home, '.grok', 'sessions', encodeURIComponent(cwd), nativeId)
+    const transcriptRoot = join(home, 'product-transcripts')
+    const currentTranscript = join(transcriptRoot, 'project-native-id', `${nativeId}.jsonl`)
+    await mkdir(sessionDir, { recursive: true })
+    await writeFile(join(sessionDir, 'summary.json'), JSON.stringify({ info: { id: nativeId, cwd } }))
+    await writeFile(join(sessionDir, 'updates.jsonl'), '')
+
+    const statTick = new ManualStatTick()
+    const sent: DaemonMessage[] = []
+    const observers = createSessionObservers({
+      send: (message) => sent.push(message),
+      onTranscriptDirty: vi.fn(),
+      cwdTracker: { onHookCwd: vi.fn(async () => {}) },
+      homeDir: home,
+      transcriptRoot,
+      statTick,
+    })
+    const spawn = {
+      type: 'spawn' as const,
+      sessionId,
+      agentKind: 'grok' as const,
+      cwd,
+      geometry: G,
+      durableLabel: 'podium-grok-current-transcript',
+      observationGeneration: 1,
+      observationBindingVersion: 1,
+      observationProviderSessionId: null,
+    }
+    observers.initSessionObservers(
+      spawn,
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false, newSessionId: nativeId },
+    )
+
+    await vi.waitFor(() => {
+      expect(sent.some((message) => message.type === 'agentObservationRebind')).toBe(true)
+    })
+    const rebind = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'agentObservationRebind' }> =>
+        message.type === 'agentObservationRebind',
+    )!
+    observers.onProviderRebindAck({
+      type: 'agentObservationRebindAck',
+      sessionId,
+      provider: 'grok',
+      rebindId: rebind.rebindId,
+      priorObserverGeneration: 1,
+      priorBindingVersion: 1,
+      nextProviderSessionId: nativeId,
+      providerSessionId: nativeId,
+      result: 'accepted',
+      observerGeneration: 2,
+      bindingVersion: 2,
+      checkpoint: null,
+    })
+
+    await mkdir(join(transcriptRoot, 'project-native-id'), { recursive: true })
+    await writeFile(
+      currentTranscript,
+      [
+        JSON.stringify({ type: 'system', content: 'hidden' }),
+        JSON.stringify({ uuid: 'current-user-token', type: 'user', content: 'user token' }),
+        JSON.stringify({
+          uuid: 'current-assistant-token',
+          type: 'assistant',
+          content: 'assistant token',
+        }),
+      ].join('\n') + '\n',
+    )
+    for (const watcher of statTick.watchers) watcher()
+    await vi.waitFor(() => {
+      expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+    })
+    const live = sent.find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(live.items.map((item) => [item.id, item.role, item.text])).toEqual([
+      ['current-user-token', 'user', 'user token'],
+      ['current-assistant-token', 'assistant', 'assistant token'],
+    ])
+    for (const watcher of statTick.watchers) watcher()
+    await new Promise((resolve) => setTimeout(resolve, 10))
+    expect(sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(1)
+
+    observers.clearSession(sessionId)
+    const reloadStart = sent.length
+    observers.initSessionObservers(
+      {
+        ...spawn,
+        resume: { kind: 'grok-session', value: nativeId },
+        observationGeneration: 2,
+        observationBindingVersion: 2,
+        observationProviderSessionId: nativeId,
+      },
+      { onFrame: () => () => {} } as never,
+      agentStateProviderFor('grok'),
+      { seedOnFrame: false },
+    )
+    await vi.waitFor(() => {
+      expect(sent.slice(reloadStart).some((message) => message.type === 'transcriptDelta')).toBe(true)
+    })
+    const replay = sent.slice(reloadStart).find(
+      (message): message is Extract<DaemonMessage, { type: 'transcriptDelta' }> =>
+        message.type === 'transcriptDelta',
+    )!
+    expect(replay.reset).toBe(true)
+    expect(replay.items.map((item) => item.id)).toEqual([
+      'current-user-token',
+      'current-assistant-token',
+    ])
+
+    observers.clearSession(sessionId)
+    await rm(home, { recursive: true, force: true })
   })
 })
 

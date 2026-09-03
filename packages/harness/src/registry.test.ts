@@ -16,9 +16,15 @@ import {
 import {
   AGENT_MANIFESTS,
   agentStateProviderFor,
+  CLIENT_TERMINAL_HARNESSES,
+  clientTerminalFor,
+  driverFamilyForId,
+  driverIdIsServerFamily,
   harnessCapabilitiesFor,
+  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
+  harnessLoginNeedsInteractive,
   harnessResumeKind,
   harnessShowsPromptModeHints,
   harnessSupportsHandoff,
@@ -97,7 +103,191 @@ describe('agent manifest registry', () => {
         }
       }
       expect(typeof manifest.resumeKind).toBe('string')
+      expect(
+        Array.isArray(manifest.environment.removeInherited),
+        `${kind}.environment.removeInherited`,
+      ).toBe(true)
+      expect(new Set(manifest.environment.removeInherited).size).toBe(
+        manifest.environment.removeInherited.length,
+      )
+      // Which env overrides this CLI's stored login is a fact only the manifest
+      // can answer, and the spawn path deletes exactly what is declared here
+      // (POD-2296). An array is required so a new harness cannot arrive silently
+      // unguarded; empty is a legitimate answer, `undefined` is not.
+      expect(
+        Array.isArray(manifest.inventory.foreignCredentialEnv),
+        `${kind}.inventory.foreignCredentialEnv`,
+      ).toBe(true)
     }
+  })
+
+  it('never lets a login-overriding credential var reach a session of that harness', () => {
+    // The one that matters by name: every CLI whose reference documents an
+    // Anthropic key beating its stored OAuth must say so, or a daemon carrying
+    // ANTHROPIC_API_KEY bills that key's account while Podium shows the login.
+    expect(AGENT_MANIFESTS['claude-code'].inventory.foreignCredentialEnv).toEqual([
+      'ANTHROPIC_API_KEY',
+      'ANTHROPIC_AUTH_TOKEN',
+    ])
+    expect(AGENT_MANIFESTS.opencode.inventory.foreignCredentialEnv).toContain('ANTHROPIC_API_KEY')
+    // And nobody declares a variable Podium itself binds — stripping one of
+    // those would cut the session off from its own relay.
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      for (const key of AGENT_MANIFESTS[kind].inventory.foreignCredentialEnv) {
+        expect(key.startsWith('PODIUM_'), `${kind} declares ${key}`).toBe(false)
+      }
+    }
+  })
+
+  /**
+   * THE CLIENT-TERMINAL DECLARATION (POD-2823).
+   *
+   * These replace nine harness-name checks in the daemon's attach path. A
+   * declaration nobody checks is the other half of the defect this epic keeps
+   * finding, so every assertion below is DERIVED from the registry: a fourth
+   * server driver is covered the moment it is added, and cannot pass by being
+   * absent from a list written here.
+   */
+  it('gives every server-family harness a client terminal, or says it has none', () => {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      const server = declaredValue(AGENT_MANIFESTS[kind].runtime.server)
+      if (!server) {
+        // No server, no Native view to produce: the field must not exist to be
+        // half-answered.
+        expect(clientTerminalFor(kind), `${kind} has no server runtime`).toBeUndefined()
+        continue
+      }
+      // Required on the spec, so a new server driver cannot land without saying
+      // whether its CLI can be attached — `unsupported` is a legitimate answer,
+      // `undefined` is not.
+      expect(server.clientTerminal, `${kind}.runtime.server.clientTerminal`).toBeDefined()
+      const client = clientTerminalFor(kind)
+      if (!client) {
+        expect(declaredValue(server.clientTerminal)).toBeUndefined()
+        continue
+      }
+      expect(CLIENT_TERMINAL_HARNESSES).toContain(kind)
+    }
+    // And the derived set is the declarations, not a name list kept in step by
+    // hand — the enumeration the daemon reclaims parked masters from.
+    expect([...CLIENT_TERMINAL_HARNESSES].sort()).toEqual(
+      BUILTIN_HARNESS_KINDS.filter((kind) => clientTerminalFor(kind) !== undefined).sort(),
+    )
+  })
+
+  it('selects a client terminal by alternate server driver id', () => {
+    const client = clientTerminalFor('opencode', 'opencode2-server')
+    expect(client?.labelToken).toBe('oc2')
+    expect(
+      client?.launch({
+        cwd: '/work',
+        conversation: 'ses_v2',
+        endpoint: { address: 'http://127.0.0.1:41427', username: 'opencode', secret: 'secret' },
+      }),
+    ).toEqual({
+      cmd: 'opencode2',
+      args: ['mini', '--server', 'http://127.0.0.1:41427', '--session', 'ses_v2'],
+      cwd: '/work',
+      env: { OPENCODE_SERVER_USERNAME: 'opencode', OPENCODE_SERVER_PASSWORD: 'secret' },
+    })
+  })
+
+  it('keeps every client-terminal label distinct, and clear of the session’s own', () => {
+    const tokens = CLIENT_TERMINAL_HARNESSES.map((kind) => clientTerminalFor(kind)?.labelToken)
+    // A shared token would give two harnesses ONE durable abduco label: attaching
+    // the second would adopt the first's parked master and put the user in
+    // another CLI's conversation.
+    expect(new Set(tokens).size, `duplicate labelToken among ${tokens.join()}`).toBe(tokens.length)
+    for (const token of tokens) {
+      expect(token, 'an empty token collapses the label shape').toBeTruthy()
+      // Memory attribution claims processes by SUBSTRING of the session label,
+      // so a token containing a separator could let one label swallow another.
+      expect(token).toMatch(/^[a-z0-9]+$/)
+    }
+  })
+
+  it('launches a client that names the conversation and reaches the declared engine', () => {
+    for (const kind of CLIENT_TERMINAL_HARNESSES) {
+      const client = clientTerminalFor(kind)
+      const server = declaredValue(AGENT_MANIFESTS[kind].runtime.server)
+      if (!client || !server) throw new Error(`${kind} lost its declaration mid-test`)
+      const address = server.transport === 'stdio' ? undefined : `addr-for-${kind}`
+      const spec = client.launch({
+        cwd: '/work',
+        conversation: `conversation-for-${kind}`,
+        endpoint: {
+          ...(address ? { address } : {}),
+          ...(server.requiresPerSessionSecret ? { username: 'podium', secret: 's3cr3t' } : {}),
+        },
+      })
+      expect(spec.cwd, `${kind} client cwd`).toBe('/work')
+      // THE CONVERSATION IS THE WHOLE POINT. A client that opens a different one
+      // looks like the session's screen, which is worse than a refusal.
+      expect(spec.args.join(' '), `${kind} client argv`).toContain(`conversation-for-${kind}`)
+      // A transport with an address must USE it; a stdio engine has none to use,
+      // and its client comes back through the native store instead.
+      if (address) expect(spec.args, `${kind} client argv`).toContain(address)
+      // The secret rides in the ENV, never argv — the same rule the server half
+      // is held to, applied to the client that authenticates against it.
+      if (server.requiresPerSessionSecret) {
+        expect(JSON.stringify(spec.args), `${kind} put its secret in argv`).not.toContain('s3cr3t')
+        expect(Object.values(spec.env ?? {}), `${kind} client env`).toContain('s3cr3t')
+      }
+    }
+  })
+
+  /**
+   * COMPOSER READINESS (POD-2823) — the capability that replaced
+   * `agentKind === 'claude-code'` in the server's inbox.
+   *
+   * The literal was narrowing `submitVerification`, which grok also declares. So
+   * the one thing worth pinning here is that the two axes are INDEPENDENT: a
+   * build where they coincide is a build where the old conflation would go
+   * unnoticed again.
+   */
+  it('declares when each harness’s composer is known to take input', () => {
+    for (const kind of BUILTIN_HARNESS_KINDS) {
+      // Required, so a new harness cannot inherit a start-up window nobody
+      // decided on. `on-bind` is a claim, not a default you fall into.
+      expect(AGENT_MANIFESTS[kind].capabilities.composerReadiness, kind).toBeDefined()
+      expect(harnessComposerReadiness(kind)).toBe(
+        AGENT_MANIFESTS[kind].capabilities.composerReadiness,
+      )
+    }
+    // An unknown CLI cannot have its start-up window known, and guessing
+    // `confirmed-turn` would queue its sends behind a proof nothing can obtain.
+    expect(harnessComposerReadiness('some-future-cli')).toBe('on-bind')
+
+    // THE INDEPENDENCE THAT MADE THE NAME CHECK LOOK NECESSARY. Two harnesses
+    // verify submits; exactly one of them needs a confirmed turn before its
+    // composer can be typed at. If these ever line up, the server's readiness
+    // predicate could be rewritten as `submitVerification` and nothing would
+    // catch it — so this asserts they do not.
+    const verifying = BUILTIN_HARNESS_KINDS.filter(
+      (kind) => AGENT_MANIFESTS[kind].capabilities.submitVerification,
+    )
+    const confirming = BUILTIN_HARNESS_KINDS.filter(
+      (kind) => harnessComposerReadiness(kind) === 'confirmed-turn',
+    )
+    expect(verifying.length).toBeGreaterThan(confirming.length)
+    for (const kind of confirming) expect(verifying).toContain(kind)
+  })
+
+  it('declares parent controls and named-instance state selectors', () => {
+    expect(AGENT_MANIFESTS['claude-code'].environment.removeInherited).toEqual([
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_CODE_EXECPATH',
+    ])
+    expect(AGENT_MANIFESTS.codex.environment.instanceHome).toEqual({
+      variable: 'CODEX_HOME',
+      relativeDir: '.codex',
+    })
+    expect(AGENT_MANIFESTS.grok.environment.instanceHome).toEqual({
+      variable: 'GROK_HOME',
+      relativeDir: '.grok',
+    })
   })
 
   // A LOGIN COMMAND IS ARGV, NOT PROSE (POD-1307). `claude login` shipped here and
@@ -120,6 +310,8 @@ describe('agent manifest registry', () => {
       opencode: 'opencode auth login',
       // Cursor declares no native login; the UI tells the operator to run it by hand.
       cursor: null,
+      // Pi signs in through its in-TUI /login command; there is no argv for it.
+      pi: null,
     })
   })
 
@@ -137,6 +329,7 @@ describe('agent manifest registry', () => {
       grok: ['poll'],
       opencode: ['poll'],
       cursor: ['poll'],
+      pi: ['poll'],
     })
     for (const manifest of Object.values(AGENT_MANIFESTS)) {
       expect(manifest.stateChannels.length, manifest.kind).toBeGreaterThan(0)
@@ -160,6 +353,13 @@ describe('agent manifest registry', () => {
         params: { update: { sessionUpdate: 'user_message_chunk' } },
       },
       cursor: { role: 'user', timestamp: '2026-08-02T10:00:00.000Z' },
+      pi: {
+        type: 'message',
+        id: 'ab00975c',
+        parentId: null,
+        timestamp: '2026-09-02T09:48:47.822Z',
+        message: { role: 'user', content: [{ type: 'text', text: 'hi' }] },
+      },
     }
     for (const kind of BUILTIN_HARNESS_KINDS) {
       const provider = declaredValue(AGENT_MANIFESTS[kind].state)
@@ -310,6 +510,16 @@ describe('agent manifest registry', () => {
     expect(transcriptRecordMapperFor('not-a-kind')).toBeUndefined()
   })
 
+  it('owns the Codex credential-grace interpretation at the harness boundary', () => {
+    expect(harnessLoginNeedsInteractive('codex', 'unknown')).toBe(true)
+    expect(harnessLoginNeedsInteractive('codex', 'out')).toBe(true)
+    expect(harnessLoginNeedsInteractive('codex', 'in')).toBe(false)
+    expect(harnessLoginNeedsInteractive('codex', undefined)).toBe(false)
+    expect(harnessLoginNeedsInteractive('opencode', 'unknown')).toBe(false)
+    expect(harnessLoginNeedsInteractive('grok', 'unknown')).toBe(false)
+    expect(harnessLoginNeedsInteractive('future-harness', 'unknown')).toBe(false)
+  })
+
   it('derives capability answers from manifests and degrades unknown ids closed', () => {
     expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessSupportsHandoff(kind))).toEqual([
       'claude-code',
@@ -362,6 +572,49 @@ describe('agent manifest registry', () => {
   })
 })
 
+describe('driverFamilyForId (POD-2290)', () => {
+  it('answers with the family the MANIFESTS declare, for every admitted driver id', () => {
+    // Read off the manifests, never a table — so a harness that grows a server
+    // driver, or renames one, cannot leave a second list saying otherwise.
+    expect(driverFamilyForId('opencode-server')).toBe('server')
+    expect(driverFamilyForId('codex-app-server')).toBe('server')
+    expect(driverFamilyForId('grok-acp')).toBe('server')
+    expect(driverFamilyForId('claude-pty')).toBe('terminal')
+    expect(driverFamilyForId('generic-pty')).toBe('terminal')
+  })
+
+  it('gives acceptance rigs an exact terminal-only gate for concrete overrides', () => {
+    const explicitContracts = [
+      'claude-pty',
+      'generic-pty',
+      'codex-app-server',
+      'opencode-server',
+      'some-driver-from-2027',
+    ]
+    expect(explicitContracts.filter((id) => driverFamilyForId(id) === 'terminal')).toEqual([
+      'claude-pty',
+      'generic-pty',
+    ])
+  })
+
+  it('says UNKNOWN rather than guessing for an id no manifest claims', () => {
+    // The conformance driver, and anything a newer daemon might bind. Callers
+    // must have an answer for unknown; inventing a family here would hand them a
+    // confident wrong one instead (the web reads unknown as "assume a terminal").
+    expect(driverFamilyForId('fake')).toBeUndefined()
+    expect(driverFamilyForId('some-driver-from-2027')).toBeUndefined()
+  })
+
+  it('is the one implementation behind the server-family question', () => {
+    // `driverIdIsServerFamily` used to walk the manifests itself. Two walks over
+    // the same declarations is exactly where the reap guard and the view would
+    // eventually disagree about the same session.
+    for (const id of ['opencode-server', 'codex-app-server', 'grok-acp', 'claude-pty', 'fake']) {
+      expect(driverIdIsServerFamily(id), id).toBe(driverFamilyForId(id) === 'server')
+    }
+  })
+})
+
 describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
   it('parses an unknown harness id off the wire instead of rejecting the frame', () => {
     // The wire type is OPEN: a newer peer may name a harness this build has never
@@ -408,6 +661,7 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       displayName: 'Fictional',
       capabilities: { ...AGENT_MANIFESTS['claude-code'].capabilities },
       resumeKind: 'fictional-session',
+      environment: { removeInherited: [] },
       inventory: {
         executable: { names: ['fictional'], versionArgs: ['--version'] },
         detectLogin: () => ({ state: 'unknown' }),
@@ -415,6 +669,9 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
         loginCommand: unsupported('fictional harness'),
         loginIdentity: unsupported('fictional harness'),
         portableCredential: unsupported('fictional harness'),
+        // Declared empty, not omitted: "this CLI has no env that overrides its
+        // login" is an answer, and the type demands one.
+        foreignCredentialEnv: [],
       },
       launch: (opts) => ({ cmd: 'fictional', args: [], cwd: opts.cwd }),
       discovery: {
@@ -430,6 +687,16 @@ describe('open HarnessId vs closed BuiltinHarnessKind (POD-303)', () => {
       } as unknown as AgentManifest['discovery'],
       exec: unsupported('no one-shot mode'),
       headless: unsupported('no headless mode yet'),
+      // The runtime axis is IRREDUCIBLE, not degradable: a harness Podium can
+      // spawn is a harness that can be driven, and the terminal family is
+      // always one of the ways (POD-1761 §2). What a minimal manifest may
+      // decline is the two PROTOCOL families — which is what this declares.
+      runtime: {
+        server: unsupported('no server mode'),
+        embedded: unsupported('no library to host'),
+        terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+        select: () => 'generic-pty',
+      },
       state: unsupported('no state instrumentation yet'),
       stateChannels: [],
       observer: unsupported('no native store to observe yet'),

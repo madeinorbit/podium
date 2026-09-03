@@ -1,5 +1,6 @@
 import { open } from 'node:fs/promises'
 import { homedir } from 'node:os'
+import { join } from 'node:path'
 import {
   discoveryRoots,
   harnessKindForResumeKind,
@@ -7,8 +8,9 @@ import {
   transcriptSourceFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { AgentKind } from '@podium/model'
+import type { AgentKind, SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
 import type { SliceResult, TranscriptSource } from '@podium/transcript'
 import type { ControlHandlers, DaemonContext } from './context'
 
@@ -37,6 +39,7 @@ export function normalizeAgentKind(agentKind: AgentKind, resumeKind?: string): A
 export function sourceForRead(
   ctx: Pick<DaemonContext, 'homeDir'>,
   msg: {
+    sessionId: SessionId
     agentKind: AgentKind
     cwd: string
     resume?: { kind: string; value: string }
@@ -45,11 +48,13 @@ export function sourceForRead(
 ): Promise<TranscriptSource> {
   const agentKind = normalizeAgentKind(msg.agentKind, msg.resume?.kind)
   return transcriptSourceFor({
+    podiumSessionId: msg.sessionId,
     agentKind,
     cwd: msg.cwd,
     ...(msg.resume?.value ? { resumeValue: msg.resume.value } : {}),
     ...(msg.pathHint ? { pathHint: msg.pathHint } : {}),
     ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+    transcriptRoot: join(stateDir(), 'transcripts'),
   })
 }
 

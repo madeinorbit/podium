@@ -17,6 +17,13 @@ export {
   toForwarded,
 } from './forward-sink'
 export {
+  type ClientLogging,
+  type ClientLoggingOptions,
+  installClientLogging,
+  type LogTransport,
+  type UnloadLogTransport,
+} from './install'
+export {
   applyServerLogLevel,
   createLevelController,
   DEFAULT_LEVEL_TTL_MS,
@@ -28,9 +35,8 @@ export {
   setActiveLevelController,
 } from './level-command'
 export {
-  type ClientLogging,
-  type ClientLoggingOptions,
-  installClientLogging,
-  type LogTransport,
-} from './install'
-export { reportCrash, setActiveCrashReporter } from './runtime'
+  flushLogsBeforeUnload,
+  reportCrash,
+  setActiveCrashReporter,
+  setActiveLogFlusher,
+} from './runtime'

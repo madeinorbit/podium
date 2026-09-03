@@ -93,6 +93,34 @@ export const sessions = sqliteTable(
     // Resolved launch placement, captured once at spawn [spec:SP-dae6].
     model: text(),
     effort: text(),
+    /**
+     * THE MODEL / EFFORT LAST ASKED FOR AT RUNTIME (POD-3081), as distinct from
+     * the launch pair above and from the OBSERVED pair, which has no column at
+     * all.
+     *
+     * WHY THIS ONE IS DURABLE AND `observed_model` IS NOT. The observed pair is
+     * re-learned from the transcript tail on every reattach, so a column would
+     * be a second copy of something the tail already answers. Nothing re-learns
+     * a REQUEST: no harness stamps "the operator asked for gpt-5.1-codex-max"
+     * anywhere a reader could find it. Left transient, a successful
+     * `sessions.configure` survived exactly as long as the server process, and
+     * the session came back displaying the model it was LAUNCHED with while the
+     * driver went on answering as the one it was configured to — which is the
+     * requested-vs-observed split telling the lie it exists to prevent.
+     *
+     * NOT the operative value. The driver's own journal is what actually rides
+     * the next request and what survives a DAEMON restart; this is the server's
+     * durable record of the last change it successfully made. Reconciling the
+     * two on bind is POD-3087's, and until it lands the two can only disagree if
+     * a driver journal is lost — in which case this column is still the true
+     * answer to "what was asked for".
+     *
+     * NULL = nobody has changed it, and the launch pair is the requested one.
+     * Never backfilled from `model`: "launched as X" and "asked for X" are
+     * different claims and only one of them was ever made.
+     */
+    requestedModel: text('requested_model'),
+    requestedEffort: text('requested_effort'),
     accountId: text('account_id').$type<AccountId>(),
     /** Harness authenticated by an interactive shell. Its presence protects the
      *  shell from generic idle reaping for the full durable session lifetime. */
@@ -110,6 +138,26 @@ export const sessions = sqliteTable(
     conversationId: text('conversation_id'),
     resumeKind: text('resume_kind'),
     resumeValue: text('resume_value'),
+    /**
+     * THE DRIVER THE DAEMON DECIDED ON, DURABLE (POD-2290 round 2).
+     *
+     * Deliberately NOT `driver_id`. The BOUND driver belongs to a live handle
+     * and is transient by design; this is the DECISION the daemon reported
+     * before it launched, which is a fact about how the session was started and
+     * therefore survives the process that made it.
+     *
+     * It is here because dropping it broke the fix that needed it: a server
+     * restart rehydrates live rows as `reconnecting`, and with nothing
+     * persisted a headless session came back family-unknown — which the panel
+     * reads as "assume a terminal", which is the original bug's screen. Driven
+     * live by the reviewer with the daemon held down.
+     *
+     * NULL = a row written before this column, or one whose daemon never
+     * reported a selection. Never backfilled: inventing a driver for a row we
+     * were not told about is the guess this whole issue is about removing.
+     */
+    selectedDriverId: text('selected_driver_id'),
+    requestedDriverId: text('requested_driver_id'),
     /**
      * WHETHER THIS LAUNCH EVER HAD A NATIVE CONVERSATION (POD-2392).
      *
@@ -146,6 +194,22 @@ export const sessions = sqliteTable(
     issueId: text('issue_id').$type<IssueId>(),
     stoppedAt: text('stopped_at'),
     stopReason: text('stop_reason'),
+    /**
+     * WHEN THE KERNEL LAST OOM-KILLED SOMETHING IN THIS SESSION'S SCOPE
+     * (POD-2413), as an event time.
+     *
+     * ITS OWN COLUMN RATHER THAN A FIFTH `stop_reason` (which is what the first
+     * cut tried, and it never persisted): widening that CHECK means a SQLite
+     * table rebuild, which the expand-only gate refuses for good reason — and
+     * the enum is the wrong home anyway. `OOMPolicy=continue` means the usual
+     * victim is a build the agent started and the session keeps serving, so an
+     * OOM kill is a FACT WITH A TIME that may or may not explain a later exit,
+     * not a terminal reason. The correlation stays in the domain: `Session`
+     * reads this back on hydrate and re-derives `stopReason: 'oom'` when the
+     * death was close enough to the kill. Additive and nullable — a row written
+     * before this column genuinely has no kill recorded, and NULL says so.
+     */
+    oomKilledAt: text('oom_killed_at'),
     deletedAt: text('deleted_at'),
     deletedByIssueId: text('deleted_by_issue_id').$type<IssueId>(),
     deletionSource: text('deletion_source'),
@@ -1058,6 +1122,30 @@ export const podiumEvents = sqliteTable(
   ],
 )
 
+/**
+ * The durable head of each session's coarse Agent Runtime stream.
+ *
+ * `podium_events` is the append-only history, while this row survives that
+ * log's bounded retention and fences a daemon bootstrap/replay after a server
+ * restart. Keeping the head separate is what prevents retention from turning
+ * an old provider cursor back into apparently-new work.
+ */
+export const runtimeEventCheckpoints = sqliteTable('runtime_event_checkpoints', {
+  sessionId: text('session_id').$type<SessionId>().primaryKey(),
+  observerGeneration: integer('observer_generation').notNull(),
+  cursorJson: text('cursor_json').notNull(),
+  turnEpoch: integer('turn_epoch').notNull(),
+  closedTurnEpoch: integer('closed_turn_epoch'),
+  updatedAt: text('updated_at').notNull(),
+})
+
+/** Durable consumption head for each coarse-event oplog projector. */
+export const runtimeEventProjectionCursors = sqliteTable('runtime_event_projection_cursors', {
+  projector: text().primaryKey(),
+  lastEventId: integer('last_event_id').notNull(),
+  updatedAt: text('updated_at').notNull(),
+})
+
 export const stewardState = sqliteTable('steward_state', {
   key: text().primaryKey(),
   value: text().notNull(),
@@ -1948,6 +2036,7 @@ export const messages = sqliteTable(
     urgency: text().default('fyi').notNull(),
     lifecycle: text().default('wait').notNull(),
     body: text().notNull(),
+    attachmentsJson: text('attachments_json'),
     expiresAt: text('expires_at'),
     createdAt: text('created_at').notNull(),
     status: text().default('queued').notNull(),
@@ -1960,6 +2049,8 @@ export const messages = sqliteTable(
     fromName: text('from_name'),
     readAt: text('read_at'),
     injectedAt: text('injected_at'),
+    deliveryDeferredAt: text('delivery_deferred_at'),
+    deliveryDeferredReason: text('delivery_deferred_reason'),
     deadLetteredAt: text('dead_lettered_at'),
     // A response is OPT-IN [POD-835 §04b]: only a `--expect-response` send (or a
     // `question`) sets this. It is the sole trigger for the stop-hook reminder and
@@ -2373,6 +2464,63 @@ export const operations = sqliteTable(
   (table) => [
     index('idx_operations_group_state').on(table.exclusionGroup, table.state),
     index('idx_operations_kind_created').on(table.kind, table.createdAt),
+  ],
+)
+
+/**
+ * PendingInteraction — the durable blocking-ask aggregate (POD-2020, spec §4).
+ *
+ * ONE ROW PER ASK, and the row outlives the ask: an answered interaction is the
+ * audit trail for a decision a headless run made on its own, so nothing here is
+ * deleted on resolution. `status` moves `asked → answered | expired` and stops.
+ *
+ * `fingerprint` is the classifier-dedupe key (see `PendingInteractionWire` in
+ * @podium/protocol for why it is a defence and not a proof). The partial unique
+ * index is what actually collapses a re-rendered menu: it constrains only OPEN
+ * rows, so the same question asked again after the first was answered is a
+ * genuinely new ask and inserts cleanly — which is the behaviour a long-running
+ * session needs, and what a plain unique index would get wrong.
+ */
+export const pendingInteractions = sqliteTable(
+  'pending_interactions',
+  {
+    id: text().primaryKey(),
+    sessionId: text('session_id').$type<SessionId>().notNull(),
+    kind: text().notNull(),
+    /** The per-kind ask payload, as JSON. Typed by `PendingInteractionWire`'s
+     *  arm for `kind`; opaque to SQLite, like every other payload column here. */
+    payloadJson: text('payload_json').notNull(),
+    source: text().notNull(),
+    answerable: text().notNull(),
+    fingerprint: text().notNull(),
+    status: text().default('asked').notNull(),
+    policyVerdict: text('policy_verdict'),
+    askedAt: text('asked_at').notNull(),
+    expiresAt: text('expires_at'),
+    answeredAt: text('answered_at'),
+    answeredBy: text('answered_by'),
+    answerJson: text('answer_json'),
+    deliveredVia: text('delivered_via'),
+    expiredAt: text('expired_at'),
+  },
+  (table) => [
+    index('idx_pending_interactions_session').on(table.sessionId, table.status),
+    index('idx_pending_interactions_open').on(table.status, table.askedAt),
+    uniqueIndex('idx_pending_interactions_fingerprint')
+      .on(table.sessionId, table.fingerprint)
+      .where(sql`status = 'asked'`),
+    check(
+      'pending_interactions_status_check',
+      sql`status IN ('asked','answered','expired','superseded')`,
+    ),
+    check(
+      'pending_interactions_kind_check',
+      sql`kind IN ('permission','question','plan-approval','elicitation','login','recovery')`,
+    ),
+    check(
+      'pending_interactions_source_check',
+      sql`source IN ('protocol','sdk-callback','hook','screen-classifier')`,
+    ),
   ],
 )
 

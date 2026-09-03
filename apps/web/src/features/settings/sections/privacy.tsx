@@ -15,6 +15,8 @@
 // wizard show, not a copy. It WAS a copy, and had already drifted. The
 // `/example` subpath is the one browser-safe entry (zero runtime imports);
 // the bare `@podium/telemetry` specifier pulls the emitter and node:fs.
+
+import type { PodiumSettings } from '@podium/runtime'
 import { EXAMPLE_USAGE_REPORT_DISPLAY as EXAMPLE_REPORT } from '@podium/telemetry/example'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -22,7 +24,7 @@ import { useStoreSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { Switch } from '@/components/ui/switch'
 import { DiagnosticLoggingSubsection } from './diagnostic-logging'
-import { Section } from './shared'
+import { Row, Section } from './shared'
 
 /** Inlined so the web bundle never imports @podium/telemetry (node:fs/crypto).
  *  Structurally checked against the server's wire type by the type system at the
@@ -51,7 +53,13 @@ const TIERS: { key: 'usage' | 'crash'; name: string; description: string }[] = [
   },
 ]
 
-export function PrivacySection(): JSX.Element {
+export function PrivacySection({
+  settings,
+  patch,
+}: {
+  settings: PodiumSettings
+  patch: (p: Partial<PodiumSettings>) => void
+}): JSX.Element {
   const trpc = useStoreSelector((s) => s.trpc)
   const [state, setState] = useState<TelemetryStateWire | null>(null)
   const [preview, setPreview] = useState<unknown>(null)
@@ -195,7 +203,89 @@ export function PrivacySection(): JSX.Element {
         </p>
       )}
 
+      <TranscriptMirrorRow settings={settings} patch={patch} />
+
       <DiagnosticLoggingSubsection />
     </Section>
+  )
+}
+
+/**
+ * WHETHER THIS SERVER KEEPS A COPY OF WHAT THE AGENTS SAID (PDM-26).
+ *
+ * A privacy question before it is a storage one, which is why it lives here
+ * rather than beside the worktree-retention knobs: the mirror is what makes a
+ * conversation searchable on the server after the machine that ran it is gone.
+ *
+ * IT SHOWS THE EFFECTIVE VALUE, NOT THE STORED ONE. `setup.info` reports both
+ * the resolved answer and the layer that produced it, and when a deployment has
+ * taken the choice away the switch has to show what the deployment chose —
+ * rendering the stored preference disabled would be a control that is both
+ * unusable AND wrong. The notice names the layer, so "off, and here is who
+ * decided" is an answer rather than a mystery.
+ */
+function TranscriptMirrorRow({
+  settings,
+  patch,
+}: {
+  settings: PodiumSettings
+  patch: (p: Partial<PodiumSettings>) => void
+}): JSX.Element {
+  const trpc = useStoreSelector((s) => s.trpc)
+  // PRIMITIVES, not one object: this effect's dependency is the tRPC client, and
+  // a client that is not referentially stable across renders would re-run it
+  // every pass. Storing a fresh object each time then re-renders unconditionally
+  // and the pair spins; two primitives settle on the second read, because React
+  // bails out when the value is unchanged.
+  const [resolvedOn, setResolvedOn] = useState<boolean | null>(null)
+  const [resolvedSource, setResolvedSource] = useState<string | null>(null)
+  useEffect(() => {
+    let alive = true
+    trpc.setup.info
+      .query()
+      .then((info) => {
+        if (!alive) return
+        setResolvedOn(info.transcriptLake === 'on')
+        setResolvedSource(info.transcriptLakeSource ?? null)
+      })
+      .catch(() => {
+        // An older server says nothing here, and then the stored preference is
+        // the whole truth — which is exactly what it was before this row existed.
+        if (!alive) return
+        setResolvedOn(null)
+        setResolvedSource(null)
+      })
+    return () => {
+      alive = false
+    }
+  }, [trpc])
+
+  const forcedBy =
+    resolvedSource === 'env'
+      ? "PODIUM_TRANSCRIPT_LAKE is set in this deployment's environment and overrides this setting."
+      : resolvedSource === 'file'
+        ? 'config.json sets this for the whole deployment and overrides this setting.'
+        : null
+  // Absent means nobody has chosen, and the built-in answer is on.
+  const checked = forcedBy ? (resolvedOn ?? true) : (settings.transcripts.mirror ?? true)
+
+  return (
+    <>
+      <Row
+        label="Mirror transcripts to this server"
+        description="Keeps a copy of each session's transcript here so it stays searchable after the machine that ran it goes away."
+      >
+        <Switch
+          data-testid="transcript-mirror"
+          aria-label="Mirror transcripts to this server"
+          checked={checked}
+          disabled={forcedBy !== null}
+          onCheckedChange={(next) =>
+            patch({ transcripts: { ...settings.transcripts, mirror: next } })
+          }
+        />
+      </Row>
+      {forcedBy && <p className="mt-2 settings-prose text-warning">{forcedBy}</p>}
+    </>
   )
 }

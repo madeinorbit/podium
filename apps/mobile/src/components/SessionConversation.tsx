@@ -25,6 +25,7 @@ import { interruptSession } from '../lib/interrupt-session'
 import { sendOfferAction } from '../lib/send-offer-action'
 import { color, font, leading, sans, space } from '../theme/theme'
 import { type AskQuestionAnswer, AskQuestionCard } from './AskQuestionCard'
+import { PendingInteractionBand } from './PendingInteractionBand'
 import { Composer } from './Composer'
 import { BootstrapCrossfade, TranscriptSkeleton } from './LaunchPlaceholders'
 import { PullToRefreshBoundary } from './PullToRefreshBoundary'
@@ -566,6 +567,11 @@ export function SessionConversation({
           feed pays for it with the composer's own resting height. */}
       {readOnly && !hasTranscript ? null : (
         <View style={[styles.composerLayer, { bottom: keyboardLift }]} pointerEvents="box-none">
+          {/* THE BLOCKED-SESSION BAND (POD-2414) — above the ask card, because
+              the kinds it renders are the ones nothing else on this screen can
+              show, and a session blocked on one of them has nothing else to
+              read. It draws only while an ask is open. */}
+          <PendingInteractionBand sessionId={sessionId} />
           {pendingQuestion ? (
             <View
               onLayout={(event) => setAskHeight(event.nativeEvent.layout.height)}
@@ -586,7 +592,7 @@ export function SessionConversation({
             value={conversation.draft}
             onChangeText={conversationController.setDraft.bind(conversationController)}
             caption={transcriptStatus}
-            disabled={!composer.enabled}
+            sendDisabled={!composer.deliverable}
             draftInsertion={draftInsertion}
             attachments={attachments}
             onRestingHeight={setComposerHeight}

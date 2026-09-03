@@ -1,0 +1,64 @@
+A4_RETRY_START=2026-08-28 12:00:40 CEST
+EPIC=45323df366cb9ac7156f7d1b4c02c39c706aaf33 DRIVE=be0334e77b1d82cb27b3df991429359f31048682
+==============================================================================
+A4a / A4b  permission ask, and answering it twice   harness=codex
+==============================================================================
+CODEX POSTURE      isolated approvals_reviewer=user for this probe only; restored on exit
+                   (auto_review auto-answers, so Podium never receives the ask)
+SESSION CWD        never-approved dummy git repo /home/mgw/pod-3027-a4-never-approved-1787911240987-cwd-ucaucy/repo
+                   avoided trusted projects: /home/mgw/src/podium, /tmp/cxprobe/work, /tmp/podium-test-run-fXLHSe/podium-codex-live-Hfw0BE, /tmp/pod-op/repo, /home/mgw/src/podium-cloud, /tmp/cx2819/work, /tmp/cx2819-mention/arm0/cwd, /tmp/cx2819-mention/arm1/cwd, /tmp/cx2819-mention/arm2/cwd, /tmp/pod-2777/repo, /home/mgw/src/podium/.worktrees/issue-2245-operator-test-instance, /home/mgw/pod-3027-a4-never-approved-1787911063763-cwd-on8dn4/repo
+                   isolated approvals_reviewer=user
+session d5e9f587-f67a-4ea0-ae18-a92e2dc58062 created
+BOUND DRIVER       codex-app-server (family server)
+
+CONTROL            the turn produced 2 transcript item(s), 2 delta frame(s) — FIRED
+
+A4a  the ask, as chat sees it
+     kind             permission  id=0
+     source           protocol / answerable=structured
+     enumerable       yes — interactions.list carried it while open, not only the stream
+     typed payload    toolName=Bash canAlwaysAllow=false
+     open asks        1
+                      protocol/structured id=0 toolName=Bash
+
+A4a  the TERMINAL half — attached after the structured ask was enumerable
+     terminal bytes   0 (outputSeen=false)
+     same ask visible before answering: false
+       permission wording present: false
+       unique command marker 'TOOLRAN-7JZFQ5' present: false
+       tool name 'Bash' present (supporting only): false
+     terminal tail (control codes stripped):
+
+     FIRST ANSWER     {"kind":"permission","decision":"allow-once"}
+     returned         {"ok":true}
+     resolved         the ask left the open set
+     side effect      1 execution(s); TOOLRAN-7JZFQ5.txt
+     terminal after answering: +6268 byte(s), same ask still prompting: true
+
+A4b  answering the SAME ask a second time
+     returned         {"ok":false,"reason":"already-answered"}
+     classifier check the FIRST answer classifies as: not a refusal (success)
+     typed refusal    true — via typed result, reason="already-answered"
+     silent success   false
+     double action    false — 1 execution(s) before, 1 after
+
+==============================================================================
+A4a  PARTIAL — chat half PASS, terminal half did NOT show the ask
+A4b  PASS — second answer was a typed error, double action: false
+     controls: turn + structured ask FIRED; first answer succeeded, resolved, and acted once FIRED
+==============================================================================
+A4_RETRY_END=2026-08-28 12:02:02 CEST rc=1
+---- isolated reviewer after exit ----
+1:approvals_reviewer = "auto_review"
+7:[projects."/home/mgw/src/podium"]
+10:[projects."/tmp/cxprobe/work"]
+13:[projects."/tmp/podium-test-run-fXLHSe/podium-codex-live-Hfw0BE"]
+16:[projects."/tmp/pod-op/repo"]
+19:[projects."/home/mgw/src/podium-cloud"]
+22:[projects."/tmp/cx2819/work"]
+25:[projects."/tmp/cx2819-mention/arm0/cwd"]
+28:[projects."/tmp/cx2819-mention/arm1/cwd"]
+31:[projects."/tmp/cx2819-mention/arm2/cwd"]
+34:[projects."/tmp/pod-2777/repo"]
+37:[projects."/home/mgw/src/podium/.worktrees/issue-2245-operator-test-instance"]
+40:[projects."/home/mgw/pod-3027-a4-never-approved-1787911063763-cwd-on8dn4/repo"]

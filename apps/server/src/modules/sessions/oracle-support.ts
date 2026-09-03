@@ -38,7 +38,12 @@ import { attachTestClient } from '../../test-support/client-transport'
  * as a later comparison baseline.
  */
 
-import { FIRST_ADMIN_USER_ID, type SessionId, type MachineId } from '@podium/model'
+import {
+  type AgentProbeError,
+  FIRST_ADMIN_USER_ID,
+  type MachineId,
+  type SessionId,
+} from '@podium/model'
 import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { type ControlMessage } from '@podium/protocol/daemon'
 
@@ -99,6 +104,11 @@ export const PROVISIONAL_REFERENCES = [
   'readiness-4',
   'POD-393',
   'POD-1070',
+  // The handoff surface's wording for "this daemon has attached but has not
+  // reported an inventory yet". POD-2631 introduced the state and gave the
+  // machines service its own phrasing for it; the two surfaces have not been
+  // reconciled, so the handoff pin is evidence rather than a demand.
+  'POD-2631',
 ] as const
 
 export type ProvisionalReference = (typeof PROVISIONAL_REFERENCES)[number]
@@ -157,7 +167,12 @@ export interface OfflineMachine {
   id: MachineId
   name: string
   /** Harnesses the machine reported before it went away. */
-  agents?: { kind: string; installed: boolean; login: { state: 'in' | 'out' } }[]
+  agents?: {
+    kind: string
+    installed: boolean | null
+    probeError?: AgentProbeError
+    login: { state: 'in' | 'out' }
+  }[]
 }
 
 /**
@@ -172,6 +187,15 @@ export function makeOracle(
     machineId?: MachineId
     offlineMachines?: OfflineMachine[]
     portableStateFence?: PortableStateFence
+    /**
+     * The registry's clock, when a test needs to age something rather than wait
+     * for it (POD-2836). The composer-readiness window is measured from the
+     * BIND, so a fixture that wants a send to behave like one into a session
+     * bound minutes ago moves this rather than sleeping — the drain still polls
+     * on real timers, it just asks this for the elapsed time. Absent means
+     * `Date.now`, which is every other caller.
+     */
+    now?: () => number
   } = {},
 ): Oracle {
   const store = new SessionStore(':memory:')
@@ -200,6 +224,7 @@ export function makeOracle(
   const reg = new SessionRegistry(store, undefined, {
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
+    ...(opts.now ? { now: opts.now } : {}),
   })
   registries.push(reg)
   // The daemon the oracle attaches is THIS HOST's (POD-318): the registry
@@ -237,6 +262,9 @@ export function makeOracle(
   })
   const repos = new RepoRegistry(reg, reg.sessionStore)
   const superagent = new SuperagentService(reg.modules, repos, reg.sessionStore)
+  // The oracle's own teardown is `reg.dispose()`; adoption is what makes that
+  // stop the turn reaper too (POD-2772).
+  reg.adoptSuperagent(superagent)
   const call = appRouter.createCaller({
     registry: reg,
     repos,

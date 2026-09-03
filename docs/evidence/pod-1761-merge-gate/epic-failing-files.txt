@@ -1,0 +1,38 @@
+@podium/daemon:test:  FAIL  apps/daemon/src/claude-sdk-isolation.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/control/session-native-client.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/harness-exec.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/headless-drivers.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/refusal-tokens.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/runtime/opencode-attach.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/runtime/server-reap.test.ts
+apps/server/src/browser-open.test.ts
+apps/server/src/gateway/peer-handshake.test.ts
+apps/server/src/issues.attach.test.ts
+apps/server/src/modules/derived-family.runtime.test.ts
+apps/server/src/modules/issues/commands-field-drift.test.ts
+apps/server/src/modules/messages/cutover.test.ts
+apps/server/src/modules/sessions/command-plane.test.ts
+apps/server/src/modules/sessions/inbox.test.ts
+apps/server/src/modules/sessions/oracle-ask-upload.test.ts
+apps/server/src/modules/sessions/oracle-attribution.test.ts
+apps/server/src/modules/sessions/oracle-commands.test.ts
+apps/server/src/modules/sessions/oracle-decomposition.test.ts
+apps/server/src/modules/sessions/oracle-handoff.test.ts
+apps/server/src/modules/sessions/oracle-tags.test.ts
+apps/server/src/modules/sessions/receipt-send.guard.test.ts
+apps/server/src/modules/sessions/session-control-identity.test.ts
+apps/server/src/modules/sessions/stop.test.ts
+apps/server/src/modules/updates/local-participant.test.ts
+apps/server/src/relay-agent-relay.test.ts
+apps/server/src/relay.archive-cascade.test.ts
+apps/server/src/relay.machines.test.ts
+apps/server/src/relay.model-effort.test.ts
+apps/server/src/relay.test.ts
+apps/server/src/router.machines.test.ts
+apps/server/src/server.role.test.ts
+apps/server/src/session-projection.audit.test.ts
+apps/server/src/steward.test.ts
+apps/server/src/superagent-concierge.test.ts
+apps/server/src/superagent-headless.test.ts
+apps/server/src/superagent.test.ts
+apps/server/src/wsServer.daemon.test.ts

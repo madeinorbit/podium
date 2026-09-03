@@ -1,8 +1,14 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
+import {
+  ABDUCO_SUN_PATH_MAX,
+  abducoSocketDir,
+  abducoSocketPathBytes,
+  longestDurableLabelFor,
+} from './abduco-socket.js'
 import {
   abducoSocketPathname,
   applyInstanceRuntimeEnv,
@@ -14,9 +20,11 @@ import {
   durableInstanceComponent,
   durableSessionLabel,
   ensureInstanceStateIdentity,
+  instanceBuildSliceName,
   instanceCommandName,
   instanceInstallDir,
   instanceServiceName,
+  instanceSessionSliceName,
   instanceSocketRuntimeDir,
   instanceStateDir,
   instanceTimerName,
@@ -31,6 +39,20 @@ import {
 const roots: string[] = []
 const temp = (): string => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-instance-'))
+  roots.push(dir)
+  return dir
+}
+/**
+ * A SHORT temp root, for the cases about socket-path length (POD-2853).
+ *
+ * `temp()` above sits under a vitest run directory and is ~50 bytes before
+ * anything is joined to it, which is over half of `sun_path`. A named
+ * instance's abduco root is chosen by whether it FITS, so a long fixture makes
+ * the chooser correctly reject it and fall to /tmp — and the test then reads as
+ * a failure of the code rather than of its own fixture.
+ */
+const shortTemp = (): string => {
+  const dir = mkdtempSync('/tmp/pod-rt-')
   roots.push(dir)
   return dir
 }
@@ -151,8 +173,8 @@ describe('state ownership marker', () => {
 
   it('claims empty roots and rejects another selected instance', () => {
     const dir = join(temp(), 'state')
-    expect(ensureInstanceStateIdentity({ instanceId: 'blue', dir })).toEqual({
-      version: 1,
+    expect(ensureInstanceStateIdentity({ instanceId: 'blue', dir })).toMatchObject({
+      version: 2,
       instanceId: 'blue',
     })
     expect(readInstanceStateIdentity(dir)?.instanceId).toBe('blue')
@@ -200,4 +222,31 @@ it('named durable backend env is private unless explicitly overridden', () => {
   applyInstanceRuntimeEnv('blue', shared, dir)
   expect(shared.ABDUCO_SOCKET_DIR).toBe('/shared/a')
   expect(shared.TMUX_TMPDIR).toBe('/shared/t')
+})
+
+it('pins a named instance somewhere abduco can actually bind a socket', () => {
+  // THE PROPERTY, not the path. The old pin was a perfectly reasonable-looking
+  // directory that no session could ever use, and a test that only compared
+  // strings would have passed against it in exactly the same way. This one
+  // composes what abduco composes and measures it.
+  const env: NodeJS.ProcessEnv = { XDG_RUNTIME_DIR: shortTemp() }
+  applyInstanceRuntimeEnv('blue', env, join(temp(), 'state'))
+  const composed = abducoSocketPathBytes(
+    abducoSocketDir(env.ABDUCO_SOCKET_DIR ?? '', 'mgw'),
+    longestDurableLabelFor('blue'),
+    '@flatblock',
+  )
+  expect(composed).toBeLessThan(ABDUCO_SUN_PATH_MAX)
+})
+
+it('gives builds their own slice, a sibling of the sessions slice', () => {
+  // systemd cuts a slice name at the last `-` to find its parent, so these two
+  // names ARE the tree: both hang off podium[-<instance>].slice, and neither is
+  // inside the other. A build inside the SESSIONS slice would still be bounded
+  // and would still be wrong — the reclaim policy parks agents on that slice's
+  // memory pressure, so every redeploy would read as agents starving.
+  expect(instanceBuildSliceName('default')).toBe('podium-builds.slice')
+  expect(instanceSessionSliceName('default')).toBe('podium-sessions.slice')
+  expect(instanceBuildSliceName('blue')).toBe('podium-blue-builds.slice')
+  expect(instanceSessionSliceName('blue')).toBe('podium-blue-sessions.slice')
 })

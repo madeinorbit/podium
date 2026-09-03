@@ -11,11 +11,29 @@ describe('public readiness route', () => {
       dataPlane: 'blocked',
     }))
     const response = await app.request('/readiness')
-    expect(response.status).toBe(200)
+    // 503 while the data plane is blocked, so a status-code-only health check
+    // sees what the body has always said (PDM-26).
+    expect(response.status).toBe(503)
     expect(await response.json()).toEqual({
       state: 'activation_pending',
       reason: 'restart_required',
       dataPlane: 'blocked',
+    })
+  })
+
+  it('answers 200 with the same shape once the data plane is available', async () => {
+    const app = new Hono()
+    registerReadinessRoute(app, () => ({
+      state: 'degraded',
+      reason: 'agent_unavailable',
+      dataPlane: 'available',
+    }))
+    const response = await app.request('/readiness')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({
+      state: 'degraded',
+      reason: 'agent_unavailable',
+      dataPlane: 'available',
     })
   })
 

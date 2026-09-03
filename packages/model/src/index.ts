@@ -47,6 +47,7 @@ export * from './entities/issue-status'
 export * from './entities/cost'
 export * from './entities/issue-dep'
 export * from './entities/issue-event'
+export * from './entities/pending-interaction-row'
 export * from './entities/repo'
 // The per-machine fact group: MachineWire, inventory, host metrics + memory,
 // usage + quota, and the repo/worktree/directory wires. One named group because

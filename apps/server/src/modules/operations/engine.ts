@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto'
+import { createLogger } from '@podium/logger'
 import {
   isTerminalOperationState,
   type Operation,
@@ -43,6 +44,37 @@ import {
  *    the kind to re-derive the operation from observable facts rather than
  *    trusting what the dead process believed.
  */
+
+/**
+ * THE ENGINE'S OWN NARRATION (POD-3224).
+ *
+ * This class had no logging at all, which made the durable operation — the one
+ * story the update was supposed to have — the least observable part of it. The
+ * row in the database says where an operation ENDED UP; only a log can say when
+ * each step was entered, how many times, what the runner answered, which
+ * deadline fired, and what a successor concluded when it adopted the thing.
+ * Reconstructing an update's timeline meant diffing successive payload rows.
+ *
+ * Levels follow the same rule as everywhere else in this issue: a TRANSITION is
+ * `info` and is bounded by the plan (a whole update is on the order of a dozen),
+ * a re-entry or a progress report is `debug` because a wave reports per machine
+ * per tick, and a stall, a failure or an abandonment is `warn`/`error`.
+ *
+ * `server:operations` rather than `server:updates`, because the engine is
+ * generic: the next kind registered against it gets this for free, and an
+ * operator narrowing to one namespace should get the framework or the update,
+ * not both at once.
+ */
+const log = createLogger('server:operations')
+
+/** Enough of an operation to identify it in a log line, and never more. */
+function operationFields(operation: Operation): Record<string, unknown> {
+  return {
+    operationId: operation.id,
+    kind: operation.kind,
+    state: operation.state,
+  }
+}
 
 /** An opaque timer handle — the fake clock in tests hands back whatever it likes. */
 export type OperationTimerHandle = unknown
@@ -157,15 +189,36 @@ export class OperationEngine {
     opts: { createdBy?: string } = {},
   ): Promise<StartResult> {
     const def = this.deps.registry.get(kind)
-    if (!def) return { started: false, refused: 'unknown-kind' }
+    if (!def) {
+      log.warn('refused to start an operation of an unregistered kind', { kind })
+      return { started: false, refused: 'unknown-kind' }
+    }
 
     const held = this.deps.store.activeByGroup(def.exclusionGroup)
-    if (held) return { started: false, alreadyRunning: held.id }
+    if (held) {
+      // SINGLE-FLIGHT ANSWERED, not a failure. A second surface pressing the
+      // button lands here, and telling that apart from a start that did nothing
+      // is exactly what the client could not do (POD-3224).
+      log.info('an operation of this group is already running', {
+        kind,
+        group: def.exclusionGroup,
+        operationId: held.id,
+        ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+      })
+      return { started: false, alreadyRunning: held.id }
+    }
 
     const plan = await (def.plan as (c: unknown) => OperationPlan | Promise<OperationPlan>)(context)
 
     const contended = this.deps.store.activeByGroup(def.exclusionGroup)
-    if (contended) return { started: false, alreadyRunning: contended.id }
+    if (contended) {
+      log.info('another operation took this group while the plan was being made', {
+        kind,
+        group: def.exclusionGroup,
+        operationId: contended.id,
+      })
+      return { started: false, alreadyRunning: contended.id }
+    }
 
     const at = this.now()
     const operation: PersistedOperation = {
@@ -186,6 +239,33 @@ export class OperationEngine {
     }
     this.deps.store.insert(operation)
     this.contexts.set(operation.id, context)
+    /**
+     * THE PLAN, IN FULL, AT THE MOMENT IT WAS MADE.
+     *
+     * Everything downstream is a consequence of this: which steps exist, which
+     * places are in the wave, which are `deferred` and WHY, and which asks are
+     * outstanding. The plan is a pure function of facts that have since moved
+     * on, so an hour later this line is the only way to know what the server
+     * believed when it decided.
+     */
+    log.info('operation created', {
+      ...operationFields(operation),
+      group: def.exclusionGroup,
+      ...(opts.createdBy ? { createdBy: opts.createdBy } : {}),
+      ...(plan.retryOf ? { retryOf: plan.retryOf } : {}),
+      steps: operation.steps?.map((step) => step.id).join(',') ?? '',
+      places: Object.fromEntries(
+        (operation.steps ?? [])
+          .filter((step) => step.places && step.places.length > 0)
+          .map((step) => [step.id, step.places?.map((place) => place.id).join(',')]),
+      ),
+      awaiting: (operation.awaiting ?? []).map(
+        (ask) => `${ask.id}${ask.required === true ? '!' : ''}@${ask.surface ?? '-'}`,
+      ),
+      deferred: (operation.deferred ?? []).map(
+        (place) => `${place.id}:${place.reason ?? 'unstated'}`,
+      ),
+    })
     this.announce(operation.id)
 
     // START CREATES THE OPERATION; IT DOES NOT RUN IT TO COMPLETION. The caller
@@ -233,6 +313,16 @@ export class OperationEngine {
       this.persist(next, at)
 
       const reported = next.steps?.find((s) => s.id === stepId)?.state ?? 'running'
+      // `debug`: a machine wave reports per machine per tick, and this is the
+      // one call in the class whose volume is set by the fleet rather than by
+      // the plan. The step ENTRY and the step OUTCOME are the `info` lines.
+      log.debug('operation step progress reported', {
+        ...operationFields(next),
+        step: stepId,
+        reported,
+        ...(patch.progress ? { progress: patch.progress } : {}),
+        ...(patch.detail ? { detail: patch.detail } : {}),
+      })
       if (reported === 'failed') {
         // A failure REPORTED is a failure, exactly as one RETURNED by `ensure()`
         // is. Falling through to `driveLocked` here would be worse than losing
@@ -413,19 +503,36 @@ export class OperationEngine {
    * the panel has to be able to say.
    */
   cancel(operationId: string): CancelResult {
+    const refuse = (refused: CancelResult & { canceled: false }): CancelResult => {
+      // A REFUSAL IS AN ANSWER, and the panel renders a sentence from it, so an
+      // operator reading the log has to be able to see the same answer the user
+      // was given rather than infer it from the operation carrying on.
+      log.info('cancel refused', {
+        operationId,
+        refused: refused.refused,
+        ...(refused.step ? { step: refused.step } : {}),
+      })
+      return refused
+    }
     const row = this.deps.store.get(operationId)
-    if (!row) return { canceled: false, refused: 'not-found' }
-    if (isTerminalOperationState(row.state)) return { canceled: false, refused: 'already-finished' }
+    if (!row) return refuse({ canceled: false, refused: 'not-found' })
+    if (isTerminalOperationState(row.state)) {
+      return refuse({ canceled: false, refused: 'already-finished' })
+    }
     const operation = row.operation
     // Unreadable bytes cannot be shown to be safe, and cancel is the one verb
     // that must never proceed on an assumption.
-    if (!operation) return { canceled: false, refused: 'irreversible' }
+    if (!operation) return refuse({ canceled: false, refused: 'irreversible' })
 
     const def = this.deps.registry.get(operation.kind)
     const inFlight = inFlightStep(operation)
     if (inFlight && def?.runners[inFlight.id]?.reversible !== true) {
-      return { canceled: false, refused: 'irreversible', step: inFlight.id }
+      return refuse({ canceled: false, refused: 'irreversible', step: inFlight.id })
     }
+    log.info('operation canceled', {
+      ...operationFields(operation),
+      ...(inFlight ? { step: inFlight.id } : {}),
+    })
 
     const canceled = this.finish(this.persistable(operation), 'canceled', this.now())
     return { canceled: true, operation: canceled }
@@ -492,6 +599,32 @@ export class OperationEngine {
     const reconciled = await (
       def.reconcile as (op: Operation, r: unknown) => Operation | Promise<Operation>
     )(row.operation, reality)
+
+    /**
+     * WHAT THE SUCCESSOR INHERITED, AND WHAT IT CONCLUDED (POD-3224).
+     *
+     * Adoption is the moment the update's story crosses a process boundary, and
+     * it is where the previous process's beliefs are thrown away in favour of
+     * observable facts. Both sides are logged — the state and steps as the dead
+     * process left them, and the state and steps the kind re-derived — because
+     * "the successor adopted it and it was already done" and "the successor
+     * adopted it and started the wave again" are the two outcomes an operator
+     * most needs to tell apart, and the row afterwards shows only the second.
+     *
+     * `reality` itself is NOT logged: it is the kind's own shape, it can be
+     * large, and the kind is the party that knows how to describe it.
+     */
+    const stepStates = (operation: Operation): string =>
+      (operation.steps ?? []).map((step) => `${step.id}=${step.state}`).join(' ')
+    log.info('operation adopted on boot', {
+      operationId: row.id,
+      kind: row.kind,
+      was: row.operation.state,
+      wasSteps: stepStates(row.operation),
+      now: reconciled.state,
+      nowSteps: stepStates(reconciled),
+      resumedStalled: (reconciled.steps ?? []).some((step) => step.state === 'stalled'),
+    })
 
     const adoptedOperation = this.persist(
       this.persistable(this.resumeStalled(reconciled), def),
@@ -772,6 +905,11 @@ export class OperationEngine {
         context: this.contexts.get(operation.id) as never,
       })
     } catch (err) {
+      log.error('an operation step runner threw', {
+        ...operationFields(operation),
+        step: stepId,
+        err,
+      })
       return {
         state: 'failed',
         error: {
@@ -789,8 +927,19 @@ export class OperationEngine {
     // Read BEFORE the patch: `extra` is handed the step with `running` already
     // written onto it, so asking there whether this is an entry or a re-entry
     // can only ever answer "re-entry".
-    const entering =
-      (operation.steps ?? []).find((step) => step.id === stepId)?.state !== 'running'
+    const entering = (operation.steps ?? []).find((s) => s.id === stepId)?.state !== 'running'
+    /**
+     * ENTERING a step is news; RE-ENTERING one is a nudge, and the two were
+     * indistinguishable from outside. The distinction matters: a re-entry is how
+     * `reensure` pushes a stuck wave along, and a wave that was re-entered
+     * fifteen times before it granted anything is a completely different finding
+     * from one that was entered once and sat.
+     */
+    if (entering) {
+      log.info('operation step entered', { ...operationFields(operation), step: stepId })
+    } else {
+      log.debug('operation step re-entered', { ...operationFields(operation), step: stepId })
+    }
     const next = this.applyPatch(operation, stepId, { state: 'running' }, at, (step) => ({
       ...step,
       startedAt: step.startedAt ?? at,
@@ -826,6 +975,11 @@ export class OperationEngine {
     const blocking = (operation.awaiting ?? []).filter((ask) => ask.required === true)
     const at = this.now()
     if (blocking.length > 0) {
+      log.info('operation is waiting on a surface only somebody else can satisfy', {
+        ...operationFields(operation),
+        blocking: blocking.map((ask) => `${ask.id}@${ask.surface ?? '-'}`),
+        graceMs: def.waitingGraceMs ?? DEFAULT_WAITING_GRACE_MS,
+      })
       this.persist(this.persistable(operation, def), at, 'waiting')
       this.armWaitingGrace(operation.id, def)
       return
@@ -880,6 +1034,12 @@ export class OperationEngine {
     const operation = this.deps.store.get(operationId)?.operation
     if (operation?.state !== 'waiting') return
     const error = def?.describeWaitingExpiry?.({ operation })
+    log.warn('the waiting grace ran out', {
+      ...operationFields(operation),
+      unanswered: (operation.awaiting ?? []).map((ask) => `${ask.id}@${ask.surface ?? '-'}`),
+      outcome: error ? 'failed' : 'done',
+      ...(error?.code ? { code: error.code } : {}),
+    })
     if (error) {
       this.finish(this.persistable(operation, def), 'failed', this.now(), error)
       return
@@ -888,6 +1048,13 @@ export class OperationEngine {
   }
 
   private fail(operation: Operation, stepId: string, error: OperationError): void {
+    log.warn('operation step failed', {
+      ...operationFields(operation),
+      step: stepId,
+      code: error.code,
+      ...(error.message ? { detail: error.message } : {}),
+      ...(error.detail ? { because: error.detail } : {}),
+    })
     const at = this.now()
     const marked = this.applyPatch(operation, stepId, { state: 'failed', error }, at)
     this.finish(marked, 'failed', at, error)
@@ -906,6 +1073,40 @@ export class OperationEngine {
       finishedAt: at,
       error: error ?? operation.error ?? null,
     }
+    /**
+     * THE OUTCOME AND THE SHAPE OF THE RUN THAT PRODUCED IT.
+     *
+     * Per-step attempts and stalls are on the record here because they are what
+     * an operator actually asks after the fact — "did it retry?", "which step
+     * went quiet?" — and retention sweeps the row away twenty operations later,
+     * taking the answer with it.
+     */
+    const at0 = operation.startedAt ?? operation.createdAt
+    log.info('operation finished', {
+      ...operationFields(finished),
+      state,
+      ...(typeof at0 === 'number' ? { elapsedMs: at - at0 } : {}),
+      ...(error?.code ? { code: error.code } : {}),
+      ...(error?.message ? { detail: error.message } : {}),
+      steps: (finished.steps ?? [])
+        .map(
+          (step) =>
+            `${step.id}=${step.state}${(step.attempts ?? 1) > 1 ? `x${step.attempts}` : ''}${
+              step.stalls ? `+${step.stalls}stall` : ''
+            }`,
+        )
+        .join(' '),
+      ...((finished.awaiting ?? []).length > 0
+        ? { awaiting: (finished.awaiting ?? []).map((ask) => ask.id) }
+        : {}),
+      ...((finished.deferred ?? []).length > 0
+        ? {
+            deferred: (finished.deferred ?? []).map(
+              (place) => `${place.id}:${place.reason ?? 'unstated'}`,
+            ),
+          }
+        : {}),
+    })
     this.deps.store.update(finished)
     this.disarm(finished.id)
     this.contexts.delete(finished.id)
@@ -929,6 +1130,18 @@ export class OperationEngine {
       code: UNKNOWN_KIND_ERROR_CODE,
       message: `This server cannot continue a '${row.kind}' operation.`,
     }
+    // A DOWNGRADE THAT QUIETLY DISABLES UPDATING is what this policy exists to
+    // prevent, and it can only be seen from here: the row shows a failed
+    // operation with a framework error code and nothing about which binary
+    // could not drive it.
+    log.error('abandoned an operation this server cannot continue', {
+      operationId: row.id,
+      kind: row.kind,
+      code: outcome.code,
+      ...(outcome.message ? { detail: outcome.message } : {}),
+      ...(outcome.detail ? { because: outcome.detail } : {}),
+      readable: row.operation !== undefined,
+    })
     if (row.operation) {
       return this.finish(this.persistable(row.operation), 'failed', at, outcome)
     }
@@ -1103,6 +1316,14 @@ export class OperationEngine {
       return
     }
 
+    log.warn('operation step stalled; retrying once', {
+      ...operationFields(operation),
+      step: step.id,
+      breach: breach.kind,
+      silentMs: breach.kind === 'silence' ? breach.silentMs : undefined,
+      elapsedMs: breach.elapsedMs,
+      stalls: stalls + 1,
+    })
     // Stalled, and VISIBLY so, before anything is retried: the panel renders
     // "no progress for N s" from this state rather than from a guess, and the
     // heartbeat is deliberately not refreshed by our noticing.

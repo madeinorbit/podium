@@ -4,10 +4,14 @@ import { join } from 'node:path'
 import { addSink, type LogRecord } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import {
+  assertAppUrlCompatible,
   CONFIG_MIGRATIONS,
   CURRENT_CONFIG_VERSION,
+  LOGGING_MODE_ENV,
   configPath,
   inspectConfig,
+  LAYERED_ENV,
+  LAYERED_KEYS,
   loadConfig,
   localServerUrl,
   localServerWsUrl,
@@ -17,17 +21,25 @@ import {
   resolveAgentHomeDir,
   resolveAgentRelay,
   resolveAgentRelayPort,
+  resolveAllowedOrigins,
+  resolveAppUrl,
   resolveDevArtifactOrigin,
   resolveFeatureOverrides,
   resolveHookPort,
   resolveInstallDir,
   resolveLocalServerHost,
   resolveLoggingMode,
+  resolveMode,
   resolvePort,
+  resolvePublicUrl,
   resolveRunRecordMode,
   resolveSessionRelay,
+  resolveSetting,
+  resolveTranscriptLake,
+  resolveTranscriptLakeSetting,
   resolveUpdateChannel,
   resolveUpdateFeed,
+  resolveUpdateScope,
   resolveUpdateTarget,
   saveConfig,
 } from './config'
@@ -417,6 +429,41 @@ describe('layered resolvers (#251): env → config.json → default', () => {
     expect(resolveLoggingMode({ PODIUM_RUN_MODE: 'detached' })).toBe('detached')
     expect(resolveLoggingMode({ PODIUM_DESKTOP_SUPERVISED: '0' })).toBe('foreground')
   })
+  it('resolveLoggingMode: a parent-declared mode outranks the evidence (POD-3177)', () => {
+    // The parent deletes NOTIFY_SOCKET from a child's env — only the parent pets
+    // the watchdog — which left the child inferring `foreground` and writing
+    // pretty text into journald. The declaration is the child's only true source.
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: 'systemd' })).toBe('systemd')
+    expect(
+      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'detached', NOTIFY_SOCKET: '/run/x' }),
+    ).toBe('detached')
+    expect(
+      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'foreground', PODIUM_DESKTOP_SUPERVISED: '1' }),
+    ).toBe('foreground')
+    // The run-registry label is untouched: how it is supervised is still its own question.
+    expect(resolveRunRecordMode({ [LOGGING_MODE_ENV]: 'systemd' })).toBe('foreground')
+  })
+  it('resolveLoggingMode: a value that is not a mode falls through to the evidence', () => {
+    // Silently pinning `foreground` on a typo is the failure this variable exists
+    // to end; an unreadable declaration must leave the old answer in place.
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: 'journald' })).toBe('foreground')
+    expect(resolveLoggingMode({ [LOGGING_MODE_ENV]: '', NOTIFY_SOCKET: '/run/x' })).toBe('systemd')
+  })
+  it('resolveLoggingMode: a grandchild can decline a declaration addressed to its parent', () => {
+    // Env reaches the whole tree. An agent's `podium issue …` under the daemon
+    // inherits the marker the parent set for the daemon, and its stdout is its
+    // own output — NDJSON there would corrupt what the caller parses.
+    expect(
+      resolveLoggingMode({ [LOGGING_MODE_ENV]: 'systemd' }, { honourParentDeclaration: false }),
+    ).toBe('foreground')
+    // Declining the declaration does not decline the evidence.
+    expect(
+      resolveLoggingMode(
+        { [LOGGING_MODE_ENV]: 'foreground', PODIUM_RUN_MODE: 'detached' },
+        { honourParentDeclaration: false },
+      ),
+    ).toBe('detached')
+  })
 })
 
 /**
@@ -585,5 +632,255 @@ describe('config versioning and one-shot migrations (POD-333)', () => {
     expect(CONFIG_MIGRATIONS.map((m) => m.to)).toEqual(CONFIG_MIGRATIONS.map((_, i) => i + 2))
     expect(CONFIG_MIGRATIONS.at(-1)?.to).toBe(CURRENT_CONFIG_VERSION)
     for (const m of CONFIG_MIGRATIONS) expect(m.describe.length).toBeGreaterThan(0)
+  })
+})
+
+describe('the layered keys a cloud deployment sets (PDM-26)', () => {
+  it('resolveMode: env wins, then file, then undefined', () => {
+    expect(resolveMode({}, {})).toBeUndefined()
+    expect(resolveMode({ mode: 'all-in-one' }, {})).toBe('all-in-one')
+    expect(resolveMode({ mode: 'all-in-one' }, { PODIUM_MODE: 'server' })).toBe('server')
+  })
+
+  it('resolveMode: an unknown PODIUM_MODE throws, naming the accepted values', () => {
+    expect(() => resolveMode({}, { PODIUM_MODE: 'sever' })).toThrow(
+      /PODIUM_MODE.*all-in-one, daemon, client, server/,
+    )
+  })
+
+  it('resolvePublicUrl: env wins and is normalized to a bare origin', () => {
+    expect(resolvePublicUrl({ publicUrl: 'https://a.example' }, {})).toBe('https://a.example')
+    expect(
+      resolvePublicUrl(
+        { publicUrl: 'https://a.example' },
+        { PODIUM_PUBLIC_URL: 'https://b.example/' },
+      ),
+    ).toBe('https://b.example')
+  })
+
+  it('resolvePublicUrl: env must be https unless the host is loopback', () => {
+    expect(() => resolvePublicUrl({}, { PODIUM_PUBLIC_URL: 'http://api.example' })).toThrow(
+      /PODIUM_PUBLIC_URL.*https/,
+    )
+    expect(resolvePublicUrl({}, { PODIUM_PUBLIC_URL: 'http://127.0.0.1:8080' })).toBe(
+      'http://127.0.0.1:8080',
+    )
+    // The FILE layer is deliberately unchanged: a self-hosted http:// URL keeps working.
+    expect(resolvePublicUrl({ publicUrl: 'http://box.lan:18787' }, {})).toBe('http://box.lan:18787')
+  })
+
+  it('resolvePublicUrl: env rejects a path, query or fragment', () => {
+    for (const bad of [
+      'https://a.example/podium',
+      'https://a.example?x=1',
+      'https://a.example#f',
+    ]) {
+      expect(() => resolvePublicUrl({}, { PODIUM_PUBLIC_URL: bad })).toThrow(/PODIUM_PUBLIC_URL/)
+    }
+  })
+
+  it('resolveAllowedOrigins: env list wins, trims, drops empties, dedupes in order', () => {
+    expect(resolveAllowedOrigins({}, {})).toEqual([])
+    expect(resolveAllowedOrigins({ allowedOrigins: ['https://a.example'] }, {})).toEqual([
+      'https://a.example',
+    ])
+    expect(
+      resolveAllowedOrigins(
+        { allowedOrigins: ['https://file.example'] },
+        { PODIUM_ALLOWED_ORIGINS: ' https://b.example , ,https://a.example,https://b.example ' },
+      ),
+    ).toEqual(['https://b.example', 'https://a.example'])
+  })
+
+  it('resolveAllowedOrigins: a PRESENT but empty variable is an explicit empty list', () => {
+    expect(
+      resolveAllowedOrigins(
+        { allowedOrigins: ['https://file.example'] },
+        { PODIUM_ALLOWED_ORIGINS: '' },
+      ),
+    ).toEqual([])
+  })
+
+  it('resolveAllowedOrigins: rejects wildcards and anything past the origin', () => {
+    for (const bad of ['*', 'https://*.example', 'https://a.example/app', 'a.example']) {
+      expect(() => resolveAllowedOrigins({}, { PODIUM_ALLOWED_ORIGINS: bad })).toThrow(
+        /PODIUM_ALLOWED_ORIGINS/,
+      )
+    }
+  })
+
+  it('resolveUpdateScope: env → file → all', () => {
+    expect(resolveUpdateScope({}, {})).toBe('all')
+    expect(resolveUpdateScope({ updateScope: 'fleet-only' }, {})).toBe('fleet-only')
+    expect(resolveUpdateScope({ updateScope: 'fleet-only' }, { PODIUM_UPDATE_SCOPE: 'all' })).toBe(
+      'all',
+    )
+    expect(() => resolveUpdateScope({}, { PODIUM_UPDATE_SCOPE: 'none' })).toThrow(
+      /PODIUM_UPDATE_SCOPE.*all, fleet-only/,
+    )
+  })
+
+  it('resolveTranscriptLake: env → file → the Settings toggle → on', () => {
+    expect(resolveTranscriptLake(undefined, {}, {})).toBe('on')
+    expect(resolveTranscriptLake(undefined, { transcriptLake: 'off' }, {})).toBe('off')
+    expect(
+      resolveTranscriptLake(undefined, { transcriptLake: 'off' }, { PODIUM_TRANSCRIPT_LAKE: 'on' }),
+    ).toBe('on')
+    expect(() => resolveTranscriptLake(undefined, {}, { PODIUM_TRANSCRIPT_LAKE: 'yes' })).toThrow(
+      /PODIUM_TRANSCRIPT_LAKE.*on, off/,
+    )
+  })
+
+  it('the Settings toggle answers when nothing above it does, and is overridden when they do', () => {
+    // An untouched toggle is not "off" — it is nobody having chosen.
+    expect(resolveTranscriptLakeSetting(undefined, {}, {})).toEqual({
+      value: 'on',
+      source: 'default',
+    })
+    expect(resolveTranscriptLakeSetting(false, {}, {})).toEqual({
+      value: 'off',
+      source: 'settings',
+    })
+    expect(resolveTranscriptLakeSetting(true, {}, {})).toEqual({ value: 'on', source: 'settings' })
+    // …and a deployment that states it takes the choice away, saying which layer did.
+    expect(resolveTranscriptLakeSetting(true, { transcriptLake: 'off' }, {})).toEqual({
+      value: 'off',
+      source: 'file',
+    })
+    expect(resolveTranscriptLakeSetting(true, {}, { PODIUM_TRANSCRIPT_LAKE: 'off' })).toEqual({
+      value: 'off',
+      source: 'env',
+      env: 'PODIUM_TRANSCRIPT_LAKE',
+    })
+  })
+
+  it('the new config keys round-trip through the file', () => {
+    saveConfig({
+      mode: 'server',
+      allowedOrigins: ['https://app.example'],
+      updateScope: 'fleet-only',
+      transcriptLake: 'off',
+    })
+    expect(loadConfig()).toMatchObject({
+      allowedOrigins: ['https://app.example'],
+      updateScope: 'fleet-only',
+      transcriptLake: 'off',
+    })
+  })
+})
+
+describe('resolveSetting provenance', () => {
+  it('reports the layer each value came from', () => {
+    expect(resolveSetting('updateChannel', {}, {})).toEqual({ value: 'stable', source: 'default' })
+    expect(resolveSetting('updateChannel', { updateChannel: 'edge' }, {})).toEqual({
+      value: 'edge',
+      source: 'file',
+    })
+    expect(
+      resolveSetting('updateChannel', { updateChannel: 'edge' }, { PODIUM_UPDATE_CHANNEL: 'dev' }),
+    ).toEqual({ value: 'dev', source: 'env', env: 'PODIUM_UPDATE_CHANNEL' })
+  })
+
+  it('an absent optional key with no file value reports the default layer', () => {
+    expect(resolveSetting('publicUrl', {}, {})).toEqual({ value: undefined, source: 'default' })
+    expect(resolveSetting('mode', {}, { PODIUM_MODE: 'server' })).toEqual({
+      value: 'server',
+      source: 'env',
+      env: 'PODIUM_MODE',
+    })
+  })
+
+  it('every layered key resolves and names a PODIUM_ variable', () => {
+    for (const key of LAYERED_KEYS) {
+      expect(LAYERED_ENV[key]).toMatch(/^PODIUM_/)
+      expect(resolveSetting(key, {}, {}).source).toBe('default')
+    }
+  })
+
+  it('the shipped accessors and resolveSetting cannot disagree', () => {
+    const config = { port: 1234, updateChannel: 'edge' as const, agentHome: '/tmp/h' }
+    const env = { PODIUM_UPDATE_FEED: 'https://feed.example' }
+    expect(resolveSetting('port', config, env).value).toBe(resolvePort(config, env))
+    expect(resolveSetting('updateChannel', config, env).value).toBe(
+      resolveUpdateChannel(config, env),
+    )
+    expect(resolveSetting('updateFeed', config, env).value).toBe(resolveUpdateFeed(config, env))
+    expect(resolveSetting('agentHome', config, env).value).toBe(resolveAgentHomeDir(config, env))
+  })
+})
+
+describe('appUrl — where the web UI is, when it is not this server', () => {
+  it('env wins, then file, then undefined (self-hosted serves its own UI)', () => {
+    expect(resolveAppUrl({}, {})).toBeUndefined()
+    expect(resolveAppUrl({ appUrl: 'https://app.example' }, {})).toBe('https://app.example')
+    expect(
+      resolveAppUrl({ appUrl: 'https://app.example' }, { PODIUM_APP_URL: 'https://ui.example/' }),
+    ).toBe('https://ui.example')
+  })
+
+  it('is https-only, with no loopback exemption — it exists because the UI is cross-site', () => {
+    expect(() => resolveAppUrl({}, { PODIUM_APP_URL: 'http://127.0.0.1:3000' })).toThrow(
+      /PODIUM_APP_URL.*https/,
+    )
+    expect(() => resolveAppUrl({}, { PODIUM_APP_URL: 'http://app.example' })).toThrow(
+      /PODIUM_APP_URL.*https/,
+    )
+  })
+
+  it('rejects a path, query or fragment — clients append their own routes', () => {
+    for (const bad of [
+      'https://app.example/ui',
+      'https://app.example?x=1',
+      'https://app.example#f',
+    ]) {
+      expect(() => resolveAppUrl({}, { PODIUM_APP_URL: bad })).toThrow(/PODIUM_APP_URL/)
+    }
+  })
+
+  it('validates the FILE layer too, naming the config key rather than a variable', () => {
+    expect(() => resolveAppUrl({ appUrl: 'http://app.example' }, {})).toThrow(/appUrl.*https/)
+  })
+})
+
+describe('assertAppUrlCompatible', () => {
+  it('says nothing when there is no app URL', () => {
+    expect(() => assertAppUrlCompatible({}, {})).not.toThrow()
+  })
+
+  it('accepts a UI on the same registrable domain as the public URL', () => {
+    expect(() =>
+      assertAppUrlCompatible(
+        { publicUrl: 'https://api.meetpodium.com', appUrl: 'https://app.meetpodium.com' },
+        {},
+      ),
+    ).not.toThrow()
+  })
+
+  it('refuses a UI on another site, naming the list that would allow it', () => {
+    expect(() =>
+      assertAppUrlCompatible(
+        { publicUrl: 'https://api.meetpodium.com', appUrl: 'https://app.elsewhere.test' },
+        {},
+      ),
+    ).toThrow(/PODIUM_APP_URL.*different site.*PODIUM_ALLOWED_ORIGINS/s)
+  })
+
+  it('accepts another site once it is stated in the allowlist', () => {
+    expect(() =>
+      assertAppUrlCompatible(
+        {
+          publicUrl: 'https://api.meetpodium.com',
+          appUrl: 'https://app.elsewhere.test',
+          allowedOrigins: ['https://app.elsewhere.test'],
+        },
+        {},
+      ),
+    ).not.toThrow()
+  })
+
+  it('refuses an app URL when there is no public URL to relate it to', () => {
+    expect(() => assertAppUrlCompatible({ appUrl: 'https://app.example' }, {})).toThrow(
+      /different site/,
+    )
   })
 })

@@ -1,7 +1,7 @@
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, HostMetricsWire, MachineId, SessionId } from '@podium/model'
 import type { LiveServerMessage, ServerMessage } from '@podium/protocol'
-import type { DaemonMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { PodiumSettings } from '@podium/runtime'
 import type { EventBus } from '../bus'
 import { type DaemonRequestPort, daemonRequestKind } from '../daemon-request'
@@ -118,6 +118,9 @@ export interface HostsDeps {
    * default machine, resolved by the broker at send time.
    */
   daemonRequest: DaemonRequestPort
+  /** Send a control frame to one machine — the reclaim order below is the only
+   *  thing this service pushes. */
+  toMachine(machineId: MachineId, message: ControlMessage): void
 }
 
 /**
@@ -125,6 +128,18 @@ export interface HostsDeps {
  * memory/load/count auto-hibernate sweep, and the memory-breakdown daemon RPC
  * (issue #13 Phase 2 — peeled off SessionRegistry).
  */
+/**
+ * How much stall time makes the sessions slice "the pressure" (POD-2413).
+ *
+ * PSI `full avg10` in percent: every runnable session task blocked on memory at
+ * once, a tenth of the time. `some` was measured stalling 40 of 114 samples
+ * during an ordinary typecheck — that is a busy build, not a shortage — so the
+ * signal is `full`, where a tenth is already a workload that cannot proceed.
+ * Still well under the 60% systemd-oomd defaults to before it KILLS; the action
+ * here is only reclaiming a warm terminal or parking one idle session.
+ */
+const SESSIONS_STALL_PCT = 10
+
 export class HostsService {
   // Latest health sample per daemon host, keyed by machineId — each connected
   // machine reports its own sample, scoped to it so a detach drops only its row.
@@ -206,32 +221,99 @@ export class HostsService {
     const m = sample.memory
     const usedPct =
       m.totalBytes > 0 ? ((m.totalBytes - m.availableBytes) / m.totalBytes) * 100 : undefined
+    /**
+     * SESSION PRESSURE, WHICH THE HOST NUMBER CANNOT SEE (POD-2413; spec §6).
+     *
+     * `usedPct` is the whole machine, so it fires the same way whether the
+     * memory went to agent sessions or to a browser someone left open — and
+     * only in the first case does parking a session help. The sessions slice
+     * answers whose pressure it is.
+     *
+     * THE SIGNAL IS STALL TIME, NOT BYTES. The slice's `memory.current` counts
+     * reclaimable page cache and the kernel only reclaims at the `MemoryHigh`
+     * line, so a build-heavy instance sits pinned at its watermark with memory
+     * genuinely free; "over its budget" would then be chronically true and
+     * would park a session every cooldown on a host under no pressure at all.
+     * PSI's `full avg10` — the share of the last ten seconds in which EVERY
+     * runnable session task was blocked on memory at once — is the thing worth
+     * acting on. (`some` was measured firing through a perfectly healthy
+     * typecheck; any-task-waiting is what a parallel build looks like.) Reported only by daemons with cgroups and PSI; absent leaves the
+     * host-wide trigger exactly as it was.
+     *
+     * An OR, not a replacement: a host genuinely out of memory still reclaims
+     * even when its sessions are not stalling, because the sessions are what
+     * this server can give back either way.
+     */
+    const sessions = sample.sessionsMemory
+    const sessionsStalling =
+      sessions?.stalledPct !== undefined && sessions.stalledPct >= SESSIONS_STALL_PCT
     const memoryReady =
-      usedPct !== undefined &&
-      usedPct >= cfg.memoryPct &&
+      ((usedPct !== undefined && usedPct >= cfg.memoryPct) || sessionsStalling) &&
       now - (this.lastAutoHibernateMsByMachine.get(machineId) ?? 0) >= MEMORY_HIBERNATE_COOLDOWN_MS
 
     if (memoryReady) {
-      // A raced/refused candidate must not spend the cooldown or block the next
-      // safely parkable session. Re-read the live projection after every attempt.
-      while (true) {
-        const target = this.eligibleCandidates(
-          machineId,
-          cfg.idleMinutes,
-          now,
-          failed,
-          cfg.idleShellMinutes,
-        )[0]
-        if (!target) break
-        if (!this.tryHibernateCandidate(target, failed)) continue
+      /**
+       * ATTACHMENTS FIRST, AND NOT AS A PREFERENCE (spec §5).
+       *
+       * A client terminal is a convenience someone opened onto a session; the
+       * session is the work. §5 puts them at the front of the reclaim order for
+       * that reason — "under memory pressure attachments are the FIRST thing
+       * reclaimed … the session engine is untouched" — and the inversion is not
+       * a smaller version of the right behaviour but the opposite of it: a warm
+       * terminal nobody is watching can be what pushes a host over this
+       * threshold, and parking an agent to make room for it is backwards.
+       *
+       * INSTEAD OF a park, not before one: the cooldown is spent, this sample
+       * takes no session, and the NEXT sample re-reads real memory. If freeing
+       * the terminals was enough, no agent was ever touched; if it was not,
+       * pressure is still here in a minute and a session goes then.
+       *
+       * The count is the machine's own (it holds the viewer state, so a WATCHED
+       * terminal is never in it); which ones to close is the machine's too. A
+       * daemon too old to report the field reads as 0 and falls straight through
+       * to the session sweep, exactly as it did before this existed.
+       *
+       * IT SPENDS THE SHARED COOLDOWN, so a host under memory AND load pressure
+       * at the same sample delays its load park by one 60s window: the load
+       * branch below re-reads that cooldown deliberately (one resource park per
+       * window). That is the same trade the memory branch's own park has always
+       * made, and it buys the cheaper reclaim first.
+       */
+      const reclaimable = sample.reclaimableAttachments ?? 0
+      if (reclaimable > 0) {
+        this.deps.toMachine(machineId, { type: 'reclaimAttachments' })
         this.lastAutoHibernateMsByMachine.set(machineId, now)
-        log.info('memory pressure — hibernating an idle session', {
+        log.info('memory pressure — reclaiming client terminals before parking anything', {
           hostname: sample.hostname,
           usedPct,
           thresholdPct: cfg.memoryPct,
-          sessionId: target.sessionId,
+          sessionsStallPct: sessions?.stalledPct,
+          attachments: reclaimable,
         })
-        break
+      } else {
+        // Nothing cheaper to give back, so the session sweep runs as it always
+        // has. A raced/refused candidate must not spend the cooldown or block
+        // the next safely parkable session: re-read the live projection after
+        // every attempt.
+        while (true) {
+          const target = this.eligibleCandidates(
+            machineId,
+            cfg.idleMinutes,
+            now,
+            failed,
+            cfg.idleShellMinutes,
+          )[0]
+          if (!target) break
+          if (!this.tryHibernateCandidate(target, failed)) continue
+          this.lastAutoHibernateMsByMachine.set(machineId, now)
+          log.info('memory pressure — hibernating an idle session', {
+            hostname: sample.hostname,
+            usedPct,
+            thresholdPct: cfg.memoryPct,
+            sessionId: target.sessionId,
+          })
+          break
+        }
       }
     }
 

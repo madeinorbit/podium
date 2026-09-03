@@ -4,11 +4,13 @@ import {
   DEFAULT_LEVEL,
   levelConfigVersion,
   matchesNamespace,
+  namespaceFloor,
   parseNamespaceSpec,
   resetLevels,
   resolveLevel,
   selectLevel,
   setLogLevel,
+  setNamespaceFloor,
   setNamespaceLevel,
 } from './level-control'
 
@@ -130,6 +132,70 @@ describe('programmatic control', () => {
   it('bumps the config version on every change so cached gates can notice', () => {
     const before = levelConfigVersion()
     setLogLevel('debug')
+    expect(levelConfigVersion()).toBeGreaterThan(before)
+  })
+})
+
+/**
+ * The floor exists so a namespace nobody has configured is still loud enough to
+ * answer questions asked of a log file after the fact, WITHOUT becoming a cap on
+ * the operator who turns everything up. Both halves are asserted: raising the
+ * floored namespace is the case a plain override would have broken.
+ */
+describe('namespace floors', () => {
+  it('lifts a namespace above the process default', () => {
+    setLogLevel('warn')
+    setNamespaceFloor('web:updates*', 'info')
+    expect(resolveLevel('web:updates')).toBe('info')
+    expect(resolveLevel('web:updates:poll')).toBe('info')
+    expect(resolveLevel('web:store')).toBe('warn')
+  })
+
+  it('never caps a louder setting — the defect a plain override would have', () => {
+    setNamespaceFloor('web:updates', 'info')
+    setLogLevel('debug')
+    expect(resolveLevel('web:updates')).toBe('debug')
+    setNamespaceLevel('web:updates', 'trace')
+    expect(resolveLevel('web:updates')).toBe('trace')
+  })
+
+  it('never quietens a namespace below what it would otherwise be', () => {
+    setLogLevel('debug')
+    setNamespaceFloor('web:updates', 'warn')
+    expect(resolveLevel('web:updates')).toBe('debug')
+  })
+
+  it('composes two floors by verbosity rather than by specificity', () => {
+    setLogLevel('error')
+    setNamespaceFloor('web:*', 'warn')
+    setNamespaceFloor('web:updates', 'debug')
+    expect(resolveLevel('web:updates')).toBe('debug')
+    expect(resolveLevel('web:store')).toBe('warn')
+  })
+
+  it('withdraws a floor when it is set to null', () => {
+    setLogLevel('warn')
+    setNamespaceFloor('web:updates', 'info')
+    setNamespaceFloor('web:updates', null)
+    expect(resolveLevel('web:updates')).toBe('warn')
+    expect(namespaceFloor('web:updates')).toBeNull()
+  })
+
+  it('reads floors from PODIUM_LOG_FLOOR', () => {
+    configureLevelsFromEnv({ PODIUM_LOG_LEVEL: 'warn', PODIUM_LOG_FLOOR: 'daemon:update=info' })
+    expect(resolveLevel('daemon:update')).toBe('info')
+    expect(resolveLevel('daemon:pty')).toBe('warn')
+  })
+
+  it('reports the floor itself, for the daemon forwarding sink that needs it', () => {
+    setNamespaceFloor('daemon:update', 'info')
+    expect(namespaceFloor('daemon:update')).toBe('info')
+    expect(namespaceFloor('daemon:pty')).toBeNull()
+  })
+
+  it('bumps the config version so cached gates re-derive', () => {
+    const before = levelConfigVersion()
+    setNamespaceFloor('web:updates', 'info')
     expect(levelConfigVersion()).toBeGreaterThan(before)
   })
 })

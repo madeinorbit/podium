@@ -16,6 +16,7 @@ import type { ServerMessage } from './messages/server'
 export * from './messages/control'
 export * from './messages/fleet-logs'
 export * from './messages/daemon'
+export * from './messages/runtime'
 export * from './messages/shipping'
 
 type DaemonWireMessage =

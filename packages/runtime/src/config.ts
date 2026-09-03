@@ -8,6 +8,11 @@
  * key gets a typed accessor below (`resolvePort`, `resolveUpdateChannel`, …) so callers
  * stop hand-rolling `process.env.X ?? config.y ?? default` with drifting precedence.
  *
+ * Provenance: `resolveSetting(key)` also reports WHICH LAYER answered, for every
+ * key in `LAYERED_KEYS`. A value the environment set locks its UI control and
+ * refuses its mutation rather than no-oping. Operator-facing write-up:
+ * docs/configuration.md.
+ *
  * PODIUM_* environment-variable inventory (the full set, including keys whose
  * accessors deliberately live elsewhere):
  *
@@ -23,6 +28,12 @@
  * | PODIUM_HOST                   | — → 127.0.0.1           | apps/server bindHost (injectable env param)            |
  * | PODIUM_PASSWORD               | — (env-only, one-shot)  | apps/server applyEnvPassword (headless deploy seam)    |
  * | PODIUM_UPDATE_CHANNEL         | config.updateChannel    | `resolveUpdateChannel()`                               |
+ * | PODIUM_MODE                   | config.mode             | `resolveMode()` — the deployment owns the mode          |
+ * | PODIUM_PUBLIC_URL             | config.publicUrl        | `resolvePublicUrl()` — https unless loopback, immutable |
+ * | PODIUM_APP_URL                | config.appUrl           | `resolveAppUrl()` — where the web UI is served from     |
+ * | PODIUM_ALLOWED_ORIGINS        | config.allowedOrigins   | `resolveAllowedOrigins()` — credentialed CORS list      |
+ * | PODIUM_UPDATE_SCOPE           | config.updateScope      | `resolveUpdateScope()` — 'fleet-only' = CI owns server  |
+ * | PODIUM_TRANSCRIPT_LAKE        | config.transcriptLake   | `resolveTranscriptLake()` — 'off' = no mirroring        |
  * | DO_NOT_TRACK                  | — (env-only kill switch)| @podium/telemetry `telemetrySuppressedBy()` [SP-f933]  |
  * | PODIUM_TELEMETRY              | — (env-only kill switch)| `=off` suppresses sending AND the setup prompt         |
  * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
@@ -34,11 +45,13 @@
  * | PODIUM_RUN_MODE               | — (env-only)            | `resolveRunRecordMode()` ('detached' set by cli-spawn) |
  * | NOTIFY_SOCKET (systemd's)     | — (env-only)            | `resolveRunRecordMode()`, sd-notify                    |
  * | PODIUM_DESKTOP_SUPERVISED     | — (env-only flag)       | `resolveLoggingMode()` (desktop sidecar → file sink)   |
+ * | PODIUM_LOGGING_MODE           | — (env-only)            | `resolveLoggingMode()` (parent states it for children) |
  * | PODIUM_AGENT_RELAY            | — (env-only)            | `resolveAgentRelay()` (daemon-injected per AGENT)      |
  * | PODIUM_SESSION_RELAY          | — (env-only)            | `resolveSessionRelay()` (per SESSION, shells included) |
  * | PODIUM_NO_RELAY               | — (env-only flag)       | both resolvers (shed inherited relay; escape hatch)    |
  * | PODIUM_ISSUE_RELAY            | — (env-only, LEGACY)    | `resolveAgentRelay()` read-only alias (dual-read, 1 rel)|
  * | PODIUM_SESSION_ID             | — (env-only)            | daemon-injected agent identity (control/session.ts)    |
+ * | PODIUM_INSTANCE_UUID          | — (env-only)            | daemon-owned process identity (instance reaper)       |
  * | PODIUM_BOOT_TIMEOUT_MS        | — → 45000               | boot.ts boot watchdog                                  |
  * | PODIUM_LOOP_PROFILE           | — (env-only flag)       | server + daemon event-loop profiling                   |
  * | ?switchTrace=1 / podium.switchTrace | — (browser runtime toggle; off by default) | optional long-task marks + console output          |
@@ -48,6 +61,17 @@
  * | PODIUM_PTY_BACKEND            | — → auto by runtime     | agent-bridge PTY backend selection                     |
  * | PODIUM_ABDUCO                 | — → embedded/PATH       | agent-bridge/embedded-abduco binary override           |
  * | PODIUM_NO_SCOPE               | — (env-only flag)       | agent-bridge: skip per-master systemd-run scopes       |
+ * | PODIUM_SESSION_MEMORY_MAX     | — → 50% RAM (2–16 GiB)  | per-session scope MemoryMax (`infinity` lifts it)      |
+ * | PODIUM_SESSION_MEMORY_HIGH    | — → UNSET               | reclaim-only throttle; any band below max can wedge    |
+ * | PODIUM_SESSION_MEMORY_SWAP_MAX| — → 0                   | per-session MemorySwapMax (`0` is a value; swap adds)  |
+ * | PODIUM_SESSION_TASKS_MAX      | — → 4096 (attach: 256)  | per-session scope TasksMax                             |
+ * | PODIUM_SESSIONS_MEMORY_HIGH   | — → 75% RAM             | aggregate throttle on the instance's sessions slice     |
+ * | PODIUM_BUILD_MEMORY_MAX       | — → 4 GiB (≤50% RAM)    | per-build scope MemoryMax (`infinity` lifts it)        |
+ * | PODIUM_BUILD_MEMORY_SWAP_MAX  | — → 0 (no swap)         | MemorySwapMax per build AND for the builds slice total  |
+ * | PODIUM_BUILD_TASKS_MAX        | — → 2048                | TasksMax per build and for the builds slice            |
+ * | PODIUM_BUILDS_MEMORY_MAX      | — → 50% RAM             | aggregate CAP on the instance's builds slice           |
+ * | PODIUM_NO_SESSION_BUDGET      | — (env-only flag)       | keep the slice/scope tree, drop every limit            |
+ * | PODIUM_CGROUP_ROOT            | — → /sys/fs/cgroup      | cgroup2 mount for session observation (tests point it) |
  * | PODIUM_CODEX_HOOK_*           | — (env-only)            | daemon codex hook plumbing (codex-hooks.ts)            |
  * | PODIUM_CLOUD_*                | — (env-only)            | apps/server cloud-runtime seam (hosted provider)       |
  * | PODIUM_UPDATE_SIGNING_KEY     | — (env-only)            | scripts/build-bun.ts + release tooling                 |
@@ -55,6 +79,12 @@
  * | PODIUM_UPDATE_TEST_AUTOCONFIRM| — (env-only flag)       | desktop updater verification script (test-only)        |
  * | PODIUM_ALLOWED_HOSTS          | — (env-only)            | apps/web vite dev-server host check                    |
  * | PODIUM_WEB_PORT               | — → 55556               | apps/web vite dev-server port                          |
+ * | PODIUM_TRUSTED_PROXY_HOPS     | — → 0                   | apps/server `resolveTrustedProxyHops()` (server.ts)    |
+ * | PODIUM_TLS_KEY_FILE           | — (env-only)            | apps/server `tlsFromEnv()`; pairs with the cert file   |
+ * | PODIUM_TLS_CERT_FILE          | — (env-only)            | apps/server `tlsFromEnv()`; pairs with the key file    |
+ * | PODIUM_DB_PATH                | — (env-only)            | apps/server migrations/restore.ts (`--db` default)     |
+ * | PODIUM_UNDER_PARENT           | — (env-only flag)       | daemon/cli parent-supervision handshake                |
+ * | PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT | — (env-only, test) | apps/server local update participant     |
  * | test-only: PODIUM_STUB_*, PODIUM_SKIP_*, PODIUM_GROK_CHAT_OK, PODIUM_CURL_LOG,      |
  * |   PODIUM_DISCOVERY_BENCH_DB, PODIUM_FEED_PORT, PODIUM_HEADLESS_FEED_PORT — fixtures |
  *
@@ -143,6 +173,66 @@ export const PodiumConfig = z.object({
   updateChannel: z.enum(['stable', 'edge', 'dev']).optional(),
   /** Device-reachable base URL captured at setup; embedded into machine join tokens. */
   publicUrl: z.string().optional(),
+  /**
+   * WHERE THE WEB UI LIVES WHEN IT IS NOT THIS SERVER.
+   *
+   * Absent for every self-hosted install: the server serves its own clients, and
+   * `publicUrl` is the whole address. Present when the UI is a separate origin —
+   * the hosted shape, `https://app.…` in front of an API-only `https://api.…` —
+   * and then it is what the server ADVERTISES to clients and what the desktop
+   * shell navigates to. It is not a second name for this server; a request that
+   * arrives at the API origin looking for a page is redirected here.
+   */
+  appUrl: z.string().optional(),
+  /**
+   * WHERE THE UI LIVES FOR THE SERVER *THIS BOX POINTS AT* — the client-side
+   * mirror of `appUrl`, learned at connect/join time from the remote's
+   * `/version` and re-learned whenever the server URL is re-pointed.
+   *
+   * It is a SEPARATE key rather than a reuse of `appUrl` because the two mean
+   * opposite things on the same file: `appUrl` is "the UI I advertise", set by
+   * whoever runs a server; `uiUrl` is "the UI for the server I dial", set by
+   * whoever joined this machine. A daemon that is also, later, a server would
+   * otherwise have one field answering two questions with one value.
+   *
+   * The desktop shell reads it (and only it) to decide what the window loads in
+   * client and daemon mode; absent means "load the server's own URL", which is
+   * every self-hosted install (PDM-34).
+   */
+  uiUrl: z.string().optional(),
+  /**
+   * Browser origins allowed to make CREDENTIALED cross-site requests to this
+   * instance (consumed by the CORS/WS checks, PDM-24). A DEPLOYMENT FACT — the
+   * hosted control plane serves its web app from a different origin than its API
+   * — not an authentication switch, which is why this one has an env layer where
+   * `auth.openMode` deliberately does not: it widens trust only to an explicit,
+   * fully-qualified list, never to a wildcard, and never to "anyone".
+   */
+  allowedOrigins: z.array(z.string()).optional(),
+  /**
+   * WHO REPLACES THIS SERVER'S OWN BINARY. `all` (the default) is the
+   * self-hosted shape: the coordinator updates itself along with its fleet.
+   * `fleet-only` says the deployment replaces the server out-of-band — a
+   * container image, a CI deploy — and Podium must only ever update the JOINED
+   * MACHINES.
+   *
+   * It is a DECLARATION rather than a runtime probe because the current
+   * correctness is accidental: a container has no parent supervisor, so the
+   * local update participant happens not to start and `canRestartServer`
+   * happens to be false — while the wave planner still holds the host row
+   * `coordinator-last` and the UI still offers a server update that can never
+   * land.
+   */
+  updateScope: z.enum(['all', 'fleet-only']).optional(),
+  /**
+   * Whether this server mirrors and indexes daemon transcripts into the lake
+   * under `<stateDir>/transcripts`. `on` (the default) is every install that
+   * exists today. `off` is for a deployment whose disk is ephemeral or whose
+   * blob store does not exist yet: the mirror, the indexer and the lake's disk
+   * footprint all go away, and turning it back on resumes from the persisted
+   * cursors rather than re-fetching history.
+   */
+  transcriptLake: z.enum(['on', 'off']).optional(),
   /** How the reachable URL is exposed. Saved so Settings can restore the operator's choice. */
   networkOption: z
     .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
@@ -466,9 +556,7 @@ export function resolvePort(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): number {
-  return (
-    Number(env.PODIUM_PORT) || config.port || defaultInstancePorts(resolveInstanceId(env)).server
-  )
+  return resolveSetting('port', config, env).value
 }
 
 /**
@@ -522,22 +610,14 @@ export function resolveHookPort(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): number {
-  return (
-    Number(env.PODIUM_HOOK_PORT) ||
-    config.hookPort ||
-    defaultInstancePorts(resolveInstanceId(env)).hook
-  )
+  return resolveSetting('hookPort', config, env).value
 }
 
 export function resolveAgentRelayPort(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): number {
-  return (
-    Number(env.PODIUM_AGENT_RELAY_PORT) ||
-    config.agentRelayPort ||
-    defaultInstancePorts(resolveInstanceId(env)).agentRelay
-  )
+  return resolveSetting('agentRelayPort', config, env).value
 }
 
 /** Native harness HOME/history root. Named instances isolate it unless sharing is explicit. */
@@ -546,13 +626,7 @@ export function resolveAgentHomeDir(
   env: EnvSource = process.env,
   home: string = env.HOME || homedir(),
 ): string {
-  return (
-    env.PODIUM_AGENT_HOME ||
-    config.agentHome ||
-    (resolveInstanceId(env) === 'default'
-      ? home
-      : join(instanceStateDir(resolveInstanceId(env), env, home), 'agent-home'))
-  )
+  return env.PODIUM_AGENT_HOME || config.agentHome || defaultAgentHome(env, home)
 }
 
 /**
@@ -569,7 +643,7 @@ export function resolveUpdateChannel(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): FleetUpdateChannel {
-  return (env.PODIUM_UPDATE_CHANNEL ?? config.updateChannel ?? 'stable') as FleetUpdateChannel
+  return resolveSetting('updateChannel', config, env).value
 }
 
 /**
@@ -590,7 +664,518 @@ export function resolveUpdateFeed(
   config: PodiumConfig = loadConfig(),
   env: EnvSource = process.env,
 ): string | undefined {
-  return env.PODIUM_UPDATE_FEED ?? config.updateFeed
+  return resolveSetting('updateFeed', config, env).value
+}
+
+/** Which machines this instance's updater may replace. See `config.updateScope`. */
+export type UpdateScope = 'all' | 'fleet-only'
+
+/** Whether this instance mirrors daemon transcripts. See `config.transcriptLake`. */
+export type TranscriptLakeMode = 'on' | 'off'
+
+// ---------------------------------------------------------------------------
+// PROVENANCE (PDM-26) — ONE implementation of the precedence rule.
+//
+// The accessors above each stated "env ?? file ?? default" in their own words.
+// That was fine while a forced value only had to be COMPUTED. It stops being
+// fine the moment the UI has to say WHICH LAYER a value came from, because a
+// per-key `envForced` boolean is a second copy of the same rule sitting next to
+// the accessor it can drift from — and the one key that already needed it
+// (`PODIUM_UPDATE_CHANNEL`) was about to become six.
+//
+// So the rule lives once, in `resolveSetting`, and every accessor below is a
+// projection of it. Adding a layered key is one edit to `LAYERED_READERS`, and
+// that edit cannot forget the provenance half.
+// ---------------------------------------------------------------------------
+
+/**
+ * Which layer answered.
+ *
+ * `settings` is the persisted instance-tier settings row, and it exists for the
+ * one key that is a USER-FACING CHOICE first and a deployment override second:
+ * transcript mirroring is a toggle in Settings, and env / config.json sit above
+ * it so a deployment can take the choice away. It never appears for a key with
+ * no settings row.
+ */
+export type SettingSource = 'env' | 'file' | 'settings' | 'default'
+
+/**
+ * A resolved value and where it came from. `env` names the VARIABLE and is
+ * present exactly when `source === 'env'` — it is what a refusal message and a
+ * disabled control quote back, so an operator is told which string to unset
+ * rather than that "something" overrode them.
+ */
+export interface Resolved<T> {
+  value: T
+  source: SettingSource
+  env?: string
+}
+
+/**
+ * The keys that HAVE an env layer.
+ *
+ * A key missing from this list is missing deliberately: `features` and
+ * `auth.openMode` are file-only because one enables hidden code paths and the
+ * other turns off authentication, and neither should be reachable from a
+ * process environment that a supervisor, a container platform or a stray `.env`
+ * can populate by accident. See docs/configuration.md.
+ */
+export const LAYERED_KEYS = [
+  'port',
+  'hookPort',
+  'agentRelayPort',
+  'agentHome',
+  'updateChannel',
+  'updateFeed',
+  'mode',
+  'publicUrl',
+  'appUrl',
+  'allowedOrigins',
+  'updateScope',
+  'transcriptLake',
+] as const
+export type LayeredKey = (typeof LAYERED_KEYS)[number]
+
+/** The variable each layered key reads. */
+export const LAYERED_ENV: Readonly<Record<LayeredKey, string>> = {
+  port: 'PODIUM_PORT',
+  hookPort: 'PODIUM_HOOK_PORT',
+  agentRelayPort: 'PODIUM_AGENT_RELAY_PORT',
+  agentHome: 'PODIUM_AGENT_HOME',
+  updateChannel: 'PODIUM_UPDATE_CHANNEL',
+  updateFeed: 'PODIUM_UPDATE_FEED',
+  mode: 'PODIUM_MODE',
+  publicUrl: 'PODIUM_PUBLIC_URL',
+  appUrl: 'PODIUM_APP_URL',
+  allowedOrigins: 'PODIUM_ALLOWED_ORIGINS',
+  updateScope: 'PODIUM_UPDATE_SCOPE',
+  transcriptLake: 'PODIUM_TRANSCRIPT_LAKE',
+}
+
+/** What each layered key resolves TO. */
+export interface LayeredValues {
+  port: number
+  hookPort: number
+  agentRelayPort: number
+  agentHome: string
+  updateChannel: FleetUpdateChannel
+  updateFeed: string | undefined
+  mode: PodiumMode | undefined
+  publicUrl: string | undefined
+  appUrl: string | undefined
+  allowedOrigins: string[]
+  updateScope: UpdateScope
+  transcriptLake: TranscriptLakeMode
+}
+export type LayeredValue<K extends LayeredKey> = LayeredValues[K]
+
+/**
+ * A boot-time env parse failure. Thrown before the server listens, naming the
+ * variable AND the accepted values: the person reading this is looking at a
+ * container log with no other context, so the message has to be self-contained.
+ */
+function envError(name: string, detail: string): never {
+  throw new Error(`${name} is invalid: ${detail}`)
+}
+
+function parseEnum<T extends string>(raw: string, accepted: readonly T[], name: string): T {
+  const value = raw.trim() as T
+  if (!accepted.includes(value)) {
+    envError(name, `expected one of ${accepted.join(', ')}, got ${JSON.stringify(raw)}`)
+  }
+  return value
+}
+
+/** Loopback hostnames the https rule exempts — a container probing itself, and
+ *  every local development shape. */
+function isLoopbackHostname(hostname: string): boolean {
+  return (
+    hostname === 'localhost' ||
+    hostname === '127.0.0.1' ||
+    hostname === '::1' ||
+    hostname === '[::1]' ||
+    hostname.endsWith('.localhost')
+  )
+}
+
+/**
+ * The ENV public URL, held to a stricter rule than the file layer.
+ *
+ * The file layer is what an operator typed at setup and is deliberately
+ * unchanged: a self-hosted `http://box.lan:18787` keeps working. The env layer
+ * is what a deployment platform injects, and a platform that can inject a URL
+ * can inject an https one — so a plaintext origin here is a misconfiguration
+ * worth failing the boot on, not a preference. Loopback is exempt because a
+ * container talking to itself has no certificate to present.
+ *
+ * BARE ORIGIN ONLY. This URL is embedded into join tokens and mobile pairing
+ * payloads and then has routes appended to it; a path, query or fragment
+ * silently reinterprets every one of them.
+ */
+function parseEnvPublicUrl(raw: string): string {
+  const trimmed = raw.trim()
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return envError('PODIUM_PUBLIC_URL', `not a valid URL: ${JSON.stringify(raw)}`)
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') {
+    envError('PODIUM_PUBLIC_URL', 'must start with https:// (or http:// for loopback)')
+  }
+  if (url.protocol === 'http:' && !isLoopbackHostname(url.hostname)) {
+    envError('PODIUM_PUBLIC_URL', `must use https:// unless the host is loopback (got ${trimmed})`)
+  }
+  if (url.search !== '' || url.hash !== '' || (url.pathname !== '' && url.pathname !== '/')) {
+    envError(
+      'PODIUM_PUBLIC_URL',
+      `must be a bare origin with no path, query or fragment (got ${trimmed})`,
+    )
+  }
+  return url.origin
+}
+
+/**
+ * The origin the web UI is served from, when it is not this server.
+ *
+ * HTTPS ONLY, and unlike the public URL there is no loopback exemption: an
+ * `appUrl` exists precisely because the UI is on a DIFFERENT site from the API,
+ * which means a real browser doing real cross-site requests, which means a
+ * secure context. A self-hoster whose UI is this server does not set this key at
+ * all.
+ *
+ * Bare origin, because it is advertised to clients that append their own routes
+ * to it — the same reason `publicUrl` is.
+ */
+function parseAppUrl(raw: string, name: string): string {
+  const trimmed = raw.trim()
+  let url: URL
+  try {
+    url = new URL(trimmed)
+  } catch {
+    return envError(name, `not a valid URL: ${JSON.stringify(raw)}`)
+  }
+  if (url.protocol !== 'https:') {
+    envError(name, `must be an https:// origin (got ${trimmed})`)
+  }
+  if (url.search !== '' || url.hash !== '' || (url.pathname !== '' && url.pathname !== '/')) {
+    envError(name, `must be a bare origin with no path, query or fragment (got ${trimmed})`)
+  }
+  return url.origin
+}
+
+/**
+ * The registrable domain, APPROXIMATED as the last two labels.
+ *
+ * Deliberately not a public-suffix list. What this guards is a coarse mistake —
+ * an `appUrl` pointing at a site nothing about this deployment relates to — and
+ * the precise answer is already available by other means: an operator whose
+ * setup genuinely spans two registrable domains states the second one in
+ * `allowedOrigins`, which is the explicit list that decides trust anyway. A PSL
+ * here would make the approximation stricter without making the DECISION any
+ * different, because the escape hatch is the same either way.
+ */
+function registrableDomain(hostname: string): string {
+  const labels = hostname.toLowerCase().split('.')
+  return labels.slice(-2).join('.')
+}
+
+/**
+ * A comma-separated origin allowlist.
+ *
+ * Every entry must be EXACTLY an origin — scheme, host, optional port, nothing
+ * else — so that the `origin === entry` comparison downstream cannot be widened
+ * by a stray path, and so a wildcard cannot arrive disguised as a hostname.
+ * Duplicates are dropped, first occurrence wins, order is preserved.
+ */
+function parseAllowedOrigins(raw: string, name: string): string[] {
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const entry of raw.split(',').map((part) => part.trim())) {
+    if (entry === '') continue
+    let url: URL
+    try {
+      url = new URL(entry)
+    } catch {
+      return envError(name, `${JSON.stringify(entry)} is not a valid origin`)
+    }
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      envError(name, `${JSON.stringify(entry)} must use http:// or https://`)
+    }
+    if (url.hostname === '' || url.hostname.includes('*')) {
+      envError(name, `${JSON.stringify(entry)} must name a host and may not use a wildcard`)
+    }
+    if (url.origin !== entry.replace(/\/$/, '')) {
+      envError(
+        name,
+        `${JSON.stringify(entry)} must be a bare origin with no path, query or fragment`,
+      )
+    }
+    if (seen.has(url.origin)) continue
+    seen.add(url.origin)
+    out.push(url.origin)
+  }
+  return out
+}
+
+/** The agent HOME root when neither env nor config names one. Shared by
+ *  `resolveAgentHomeDir` and the layer table so the two cannot disagree. */
+function defaultAgentHome(env: EnvSource, home: string): string {
+  return resolveInstanceId(env) === 'default'
+    ? home
+    : join(instanceStateDir(resolveInstanceId(env), env, home), 'agent-home')
+}
+
+/**
+ * Per-key layer readers. `env` and `file` return `undefined` for "this layer has
+ * nothing to say"; `default` always answers.
+ *
+ * `default` takes the env source because two defaults are themselves
+ * env-derived — the per-instance port block and the agent home root both follow
+ * `PODIUM_INSTANCE`. That is precedence WITHIN the default layer, not a second
+ * env layer, and `resolveSetting` reports those as `default` accordingly.
+ */
+const LAYERED_READERS: {
+  [K in LayeredKey]: {
+    env(env: EnvSource): LayeredValues[K] | undefined
+    file(config: PodiumConfig): LayeredValues[K] | undefined
+    default(env: EnvSource): LayeredValues[K]
+  }
+} = {
+  port: {
+    env: (env) => Number(env.PODIUM_PORT) || undefined,
+    file: (config) => config.port || undefined,
+    default: (env) => defaultInstancePorts(resolveInstanceId(env)).server,
+  },
+  hookPort: {
+    env: (env) => Number(env.PODIUM_HOOK_PORT) || undefined,
+    file: (config) => config.hookPort || undefined,
+    default: (env) => defaultInstancePorts(resolveInstanceId(env)).hook,
+  },
+  agentRelayPort: {
+    env: (env) => Number(env.PODIUM_AGENT_RELAY_PORT) || undefined,
+    file: (config) => config.agentRelayPort || undefined,
+    default: (env) => defaultInstancePorts(resolveInstanceId(env)).agentRelay,
+  },
+  agentHome: {
+    env: (env) => env.PODIUM_AGENT_HOME || undefined,
+    file: (config) => config.agentHome || undefined,
+    default: (env) => defaultAgentHome(env, env.HOME || homedir()),
+  },
+  updateChannel: {
+    env: (env) => env.PODIUM_UPDATE_CHANNEL as FleetUpdateChannel | undefined,
+    file: (config) => config.updateChannel,
+    default: () => 'stable',
+  },
+  updateFeed: {
+    env: (env) => env.PODIUM_UPDATE_FEED,
+    file: (config) => config.updateFeed,
+    default: () => undefined,
+  },
+  mode: {
+    env: (env) =>
+      env.PODIUM_MODE === undefined
+        ? undefined
+        : parseEnum(env.PODIUM_MODE, PodiumMode.options, 'PODIUM_MODE'),
+    file: (config) => config.mode,
+    default: () => undefined,
+  },
+  publicUrl: {
+    env: (env) =>
+      env.PODIUM_PUBLIC_URL === undefined ? undefined : parseEnvPublicUrl(env.PODIUM_PUBLIC_URL),
+    file: (config) => config.publicUrl,
+    default: () => undefined,
+  },
+  appUrl: {
+    env: (env) =>
+      env.PODIUM_APP_URL === undefined
+        ? undefined
+        : parseAppUrl(env.PODIUM_APP_URL, 'PODIUM_APP_URL'),
+    file: (config) =>
+      config.appUrl === undefined ? undefined : parseAppUrl(config.appUrl, 'appUrl'),
+    default: () => undefined,
+  },
+  allowedOrigins: {
+    env: (env) =>
+      env.PODIUM_ALLOWED_ORIGINS === undefined
+        ? undefined
+        : parseAllowedOrigins(env.PODIUM_ALLOWED_ORIGINS, 'PODIUM_ALLOWED_ORIGINS'),
+    file: (config) =>
+      config.allowedOrigins === undefined
+        ? undefined
+        : parseAllowedOrigins(config.allowedOrigins.join(','), 'allowedOrigins'),
+    default: () => [],
+  },
+  updateScope: {
+    env: (env) =>
+      env.PODIUM_UPDATE_SCOPE === undefined
+        ? undefined
+        : parseEnum(env.PODIUM_UPDATE_SCOPE, ['all', 'fleet-only'] as const, 'PODIUM_UPDATE_SCOPE'),
+    file: (config) => config.updateScope,
+    default: () => 'all',
+  },
+  transcriptLake: {
+    env: (env) =>
+      env.PODIUM_TRANSCRIPT_LAKE === undefined
+        ? undefined
+        : parseEnum(env.PODIUM_TRANSCRIPT_LAKE, ['on', 'off'] as const, 'PODIUM_TRANSCRIPT_LAKE'),
+    file: (config) => config.transcriptLake,
+    default: () => 'on',
+  },
+}
+
+/**
+ * THE PRECEDENCE RULE, ONCE: env (PODIUM_*) → config.json → built-in default,
+ * plus which of the three answered.
+ *
+ * Every layered accessor in this file is `resolveSetting(key, …).value`, and the
+ * server's `instance.provenance` is this function over `LAYERED_KEYS`. There is
+ * no second place that decides what wins.
+ */
+export function resolveSetting<K extends LayeredKey>(
+  key: K,
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): Resolved<LayeredValue<K>> {
+  const reader = LAYERED_READERS[key]
+  const fromEnv = reader.env(env)
+  if (fromEnv !== undefined) {
+    return { value: fromEnv as LayeredValue<K>, source: 'env', env: LAYERED_ENV[key] }
+  }
+  const fromFile = reader.file(config)
+  if (fromFile !== undefined) return { value: fromFile as LayeredValue<K>, source: 'file' }
+  return { value: reader.default(env) as LayeredValue<K>, source: 'default' }
+}
+
+/**
+ * DEPLOYMENT MODE: PODIUM_MODE → config.mode → undefined (not yet configured).
+ *
+ * The key whose absence made a headless boot impossible. `mode` gates the whole
+ * data plane through readiness and had no env layer, so a container with a
+ * perfectly specified environment and an empty state dir still had to be walked
+ * through a setup wizard by a human before it would serve anything.
+ */
+export function resolveMode(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): PodiumMode | undefined {
+  return resolveSetting('mode', config, env).value
+}
+
+/**
+ * Device-reachable base URL: PODIUM_PUBLIC_URL → config.publicUrl → undefined.
+ * The env layer is normalized to a bare origin and must be https unless the host
+ * is loopback; the file layer is unchanged — see {@link parseEnvPublicUrl}.
+ */
+export function resolvePublicUrl(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string | undefined {
+  return resolveSetting('publicUrl', config, env).value
+}
+
+/**
+ * The origin serving the web UI: PODIUM_APP_URL → config.appUrl → undefined.
+ *
+ * Undefined is the ordinary self-hosted answer and means "this server serves its
+ * own UI"; nothing changes anywhere when it is absent.
+ */
+export function resolveAppUrl(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string | undefined {
+  return resolveSetting('appUrl', config, env).value
+}
+
+/**
+ * A UI ON ANOTHER SITE HAS TO BE ONE THIS DEPLOYMENT VOUCHES FOR.
+ *
+ * Checked across three keys at once, which is why it is a separate assertion
+ * rather than part of `appUrl`'s own layer reader: a per-key parser sees one
+ * value and this question needs three.
+ *
+ * The session cookie is host-only on the API origin and `SameSite=Lax`, so a UI
+ * on an unrelated site could not log in even if it were advertised — the failure
+ * would be a redirect into a page that cannot authenticate, with nothing on
+ * screen to explain it. Sharing a registrable domain with `publicUrl` is the
+ * common case and needs no ceremony; anything else must appear in
+ * `allowedOrigins`, which is where this deployment states cross-site trust
+ * explicitly.
+ *
+ * Throws at boot, before the server listens.
+ */
+export function assertAppUrlCompatible(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): void {
+  const appUrl = resolveAppUrl(config, env)
+  if (appUrl === undefined) return
+  const publicUrl = resolvePublicUrl(config, env)
+  const appHost = new URL(appUrl).hostname
+  if (
+    publicUrl !== undefined &&
+    registrableDomain(new URL(publicUrl).hostname) === registrableDomain(appHost)
+  ) {
+    return
+  }
+  if (resolveAllowedOrigins(config, env).includes(appUrl)) return
+  throw new Error(
+    `${LAYERED_ENV.appUrl} (${appUrl}) is on a different site from the public URL ` +
+      `(${publicUrl ?? 'unset'}), so a browser there cannot hold this server's session cookie. ` +
+      `List it in ${LAYERED_ENV.allowedOrigins} to say that is deliberate.`,
+  )
+}
+
+/** Credentialed cross-site origins: PODIUM_ALLOWED_ORIGINS → config.allowedOrigins → [].
+ *  A PRESENT but empty variable is a deliberate empty list, not "unset". */
+export function resolveAllowedOrigins(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string[] {
+  return resolveSetting('allowedOrigins', config, env).value
+}
+
+/** Which machines this instance's updater may replace: PODIUM_UPDATE_SCOPE →
+ *  config.updateScope → 'all'. */
+export function resolveUpdateScope(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): UpdateScope {
+  return resolveSetting('updateScope', config, env).value
+}
+
+/**
+ * Transcript mirroring: PODIUM_TRANSCRIPT_LAKE → config.transcriptLake →
+ * the Settings toggle → 'on'.
+ *
+ * FOUR LAYERS, and the extra one is the point: this is a choice a user makes in
+ * Settings ("mirror transcripts to this server"), which a deployment may
+ * override but does not otherwise own. `settings` is the stored toggle —
+ * `undefined` when nobody has touched it, which is not the same as `false` and
+ * resolves to the built-in `'on'`.
+ *
+ * The settings value is PASSED IN rather than read here because @podium/runtime
+ * has no database; the server reads the row and hands it down.
+ */
+export function resolveTranscriptLake(
+  settings: boolean | undefined,
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): TranscriptLakeMode {
+  return resolveTranscriptLakeSetting(settings, config, env).value
+}
+
+/** {@link resolveTranscriptLake} with the layer that answered, for the toggle
+ *  that has to render itself locked and say by what. */
+export function resolveTranscriptLakeSetting(
+  settings: boolean | undefined,
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): Resolved<TranscriptLakeMode> {
+  const layered = resolveSetting('transcriptLake', config, env)
+  if (layered.source !== 'default') return layered
+  if (settings === undefined) return layered
+  return { value: settings ? 'on' : 'off', source: 'settings' }
 }
 
 /**
@@ -747,6 +1332,21 @@ export function resolveRunRecordMode(
 }
 
 /**
+ * Set by the parent on every child it spawns (see `spawnChild` in
+ * ./parent-process): the logging mode the PARENT resolved for itself, stated
+ * explicitly because the child cannot re-derive it.
+ *
+ * The child's environment has had `NOTIFY_SOCKET` deleted — only the parent may
+ * pet the systemd watchdog — and that deletion used to answer a second, unrelated
+ * question by accident: every child under systemd resolved `foreground` and wrote
+ * pretty console text into journald, beside a parent writing NDJSON (POD-3177).
+ * The child's stdio IS the parent's (`childStdio` returns `inherit` under
+ * systemd), so its sink has to follow the parent's mode rather than the child's
+ * own reading of an env the parent deliberately truncated.
+ */
+export const LOGGING_MODE_ENV = 'PODIUM_LOGGING_MODE'
+
+/**
  * WHICH SINK this process's records go to, as opposed to how it is supervised.
  *
  * The two questions usually have one answer, and `resolveRunRecordMode` is it.
@@ -759,10 +1359,27 @@ export function resolveRunRecordMode(
  *
  * NOTIFY_SOCKET still wins: a sidecar under systemd is journald's, and writing
  * a file as well is the double-writing @podium/runtime/logging exists to avoid.
+ *
+ * `PODIUM_LOGGING_MODE` wins over BOTH, because it is the only one of the three
+ * that answers THIS question rather than being evidence about a different one: a
+ * supervising parent states the mode outright for a child whose env it has
+ * edited. Only a valid value is honoured — a typo falls through to the evidence
+ * instead of silently pinning `foreground`.
+ *
+ * `honourParentDeclaration: false` is for a process that inherited the variable
+ * without being the child it was set for. Env travels down the whole tree, and
+ * an agent's `podium issue …` under the daemon is a grandchild whose stdout is
+ * its OWN output: taking the systemd sink there would move the CLI's warnings
+ * from the console onto the stdout a caller parses.
  */
 export function resolveLoggingMode(
   env: EnvSource = process.env,
+  options: { honourParentDeclaration?: boolean } = {},
 ): 'systemd' | 'detached' | 'foreground' {
+  const declared = options.honourParentDeclaration === false ? undefined : env[LOGGING_MODE_ENV]
+  if (declared === 'systemd' || declared === 'detached' || declared === 'foreground') {
+    return declared
+  }
   const supervised = resolveRunRecordMode(env)
   if (supervised === 'foreground' && env.PODIUM_DESKTOP_SUPERVISED === '1') return 'detached'
   return supervised

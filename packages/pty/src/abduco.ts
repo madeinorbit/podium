@@ -1,4 +1,4 @@
-import { execFile, type SpawnOptions, spawn, spawnSync } from 'node:child_process'
+import { execFile, type SpawnOptions, spawn } from 'node:child_process'
 import {
   closeSync,
   existsSync,
@@ -14,11 +14,21 @@ import { hostname, tmpdir, userInfo } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { createLogger } from '@podium/logger'
+import { ABDUCO_SUN_PATH_MAX, abducoSocketPathBytes } from '@podium/runtime/abduco-socket'
 import {
   abducoSocketPathname,
   assertLinuxUnixSocketPath,
+  instanceSessionSliceName,
   resolveInstanceId,
 } from '@podium/runtime/instance'
+import {
+  resolveScopeBudget,
+  resolveSessionsSliceHigh,
+  type ScopeBudget,
+  type ScopeRole,
+  scopeBudgetProperties,
+  sliceBudgetArgv,
+} from '@podium/runtime/scope'
 import { resolveAbducoBin } from './abduco-bin.js'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
@@ -73,15 +83,31 @@ export function abducoCreateArgv(label: string, cmd: string, args: string[] = []
  * CPU-oversubscribed by agent/test workloads, and POD-594 measured the daemon main
  * thread runqueue-waiting 60% of wall time when every scope competed at the default
  * CPUWeight=100. Interactive services carry CPUWeight=900/IOWeight=500.
+ *
+ * The scope is also PLACED and BOUNDED (POD-2413): `--slice` puts it in the
+ * instance's sessions slice, and the budget adds MemoryHigh/MemoryMax/
+ * MemorySwapMax/TasksMax plus `OOMPolicy=continue`, so a runaway session is
+ * killed by the kernel inside its own cgroup instead of taking the host with it.
+ * Both defaults are resolved here rather than at each call site, because all
+ * four spawn paths (abduco master, codex app-server, grok ACP, opencode serve)
+ * come through this one builder and a per-caller budget would be four policies.
  */
-export function systemdScopeArgv(unit: string, command: string[]): string[] {
+export function systemdScopeArgv(
+  unit: string,
+  command: string[],
+  options: { slice?: string; budget?: ScopeBudget } = {},
+): string[] {
+  const slice = options.slice ?? instanceSessionSliceName()
+  const budget = options.budget ?? resolveScopeBudget('session')
   return [
     '--user',
     '--scope',
     '--collect',
     '--quiet',
+    `--slice=${slice}`,
     '--property=CPUWeight=50',
     '--property=IOWeight=100',
+    ...scopeBudgetProperties(budget),
     `--unit=${unit}`,
     '--',
     ...command,
@@ -228,8 +254,8 @@ function scopeEnv(base: NodeJS.ProcessEnv): Record<string, string> {
   return { ...base, ...(dir ? { XDG_RUNTIME_DIR: dir } : {}) } as Record<string, string>
 }
 
-let scopeChecked = false
-let scopeOk = false
+let scopeOk: boolean | undefined
+let scopeInFlight: Promise<boolean> | undefined
 let scopeWarned = false
 
 /**
@@ -241,19 +267,81 @@ let scopeWarned = false
  * every spawn takes the failure path. `PODIUM_NO_SCOPE` forces it off (tests /
  * non-systemd hosts). Memoized — the answer can't change within a process.
  */
-export function canScopeMaster(): boolean {
-  if (scopeChecked) return scopeOk
-  scopeChecked = true
-  scopeOk =
-    !process.env.PODIUM_NO_SCOPE &&
-    process.platform === 'linux' &&
-    userRuntimeDir() !== undefined &&
-    spawnSync('systemd-run', ['--user', '--scope', '--collect', '--quiet', '--', 'true'], {
-      stdio: 'ignore',
+export function canScopeMaster(): Promise<boolean> {
+  if (scopeOk !== undefined) return Promise.resolve(scopeOk)
+  if (scopeInFlight) return scopeInFlight
+  if (
+    process.env.PODIUM_NO_SCOPE ||
+    process.platform !== 'linux' ||
+    userRuntimeDir() === undefined
+  ) {
+    scopeOk = false
+    return Promise.resolve(false)
+  }
+
+  let pending!: Promise<boolean>
+  pending = new Promise<boolean>((resolve) => {
+    execFile(
+      'systemd-run',
+      // THE PROBE RUNS THE REAL ARGV, not a bare scope. A user manager that
+      // accepts `--scope` but rejects the budget — no memory controller
+      // delegated, an older systemd — would otherwise pass here and then fail
+      // every actual spawn, so each session would silently take the "will NOT
+      // survive a podium restart" fallback. A gate must test what it gates.
+      systemdScopeArgv(`podium-scope-probe-${process.pid}.scope`, ['true']),
+      { timeout: 8000, env: scopeEnv(liveEnv()) },
+      (error) => resolve(error === null),
+    )
+  })
+    .then((ok) => {
+      scopeOk = ok
+      return ok
+    })
+    .finally(() => {
+      if (scopeInFlight === pending) scopeInFlight = undefined
+    })
+  scopeInFlight = pending
+  return pending
+}
+
+let sliceBudgetApplied = false
+
+/**
+ * Put the aggregate throttle on the instance's sessions slice.
+ *
+ * The slice is IMPLICIT — no unit file declares it; systemd materializes it the
+ * first time a scope names it — so its budget cannot ride the scope's argv and
+ * has to be set afterwards, which is why every spawn path calls this once a
+ * scope actually exists. Memoized on SUCCESS only: the first call of a daemon's
+ * life may well land before any scope does, and a failure there must not
+ * silently mean "this instance runs unthrottled until the next restart".
+ *
+ * Deliberately a `MemoryHigh` and never a `MemoryMax`: a Max here would let one
+ * greedy session get every other session on the instance killed, which is the
+ * collective OOM death the whole hierarchy exists to prevent. The throttle is
+ * the last line before the HOST starts swapping, not a per-session control.
+ */
+export async function applySessionsSliceBudget(
+  run: SystemctlRunner = execFileAsync,
+  env: NodeJS.ProcessEnv = liveEnv(),
+): Promise<void> {
+  if (sliceBudgetApplied) return
+  const high = resolveSessionsSliceHigh(env)
+  if (high === undefined) {
+    sliceBudgetApplied = true
+    return
+  }
+  try {
+    await run('systemctl', sliceBudgetArgv(instanceSessionSliceName(), high), {
       timeout: 8000,
-      env: scopeEnv(liveEnv()),
-    }).status === 0
-  return scopeOk
+      env: scopeEnv(env),
+    })
+    sliceBudgetApplied = true
+  } catch (err) {
+    // The slice may not exist yet (no scope has named it). Stay un-memoized so
+    // the next spawn tries again.
+    log.debug('could not set the sessions slice budget yet', { err })
+  }
 }
 
 /**
@@ -313,24 +401,61 @@ const ABDUCO_SOCKET_POLL_MS = 10
 /** Ceiling for the global `abduco` listing — see {@link listSessions}. */
 const ABDUCO_LIST_TIMEOUT_MS = 8000
 
-/** Candidate roots in abduco's resolution order. */
+/**
+ * Candidate roots in abduco's resolution order — ALL FOUR OF THEM (POD-2853).
+ *
+ * abduco does not resolve one directory, it walks a FALL-THROUGH CHAIN:
+ * `ABDUCO_SOCKET_DIR`, then `HOME`, then `TMPDIR`, then `/tmp` (config.h), and
+ * it moves to the next one on ANY failure of the current one — the directory's
+ * parent does not exist, `mkdir` is refused, the per-user subdirectory is owned
+ * by someone else or group/world accessible, the composed name truncates, or
+ * the probe bind fails. It says nothing when it does: the create SUCCEEDS, at a
+ * different root.
+ *
+ * This function used to stop at the first root. When `ABDUCO_SOCKET_DIR` was
+ * set it looked ONLY under it, and when it was unset ONLY under `$HOME/.abduco`
+ * — so a master that fell through to `/tmp` was invisible to every caller that
+ * asks "is this label alive". Measured directly: an abduco master created with
+ * a given environment, alive and holding its socket, while `abducoSocketPath`
+ * called with THAT SAME ENVIRONMENT answered `undefined`.
+ *
+ * THE ERROR IS ONE-SIDED TOWARD "ABSENT", which is the expensive direction on
+ * every caller — the spawn path reports "did not publish a live socket" for a
+ * session that is running, `reclaimStaleScope` clears a scope out from under a
+ * live master, and the reattach path answers "session not found". Same shape as
+ * POD-2761, which fixed the ATTACH path's environment and left this one.
+ *
+ * The two non-user-specific entries under `ABDUCO_SOCKET_DIR` are historical
+ * compatibility, not abduco's behaviour, and are kept so nothing that resolves
+ * today stops resolving.
+ */
 function abducoSocketDirs(env: NodeJS.ProcessEnv, username?: string): string[] {
   const dirs: string[] = []
-  if (env.ABDUCO_SOCKET_DIR) {
-    let user = username
-    if (!user) {
-      try {
-        user = userInfo().username
-      } catch {
-        // Fall through to the non-user-specific compatibility candidates.
-      }
+  let user = username
+  if (!user) {
+    try {
+      user = userInfo().username
+    } catch {
+      // No passwd entry: abduco names the subdirectory by numeric uid instead.
+      user = typeof process.getuid === 'function' ? String(process.getuid()) : undefined
     }
-    if (user) dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco', user))
-    dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco'), env.ABDUCO_SOCKET_DIR)
-  } else if (env.HOME) {
-    dirs.push(join(env.HOME, '.abduco'))
   }
-  return dirs
+  /** A non-personal root: `<root>/abduco/<user>`, exactly as create_socket_dir builds it. */
+  const shared = (root: string) => {
+    if (user) dirs.push(join(root, 'abduco', user))
+  }
+  if (env.ABDUCO_SOCKET_DIR) {
+    shared(env.ABDUCO_SOCKET_DIR)
+    dirs.push(join(env.ABDUCO_SOCKET_DIR, 'abduco'), env.ABDUCO_SOCKET_DIR)
+  }
+  // HOME is abduco's `personal` root: `$HOME/.abduco`, with NO user subdirectory.
+  if (env.HOME) dirs.push(join(env.HOME, '.abduco'))
+  if (env.TMPDIR) shared(env.TMPDIR)
+  shared('/tmp')
+  // De-duplicated because the chain overlaps in ordinary configurations —
+  // TMPDIR is very often /tmp — and every duplicate is another readdir on the
+  // spawn path's poll loop.
+  return dirs.filter((dir, i) => dirs.indexOf(dir) === i)
 }
 
 /**
@@ -721,14 +846,19 @@ export function createAltScreenStripper(): (data: Uint8Array) => Uint8Array {
 }
 
 /** Delegate PtyProcess whose onData passes through the one-time chrome stripper. */
-function stripAttachChrome(proc: PtyProcess): PtyProcess {
+function stripAttachChrome(proc: PtyProcess, onReady: () => void): PtyProcess {
   const strip = createAltScreenStripper()
+  let ready = false
   return {
     get pid() {
       return proc.pid
     },
     onData: (cb) =>
       proc.onData((d) => {
+        if (!ready) {
+          ready = true
+          onReady()
+        }
         const out = strip(d)
         if (out.length) cb(out)
       }),
@@ -747,7 +877,36 @@ export interface AbducoSpawnOptions {
   cols: number
   rows: number
   env?: Record<string, string>
+  /**
+   * Variables to REMOVE from the environment the session app inherits.
+   *
+   * `env` can only add or overwrite, and for a credential that is not the same
+   * thing: an empty `ANTHROPIC_API_KEY` is still a set `ANTHROPIC_API_KEY`, and
+   * what a caller stripping provider keys means is that the child must resolve
+   * as if the daemon had never carried them (POD-2059; the same removal the
+   * non-durable spawn path does with `delete`).
+   *
+   * Applied to the CREATE call — the app's own environment. The attach client is
+   * abduco itself and reads none of this.
+   */
+  stripEnv?: readonly string[]
+  /**
+   * Preserve replay already owned by a browser when adopting a live master.
+   * Such an adoption must not trigger the attach client's initial repaint,
+   * because that repaint clears retained scrollback. Defaults false so
+   * ordinary/headed reattach keeps its blank-screen recovery repaint.
+   */
+  preserveReplayOnAdopt?: boolean
+
   backend?: PtyBackend
+  /**
+   * What this master is, for the scope budget (POD-2413). `'attach'` is a
+   * client TUI parked beside a session: it gets a terminal-sized budget rather
+   * than an agent's, so a warm attachment can never be what pushes the instance
+   * over its aggregate throttle — and it is the first thing given back under
+   * pressure. Default `'session'`: the agent's own process tree.
+   */
+  scopeRole?: ScopeRole
 }
 
 /**
@@ -793,6 +952,49 @@ async function execCreate(file: string, args: string[], options: SpawnOptions): 
 }
 
 /**
+ * Say WHICH PATH was too long, and by how much (POD-2853).
+ *
+ * abduco's whole diagnosis of a socket path over `sun_path` is the eight words
+ * "create-session: File name too long". It names neither the path it composed
+ * nor the limit it measured against, and the path is not visible anywhere else:
+ * it is built inside abduco out of `ABDUCO_SOCKET_DIR`, the user name, the
+ * durable label and the hostname. A named instance hit this on EVERY spawn and
+ * the message sent the first investigation to systemd, which was only relaying
+ * the inner exit status.
+ *
+ * So the numbers are attached here, where the label and the environment are
+ * both in hand. Only the length failure is rewritten — every other create
+ * failure is returned untouched, because abduco's own text is the diagnosis for
+ * those and a wrapper would only bury it.
+ *
+ * EVERY CANDIDATE IS LISTED, not just the first. abduco fails with ENAMETOOLONG
+ * at the first root it managed to CREATE and then could not fit the name in,
+ * and which root that was depends on `mkdir` results this side cannot see —
+ * naming one would be a guess, and a confident wrong path is worse than the
+ * message it replaced. The list is short (three or four entries) and shows at a
+ * glance which root would have fitted.
+ */
+export function withComposedSocketPath(
+  err: unknown,
+  label: string,
+  env: NodeJS.ProcessEnv,
+): unknown {
+  const message = err instanceof Error ? err.message : String(err)
+  if (!/File name too long|ENAMETOOLONG/i.test(message)) return err
+  const host = `@${hostname()}`
+  const measured = abducoSocketDirs(env).map((dir) => {
+    const bytes = abducoSocketPathBytes(`${dir}/`, label, host)
+    return `${dir}/${label}${host} = ${bytes}`
+  })
+  if (measured.length === 0) return err
+  return new Error(
+    `${message} — no socket path may exceed ${ABDUCO_SUN_PATH_MAX} bytes, and abduco composes ` +
+      `<dir>/<label>@<host>: ${measured.join('; ')}. ` +
+      'Set ABDUCO_SOCKET_DIR to a shorter directory.',
+  )
+}
+
+/**
  * Create a detached abduco session running the agent, then attach a client.
  * The session app inherits cwd/env from the CREATE call (abduco has no flags for
  * either); TERM/COLORTERM must be forced here — there is no tmux
@@ -810,6 +1012,9 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     COLORTERM: 'truecolor',
     ...opts.env,
   }
+  // AFTER the merge, so a caller cannot strip a variable it also set — the two
+  // would otherwise depend on key order in an object literal.
+  for (const key of opts.stripEnv ?? []) delete childEnv[key]
   // stdio is execCreate's to set: it captures stderr so a create failure
   // reports abduco's own diagnosis instead of a bare "Command failed".
   const execOpts = {
@@ -820,7 +1025,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // every later spawn/reattach readdir pays for them. Sweep first so the
   // lookups below see live sockets, not thousands of leftover `.abduco-<pid>`.
   reapStaleAbducoBindTemps(childEnv)
-  const attachTo = (socketPath: string): AgentSession =>
+  const attachTo = (socketPath: string, repaintOnAttach = true): AgentSession =>
     attachAbducoAgent({
       label: opts.label,
       socketPath,
@@ -828,6 +1033,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       rows: opts.rows,
       ...(opts.env ? { env: opts.env } : {}),
       ...(opts.backend ? { backend: opts.backend } : {}),
+      repaintOnAttach,
     })
   const attachCreated = async (): Promise<AgentSession> =>
     attachTo(await waitForAbducoSocket(opts.label, childEnv))
@@ -844,7 +1050,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       label: opts.label,
       socketPath,
     })
-    return { ...attachTo(socketPath), adopted: true }
+    return { ...attachTo(socketPath, !opts.preserveReplayOnAdopt), adopted: true }
   }
   const live = abducoSocketPath(opts.label, childEnv)
   if (live) return adopt(live)
@@ -872,7 +1078,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
   // runs in the foreground but returns the instant the create process exits — abduco
   // daemonizes the master and returns immediately, so timing matches the bare call.
   // (cwd/env are inherited by the scope, verified against the live user manager.)
-  if (canScopeMaster()) {
+  if (await canScopeMaster()) {
     // Reclaim a stale scope squatting this label's unit name first, or `systemd-run`
     // fails ("unit already exists") and the master falls into the daemon's cgroup —
     // where the next redeploy kills it (see scopeReclaimArgvs). Guarded on no live
@@ -882,10 +1088,15 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     try {
       await execCreate(
         'systemd-run',
-        systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs]),
+        systemdScopeArgv(scopeUnitName(opts.label), [bin, ...createArgs], {
+          budget: resolveScopeBudget(opts.scopeRole ?? 'session'),
+        }),
         execOpts,
       )
       createdInScope = true
+      // The slice now exists, so its aggregate throttle can be set. Fire and
+      // forget: a session must never wait on a best-effort budget call.
+      void applySessionsSliceBudget()
     } catch (err) {
       // A concurrent spawn of the same label may have won: that master is the
       // session, and creating a second one is impossible anyway.
@@ -893,10 +1104,20 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
       if (raced) return raced
       // A direct master would be reaped on the next redeploy, so make the
       // degradation loud rather than silently reintroducing the original bug.
-      log.warn('systemd scope unavailable; session will NOT survive a podium restart', {
-        label: opts.label,
-        err,
-      })
+      //
+      // BUT SAY WHICH FAILURE THIS IS (POD-2777). `systemd-run` also fails when
+      // the socket path is too long, and the durability wording then blames the
+      // wrong thing entirely: it promises a session that merely will not
+      // survive a restart, when in fact nothing started and the direct create
+      // below is about to fail for the same reason. Read top-down, the log told
+      // an operator about restarts and never about a path or a limit.
+      const detail = withComposedSocketPath(err, opts.label, childEnv)
+      log.warn(
+        detail === err
+          ? 'systemd scope unavailable; session will NOT survive a podium restart'
+          : 'the durable session socket path is too long — the session will not start at all',
+        { label: opts.label, err: detail },
+      )
     }
     // Do not treat an attach/readiness failure as a scope-launch failure: the
     // master is already alive, and creating a second one with the same label
@@ -915,7 +1136,7 @@ export async function spawnAbducoAgent(opts: AbducoSpawnOptions): Promise<AgentS
     await execCreate(bin, createArgs, execOpts)
   } catch (err) {
     const raced = adoptRaceWinner()
-    if (!raced) throw err
+    if (!raced) throw withComposedSocketPath(err, opts.label, childEnv)
     return raced
   }
   return attachCreated()
@@ -941,6 +1162,11 @@ export function attachAbducoAgent(opts: {
   env?: Record<string, string>
   /** Reattaching a shell: nudge with Ctrl-L too, since it won't repaint on SIGWINCH while idle. */
   hardRepaint?: boolean
+  /**
+   * False only after `spawnAbducoAgent` proved this is a live-master adoption.
+   * Fresh attaches default true; explicit redraw remains available afterward.
+   */
+  repaintOnAttach?: boolean
   backend?: PtyBackend
 }): AgentSession {
   const [cmd, ...args] = abducoAttachArgv(
@@ -955,13 +1181,30 @@ export function attachAbducoAgent(opts: {
     rows: opts.rows,
     env: { ...process.env, COLORTERM: 'truecolor', ...opts.env } as Record<string, string>,
   })
-  const session = withHardRepaint(
-    wrapPty(stripAttachChrome(proc), { cols: opts.cols, rows: opts.rows }),
+  let ready = false
+  let repaintPending = false
+  let session: AgentSession
+  const filtered = stripAttachChrome(proc, () => {
+    ready = true
+    if (!repaintPending) return
+    repaintPending = false
+    session.redraw()
+  })
+  session = withHardRepaint(
+    wrapPty(filtered, { cols: opts.cols, rows: opts.rows }),
     opts.hardRepaint ?? false,
   )
-  session.redraw()
+  if (opts.repaintOnAttach ?? true) session.redraw()
   return {
     ...session,
+    redrawWhenReady() {
+      if (ready) {
+        session.redraw()
+        return
+      }
+      repaintPending = true
+    },
+
     dispose() {
       try {
         proc.kill('SIGKILL')

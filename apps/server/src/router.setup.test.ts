@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { FIRST_ADMIN_USER_ID, type ServerReadiness } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
-import { loadConfig, saveConfig } from '@podium/runtime/config'
+import { LAYERED_KEYS, loadConfig, saveConfig } from '@podium/runtime/config'
 import { encodeJoin } from '@podium/runtime/join'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
@@ -113,10 +113,17 @@ describe('setup tRPC', () => {
     dir = mkdtempSync(join(tmpdir(), 'podium-setuprtr-'))
     process.env.PODIUM_STATE_DIR = dir
     harness = undefined
+    // NO TEST IN THIS FILE REACCHES THE NETWORK. `setup.connect`/`join` ask the
+    // remote for its `appUrl` (PDM-34); left unstubbed that is a real DNS lookup
+    // for whatever hostname a fixture invented. An unreachable remote is also
+    // the self-hosted answer, so this default is the behaviour every case here
+    // predates — the split-hosting cases override it with an answer.
+    vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'))
   })
   afterEach(() => {
     process.env.PODIUM_STATE_DIR = priorStateDir
     harness = undefined
+    vi.restoreAllMocks()
     rmSync(dir, { recursive: true, force: true })
   })
 
@@ -142,9 +149,20 @@ describe('setup tRPC', () => {
   it('info reports the current mode + publicUrl (for Settings → Network)', async () => {
     // appVersion is the baked build version ('dev' from source) [POD-838].
     const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+    // Every layered value carries the LAYER that answered (PDM-26), so a control
+    // can render disabled and name the variable holding it rather than offering
+    // a write the environment overrides.
     expect(await caller().setup.info()).toEqual({
       mode: null,
+      modeSource: 'default',
       publicUrl: null,
+      publicUrlSource: 'default',
+      appUrl: null,
+      appUrlSource: 'default',
+      allowedOrigins: [],
+      allowedOriginsSource: 'default',
+      transcriptLake: 'on',
+      transcriptLakeSource: 'default',
       networkOption: null,
       serverUrl: null,
       appVersion,
@@ -156,7 +174,15 @@ describe('setup tRPC', () => {
     })
     expect(await caller().setup.info()).toEqual({
       mode: 'all-in-one',
+      modeSource: 'file',
       publicUrl: 'https://box.ts.net',
+      publicUrlSource: 'file',
+      appUrl: null,
+      appUrlSource: 'default',
+      allowedOrigins: [],
+      allowedOriginsSource: 'default',
+      transcriptLake: 'on',
+      transcriptLakeSource: 'default',
       networkOption: 'tailscale-serve',
       serverUrl: null,
       appVersion,
@@ -193,6 +219,12 @@ describe('setup tRPC', () => {
     })
     expect(credentialHash()).toBe('')
   })
+  /**
+   * PDM-34: connect and join now ask the remote where its UI is. Nothing below
+   * is about that answer — these are the pre-existing behaviours, and they must
+   * be identical when the remote says nothing, which is every self-hosted
+   * install and every offline test.
+   */
   it('join applies a pasted join code as a daemon config', async () => {
     const code = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
     expect(await caller().setup.join({ code })).toEqual({ name: 'box' })
@@ -213,6 +245,62 @@ describe('setup tRPC', () => {
   })
   it('connect rejects client mode without a server URL', async () => {
     await expect(caller().setup.connect({ mode: 'client' })).rejects.toThrow()
+  })
+
+  /**
+   * SPLIT HOSTING (PDM-34). The one fact a person pasting an API address or a
+   * join token cannot know is that the UI is somewhere else — so the server is
+   * asked, and the answer is persisted as `uiUrl` for the desktop shell to read
+   * on its next launch.
+   */
+  describe('learning where the remote serves its UI', () => {
+    const remoteAdvertises = (body: unknown) =>
+      vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+        ok: true,
+        json: async () => body,
+      } as Response)
+
+    it('join records the joined server’s app host', async () => {
+      const fetchMock = remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
+      const code = encodeJoin({ v: 1, serverUrl: 'wss://api.meetpodium.com', pairCode: 'P1' })
+      await caller().setup.join({ code })
+      expect(loadConfig().uiUrl).toBe('https://app.meetpodium.com')
+      // Asked the server named in the TOKEN, over http(s), before writing anything.
+      expect(String((fetchMock.mock.calls[0] as [URL])[0])).toBe(
+        'https://api.meetpodium.com/version',
+      )
+    })
+
+    it('connect records it for a client pointed at an API-only server', async () => {
+      remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
+      await caller().setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
+      expect(loadConfig().uiUrl).toBe('https://app.meetpodium.com')
+    })
+
+    it('leaves it unset when the remote serves its own UI', async () => {
+      remoteAdvertises({ instanceId: 'i1' })
+      await caller().setup.connect({ mode: 'client', serverUrl: 'https://self.hosted' })
+      expect(loadConfig()).not.toHaveProperty('uiUrl')
+    })
+
+    it('does not ask on behalf of a local mode, and clears a stale answer', async () => {
+      const fetchMock = remoteAdvertises({ appUrl: 'https://app.meetpodium.com' })
+      await caller().setup.connect({ mode: 'client', serverUrl: 'https://api.meetpodium.com' })
+      fetchMock.mockClear()
+      // Going back to a local all-in-one: there is no remote to ask, and the
+      // previous deployment's app host must not survive the switch.
+      await caller().setup.connect({ mode: 'all-in-one' })
+      expect(fetchMock).not.toHaveBeenCalled()
+      expect(loadConfig()).not.toHaveProperty('uiUrl')
+    })
+
+    it('still joins when the remote cannot be reached', async () => {
+      vi.spyOn(globalThis, 'fetch').mockRejectedValue(new Error('ECONNREFUSED'))
+      const code = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1', name: 'box' })
+      expect(await caller().setup.join({ code })).toEqual({ name: 'box' })
+      expect(loadConfig().mode).toBe('daemon')
+      expect(loadConfig()).not.toHaveProperty('uiUrl')
+    })
   })
   it('reports the update channel (default stable)', async () => {
     expect(await caller().setup.channel()).toMatchObject({ channel: 'stable', envForced: false })
@@ -454,5 +542,66 @@ describe('fleet default channel refresh ordering', () => {
       if (prior === undefined) delete process.env.PODIUM_UPDATE_CHANNEL
       else process.env.PODIUM_UPDATE_CHANNEL = prior
     }
+  })
+})
+
+/**
+ * ONE provenance surface (PDM-26). The web reads this once and every settings
+ * control asks it the same question, instead of a per-key `envForced` boolean
+ * growing next to each accessor it can drift from.
+ */
+describe('instance provenance', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it('names a layer for every layered key', () => {
+    const provenance = new InstanceService({}).provenance()
+    for (const key of LAYERED_KEYS) {
+      expect(provenance[key]).toBeDefined()
+      expect(['env', 'file', 'default']).toContain(provenance[key].source)
+    }
+  })
+
+  it('reports env AND the variable to unset when one is set', () => {
+    vi.stubEnv('PODIUM_UPDATE_CHANNEL', 'edge')
+    vi.stubEnv('PODIUM_MODE', 'server')
+    const provenance = new InstanceService({}).provenance()
+    expect(provenance.updateChannel).toEqual({ source: 'env', env: 'PODIUM_UPDATE_CHANNEL' })
+    expect(provenance.mode).toEqual({ source: 'env', env: 'PODIUM_MODE' })
+  })
+
+  it('reports file when config.json answered, and never leaks the value', () => {
+    saveConfig({ ...loadConfig(), updateChannel: 'edge' })
+    const provenance = new InstanceService({}).provenance()
+    expect(provenance.updateChannel).toEqual({ source: 'file' })
+  })
+
+  it('channel() derives envForced from provenance and reports the update scope', () => {
+    vi.stubEnv('PODIUM_UPDATE_SCOPE', 'fleet-only')
+    expect(new InstanceService({}).channel()).toMatchObject({
+      envForced: false,
+      updateScope: 'fleet-only',
+      updateScopeSource: 'env',
+    })
+  })
+
+  it('refuses setup.connect and setup.join when the environment owns the mode', async () => {
+    vi.stubEnv('PODIUM_MODE', 'server')
+    const service = new InstanceService({ callerUserId: FIRST_ADMIN_USER_ID })
+    // Both refuse BEFORE the remote is asked anything (PDM-34 made them async): a
+    // deployment whose mode the environment owns must not even be probed.
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+    await expect(service.connect({ mode: 'all-in-one' })).rejects.toThrow(/PODIUM_MODE/)
+    await expect(service.join('anything')).rejects.toThrow(/PODIUM_MODE/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
+  it('refuses setup.complete when the environment owns the public URL', async () => {
+    vi.stubEnv('PODIUM_PUBLIC_URL', 'https://api.example')
+    const service = new InstanceService({ callerUserId: FIRST_ADMIN_USER_ID })
+    await expect(
+      service.complete({ publicUrl: 'https://other.example', acknowledgeNoPassword: true }),
+    ).rejects.toThrow(/PODIUM_PUBLIC_URL/)
   })
 })

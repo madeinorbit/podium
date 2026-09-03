@@ -44,6 +44,13 @@ export {
   approvalsDenyInput,
 } from './approvals/contracts'
 export {
+  INTERACTION_CONTRACT_NAMES,
+  INTERACTION_CONTRACTS,
+  type InteractionContractName,
+  interactionsAnswerContract,
+  interactionsAnswerInput,
+} from './interactions/contracts'
+export {
   AUTOMATION_CONTRACT_NAMES,
   AUTOMATION_CONTRACTS,
   AUTOMATION_QUERY_NAMES,

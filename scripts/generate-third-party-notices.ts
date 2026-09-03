@@ -143,7 +143,11 @@ function lockKeyFor(
   return undefined
 }
 
-/** Locate the installed package dir: bun isolated store first, then hoisted node_modules. */
+/**
+ * Locate the installed package dir in Bun's isolated store (`node_modules/.bun`),
+ * which is the only layout this repo installs — `bunfig.toml` sets
+ * `linker = "isolated"` with `hoist = false`.
+ */
 function findInstallDir(name: string, version: string): string | undefined {
   const storeName = name.replace('/', '+')
   const store = join(ROOT, 'node_modules', '.bun')
@@ -162,8 +166,13 @@ function findInstallDir(name: string, version: string): string | undefined {
       /* ignore */
     }
   }
-  const hoisted = join(ROOT, 'node_modules', name)
-  if (existsSync(join(hoisted, 'package.json'))) return hoisted
+  // Last-resort lookup at the top-level node_modules. This is NOT a second live
+  // topology: under `hoist = false` there is no hoisted tree, and the store branch
+  // above was measured (POD-3202) to resolve every package in the graph — this line
+  // fired zero times. Kept only so the script still reports a real license instead of
+  // UNKNOWN if it is ever run against an unconverted or partially-installed checkout.
+  const topLevel = join(ROOT, 'node_modules', name)
+  if (existsSync(join(topLevel, 'package.json'))) return topLevel
   return undefined
 }
 

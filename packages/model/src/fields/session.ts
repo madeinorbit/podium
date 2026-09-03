@@ -291,6 +291,38 @@ export const SessionLaunchConfig = z.object({
 export type SessionLaunchConfig = z.infer<typeof SessionLaunchConfig>
 
 /**
+ * WHAT THE SESSION WAS LAST *ASKED* FOR AT RUNTIME (POD-3081) — durable, and a
+ * group of its own because it is neither of the two things it sits between.
+ *
+ * NOT {@link SessionLaunchConfig}. That group is the record of how this session
+ * STARTED and is immutable for the row's life; a sticky `sessions.configure`
+ * must not overwrite it, or the answer to "what was this launched as" is lost
+ * the first time anyone changes their mind.
+ *
+ * NOT {@link SessionLiveOverlay}, which is where these two fields first landed
+ * and where they did not belong. That group's membership rule is precise —
+ * published on the wire with **no storage column in any migration** — and these
+ * have one. The distinction is not bookkeeping: the overlay's other members are
+ * all RE-LEARNABLE (`observedModel` from the transcript tail, `agentColor` from
+ * `/color`, `busy` from the PTY), which is what makes a column redundant for
+ * them. Nothing re-learns a REQUEST. No harness stamps "the operator asked for
+ * this" anywhere a reader could find it, so left transient it survived exactly
+ * as long as the server process — and the session came back reporting the model
+ * it was LAUNCHED with while its driver, whose own journal did survive, went on
+ * answering as the one it was configured to.
+ *
+ * The three pairs read as a sequence: launched as X, asked for Y, answering as
+ * Z. Absent here means nobody has changed anything and the launch pair is the
+ * requested one — which is different from "configured back to the launch value"
+ * and must stay different, so it is never backfilled from `model`.
+ */
+export const SessionRuntimeConfig = z.object({
+  requestedModel: z.string().optional(),
+  requestedEffort: z.string().optional(),
+})
+export type SessionRuntimeConfig = z.infer<typeof SessionRuntimeConfig>
+
+/**
  * WHAT THE SESSION IS CALLED, and WHO named it (D-1 retires `label` and
  * `durableLabel`-as-a-name).
  *
@@ -350,7 +382,7 @@ export const SessionLifecycle = z.object({
   /** Daemon diagnosis for `exitCode === -1` (spawn never started). */
   spawnFailure: z.string().optional(),
   stoppedAt: z.string().optional(),
-  stopReason: z.enum(['self', 'parent', 'forced', 'exited']).optional(),
+  stopReason: z.enum(['self', 'parent', 'forced', 'exited', 'oom']).optional(),
   /** A SHARED session fact, `exp-rev` — ADR 1 Amendment 1 D10, recorded again at
    *  inventory §7.2 Q1 and NOT reopened: `archived` sits beside `deletedAt` and
    *  means "this session is retired", which is identical for every viewer. A

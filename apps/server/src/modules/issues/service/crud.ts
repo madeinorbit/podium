@@ -29,7 +29,7 @@ import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { findSessionById } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
 import { IssueNotFound } from './not-found'
-import type { CreateIssueInput, IssuePanelOp, IssuePatch } from './types'
+import type { CreateIssueInput, IssueDeps, IssuePanelOp, IssuePatch } from './types'
 import { UNSNOOZE_BACKDATE_MS } from './types'
 import { sameWorktreePath } from './worktree-safety'
 
@@ -54,6 +54,30 @@ function isOrganizationalOnlyPatch(patch: IssuePatch): boolean {
  * that URL so the caller is never left without a way through.
  */
 export const ARTIFACT_READ_CAP_BYTES = 16 * 1024 * 1024
+
+/** Terminal proof may leave the issue worktree, but only as a declared visual
+ * capture. Raw scrollback is text and must stay out of this escape hatch. */
+const TERMINAL_EVIDENCE_IMAGE_EXTENSIONS = new Set([
+  'png',
+  'jpg',
+  'jpeg',
+  'gif',
+  'webp',
+  'avif',
+  'bmp',
+  'ico',
+])
+
+const terminalEvidenceHelp = (seq: number): string =>
+  `For a terminal screenshot, run from the issue session checkout with ` +
+  `\`podium issue artifact ${seq} --add <relative-image> --terminal-evidence\`; ` +
+  `only raster images are accepted. Redact terminal text/scrollback into the owning ` +
+  `issue worktree and attach it normally.`
+
+function isTerminalEvidenceImage(path: string): boolean {
+  const extension = path.split('.').pop()?.toLowerCase() ?? ''
+  return TERMINAL_EVIDENCE_IMAGE_EXTENSIONS.has(extension)
+}
 
 /** The server-local route that serves the same snapshot as a stream — the path
  *  `file-artifact-route.ts` registers. Relative, because the caller knows which
@@ -147,6 +171,7 @@ export class IssueCrudModule {
     private readonly hierarchy: () => IssueCrudHierarchyPort,
     private readonly attention: () => IssueCrudAttentionPort,
     private readonly gitWorkflow: () => IssueCrudGitWorkflowPort,
+    private readonly onIssueClosed?: IssueDeps['onIssueClosed'],
   ) {}
 
   shippingCommit<T>(
@@ -344,6 +369,7 @@ export class IssueCrudModule {
           ...(op.entry ? { entry: op.entry } : {}),
           ...(op.files ? { files: op.files } : {}),
           ...(op.sourcePaths ? { sourcePaths: op.sourcePaths } : {}),
+          ...(op.sourceKind ? { sourceKind: op.sourceKind } : {}),
         }
         const existing = panel.artifacts.findIndex((a) => a.path === op.path)
         if (existing >= 0) panel.artifacts[existing] = next
@@ -379,32 +405,89 @@ export class IssueCrudModule {
    */
   async panelArtifactAdd(
     id: string,
-    input: { path: string; title?: string; extraPaths?: string[] },
+    input: {
+      path: string
+      title?: string
+      extraPaths?: string[]
+      terminalEvidence?: boolean
+      sourceRoot?: string
+    },
     opts?: { actorSessionId?: SessionId },
   ): Promise<IssueWire> {
     const row = this.store.rowOrThrow(this.store.resolveRef(id))
     const store = this.store.deps.artifacts
-    // Evidence belongs to the ISSUE worktree, never whichever checkout happened
-    // to invoke the command. The old session-cwd fallback let a parent review
-    // silently point into a child's checkout (or a scratch directory).
-    const root = row.worktreePath
+    const terminalEvidence = input.terminalEvidence === true
+    const session = opts?.actorSessionId
+      ? findSessionById(this.store.deps, opts.actorSessionId)
+      : undefined
+
+    if (input.sourceRoot && !terminalEvidence) {
+      throw new Error(
+        `sourceRoot is only valid with --terminal-evidence. ${terminalEvidenceHelp(row.seq)}`,
+      )
+    }
+    if (terminalEvidence) {
+      if (!store) {
+        throw new Error(
+          `terminal evidence needs the permanent artifact store. ${terminalEvidenceHelp(row.seq)}`,
+        )
+      }
+      if (!session || session.issueId !== row.id) {
+        throw new Error(
+          `terminal evidence may only be captured by a session belonging to issue ${row.seq}. ` +
+            terminalEvidenceHelp(row.seq),
+        )
+      }
+      if (!input.sourceRoot || !isAbsolute(input.sourceRoot)) {
+        throw new Error(
+          `terminal evidence needs the checkout where the command is running; ` +
+            `rerun from that checkout with --terminal-evidence. ${terminalEvidenceHelp(row.seq)}`,
+        )
+      }
+      if (row.machineId && session.machineId && row.machineId !== session.machineId) {
+        throw new Error(
+          `terminal evidence must come from the same machine as the issue session. ` +
+            terminalEvidenceHelp(row.seq),
+        )
+      }
+    }
+
+    // Ordinary evidence belongs to the ISSUE worktree, never whichever checkout
+    // happened to invoke the command. The explicit terminal-evidence path is the
+    // narrow exception: it is bound to the calling session and its current root.
+    const root = terminalEvidence ? input.sourceRoot : row.worktreePath
     if (!root) {
       throw new Error(
-        `issue ${row.seq} has no owning worktree; start or restore its worktree before adding review artifacts`,
+        `issue ${row.seq} has no owning worktree; start or restore it before adding review artifacts. ` +
+          terminalEvidenceHelp(row.seq),
       )
     }
     const normalizeSource = (sourcePath: string): string => {
+      if (terminalEvidence && isAbsolute(sourcePath)) {
+        throw new Error(
+          `terminal evidence path '${sourcePath}' must be relative to the checkout where ` +
+            `the command runs. ${terminalEvidenceHelp(row.seq)}`,
+        )
+      }
       const target = resolve(root, sourcePath)
       const rel = relative(resolve(root), target)
       if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
         throw new Error(
-          `artifact path '${sourcePath}' is outside the owning issue worktree ${root}`,
+          terminalEvidence
+            ? `terminal evidence path '${sourcePath}' is outside the command checkout ${root}. ${terminalEvidenceHelp(row.seq)}`
+            : `artifact path '${sourcePath}' is outside the owning issue worktree ${root}. ${terminalEvidenceHelp(row.seq)}`,
         )
       }
       return rel.split(sep).join('/')
     }
     const sourcePath = normalizeSource(input.path)
     const extraPaths = input.extraPaths?.map(normalizeSource)
+    if (terminalEvidence && ![sourcePath, ...(extraPaths ?? [])].every(isTerminalEvidenceImage)) {
+      throw new Error(
+        `terminal evidence accepts raster image files only; raw terminal text and scrollback ` +
+          `are refused. ${terminalEvidenceHelp(row.seq)}`,
+      )
+    }
     // Re-add keeps the existing title unless a new one is given.
     const existing = this.store.parsePanel(row).artifacts.find((a) => a.path === sourcePath)
     const effectiveTitle = input.title ?? existing?.title
@@ -415,13 +498,12 @@ export class IssueCrudModule {
         path: sourcePath,
         ...title,
         sourcePaths: [sourcePath, ...(extraPaths ?? [])],
+        ...(terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
       })
     }
     // Owning machine is the issue's machine; the invoking session is only a
-    // fallback for old rows that predate a machine pin.
-    const session = opts?.actorSessionId
-      ? findSessionById(this.store.deps, opts.actorSessionId)
-      : undefined
+    // fallback for old rows that predate a machine pin. Terminal evidence has
+    // already proved that the two refer to the same issue/session boundary.
     const machineId = row.machineId ?? session?.machineId ?? undefined
     const snap = await store.snapshot({
       issueId: row.id,
@@ -430,6 +512,13 @@ export class IssueCrudModule {
       sourcePath,
       ...(extraPaths?.length ? { extraPaths } : {}),
     })
+    if (terminalEvidence && !snap.files.every((file) => isTerminalEvidenceImage(file.path))) {
+      await store.remove(row.id, snap.artifactId).catch(() => {})
+      throw new Error(
+        `terminal evidence accepts raster image files only; raw terminal text and scrollback ` +
+          `are refused. ${terminalEvidenceHelp(row.seq)}`,
+      )
+    }
     const sourcePaths = [...new Set(snap.sourcePaths ?? [sourcePath, ...(extraPaths ?? [])])]
     const oldId = existing?.artifactId
     const wire = this.panelApply(row.id, {
@@ -440,6 +529,7 @@ export class IssueCrudModule {
       entry: snap.entry,
       files: snap.files,
       sourcePaths,
+      ...(terminalEvidence ? { sourceKind: 'terminal-evidence' as const } : {}),
     })
     if (oldId) void store.remove(row.id, oldId).catch(() => {})
     return wire
@@ -891,6 +981,14 @@ export class IssueCrudModule {
     // clients, so a create still fans out the full list once (#22).
     this.store.broadcastList()
     this.store.emitEvent('issue.created', row.id, { seq: row.seq, title: row.title })
+    // Best-effort, isolated: an observer must never fail a create.
+    try {
+      this.store.deps.onIssueCreated?.({
+        issueId: row.id,
+        title: row.title,
+        ownerUserId: row.ownerUserId,
+      })
+    } catch {}
     if (input.parentId) wire = this.hierarchy().reparent(row.id, input.parentId)
     if (input.labels?.length) wire = this.setLabels(row.id, input.labels)
     return wire
@@ -1093,6 +1191,10 @@ export class IssueCrudModule {
       // delegate's "Merge / Send back" cannot demand a decision forever after
       // the coordinator finished through another session (POD-290).
       this.attention().retireIssueOffers(row)
+      this.onIssueClosed?.({
+        issueId: row.id,
+      })
+
       this.emitReadyAfterClose(row, opts?.actorSessionId)
       this.archiveClosedSubtree(row.id)
     }
@@ -1124,21 +1226,24 @@ export class IssueCrudModule {
   /** Review is the first point at which evidence is presented as durable truth.
    *  The bytes themselves are already safe — `panelArtifactAdd` snapshots them
    *  into the permanent store ([spec:SP-0fc9]), so evidence never has to be
-   *  committed to the repo to survive. What review still requires is that each
-   *  artifact PATH resolves inside the owning worktree, so the sidebar entry
-   *  names a file on this issue rather than in some other checkout. Git tracking
-   *  is deliberately NOT a gate (POD-1284): demanding it made agents commit
-   *  screenshots and scratch docs the repo was never meant to carry. */
+   *  committed to the repo to survive. Ordinary artifacts must still resolve
+   *  inside the owning worktree. Explicit terminal-evidence snapshots have
+   *  already passed the same-issue session + raster-image checks at add time, so
+   *  their source checkout may disappear before review. Git tracking is
+   *  deliberately NOT a gate (POD-1284). */
   private assertReviewArtifactOwnership(row: IssueRow): void {
     const artifacts = this.store.parsePanel(row).artifacts
     if (artifacts.length === 0) return
-    if (!row.worktreePath) {
+    const ordinary = artifacts.filter((artifact) => artifact.sourceKind !== 'terminal-evidence')
+    if (!row.worktreePath && ordinary.length > 0) {
       throw new Error(
         `review blocked: issue ${row.seq} has artifacts but no owning worktree; restore the issue worktree and re-add the evidence`,
       )
     }
+    if (!row.worktreePath) return
     const root = resolve(row.worktreePath)
     for (const artifact of artifacts) {
+      if (artifact.sourceKind === 'terminal-evidence') continue
       const rel = relative(root, resolve(root, artifact.path))
       if (!rel || isAbsolute(rel) || rel === '..' || rel.startsWith(`..${sep}`)) {
         throw new Error(

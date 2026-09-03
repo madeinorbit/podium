@@ -8,6 +8,13 @@
  * The QR carries the PUBLIC origin when the instance has one configured, never
  * `location.origin`: the packaged desktop page origin is not the server, and
  * the phone must match the exact saved server before opening the session.
+ *
+ * SPLIT HOSTING (PDM-34): where the UI is a separate origin, the public URL is
+ * the API and has no `/mobile` page of its own — it only redirects to one. The
+ * QR reads `appUrl` and points the phone at the app host in ONE hop. The
+ * redirect stays as the fallback for clients too old to know about `appUrl`;
+ * this is about not spending a round trip, and not showing a person an address
+ * that is not where they end up.
  */
 
 import { focusedPaneSession } from '@podium/client-core/engine'
@@ -70,7 +77,8 @@ export function mobileHandoffUrl(
 
 /**
  * The URL a phone should open. It appears only after setup.info supplies the
- * canonical public origin, or confirms that this client's server origin is the
+ * canonical destination — the app host if the deployment has one, else the
+ * configured public URL — or confirms that this client's server origin is the
  * fallback. A session change invalidates the old code before the next query.
  */
 export function useMobileHandoffUrl(
@@ -103,8 +111,13 @@ export function useMobileHandoffUrl(
         if (cancelled) return
         const instanceId = version.instanceId
         if (typeof instanceId !== 'string' || !INSTANCE_ID_PATTERN.test(instanceId)) return
-        const destinationOrigin =
-          typeof info.publicUrl === 'string' && info.publicUrl !== '' ? info.publicUrl : httpOrigin
+        // `appUrl` first: under split hosting it is the host that actually
+        // SERVES the page, and the public URL would only bounce the phone here
+        // anyway (PDM-34).
+        const configured =
+          (typeof info.appUrl === 'string' && info.appUrl !== '' ? info.appUrl : '') ||
+          (typeof info.publicUrl === 'string' && info.publicUrl !== '' ? info.publicUrl : '')
+        const destinationOrigin = configured !== '' ? configured : httpOrigin
         const url = mobileHandoffUrl(destinationOrigin, instanceId, sessionId)
         if (!url) return
         setPublished({ trpc, httpOrigin, sessionId, url })

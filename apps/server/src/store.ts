@@ -45,6 +45,7 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
+import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
@@ -61,6 +62,7 @@ import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { GrantsRepository } from './store/grants'
+import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
@@ -154,6 +156,8 @@ export class SessionStore {
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
   readonly readWatermarks: ReadWatermarksRepository
   readonly approvals: ApprovalsRepository
+  /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
+  readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
@@ -184,6 +188,15 @@ export class SessionStore {
    */
   readonly hostMachineId: MachineId
 
+  /**
+   * Whether this boot has a full-text search index — the resolved
+   * `command-palette` flag (PDM-25). Readers that must NOT offer a search the
+   * index cannot back (the superagent's `search_conversations`/`search_all`)
+   * ask this rather than re-resolving the flag, so they can never disagree with
+   * what the constructor actually built.
+   */
+  readonly searchIndexEnabled: boolean
+
   constructor(
     private readonly path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
@@ -203,7 +216,7 @@ export class SessionStore {
     this.db = openStoreDatabase(path)
     this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
-    // node:sqlite enables foreign keys on a fresh connection. Migrations use
+    // The driver enables foreign keys on a fresh connection. Migrations use
     // SQLite's table-rebuild pattern (create/copy/drop/rename), where dropping a
     // parent with enforcement on would cascade-delete child rows. The chain owns
     // this window; enforcement is restored immediately after it succeeds.
@@ -239,6 +252,7 @@ export class SessionStore {
       this.hostMachineId,
     )
     this.approvals = new ApprovalsRepository(this.db)
+    this.interactions = new InteractionsRepository(this.db)
     this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
     this.sync = new SyncRepository(this.db)
     this.auth = new AuthRepository(this.db)
@@ -279,7 +293,13 @@ export class SessionStore {
     // "no reader ever sees a legacy machine id" true by construction instead of by
     // call-order discipline.
     this.migrateLegacyMachineIdentity(this.hostMachineId)
-    this.conversations.ensureFts()
+    // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
+    // also decides whether this boot carries a full-text index at all. Read ONCE,
+    // here — flipping the toggle takes effect at the next boot, so nothing has to
+    // rebuild an index underneath a running process. `settings` is constructed
+    // above, so a config-forced value is honoured on the very first boot.
+    this.searchIndexEnabled = isFeatureEnabled('command-palette', this.settings.getSettings())
+    this.conversations.ensureFts(this.searchIndexEnabled)
     this.superagent.seedGlobalThread()
     // The legacy repos.json import is the ONE writer left that can still hand the
     // repo-identity upgrade work — its rows land with a NULL repo_id and no prefix —

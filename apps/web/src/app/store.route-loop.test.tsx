@@ -65,7 +65,7 @@ const realRepo = {
 
 const fakeTrpc = {
   discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [] })) },
+    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [realRepo], diagnostics: [], machines: [] })) },
   },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },
@@ -193,6 +193,7 @@ describe('workspace deep link with unknown wt/pane', () => {
     fakeTrpc.discovery.refreshRepos.mutate.mockImplementationOnce(async () => ({
       repositories: [],
       diagnostics: [],
+      machines: [],
     }))
     await mountAt('/workspace?wt=%2Fhome%2Fnobody%2Fgone&pane=dead-beef')
     expect(renderCount).toBeLessThan(60)

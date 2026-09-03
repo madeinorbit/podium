@@ -55,6 +55,8 @@ import {
   ResumeRef,
   SessionIdField,
 } from '@podium/model'
+import { RuntimeContractRequest } from '@podium/protocol'
+import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
 import type { CommandDef } from '../framework'
 import { defineCommands } from '../framework'
@@ -73,12 +75,19 @@ const targetInput = z.object({ sessionId: SessionIdField })
 /** Stop may also name the exact queued chat message that prompted it. */
 const interruptInput = targetInput.extend({ messageId: z.string().max(128).optional() })
 
-/** Both chat sends take exactly this — same bounds the router shipped. */
-const sendInput = z.object({
-  sessionId: SessionIdField,
-  text: z.string().min(1).max(32_768),
-  mutationId,
-})
+/** Both chat sends take this shape. A staged attachment may be the whole turn,
+ * so emptiness is checked across text + refs rather than on text alone. */
+const sendInput = z
+  .object({
+    sessionId: SessionIdField,
+    text: z.string().max(32_768),
+    attachments: z.array(RuntimeAttachmentRef).min(1).max(20).optional(),
+    mutationId,
+  })
+  .superRefine((input, ctx) => {
+    if (input.text.length > 0 || input.attachments?.length) return
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'text or an attachment is required' })
+  })
 
 /**
  * The harness a session runs, and the durable conversation pointer — THE MODEL'S
@@ -188,6 +197,25 @@ const createInput = z.object({
   /** User-provided files for a newly-created draft issue. The create handler
    *  snapshots these before the agent starts, so its prime sees the artifacts. */
   draftArtifacts: z.array(draftIssueArtifactInput).optional(),
+  /**
+   * THE PER-SPAWN AGENT-RUNTIME OVERRIDE (POD-1761 W5; spec §9 phase 3).
+   *
+   * `true` drives this session through the contract with whatever the harness
+   * manifest's `select()` policy picks; a DRIVER ID names one explicitly, which
+   * is how a single opencode session runs on `opencode-server` while every other
+   * session on the same daemon stays terminal. Absent is the default and changes
+   * nothing.
+   *
+   * ADDED BECAUSE ITS ABSENCE MADE THE WHOLE FEATURE UNREACHABLE (POD-2113,
+   * found by POD-2086 driving a real instance). Every layer below this was
+   * written and tested — the daemon resolves it, refuses an unknown id by name,
+   * degrades an unavailable one — and zod stripped the field here, so none of it
+   * ever ran. The tell was that spawning with a deliberately bogus driver id
+   * returned 200 and started a healthy PTY session, when the registry is
+   * documented to refuse exactly that. A schema is a boundary in both
+   * directions: what it does not name, it deletes.
+   */
+  runtimeContract: RuntimeContractRequest.optional(),
   mutationId,
 })
 
@@ -206,6 +234,23 @@ const create: CommandDef = {
   decision: `${PLACEMENT_DECISION} Ownership on create is resolved from the principal, not the transport: an agent-created session is owned by its onBehalfOf HUMAN with the agent as actor (A4), and one spawned under an issue inherits THAT issue's owner and grants — otherwise sharing an issue does not share its work and retiring an agent orphans what it made. The draftIssue vessel resolves the same owner, so the low-friction start path produces an OWNED draft. No relay exposure: agents spawn through messages.spawnAgent, which carries its own budget and parent-scope rules.`,
 }
 
+/**
+ * NO `runtimeContract` HERE, AND THAT IS THE POINT (POD-2113).
+ *
+ * Adding it would have been one line and would have reproduced the very bug
+ * this issue is about, one layer deeper. `resumeSession` has no such parameter
+ * — not on the revival service, not on the frame it sends — so the field would
+ * pass the schema, be spread into a call that ignores it, and produce the same
+ * healthy-session-that-obeyed-nothing an operator cannot tell from success.
+ *
+ * The semantics are also not the create ones. A resume USUALLY lands on an
+ * existing row, which it reuses or resurrects; that session's driver was chosen
+ * at its spawn and a reattach cannot re-choose it. Only the fresh-spawn fallback
+ * could honour a driver id, and a field honoured on one of three outcomes is a
+ * worse contract than a field that is not offered. Wiring resume means deciding
+ * what an override MEANS for a session that already has a driver, which is a
+ * design question and not a schema key.
+ */
 const resumeInput = z.object({
   agentKind,
   cwd: z.string(),
@@ -274,7 +319,7 @@ const interrupt: CommandDef = {
   redaction: { fields: [] },
   conflict: 'cmd',
   decision:
-    "Sends the native CLI interrupt key to a running session without acquiring terminal keyboard control. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. WHICH key is the harness manifest's answer, not a constant (POD-1214): the current Codex, Claude Code and Grok manifests use Esc, and each manifest separately records whether its key is safe while idle. An optional messageId retracts the exact queued chat send associated with this stop.",
+    "Stops the running turn without injecting a replacement prompt. This is an explicit operator act from transcript chat, matching sendText's controller-independent path; it is never queued because an interrupt applied after the active turn ended would target the wrong work. TWO DELIVERIES, because there are two kinds of session (POD-2792). A terminal-family session is sent the native CLI interrupt key, and WHICH key is the harness manifest's answer rather than a constant (POD-1214): the current Codex, Claude Code and Grok manifests use Esc, and each manifest separately records whether its key exits the CLI when no turn is running — a harness whose key does is REFUSED with a reason rather than sent the key, so a stop can never be the thing that kills the session. A server-family session has no terminal to type into — the daemon discards `input` bytes for a session with no bridge — so its stop goes through the runtime contract to the driver's own `interrupt()`, and the driver's refusal comes back as the reason. An optional messageId retracts the exact queued chat send associated with this stop. WHAT `ok` MEANS EITHER WAY: the interrupt was REQUESTED, and `requested` names which delivery carried it. It never means the turn stopped — the fence is a provider-confirmed terminal turn event that arrives later on the causal stream, and reporting acceptance as a stop is the defect this wording exists to prevent.",
 }
 
 const sendText: CommandDef = {
@@ -427,6 +472,38 @@ const continueSession: CommandDef = {
  * visible as a residue the session-surface audit counts and names, rather than as
  * an exposure this contract silently claims to cover.
  */
+/**
+ * CHANGE A RUNNING SESSION'S MODEL OR EFFORT (POD-3081).
+ *
+ * A PATCH, and both fields are optional for that reason: changing the effort
+ * must not restate — and thereby reset — a model the caller was not asked about.
+ * At least one is required, and the refinement says so here rather than letting
+ * an empty request travel two hops to be refused by a driver: this is the layer
+ * that knows the request is malformed without knowing anything about harnesses.
+ */
+const configureInput = z
+  .object({
+    sessionId: SessionIdField,
+    model: z.string().min(1).max(200).optional(),
+    effort: z.string().min(1).max(64).optional(),
+  })
+  .refine((value) => value.model !== undefined || value.effort !== undefined, {
+    message: 'name a model or an effort to change',
+  })
+
+const configure: CommandDef = {
+  input: configureInput,
+  action: 'write',
+  policy: executes,
+  visibility: PERSONAL,
+  exposure: OPERATOR,
+  offline: 'online-only',
+  redaction: { fields: [], note: 'a model name and an effort tier are not secrets' },
+  conflict: 'cmd',
+  decision:
+    "Sticky model/effort on a session that is ALREADY RUNNING, routed through the runtime contract to the driver's own configure() (POD-3081). It is DIRECT-ONLY and never queued, like interrupt and for a sharper version of the same reason: a setting change applied later would land on a different turn than the operator was looking at when they chose it. WHAT `ok` MEANS: the DRIVER accepted the change and said WHEN it takes effect — `next-turn` for the three headless drivers, which carry the session's policy on every request they construct, and `immediate` where a harness has a real RPC. It never means the session is answering as the new model already, and the reply carries `effective` so a caller can say which of the two it has instead of guessing. A REFUSAL IS AN OUTCOME, not an error, and the typed reason is the whole point: `unsupported` is a terminal session whose model is an argv fact and whose caller should stop offering the control, while `invalid_value` is a real control given a value this harness cannot take and whose caller should offer another one. `permissionMode` is deliberately NOT in this input even though the contract's ConfigureRequest carries it: a permission mode is sourced from the session's authorization, and letting a settings command rewrite it would put an escalation behind a picker. OPERATOR exposure only — an agent changing its own model mid-run is a different decision with a different authorization story, and is not this contract's to grant.",
+}
+
 const stopInput = z.object({ sessionId: SessionIdField, force: z.boolean().optional() })
 
 const stop: CommandDef = {
@@ -519,6 +596,7 @@ const uploadImage: CommandDef = {
 /** `sessions.*` — the command plane (POD-381). Presence is POD-380's table. */
 export const sessionCommandPlane = defineCommands('sessions', {
   answerAskUserQuestion,
+  configure,
   continue: continueSession,
   create,
   hibernate,
@@ -557,6 +635,7 @@ export function commandPlaneContract(key: string): CommandDef | undefined {
  */
 export const sessionCommandPlaneInputs = {
   answerAskUserQuestion: answerInput,
+  configure: configureInput,
   continue: targetInput,
   create: createInput,
   hibernate: targetInput,

@@ -23,14 +23,23 @@ import type { ServerReadiness, UserId } from '@podium/model'
 import { hashPassword, verifyPasswordHash } from '@podium/runtime/auth-store'
 import {
   type FleetUpdateChannel,
+  LAYERED_ENV,
+  LAYERED_KEYS,
+  type LayeredKey,
   loadConfig,
+  resolvePublicUrl,
+  resolveSetting,
+  resolveTranscriptLakeSetting,
   resolveUpdateChannel,
+  type SettingSource,
   saveConfig,
 } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
   applySetup,
+  fetchRemoteAppUrl,
+  fetchTargetAppUrl,
   getUpdateChannel,
   NETWORK_OPTIONS,
   networkOptionCommand,
@@ -92,6 +101,14 @@ export interface InstanceDeps {
    * than pretending it restarted.
    */
   readonly requestCoordinatorRestart?: (() => void) | undefined
+  /**
+   * The stored "mirror transcripts to this server" toggle (PDM-26), or
+   * `undefined` when nobody has set it. It is the BOTTOM layer under
+   * `PODIUM_TRANSCRIPT_LAKE` and `config.transcriptLake`, so `info()` can report
+   * the effective value together with the layer that decided it. Read through a
+   * function because a Settings write must be followed without a restart.
+   */
+  readonly transcriptMirrorSetting?: (() => boolean | undefined) | undefined
 }
 
 /** The slice of `UsersRepository` the auth commands need. */
@@ -127,12 +144,36 @@ export class InstanceService {
 
   // ---- setup ----
 
-  /** Current deployment identity, for Settings → Network. */
+  /**
+   * Current deployment identity, for Settings → Network.
+   *
+   * Every layered value is reported with the LAYER that answered (PDM-26), so a
+   * control can render disabled and say which variable is holding it rather than
+   * offering a write the environment overrides.
+   */
   info() {
     const c = loadConfig()
+    const mode = resolveSetting('mode', c)
+    const publicUrl = resolveSetting('publicUrl', c)
+    const appUrl = resolveSetting('appUrl', c)
+    const allowedOrigins = resolveSetting('allowedOrigins', c)
+    const transcriptLake = resolveTranscriptLakeSetting(this.deps.transcriptMirrorSetting?.(), c)
     return {
-      mode: c.mode ?? null,
-      publicUrl: c.publicUrl ?? null,
+      mode: mode.value ?? null,
+      modeSource: mode.source,
+      publicUrl: publicUrl.value ?? null,
+      publicUrlSource: publicUrl.source,
+      /**
+       * Where the web UI is served from, when it is not this server (PDM-26).
+       * `null` is the ordinary self-hosted answer and means "here"; the desktop
+       * shell reads this to know where to navigate.
+       */
+      appUrl: appUrl.value ?? null,
+      appUrlSource: appUrl.source,
+      allowedOrigins: allowedOrigins.value,
+      allowedOriginsSource: allowedOrigins.source,
+      transcriptLake: transcriptLake.value,
+      transcriptLakeSource: transcriptLake.source,
       networkOption: c.networkOption ?? null,
       serverUrl: c.serverUrl ?? null,
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
@@ -164,13 +205,64 @@ export class InstanceService {
   channel() {
     const config = loadConfig()
     const channel = resolveUpdateChannel()
-    const envForced = Boolean(process.env.PODIUM_UPDATE_CHANNEL)
+    const scope = resolveSetting('updateScope', config)
     return {
       channel,
-      envForced,
+      // DERIVED from provenance rather than a second `process.env` read, so the
+      // rule that decides the channel and the flag that describes it cannot
+      // drift apart. The field, its name and the UI it drives are unchanged.
+      envForced: resolveSetting('updateChannel', config).source === 'env',
       configured: getUpdateChannel(),
-      desktopUpdateEndpoint: desktopUpdaterEndpoint(channel, config.publicUrl),
+      /**
+       * WHO REPLACES THIS SERVER'S BINARY (PDM-26). Under `fleet-only` the
+       * Updates section hides the server-update affordance instead of offering
+       * a button whose step nothing will ever take.
+       */
+      updateScope: scope.value,
+      updateScopeSource: scope.source,
+      desktopUpdateEndpoint: desktopUpdaterEndpoint(channel, resolvePublicUrl(config)),
     }
+  }
+
+  /**
+   * WHICH LAYER ANSWERED, for every key that has an env layer.
+   *
+   * ONE query rather than a per-key `envForced` boolean bolted onto whichever
+   * read happened to need it first. The web reads this once and every settings
+   * control asks it the same question, so a control cannot offer a write the
+   * environment overrides — which is the exact failure `envForced` was added
+   * for on one key, and would have been re-added for on five more.
+   *
+   * NAMES, NEVER VALUES: it reports the variable a key reads and which layer
+   * won, not what any of them contain.
+   */
+  provenance(): Record<LayeredKey, { source: SettingSource; env?: string }> {
+    const config = loadConfig()
+    const out = {} as Record<LayeredKey, { source: SettingSource; env?: string }>
+    for (const key of LAYERED_KEYS) {
+      const resolved = resolveSetting(key, config)
+      out[key] = resolved.env
+        ? { source: resolved.source, env: resolved.env }
+        : { source: resolved.source }
+    }
+    return out
+  }
+
+  /**
+   * Refuse a mutation the environment owns.
+   *
+   * Refusing beats writing a value the environment overrides: a silent no-op
+   * reads as success in the UI and leaves the deployment somewhere else. One
+   * shape, one sentence, and it always names the variable to unset.
+   */
+  private assertNotForced(key: LayeredKey, thing: string, remedy = `the ${thing}`): void {
+    if (resolveSetting(key).source !== 'env') return
+    throw new TRPCError({
+      code: 'PRECONDITION_FAILED',
+      message:
+        `${LAYERED_ENV[key]} is set in this deployment's environment and overrides the ` +
+        `configured ${thing}. Unset it to choose ${remedy} from Settings.`,
+    })
   }
 
   /**
@@ -192,7 +284,18 @@ export class InstanceService {
     password?: string | undefined
     acknowledgeNoPassword?: true | undefined
     telemetry?: { usage: 'on' | 'off'; crash: 'on' | 'off' } | undefined
+    /**
+     * Acknowledge that replacing an already-set public URL strands every joined
+     * machine (PDM-26). The first URL never needs it, and writing the same URL
+     * again is idempotent — so this is only ever collected when the operator is
+     * actually changing a live deployment's address.
+     */
+    confirmUrlChange?: boolean | undefined
   }) {
+    // The deployment owns these when it set them, and a refusal that names the
+    // variable beats a write that is overridden on the next read.
+    this.assertNotForced('publicUrl', 'public URL')
+    this.assertNotForced('mode', 'mode')
     const v = validatePublicUrl(input.publicUrl)
     if (!v.ok) throw new TRPCError({ code: 'BAD_REQUEST', message: v.error })
     // RAW, NOT TRIMMED (POD-1148). Nothing else in the product trims: `/auth/login` verifies
@@ -218,6 +321,7 @@ export class InstanceService {
       publicUrl: v.normalized,
       ...(input.networkOption ? { networkOption: input.networkOption } : {}),
       ...(input.mode ? { mode: input.mode } : {}),
+      ...(input.confirmUrlChange ? { confirmUrlChange: true } : {}),
     })
     // Honours the kill switches: an env that says "do not track" wins over an
     // answer the UI should not have collected.
@@ -231,34 +335,51 @@ export class InstanceService {
   }
 
   /** Daemon onboarding: one pasted join code becomes daemon config. The same core
-   *  `applyJoin` the CLI uses, so web and terminal flows stay identical. */
-  join(code: string) {
+   *  `applyJoin` the CLI uses, so web and terminal flows stay identical.
+   *
+   *  ASKS THE SERVER BEING JOINED WHERE ITS UI IS first (PDM-34). The token
+   *  carries the server URL and nothing else; on a split-hosted deployment the
+   *  UI is a second origin, and this is the moment the machine can be told —
+   *  the desktop shell that restarts next reads the answer out of config and
+   *  has no way to ask for itself. Never fails the join: an unreachable or
+   *  silent server yields `undefined`, which means "the UI is the server", the
+   *  behaviour every self-hosted install already has. */
+  async join(code: string) {
+    this.assertNotForced('mode', 'mode')
+    const token = code.trim()
+    const uiUrl = await fetchTargetAppUrl(token)
     try {
-      return applyJoin(code.trim())
+      return applyJoin(token, uiUrl)
     } catch (e) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
     }
   }
 
-  connect(input: { mode: 'all-in-one' | 'client' | 'server'; serverUrl?: string | undefined }) {
+  /** See {@link join} for why the remote is asked for its `appUrl` here. Only a
+   *  client points at a remote; the local modes have no server to ask, and
+   *  passing `undefined` for them is also what clears a `uiUrl` left behind by
+   *  a previous connection. */
+  async connect(input: {
+    mode: 'all-in-one' | 'client' | 'server'
+    serverUrl?: string | undefined
+  }) {
+    this.assertNotForced('mode', 'mode')
+    const uiUrl =
+      input.mode === 'client' && input.serverUrl
+        ? await fetchRemoteAppUrl(input.serverUrl)
+        : undefined
     try {
-      return applyMode(input)
+      return applyMode({ ...input, uiUrl })
     } catch (e) {
       throw new TRPCError({ code: 'BAD_REQUEST', message: (e as Error).message })
     }
   }
 
   async setChannel(channel: FleetUpdateChannel) {
-    if (process.env.PODIUM_UPDATE_CHANNEL) {
-      // Refusing beats writing a value the environment overrides: a silent
-      // no-op would read as success in the UI and leave the fleet elsewhere.
-      throw new TRPCError({
-        code: 'PRECONDITION_FAILED',
-        message:
-          "PODIUM_UPDATE_CHANNEL is set in this deployment's environment and overrides the " +
-          'configured channel. Unset it to choose the fleet default from Settings.',
-      })
-    }
+    // Refusing beats writing a value the environment overrides: a silent no-op
+    // would read as success in the UI and leave the fleet elsewhere. The
+    // sentence is unchanged; only the rule behind it moved (PDM-26).
+    this.assertNotForced('updateChannel', 'channel', 'the fleet default')
     setUpdateChannel(channel)
     // A machine with no pin of its own resolves against this value, so its
     // projected channel and target are stale the moment it changes. AWAIT the

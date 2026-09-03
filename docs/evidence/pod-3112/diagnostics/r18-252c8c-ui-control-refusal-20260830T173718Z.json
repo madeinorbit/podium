@@ -1,0 +1,19 @@
+{
+  "timestamp": "2026-08-30T17:37:18.013Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity-ui-control-refusal",
+  "pin": "252c8c48e78cc1ed35c10968f00e487753e5066e",
+  "instance": {"name":"p3112-a7b-252c8c-r2","stateRoot":"/home/mgw/.local/state/podium/p3112-a7b-252c8c-r2","cwd":"/tmp/pod-3112-a7b-252c8c-r2/probes/dummy-252c8c-r2","ports":[22871,49871,49872]},
+  "build": {"sourceSha":"252c8c4","bundleVersion":"bundle+BZTkVqZf","serverSha":"252c8c48e78cc1ed35c10968f00e487753e5066e","daemonSha":"252c8c48e78cc1ed35c10968f00e487753e5066e"},
+  "provider": {"binary":"/home/mgw/.opencode/bin/opencode","version":"1.18.25","sha256":"d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb","prompts":0},
+  "verdict": "REFUSED",
+  "control": "MISSING",
+  "reason": "The committed harness timed out waiting 30 seconds for the exact visible Settings button before it could enable the experimental driver, create a session, or contact OpenCode. A7a and A7b are unscored.",
+  "immutableSources": {
+    "r18ReadingSha256": "262395d0176ad1c8ed0ff0042c7837d0cca9626336af42ccf2bd24a448716855",
+    "serverLogSha256": "5dc5c319fc186648a82c8a05b8c2b4f88b24ad1b0fe8ebe6a051b41bed4c6a88",
+    "daemonLogSha256": "182097d170e3236140e4783cee87bc5f76b45ebd4dfb5339a0167a24ff14db8b"
+  },
+  "isolation": {"forbiddenOverridesAbsent":["PODIUM_STATE_DIR","ABDUCO_SOCKET_DIR","PODIUM_RUNTIME_DRIVER"],"defaultStateRootAbsentBeforeAndAfter":true,"operatorInstanceJsonSize":105,"operatorInstanceJsonMtimeBeforeAndAfter":"1787953232.7778832400","ports19797And32090Untouched":true,"ownedListenersRemoved":true,"ownedProcessesRemoved":true,"credentialSymlinkRemoved":true},
+  "notes": "Broader live operator metadata changed concurrently; the protected operator instance.json itself retained its exact size and mtime."
+}

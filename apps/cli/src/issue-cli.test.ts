@@ -15,6 +15,18 @@ describe('parseIssueArgs', () => {
     expect(args.outsideScope).toBe(true)
   })
 
+  it('parses --terminal-evidence as an acknowledgement flag', () => {
+    const { args, positionals } = parseIssueArgs([
+      'artifact',
+      '2602',
+      '--add',
+      'artifacts/live.png',
+      '--terminal-evidence',
+    ])
+    expect(positionals).toEqual(['2602'])
+    expect(args.terminalEvidence).toBe(true)
+  })
+
   it('parses ship with an optional positional id and outside-scope confirmation', () => {
     expect(parseIssueArgs(['ship'])).toMatchObject({ command: 'ship', positionals: [] })
     expect(parseIssueArgs(['ship', 'POD-830', '--outside-scope'])).toMatchObject({
@@ -65,6 +77,12 @@ describe('runIssueCli', () => {
     const out = await runIssueCli(['ship', '--help'], client)
     expect(out).toContain('podium issue ship [<id>]')
     expect(out).toContain('--outside-scope')
+  })
+
+  it('artifact help names the sanctioned terminal screenshot path', async () => {
+    const out = await runIssueCli(['artifact', '--help'], client)
+    expect(out).toContain('--terminal-evidence')
+    expect(out).toContain('raster images only')
   })
 
   it('ship forwards no client-derived target when omitted and renders service custody', async () => {

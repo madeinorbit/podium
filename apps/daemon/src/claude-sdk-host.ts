@@ -1,0 +1,548 @@
+// apps/daemon/src/claude-sdk-host.ts
+//
+// THE ONLY MODULE IN THIS REPO THAT LOADS `@anthropic-ai/claude-agent-sdk`, and it
+// never runs in the daemon's process. The daemon spawns it as a child (see
+// claude-sdk-client.ts), speaks the line protocol in claude-sdk-protocol.ts to it,
+// and can lose it at any moment: an SDK crash, an unbounded allocation, an OOM
+// kill. Losing it degrades the one session whose turn it was running. That is the
+// entire point — before this split the same event took down the process that
+// supervises every session on the machine.
+//
+// The turn semantics below are a faithful move of what ran in-process before, not
+// a rewrite: same options, same event mapping, same "carry the session id out of
+// a failure" rule. The transport underneath them is what changed.
+
+import { randomUUID } from 'node:crypto'
+import { createInterface } from 'node:readline'
+import {
+  type McpServerConfig,
+  type Options,
+  type PermissionMode,
+  query,
+} from '@anthropic-ai/claude-agent-sdk'
+import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from '@podium/agent-runtime'
+import {
+  CLAUDE_SDK_HOST_ENV,
+  type ClaudeSdkHostCommand,
+  type ClaudeSdkHostFrame,
+} from './claude-sdk-protocol.js'
+import { type HeadlessTurnSpec, headlessChildEnv } from './headless-drivers.js'
+
+/** How long the SDK gets to wind a turn down after the daemon disappears. */
+const ORPHAN_GRACE_MS = 5_000
+
+const EFFORT_LEVELS = new Set(['low', 'medium', 'high', 'xhigh', 'max'])
+const PERMISSION_MODES = new Set([
+  'default',
+  'acceptEdits',
+  'auto',
+  'bypassPermissions',
+  'plan',
+  'dontAsk',
+])
+
+/** Parse the Claude-shaped MCP config JSON into SDK mcpServers. Servers without
+ *  a `type` are treated as streamable-HTTP (the shape the server composes). */
+function sdkMcpServers(mcpConfig: string | undefined): Record<string, McpServerConfig> | undefined {
+  if (!mcpConfig) return undefined
+  let servers: Record<string, { type?: string; url?: string; headers?: Record<string, string> }>
+  try {
+    servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
+  } catch {
+    throw new Error('malformed MCP config — refusing a tool-less headless turn')
+  }
+  const out: Record<string, McpServerConfig> = {}
+  for (const [name, srv] of Object.entries(servers)) {
+    if (!srv.url) continue
+    out[name] = {
+      type: 'http',
+      url: srv.url,
+      ...(srv.headers ? { headers: srv.headers } : {}),
+    }
+  }
+  return Object.keys(out).length > 0 ? out : undefined
+}
+
+/** The content blocks of an SDK `user` message, whatever shape it arrived in.
+ *  String content is a typed prompt and carries no tool results, so it yields
+ *  none. */
+function userContentBlocks(
+  content: unknown,
+): readonly { type?: string; tool_use_id?: unknown; content?: unknown; is_error?: unknown }[] {
+  if (!Array.isArray(content)) return []
+  return content.filter(
+    (
+      block,
+    ): block is { type?: string; tool_use_id?: unknown; content?: unknown; is_error?: unknown } =>
+      typeof block === 'object' && block !== null,
+  )
+}
+
+/**
+ * Flatten a tool_result's content to text.
+ *
+ * ABSENT AND EMPTY BOTH BECOME `''` ON PURPOSE. The provider spells "this tool
+ * printed nothing" several ways — no `content` field, `''`, an empty block
+ * array, an array of blocks with no text — and none of them mean the call did
+ * not return. Collapsing them to one empty string keeps the emitted frame
+ * unconditional, so the transcript shows a call that completed with no output
+ * rather than a call that appears to still be running.
+ */
+function toolResultText(content: unknown): string {
+  if (typeof content === 'string') return content
+  if (!Array.isArray(content)) return ''
+  const parts: string[] = []
+  for (const part of content) {
+    if (typeof part === 'string') {
+      parts.push(part)
+      continue
+    }
+    if (typeof part !== 'object' || part === null) continue
+    const text = (part as { text?: unknown }).text
+    if (typeof text === 'string' && text) parts.push(text)
+  }
+  return parts.join('\n')
+}
+
+/**
+ * One turn through the Claude Agent SDK. Process-per-turn: `resume` reloads the
+ * whole conversation from the harness's own JSONL, so context persists with no
+ * long-lived process. First turn mints the session id via `sessionId` (must be
+ * a UUID) so the thread ↔ transcript binding is deterministic.
+ */
+export function buildClaudeSdkOptions(
+  spec: HeadlessTurnSpec,
+  canUseTool?: NonNullable<Options['canUseTool']>,
+): Options {
+  const mode: PermissionMode =
+    spec.permissionMode && PERMISSION_MODES.has(spec.permissionMode)
+      ? (spec.permissionMode as PermissionMode)
+      : spec.structuredPermissions
+        ? 'default'
+        : 'auto'
+  const options: Options = {
+    cwd: spec.cwd,
+    includePartialMessages: true,
+    permissionMode: mode,
+    ...(mode === 'bypassPermissions' ? { allowDangerouslySkipPermissions: true } : {}),
+    // The CLI refuses --dangerously-skip-permissions as root unless IS_SANDBOX=1;
+    // without it every headless turn on a root-run daemon dies with exit code 1.
+    // Options.env REPLACES the subprocess env, so process.env must be spread in.
+    env: {
+      ...headlessChildEnv(spec.agent, spec.env),
+      ...(mode === 'bypassPermissions' && process.getuid?.() === 0 ? { IS_SANDBOX: '1' } : {}),
+    } as Record<string, string>,
+    ...(spec.model && spec.model !== 'auto' ? { model: spec.model } : {}),
+    ...(spec.executablePath ? { pathToClaudeCodeExecutable: spec.executablePath } : {}),
+    ...(spec.effort && EFFORT_LEVELS.has(spec.effort)
+      ? { effort: spec.effort as Options['effort'] }
+      : {}),
+    ...(spec.allowedTools && spec.allowedTools.length > 0
+      ? { allowedTools: spec.allowedTools }
+      : {}),
+    ...(spec.toolPolicy === 'none' ? { tools: [] as string[], allowedTools: [] } : {}),
+    // An empty settings-source list prevents user/project/local hooks, plugins,
+    // and permissions from being inherited by a bounded repair turn.
+    ...(spec.toolPolicy === 'none' ? { settingSources: [] } : {}),
+    // The orchestrator prompt APPENDS to the claude_code preset — same posture
+    // as harness-exec's --append-system-prompt.
+    ...([spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim()
+      ? {
+          systemPrompt: {
+            type: 'preset',
+            preset: 'claude_code',
+            append: [spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim(),
+          },
+        }
+      : {}),
+    ...(spec.resumeValue
+      ? { resume: spec.resumeValue }
+      : spec.sessionUuid
+        ? { sessionId: spec.sessionUuid }
+        : {}),
+    ...(canUseTool ? { canUseTool } : {}),
+  }
+  const mcpServers = sdkMcpServers(spec.mcpConfig)
+  if (mcpServers && spec.toolPolicy !== 'none') options.mcpServers = mcpServers
+  return options
+}
+
+export interface ClaudeSdkHostIo {
+  /** One command line at a time from the daemon. */
+  commands: AsyncIterable<string>
+  /** Emit one frame; the caller newline-delimits. */
+  send(frame: ClaudeSdkHostFrame): void
+}
+
+/**
+ * Run the host loop over an injected transport. Exported so the framing can be
+ * tested without a real process pair; `main()` below binds it to stdio.
+ *
+ * Returns when the turn settles. Exactly one terminal frame (`done` or `error`)
+ * is written — a caller that sees the child exit with neither knows the SDK took
+ * the process down, which is the case the daemon must survive.
+ */
+export async function runClaudeSdkHost(io: ClaudeSdkHostIo): Promise<void> {
+  let spec: HeadlessTurnSpec | undefined
+  /** Resolves when the SDK has answered — see `answerInterrupt` below. */
+  let interrupt: (() => Promise<void>) | undefined
+  type CanUseTool = NonNullable<Options['canUseTool']>
+  type PermissionResult = Awaited<ReturnType<CanUseTool>>
+  type PermissionSuggestions = Parameters<CanUseTool>[2]['suggestions']
+  const pendingPermissions = new Map<
+    string,
+    {
+      input: Record<string, unknown>
+      suggestions?: PermissionSuggestions
+      resolve(result: PermissionResult): void
+    }
+  >()
+  const denyPendingPermissions = (): void => {
+    for (const [id, pending] of pendingPermissions) {
+      pending.resolve({
+        behavior: 'deny',
+        message: 'SDK host stopped before permission was answered',
+        interrupt: true,
+      })
+      pendingPermissions.delete(id)
+    }
+  }
+  let pendingInterrupt = false
+  /**
+   * Interrupt requests that arrived before the SDK query existed. They are held
+   * rather than dropped BECAUSE THE RACE IS REAL AND ONE-SIDED: `startTurn` is
+   * async, so an operator who interrupts in the first few milliseconds of a turn
+   * used to have their request stored as a bare boolean and answered to nobody.
+   * The id rides along so the answer, whenever it comes, names the request it
+   * belongs to.
+   */
+  const deferredInterrupts: (string | undefined)[] = []
+  /**
+   * Acknowledgements still being produced.
+   *
+   * Awaited before this function returns, because the turn settling and the
+   * interrupt being answered are two different events and the first routinely
+   * wins: an accepted interrupt ENDS the turn, so the `done` frame and the host
+   * shutting down are both racing the acknowledgement of the very request that
+   * caused them. Dropping the ack there would restore the original silence for
+   * exactly the case that matters most — the interrupt that worked.
+   */
+  const acksInFlight = new Set<Promise<void>>()
+  let finish: () => void = () => {}
+  // Resolves when the turn settles — NOT when stdin closes. The daemon keeps the
+  // command pipe open for the whole turn so it can interrupt, so waiting on the
+  // pipe would mean this process outlived its own work by exactly as long as the
+  // daemon took to notice.
+  const settled = new Promise<void>((resolve) => {
+    finish = resolve
+  })
+
+  // Commands arrive on their own loop: `interrupt` has to be readable WHILE the
+  // turn is being awaited, or it could only ever arrive after the thing it was
+  // meant to stop.
+  const commandLoop = (async () => {
+    for await (const line of io.commands) {
+      let cmd: ClaudeSdkHostCommand
+      try {
+        cmd = JSON.parse(line) as ClaudeSdkHostCommand
+      } catch {
+        continue
+      }
+      if (cmd.t === 'turn' && !spec) {
+        spec = cmd.spec
+        startTurn()
+      } else if (cmd.t === 'interrupt') {
+        if (interrupt) answerInterrupt(interrupt, cmd.requestId)
+        else if (spec) {
+          // A turn is starting but its query does not exist yet. Answer when it
+          // does; answering "no" here would be a guess, and answering nothing at
+          // all is the defect this frame was added to fix.
+          pendingInterrupt = true
+          deferredInterrupts.push(cmd.requestId)
+        } else {
+          // No turn was ever sent. This is the one case the host can answer on
+          // its own authority, and it is a REFUSAL WITH A REASON rather than
+          // silence, so the daemon can say why instead of implying it worked.
+          io.send({
+            t: 'interrupt-ack',
+            ...(cmd.requestId ? { requestId: cmd.requestId } : {}),
+            accepted: false,
+            detail: 'no turn was in flight to interrupt',
+          })
+        }
+      } else if (cmd.t === 'answer') {
+        const pending = pendingPermissions.get(cmd.interactionId)
+        if (!pending) continue
+        pendingPermissions.delete(cmd.interactionId)
+        if (cmd.decision === 'deny') {
+          pending.resolve({
+            behavior: 'deny',
+            message: cmd.feedback?.trim() || 'Denied by the Podium operator',
+            interrupt: false,
+          })
+        } else {
+          pending.resolve({
+            behavior: 'allow',
+            // Required by the SDK version shipped here even when unchanged.
+            updatedInput: pending.input,
+            ...(cmd.decision === 'allow-always' && pending.suggestions?.length
+              ? { updatedPermissions: pending.suggestions }
+              : {}),
+          })
+        }
+      }
+    }
+    // STDIN ENDED: the daemon is gone. Nothing upstream is listening, so this
+    // process has no reason to keep an agent running — and an agent that keeps
+    // running is a real cost, not a tidiness point: it holds a model session, a
+    // working directory and whatever the CLI spawned, with nobody to stop it.
+    //
+    // The previous version only handled the no-turn-yet case (`if (!spec)`), so
+    // once a turn had started EOF did nothing at all and the host outlived its
+    // daemon indefinitely — while the comment above `main()` claimed otherwise.
+    if (!spec) {
+      finish()
+      return
+    }
+    // Deliberately unacknowledged: this is teardown on the daemon's own death,
+    // not an operator request, and there is nobody left on the pipe to read an
+    // acknowledgement anyway.
+    if (interrupt) void interrupt().catch(() => {})
+    denyPendingPermissions()
+    // Give the SDK a moment to end the turn cleanly, then go regardless: a host
+    // that refuses to die on its parent's death is the orphan we are avoiding.
+    const grace = setTimeout(finish, ORPHAN_GRACE_MS)
+    grace.unref?.()
+  })()
+  commandLoop.catch(() => finish())
+
+  /**
+   * Ask the SDK to interrupt, and REPORT WHAT IT SAID.
+   *
+   * The single line this replaces was `void q.interrupt().catch(() => {})`. That
+   * swallow is the whole defect: an SDK that threw — no turn to interrupt, a
+   * transport already closed, a version without interrupt support — produced
+   * exactly the same observable behaviour as one that stopped the turn, and the
+   * operator was shown a stop that had not happened.
+   */
+  function answerInterrupt(ask: () => Promise<void>, requestId: string | undefined): void {
+    const settling = answerInterruptNow(ask, requestId)
+    acksInFlight.add(settling)
+    void settling.finally(() => acksInFlight.delete(settling))
+  }
+
+  async function answerInterruptNow(
+    ask: () => Promise<void>,
+    requestId: string | undefined,
+  ): Promise<void> {
+    const id = requestId ? { requestId } : {}
+    try {
+      await ask()
+      io.send({ t: 'interrupt-ack', ...id, accepted: true })
+    } catch (err) {
+      io.send({
+        t: 'interrupt-ack',
+        ...id,
+        accepted: false,
+        detail: err instanceof Error ? err.message : String(err),
+      })
+    }
+  }
+
+  function startTurn(): void {
+    void (async () => {
+      // `spec` is set by the only caller, immediately above.
+      const turnSpec = spec as HeadlessTurnSpec
+      let sessionId = turnSpec.resumeValue ?? turnSpec.sessionUuid ?? ''
+      let output = ''
+      let partial = ''
+      let partialUuid = ''
+      let observedModel: string | undefined
+      let observedEffort: string | undefined
+      // Report the id we were handed before the SDK confirms it, so a child that
+      // dies during startup is still attributable to the right conversation.
+      if (sessionId) io.send({ t: 'session', harnessSessionId: sessionId })
+      io.send({ t: 'event', event: { kind: 'status', status: 'starting' } })
+
+      const canUseTool: NonNullable<Options['canUseTool']> = async (toolName, input, context) =>
+        new Promise<PermissionResult>((resolve) => {
+          const interactionId = randomUUID()
+          const suggestions = context.suggestions
+          pendingPermissions.set(interactionId, {
+            input,
+            ...(suggestions ? { suggestions } : {}),
+            resolve,
+          })
+          io.send({
+            t: 'permission',
+            interactionId,
+            toolName,
+            input,
+            ...(suggestions?.length ? { suggestions } : {}),
+          })
+        })
+      const q = query({
+        prompt: turnSpec.prompt,
+        options: buildClaudeSdkOptions(
+          turnSpec,
+          turnSpec.structuredPermissions ? canUseTool : undefined,
+        ),
+      })
+      interrupt = () => q.interrupt()
+      if (pendingInterrupt) {
+        pendingInterrupt = false
+        // Answer every request that arrived during the startup gap, each under
+        // its own id. Draining the array (rather than replaying it) is what
+        // keeps one request to one answer.
+        const deferred = deferredInterrupts.splice(0, deferredInterrupts.length)
+        if (deferred.length === 0) deferred.push(undefined)
+        for (const requestId of deferred) answerInterrupt(interrupt, requestId)
+      }
+
+      try {
+        for await (const msg of q) {
+          switch (msg.type) {
+            case 'system':
+              if (msg.subtype === 'init') {
+                sessionId = msg.session_id
+                io.send({ t: 'session', harnessSessionId: sessionId })
+                io.send({ t: 'event', event: { kind: 'status', status: 'running' } })
+              }
+              break
+            case 'stream_event': {
+              const ev = msg.event as { type?: string; delta?: { type?: string; text?: string } }
+              if (ev.type === 'message_start') {
+                partial = ''
+                partialUuid = msg.uuid
+              } else if (ev.type === 'content_block_delta' && ev.delta?.type === 'text_delta') {
+                partial += ev.delta.text ?? ''
+                io.send({
+                  t: 'event',
+                  event: { kind: 'partial-text', text: partial, itemHint: partialUuid },
+                })
+              }
+              break
+            }
+            case 'assistant':
+              {
+                const message = msg.message as typeof msg.message & {
+                  model?: unknown
+                  effort?: unknown
+                }
+                if (typeof message.model === 'string') observedModel = message.model
+                if (typeof message.effort === 'string') observedEffort = message.effort
+              }
+              for (const block of msg.message.content) {
+                if (block.type === 'tool_use') {
+                  io.send({
+                    t: 'event',
+                    event: { kind: 'status', status: 'tool', label: block.name },
+                  })
+                  // The badge above animates the turn; this frame is the record.
+                  // Emitted from the SAME loop, in block order, so a message
+                  // carrying parallel calls reports them in the order the model
+                  // wrote them — the order their results will refer back to.
+                  if (typeof block.id === 'string' && block.id) {
+                    io.send({
+                      t: 'tool-call',
+                      toolUseId: block.id,
+                      toolName: block.name,
+                      ...(block.input !== undefined ? { input: block.input } : {}),
+                    })
+                  }
+                }
+              }
+              break
+            case 'user':
+              // The SDK reports every tool's return as a user message holding
+              // tool_result blocks — the same shape Claude Code writes to its own
+              // JSONL. This case used to fall through to `default`, which is why
+              // a completed tool left nothing behind at all.
+              for (const block of userContentBlocks(msg.message.content)) {
+                if (block.type !== 'tool_result') continue
+                const toolUseId = block.tool_use_id
+                if (typeof toolUseId !== 'string' || !toolUseId) continue
+                io.send({
+                  t: 'tool-result',
+                  toolUseId,
+                  output: toolResultText(block.content),
+                  ...(block.is_error === true ? { isError: true } : {}),
+                })
+              }
+              break
+            case 'result':
+              if (msg.subtype === 'success') output = msg.result
+              else {
+                // SDKResultError has `errors: string[]` and no `result`. Passing
+                // the whole message used to look like it preserved diagnostics
+                // while tests stuffed spend text on `result`, which production
+                // never sends. Read the error-shape fields by name.
+                io.send({
+                  t: 'error',
+                  message: formatClaudeSdkResultFailure({
+                    subtype: msg.subtype,
+                    errors: msg.errors,
+                  }),
+                  ...(sessionId ? { harnessSessionId: sessionId } : {}),
+                })
+                return
+              }
+              break
+            default:
+              break
+          }
+        }
+      } catch (err) {
+        // An SDK-thrown error (transport, tool crash) gets the same treatment:
+        // report it WITH whatever session id we learned, so the thread survives.
+        const thrown = redactClaudeSdkFailureDetail(
+          err instanceof Error ? err.message : String(err),
+        )
+        io.send({
+          t: 'error',
+          message: thrown || 'claude turn failed',
+          ...(sessionId ? { harnessSessionId: sessionId } : {}),
+        })
+        return
+      }
+      if (!sessionId) {
+        io.send({ t: 'error', message: 'claude turn ended without reporting a session id' })
+        return
+      }
+      io.send({
+        t: 'done',
+        harnessSessionId: sessionId,
+        output,
+        ...(observedModel ? { observedModel } : {}),
+        ...(observedEffort ? { observedEffort } : {}),
+      })
+    })().finally(() => {
+      denyPendingPermissions()
+      finish()
+    })
+  }
+
+  await settled
+  // Never return with an unanswered interrupt request outstanding.
+  while (acksInFlight.size > 0) await Promise.all([...acksInFlight])
+}
+
+async function main(): Promise<void> {
+  // A closed stdin means the daemon is gone. Nothing upstream is listening any
+  // more, so wind the SDK down rather than leaving an orphaned agent running.
+  const rl = createInterface({ input: process.stdin })
+  await runClaudeSdkHost({
+    commands: rl,
+    send: (frame) => {
+      process.stdout.write(`${JSON.stringify(frame)}\n`)
+    },
+  })
+  rl.close()
+}
+
+if (process.env[CLAUDE_SDK_HOST_ENV] === '1') {
+  await main()
+  // Do not linger: the SDK leaves timers and sockets behind and this process has
+  // one job, which is now done.
+  process.exit(0)
+}

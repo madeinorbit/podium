@@ -55,6 +55,16 @@ const CODEX_EFFORT: Choice[] = [
   { value: 'xhigh', label: 'Extra high' },
 ]
 
+const PI_THINKING: Choice[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'minimal', label: 'Minimal' },
+  { value: 'low', label: 'Low' },
+  { value: 'medium', label: 'Medium' },
+  { value: 'high', label: 'High' },
+  { value: 'xhigh', label: 'Extra high' },
+  { value: 'max', label: 'Max' },
+]
+
 const CODEX_56_EFFORT = [...CODEX_EFFORT, { value: 'max', label: 'Max' }]
 const CODEX_56_FRONTIER_EFFORT = [...CODEX_56_EFFORT, { value: 'ultra', label: 'Ultra' }]
 
@@ -98,6 +108,9 @@ const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
     { value: 'gpt-5.2', label: 'GPT-5.2' },
     { value: 'claude-opus-4-8-thinking-high', label: 'Claude Opus 4.8 Thinking' },
   ],
+  // No static list: pi's catalog spans many providers and is live-enumerated via
+  // `pi --list-models` (provider/model ids); until then the picker offers Auto + free text.
+  pi: [],
 }
 
 const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
@@ -113,6 +126,8 @@ const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
   ],
   // Cursor has no effort flag — effort is a model parameter (model[effort=high]).
   cursor: [],
+  // pi `--thinking` levels (`pi --help`): off, minimal, low, medium, high, xhigh, max.
+  pi: PI_THINKING,
 }
 
 /** True when the agent exposes a reasoning-effort flag (everything but cursor). */
@@ -145,6 +160,7 @@ export function effortOptions(kind: IssueAgentKind): PropertyOption[] {
 }
 
 const EFFORT_LEVEL_LABELS: Record<string, string> = {
+  off: 'Off',
   minimal: 'Minimal',
   low: 'Low',
   medium: 'Medium',

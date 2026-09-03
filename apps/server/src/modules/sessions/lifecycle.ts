@@ -51,9 +51,12 @@ import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
 import type {
   DaemonPtyInputBatch,
   DaemonPtyOutputBatch,
+  InteractionEvent,
   MachinePrincipal,
+  PendingInteraction,
   Principal,
 } from '@podium/protocol'
+import type { TurnEvent } from '@podium/protocol/daemon'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -69,7 +72,7 @@ import {
   type SubscriptionRegistry,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
-import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, DaemonMessage, TurnReceipt } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -138,6 +141,9 @@ import {
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
+import type { SessionRuntimeGateway } from './runtime-gateway'
+import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
 
@@ -232,9 +238,11 @@ export class SessionLifecycle {
   readonly sendText!: SessionInbox['sendText']
   readonly interruptText!: SessionInbox['interruptText']
   readonly interruptTurn!: SessionInbox['interruptTurn']
+  readonly configureSession!: SessionInbox['configureSession']
   readonly queueText!: SessionInbox['queueText']
   readonly cancelQueuedMessage!: SessionInbox['cancelQueuedMessage']
   readonly hasQueuedMessage!: SessionInbox['hasQueuedMessage']
+  readonly queuedMessagePosition!: SessionInbox['queuedMessagePosition']
   readonly resumeAndSend!: SessionInbox['resumeAndSend']
   readonly answerAskUserQuestion!: (input: {
     sessionId: SessionId
@@ -259,6 +267,84 @@ export class SessionLifecycle {
   private readonly funnel!: WriteFunnel
   readonly clientControl!: SessionClientControl
   readonly daemonProjection!: SessionDaemonProjection
+  /** The Agent Runtime contract's server half (POD-1761 W3): the pass-through
+   *  for the five machine verbs, the durable completion of `queue`, and the sink
+   *  for the driver's causal stream. No caller routes through it until W4. */
+  readonly runtimeGateway!: SessionRuntimeGateway
+  /** The in-progress turn's preview fold (POD-2293). Absent when the machine
+   *  switch is off — the plane is not constructed at all, so an unflagged server
+   *  runs no listener and holds no per-session preview state. */
+  turnPreviews?: TurnPreviewAccumulator
+  /** The send seam W4's migrated callers route through: one legacy-shaped answer
+   *  now, one honest receipt to reconcile with later, and the single place the
+   *  per-session contract flag is read. */
+  readonly receiptSender!: ReceiptSender
+  /**
+   * THE MIGRATED SEND VERB (POD-1761 W4) — what `sendText` / `queueText` /
+   * `interruptText` / `resumeAndSend` above collapse into.
+   *
+   * An arrow rather than a bound field because `receiptSender` is assigned by
+   * the composition function below this declaration: reading it inside the
+   * closure defers the read to call time, which is what keeps the construction
+   * -order audit satisfied without reordering the wiring.
+   *
+   * The four verbs stay exported beside it, and not only for the legacy path —
+   * `ReceiptSender` itself calls them when a session has no driver behind it.
+   * They are the flag-off implementation, not dead weight awaiting deletion.
+   */
+  readonly receiptSend = (
+    via: ReceiptSendVia,
+    input: ReceiptSendInput,
+    onReceipt?: (receipt: TurnReceipt) => void,
+  ): { ok: boolean; queued?: boolean; position?: number; reason?: string } =>
+    this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
+  /**
+   * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
+   * interactions aggregate exists.
+   *
+   * LATE-BOUND, and it has to be: the aggregate is built after session wiring
+   * (it takes `sessionById` and the delivery gate, which are session-owned), so
+   * a constructor argument here would be a cycle. The daemon lifecycle reads it
+   * through a closure, which the construction-order audit permits precisely
+   * because a deferred read cannot observe the unassigned value.
+   *
+   * `undefined` until then, and a frame that arrives first is dropped rather
+   * than queued — a server-family session cannot exist before the aggregate
+   * does, because nothing can spawn one until the server is serving.
+   */
+  interactionAsk?: (msg: {
+    sessionId: SessionId
+    interaction: PendingInteraction
+  }) => void
+  /**
+   * THE FAILURE SINK (POD-2414), late-bound for the same reason and on the same
+   * terms as {@link interactionAsk} above.
+   *
+   * Every coarse turn boundary the runtime event gate commits is handed over,
+   * not only the failures: the aggregate opens an ask on a needs-human failure
+   * AND closes the stale one when a turn proves the session is running again,
+   * and both halves have to see the same stream to stay in step.
+   *
+   * The returned promise is awaited by the gate's projector before its durable
+   * cursor advances, so this must be safe to repeat.
+   */
+  interactionTurn?: (msg: {
+    sessionId: SessionId
+    ev: TurnEvent
+    at: string
+  }) => void | Promise<void>
+  /**
+   * THE RESOLUTION SINK (POD-2414), late-bound like its two siblings.
+   *
+   * `runtimeInteractionAsked` carries only the `asked` arm, so a protocol ask
+   * resolved inside the harness's own UI had nothing to retire it. The coarse
+   * stream's `interaction` events carry `answered` and `expired` too, and this
+   * is where they reach the aggregate.
+   */
+  interactionResolved?: (msg: {
+    sessionId: SessionId
+    ev: InteractionEvent
+  }) => void | Promise<void>
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView
@@ -285,6 +371,15 @@ export class SessionLifecycle {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
   }
   dispose(): void {
+    // Ahead of everything else: it owns coalescing timers, and a timer that
+    // fires into a half-disposed registry publishes into sessions that are gone.
+    this.turnPreviews?.dispose()
+    // Same hazard, one step further out (POD-2842): the outbox drain re-arms
+    // itself on a timer and every wake-up reads the queue table, so a shutdown
+    // taken while a row is in flight woke into the store `server.ts` closes
+    // right after this call. Stopping it loses nothing — the row is durable and
+    // the next bind re-drains it.
+    this.inbox.dispose()
     this.concurrencyHistory.dispose()
     this.activityHistory.dispose()
     this.autoContinue.dispose()
@@ -525,6 +620,7 @@ export class SessionLifecycle {
       sessionId: SessionId
       force?: boolean
       selfStop?: boolean
+      reapParked?: boolean
       stopReason?: 'self' | 'parent' | 'forced'
       principal?: CommandPrincipal
     },
@@ -545,6 +641,7 @@ export class SessionLifecycle {
       issueId: IssueId
       force?: boolean
       callerSessionId?: SessionId
+      reapParked?: boolean
       principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
@@ -677,7 +774,7 @@ export class SessionLifecycle {
   onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
     this.daemonLifecycle.handleOutput(principal, batch)
   }
-  transcriptFor(...args: any[]): any {
+  transcriptFor(...args: any[]): TranscriptItem[] {
     return (this.sessionMetaOps as any).transcriptFor(...args)
   }
   broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {

@@ -1,0 +1,320 @@
+{
+  "cell": "A3",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a3",
+  "at": "2026-08-27T03:36:08.624Z",
+  "pin": {
+    "cell": "A3",
+    "at": "2026-08-27T03:36:08.662Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5800480 kB",
+      "SwapFree": "37013100 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "interrupt returned without a stopping record",
+  "control": {
+    "fired": true,
+    "what": "the turn producing a durable user item and an observed working phase before interrupt",
+    "detail": "user=true; working=true; bytes=6007"
+  },
+  "evidence": [
+    "INTERRUPT         {\"ok\":true,\"requested\":\"keystroke\"}",
+    "STOPPED           false in 20473ms",
+    "MARKER           false",
+    "TYPED REFUSAL     false",
+    "ITEMS             [{\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P2874-A3-MTAZ1NVL in the final line.\",\"ts\":\"2026-08-27T03:37:03.956Z\"}]"
+  ],
+  "data": {
+    "sid": "c3695e72-87f7-4d91-9c23-76b416a85d0a",
+    "payload": {
+      "ok": true,
+      "requested": "keystroke"
+    },
+    "after": {
+      "ok": false,
+      "ms": 20473,
+      "row": {
+        "sessionId": "c3695e72-87f7-4d91-9c23-76b416a85d0a",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-pty",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "working",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [],
+        "files": [],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 73,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 698,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 1225,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 1759,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 2311,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 2833,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 3451,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 3973,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 4508,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 5043,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 5574,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 6104,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 6633,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 7160,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 7686,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 8212,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 8741,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 9260,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 9800,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 10331,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 10877,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 11454,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 11984,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 12507,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 13050,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 13580,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 14119,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 14648,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 15172,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 15709,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 16252,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 16781,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 17323,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 17895,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 18418,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 18935,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 19456,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 19973,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-pty"
+        }
+      ]
+    },
+    "hasMarker": false,
+    "typedRefusal": false
+  }
+}

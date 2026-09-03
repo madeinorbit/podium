@@ -5,7 +5,9 @@
  * docs keep working. It is the ONE place that injects the in-process host
  * modules (apps/server + apps/daemon) into the CLI — apps/cli itself never
  * imports app code (boundary rule: the CLI depends only on @podium/protocol,
- * @podium/model, @podium/runtime and @podium/issue-client).
+ * @podium/model, @podium/runtime and @podium/issue-client). The janitor is no
+ * longer among them: every server owns its worker thread and imports
+ * @podium/janitor itself (PDM-27).
  */
 
 import type { CliRuntimeOptions, HostModules } from '../apps/cli/src/cli'
@@ -31,18 +33,14 @@ export {
 } from '../apps/cli/src/cli'
 
 async function loadHost(): Promise<HostModules> {
-  const [server, daemon, janitor, janitorWorker] = await Promise.all([
+  const [server, daemon] = await Promise.all([
     import('../apps/server/src/server'),
     import('../apps/daemon/src/daemon'),
-    import('../apps/janitor/src/janitor'),
-    import('../apps/janitor/src/worker-client'),
   ])
   return {
     startServer: server.startServer,
     isAddressInUseError: server.isAddressInUseError,
     startDaemon: daemon.startDaemon as HostModules['startDaemon'],
-    startJanitorWorker: janitorWorker.startJanitorWorker,
-    startJanitor: janitor.startJanitor,
   }
 }
 

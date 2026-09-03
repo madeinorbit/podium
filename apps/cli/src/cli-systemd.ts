@@ -68,7 +68,6 @@ interface RenderContext {
   repoRoot: string
   parentUnit: string
   serverUnit: string
-  janitorUnit: string
   daemonUnit: string
   redeployUnit: string
   healthUnit: string
@@ -94,7 +93,6 @@ function context(opts: SystemdRenderOptions = {}): RenderContext {
     repoRoot: opts.repoRoot ?? DEV_REPO,
     parentUnit: instanceServiceName('parent', instanceId),
     serverUnit: instanceServiceName('server', instanceId),
-    janitorUnit: instanceServiceName('janitor', instanceId),
     daemonUnit: instanceServiceName('daemon', instanceId),
     redeployUnit: instanceServiceName('redeploy', instanceId),
     healthUnit: instanceServiceName('health', instanceId),
@@ -252,33 +250,6 @@ export function renderParentUnit(opts: SystemdRenderOptions = {}): string {
   return generatedUnit(c.profile === 'dev' ? renderDevParent(c) : renderPackagedParent(c))
 }
 
-function renderPackagedJanitor(c: RenderContext): string {
-  return `[Unit]
-Description=Podium durable maintenance janitor
-After=network-online.target ${c.serverUnit}
-Wants=network-online.target
-
-[Service]
-Type=notify
-NotifyAccess=all
-WatchdogSec=30
-Environment=PODIUM_INSTANCE=${c.instanceId}
-Environment=PODIUM_PORT=${c.port}
-ExecStart=%h/.local/bin/${c.command} janitor
-Restart=always
-RestartSec=2
-# A protocol/schema mismatch is terminal until the installed bundle catches up.
-RestartPreventExitStatus=${DAEMON_BLOCKED_EXIT_CODE}
-# Housekeeping is deliberately below the interactive server/daemon tier. Each DB
-# pass is bounded and yields via the shared time-budget helper.
-CPUWeight=100
-IOWeight=100
-
-[Install]
-WantedBy=default.target
-`
-}
-
 function renderPackagedDaemon(c: RenderContext, opts: DaemonRenderOptions): string {
   // `--local` = the split daemon on a host box; `--server` pins the URL. The join case passes
   // neither, so bare `podium daemon` resolves serverUrl from config.
@@ -364,11 +335,6 @@ WantedBy=default.target
 export function renderDaemonUnit(opts: DaemonRenderOptions = {}): string {
   const c = context(opts)
   return generatedUnit(c.profile === 'dev' ? renderDevDaemon(c) : renderPackagedDaemon(c, opts))
-}
-
-export function renderJanitorUnit(opts: { port: number; instanceId?: string }): string {
-  const c = context({ instanceId: opts.instanceId, port: opts.port })
-  return generatedUnit(renderPackagedJanitor(c))
 }
 
 // There is no web-build unit any more (POD-1985). The server runs those builds

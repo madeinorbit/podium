@@ -460,6 +460,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
       issueEvents: replicaSeed.issueEvents,
+      pendingInteractions: replicaSeed.pendingInteractions,
       shipOrders: replicaSeed.shipOrders,
       conversations: replicaSeed.conversations,
       automations: replicaSeed.automations,
@@ -605,17 +606,29 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
     offs.push(this.hub.on('hostMetrics', (m) => this.apply({ hostMetrics: m })))
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
-    // Repos are only scannable through a connected daemon, so a machine coming
-    // online (e.g. the split daemon reconnecting after a restart) can make
-    // previously-empty repos available. Refetch when the online count climbs, so
-    // the workspace isn't stuck on the "add a repo" empty state until a reload.
-    let onlineMachines = 0
+    // Apply the scoped machine snapshot immediately so a SEE revocation hides
+    // its repositories, then reconcile repos and machines from one authorized
+    // server snapshot when visibility, reachability, or USE changed. Full
+    // machine broadcasts also carry inventory/build metadata; treating those as
+    // repo invalidations repeatedly supersedes an in-flight scan-backed refresh
+    // and can starve its durable fallback during daemon rebind. The id+online+use
+    // set detects equal-count replacement, SEE revocation, and scan-authority
+    // changes without including unrelated metadata.
+    let machineScopeSignature: string | undefined
     offs.push(
       this.hub.on('machines', (m) => {
         this.apply({ machines: m })
-        const online = m.reduce((n, x) => n + (x.online ? 1 : 0), 0)
-        if (online > onlineMachines) void this.boot.refreshRepos().catch(() => {})
-        onlineMachines = online
+        const nextSignature = m
+          .map(
+            (machine) =>
+              `${machine.id}:${machine.online ? 'online' : 'offline'}:${machine.use ?? 'unknown'}`,
+          )
+          .sort()
+          .join('|')
+        if (nextSignature !== machineScopeSignature) {
+          machineScopeSignature = nextSignature
+          void this.boot.refreshRepos().catch(() => {})
+        }
       }),
     )
     // An arriving composer document. It is OFFERED to the ledger rather than
@@ -925,8 +938,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
     // View-state report to the server. `workspaces` is a trigger in its own
     // right: a third pane's active tab changes what is on screen without moving
-    // `paneA`/`paneB`.
-    if (any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'dockVisibleSession'))
+    // `paneA`/`paneB`. `panelMode` is equally live: switching Native → Chat must
+    // release the client terminal's takeover lease before a Chat turn can reach
+    // the headless engine.
+    if (
+      any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'dockVisibleSession', 'panelMode')
+    )
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
@@ -1065,6 +1082,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       }
       const patch: Partial<EngineState> = {}
       if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
+      if (changed.has('pendingInteractions'))
+        patch.pendingInteractions = snapshot.pendingInteractions
       if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
       if (changed.has('conversations')) patch.conversations = snapshot.conversations
       if (changed.has('automations')) patch.automations = snapshot.automations

@@ -102,6 +102,9 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
+      ...(session.lifecycleDriverRequest()
+        ? { runtimeContract: session.lifecycleDriverRequest() }
+        : {}),
       ...(this.ports.rpc.transcriptPathHint(
         { kind: 'system', id: 'session-attach' },
         {
@@ -116,6 +119,7 @@ export class SessionClientPlane {
         ? { createdAtMs: Date.parse(session.createdAt) }
         : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
+      ...(session.requestedDriverId ? { requestedDriverId: session.requestedDriverId } : {}),
     } as ControlMessage
   }
 

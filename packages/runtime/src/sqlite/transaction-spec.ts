@@ -4,9 +4,9 @@ import { transaction } from './transaction'
 import type { SqlDatabase } from './types'
 
 /**
- * Shared behaviors for the nesting-safe transaction helper [spec:SP-3fe2], run
- * against whichever runtime driver is active (node:sqlite under vitest/Node,
- * bun:sqlite under `bun test`) — same split as {@link sqliteShimSpec}.
+ * Shared behaviors for the nesting-safe transaction helper [spec:SP-3fe2], run by
+ * both runners over the one `bun:sqlite` driver — same split as
+ * {@link sqliteShimSpec}.
  */
 export function transactionSpec(t: SqlTestPrimitives): void {
   const { describe, it, expect } = t
@@ -21,7 +21,7 @@ export function transactionSpec(t: SqlTestPrimitives): void {
     return (db.prepare('SELECT v FROM t ORDER BY v').all() as { v: number }[]).map((r) => r.v)
   }
 
-  describe(`sqlite transaction helper [${process.versions.bun ? 'bun:sqlite' : 'node:sqlite'}]`, () => {
+  describe('sqlite transaction helper [bun:sqlite]', () => {
     it('commits at depth 0 and returns the callback result', () => {
       const db = freshDb()
       try {

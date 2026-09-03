@@ -1,4 +1,3 @@
-import { asMachineId } from '@podium/model'
 /**
  * POD-1607 — the CLI must dial the address the server BOUND, not a hard-coded loopback.
  *
@@ -9,16 +8,20 @@ import { asMachineId } from '@podium/model'
  * POD-1585 fixed the bundled daemon; these are the CLI's own copies of the same bug.
  *
  * Two kinds of assertion here, because the sites have two shapes:
- *   - the composable ones (`resolvePlan`, `daemonOptionsForPlan`, `portInUseMessage`,
+ *   - the composable ones (`daemonOptionsForPlan`, `portInUseMessage`,
  *     `renderStatus`) are exercised directly;
  *   - the operator-client dials are constructed inline inside each verb's `main()`,
  *     so they are pinned by a source scan — reverting any one of them to the literal
  *     reddens this file.
+ *
+ * The janitor's own dial left this file with PDM-27: it is a worker the SERVER
+ * starts, so the assertion lives beside it in apps/server/src/janitor-host.test.ts.
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { daemonOptionsForPlan, portInUseMessage, resolvePlan } from './cli'
+import { daemonOptionsForPlan, portInUseMessage } from './cli'
 import { renderStatus } from './cli-lifecycle'
 
 const HOST = '100.113.194.89'
@@ -31,11 +34,6 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
   afterEach(() => {
     if (saved === undefined) delete process.env.PODIUM_HOST
     else process.env.PODIUM_HOST = saved
-  })
-
-  it('the janitor component dials the bound interface', () => {
-    const plan = resolvePlan({ port: 23000 }, ['janitor'], { PODIUM_HOST: HOST }, false)
-    expect(plan).toMatchObject({ kind: 'janitor', serverUrl: `http://${HOST}:23000` })
   })
 
   it('the local daemon dials the bound interface over ws', () => {
@@ -88,9 +86,6 @@ describe('local dials follow PODIUM_HOST (POD-1607)', () => {
 
   it('an unset PODIUM_HOST leaves the ordinary single-machine install on loopback', () => {
     delete process.env.PODIUM_HOST
-    expect(resolvePlan({ port: 23000 }, ['janitor'], {}, false)).toMatchObject({
-      serverUrl: 'http://localhost:23000',
-    })
     expect(
       daemonOptionsForPlan(
         { mode: 'all-in-one', showSetupHint: false },

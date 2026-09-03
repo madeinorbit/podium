@@ -79,7 +79,7 @@ import {
   type ServerProfileState,
   saveServerProfiles,
 } from './server-profiles'
-import { envServer, setActiveServerRuntime } from './trpc'
+import { envServer, sameSiteBuildServer, setActiveServerRuntime } from './trpc'
 
 // The context and its two hooks live in `./server-profile-context`, which does
 // NOT import expo-router, expo-camera or expo-crypto — see the note there.
@@ -94,11 +94,13 @@ function configFor(origin: string, override: boolean): ServerConfig {
 
 function webProfile(): { profile: ServerProfile; config: ServerConfig } {
   // A served web app belongs to its page origin because its HttpOnly session
-  // cookie belongs there. Only an explicit ?server development override may
-  // redirect it; native build-time injection must never win on web.
+  // cookie belongs there. Two things may redirect it: an explicit ?server
+  // development override, and a build that declared its server same-site with
+  // the page, where that cookie still rides every credentialed call (PDM-24).
+  // Native build-time injection on its own must never win on web.
   const explicitOverride = overrideFromUrl(window.location.href)
-  const origin = explicitOverride ?? window.location.origin
-  const config = configFor(origin, explicitOverride !== null)
+  const origin = explicitOverride ?? sameSiteBuildServer() ?? window.location.origin
+  const config = configFor(origin, origin !== window.location.origin)
   const now = new Date().toISOString()
   return {
     config,

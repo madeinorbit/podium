@@ -85,8 +85,7 @@ vi.mock('@/app/store', () => {
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: () => '',
     // `undefined` = no exit state. These cases are about the takeover cover, and
-    // a session that reported itself removed or evicted would render a different
-    // pane entirely.
+    // ChatView's parked-transcript case requires this scoped subscription seam.
     useSessionExitKind: () => undefined,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }

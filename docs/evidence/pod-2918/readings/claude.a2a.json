@@ -1,0 +1,463 @@
+{
+  "cell": "A2A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a2a",
+  "at": "2026-08-27T03:32:33.362Z",
+  "pin": {
+    "cell": "A2A",
+    "at": "2026-08-27T03:32:33.392Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5289500 kB",
+      "SwapFree": "36883396 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "working appeared within 2s, stayed working through the sample, and returned idle",
+  "control": {
+    "fired": true,
+    "what": "the working-turn prompt appearing as a durable user turn",
+    "detail": "user=true; assistant=true; terminal bytes=50354"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "WORKING AT        {\"at\":45,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6108}",
+    "IDLE SAMPLES      0",
+    "SAMPLES           [{\"at\":45,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6108},{\"at\":342,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6210},{\"at\":655,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6281},{\"at\":957,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6424},{\"at\":1232,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6475},{\"at\":1514,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6525},{\"at\":1781,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":6779},{\"at\":2046,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":7460},{\"at\":2319,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":7562},{\"at\":2585,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":8635},{\"at\":2870,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":8635},{\"at\":3142,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":8635},{\"at\":3407,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":9583},{\"at\":3685,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":9626},{\"at\":3960,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":9626},{\"at\":4233,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":10557},{\"at\":4521,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":10600},{\"at\":4807,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":11516},{\"at\":5072,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":11516},{\"at\":5346,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":11516},{\"at\":5622,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":12527},{\"at\":5895,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":12527},{\"at\":6170,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":13475},{\"at\":6442,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":13518},{\"at\":6712,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":13518},{\"at\":6981,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":14401},{\"at\":7264,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":14401},{\"at\":7533,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":15457},{\"at\":7804,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":15457},{\"at\":8072,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":15457},{\"at\":8342,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":15457},{\"at\":8625,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":16384},{\"at\":8895,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":16384},{\"at\":9169,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":17274},{\"at\":9447,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":17317},{\"at\":9724,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":18269},{\"at\":9998,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":18269},{\"at\":10377,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":19221},{\"at\":10659,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":19221},{\"at\":10978,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":19221},{\"at\":11357,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":20124},{\"at\":11690,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":20167},{\"at\":11993,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":21136},{\"at\":12271,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":21179},{\"at\":12542,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":21179},{\"at\":12840,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":22170},{\"at\":13153,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":22170},{\"at\":13425,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":23121},{\"at\":13696,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":23121},{\"at\":13971,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":24007},{\"at\":14247,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":24050},{\"at\":14531,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":24050},{\"at\":14841,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"claude-pty\",\"screenBytes\":24977}]",
+    "AFTER             {\"sessionId\":\"4f5dcaf2-176c-48e4-96dd-f647ab92eced\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
+  ],
+  "data": {
+    "sid": "4f5dcaf2-176c-48e4-96dd-f647ab92eced",
+    "user": true,
+    "assistant": true,
+    "workingAt": {
+      "at": 45,
+      "phase": "working",
+      "status": "live",
+      "driverId": "claude-pty",
+      "screenBytes": 6108
+    },
+    "idleDuring": 0,
+    "samples": [
+      {
+        "at": 45,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6108
+      },
+      {
+        "at": 342,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6210
+      },
+      {
+        "at": 655,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6281
+      },
+      {
+        "at": 957,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6424
+      },
+      {
+        "at": 1232,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6475
+      },
+      {
+        "at": 1514,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6525
+      },
+      {
+        "at": 1781,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 6779
+      },
+      {
+        "at": 2046,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 7460
+      },
+      {
+        "at": 2319,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 7562
+      },
+      {
+        "at": 2585,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 8635
+      },
+      {
+        "at": 2870,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 8635
+      },
+      {
+        "at": 3142,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 8635
+      },
+      {
+        "at": 3407,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 9583
+      },
+      {
+        "at": 3685,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 9626
+      },
+      {
+        "at": 3960,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 9626
+      },
+      {
+        "at": 4233,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 10557
+      },
+      {
+        "at": 4521,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 10600
+      },
+      {
+        "at": 4807,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 11516
+      },
+      {
+        "at": 5072,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 11516
+      },
+      {
+        "at": 5346,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 11516
+      },
+      {
+        "at": 5622,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 12527
+      },
+      {
+        "at": 5895,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 12527
+      },
+      {
+        "at": 6170,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 13475
+      },
+      {
+        "at": 6442,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 13518
+      },
+      {
+        "at": 6712,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 13518
+      },
+      {
+        "at": 6981,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 14401
+      },
+      {
+        "at": 7264,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 14401
+      },
+      {
+        "at": 7533,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 15457
+      },
+      {
+        "at": 7804,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 15457
+      },
+      {
+        "at": 8072,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 15457
+      },
+      {
+        "at": 8342,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 15457
+      },
+      {
+        "at": 8625,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 16384
+      },
+      {
+        "at": 8895,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 16384
+      },
+      {
+        "at": 9169,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 17274
+      },
+      {
+        "at": 9447,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 17317
+      },
+      {
+        "at": 9724,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 18269
+      },
+      {
+        "at": 9998,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 18269
+      },
+      {
+        "at": 10377,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 19221
+      },
+      {
+        "at": 10659,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 19221
+      },
+      {
+        "at": 10978,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 19221
+      },
+      {
+        "at": 11357,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 20124
+      },
+      {
+        "at": 11690,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 20167
+      },
+      {
+        "at": 11993,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 21136
+      },
+      {
+        "at": 12271,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 21179
+      },
+      {
+        "at": 12542,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 21179
+      },
+      {
+        "at": 12840,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 22170
+      },
+      {
+        "at": 13153,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 22170
+      },
+      {
+        "at": 13425,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 23121
+      },
+      {
+        "at": 13696,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 23121
+      },
+      {
+        "at": 13971,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 24007
+      },
+      {
+        "at": 14247,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 24050
+      },
+      {
+        "at": 14531,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 24050
+      },
+      {
+        "at": 14841,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty",
+        "screenBytes": 24977
+      }
+    ],
+    "after": {
+      "sessionId": "4f5dcaf2-176c-48e4-96dd-f647ab92eced",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [],
+      "files": [],
+      "unackedMessages": 0
+    }
+  }
+}

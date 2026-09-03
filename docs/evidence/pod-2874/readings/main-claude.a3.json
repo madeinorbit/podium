@@ -1,0 +1,207 @@
+{
+  "cell": "A3",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874-main/probes/claude-a3",
+  "at": "2026-08-26T13:31:43.977Z",
+  "pin": {
+    "cell": "A3",
+    "at": "2026-08-26T13:31:44.234Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2856-run-every-test-rig-as-a-named-instance",
+    "checkoutSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+    "serverSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+    "daemonSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+    "web": {
+      "wireSchemaDigest": "833769293edf5a27",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T13:23:49.204Z",
+      "appVersion": "dev+0bd9009",
+      "sourceSha": "0bd9009",
+      "bundleVersion": "bundle+4at1Mnjp"
+    },
+    "serverPid": "2686551",
+    "daemonPid": "2691736",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2856-run-every-test-rig-as-a-named-instance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2856-run-every-test-rig-as-a-named-instance",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4257580 kB",
+      "SwapFree": "36170760 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no in-flight turn was observed, so interrupt was not exercised",
+  "control": {
+    "fired": false,
+    "what": "the turn producing a durable user item and an observed working phase before interrupt",
+    "detail": "user=false; working=false; bytes=0"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}",
+    "PHASE SAMPLES     [{\"ms\":9385,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":9782,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":10218,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":10610,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":10983,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":11360,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":11726,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":12145,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":13249,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":13746,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":14078,\"phase\":\"idle\",\"status\":\"exited\"},{\"ms\":17131,\"phase\":\"idle\",\"status\":\"exited\"}]"
+  ],
+  "data": {
+    "sid": "0df3efd3-ecb8-4fdc-b1b3-e1c8b0cad473",
+    "user": false,
+    "working": [
+      {
+        "ms": 218,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 764,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 1099,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 1395,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 1784,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 2099,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 2495,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 2811,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 3218,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 3687,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 4581,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 5648,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 6256,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 7211,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 7678,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 8050,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 8440,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 8950,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 9385,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 9782,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 10218,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 10610,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 10983,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 11360,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 11726,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 12145,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 13249,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 13746,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 14078,
+        "phase": "idle",
+        "status": "exited"
+      },
+      {
+        "ms": 17131,
+        "phase": "idle",
+        "status": "exited"
+      }
+    ]
+  }
+}

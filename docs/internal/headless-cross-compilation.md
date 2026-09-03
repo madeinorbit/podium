@@ -232,12 +232,18 @@ build-time stand-in for the JIT failure.
 
 ## Prerequisites
 
+Versions are pinned ONCE, in `mise.toml` at the repo root. CI installs from it
+(`jdx/mise-action`), dev machines install from it (`mise install`), and
+`resolveZig`/`resolveRcodesign` (scripts/abduco-cross.ts, via scripts/tool-pins.ts)
+refuse a tool whose `--version` disagrees with the pin —
+`PODIUM_SKIP_TOOL_PIN_CHECK=1` waives that for deliberate experiments.
+
 | Where | Needs | How |
 |---|---|---|
-| CI release job | zig 0.16, rcodesign 0.29 | `mlugg/setup-zig`, `scripts/ci-install-rcodesign.sh` |
+| CI release job | zig, rcodesign | `jdx/mise-action` reading `mise.toml` |
 | CI published-smoke | zig, rcodesign | same (it opens Darwin bundles it cannot execute) |
-| The dev host (ludovico) | zig, rcodesign | on PATH, or `PODIUM_ZIG` / `PODIUM_RCODESIGN` |
-| Any release host | pigz (optional) | package manager, or `PODIUM_PIGZ`; falls back to gzip |
+| The dev host (ludovico) | zig, rcodesign | `mise install`; or PATH / `PODIUM_ZIG` / `PODIUM_RCODESIGN` (still pin-checked) |
+| Any release host | pigz (optional at build time) | `mise install` (conda backend), package manager, or `PODIUM_PIGZ`; falls back to gzip |
 
 The dev host needs them because it takes the **same** build path: every dev
 build passes `--target`, this host's own included. That is the point — the dev

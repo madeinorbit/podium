@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -93,19 +93,115 @@ describe('abduco command builders', () => {
       session.dispose()
     }
   })
+  it('queues a recovery redraw until the abduco attach client acknowledges readiness', () => {
+    let emit: ((data: Uint8Array) => void) | undefined
+    const resizes: Array<{ cols: number; rows: number }> = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: (cb) => {
+        emit = cb
+      },
+      onExit: () => {},
+      write: () => {},
+      resize: (cols, rows) => resizes.push({ cols, rows }),
+      kill: () => {},
+    }
+    const session = attachAbducoAgent({
+      label: 'podium-ready-redraw',
+      cols: 80,
+      rows: 24,
+      backend: { name: 'bun-terminal', spawn: () => proc },
+      repaintOnAttach: false,
+    })
+
+    session.redrawWhenReady?.()
+    expect(resizes).toEqual([])
+
+    emit?.(Buffer.from('\x1b[?1049h\x1b[H', 'latin1'))
+    expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+    session.dispose()
+  })
+
+
+  it('preserves replay only for opted-in live-master adoption', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-adopt-policy-'))
+    const label = 'podium-adopt-policy'
+    const socketPath = join(dir, `${label}@${hostname()}`)
+    writeFileSync(socketPath, '')
+    chmodSync(socketPath, 0o600)
+
+    const resizes: Array<{ cols: number; rows: number }> = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: () => {},
+      onExit: () => {},
+      write: () => {},
+      resize: (cols: number, rows: number) => resizes.push({ cols, rows }),
+      kill: () => {},
+    }
+    const backend: PtyBackend = {
+      name: 'bun-terminal',
+      spawn: () => proc,
+    }
+
+    try {
+      const replaying = await spawnAbducoAgent({
+        label,
+        cmd: 'unused-for-live-master',
+        cols: 80,
+        rows: 24,
+        env: { ABDUCO_SOCKET_DIR: dir },
+        backend,
+        preserveReplayOnAdopt: true,
+      })
+      expect(replaying.adopted).toBe(true)
+      expect(resizes).toEqual([])
+
+      // Suppression is attach-time only; a later explicit redraw stays real.
+      replaying.redraw()
+      expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+      replaying.dispose()
+
+      resizes.length = 0
+      const ordinary = await spawnAbducoAgent({
+        label,
+        cmd: 'unused-for-live-master',
+        cols: 80,
+        rows: 24,
+        env: { ABDUCO_SOCKET_DIR: dir },
+        backend,
+      })
+      expect(ordinary.adopted).toBe(true)
+      expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+      ordinary.dispose()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
   it('wraps the create command in a named transient --user scope (the cgroup that survives redeploy)', () => {
     // The master must land in a sibling cgroup, not the daemon's service cgroup,
     // or `systemctl restart` (KillMode=control-group) takes it down on every redeploy.
+    // Slice and budget are passed explicitly so this asserts the SHAPE rather
+    // than this host's RAM; the derived defaults have their own test in
+    // `scope.test.ts`.
     expect(
-      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')]),
+      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')], {
+        slice: 'podium-sessions.slice',
+        budget: { memoryHighBytes: 900, memoryMaxBytes: 1000, tasksMax: 64 },
+      }),
     ).toEqual([
       '--user',
       '--scope',
       '--collect',
       '--quiet',
+      '--slice=podium-sessions.slice',
       '--property=CPUWeight=50',
       '--property=IOWeight=100',
+      '--property=MemoryHigh=900',
+      '--property=MemoryMax=1000',
+      '--property=TasksMax=64',
+      '--property=OOMPolicy=continue',
       '--unit=podium-1.scope',
       '--',
       'abduco',
@@ -281,6 +377,7 @@ describe('alt-screen chrome stripper', () => {
 })
 
 const hasAbduco = isAbducoAvailable()
+const hasScopeMaster = hasAbduco && (await canScopeMaster())
 
 // POD-107: the in-test killAbducoSession calls sit on the happy path — a failed
 // assertion or timeout leaks the detached master for days. Sweep every label this
@@ -419,7 +516,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
   }, 15000)
 })
 
-describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn', () => {
+describe.skipIf(!hasScopeMaster)('scope reclaim before respawn', () => {
   // Reproduces the diagnosed "agent keeps getting shut down" loop: a session's
   // deterministic scope (`<label>.scope`) is left ACTIVE by orphaned grandchildren the
   // agent spawned (a leaked sub-stack, stray Xvfb …). The same-named systemd-run then

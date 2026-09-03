@@ -38,6 +38,7 @@ import {
   SubscriptionRegistry,
   wireSchemaDigest,
 } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
 import { resolveUpdateChannel } from '@podium/runtime/config'
 import { durableSessionLabel } from '@podium/runtime/instance'
@@ -75,13 +76,16 @@ import { NativeLoginService } from './modules/accounts/native-login'
 import { APPROVAL_STALL_SWEEP_MS, ApprovalService } from './modules/approvals/service'
 import { AutomationScheduler } from './modules/automations/scheduler'
 import { AutomationsService } from './modules/automations/service'
-import { EventBus } from './modules/bus'
+import { EventBus, type EventMap } from './modules/bus'
 import { DaemonRequestBroker } from './modules/daemon-request'
 import { EventLogRetention } from './modules/events/retention'
 import { QuotaBackfill } from './modules/quota-history/backfill'
 import { QuotaSampler } from './modules/quota-history/service'
 import { WriteFunnel } from './modules/funnel'
 import { HostsService, type MemoryBreakdown } from './modules/hosts/service'
+import { InteractionFeedPublisher } from './modules/interactions/feed'
+import { deliverToNativeMenu } from './modules/interactions/native-menu-delivery'
+import { InteractionService } from './modules/interactions/service'
 import { IssueEventFeedPublisher } from './modules/issue-events/feed'
 import { IssueSessionLifecycle } from './modules/issue-session-lifecycle'
 import { DurableIssueAccessIndex } from './modules/issues/access-index'
@@ -128,7 +132,7 @@ import { serverTransferRpcAdapter } from './modules/server-transfer/rpc-adapter'
 import { ServerTransferService } from './modules/server-transfer/service'
 import { readPromotedTargetMetadata } from './modules/server-transfer/target-status'
 import { machinesForPrincipal } from './modules/sessions/command-ctx'
-import { QUEUED_INPUT_SWEEP_MS } from './modules/sessions/inbox'
+import { QUEUED_INPUT_SWEEP_MS, SYSTEM_INBOX_PRINCIPAL } from './modules/sessions/inbox'
 import { SessionInstructionRegistry } from './modules/sessions/instructions'
 import { SessionLifecycle } from './modules/sessions/lifecycle'
 import { SessionReadToolkit } from './modules/sessions/read-toolkit'
@@ -191,6 +195,13 @@ interface SessionRegistryOptions {
   updatePubkey?: () => string
   /** Signed transition path to the current update key. */
   updateKeyRotations?: () => readonly UpdateKeyRotation[]
+  /**
+   * Is this server's own binary the deployment's to replace rather than the
+   * updater's? (PDM-26, `updateScope: 'fleet-only'`.) Stated by the composition
+   * root, which is the only place that reads the deployment's environment.
+   * Absent means `all` — every self-hosted install.
+   */
+  coordinatorExcluded?: () => boolean
   /**
    * This installation's own `dev` feed — address, origin fence, trust root and
    * machine credential. Read PER RESOLVE, because a Settings write to Public URL
@@ -288,6 +299,9 @@ export interface RegistryModules {
   issueCommands: IssueCommandDispatcher
   specs: SpecsService
   approvals: ApprovalService
+  /** The PendingInteraction aggregate (POD-2020) — every blocking ask, durable
+   *  and answerable from any surface. */
+  interactions: InteractionService
   workflows: WorkflowService
   /** Advisory named lease locks [spec:SP-85d1]. */
   locks: LockService
@@ -411,6 +425,9 @@ export class SessionRegistry {
   private readonly store: SessionStore
   private readonly now: () => number
   private localDaemonPortableState: LocalPortableStateControl | undefined
+  /** The superagent service, once assembly has built it — see
+   *  {@link adoptSuperagent}. */
+  private adoptedSuperagent: { dispose(): void } | undefined
 
   constructor(
     store: SessionStore | undefined,
@@ -480,7 +497,9 @@ export class SessionRegistry {
     // Client log + crash ingestion (chunk 3 of the logging strategy). Built at
     // the composition root like every other service; its file sinks open lazily
     // on the first forwarded batch, so a server nobody forwards to opens none.
-    const logs = new LogIngestService()
+    const logs = new LogIngestService({
+      onCrash: (event) => this.bus.emit('client.crashed', event),
+    })
     const sessionInstructions = new SessionInstructionRegistry()
     const liveSessions = new Map<SessionId, Session>()
     // THE CLIENT CONNECTION SET, built before the sessions service that reads it:
@@ -490,9 +509,11 @@ export class SessionRegistry {
     // Stateless: it selects connections and delivers a frame, so a client that
     // reconnects is back at its own default with nothing to clean up.
     const clientLogLevels = new ClientLogLevelDirector(clientRegistry)
-    // FLEET DAEMON LOG CAPTURE (POD-3156). The store's file sinks open lazily on
-    // the first batch, and a daemon forwards nothing until it is raised, so a
-    // server whose fleet nobody has turned up opens no files at all.
+    // FLEET DAEMON LOG CAPTURE (POD-3156, POD-3184). The store's file sinks open
+    // lazily on the first batch, and a daemon now forwards `warn`+ without being
+    // asked — so a server with a healthy remote fleet opens a file per machine
+    // and writes very little to it, and one whose only daemon is its own process
+    // still opens nothing (that daemon does not forward outside a raise).
     const fleetLogs = new FleetLogStore()
 
     const issueAccess = new DurableIssueAccessIndex(
@@ -605,6 +626,7 @@ export class SessionRegistry {
       channelFor: (machineId) => machines.updateChannel(machineId),
       send: (machineId, message) => machines.toMachine(machineId, message),
       now: this.now,
+      ...(options.coordinatorExcluded ? { coordinatorExcluded: options.coordinatorExcluded } : {}),
       ...(options.updatePubkey ? { updatePubkey: options.updatePubkey } : {}),
       nextGrantId: () => randomUUID(),
       // EVERY channel through one resolver (spec §1). `dev` needs this
@@ -918,6 +940,7 @@ export class SessionRegistry {
               agentKind: session.agentKind,
               resume: session.resume,
               transcriptItems: () => session.terminal.transcriptItems(),
+              runtimeTranscriptItems: () => session.terminal.runtimeTranscriptItems(),
             }
           : undefined
       },
@@ -1062,6 +1085,11 @@ export class SessionRegistry {
     const queuedApplyHooks: {
       applied?: (messageId: string, sessionId: SessionId) => void
       injected?: (messageId: string, sessionId: SessionId) => void
+      abandoned?: (input: {
+        sessionId: SessionId
+        turnIds: readonly string[]
+        reason: QueueDrainAbandonedReason
+      }) => void
       interrupted?: (messageId: string) => void
       interruptedPending?: (sessionId: SessionId, messageId?: string) => void
     } = {}
@@ -1085,6 +1113,7 @@ export class SessionRegistry {
         queuedMessageApply.applied(messageId, sessionId),
       noteQueuedMessageInjected: (messageId, sessionId) =>
         queuedMessageApply.injected(messageId, sessionId),
+      queueDrainAbandoned: (input) => queuedApplyHooks.abandoned?.(input),
       interruptQueuedMessage: (messageId) => queuedApplyHooks.interrupted?.(messageId),
       interruptPendingMessage: (sessionId, messageId) =>
         queuedApplyHooks.interruptedPending?.(sessionId, messageId),
@@ -1216,6 +1245,7 @@ export class SessionRegistry {
         hasValidTerminalProof: (sessionId) => sessionsSvc.hasValidTerminalProof(sessionId),
         terminalProofMissing: (sessionId) => sessionsSvc.terminalProofMissing(sessionId),
         daemonRequest: requestBroker,
+        toMachine: (machineId, msg) => machines.toMachine(machineId, msg),
       },
       this.bus,
     )
@@ -1282,6 +1312,8 @@ export class SessionRegistry {
       },
       portableStateFence,
     )
+    let stopClosedIssue: ((input: { issueId: IssueId }) => void) | undefined
+
     const issues = new IssueService({
       store: this.store,
       artifacts: issueArtifacts,
@@ -1361,6 +1393,8 @@ export class SessionRegistry {
           issueId: row.id,
           seq: row.seq,
         }),
+      onIssueCreated: (event) => this.bus.emit('issue.created', event),
+      onIssueClosed: (input) => stopClosedIssue?.(input),
     })
     // Coordinator defaults are lifecycle-derived, not caller discipline. The
     // first eligible agent born on an issue takes an empty coordinator seat;
@@ -1368,7 +1402,7 @@ export class SessionRegistry {
     this.bus.on('session.created', ({ sessionId, issueId }) => {
       if (issueId) issues.ensureCoordinator(issueId, sessionId, { onlyMember: true })
     })
-    this.bus.on('issue.sessionDerived', (event) => {
+    const applySessionDerived = (event: EventMap['issue.sessionDerived']): void => {
       switch (event.kind) {
         case 'gitActivity':
           issues.recordSessionGitActivity(event.sessionId, {
@@ -1408,12 +1442,36 @@ export class SessionRegistry {
           break
         }
       }
+    }
+    const applyRuntimeDerived = async (event: EventMap['issue.runtimeDerived']): Promise<void> => {
+      switch (event.kind) {
+        case 'gitActivity':
+          await issues.projectSessionGitActivity(event.sessionId, {
+            ...(event.commits ? { commits: event.commits } : {}),
+            ...(event.touched ? { touched: event.touched } : {}),
+          })
+          break
+        case 'attention':
+          issues.onSessionAttention(event.sessionId)
+          break
+        case 'turnEnd':
+          await issues.projectSessionTurnEnd(event.sessionId)
+          break
+      }
+    }
+    this.bus.on('issue.sessionDerived', applySessionDerived)
+    this.bus.on('issue.runtimeDerived', applyRuntimeDerived)
+    void sessionsSvc.runtimeGateway.replayBoardProjection().catch((err) => {
+      log.warn('runtime board startup replay paused before cursor advance', { err })
     })
     const issueSessionLifecycle = new IssueSessionLifecycle({
       issues,
       sessions: sessionsSvc,
       ledger: issueArbitration.ledger,
     })
+    stopClosedIssue = (input) =>
+      issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
+
     this.bus.on('session.wakeRequested', ({ sessionId, principal }) => {
       const authorized = sessionsSvc.authorizeQueuedInputAtApply({
         sessionId,
@@ -1525,6 +1583,7 @@ export class SessionRegistry {
       events: this.store.events,
       issues,
       sessions: sessionsSvc,
+      runtimeContractActive: (sessionId) => sessionsSvc.receiptSender.onContract(sessionId),
       mirrorIssueMail: (row) => funnel.run({ write: () => this.store.issues.addIssueMessage(row) }),
       mirrorMarkIssueMailRead: (issueId, ids) =>
         funnel.run({
@@ -1555,6 +1614,11 @@ export class SessionRegistry {
       messagesSvc.onQueuedInputApplied(messageId, sessionId)
     queuedApplyHooks.injected = (messageId, sessionId) =>
       messagesSvc.onQueuedInputInjected(messageId, sessionId)
+    queuedApplyHooks.abandoned = ({ sessionId, turnIds, reason }) =>
+      messagesSvc.onQueueDrainAbandoned(sessionId, turnIds, reason)
+    // A live busy send can be in the message ledger without a SessionInbox row.
+    // The exit event is the real boundary that hands that row to the durable FIFO.
+    this.bus.on('session.exited', ({ sessionId }) => messagesSvc.onSessionExited(sessionId))
     queuedApplyHooks.interrupted = (messageId) => {
       try {
         messagesSvc.cancel(messageId)
@@ -1744,6 +1808,7 @@ export class SessionRegistry {
         // Cross-harness subagent spawn (#237) [spec:SP-34d7 cross-harness]: the
         // child is a FULL Podium session through the one spawn path; --new is the
         // deliberate issue-create path (never automatic).
+        awaitMachineInventory: (machineId) => machines.waitForInventory(machineId),
         spawnSession: (o) =>
           sessionsSvc.createSession({
             ownerUserId: o.ownerUserId,
@@ -1815,8 +1880,16 @@ export class SessionRegistry {
       store: this.store.automations,
       ledger,
       createSession: (o) => sessionsSvc.createSession(o),
-      queueText: (o) => sessionsSvc.queueText(o),
-      resumeAndSend: (o) => sessionsSvc.resumeAndSend(o),
+      // MIGRATED AT THE PORT, NOT IN THE SERVICE (POD-1761 W4, C4). Automations
+      // already names its two transports as ports and asks nothing about session
+      // phase — the delivery decision it makes is "durable outbox for a fresh
+      // prompt, wake for a resume", which is a policy the contract expresses
+      // directly. So the honest migration is to point the ports at the seam and
+      // leave the service alone; rewriting it would change code that was never
+      // the problem, and its `{ok, reason}` handling (spawn throws
+      // AutomationSpawnError on a rejected prompt) is unchanged either way.
+      queueText: (o) => sessionsSvc.receiptSend('queue', o),
+      resumeAndSend: (o) => sessionsSvc.receiptSend('wake', o),
       createIssue: (o) => {
         const issue = issues.create({
           ...o,
@@ -1954,17 +2027,24 @@ export class SessionRegistry {
     })
     // Commands are assembled immediately before Shipping, but handlers run only
     // after construction. Bind the narrow service port through one initialized-
-    // once cell instead of making either module construct the other.
-    let shipping!: ShippingService
+    // once cell instead of making either module construct the other. The cell
+    // is a declaration like any other, so the audit still orders this edge —
+    // a definite-assignment `!` would have hidden it (POD-1411).
+    const shippingCell: { current?: ShippingService } = {}
+    const shippingPort = (): ShippingService => {
+      const service = shippingCell.current
+      if (!service) throw new Error('shipping port used before the service was constructed')
+      return service
+    }
     const issueCommands = new IssueCommandDispatcher({
       arbitration: issueArbitration,
       attachSession: (caller, input) => issueAttach.execute(caller, input),
       issues,
       shipping: {
-        enqueueCurrent: (input) => shipping.enqueueCurrent(input),
-        resolveHold: (input) => shipping.resolveHold(input),
-        cancel: (input) => shipping.cancel(input),
-        deliveryReceipt: (input) => shipping.deliveryReceipt(input),
+        enqueueCurrent: (input) => shippingPort().enqueueCurrent(input),
+        resolveHold: (input) => shippingPort().resolveHold(input),
+        cancel: (input) => shippingPort().cancel(input),
+        deliveryReceipt: (input) => shippingPort().deliveryReceipt(input),
       },
       deleteIssue: (id) => issueSessionLifecycle.deleteIssue(id),
       restoreIssue: (id) => issueSessionLifecycle.restoreIssue(id),
@@ -2110,7 +2190,7 @@ export class SessionRegistry {
       },
       applyPatch: shipwrightApplyPatchThroughRelay(rpc),
     })
-    shipping = new ShippingService({
+    const shipping = new ShippingService({
       repository: this.store.shipping,
       issues: {
         get: (id) => {
@@ -2339,12 +2419,13 @@ export class SessionRegistry {
           { ref: `refs/heads/${issue.branch}` },
           machineId,
         )
-        if (!result.ok || !result.output.trim()) {
+        const tip = result.ok ? result.output.trim().split(/\s+/)[0] : undefined
+        if (!tip) {
           throw new Error(
             `could not freeze ${issue.displayRef ?? issue.id} branch tip: ${result.output}`,
           )
         }
-        return result.output.trim().split(/\s+/)[0]!
+        return tip
       },
       resolveRefTip: async (issue, ref) => {
         const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
@@ -2354,10 +2435,11 @@ export class SessionRegistry {
           { ref: `refs/heads/${ref}` },
           machineId,
         )
-        if (!result.ok || !result.output.trim()) {
+        const tip = result.ok ? result.output.trim().split(/\s+/)[0] : undefined
+        if (!tip) {
           throw new Error(`could not freeze target ${ref}: ${result.output}`)
         }
-        return result.output.trim().split(/\s+/)[0]!
+        return tip
       },
       isAncestor: async (issue, ancestorSha, descendantSha) => {
         const machineId = issue.machineId ?? machines.pickMachineForRepo(undefined, issue.repoPath)
@@ -2382,6 +2464,8 @@ export class SessionRegistry {
         } catch {}
       },
     })
+    // Close the late-bound edge the command dispatcher above reaches through.
+    shippingCell.current = shipping
     this.shipping = shipping
     this.bus.on('machine.connected', () => {
       void shipping
@@ -2495,6 +2579,173 @@ export class SessionRegistry {
     })
     this.bus.on('machine.disconnected', () => updateFleetBridge.onFleetChanged())
 
+    /**
+     * THE PendingInteraction AGGREGATE (POD-2020, spec §4).
+     *
+     * Composed HERE, after `sessionsSvc` and `rpc`, because answering routes
+     * through the existing delivery gate and synthesis reads the transcript
+     * tail. Its two inputs are BUS SUBSCRIPTIONS, not calls from anywhere:
+     * nothing in the existing state-change or session-exit paths knows this
+     * module exists, which is what makes "the aggregate observes; existing UI
+     * behavior is unchanged" structural rather than careful.
+     */
+    const interactionFeed = new InteractionFeedPublisher({
+      ledger,
+      seed: () =>
+        ledger.authority.snapshot('pendingInteraction') as readonly { readonly id: string }[],
+      toWire: (row) => interactions.wireOf(row),
+    })
+    const interactions = new InteractionService({
+      store: this.store.interactions,
+      now: () => new Date(this.now()).toISOString(),
+      publish: (row) => interactionFeed.publish(row),
+      /**
+       * THE FAMILY IS ALREADY A SESSION PROJECTION. It is resolved from the
+       * harness manifest when the session metadata is built; handing that
+       * declaration-backed fact to the interaction aggregate keeps the state
+       * shadow from guessing based on a driver id.
+       */
+      driverFamilyForSession: (sessionId) => sessionsSvc.sessionById(sessionId)?.driverFamily,
+      /**
+       * PROVENANCE FOR THE FAILURE PATH (POD-2414 re-verdict P2/7, narrowed by
+       * the third pass).
+       *
+       * Read from the store directly because the gate is private to the session
+       * wiring. Ownership means the causal stream ALREADY REPORTED THE FAILURE
+       * being shadowed, so the aggregate drops the compatibility `errored` copy
+       * of it rather than racing it. Durable on purpose: an in-memory bit lost
+       * this across a restart.
+       *
+       * IT IS NOT ENOUGH THAT A CHECKPOINT EXISTS, which is what this asked
+       * before. Every accepted coarse event checkpoints, so a terminal
+       * runtime-contract session emitting only `state`/`turn/completed` claimed
+       * ownership of failures it never reported, and its `errored` recovery ask
+       * was suppressed into silence. The checkpoint supplies the TURN; the
+       * event log supplies the FAILURE.
+       */
+      causalFailuresOwned: (sessionId) => {
+        const checkpoint = this.store.events.runtimeEventCheckpoint(sessionId)
+        if (!checkpoint) return false
+        return this.store.events.hasCausalTurnFailure(sessionId, checkpoint.turnEpoch)
+      },
+      deliver: (input) =>
+        deliverAnswerToSession(
+          {
+            getSession: (id) => sessionsSvc.sessionById(id),
+            sessions: sessionsSvc,
+            rpc: {
+              readTranscript: (readInput) =>
+                rpc.readTranscript(readInput, { kind: 'system', id: 'interaction-answer' }),
+            },
+          },
+          input,
+        ),
+      readTranscript: (input) =>
+        rpc.readTranscript(input, { kind: 'system', id: 'interaction-synthesis' }),
+      policyPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+      /**
+       * THE SCREEN-READ MENU'S ANSWER ROUTE (POD-2414).
+       *
+       * Same keystroke path `deliver` ends in; what differs is where the
+       * options come from. A dialog the CLI draws itself — Claude's onboarding
+       * and trust prompts, which is the operator complaint this issue names —
+       * has no AskUserQuestion in the transcript, so the transcript route can
+       * neither read its options nor match an answer against them, and refused
+       * every answer to a session it could see was blocked.
+       */
+      deliverNativeMenu: (input) =>
+        deliverToNativeMenu(
+          {
+            getState: (id) => sessionsSvc.sessionById(id)?.agentState,
+            answer: (answerInput) => sessionsSvc.answerAskUserQuestion(answerInput),
+          },
+          input,
+        ),
+      /**
+       * STRUCTURED DELIVERY (POD-2023) — the route W2 declared and W5 shipped.
+       *
+       * A `structured` ask came from a protocol driver, so answering it means
+       * replying over that driver's own protocol rather than typing at a menu.
+       * The runtime gateway already owns that round-trip (`runtimeAnswer` →
+       * `runtimeAnswerRequest` → the session's driver), so this is the wiring
+       * and nothing else — which is why the aggregate takes a port instead of
+       * learning what a driver is.
+       *
+       * `answer as Record<string, unknown>` is the contract's own signature at
+       * this seam: the frame carries an open record and the DRIVER narrows it
+       * against the ask it holds, because only the driver knows which harness
+       * request id this answers. Narrowing here would mean the server deciding
+       * the shape of a reply it does not send.
+       */
+      deliverStructured: (input) =>
+        sessionsSvc.runtimeGateway.answer({
+          sessionId: input.sessionId,
+          interactionId: input.interactionId,
+          answer: input.answer as unknown as Record<string, unknown>,
+        }),
+    })
+    /**
+     * THE PROTOCOL ASK INGRESS, BOUND (POD-2023).
+     *
+     * A server-family driver's asks arrive as `runtimeInteractionAsked` frames
+     * and land in the aggregate with the DRIVER's own id, `source: 'protocol'`
+     * and `answerable: 'structured'` — the fields the driver already set,
+     * carried rather than re-derived. Nothing here synthesizes: a protocol ask
+     * has a real request id, which is the identity `hasReliableIdentity`
+     * branches on when it decides whether to dedupe by fingerprint.
+     */
+    sessionsSvc.interactionAsk = (msg) => {
+      // LOGGED, NOT SWALLOWED (POD-2023 review, 7.2). This frame is classified
+      // `control.entity` on the argument that "a dropped one would leave a
+      // session blocked with nothing on any surface saying so" — so a write that
+      // REJECTS is exactly the case the classification is about, and dropping it
+      // into an unhandled rejection would make the aggregate's own failure the
+      // one thing nobody is told about.
+      void interactions
+        .ask({ interaction: { ...msg.interaction, sessionId: msg.sessionId } })
+        .catch((err: unknown) => {
+          log.error('protocol interaction ask failed to reach the aggregate', {
+            err,
+            sessionId: msg.sessionId,
+            kind: msg.interaction.kind,
+          })
+        })
+    }
+    /**
+     * THE FAILURE SINK, BOUND (POD-2414).
+     *
+     * Every coarse turn boundary the runtime event gate commits reaches the
+     * aggregate: a `needs-human` failure opens an ask, and a turn that starts or
+     * completes closes the stale login/recovery row it left behind. AWAITED by
+     * the gate's projector — its durable cursor does not advance until this
+     * resolves — which is what makes a failure survive a crash between the
+     * event's commit and its materialization.
+     *
+     * The provider hint is the session's own harness, so a `login` ask names the
+     * credential a person actually has to refresh instead of echoing a failure
+     * reason back at them.
+     */
+    sessionsSvc.interactionTurn = (msg) => {
+      const provider = sessionsSvc.sessionById(msg.sessionId)?.agentKind
+      return interactions.onTurnEvent({
+        sessionId: msg.sessionId,
+        ev: msg.ev,
+        at: msg.at,
+        ...(provider ? { provider } : {}),
+      })
+    }
+    /**
+     * THE RESOLUTION SINK, BOUND (POD-2414). A protocol ask answered inside the
+     * harness's own UI retires here; without it the aggregate could only ever
+     * open one of those rows.
+     */
+    sessionsSvc.interactionResolved = (msg) => {
+      interactions.onInteractionResolved(msg)
+    }
+    this.bus.on('session.stateChanged', (e) => {
+      void interactions.onStateChanged({ sessionId: e.sessionId, prev: e.prev, next: e.next })
+    })
+    this.bus.on('session.exited', (e) => interactions.onSessionExited(e.sessionId))
     this.modules = {
       bus: this.bus,
       funnel,
@@ -2523,6 +2774,7 @@ export class SessionRegistry {
       issueCommands,
       specs,
       approvals,
+      interactions,
       workflows,
       locks,
       lockCommands,
@@ -2584,6 +2836,7 @@ export class SessionRegistry {
     // store's row-level guard, so boot proceeds minus that row instead of
     // crash-looping) and the issue ledger boot reconcile.
     issues.boot(systemPrincipal('boot-reconcile'))
+    issueSessionLifecycle.startClosedIssueSweep()
     shipping.start()
     void shipping
       .reconcile()
@@ -2607,14 +2860,47 @@ export class SessionRegistry {
       // The by-id read [POD-1646]: one session, not the full pass.
       sessionById: (sessionId) => sessionsSvc.sessionById(sessionId),
       sessionOwner: (sessionId) => sessionsSvc.sessionOwner(sessionId)?.owner,
-      // Durable outbox path: the nudge survives restarts and waits out a booting TUI.
+      /**
+       * Durable outbox path: the nudge survives restarts and waits out a booting
+       * TUI.
+       *
+       * MIGRATED TO THE CONTRACT AS `queue`, NOT `when-ready` (POD-1761 W4, C2).
+       * The name `sendTextWhenReady` describes the INTENT and has always been
+       * implemented as `queueText`; under the contract's split, `when-ready` is
+       * the daemon's in-memory path, which cannot resurrect a parked session. A
+       * literal reading of the name would therefore have downgraded every steward
+       * nudge from "wakes the session" to "dropped if nobody is home" — the exact
+       * class of silent regression this migration is supposed to make impossible.
+       * `queue` is server-completed and durable, so wake/resurrect semantics are
+       * preserved exactly and the receipt simply names what already happened.
+       */
       sendTextWhenReady: (sessionId, text, mutationId) => {
-        const result = sessionsSvc.queueText({
-          sessionId,
-          text,
-          ...(mutationId ? { mutationId } : {}),
-          inputOrigin: 'steward',
-        })
+        const result = sessionsSvc.receiptSend(
+          'queue',
+          {
+            sessionId,
+            text,
+            ...(mutationId ? { mutationId } : {}),
+            inputOrigin: 'steward',
+          },
+          (receipt) => {
+            // LEDGER-VISIBLE, NEVER A RESEND — the uniform `unverified` policy,
+            // applied to a sender that has no message row to stamp. A nudge that
+            // did not durably queue is worth a record; one that did is the
+            // ordinary case and says nothing new.
+            if (receipt.outcome === 'queued') return
+            this.store.events.appendEvent({
+              ts: new Date().toISOString(),
+              kind: 'steward.nudge_receipt',
+              subject: sessionId,
+              payload: {
+                outcome: receipt.outcome,
+                ...(receipt.outcome === 'refused' ? { reason: receipt.refusal.reason } : {}),
+                ...('deliveredAs' in receipt ? { deliveredAs: receipt.deliveredAs } : {}),
+              },
+            })
+          },
+        )
         if (!result.ok) throw new Error(result.reason ?? 'failed to durably queue steward nudge')
       },
       // The `notify` switch's external push (#470) [spec:SP-17db] — injected, not
@@ -2793,6 +3079,27 @@ export class SessionRegistry {
     this.localDaemonPortableState = control
   }
 
+  /**
+   * ADOPT THE SUPERAGENT FOR SHUTDOWN (POD-2772).
+   *
+   * It cannot be a field: it is built from `this.modules`, so it exists only
+   * after this registry does. Left unadopted it was disposed by NOBODY — its
+   * turn reaper is a `setInterval` that outlived every close path and woke into
+   * a closed database, and each e2e file ended with two or three
+   * `RangeError: Cannot use a closed database` from `reapStaleTurns`. Vitest
+   * counts those as unhandled errors and fails the FILE, so a lane whose every
+   * assertion passed still reported red.
+   *
+   * Adoption rather than a `dispose()` call at each construction site, because
+   * there are three of them — the shutdown persist list, the port-in-use
+   * `failListen` path, and the oracle test harness — and all three already call
+   * `dispose()` here. One of them getting a new line and the others not is
+   * exactly the shape this bug already had.
+   */
+  adoptSuperagent(service: { dispose(): void }): void {
+    this.adoptedSuperagent = service
+  }
+
   dispose(): void {
     // FIRST, and before store.close() further down the shutdown's persist list:
     // the memory service owns paced loops (transcript mirror + FTS indexer) that
@@ -2800,6 +3107,9 @@ export class SessionRegistry {
     // handle closed and logged their own failure, so a clean stop was
     // indistinguishable from a broken one (POD-1390).
     this.modules.memory.dispose()
+    // Same hazard, same window: the superagent's turn reaper is a periodic
+    // write against the store this shutdown is about to close (POD-2772).
+    this.adoptedSuperagent?.dispose()
     this.eventRetention.dispose()
     this.quotaSampler.dispose()
     this.quotaBackfill.dispose()
@@ -2808,6 +3118,7 @@ export class SessionRegistry {
     clearInterval(this.queuedInputSweep)
     clearInterval(this.approvalStallSweep)
     this.modules.messages.dispose()
+    this.modules.issueSessionLifecycle.dispose()
     this.issueAutoArchive.dispose()
     this.issueGitWatch.dispose()
     this.automationScheduler.dispose()

@@ -1,0 +1,12 @@
+{
+  "recordedFrom": "grok 0.2.118 (1e1687c1cf) [stable]",
+  "recordedAt": "2026-08-13",
+  "transport": "live `grok agent stdio` ACP JSON-RPC",
+  "source": "POD-2025 W7 live probe logs",
+  "fixture": "live-frames.jsonl",
+  "selection": "Exact complete wire frames for initialize, session/new, session/set_mode, session/prompt, session/update, session/load, session/request_permission, permission reply, session/cancel, and end_turn/cancelled prompt results.",
+  "redactions": "None. Frames with credentials and the user-specific available-command inventory were not selected.",
+  "version": "0.2.118",
+  "build": "1e1687c1cf",
+  "channel": "stable"
+}

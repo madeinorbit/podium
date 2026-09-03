@@ -319,10 +319,21 @@ export default defineConfig(({ command, mode }) => {
       /**
        * ONE COPY EACH, OR THE EDITOR DOES NOT OPEN.
        *
-       * react/react-dom are here because apps/mobile pins react-dom 19.2.3, which
-       * bun hoists to the repo root; without dedupe, root-hoisted libs (base-ui,
-       * testing-library) resolve that copy while our sources get 19.2.7 and
-       * react-dom hard-errors on mismatch.
+       * HOW A SECOND COPY HAPPENS HERE. `bunfig.toml` sets `linker = "isolated"`
+       * with `hoist = false`, so there is no repo-root hoist to blame: every
+       * package lives once per PEER CONTEXT under `node_modules/.bun/`, and a
+       * dependency that is installed against two different peer sets gets two
+       * physical directories. Which copy an import lands on is then decided by
+       * which `.bun` context the IMPORTER sits in — not by the lockfile, which
+       * still shows one entry. That is why the fix belongs here in the bundler
+       * rather than in an install step.
+       *
+       * react/react-dom are the live example. apps/mobile pins react 19.2.3 while
+       * the web app is on 19.2.7, so the store holds both, and a shared library
+       * is installed once against each: `@testing-library/react@16.3.2` exists as
+       * two contexts, one linking react/react-dom 19.2.3 and one 19.2.7, while
+       * `@base-ui-components/react` links 19.2.7. Without dedupe a bundle can pull
+       * in both and react-dom hard-errors on the mismatch.
        *
        * The CodeMirror and Lezer rows are the same class of failure with a louder
        * ending (POD-2469). `@codemirror/state` builds every extension out of
@@ -332,14 +343,20 @@ export default defineConfig(({ command, mode }) => {
        * in extension set", and the file panel throws the moment it mounts an editor.
        * View mode renders a preview and survived; edit and side-by-side did not.
        *
-       * Two copies is what a MIXED node_modules gives you, and one lockfile entry
-       * does not prevent it. This checkout's `apps/web/node_modules/@codemirror/`
-       * holds symlinks into `node_modules/.bun/` for `state` and `view` but not for
-       * `language`, and none at all for `@lezer/*`, so `SourceEditor.tsx` took
-       * `EditorState` from the `.bun` copy while `editor-theme.ts` reached
-       * `syntaxHighlighting` through the hoisted root one. Same version, same
-       * lockfile line, two physical modules — and it is the layout that decides,
-       * which is why the fix belongs here rather than in an install step.
+       * The original diagnosis for POD-2469 was a MIXED node_modules under the
+       * old hoisted linker: `apps/web/node_modules/@codemirror/` held links for
+       * `state` and `view` but not `language`, and none at all for `@lezer/*`, so
+       * `SourceEditor.tsx` took `EditorState` from one copy while
+       * `editor-theme.ts` reached `syntaxHighlighting` through the root-hoisted
+       * other. CHECKED AGAIN ON A CURRENT ISOLATED INSTALL (POD-3202): that exact
+       * mixed state is gone. `apps/web/node_modules/@codemirror/` now links every
+       * declared package including `language`, `@lezer/highlight` is linked too,
+       * and the store holds exactly one context per CodeMirror/Lezer package —
+       * there is no root `node_modules/@codemirror` or `@lezer` left to split
+       * against. So these rows are not fixing a split visible today; they are the
+       * guard that keeps one from reappearing the moment a peer bump forks a
+       * context, which costs a crash rather than bytes. Do not drop them on the
+       * grounds that the install currently looks clean.
        *
        * `@lezer/highlight` earns its row without any crash to point at: the `tags`
        * a grammar marks its tree with must be the same objects `HighlightStyle`
@@ -366,13 +383,16 @@ export default defineConfig(({ command, mode }) => {
        * That figure was first written here as 112,673 over THREE packages,
        * missing @trpc/server. Re-derived from the failing dist in POD-2530.
        *
-       * WHERE THE SECOND COPY CAME FROM. Not from a version conflict: it was the
-       * SAME version, from another checkout. `.worktrees/` sits inside the main
-       * checkout, so a worktree missing `apps/web/node_modules` walks up past its
-       * own root and finds `/…/podium/node_modules`. The escape is the same one
-       * the `@podium/harness/browser` alias above exists to stop, and it is why
-       * these rows belong here rather than in an install step — no install in
-       * THIS checkout can fix what another checkout's node_modules answers.
+       * WHERE THOSE SECOND COPIES CAME FROM. Not from a version conflict: it was
+       * the SAME version, from another checkout. `.worktrees/` sits inside the
+       * main checkout, so a worktree that has not been installed walks up past
+       * its own root and finds `/…/podium/node_modules`. Isolated linking does
+       * not close that door — it only means the copy up there is reached through
+       * the parent's `.bun` store instead of a root hoist. `bun run setup:worktree`
+       * in every worktree is what prevents it; these rows are what survives
+       * someone forgetting. It is the same escape the `@podium/harness/browser`
+       * alias above exists to stop, and the reason the fix lives here: no install
+       * in THIS checkout can change what another checkout's node_modules answers.
        *
        * Every one of these was measured resolving twice in a real build. The
        * family siblings (`@dnd-kit/*`, `@codemirror/lang-*`) share the identical
@@ -397,13 +417,13 @@ export default defineConfig(({ command, mode }) => {
         'crelt',
         'style-mod',
         'clsx',
-        // `motion` is declared here, but bun hoists it and its two internal
-        // packages to the repo root. From a worktree the web build then
-        // resolved `motion-dom` twice — once from its own root and once by
-        // walking up into the parent checkout, since `.worktrees/` lives
-        // inside it — and the budget check refused the bundle. Containers
-        // never saw it because they have no parent checkout to walk up into,
-        // so this only ever failed for someone building from a worktree.
+        // `motion` and its two internal packages split for the walk-up reason
+        // above: from an uninstalled worktree the web build resolved
+        // `motion-dom` twice — once from its own tree and once by walking up
+        // into the parent checkout, since `.worktrees/` lives inside it — and
+        // the budget check refused the bundle. Containers never saw it because
+        // they have no parent checkout to walk up into, so this only ever
+        // failed for someone building from a worktree.
         'motion',
         'motion-dom',
         'motion-utils',

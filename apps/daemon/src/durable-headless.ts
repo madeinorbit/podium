@@ -20,8 +20,8 @@ import {
   declaredValue,
   type HarnessHeadless,
   harnessAdapterFor,
-  resolvedHarnessPath,
   type ResolvedHarnessInventory,
+  resolvedHarnessPath,
 } from '@podium/harness'
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
@@ -33,14 +33,18 @@ import {
   spawnAbducoAgent,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
+  headlessChildEnv,
   type HeadlessEmit,
+  headlessSpawnEnv,
   HeadlessTurnError,
   type HeadlessTurnHandle,
   type HeadlessTurnOutcome,
   type HeadlessTurnSpec,
 } from './headless-drivers.js'
+import { createPiStreamReducer } from './pi-stream.js'
 
 interface DurableResult {
   ok: boolean
@@ -223,7 +227,7 @@ function cursorSessionId(
   const output = execFileSync(resolvedHarnessPath(snapshot, 'cursor'), ['create-chat'], {
     encoding: 'utf8',
     timeout: 60_000,
-    env: { ...process.env, ...env },
+    env: headlessChildEnv('cursor', env),
   })
   const id = output.split('\n').at(-1)?.trim() ?? ''
   if (!/^[0-9a-f-]{36}$/i.test(id)) {
@@ -252,16 +256,27 @@ function prepareInvocation(
   if (headless.driver === 'claude-sdk') {
     if (spec.mcpConfig && spec.toolPolicy !== 'none') writeAtomic(paths.mcp, spec.mcpConfig)
     const exec = buildClaudeDurableExec(spec, paths)
+    // NO `env` here. `spec.env` ALREADY carries this snapshot's command
+    // environment as its base layer (control/headless.ts builds it with
+    // `spawnEnv({ sessionEnv: snapshot.commandEnvironment.env, podiumEnv })`),
+    // with the instance-owned keys on top. Returning it again made it adapter
+    // env, and adapter env won at the spawn — so `HOME` reverted from the
+    // instance's agent home to `commandEnvironment.machineHome` and the SDK
+    // child wrote its transcript where the reader does not look (POD-3059).
+    // What belongs here is adapter-SPECIFIC env only, as codex's per-turn MCP
+    // bearer below is.
     return {
       ...exec,
       cmd: resolvedHarnessPath(snapshot, 'claude-code'),
-      env: { ...snapshot.commandEnvironment.env },
       knownSessionId: spec.resumeValue ?? spec.sessionUuid,
     }
   }
   let sessionId = spec.resumeValue ?? spec.sessionUuid
   if (headless.resumeIdAllocation === 'create-chat' && !sessionId)
-    sessionId = cursorSessionId(paths, snapshot, { ...snapshot.commandEnvironment.env, ...spec.env })
+    sessionId = cursorSessionId(paths, snapshot, {
+      ...snapshot.commandEnvironment.env,
+      ...spec.env,
+    })
   const exec = buildHeadlessExec(
     spec.agent,
     {
@@ -339,6 +354,7 @@ function outcomeFromOutput(
   const exitCode = Number.parseInt(readFileSync(paths.exit, 'utf8').trim(), 10)
   let harnessSessionId = knownSessionId ?? spec.resumeValue ?? spec.sessionUuid ?? ''
   let output = ''
+  let piError: string | undefined
 
   if (outputFormat === 'claude-stream-json') {
     for (const line of stdout.split('\n')) {
@@ -394,6 +410,13 @@ function outcomeFromOutput(
       } catch {}
     }
     output = output.trim()
+  } else if (outputFormat === 'pi-jsonl') {
+    const reducer = createPiStreamReducer()
+    for (const line of stdout.split('\n')) reducer.pushLine(line)
+    const result = reducer.result()
+    if (result.sessionId) harnessSessionId = result.sessionId
+    output = result.output
+    piError = result.error
   } else {
     output = stdout.trim()
   }
@@ -404,6 +427,8 @@ function outcomeFromOutput(
       harnessSessionId || undefined,
     )
   }
+  // pi exits 0 on a provider/agent error; the verdict lives in its event stream.
+  if (piError) throw new HeadlessTurnError(piError, harnessSessionId || undefined)
   if (!harnessSessionId) {
     throw new Error(`${spec.agent} turn ended without reporting a session id`)
   }
@@ -429,6 +454,7 @@ export function createDurableProgressParser(
   let partialText = ''
   let partialItem = ''
   let opencodeText = ''
+  const pi = outputFormat === 'pi-jsonl' ? createPiStreamReducer() : undefined
 
   const emitPartial = (text: string, itemHint?: string): void => {
     if (!text || (text === partialText && itemHint === partialItem)) return
@@ -447,6 +473,17 @@ export function createDurableProgressParser(
     try {
       event = JSON.parse(line) as Record<string, unknown>
     } catch {
+      return
+    }
+
+    if (pi) {
+      const effect = pi.push(event)
+      if (!effect) return
+      if (effect.sessionId) {
+        emit({ kind: 'status', status: 'running', harnessSessionId: effect.sessionId })
+      }
+      if (effect.toolLabel) emit({ kind: 'status', status: 'tool', label: effect.toolLabel })
+      if (effect.partialText) emitPartial(effect.partialText, effect.itemHint)
       return
     }
 
@@ -586,7 +623,16 @@ export function runDurableHeadlessTurn(
 
   const label = spec.durableLabel ?? `podium-${sessionId}`
   const { knownSessionId, env: execEnv } = writeRunner(spec, paths, snapshot)
-  const spawnEnv = { ...spec.env, ...execEnv }
+  const spawnEnv = {
+    ...headlessSpawnEnv({
+      ...(spec.env ? { specEnv: spec.env } : {}),
+      ...(execEnv ? { execEnv } : {}),
+      commandEnv: snapshot.commandEnvironment.env,
+    }),
+    // Stays LAST: the harness-specific state selector must follow the instance
+    // home even against everything above it.
+    ...harnessInstanceEnv(spec.agent, spec.env?.HOME),
+  }
   let attachment: AgentSession | undefined
   let settled = false
   let disposed = false
@@ -698,6 +744,11 @@ export function runDurableHeadlessTurn(
           cols: 120,
           rows: 40,
           ...(Object.keys(spawnEnv).length > 0 ? { env: spawnEnv } : {}),
+          // The durable shell inherits the daemon environment before it execs
+          // the harness. Delete manifest-declared account overrides at that
+          // process boundary; explicit per-turn credentials remain because the
+          // helper excludes keys present in spawnEnv.
+          stripEnv: harnessChildStripEnv(spec.agent, spawnEnv),
         })
       }
       if (disposed) {

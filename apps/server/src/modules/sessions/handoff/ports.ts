@@ -29,6 +29,7 @@
  */
 
 import type {
+  AgentInventory,
   HandoffManifestV1,
   IssueRehomeTarget,
   MachineId,
@@ -167,7 +168,9 @@ export interface HandoffMachine {
   id: MachineId
   name?: string
   online: boolean
-  inventory?: { agents: { kind: string; installed: boolean; login: { state: string } }[] }
+  inventory?: {
+    agents: Pick<AgentInventory, 'kind' | 'installed' | 'probeError' | 'login'>[]
+  }
 }
 
 /** The slice of an issue the handoff decision reads and re-homes. Every field is

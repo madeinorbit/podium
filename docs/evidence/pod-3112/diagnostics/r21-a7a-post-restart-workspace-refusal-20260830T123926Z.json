@@ -1,0 +1,172 @@
+{
+  "at": "2026-08-30T12:37:57.832Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "deeb58e62eb7b4347bc984279316754657637f84",
+  "instance": "p3112-oc-a7a-r22",
+  "ports": [
+    20414,
+    47417,
+    47418
+  ],
+  "providerPrompts": 1,
+  "launch": {
+    "createRequests": [],
+    "identity": {
+      "sessionId": "d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+      "createdAt": "2026-08-30T12:38:02.553Z",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": "opencode-server",
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fad52a47affeQcNpqqSBf856tR"
+      },
+      "providerSessionId": null,
+      "conversationId": null,
+      "providerPid": null,
+      "cwd": "/tmp/pod-3112-a7a-r22/dummy-repo"
+    },
+    "nativeFirst": true,
+    "screenLength": 3200,
+    "rawRead": {
+      "sessionId": "d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+      "items": [],
+      "cursor": null,
+      "hasMore": false,
+      "truncated": false
+    }
+  },
+  "seed": {
+    "at": "2026-08-30T12:38:11.813Z",
+    "codeword": "R18-MTFSP4DG",
+    "nonce": "P3112-R18-SEED-MTFSP4DG",
+    "workingMs": 5158.801301000001,
+    "growthMs": 4840.343939,
+    "replyMs": 2819.6499289999992,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "rawRead": {
+      "sessionId": "d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+      "items": [
+        {
+          "role": "user",
+          "text": "Remember the codeword R18-MTFSP4DG. Reply with exactly P3112-R18-SEED-MTFSP4DG. Do not use tools.",
+          "ts": "2026-08-30T12:38:16.708Z"
+        },
+        {
+          "role": "assistant",
+          "text": "P3112-R18-SEED-MTFSP4DG",
+          "ts": "2026-08-30T12:38:19.584Z"
+        }
+      ],
+      "cursor": "WyJvcGVuY29kZTpzZXNfZmFkNTJhNDdhZmZlUWNOcHFxU0JmODU2dFIiLDE3ODgwOTM0OTY3MDYsInBydF8wNTJhZDdkN2MwMDE2Z1E4MldqeUtqd2V4SiIsMF0",
+      "hasMore": false,
+      "truncated": false
+    }
+  },
+  "beforeRestart": {
+    "at": "2026-08-30T12:38:20.592Z",
+    "identity": {
+      "sessionId": "d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+      "createdAt": "2026-08-30T12:38:02.553Z",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": "opencode-server",
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fad52a47affeQcNpqqSBf856tR"
+      },
+      "providerSessionId": null,
+      "conversationId": null,
+      "providerPid": null,
+      "cwd": "/tmp/pod-3112-a7a-r22/dummy-repo"
+    },
+    "status": {
+      "sessionId": "d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+      "agentKind": "opencode",
+      "harness": "opencode",
+      "driverId": "opencode-server",
+      "requestedDriverId": "opencode-server",
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": "opencode-go/gpt-5.6-luna",
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:opencode",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": {
+        "seq": 1,
+        "stage": "backlog",
+        "title": "Draft",
+        "todos": []
+      },
+      "commits": [
+        "b80dd88 Initialize A7a probe repo"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    },
+    "journal": {
+      "opencodeSessionId": "ses_fad52a47affeQcNpqqSBf856tR",
+      "process": {
+        "key": "podium-oc-d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+        "pid": 190798
+      },
+      "workdir": "/tmp/pod-3112-a7a-r22/dummy-repo",
+      "seq": 20,
+      "turnEpoch": 1,
+      "bindingVersion": 1
+    },
+    "provider": {
+      "pid": 190798,
+      "live": true,
+      "cwd": "/tmp/pod-3112-a7a-r22/dummy-repo",
+      "instance": true,
+      "exact": true
+    },
+    "views": {
+      "native": false,
+      "chat": true,
+      "terminalNormalizedMarkerOccurrences": 0,
+      "terminalNormalizedLength": 207,
+      "chatMarkerOccurrences": 2,
+      "chatLength": 152
+    },
+    "rawRead": {
+      "sessionId": "d7e20e0b-6af9-4d74-8336-bd04ae848d03",
+      "items": [
+        {
+          "role": "user",
+          "text": "Remember the codeword R18-MTFSP4DG. Reply with exactly P3112-R18-SEED-MTFSP4DG. Do not use tools.",
+          "ts": "2026-08-30T12:38:16.708Z"
+        },
+        {
+          "role": "assistant",
+          "text": "P3112-R18-SEED-MTFSP4DG",
+          "ts": "2026-08-30T12:38:19.584Z"
+        }
+      ],
+      "cursor": "WyJvcGVuY29kZTpzZXNfZmFkNTJhNDdhZmZlUWNOcHFxU0JmODU2dFIiLDE3ODgwOTM0OTY3MDYsInBydF8wNTJhZDdkN2MwMDE2Z1E4MldqeUtqd2V4SiIsMF0",
+      "hasMore": false,
+      "truncated": false
+    },
+    "daemonPid": 189381
+  },
+  "verdict": "REFUSED",
+  "reason": "TimeoutError: waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"project-group\"]').filter({ has: locator('[data-testid=\"project-group-label\"]').filter({ hasText: /^dummy-repo$/ }) }).first() to be visible\u001b[22m\n",
+  "finishedAt": "2026-08-30T12:39:26.173Z"
+}

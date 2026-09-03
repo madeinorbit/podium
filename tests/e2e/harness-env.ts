@@ -1,13 +1,15 @@
 /**
- * Shared session-isolation plumbing for the e2e harness. The harness points
- * ABDUCO_SOCKET_DIR and TMUX_TMPDIR into a deterministic per-port directory so
- * its durable sessions are (a) invisible to the developer's real abduco/tmux
- * sessions and (b) reapable as a set — Playwright SIGKILLs the webServer tree on
- * shutdown, so an in-process handler alone cannot be trusted to clean up.
- * reapHarnessSessions() runs at harness startup (self-healing after a hard kill)
- * and again from Playwright's globalTeardown.
+ * Shared session-isolation plumbing for the e2e harness. Each invocation gets a
+ * short, owned run root so concurrent same-port harnesses cannot share durable
+ * state, sockets, or scratch repositories. The root is intentionally compact
+ * because Unix socket paths have a strict length limit.
+ *
+ * Playwright SIGKILLs the webServer tree on shutdown, so an in-process handler
+ * alone cannot be trusted to clean up; startup and globalTeardown reap only
+ * roots carrying this harness's ownership marker.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
+import { createHash, randomUUID } from 'node:crypto'
 import {
   chmodSync,
   constants,
@@ -17,7 +19,7 @@ import {
   readdirSync,
   readFileSync,
   rmSync,
-  statSync,
+  writeFileSync,
 } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -25,40 +27,137 @@ import { join } from 'node:path'
 const HARNESS_SHUTDOWN_GRACE_MS = 10_000
 const HARNESS_FORCE_KILL_WAIT_MS = 1_000
 const HARNESS_SHUTDOWN_POLL_MS = 50
+const HARNESS_RUN_ID_ENV = 'PODIUM_E2E_RUN_ID'
+const HARNESS_OWNER_FILE = '.podium-e2e-owner'
+const HARNESS_OWNER_VERSION = 1
+const GENERATED_RUN_ID_LENGTH = 8
+
+interface HarnessOwner {
+  version: typeof HARNESS_OWNER_VERSION
+  port: number
+  runId: string
+  pid: number
+  createdAt: number
+}
 
 /**
- * Tmp root for the harness's per-port dirs: the HOST tmpdir, deliberately NOT the
- * per-test-file `TMPDIR` container that test-hermetic-env.ts installs (SP-0be7).
- * That container is exported as PODIUM_TEST_HOST_TMPDIR's fallback only; two
- * reasons this base must escape it:
- *
- *  1. Determinism. This path is a cross-PROCESS contract, not a per-process temp:
- *     serve-harness parks durable abduco masters under it, and a *different*
- *     process (Playwright globalTeardown, the next run's startup reap) must
- *     recompute the identical path to reap them "as a set". The container is
- *     per-fork and random, so vitest forks and the Playwright side silently
- *     disagreed on where the harness lived.
- *  2. abduco's socket budget. abduco builds the master's socket at
- *     `$ABDUCO_SOCKET_DIR/abduco/<user>/<label><@host>` and hard-fails with
- *     "create-session: File name too long" once that exceeds sun_path (108).
- *     A `podium-<uuid>` label + `@<host>` spends 64 of it, leaving 43 for the
- *     socket dir: `/tmp/podium-e2e-<port>/abduco` (27) fits, but the container
- *     prefix (`/podium-test-run-XXXXXX`, +23) overflowed it — the daemon could
- *     not spawn ANY session and the e2e test only saw a 20s output timeout.
- *
- * Not a tmp leak: unlike the unmanaged mkdtemp sites SP-0be7 contained, this is
- * ONE fixed dir per port that reapHarnessSessions() removes at startup (self-
- * healing after a hard kill), on afterAll, and from globalTeardown.
+ * Give one Playwright/harness invocation a short identity. The identity is
+ * carried in the environment to the webServer, browser workers, and teardown;
+ * direct harness scripts mint it in their own process. It is deliberately
+ * short because the directory also contains Unix socket paths.
+ */
+export function ensureHarnessRunId(): string {
+  const existing = process.env[HARNESS_RUN_ID_ENV]?.trim()
+  const runId = existing ? compactRunId(existing) : randomRunId()
+  process.env[HARNESS_RUN_ID_ENV] = runId
+  return runId
+}
+
+function randomRunId(): string {
+  return randomUUID().replaceAll('-', '').slice(0, GENERATED_RUN_ID_LENGTH)
+}
+
+function compactRunId(value: string): string {
+  const compact = value.toLowerCase().replace(/[^a-z0-9]/g, '')
+  if (compact.length > 0 && compact.length <= GENERATED_RUN_ID_LENGTH) return compact
+  // An externally supplied long token must not be allowed to grow socket paths.
+  return createHash('sha256').update(value).digest('hex').slice(0, GENERATED_RUN_ID_LENGTH)
+}
+
+/**
+ * Host tmpdir is intentionally used instead of the per-file hermetic TMPDIR
+ * container. This is a cross-process path contract: the webServer, browser
+ * workers, and globalTeardown must all resolve the same short root.
+ * Keep production TMPDIR at /tmp: current socket paths have only single-digit
+ * headroom, and a TMPDIR roughly six characters longer can make session spawn
+ * fail and surface only as a silent e2e output timeout. The short run id, not a
+ * longer TMPDIR, provides per-run isolation.
  */
 function harnessTmpRoot(): string {
   return process.env.PODIUM_TEST_HOST_TMPDIR?.trim() || tmpdir()
 }
 
-export function harnessStateBase(port: number): string {
-  return join(harnessTmpRoot(), `podium-e2e-${port}`)
+function harnessStateBaseFor(port: number, runId: string): string {
+  return join(harnessTmpRoot(), `podium-e2e-${port}-${runId}`)
 }
-export function harnessPidFile(port: number): string {
-  return join(harnessStateBase(port), 'state', 'harness.pid')
+
+function harnessOwnerFile(base: string): string {
+  return join(base, HARNESS_OWNER_FILE)
+}
+
+function readHarnessOwner(ownerFile: string): HarnessOwner | undefined {
+  try {
+    const value = JSON.parse(readFileSync(ownerFile, 'utf8')) as Partial<HarnessOwner>
+    if (
+      value.version !== HARNESS_OWNER_VERSION ||
+      !Number.isSafeInteger(value.port) ||
+      typeof value.runId !== 'string' ||
+      typeof value.pid !== 'number' ||
+      !Number.isSafeInteger(value.pid) ||
+      value.pid <= 1 ||
+      !Number.isFinite(value.createdAt)
+    ) {
+      return undefined
+    }
+    return value as HarnessOwner
+  } catch {
+    return undefined
+  }
+}
+
+function ownerMatches(
+  owner: HarnessOwner | undefined,
+  port: number,
+  runId: string,
+): owner is HarnessOwner {
+  return owner?.port === port && owner.runId === runId
+}
+
+function ownsHarnessDir(dirs: ReturnType<typeof harnessEnv>): boolean {
+  return ownerMatches(readHarnessOwner(dirs.ownerFile), dirs.port, dirs.runId)
+}
+
+/** Claim a run root before any state, socket, or scratch-repository files exist. */
+function claimHarnessDir(dirs: ReturnType<typeof harnessEnv>): void {
+  mkdirSync(dirs.base, { recursive: true, mode: 0o700 })
+  const owner = readHarnessOwner(dirs.ownerFile)
+  if (owner) {
+    if (ownerMatches(owner, dirs.port, dirs.runId) && owner.pid === process.pid) return
+    throw new Error(`e2e harness run root is already owned: ${dirs.base}`)
+  }
+  if (readdirSync(dirs.base).length > 0) {
+    throw new Error(`e2e harness run root is unowned: ${dirs.base}`)
+  }
+
+  const nextOwner: HarnessOwner = {
+    version: HARNESS_OWNER_VERSION,
+    port: dirs.port,
+    runId: dirs.runId,
+    pid: process.pid,
+    createdAt: Date.now(),
+  }
+  try {
+    writeFileSync(dirs.ownerFile, `${JSON.stringify(nextOwner)}\n`, {
+      encoding: 'utf8',
+      flag: 'wx',
+      mode: 0o600,
+    })
+  } catch (error) {
+    const existing = readHarnessOwner(dirs.ownerFile)
+    if (existing && ownerMatches(existing, dirs.port, dirs.runId) && existing.pid === process.pid) {
+      return
+    }
+    throw error
+  }
+  chmodSync(dirs.base, 0o700)
+}
+
+export function harnessStateBase(port: number, requestedRunId?: string): string {
+  return harnessStateBaseFor(port, compactRunId(requestedRunId ?? ensureHarnessRunId()))
+}
+
+export function harnessPidFile(port: number, requestedRunId?: string): string {
+  return join(harnessStateBase(port, requestedRunId), 'state', 'harness.pid')
 }
 
 function processIsAlive(pid: number): boolean {
@@ -87,7 +186,9 @@ export async function stopHarnessProcess(
   port: number,
   options: { graceMs?: number; forceKillWaitMs?: number; pollMs?: number } = {},
 ): Promise<void> {
-  const pidFile = harnessPidFile(port)
+  const dirs = harnessEnv(port)
+  if (!ownsHarnessDir(dirs)) return
+  const pidFile = join(dirs.stateDir, 'harness.pid')
   let pid: number
   try {
     pid = Number.parseInt(readFileSync(pidFile, 'utf8').trim(), 10)
@@ -122,8 +223,11 @@ export async function stopHarnessProcess(
   while (processIsAlive(pid) && Date.now() < killedDeadline) await sleep(pollMs)
 }
 
-export function harnessEnv(port: number): {
+export function harnessEnv(port: number, requestedRunId?: string): {
+  port: number
+  runId: string
   base: string
+  ownerFile: string
   stateDir: string
   abducoSocketDir: string
   tmuxTmpDir: string
@@ -132,11 +236,15 @@ export function harnessEnv(port: number): {
   codexRolloutRoot: string
   codexRolloutTraceRoot: string
 } {
-  const base = harnessStateBase(port)
+  const runId = compactRunId(requestedRunId ?? ensureHarnessRunId())
+  const base = harnessStateBaseFor(port, runId)
   const discoveryHomeDir = join(base, 'home')
   const codexHomeDir = join(discoveryHomeDir, '.codex')
   return {
+    port,
+    runId,
     base,
+    ownerFile: harnessOwnerFile(base),
     stateDir: join(base, 'state'),
     abducoSocketDir: join(base, 'abduco'),
     tmuxTmpDir: join(base, 'tmux'),
@@ -165,6 +273,7 @@ export function applyRealAgentCodexEnv(
   options: RealAgentCodexEnvOptions = {},
 ): ReturnType<typeof harnessEnv> {
   const dirs = harnessEnv(port)
+  claimHarnessDir(dirs)
   const sourceHomeDir = options.sourceHomeDir ?? homedir()
   // Capture the inherited Codex home before replacing it. A developer may already
   // select a non-default native account with CODEX_HOME; that is the auth to reuse.
@@ -200,9 +309,12 @@ export function applyRealAgentCodexEnv(
   return dirs
 }
 
-/** SIGTERM every abduco master and tmux server inside the harness dirs, then wipe. */
-export function reapHarnessSessions(port: number): void {
-  const { base, stateDir, abducoSocketDir, tmuxTmpDir } = harnessEnv(port)
+/**
+ * SIGTERM every abduco master and tmux server inside the harness dirs, then wipe.
+ * Callers validate the ownership marker before reaching this private helper.
+ */
+function reapHarnessSessionsOwned(dirs: ReturnType<typeof harnessEnv>): void {
+  const { base, stateDir, abducoSocketDir, tmuxTmpDir } = dirs
 
   // The harness's daemon installs its own abduco under <state>/bin when none is
   // on PATH — the leaked masters run exactly that binary. Listing with a missing
@@ -323,31 +435,20 @@ export function reapHarnessSessions(port: number): void {
   // should already be stopped, but a dying process or filesystem lag can still
   // leave a short removal race; bound it rather than replacing the test result.
   rmSync(base, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
-  // The per-port scratch repos serve-harness seeds live OUTSIDE base by design
-  // (specs recompute their deterministic paths); reap them with the port's state.
-  const scratchRepo = join(harnessTmpRoot(), `zz-podium-e2e-repo-${port}`)
-  for (const dir of [scratchRepo, `${scratchRepo}-feat`, `${scratchRepo}-target`]) {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
-  }
 }
 
-/**
- * Minimum age before a pid-file-less harness dir is considered abandoned. A
- * starting harness creates its dirs before writing harness.pid; never reap
- * inside that window or a concurrent run on another port loses its sessions.
- */
-const STALE_HARNESS_DIR_MIN_AGE_MS = 30 * 60 * 1000
+export function reapHarnessSessions(port: number, requestedRunId?: string): void {
+  const dirs = harnessEnv(port, requestedRunId)
+  if (!ownsHarnessDir(dirs)) return
+  reapHarnessSessionsOwned(dirs)
+}
 
-/**
- * Reap ABANDONED per-port harness dirs (POD-107). reapHarnessSessions is keyed
- * by port, so a run on an ad-hoc port that dies hard (SIGKILL, reboot, a verify
- * script Ctrl-C'd) parks its abduco masters — keyecho/node processes — under
- * /tmp/podium-e2e-<port> for days; no later run on a DIFFERENT port ever sweeps
- * them. This walks every podium-e2e-* dir and reaps those whose harness pid is
- * dead, or whose pid file never appeared and the dir has gone stale. Live
- * harnesses on other ports are left alone.
- */
-export function reapStaleHarnessDirs(now: number = Date.now()): number[] {
+export function harnessScratchRepo(port: number, requestedRunId?: string): string {
+  return join(harnessStateBase(port, requestedRunId), 'zz-podium-e2e-repo-' + port)
+}
+
+/** Reap only abandoned run roots carrying this harness's ownership marker. */
+export function reapStaleHarnessDirs(_now: number = Date.now()): number[] {
   const reaped: number[] = []
   let entries: string[]
   try {
@@ -355,61 +456,45 @@ export function reapStaleHarnessDirs(now: number = Date.now()): number[] {
   } catch {
     return reaped
   }
+
   for (const entry of entries) {
-    const m = /^podium-e2e-(\d+)$/.exec(entry)
-    if (!m) continue
-    const port = Number(m[1])
-    let pid: number | undefined
+    const match = /^podium-e2e-([0-9]+)-([a-z0-9]+)$/.exec(entry)
+    if (!match) continue
+    const portText = match[1]
+    const runId = match[2]
+    if (portText === undefined || runId === undefined) continue
+    const port = Number(portText)
+    const dirs = harnessEnv(port, runId)
+    const owner = readHarnessOwner(dirs.ownerFile)
+    // A directory without a valid marker is not ours, even if its name looks
+    // familiar. In particular, never age-delete a caller's similarly named dir.
+    if (!ownerMatches(owner, port, runId)) continue
+    if (owner.pid === process.pid || processIsAlive(owner.pid)) continue
     try {
-      const parsed = Number.parseInt(readFileSync(harnessPidFile(port), 'utf8').trim(), 10)
-      if (Number.isSafeInteger(parsed) && parsed > 1) pid = parsed
-    } catch {
-      // no pid file
-    }
-    let stale = false
-    if (pid !== undefined) {
-      stale = pid !== process.pid && !processIsAlive(pid)
-    } else {
-      // No usable pid marker: either abandoned before startup finished or a
-      // harness that is starting RIGHT NOW. Only age can tell them apart.
-      try {
-        const { mtimeMs } = statSync(join(harnessTmpRoot(), entry))
-        stale = now - mtimeMs > STALE_HARNESS_DIR_MIN_AGE_MS
-      } catch {
-        // vanished while we looked — someone else reaped it
-      }
-    }
-    if (!stale) continue
-    try {
-      reapHarnessSessions(port)
+      reapHarnessSessionsOwned(dirs)
       reaped.push(port)
     } catch {
       // best-effort: a half-removed dir heals on the next sweep
     }
   }
-  // Orphaned scratch repos: past runs whose podium-e2e-<port> dir is already gone
-  // left their zz-podium-e2e-repo-<port>* trees behind (no processes, pure disk
-  // litter). A LIVE harness always has its state dir, so "no state dir + old"
-  // is safe to remove.
-  for (const entry of entries) {
-    const m = /^zz-podium-e2e-repo-(\d+)/.exec(entry)
-    if (!m) continue
-    if (existsSync(harnessStateBase(Number(m[1])))) continue
-    try {
-      const full = join(harnessTmpRoot(), entry)
-      if (now - statSync(full).mtimeMs > STALE_HARNESS_DIR_MIN_AGE_MS) {
-        rmSync(full, { recursive: true, force: true, maxRetries: 10, retryDelay: 50 })
-      }
-    } catch {
-      // vanished while we looked
-    }
-  }
   return reaped
 }
 
-/** Create the isolation dirs and point this process's env at them. */
-export function applyHarnessEnv(port: number): ReturnType<typeof harnessEnv> {
-  const dirs = harnessEnv(port)
+/**
+ * Create the owned isolation dirs and point this process's in-process consumers at them.
+ *
+ * The returned `env` is the child-process boundary: Bun does not reliably observe later
+ * process.env mutations, so every child launched by the harness must receive this snapshot.
+ */
+export function applyHarnessEnv(
+  port: number,
+  requestedRunId?: string,
+): ReturnType<typeof harnessEnv> & { env: Record<string, string> } {
+  // Every harness startup reaches this function. Sweep dead, explicitly owned
+  // sibling roots before claiming this run so hard-killed sessions self-heal.
+  reapStaleHarnessDirs()
+  const dirs = harnessEnv(port, requestedRunId)
+  claimHarnessDir(dirs)
   for (const d of [dirs.stateDir, dirs.abducoSocketDir, dirs.tmuxTmpDir]) {
     mkdirSync(d, { recursive: true, mode: 0o700 })
   }
@@ -423,5 +508,11 @@ export function applyHarnessEnv(port: number): ReturnType<typeof harnessEnv> {
   // stale build instead of the apps/web/dist the suite just built — so drop it
   // and let server.ts fall back to the repo-relative dist.
   delete process.env.PODIUM_WEB_DIR
-  return dirs
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+  delete env.PODIUM_WEB_DIR
+  return { ...dirs, env }
 }

@@ -1,0 +1,42 @@
+{
+  "id": "A1c",
+  "label": "[fix]",
+  "arm": "headless",
+  "harness": "grok-acp",
+  "verdict": "BLOCKED",
+  "summary": "No current-tip measurement started because the required test:heavy lease was unavailable and the fail-closed attempt was cancelled.",
+  "control": {
+    "fired": false,
+    "what": "the current-tip rig must be admitted before its server, daemon, web bundle, and live-session controls can fire",
+    "detail": "test:heavy was held by POD-2985 at the exact attempt; no server, daemon, web build, or Grok session was spawned"
+  },
+  "pin": {
+    "codeCommit": "c30fe4186156b0fd2a57da3bfa4fd97e642a08f2",
+    "serverSpawnSha": null,
+    "daemonSpawnSha": null,
+    "servedWebSourceSha": null,
+    "note": "The product code baseline is c30fe418; process and web pins do not exist because admission failed before bring-up."
+  },
+  "admission": {
+    "localTimestamp": "2026-08-27 21:58:02 CEST",
+    "memAvailableKb": 7001008,
+    "swapFreeKb": 37081296,
+    "load1": 7.96,
+    "rootFreeKb": 4801248,
+    "testHeavy": "held by 7af1266f-9a53-4e5e-bdc6-d944360d9d2b on issue:POD-2985, expires in about 30 minutes",
+    "instance": "not started"
+  },
+  "leaseAttempt": {
+    "command": "podium lock acquire test:heavy --ttl 30m",
+    "result": "queued at position 2 rather than granted",
+    "followUp": "podium lock cancel test:heavy",
+    "cancelled": true,
+    "queueVerified": "this session is absent; only the active POD-2985 holder remained"
+  },
+  "criterionClauses": {
+    "productDriver": "UNMEASURED — no session was created, so grok-acp/server was not observed",
+    "deadSessionControl": "UNMEASURED — no live child was spawned or killed",
+    "typedRefusalOrResume": "UNMEASURED — no dead-session send was attempted",
+    "neverLostMessage": "UNMEASURED — no current-tip message was sent"
+  }
+}

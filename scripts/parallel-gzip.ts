@@ -20,12 +20,21 @@
  * optional accelerator it is here, or the same input would sign differently on two hosts.
  */
 import { spawnSync } from 'node:child_process'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 
 /** Threads pinned to the build scope's CPUQuota=200%. See the note above before changing. */
 export const PIGZ_THREADS = 2
 
 /** Candidate pigz paths tried after PODIUM_PIGZ and a bare `pigz` on PATH. */
-const PIGZ_FALLBACK_PATHS = ['/usr/bin/pigz', '/usr/local/bin/pigz', '/opt/homebrew/bin/pigz']
+const PIGZ_FALLBACK_PATHS = [
+  '/usr/bin/pigz',
+  '/usr/local/bin/pigz',
+  '/opt/homebrew/bin/pigz',
+  // mise installs pigz from mise.toml (conda backend); the shim covers a shell
+  // that has not activated mise, matching resolveZig's ~/.local/bin fallback.
+  join(homedir(), '.local/share/mise/shims/pigz'),
+]
 
 /** Injectable seam: does `candidate` actually RUN? Replaced in tests to simulate a host without pigz. */
 export type PigzDeps = { probe: (candidate: string) => boolean }

@@ -1,0 +1,32 @@
+==============================================================================
+A7a  daemon restart — same conversation?   harness=codex
+==============================================================================
+session 5a93e72a-618e-4950-9d76-06fc2af7b477 created
+BOUND DRIVER       codex-app-server (family server)
+
+PLANT              "CODEWORD-SE079I"
+  send accepted    {"ok":true,"disposition":"delivered"}
+  replied in       4054ms: "OK"
+  conversation     conv_fc166ef2-25a7-4735-9975-710b447ebf21
+
+RESTARTING THE DAEMON …
+  old pid          1944776
+  new pid          1953601
+  reconnected      true
+
+AFTER RESTART      status live  driver codex-app-server
+  conversation     conv_fc166ef2-25a7-4735-9975-710b447ebf21
+  same pointer     true
+  transcript keeps the pre-restart exchange: true
+
+RECALL             asking for the codeword back
+  send accepted    {"ok":true,"disposition":"delivered"}
+  replied in       4583ms: "CODEWORD-SE079I"
+
+==============================================================================
+A7a  PASS
+     codeword recalled after restart: true  (CODEWORD-SE079I)
+     conversation pointer unchanged:  true
+     transcript kept the exchange:    true
+     controls: C1 plant FIRED, C2 daemon pid 1944776->1953601 FIRED, C3 recall turn FIRED
+==============================================================================

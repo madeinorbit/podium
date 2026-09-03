@@ -1,0 +1,48 @@
+ok  server pid=1096182 cwd=/home/mgw/src/podium/.worktrees/issue-2819-bug-codex-loses-attachments-on-the-new-d spawned at 35c1d1e
+  ok  daemon pid=1096293 cwd=/home/mgw/src/podium/.worktrees/issue-2819-bug-codex-loses-attachments-on-the-new-d spawned at 35c1d1e
+  ok  exactly one daemon (pid 1096293) on state root /tmp/pod-2777/state
+  ok  worktree at 35c1d1efd122ee18eec897398579224b898b343a, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 35c1d1e
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"35c1d1efd122ee18eec897398579224b898b343a","short":"35c1d1e","spawnedSha":"35c1d1efd122ee18eec897398579224b898b343a","serverPid":1096182,"daemonPid":1096293,"webSourceSha":"35c1d1e","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 35c1d1efd122ee18eec897398579224b898b343a in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=headless  expecting driver 'codex-app-server'
+PIN                35c1d1efd122ee18eec897398579224b898b343a (web bundle 35c1d1e, server pid 1096182, daemon pid 1096293)
+==============================================================================
+session c758f1ca-b042-4784-bd9f-e1780b75e5b3 created; giving the harness 25000ms to come up
+BOUND DRIVER       codex-app-server (family server)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 3.1s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-U08HTM. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-U08HTM — a blank session cannot produce this by luck
+   REPLY             arrived after 3088ms
+   ASSISTANT TEXT    13 chars: "PODIUM-U08HTM"
+   ELAPSED           3324ms
+
+── attach — attach a file
+   FAIL  text refused as declared, and the image it does declare was not read back
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   TEXT REFUSED      reason=unsupported detail=Codex accepts image attachments only
+                     a TYPED refusal honouring the driver's own declaration — the
+                     contract working, not a defect. So the probe attached the kind
+                     this driver DOES declare instead of stopping there.
+   IMAGE STAGED      /tmp/pod-2777/state/uploads/c758f1ca-b042-4784-bd9f-e1780b75e5b3/119b40f7-a596-4116-9e4a-1cf8f1978757.png (5236 bytes, 960x264 RGB PNG)
+   SECRET IN PIXELS  139665 — drawn into the image, present nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+   READ BACK         no
+
+==============================================================================
+RESULT  codex / headless / driver=codex-app-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 3.1s
+attach          FAIL      fired     text refused as declared, and the image it does declare was not read back
+==============================================================================
+written /tmp/pod-2777/results/codex.headless.json

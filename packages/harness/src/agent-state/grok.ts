@@ -99,7 +99,12 @@ export async function translateGrokUpdatePayload(
   if (directEvent) return grokLifecycleEvents(directEvent, payload, payload, options)
 
   const method = stringField(payload, 'method')
-  if (method !== 'session/update' && method !== '_x.ai/session/update') return []
+  if (
+    method !== 'session/update' &&
+    method !== '_x.ai/session/update' &&
+    method !== '_x.ai/session_notification'
+  )
+    return []
   const params = recordField(payload, 'params')
   const update = recordField(params, 'update')
   if (!update) return []
@@ -121,7 +126,7 @@ export async function translateGrokUpdatePayload(
     case 'turn_completed': {
       const stopReason = normalizeName(stringField(update, 'stop_reason'))
       if (stopReason === 'error') {
-        return withEventTime([grokTurnFailedEvent(update)], at)
+        return withEventTime([classifyGrokProviderFailure(update)], at)
       }
       // Grok's authoritative end-of-turn signal (stop_reason: end_turn). It lands
       // AFTER the Stop hook and the final agent_message_chunk, so it is the record
@@ -140,7 +145,7 @@ export async function translateGrokUpdatePayload(
       const retryState = normalizeName(stringField(update, 'type'))
       if (retryState === 'retrying') return withEventTime([{ kind: 'activity' }], at)
       if (retryState === 'failed' || retryState === 'exhausted') {
-        return withEventTime([grokTurnFailedEvent(update)], at)
+        return withEventTime([classifyGrokProviderFailure(update)], at)
       }
       return []
     }
@@ -575,7 +580,12 @@ async function grokLifecycleEvents(
       return [{ kind: 'turn_completed', ...(verdict ? { verdict } : {}) }]
     }
     case 'stop_failure': {
-      return [grokTurnFailedEvent(fields)]
+      const failure = classifyGrokProviderFailure(fields)
+      // Grok emits this hook as a lifecycle marker even when it carries no
+      // provider error. The live marker is `{ errorClass: 'unknown', detail:
+      // 'unknown' }` if classified; emitting that synthetic failure after the
+      // real retry_state/turn_completed records would clobber the 402 reason.
+      return failure.errorClass === 'unknown' && failure.detail === 'unknown' ? [] : [failure]
     }
     case 'pre_compact':
       return [{ kind: 'compaction', phase: 'start' }]
@@ -1174,6 +1184,7 @@ function updateObservedWork(current: boolean, event: AgentStateEvent): boolean {
     case 'needs_user':
     case 'session_ended':
     case 'session_started':
+    case 'observation_gap':
       return false
     case 'task_delta':
       return current
@@ -1280,7 +1291,9 @@ function stringField(value: unknown, key: string): string | undefined {
 /** Grok reports provider failures in retry_state and in the authoritative
  * turn_completed record. Keep the provider-specific vocabulary here and emit
  * only the normalized failure event to shared layers. [spec:SP-8b0e] */
-function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
+export function classifyGrokProviderFailure(
+  fields: Record<string, unknown>,
+): Extract<AgentStateEvent, { kind: 'turn_failed' }> {
   const message =
     stringField(fields, 'agent_result') ??
     stringField(fields, 'message') ??
@@ -1288,28 +1301,67 @@ function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
     ''
   const errorType =
     stringField(fields, 'error_type') ?? stringField(fields, 'errorType') ?? 'unknown'
-  const detail = `${errorType} ${message}`.toLowerCase()
+  const providerDetail = String(message || errorType)
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 1000)
+  const detail = providerDetail.toLowerCase()
 
   if (/\b(?:usage (?:balance )?(?:exhausted|limit)|quota (?:exhausted|limit))\b/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'usage_limit',
+      retryable: false,
+      detail: providerDetail,
+    }
   }
   if (fields.is_rate_limited === true || /\b(?:status )?429\b|too many requests/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'rate_limit',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:overloaded|temporarily at capacity)\b/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'overloaded', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'overloaded',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:status )?5\d\d\b|server error/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'server_error', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'server_error',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:status )?(?:401|403)\b|unauthori[sz]ed|authentication/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'authentication', retryable: false }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'authentication',
+      retryable: false,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:status )?402\b|payment required|billing|insufficient credits/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'billing_error', retryable: false }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'billing_error',
+      retryable: false,
+      detail: providerDetail,
+    }
   }
   if (/\b(?:network|transport|connection|timeout)\b/.test(detail)) {
-    return { kind: 'turn_failed', errorClass: 'network_error', retryable: true }
+    return {
+      kind: 'turn_failed',
+      errorClass: 'network_error',
+      retryable: true,
+      detail: providerDetail,
+    }
   }
 
   const errorClass = normalizeName(errorType) ?? 'unknown'
@@ -1317,6 +1369,7 @@ function grokTurnFailedEvent(fields: Record<string, unknown>): AgentStateEvent {
     kind: 'turn_failed',
     errorClass,
     retryable: errorClass === 'api' || RETRYABLE.has(errorClass),
+    detail: providerDetail,
   }
 }
 

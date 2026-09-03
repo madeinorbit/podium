@@ -10,14 +10,16 @@ import {
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { readInstallTopology } from './install-topology'
 import {
   admissionRefusal,
+  availableMb,
+  decideConcurrency,
   decideForce,
   fingerprint,
   readCensus,
   sharedTurboCacheDir,
 } from './typecheck'
-import { readInstallTopology } from './install-topology'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 describe('decideForce', () => {
@@ -543,19 +545,35 @@ describe('admissionRefusal', () => {
 })
 
 describe('sharedTurboCacheDir', () => {
-  function repository(): { common: string; worktrees: string[] } {
+  /** A git directory of any kind — common, linked-worktree, or submodule — carries HEAD. */
+  function gitDir(path: string): string {
+    mkdirSync(path, { recursive: true })
+    writeFileSync(join(path, 'HEAD'), 'ref: refs/heads/main\n')
+    return path
+  }
+
+  /** Main checkout `repo`, linked worktrees `alpha` and `beta`, submodule `sub` in each. */
+  function repository(): { main: string; common: string; worktrees: string[] } {
     const root = mkdtempSync(join(tmpdir(), 'podium-cache-key-'))
     cleanup.push(root)
-    const common = join(root, 'repo/.git')
-    mkdirSync(join(common, 'worktrees'), { recursive: true })
+    const main = join(root, 'repo')
+    const common = gitDir(join(main, '.git'))
+    gitDir(join(common, 'modules/sub'))
+    mkdirSync(join(main, 'sub'), { recursive: true })
+    writeFileSync(join(main, 'sub/.git'), `gitdir: ${join(common, 'modules/sub')}\n`)
     const worktrees = ['alpha', 'beta'].map((name) => {
       const worktree = join(root, name)
-      mkdirSync(worktree, { recursive: true })
-      mkdirSync(join(common, 'worktrees', name), { recursive: true })
+      mkdirSync(join(worktree, 'sub'), { recursive: true })
+      gitDir(join(common, 'worktrees', name))
+      gitDir(join(common, 'worktrees', name, 'modules/sub'))
       writeFileSync(join(worktree, '.git'), `gitdir: ${join(common, 'worktrees', name)}\n`)
+      writeFileSync(
+        join(worktree, 'sub/.git'),
+        `gitdir: ${join(common, 'worktrees', name, 'modules/sub')}\n`,
+      )
       return worktree
     })
-    return { common, worktrees }
+    return { main, common, worktrees }
   }
 
   it('gives sibling worktrees of one repository the same durable cache', () => {
@@ -566,6 +584,19 @@ describe('sharedTurboCacheDir', () => {
 
     expect(sharedTurboCacheDir(alpha, {}, home)).toBe(sharedTurboCacheDir(beta, {}, home))
     expect(dirname(sharedTurboCacheDir(alpha, {}, home))).toBe(join(home, '.cache/podium/turbo'))
+  })
+
+  it('gives a submodule the same cache under the main checkout and under a linked worktree', () => {
+    const { main, worktrees } = repository()
+    const [alpha, beta] = worktrees as [string, string]
+    const home = mkdtempSync(join(tmpdir(), 'podium-home-'))
+    cleanup.push(home)
+
+    const underMain = sharedTurboCacheDir(join(main, 'sub'), {}, home)
+    expect(sharedTurboCacheDir(join(alpha, 'sub'), {}, home)).toBe(underMain)
+    expect(sharedTurboCacheDir(join(beta, 'sub'), {}, home)).toBe(underMain)
+    // The submodule is its own repository, not a worktree of the superproject.
+    expect(underMain).not.toBe(sharedTurboCacheDir(main, {}, home))
   })
 
   it('prefers $HOME/.cache over the temporary directory, which TMPDIR reminting moves', () => {
@@ -607,5 +638,65 @@ describe('sharedTurboCacheDir', () => {
     const [first] = repository().worktrees as [string, string]
     const [second] = repository().worktrees as [string, string]
     expect(sharedTurboCacheDir(first, {}, home)).not.toBe(sharedTurboCacheDir(second, {}, home))
+  })
+})
+
+describe('decideConcurrency', () => {
+  // The machine this was measured on: 6 cores, 11.9GB, ~817MB peak per tsgo.
+  const box = (mb: number) => ({ cores: 6, availableMb: mb })
+
+  it('caps by MEMORY when memory is the scarce thing', () => {
+    // The incident: load 90, 859MB available, turbo happily starting ten.
+    expect(decideConcurrency([], box(859)).cap).toBe(1)
+    // 5GB looks roomy and is not: the cap must not spend all of it, because the
+    // daemon and every other session are in the same 12GB.
+    expect(decideConcurrency([], box(5000)).cap).toBe(3)
+  })
+
+  it('reserves headroom for everything else on the box', () => {
+    // Without a reserve, 2000MB would read as "two compilers", i.e. 1.8GB of the
+    // 2GB left, and the daemon dies instead of the gate.
+    expect(decideConcurrency([], box(2000)).cap).toBe(1)
+  })
+
+  it('caps by CORES when memory is plentiful, leaving one for everything else', () => {
+    // 32GB would allow 35 by memory; the box still has six cores, and the daemon,
+    // the live sessions and any running instance are on them too.
+    expect(decideConcurrency([], box(32_000)).cap).toBe(5)
+  })
+
+  it('never proposes zero, however starved the box is', () => {
+    // Refusing to run at all is the failure this cap exists to avoid, not a
+    // safety feature: one at a time is slow, but it finishes.
+    expect(decideConcurrency([], box(0)).cap).toBe(1)
+    expect(decideConcurrency([], box(10)).cap).toBe(1)
+  })
+
+  it('gets out of the way when the caller sets --concurrency, in either spelling', () => {
+    expect(decideConcurrency(['--concurrency=8'], box(859)).cap).toBeNull()
+    expect(decideConcurrency(['--concurrency', '8'], box(859)).cap).toBeNull()
+    // A different flag that merely starts the same way must NOT count as one.
+    expect(decideConcurrency(['--concurrency-limit=8'], box(32_000)).cap).toBe(5)
+  })
+})
+
+describe('availableMb', () => {
+  it('reads MemAvailable, not MemFree', () => {
+    // MemFree ignores reclaimable page cache and undercounts badly; a cap built on
+    // it would serialise a machine that is actually fine. This box reported 221MB
+    // free and 1540MB available at the same instant.
+    const meminfo = [
+      'MemTotal:       12244000 kB',
+      'MemFree:          226000 kB',
+      'MemAvailable:    1577000 kB',
+      '',
+    ].join('\n')
+    expect(availableMb(meminfo)).toBe(1540)
+  })
+
+  it('falls back rather than returning zero when the field is absent', () => {
+    // A kernel without MemAvailable must not read as "no memory", which would
+    // pin concurrency at 1 forever on every non-Linux host.
+    expect(availableMb('MemTotal: 12244000 kB\n')).toBeGreaterThan(0)
   })
 })

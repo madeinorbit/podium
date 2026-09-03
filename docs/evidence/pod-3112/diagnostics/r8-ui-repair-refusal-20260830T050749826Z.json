@@ -1,0 +1,62 @@
+{
+  "at": "2026-08-30T05:07:34.256Z",
+  "issue": "POD-3112",
+  "kind": "r8-ui-repair-verification",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "ded6fbcfe6ec24b11f62243babf34f505a125f46",
+  "instance": "p3112-oc-ui-repair-r8",
+  "ports": [
+    20318,
+    47324,
+    47325
+  ],
+  "providerPrompts": 1,
+  "launch": {
+    "createRequests": [
+      {
+        "at": "2026-08-30T05:07:35.302Z",
+        "body": "{\"0\":{\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3112-oc-ui-repair-r8/dummy-repo/.worktrees/issue-1-r8-repaired-ui-boundary\",\"machineId\":\"d7930285-a927-4f89-a165-a6eb8eac1bb0\",\"issueId\":\"iss_bca84ac3-764f-4b19-9de3-b6380c73b13c\",\"runtimeContract\":true}}"
+      }
+    ],
+    "identity": {
+      "sessionId": "e6195591-8346-45ae-a9df-343a7682773a",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server"
+    },
+    "nativeFirst": true,
+    "authenticatedVisibleCli": true
+  },
+  "first": {
+    "sentAt": "2026-08-30T05:07:43.070Z",
+    "inputDispatch": true,
+    "workingMs": null,
+    "terminalGrowthMs": 2909.4999270000008,
+    "providerReplyMs": 5328.584046,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "verdict": "REFUSED",
+  "reason": "Error: first control {\"sentAt\":\"2026-08-30T05:07:43.070Z\",\"inputDispatch\":true,\"workingMs\":null,\"terminalGrowthMs\":2909.4999270000008,\"providerReplyMs\":5328.584046,\"userCount\":1,\"assistantCount\":1,\"chatOccurrences\":2}",
+  "finishedAt": "2026-08-30T05:07:49.826Z",
+  "pins": {
+    "serverSpawnSha": "ded6fbcfe6ec24b11f62243babf34f505a125f46",
+    "daemonSpawnSha": "ded6fbcfe6ec24b11f62243babf34f505a125f46",
+    "servedWebSourceSha": "ae45036",
+    "servedWebBundleVersion": "bundle+RWywN3On",
+    "appsWebIdentical": true,
+    "opencodeVersion": "1.18.25",
+    "opencodeSha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "teardown": {
+    "serverPid": 3071792,
+    "daemonPid": 3071863,
+    "portsClosed": [
+      20318,
+      47324,
+      47325
+    ]
+  },
+  "acceptanceTsvRowsWritten": 0
+}

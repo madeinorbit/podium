@@ -39,6 +39,12 @@ const execSystemctl: SystemctlExec = (command, args) =>
  * leaves it stopped. After a bundle catch-up, revive exactly that instance's
  * blocked unit; healthy, absent, and differently-failed units are untouched.
  * [spec:SP-c29e]
+ *
+ * LEGACY-ONLY since PDM-27: nothing writes a janitor unit any more (the janitor
+ * is a thread inside the server, and a refusal there is reported as DEGRADED
+ * rather than an exit), so this can only ever reach a unit an install carried in
+ * from before the migration. On every other host the probe finds no such unit
+ * and returns false. It goes when the migration window closes.
  */
 export function reviveCompatibilityBlockedJanitor(
   instanceId: string = resolveInstanceId(),

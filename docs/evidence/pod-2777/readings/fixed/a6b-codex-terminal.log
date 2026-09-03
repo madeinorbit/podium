@@ -1,0 +1,53 @@
+==============================================================================
+A6b  chat -> CLI -> chat -> CLI, twice   harness=codex
+==============================================================================
+session bff73b08-1749-43db-b12a-1eca60c5d814
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+CONTROL B          chat answers BEFORE switching: true
+                   and the TUI painted it into scrollback: true
+CONTROL A          CLI echoes BEFORE switching: true (29462 terminal bytes)
+baseline           epoch=0  geometry={"cols":80,"rows":24}
+                   agent pids (census taken with chat declared, so no view processes):
+                     1742514  /tmp/pod-2777/state/agent-home/.opencode/bin/opencode serve --port 34465 --hostname 127.0.0.1
+                     2111034  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2111036  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2113857  /home/mgw/.local/state/podium/p2777/bin/abduco -n podium-p2777-b1e2a0fb-9306-4e85-9e57-86080135477a 
+                     2113858  /home/mgw/.local/bin/codex -c developer_instructions="This project uses Podium's issue tracker. You 
+                     2113867  /home/mgw/.local/state/podium/p2777/bin/abduco -q -e � -a /run/user/1001/podium-p2777/abduco/mgw/pod
+                     2132028  timeout 900 bun docs/evidence/pod-2777/a6b.ts codex
+                     2132029  tee docs/evidence/pod-2777/readings/fixed/a6b-codex-terminal.log
+                     2132031  head -20
+                     2132032  ugrep -G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclud
+                     2132033  bun docs/evidence/pod-2777/a6b.ts codex
+                     2132051  /home/mgw/.local/state/podium/p2777/bin/abduco -n podium-p2777-bff73b08-1749-43db-b12a-1eca60c5d814 
+                     2132052  /home/mgw/.local/bin/codex -c developer_instructions="This project uses Podium's issue tracker. You 
+                     2132053  /home/mgw/.local/state/podium/p2777/bin/abduco -q -e � -a /run/user/1001/podium-p2777/abduco/mgw/pod
+
+switching …
+
+  step          epoch  geometry            marker kept  term bytes  agent pids                 view procs
+  1. -> chat    0      {"cols":80,"rows":24}  true         29682       1742514,2111034,2111036,2113857,2113858,2113867,2132028,2132029,2132031,2132032,2132033,2132051,2132052,2132053  0
+  2. -> CLI     0      {"cols":80,"rows":24}  true         35447       1742514,2111034,2111036,2113857,2113858,2113867,2132028,2132029,2132031,2132032,2132033,2132051,2132052,2132053  0
+  3. -> chat    0      {"cols":80,"rows":24}  true         35447       1742514,2111034,2111036,2113857,2113858,2113867,2132028,2132029,2132031,2132032,2132033,2132051,2132052,2132053  0
+  4. -> CLI     0      {"cols":80,"rows":24}  true         40911       1742514,2111034,2111036,2113857,2113858,2113867,2132028,2132029,2132031,2132032,2132033,2132051,2132052,2132053  0
+
+after the four switches:
+  chat send still answers: true (CHATAFTER-J6P4NY)
+  CLI typing still echoes: true (+15139 bytes)
+
+==============================================================================
+A6b  PASS
+     no restart      epoch stable across all four: true (0)
+                     AGENT pid(s) unchanged:       true [1742514, 2111034, 2111036, 2113857, 2113858, 2113867, 2132028, 2132029, 2132031, 2132032, 2132033, 2132051, 2132052, 2132053]
+                     processes the VIEW adds while the CLI is declared, recorded not scored:
+                     (they come and go with the view. An attach-client cold start on a
+                      view switch is a declared gap in the catalogue — section 9, "cold
+                      start does not fake continuity", absent for every server driver —
+                      and an attach-client exit must never end the session, section 10.)
+     no corruption   scrollback marker survived every switch: true
+     correct size    geometry unchanged: true
+     both views work chat answers: true   CLI echoes: true
+     controls FIRED  CLI echoed and chat answered BEFORE any switching
+==============================================================================

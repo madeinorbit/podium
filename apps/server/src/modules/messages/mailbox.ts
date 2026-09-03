@@ -37,7 +37,13 @@ import type { MessagesRepository } from '../../store/messages'
 import type { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
 import { findSessionById } from '../sessions/session-by-id'
-import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
+import type {
+  MessageSender,
+  MessageSendInput,
+  MessageSendOptions,
+  MessageSendResult,
+  SendDisposition,
+} from './types'
 
 /** Urgency-gated blocking send budgets [spec:SP-cb9f] [POD-854]. A `next-turn`
  *  send blocks up to this budget for the transcript-observed `delivered`; a busy /
@@ -87,7 +93,11 @@ export interface MessageMailboxDeps {
   mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
-  send(from: MessageSender, input: MessageSendInput): MessageSendResult
+  send(
+    from: MessageSender,
+    input: MessageSendInput,
+    opts?: MessageSendOptions,
+  ): MessageSendResult
   cancelQueuedInput(message: MessageRow): void
   /** The transition ledger — a read is a status transition like any other. */
   emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void
@@ -341,8 +351,25 @@ export class MessageMailbox {
     input: MessageSendInput,
     opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
   ): Promise<MessageSendResult> {
-    const r = this.deps.send(from, input)
-    return { ...r, disposition: await this.blockForDelivery(r, opts) }
+    const r = this.deps.send(from, input, { awaitReceipt: true })
+    const disposition = await this.blockForDelivery(r, opts)
+    if (disposition !== 'dead_letter') return { ...r, disposition }
+
+    // A late contract refusal corrects the durable row after the synchronous
+    // send result was built. Project that existing terminal state back through
+    // the blocking caller, instead of leaving the original optimistic `ok`.
+    const final = this.deps.messages.getMessage(r.message.id)
+    const reason =
+      r.reason ??
+      (final?.deliveryDeferredReason
+        ? `dead-lettered: ${final.deliveryDeferredReason}`
+        : undefined)
+    return {
+      ...r,
+      ok: false,
+      disposition,
+      ...(reason !== undefined ? { reason } : {}),
+    }
   }
 
   /** Block by urgency until the send's outcome is trustworthy [spec:SP-cb9f]. Only a
@@ -365,7 +392,11 @@ export class MessageMailbox {
     // within the budget; the row is durably queued and the sweep retries it. Return
     // the honest `accepted` now instead of blocking the whole budget for a
     // confirmation that provably cannot arrive.
-    if (!r.ok) return 'accepted'
+    if (!r.ok) {
+      return this.deps.messages.getMessage(r.message.id)?.status === 'dead_letter'
+        ? 'dead_letter'
+        : 'accepted'
+    }
     const { urgency, toKind } = r.message
     if (urgency === 'fyi' || toKind === 'operator') return r.disposition
     const timeoutMs =

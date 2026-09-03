@@ -44,6 +44,7 @@ import {
   SETUP_COMMANDS_TRPC,
   TELEMETRY_COMMANDS_TRPC,
 } from './instance/registry'
+import { INTERACTION_COMMANDS_TRPC } from './interactions/registry'
 import { LOGS_COMMANDS_TRPC } from './logs/registry'
 import { MODEL_COMMANDS_TRPC } from './models/registry'
 import { PERF_COMMANDS_TRPC } from './perf/commands'
@@ -53,11 +54,16 @@ import { PERF_COMMANDS_TRPC } from './perf/commands'
 const verbOf = (proc: unknown): string | undefined =>
   (proc as { _def?: { type?: string } } | undefined)?._def?.type
 
-/** The eleven families POD-314 derived, each with the table that DECIDES its
+/** The families POD-314 derived (plus POD-2020's), each with the table that DECIDES its
  *  membership. The expected keys are computed from the table — never written out
  *  beside it, which would be the second list that silently disagrees. */
 const FAMILIES = [
   { router: 'approvals', table: APPROVAL_COMMANDS_TRPC },
+  // The PendingInteraction aggregate (POD-2020) — one write, `answer`, and the
+  // reason it belongs in THIS list rather than a module-local test: what has to
+  // be true is that the RUNNING router serves it, since the headless answering
+  // path §4 promises is a tRPC call and nothing else.
+  { router: 'interactions', table: INTERACTION_COMMANDS_TRPC },
   { router: 'conversations', table: CONVERSATION_COMMANDS_TRPC },
   { router: 'perf', table: PERF_COMMANDS_TRPC },
   { router: 'models', table: MODEL_COMMANDS_TRPC },
@@ -80,18 +86,19 @@ const routerRecord = (name: string): Record<string, unknown> =>
 describe('the derived families, against the RUNNING appRouter', () => {
   /**
    * THE NON-VACUITY PIN. Every assertion below is `it.each`-driven, and a table
-   * that quietly shrank would report green by running fewer cases. Thirty is the
-   * current contract-table count, so a
+   * that quietly shrank would report green by running fewer cases. Thirty-one
+   * is the current contract-table count — dev/mw's thirty plus
+   * `interactions.answer` (POD-2020) — so a
    * family dropping out of the derivation fails HERE rather than silently
    * reducing the coverage of everything after it.
    *
    * 29 -> 30: `logs.setDaemonLevel` (POD-3156). The 27 -> 29 before it was
    * pre-existing drift, repaired separately in POD-3168.
    */
-  it('governs twelve families and thirty derived writes', () => {
-    expect(FAMILIES).toHaveLength(12)
+  it('governs thirteen families and thirty-one derived writes', () => {
+    expect(FAMILIES).toHaveLength(13)
     const total = FAMILIES.reduce((n, f) => n + Object.keys(f.table).length, 0)
-    expect(total).toBe(30)
+    expect(total).toBe(31)
   })
 
   it.each(

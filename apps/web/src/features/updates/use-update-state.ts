@@ -40,6 +40,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { isServerUnavailable, makeTrpc } from '@/app/trpc'
 import { noteActiveUpdate } from '@/lib/active-update'
 import { pageBuildDigest, pageBuildVersion, pageBundleVersion } from '@/lib/logging/build-version'
+import { updatesLog } from '@/lib/logging/update-logs'
 import {
   isNativeDesktopUpdateError,
   type NativeDesktopUpdateChannel,
@@ -48,6 +49,7 @@ import {
   onNativeDesktopUpdateProgress,
   persistNativeDesktopUpdateChannel,
 } from '@/lib/nativeDesktop'
+import { pageSurface } from '@/lib/page-surface'
 import { RELOAD_BUDGET_SENTENCE, reloadBudgetSpent } from '@/lib/reload-budget'
 import { servedWebsiteForPage } from '@/lib/served-website'
 import { usePolledQuery } from '@/lib/use-polled-query'
@@ -172,22 +174,13 @@ function defaultServerName(httpOrigin: string): string | undefined {
   }
 }
 
+/**
+ * The surface this page is. Moved to `lib/page-surface.ts` (POD-3224) so the
+ * boot record can state it before this chunk is even fetched; re-exported under
+ * its original name because that is what the panel and its tests call it.
+ */
 export function surfaceFromDesktopBridge(): UpdateSurface {
-  const bridge = nativeDesktopBridge()
-  if (!bridge) return window.location.pathname.startsWith('/mobile') ? 'mobile' : 'web'
-  // launchMode is authoritative. Served-local all-in-one loads http://127.0.0.1
-  // from the sidecar — that page origin must NOT be classified as desktop-remote.
-  if (bridge.launchMode === 'all-in-one' || bridge.launchMode === 'server') {
-    return 'desktop-all-in-one'
-  }
-  if (bridge.launchMode === 'daemon' || bridge.launchMode === 'client') {
-    return 'desktop-remote'
-  }
-  // Older shells omit launchMode. Fall back to page origin: baked tauri:// is
-  // local; any http(s) page on those shells was remote-only (pre-served-local).
-  return window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost'
-    ? 'desktop-all-in-one'
-    : 'desktop-remote'
+  return pageSurface()
 }
 
 async function readJson(url: string): Promise<unknown> {
@@ -439,6 +432,29 @@ function toActionError(error: unknown): ActionError {
   }
 }
 
+/**
+ * ONE LINE WHEN A VERDICT MOVES, AND NONE WHILE IT HOLDS (POD-3224).
+ *
+ * The panel recomputes its inputs on every poll — once a second while an update
+ * is running — so logging them on each pass would put a record a second on the
+ * forwarded stream for the whole of the thing being diagnosed. Logging only the
+ * TRANSITIONS keeps the volume at the number of times the answer actually
+ * changed, which for a whole update is a handful, and that is the property that
+ * makes an `info` floor on `web:updates` affordable.
+ *
+ * Deliberately keyed on the VERDICTS and not on the operation's progress: a step
+ * going from 2/5 to 3/5 is the operation's own record on the server, and
+ * repeating it here would reintroduce the per-second stream by another route.
+ */
+function changeReporter(): (signature: string, emit: () => void) => void {
+  let last: string | undefined
+  return (signature, emit) => {
+    if (signature === last) return
+    last = signature
+    emit()
+  }
+}
+
 export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResult {
   const [server, setServer] = useState<ServerVersion>({})
   const [localBuild, setLocalBuild] = useState<LocalBuild>({})
@@ -464,6 +480,10 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
   const clock = options.now ?? Date.now
   const [now, setNow] = useState<number>(() => clock())
+  /** Change gates. Refs, so they survive a re-render and belong to this hook. */
+  const reportInputs = useRef(changeReporter())
+  const reportServer = useRef(changeReporter())
+  const reportOperation = useRef(changeReporter())
   const trpc = useMemo(() => makeTrpc(options.httpOrigin), [options.httpOrigin])
   const queryChannel = useCallback((): Promise<unknown> => trpc.setup.channel.query(), [trpc])
 
@@ -488,6 +508,31 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
 
   // The shell's own installer, which used to report nothing at all (spec §5).
   useEffect(() => onNativeDesktopUpdateProgress(setDesktopProgress), [])
+
+  /** The served-identity half of the poll's report: only when it moves. */
+  const noteServerChange = (next: ServerVersion): void => {
+    reportServer.current(
+      [
+        next.appVersion ?? '',
+        next.sourceDigest ?? '',
+        next.web?.bundle ?? '',
+        next.web?.digest ?? '',
+        next.installKind ?? '',
+        next.target?.version ?? '',
+      ].join('|'),
+      () =>
+        updatesLog.info('the server this page reads from changed identity', {
+          appVersion: next.appVersion,
+          ...(next.sourceDigest ? { sourceDigest: next.sourceDigest } : {}),
+          ...(next.installKind ? { installKind: next.installKind } : {}),
+          ...(next.web?.bundle ? { servedBundle: next.web.bundle } : {}),
+          ...(next.web?.digest ? { servedDigest: next.web.digest } : {}),
+          ...(next.target?.version ? { targetVersion: next.target.version } : {}),
+          pageBundle: pageBundleVersion() ?? 'unhashed',
+          pageVersion: pageBuildVersion(),
+        }),
+    )
+  }
 
   const active = isOperationActive(live) || proposal?.state === 'building'
 
@@ -529,11 +574,62 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       ])
       return { operation: live, latest, fleet, serverRaw, buildRaw, proposal }
     },
+    /**
+     * A READING THE PANEL ASKED FOR AND DID NOT GET (POD-3224 follow-up).
+     *
+     * On the first live trace the server answered the update mutation in 337 ms
+     * and this panel only entered `running` 5.4 s later. The gap was not the
+     * server and not the network: `run()` calls `refresh()` the moment the
+     * mutation returns, a read was already in flight, and `usePolledQuery` drops
+     * a reading rather than queueing it (its property 3). Nothing recorded that,
+     * so the five seconds were unattributable.
+     *
+     * A `superseded` answer is `info`: it means a reading that had already been
+     * paid for was thrown away and the wait restarted, which is bounded by how
+     * often something calls `refresh()` — actions, not time. A dropped `tick` is
+     * `debug`: at the 1 s active cadence a slow read produces one per second,
+     * which is exactly what must not reach the wire.
+     *
+     * NOT what the follow-up predicted, and worth saying so: an explicit
+     * `refresh()` is never dropped by the in-flight guard, because it restarts
+     * the effect. It abandons the read in flight instead — see `onDropped`.
+     */
+    onDropped: (reason) => {
+      const fields = { reason, cadence: active ? ACTIVE_POLL_MS : IDLE_POLL_MS }
+      if (reason === 'superseded') {
+        updatesLog.info('an update reading arrived after its poll was restarted', fields)
+      } else {
+        updatesLog.debug('an update poll tick was dropped; a read was already running', fields)
+      }
+    },
     // Folded in the read's OWN turn: a reading routed through `data` and a
     // follow-up effect lands one flush late, and the panel is supposed to move
     // when the answer does.
     onData: ({ operation: live, latest, fleet, serverRaw, buildRaw, proposal }) => {
       const at = clock()
+      /**
+       * WHICH ARMS ANSWERED (POD-3224).
+       *
+       * `undefined` from an arm means the read FAILED, and the difference
+       * between "the server says there is no operation" and "we could not ask"
+       * is the difference between an offer and a blank panel. Every branch below
+       * turns on it, and none of it was visible: a panel stuck on stale facts
+       * during a restart looked identical to a panel with nothing to show.
+       *
+       * `debug`, because this fires on every poll and the poll runs at 1 s while
+       * anything is moving. What is worth forwarding is the CHANGE, logged
+       * below.
+       */
+      updatesLog.debug('update poll landed', {
+        cadence: active ? ACTIVE_POLL_MS : IDLE_POLL_MS,
+        live: live === undefined ? 'unread' : live === null ? 'none' : live.state,
+        ...(live ? { operationId: live.id } : {}),
+        latest: latest === undefined ? 'unread' : latest === null ? 'none' : latest.state,
+        fleet: fleet === undefined ? 'unread' : 'read',
+        server: serverRaw === undefined ? 'unread' : 'read',
+        build: buildRaw === undefined ? 'unread' : 'read',
+        proposal: proposal === undefined ? 'unread' : (proposal?.state ?? 'none'),
+      })
       if (live) {
         watched.current.add(live.id)
         rememberWatched(live.id, at)
@@ -558,7 +654,15 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       // the initial unknown — until that arm itself succeeds.
       if (live !== undefined) setOperation(live)
       if (latest !== undefined) setLatest(latest)
-      if (serverRaw !== undefined) setServer(parseServerVersion(serverRaw))
+      if (serverRaw !== undefined) {
+        const next = parseServerVersion(serverRaw)
+        // WHAT THE SERVER IS SERVING, when it moves. This is the fact behind
+        // `assets === 'replaced'` and behind every "the page is stale" verdict,
+        // and it changes once per release rather than once per second — which is
+        // what makes it worth forwarding.
+        noteServerChange(next)
+        setServer(next)
+      }
       if (buildRaw !== undefined) setLocalBuild(localBuildFrom(buildRaw))
       if (fleet !== undefined) setFleetState(fleet)
       if (proposal !== undefined) setProposal(proposal)
@@ -799,8 +903,110 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     ...((note ?? budgetNote) ? { note: note ?? budgetNote } : {}),
   })
 
+  /**
+   * THE PANEL'S INPUTS, WHENEVER THEY CHANGE (POD-3224, question 5).
+   *
+   * Six independent facts decide what the panel says and what its button does,
+   * and until now an operator looking at a stuck panel could observe none of
+   * them. `needRefresh` in particular is a LATCH — the library sets it and only
+   * `hide()` clears it — so "the panel says Reload and the page is current" is a
+   * statement about which of these six disagreed, and it was unanswerable.
+   *
+   * TWO THINGS KEEP THIS OFF THE PER-SECOND WIRE, and both are deliberate:
+   *
+   *  - the signature carries VERDICTS ONLY. Not the operation's step progress,
+   *    and not `view.indicator`: the indicator is recomputed against `now` every
+   *    second and flips on a liveness threshold, so including it would forward a
+   *    record a second by construction. It is still LOGGED, as context read at
+   *    the moment a verdict moved — just never the reason a record exists.
+   *  - the emit is in an EFFECT, not in render. The gate is a ref, and a
+   *    concurrent render that React discards would otherwise advance it, losing
+   *    the very transition the line exists for.
+   */
+  const inputsSignature = [
+    String(options.needRefresh),
+    skew,
+    assets,
+    String(behind),
+    surface,
+    view.state,
+    operationTargetVersion ?? '',
+    String(canInstallDesktop),
+    pending ?? '',
+  ].join('|')
+  const inputsFieldsRef = useRef<Record<string, unknown>>({})
+  inputsFieldsRef.current = {
+    surface,
+    needRefresh: options.needRefresh,
+    skew,
+    assets,
+    behind,
+    state: view.state,
+    indicator: view.indicator,
+    ...(view.operationId ? { operationId: view.operationId } : {}),
+    ...(operationTargetVersion ? { operationTargetVersion } : {}),
+    ...(operationTarget?.artifacts?.web?.digest
+      ? { operationTargetWebDigest: operationTarget.artifacts.web.digest }
+      : {}),
+    pageVersion: localVersion,
+    ...(pageBuildDigest() ? { pageDigest: pageBuildDigest() } : {}),
+    pageBundle: pageBundleVersion() ?? 'unhashed',
+    canInstallDesktop,
+    canReload: options.reload !== undefined,
+    ...(pending ? { pending } : {}),
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the signature is the subject; the fields are read through a ref at the moment it moves
+  useEffect(() => {
+    reportInputs.current(inputsSignature, () =>
+      updatesLog.info('update panel inputs changed', inputsFieldsRef.current),
+    )
+  }, [inputsSignature])
+
+  /**
+   * THE OPERATION THIS PAGE IS LOOKING AT, whenever it becomes a different one
+   * or reaches a different state. The server has the authoritative lifecycle
+   * (question 8); this is the CLIENT's view of it, which is the half that
+   * explains what the user was shown and when.
+   */
+  const operationSignature = [operation?.id ?? 'none', operation?.state ?? '-'].join('|')
+  const operationFieldsRef = useRef<Record<string, unknown>>({})
+  operationFieldsRef.current = {
+    ...(operation
+      ? {
+          operationId: operation.id,
+          state: operation.state,
+          watched: watched.current.has(operation.id),
+          ...(operation.error?.code ? { errorCode: operation.error.code } : {}),
+        }
+      : { operationId: 'none' }),
+    live: live === undefined ? 'unread' : live === null ? 'none' : live.state,
+    latest: latest === undefined ? 'unread' : latest === null ? 'none' : latest.state,
+  }
+  // biome-ignore lint/correctness/useExhaustiveDependencies: as above — the signature is the subject
+  useEffect(() => {
+    reportOperation.current(operationSignature, () =>
+      updatesLog.info('the operation this page is watching changed', operationFieldsRef.current),
+    )
+  }, [operationSignature])
+
   const run = useCallback(
     async (kind: PanelActionKind): Promise<void> => {
+      /**
+       * EVERY ACTION, START TO FINISH (POD-3224, question 6).
+       *
+       * A press used to leave two traces and both were indirect: `pending` in
+       * the DOM for as long as the await lasted, and — if it threw — a sentence
+       * in the panel. What it ASKED FOR, what came back, and how long it took
+       * were nowhere, which is why "I pressed Update and nothing happened" could
+       * not be told apart from "I pressed Update and the answer was cut by the
+       * restart the update itself requested".
+       */
+      const startedAt = clock()
+      updatesLog.info('update action started', {
+        action: kind,
+        surface,
+        ...(operationId ? { operationId } : {}),
+      })
       setPending(kind)
       setNote(undefined)
       setActionError(undefined)
@@ -816,6 +1022,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
             if (!operationId) break
             const outcome = await cancelOperation(trpc, operationId)
             if (!outcome.canceled) {
+              updatesLog.warn('the server refused to cancel this operation', {
+                operationId,
+                refused: outcome.refused ?? 'irreversible',
+                ...(outcome.step ? { step: outcome.step } : {}),
+              })
               setNote(cancelRefusalSentence(outcome.refused ?? 'irreversible', outcome.step))
             }
             break
@@ -851,12 +1062,23 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
             await trpc.updates.checkNow.mutate()
             break
         }
+        updatesLog.info('update action finished', {
+          action: kind,
+          elapsedMs: clock() - startedAt,
+        })
         refresh()
       } catch (error) {
         // EVERY rejection lands here. This is the catch the old `runAction`
         // never had: a refused `installUpdate` used to stop a spinner and say
         // nothing at all.
         if ((kind === 'start' || kind === 'retry') && isServerUnavailable(error)) {
+          // THE EXPECTED HANDOFF, named as such. This branch is the reason a
+          // cut `start` does not paint a failure, and reading it as an error is
+          // the mistake every reviewer of this file has had to be talked out of.
+          updatesLog.info('update action lost its answer to the restart it asked for', {
+            action: kind,
+            elapsedMs: clock() - startedAt,
+          })
           /**
            * Starting an update can cut its own mutation response: the durable
            * operation has already requested the server restart. Never replay
@@ -865,17 +1087,35 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
            */
           refresh()
         } else {
-          setActionError(toActionError(error))
+          const actionError = toActionError(error)
+          updatesLog.warn('update action failed', {
+            action: kind,
+            elapsedMs: clock() - startedAt,
+            ...(actionError.code ? { code: actionError.code } : {}),
+            ...(actionError.message ? { detail: actionError.message } : {}),
+            err: error,
+          })
+          setActionError(actionError)
         }
       } finally {
         setPending(null)
         setDesktopProgress(undefined)
       }
     },
-    [desktopChannel, expectedDesktopVersion, operationId, options.reload, refresh, surface, trpc],
+    [
+      clock,
+      desktopChannel,
+      expectedDesktopVersion,
+      operationId,
+      options.reload,
+      refresh,
+      surface,
+      trpc,
+    ],
   )
 
   const checkNow = useCallback(async (): Promise<void> => {
+    updatesLog.info('update action started', { action: 'check', surface })
     setPending('check')
     setActionError(undefined)
     setDesktopChannel(undefined)
@@ -886,13 +1126,25 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       const info = await readDesktopUpdate(selection)
       setDesktopUpdate(info)
       setCheckedAt(clock())
+      updatesLog.info('update action finished', {
+        action: 'check',
+        channel: selection.channel,
+        desktopUpdate: info?.version ?? 'none',
+      })
       refresh()
     } catch (error) {
-      setActionError(toActionError(error))
+      const actionError = toActionError(error)
+      updatesLog.warn('update action failed', {
+        action: 'check',
+        ...(actionError.code ? { code: actionError.code } : {}),
+        ...(actionError.message ? { detail: actionError.message } : {}),
+        err: error,
+      })
+      setActionError(actionError)
     } finally {
       setPending(null)
     }
-  }, [clock, queryChannel, refresh, trpc])
+  }, [clock, queryChannel, refresh, surface, trpc])
 
   const approveProposal = useCallback(async (): Promise<void> => {
     setProposalPending(true)

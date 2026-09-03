@@ -1,0 +1,2 @@
+PIN OK row=A1a arm=terminal instance=p3152-grok-reply-0d180cc-r10 serverPid=3614773 daemonPid=3614854 serverSha=0d180cc0455832ffe93edf2ac450a47f5f7c8137 webSourceSha=5d7eb60 driver=per-session-runtime-contract grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10 home=/home/mgw
+PIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME

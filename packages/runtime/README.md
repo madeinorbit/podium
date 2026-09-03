@@ -14,8 +14,8 @@ What's actually here:
   — behind the `@podium/runtime/config` subpath, not the root barrel.
 - **`settings.ts`** — the global `PodiumSettings` zod schema + `normalizeSettings`
   (isomorphic — safe for the web bundle).
-- **`sqlite/`** — the runtime-neutral SQLite shim (`node:sqlite` ⇄ `bun:sqlite`) behind
-  `@podium/runtime/sqlite`.
+- **`sqlite/`** — the Bun `bun:sqlite` shim behind `@podium/runtime/sqlite`. Bun-only
+  since PDM-25: opening a database under Node throws rather than falling back.
 - **`connectivity.ts`**, **`join.ts`**, **`setup.ts`** — pairing/join-code + first-run
   setup helpers, each behind their own subpath (some are Node-only).
 - **`auth-store.ts`**, **`local-machine.ts`**, **`run-registry.ts`**,

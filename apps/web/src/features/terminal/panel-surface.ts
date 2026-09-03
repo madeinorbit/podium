@@ -37,6 +37,7 @@
  */
 
 import type { PanelMode } from '@podium/client-core/ui-state'
+import type { TerminalOutlook } from '@podium/client-core/viewmodels'
 import type { SessionMeta, SessionStatus } from '@podium/model/browser'
 
 /** The two live views. Identical to the persisted `PanelMode` — a live panel's
@@ -67,6 +68,7 @@ export type PanelSurface =
   | { readonly kind: 'transit' }
   | { readonly kind: 'parked'; readonly view: ReadOnlyView }
   | { readonly kind: 'ended'; readonly view: ReadOnlyView }
+  | { readonly kind: 'pending' }
   | { readonly kind: 'live'; readonly view: PanelView }
 
 export function panelSurface(input: {
@@ -78,11 +80,40 @@ export function panelSurface(input: {
   readonly chatCapable: boolean
   /** The persisted/derived chat-vs-native pick — only consulted when live. */
   readonly mode: PanelMode
+  /**
+   * Whether this session will have a terminal — `unknown` until the daemon has
+   * said (POD-2290). Only ever consulted for a session that is still starting.
+   */
+  readonly terminal: TerminalOutlook
 }): PanelSurface {
   if (input.inTransit) return { kind: 'transit' }
   const view: ReadOnlyView = input.chatCapable ? 'transcript' : 'recovery'
   if (input.status === 'hibernated') return { kind: 'parked', view }
   if (input.status === 'exited') return { kind: 'ended', view }
+  /**
+   * NOTHING IS COMMITTED WHILE THE SESSION IS STILL COMING UP AND NOBODY HAS
+   * SAID WHICH VIEW IT HAS (POD-2290, round two).
+   *
+   * This state exists because of what the first round got wrong. It read an
+   * absent driver family as "assume a terminal", which is the right reading for
+   * a legacy row and the WRONG one for a session that has not started yet — and
+   * a measured `opencode` spawn spends twelve seconds there. The operator got
+   * the dead pane for twelve seconds and then watched the panel change under
+   * them when the fact landed, switcher and all.
+   *
+   * The honest answer during that window is not a guess in either direction: it
+   * is that the panel does not know yet, and it says so with one placeholder
+   * and no controls it might have to take away.
+   *
+   * SCOPED TO `starting` DELIBERATELY. A LIVE session with no family is not
+   * waiting for anything — it is a legacy row, an older daemon, or a daemon
+   * that has not reconnected since a server restart — and every one of those
+   * has a terminal. Those fall through to `live` and behave exactly as they did
+   * before this state existed.
+   */
+  if (input.terminal === 'unknown' && (input.status === undefined || input.status === 'starting')) {
+    return { kind: 'pending' }
+  }
   // No row yet (optimistic spawn, first paint) reads as LIVE, exactly as the
   // ternary's fall-through did: the "Starting…" overlay covers the wait and
   // `spawnConfirmed` — not this function — holds the PTY mount back.
@@ -101,6 +132,23 @@ export interface PanelGates {
    *  one-way runtime request, so an initial chat surface stays renderer-free
    *  while a terminal loaded earlier remains warm. */
   readonly terminalMounted: boolean
+  /**
+   * The native pane's DOM exists at all — the terminal container, its startup
+   * overlay and the prompt chrome.
+   *
+   * SEPARATE FROM `terminalMounted` because the two answer different questions
+   * (POD-2290). The container is deliberately kept in the DOM while chat is on
+   * top (`display:none`), which is what makes the chat↔native toggle warm; and
+   * it is deliberately rendered BEFORE the PTY may attach, because the startup
+   * overlay inside it is what covers the wait for an optimistic spawn. So
+   * "mounted" cannot gate it in either direction. What it must not survive is a
+   * session that has no terminal to keep warm and no attach to wait for: there
+   * the overlay is a spinner over a wait that will never end.
+   */
+  readonly nativePaneRendered: boolean
+  /** The native view is showing, but there is no terminal behind it — the
+   *  explicit "this agent has no terminal" state, never a spinner. */
+  readonly noTerminalPaneShown: boolean
   /** The PTY is the surface the operator is looking at — drives focus
    *  eligibility (`useTerminalSession`'s `active`) and nothing else. */
   readonly terminalActive: boolean
@@ -124,16 +172,60 @@ export function panelGates(
     /** The server has reconciled the optimistically-spawned session (#119). */
     readonly spawnConfirmed: boolean
     readonly chatCapable: boolean
+    /** There is an engine or harness-client terminal behind the native view —
+     *  `sessionHasTerminal`, false for embedded drivers (POD-2290). */
+    readonly terminalCapable: boolean
+    /**
+     * The switcher has ALREADY been offered for this session at least once
+     * (POD-2290 round two, the operator's "the native and chat button
+     * vanished?!").
+     *
+     * A control that disappears under the cursor is not a state change the user
+     * can read as anything but a fault, so once this panel has offered the
+     * switch it keeps offering it — even if the driver family later says the
+     * terminal is gone, which a re-spawn onto a different driver can genuinely
+     * do. What that costs is a switch to a pane with no PTY, and
+     * `nativePaneRendered` is deliberately NOT made sticky with it: the pane
+     * that opens says it has no terminal instead of spinning.
+     */
+    readonly switchAlreadyOffered: boolean
+    /** Login repair is only actionable in the native terminal. */
+    readonly loginRequired?: boolean
   },
 ): PanelGates {
   const live = surface.kind === 'live'
   const native = live && surface.view === 'native'
   const active = native && input.paneActive
   return {
-    terminalMounted: live && input.spawnConfirmed,
+    /**
+     * `terminalCapable` GATES THE MOUNT AS WELL AS THE SWITCH, and not merely
+     * for symmetry (POD-2290). Mounting issues a `hub.attach` for a session no
+     * daemon will ever bind a PTY to: the request is answered by nobody, `ready`
+     * stays false forever, and that unresolvable wait IS the "Starting
+     * <Harness>…" spinner the operator was stuck behind. The mode derivation
+     * already keeps such a session on chat, so this gate is unreachable through
+     * it — which is exactly why it is stated here rather than assumed. A gate
+     * that holds only because another module happens to agree is not a gate.
+     */
+    terminalMounted: live && input.spawnConfirmed && input.terminalCapable,
+    nativePaneRendered: live && input.terminalCapable,
+    // The sticky switcher's landing place. Reachable only when a session that
+    // once had a terminal stopped having one, which is the one case the sticky
+    // rule above deliberately keeps open — and the pane it opens states that
+    // rather than animating over it.
+    noTerminalPaneShown: native && !input.terminalCapable,
     terminalActive: active,
     ptySizingAllowed: active,
-    modeSwitchOffered: live && input.chatCapable,
+    // Two views, or no switch — and then never taken back. The segmented
+    // control is a choice between chat and a terminal, so it is not offered
+    // where the terminal cannot exist; but a session that HAS offered it keeps
+    // it, because withdrawing a control mid-session is a worse lie than an
+    // occasionally useless one.
+    modeSwitchOffered:
+      live &&
+      input.chatCapable &&
+      !input.loginRequired &&
+      (input.terminalCapable || input.switchAlreadyOffered),
     takeControlOffered: native,
     offerDockOffered: native,
   }

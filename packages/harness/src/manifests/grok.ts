@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import { grokRecordToItems, grokRuntime } from '@podium/transcript'
 import { grokSessionPaths, grokStateProvider, observeGrokState } from '../agent-state/grok.js'
-import { locateGrokChatHistory, locateGrokSessionPaths } from '../agent-state/grok-locate.js'
+import { locateGrokChatHistory } from '../agent-state/grok-locate.js'
 import { withStateChannel } from '../agent-state/types.js'
 import { fingerprintForLoginIdentity } from '../codex-auth-identity.js'
 import { createGrokConversationProvider } from '../discovery/providers/grok.js'
@@ -10,9 +10,11 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  type HarnessEnvironment,
   fileTranscript,
   isSet,
   promptArgv,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
   unsupported,
@@ -28,8 +30,8 @@ interface GrokAuthRecord {
   account_id?: unknown
 }
 
-function grokHome(homeDir: string): string {
-  return process.env.GROK_HOME?.trim() || join(homeDir, '.grok')
+function grokHome(homeDir: string, env: HarnessEnvironment = process.env): string {
+  return env.GROK_HOME?.trim() || join(homeDir, '.grok')
 }
 
 function grokProfile(path: string): string | undefined {
@@ -93,6 +95,7 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
     sessionId: input.resumeValue,
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
     ...(input.homeDir !== undefined ? { homeDir: input.homeDir } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
   })
   return path ? [path] : []
 }
@@ -119,6 +122,7 @@ export const grokManifest: AgentManifest = {
     // Bracketed-paste + one CR can leave Grok's paste chip unsubmitted; retry
     // Enter until a user turn appears or the phase leaves idle (POD-552).
     submitVerification: true,
+    composerReadiness: 'process-settle',
     // A fresh Grok TUI does not start a turn from bracketed paste (POD-549).
     // Chat-view first send must type like the native composer; later turns
     // keep paste + submitVerification (POD-901).
@@ -132,15 +136,22 @@ export const grokManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'grok-session',
+  environment: {
+    removeInherited: [],
+    instanceHome: { variable: 'GROK_HOME', relativeDir: '.grok' },
+  },
 
   inventory: {
     executable: { names: ['grok'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Grok login detection still uses its local credential file'),
     loginCommand: supported({ cmd: 'grok', args: ['login'] }),
-    loginIdentity: supported((homeDir) => grokIdentity(grokHome(homeDir))),
+    loginIdentity: supported((homeDir, env) => grokIdentity(grokHome(homeDir, env))),
     portableCredential: supported({ files: ['.grok/auth.json'], compareFreshness: () => null }),
-    detectLogin(homeDir) {
-      const path = grokHome(homeDir)
+    // Its presence flips grok from the OIDC session in `auth.json` to
+    // API-key/custom-endpoint auth.
+    foreignCredentialEnv: ['XAI_API_KEY'],
+    detectLogin(homeDir, env?: HarnessEnvironment) {
+      const path = grokHome(homeDir, env)
       try {
         const file = JSON.parse(readFileSync(join(path, 'auth.json'), 'utf8')) as Record<
           string,
@@ -204,6 +215,57 @@ export const grokManifest: AgentManifest = {
     return { cmd: 'grok', args: [...(model ? ['--model', model] : []), '--single', prompt] }
   }),
 
+  runtime: {
+    server: supported({
+      driverId: 'grok-acp',
+      kind: 'jsonrpc',
+      spawn: ['grok', 'agent', 'stdio'],
+      transport: 'stdio',
+      requiresPerSessionSecret: false,
+      // 0.2.23 is the first build with the complete agent operator set. The
+      // protocol shapes are fixture-pinned separately against the W7 captures.
+      versionRange: supported('>=0.2.23'),
+      /**
+       * `grok --resume <id>` — the stock TUI, reopening the same conversation
+       * the ACP engine is running.
+       *
+       * NOTHING TO ADDRESS, and that is a fact about `transport: 'stdio'` rather
+       * than a gap. The engine's channel is a private pipe pair the daemon owns;
+       * there is no socket or port for a second client to dial, so the TUI comes
+       * back through grok's own native store instead. An `endpoint.address`
+       * would have nowhere to go, which is why it is absent rather than empty.
+       *
+       * BUILT FROM THIS MANIFEST'S OWN `launch()`: the resume flag and the
+       * new-session rules that go with it are declared once, above.
+       */
+      clientTerminal: supported({
+        labelToken: 'gk',
+        /**
+         * NOT PARKED, and deliberately as today's behaviour rather than as a
+         * claim. Grok's TUI reaches its conversation through the native store
+         * rather than through a writer to the running engine, so parking it may
+         * well be safe — but nothing has driven it, and a harness whose client
+         * has never been left running unattended is not one to grant that on
+         * the strength of an argument. POD-3045 changed opencode, which is
+         * where the defect and the evidence are.
+         */
+        parkOnRelease: false,
+        launch: ({ cwd, conversation }) =>
+          grokManifest.launch({ cwd, resume: { kind: 'grok-session', value: conversation } }),
+      }),
+    }),
+    embedded: unsupported('grok ships no library to host in-process'),
+    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
+    // subscription auth while providing receipts, permission asks, interrupt,
+    // resume and durable cursors. Logged-out sessions stay on the PTY because
+    // that path owns the interactive login affordance.
+    select: (ctx) =>
+      selectRuntimeDriver(
+        ctx,
+        ctx.auth === 'logged-out' ? ['generic-pty'] : ['grok-acp', 'generic-pty'],
+      ),
+  },
   headless: supported({
     driver: 'resume-exec',
     outputFormat: 'text',
@@ -270,6 +332,8 @@ export const grokManifest: AgentManifest = {
   observer: supported((input, host) => {
     let lease = input.observationLease
     let active: ReturnType<typeof observeGrokState> | undefined
+    let stopAuthorityPoll: (() => void) | undefined
+    let authorityGeneration = 0
     let stopped = false
     let pendingRebind:
       | {
@@ -284,7 +348,10 @@ export const grokManifest: AgentManifest = {
 
     const start = (resumeValue: string | undefined): void => {
       if (stopped) return
+      authorityGeneration += 1
       active?.stop()
+      stopAuthorityPoll?.()
+      stopAuthorityPoll = undefined
       const causal =
         lease?.provider === 'grok' && lease.providerSessionId && input.podiumSessionId
           ? {
@@ -352,16 +419,49 @@ export const grokManifest: AgentManifest = {
             ...(input.homeDir ? { homeDir: input.homeDir } : {}),
           })
           host.tailFile(derived.chatHistoryPath)
-          void locateGrokSessionPaths({
-            cwd: input.cwd,
-            sessionId: grokSessionId,
-            ...(input.pathHint ? { pathHint: input.pathHint } : {}),
-            ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-          }).then((located) => {
-            if (located && located.chatHistoryPath !== derived.chatHistoryPath) {
-              host.tailFile(located.chatHistoryPath)
+          const generation = ++authorityGeneration
+          let lookupInFlight = false
+          let lookupRequested = false
+          let authorityResolved = false
+          let tailedPath = derived.chatHistoryPath
+          const locateAuthority = (): void => {
+            if (stopped || generation !== authorityGeneration || authorityResolved) return
+            if (lookupInFlight) {
+              lookupRequested = true
+              return
             }
-          })
+            lookupInFlight = true
+            void locateGrokChatHistory({
+              cwd: input.cwd,
+              sessionId: grokSessionId,
+              ...(input.pathHint ? { pathHint: input.pathHint } : {}),
+              ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+              ...(input.transcriptRoot ? { transcriptRoot: input.transcriptRoot } : {}),
+            })
+              .then((path) => {
+                if (stopped || generation !== authorityGeneration || !path || path === tailedPath) {
+                  return
+                }
+                host.tailFile(path)
+                tailedPath = path
+                if (basename(path) === grokSessionId + '.jsonl') {
+                  authorityResolved = true
+                  stopAuthorityPoll?.()
+                  stopAuthorityPoll = undefined
+                }
+              })
+              .finally(() => {
+                lookupInFlight = false
+                if (lookupRequested) {
+                  lookupRequested = false
+                  locateAuthority()
+                }
+              })
+          }
+          locateAuthority()
+          stopAuthorityPoll = input.transcriptRoot
+            ? input.statTick?.subscribe(locateAuthority)
+            : undefined
         },
         ...(causal
           ? { causal }
@@ -377,6 +477,8 @@ export const grokManifest: AgentManifest = {
     return {
       stop() {
         stopped = true
+        authorityGeneration += 1
+        stopAuthorityPoll?.()
         active?.stop()
       },
       onObservationAck: (ack) => active?.onObservationAck?.(ack),

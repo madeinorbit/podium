@@ -13,7 +13,7 @@ import {
   WorkState,
 } from '@podium/model'
 import { clientSwitchTraceSchema, type FileReadResultMessage } from '@podium/protocol'
-import { loadConfig, resolveUpdateChannel } from '@podium/runtime/config'
+import { loadConfig, resolvePublicUrl, resolveUpdateChannel } from '@podium/runtime/config'
 import {
   applyJoin,
   applyMode,
@@ -56,6 +56,7 @@ import {
   setupFamilyProcedures,
   telemetryFamilyProcedures,
 } from './modules/instance/trpc'
+import { interactionFamilyProcedures } from './modules/interactions/trpc'
 import { issueRegistry } from './modules/issues/registry'
 import { routerFromCommands } from './modules/issues/trpc'
 import { layoutFamilyProcedures } from './modules/layout/trpc'
@@ -252,7 +253,7 @@ import type { PinState, SnoozeMap } from './store/types'
 const fleet = fleetProcedures({
   joinCommand: (pairCode, podiumManaged) => {
     const config = loadConfig()
-    const publicUrl = config.publicUrl
+    const publicUrl = resolvePublicUrl(config, process.env)
     return publicUrl
       ? buildJoinCommand({
           publicUrl,
@@ -533,6 +534,9 @@ export const appRouter = t.router({
    */
   specs: t.router({ ...queryProcedures('specs', SPEC_QUERIES), ...specFamily }),
   approvals: t.router(approvalFamilyProcedures()),
+  /** The PendingInteraction aggregate (POD-2020, spec §4) — `answer` plus the
+   *  two reads the headless answering path needs. */
+  interactions: t.router(interactionFamilyProcedures()),
 })
 
 export type AppRouter = typeof appRouter

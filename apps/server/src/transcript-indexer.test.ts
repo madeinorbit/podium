@@ -1,12 +1,17 @@
-import { asMachineId } from '@podium/model'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { type MirrorReadResult, MirrorService } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TranscriptIndexer } from './modules/memory/transcript-indexer'
 import { SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
+import { forceFeature } from './test-support/features'
+
+// The indexer only runs where a transcript index exists, and that is the
+// `command-palette` flag read at store construction (PDM-25).
+forceFeature('command-palette', true)
 
 // TranscriptIndexer (docs/spec/search-v1.md §2.3) driven end-to-end through a real
 // MirrorService over a fake daemon: chunk hooks feed the indexer, so the tests pin

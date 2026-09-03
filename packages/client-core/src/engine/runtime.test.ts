@@ -144,7 +144,7 @@ function makeApi(): any {
     },
     discovery: {
       refreshRepos: {
-        mutate: vi.fn(async () => ({ repositories: [KNOWN_REPO], diagnostics: [] })),
+        mutate: vi.fn(async () => ({ repositories: [KNOWN_REPO], diagnostics: [], machines: [] })),
       },
     },
     pins: {
@@ -376,6 +376,86 @@ describe('engine lifecycle', () => {
     engine.dispose()
   })
 
+  it('refreshes an authorized repo snapshot when a machine event keeps the same online count', async () => {
+    const api = makeApi()
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    hub.emit('machines', [
+      { id: asMachineId('daemon-before-restart'), online: true, name: 'before' },
+    ])
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    // A rebound daemon replacing the prior visible machine leaves the online
+    // count at one. The old count-rise heuristic skipped this invalidation and
+    // could leave the worklist joined against the wrong machine snapshot.
+    hub.emit('machines', [
+      { id: asMachineId('daemon-after-restart'), online: true, name: 'after' },
+    ])
+    await settle()
+
+    expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
+  it('does not supersede repo refreshes for machine metadata-only broadcasts', async () => {
+    const api = makeApi()
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    const machineId = asMachineId('rebound-daemon')
+    hub.emit('machines', [{ id: machineId, online: true, name: 'before inventory' }])
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    // Inventory/build reporting broadcasts the full machine projection after
+    // reattach without changing which machine is visible or reachable. It must
+    // update the machine paint without invalidating the authorized repo fetch.
+    hub.emit('machines', [
+      {
+        id: machineId,
+        online: true,
+        name: 'after inventory',
+        inventory: { agents: [] },
+      },
+    ])
+    await settle()
+
+    expect(api.discovery.refreshRepos.mutate).not.toHaveBeenCalled()
+    expect(engine.getSnapshot().machines[0]?.name).toBe('after inventory')
+    engine.dispose()
+  })
+
+  it('refreshes repos when use is revoked without changing machine identity or liveness', async () => {
+    const api = makeApi()
+    const { engine, hub } = makeEngine({ api })
+    engine.start()
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    const machineId = asMachineId('shared-daemon')
+    hub.emit('machines', [
+      { id: machineId, online: true, name: 'shared daemon', use: 'granted' },
+    ])
+    await settle()
+    api.discovery.refreshRepos.mutate.mockClear()
+
+    // The machine remains visible and online, but filesystem scan authority is
+    // gone. The authorized repo snapshot must be recomputed under that denial.
+    hub.emit('machines', [
+      { id: machineId, online: true, name: 'shared daemon', use: 'denied' },
+    ])
+    await settle()
+
+    expect(api.discovery.refreshRepos.mutate).toHaveBeenCalledTimes(1)
+    engine.dispose()
+  })
+
   it("publishes the signed-in user's superagent threads at boot (POD-330)", async () => {
     // The view used to fetch this list itself and hold it in useState. It is
     // store state now, so boot must actually load it — a store field nobody
@@ -503,7 +583,7 @@ describe('single URL writer (React #185 regression, engine-level)', () => {
 
   it('settles when there are no known worktrees at all', async () => {
     const api = makeApi()
-    api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories: [], diagnostics: [] }))
+    api.discovery.refreshRepos.mutate = vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] }))
     const { engine, fatals } = makeEngine({ url: '/workspace?wt=%2Fgone&pane=dead', api })
     let notifications = 0
     engine.subscribe(() => {

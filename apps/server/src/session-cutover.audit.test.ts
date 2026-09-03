@@ -162,6 +162,8 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
+    stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
+    runtimeContractActive: (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // POD-729: the chat paths send through the `mail.send` CONTRACT, not through
     // the delivery service — the capability is closed over here, at the composition
     // root, exactly as `sessionCommandCtx` does it.

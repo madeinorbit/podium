@@ -1,0 +1,161 @@
+ok  server pid=584704 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic started after the commit
+  ok  daemon pid=584780 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic started after the commit
+  ok  exactly one daemon (pid 584780) on state root /tmp/pod-2777/state
+  ok  worktree at e28013a8526ee454ca6b49296b9902daa6bbe1e2, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at e28013a
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"e28013a8526ee454ca6b49296b9902daa6bbe1e2","short":"e28013a","serverPid":584704,"daemonPid":584780,"webSourceSha":"e28013a","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running e28013a8526ee454ca6b49296b9902daa6bbe1e2 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=headless  expecting driver 'opencode-server'
+PIN                e28013a8526ee454ca6b49296b9902daa6bbe1e2 (web bundle e28013a, server pid 584704, daemon pid 584780)
+==============================================================================
+session ab7b8f9f-5109-4147-8210-99021c3eab6a created; giving the harness 25000ms to come up
+BOUND DRIVER       opencode-server (family server)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 7.2s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-IUZRKI. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-IUZRKI — a blank session cannot produce this by luck
+   REPLY             arrived after 7160ms
+   ASSISTANT TEXT    13 chars: "PODIUM-IUZRKI"
+   ELAPSED           7291ms
+
+── attach — attach a file
+   PASS  the agent read the file and echoed FILESECRET-7VT24I
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   STAGED            path=/tmp/pod-2777/state/uploads/ab7b8f9f-5109-4147-8210-99021c3eab6a/11de46cc-792b-4415-b145-f3fdf56373d4.txt ref={"id":"11de46cc-792b-4415-b145-f3fdf56373d4","path":"/tmp/pod-2777/state/uploads/ab7b8f9f-5109-4147-8210-99021c3eab6a/11de46cc-792b-4415-b145-f3fdf56373d4.txt","filename":"podium-2777-secret.txt","med
+   SECRET IN FILE    FILESECRET-7VT24I — present in the bytes and nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+                     (a 'queued' disposition here would mean the session was still busy)
+   ECHOED BACK       yes, after 4573ms
+   APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the
+                     attachment raises an external_directory permission ask. A drive that
+                     did not answer it would time out and report "never read the file".
+   WHY A NONCE       an agent can agree that it sees a file without reading one;
+                     it cannot produce these bytes without having read them.
+
+── interaction — a pending interaction (permission / approval)
+   BLOCKED  no ask — this harness ran the tool without asking (permissive posture)
+   control: FIRED — 13 new transcript item(s) after the prompt; 19 delta frame(s) total
+   INTERACTIONS.LIST empty for this session after 21s
+   TOOL CALLS SEEN   bash, bash, bash, bash, bash, bash, bash, bash, bash, bash, bash
+   BLOCKED, NOT FAILED: the harness approved its own tool call, so the
+   product was never handed an ask to surface. That is a fact about this
+   rig's permission posture, not about the product's ask plane.
+
+── model-switch — model / effort switch
+   BLOCKED  no product surface exists to switch model or effort mid-session
+   control: FIRED — model=(unset) observedModel=(none)
+   REQUESTED MODEL   (session default)
+   OBSERVED MODEL    (none — renders "requested, not yet observed")
+   OBSERVED EFFORT   (none)
+   DECLARATION       codex: configure unsupported ("model and effort are set at
+                     thread start and per turn"); opencode: unsupported; terminal:
+                     unsupported ("a TUI takes its model at launch"); grok: supported
+                     for permissionMode ONLY, explicitly not model/effort.
+   PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText
+                     carries no per-turn model or effort override either.
+   READING           the declaration and the behaviour agree, and the product does
+                     not offer a switch it cannot honour. Nothing is broken and
+                     nothing is proven — the cell is empty on BOTH arms, so this is
+                     not a way in which headless is better or worse.
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   FAIL  1 preview frames — the reply did not build in the pane
+   control: FIRED — 1 frame(s), first at +13ms
+   JOINED            8758ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)
+   PHASE AT JOIN     working — a turn was in flight when the viewer arrived
+   PREVIEW FRAMES    1
+   FIRST             +13ms  epoch=4 seq=512 rows=2 chars=1894
+   LAST              +13ms  epoch=4 seq=512 rows=2 chars=1894
+   GROWTH            0/0 transitions increased the visible character count
+   MONOTONIC/ROW     YES — no row ever shrank
+   FRAME TYPES       hostMetricsChanged=6 sessionDraftChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1 turnPreview=1
+
+── interrupt — interrupt a running turn
+   FAIL  still working 120s after interrupt
+   control: FIRED — phase=working, 1 preview frame(s), 42 chars on the transcript
+   WAS RUNNING       phase=working, 1 preview frame(s), 42 chars on the transcript
+   INTERRUPT SENT    {"ok":true}
+   SETTLED           NEVER — phase=working
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT AT INTERRUPT 42 chars → 42 chars at settle (durable transcript)
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the interrupt was sent
+   PREVIEW CHARS     1894 at the interrupt → 1894 at settle
+   READING           generation STOPPED (no frame arrived after the call) but the
+                     phase never left `working`. The turn is over and the product
+                     still shows it running — a stuck state rather than an
+                     unhonoured interrupt. Different defect, different owner.
+
+── stop — stop (the session — the turn-scoped stop is absent from the contract)
+   PASS  session left its running state 153ms after stop (status=hibernated)
+   control: FIRED — present, status=live phase=working
+   BEFORE            status=live phase=working
+   STOP RETURNED     {"ok":true,"worktreeFreed":false,"deferredKill":false}
+   AFTER             status=hibernated phase=working
+   VERIFIED IN       153ms
+   NOTE              this is sessions.stop (the SESSION). The catalogue records
+                     "stop this turn, keep the session" as ABSENT from the contract
+                     on all four drivers; this drive does not pretend otherwise.
+
+── resume — resume after a kill
+   PASS  THIS conversation came back — REMEMBER-1KJ0OA recalled, original exchange intact, same pointer
+   control: FIRED — the session repeated REMEMBER-1KJ0OA before it was killed
+   SECRET            REMEMBER-1KJ0OA — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":false,"reason":"agent is working — let it reach idle first"}; parked after 60280ms (status=live)
+   RESURRECT         {"ok":true}
+     → back live?    YES after 89ms
+   RESUMEANDSEND     {"ok":true,"disposition":"delivered"}
+     → back live?    YES after 20ms
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret came back after 2506ms
+   SAME CONVERSATION YES — pointer conv_2d7c79f4-257d-42d2- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+── provider-error — a provider error surfaced honestly
+   BLOCKED  the bad model was ignored — the harness answered normally, so no error existed
+   control: FIRED — probe 1 PASSED, so a failure in this probe is attributable to the injected fault
+   INJECTED FAULT    model="podium-2777-no-such-model" on a opencode session
+   SESSION           75e78995-708f-4739-8d28-8a514fea988f
+   THE HARNESS       answered anyway: "Hello!"
+   PHASE / STATUS    phase=idle status=live
+   READING           the model string was not honoured as a fault, so the provider
+                     never refused and there was no error to report. This probe
+                     measured NOTHING about honest error surfacing, and says so
+                     rather than scoring a FAIL for a fault that never fired.
+                     A harder fault (revoked credential, unreachable base URL) is
+                     what this cell needs, and it is not in this run.
+
+==============================================================================
+RESULT  opencode / headless / driver=opencode-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 7.2s
+attach          PASS      fired     the agent read the file and echoed FILESECRET-7VT24I
+interaction     BLOCKED   fired     no ask — this harness ran the tool without asking (permissive posture)
+model-switch    BLOCKED   fired     no product surface exists to switch model or effort mid-session
+stream          FAIL      fired     1 preview frames — the reply did not build in the pane
+interrupt       FAIL      fired     still working 120s after interrupt
+stop            PASS      fired     session left its running state 153ms after stop (status=hibernated)
+resume          PASS      fired     THIS conversation came back — REMEMBER-1KJ0OA recalled, original exchange intact, same pointer
+provider-error  BLOCKED   fired     the bad model was ignored — the harness answered normally, so no error existed
+==============================================================================
+written /tmp/pod-2777/results/opencode.headless.json
+EXIT=0

@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
+import { ensureHarnessRunId } from './harness-env'
 
 const PORT = Number(process.env.PORT ?? 8799)
 const ORIGIN = `http://localhost:${PORT}`
+const RUN_ID = ensureHarnessRunId()
 
 export default defineConfig({
   testDir: './browser',
@@ -51,7 +53,7 @@ export default defineConfig({
       // not a multi-minute build budget.
       command:
         'bun browser-dist-preflight.ts && bun --conditions=@podium/source serve-harness.ts',
-      env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge' },
+      env: { ...process.env, PODIUM_UPDATE_CHANNEL: 'edge', PODIUM_E2E_RUN_ID: RUN_ID },
       url: `${ORIGIN}/health`,
       reuseExistingServer: false,
       timeout: 180_000,

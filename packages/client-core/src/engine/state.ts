@@ -34,7 +34,7 @@ import type {
   ThreadId,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
-import type { ApprovalWire } from '@podium/protocol'
+import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
@@ -72,6 +72,7 @@ export interface EngineState {
   /** The curated cross-project issue-event window (POD-1772) — replicated rows,
    *  not a timer's answer. Newest last, as the feed renders them. */
   issueEvents: IssueEventWire[]
+  pendingInteractions: PendingInteractionWire[]
   shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
@@ -640,6 +641,7 @@ export interface EngineStateSeed {
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjection[]
   readonly issueEvents: IssueEventWire[]
+  readonly pendingInteractions: PendingInteractionWire[]
   readonly shipOrders: ShipOrderProjection[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
@@ -675,6 +677,7 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     issues: seed.issues,
     issueProjections: seed.issueProjections,
     issueEvents: seed.issueEvents,
+    pendingInteractions: seed.pendingInteractions,
     shipOrders: seed.shipOrders,
     conversations: seed.conversations,
     automations: seed.automations,

@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
   AwaitingAsk,
@@ -92,6 +93,9 @@ export const UPDATE_OPERATION_KIND = 'update'
  * never interleave. Named here because `update` is the kind that introduces it.
  */
 export const LIFECYCLE_EXCLUSION_GROUP = 'lifecycle'
+
+/** The update kind's own narration. See `operations/engine.ts` for the framework's. */
+const log = createLogger('server:updates')
 
 export const UPDATE_STEP_PREPARE = 'prepare'
 export const UPDATE_STEP_MACHINES = 'machines'
@@ -1148,6 +1152,29 @@ function stepOf(operation: Operation, stepId: string): OperationStep | undefined
  * dialog offering the same update again.
  */
 export function reconcileUpdateOperation(operation: Operation, reality: UpdateReality): Operation {
+  /**
+   * THE REALITY THE SUCCESSOR JUDGED THIS AGAINST (POD-3224, question 8).
+   *
+   * The engine records what the operation was and what it became; only here are
+   * the INPUTS to that decision knowable. "The server did not reach the target"
+   * is the update's most consequential verdict, and reading it without the
+   * version actually running, the digest actually served and whatever note the
+   * parent left is guesswork — the successor is a different binary, and the
+   * question is precisely which one it turned out to be.
+   */
+  log.info('reconciling an adopted update against reality', {
+    operationId: operation.id,
+    state: operation.state,
+    appVersion: reality.appVersion,
+    ...(reality.servedWebDigest ? { servedWebDigest: reality.servedWebDigest } : {}),
+    // The parent's note is the difference between "came back on the wrong
+    // version" and "the parent deliberately rolled this machine back".
+    ...(reality.parentReport ? { parentReport: reality.parentReport } : {}),
+    machines: reality.machineDirectory.length,
+    behind: reality.machineDirectory.filter(
+      (machine) => machine.version !== updateOperationDetails(operation)?.target.version,
+    ).length,
+  })
   const details = updateOperationDetails(operation)
   if (!details) {
     // Bytes that do not name a target cannot be reconciled against anything.

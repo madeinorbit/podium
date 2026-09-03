@@ -206,6 +206,7 @@ class IssueServiceRoot implements IssueTrackerCapabilities {
       () => hierarchy,
       () => attention,
       () => gitWorkflow,
+      deps.onIssueClosed,
     )
     commentsMail = new IssueCommentsMailModule(store, () => reports)
     gitWorkflow = new IssueGitWorkflowModule(

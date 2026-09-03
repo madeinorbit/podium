@@ -20,13 +20,15 @@ import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
   accountIdentity,
+  type HarnessEnvironment,
   fileTranscript,
   type HarnessObservationLease,
-  unsupported,
   isSet,
   promptArgv,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
+  unsupported,
 } from '../manifest.js'
 
 const log = createLogger('harness:codex')
@@ -41,8 +43,8 @@ interface CodexAuthFile {
   }
 }
 
-function codexAuthPath(homeDir: string): string {
-  const codexHome = process.env.CODEX_HOME?.trim() || join(homeDir, '.codex')
+function codexAuthPath(homeDir: string, env: HarnessEnvironment = process.env): string {
+  const codexHome = env.CODEX_HOME?.trim() || join(homeDir, '.codex')
   return join(codexHome, 'auth.json')
 }
 
@@ -99,20 +101,29 @@ function bearerEnvVar(serverName: string): string {
  * out of process listings. Podium's MCP route accepts either `x-podium-mcp-token`
  * or `Authorization: Bearer`, so the switch is transparent server-side.
  */
-function codexMcpArgs(
+/**
+ * EXPORTED FOR THE APP-SERVER DRIVER (POD-1761 W6), not widened for it.
+ *
+ * The `-c` mechanism below is the one verified against codex 0.144.5, and the
+ * app-server child mounts MCP servers exactly the same way an `exec` run does —
+ * so the driver's daemon host calls THIS rather than growing a second
+ * translation that would drift from it on the first field Codex renames. The
+ * `context` argument is what distinguishes their error text and nothing else.
+ */
+export function codexMcpArgs(
   mcpConfig: string | undefined,
-  context: 'harness' | 'headless',
+  context: 'harness' | 'headless' | 'app-server',
 ): { args: string[]; env: Record<string, string> } {
   if (!mcpConfig) return { args: [], env: {} }
   let servers: Record<string, { url?: string; headers?: Record<string, string> }>
   try {
     servers = (JSON.parse(mcpConfig) as { mcpServers?: typeof servers }).mcpServers ?? {}
   } catch {
-    if (context === 'harness') {
-      log.warn('malformed MCP config for codex — refusing a tool-less run', { context })
-      throw new Error('malformed MCP config for codex — refusing a tool-less harness run')
+    if (context === 'headless') {
+      throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')
     }
-    throw new Error('malformed MCP config for codex — refusing a tool-less headless turn')
+    log.warn('malformed MCP config for codex — refusing a tool-less run', { context })
+    throw new Error(`malformed MCP config for codex — refusing a tool-less ${context} run`)
   }
   const args: string[] = []
   const env: Record<string, string> = {}
@@ -178,6 +189,7 @@ export const codexManifest: AgentManifest = {
     observationProvider: 'codex',
     observationProtocol: 'codex-exact',
     submitVerification: false,
+    composerReadiness: 'on-bind',
     rawFirstTurn: false,
     exclusiveInteractiveResume: true,
     promptTitleFallback: false,
@@ -190,14 +202,18 @@ export const codexManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'codex-thread',
+  environment: {
+    removeInherited: [],
+    instanceHome: { variable: 'CODEX_HOME', relativeDir: '.codex' },
+  },
 
   inventory: {
     executable: { names: ['codex'], versionArgs: ['--version'] },
     loginCommandProbe: unsupported('Codex login detection still uses its guarded local auth file'),
     loginCommand: supported({ cmd: 'codex', args: ['login'] }),
-    loginIdentity: supported((homeDir) => {
+    loginIdentity: supported((homeDir, env?: HarnessEnvironment) => {
       try {
-        return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir), 'utf8'))
+        return readIdentityFromAuthContents(readFileSync(codexAuthPath(homeDir, env), 'utf8'))
       } catch {
         return undefined
       }
@@ -206,8 +222,46 @@ export const codexManifest: AgentManifest = {
       files: ['.codex/auth.json'],
       compareFreshness: compareCodexAuthFreshness,
     }),
-    detectLogin(homeDir) {
-      const path = codexAuthPath(homeDir)
+    // Codex's own precedence, in order: OPENAI_API_KEY, CODEX_API_KEY,
+    // CODEX_ACCESS_TOKEN — each ahead of the ChatGPT login in `auth.json`.
+    // The app-server host strips a WIDER set (`STRIPPED_CODEX_CREDENTIALS`,
+    // `@podium/agent-runtime`), reaching org and base-url as well; those redirect
+    // a session rather than re-authenticate it, and this field is only about
+    // which account answers.
+    /**
+     * WHY THE LIST EXISTS: codex PREFERS an inherited API key over the stored
+     * ChatGPT login. A daemon carries whatever the operator's shell had, so
+     * without the strip a session bills an API account while the operator
+     * believes they are demonstrating subscription auth — invisibly, with a
+     * working session as the evidence.
+     *
+     * `OPENAI_BASE_URL` is here though it is not a credential: it redirects the
+     * session to a different provider entirely, which is the same silent
+     * substitution wearing a different name.
+     *
+     * THE LAST THREE ARRIVED FROM `STRIPPED_CODEX_CREDENTIALS` (POD-2823). That
+     * constant was declared beside the app-server version gate and this array
+     * was declared here, and the two had already drifted: every codex spawn that
+     * read the MANIFEST — the PTY path, the login probes — was leaving
+     * `OPENAI_ORGANIZATION`, `OPENAI_ORG_ID` and `OPENAI_BASE_URL` in the child's
+     * environment, while the app-server path stripped them. Same question, two
+     * homes, different answers. This is now the only home; the constant reads it.
+     *
+     * THE STRIP IS THE MECHANISM, NOT THE PROOF. The app-server driver
+     * separately asks the server which credential it actually chose
+     * (`getAuthStatus`), because codex resolves them from several places and a
+     * strip only proves what WE did.
+     */
+    foreignCredentialEnv: [
+      'OPENAI_API_KEY',
+      'CODEX_API_KEY',
+      'CODEX_ACCESS_TOKEN',
+      'OPENAI_ORGANIZATION',
+      'OPENAI_ORG_ID',
+      'OPENAI_BASE_URL',
+    ],
+    detectLogin(homeDir, env?: HarnessEnvironment) {
+      const path = codexAuthPath(homeDir, env)
       let contents: string
       try {
         contents = readFileSync(path, 'utf8')
@@ -307,6 +361,91 @@ export const codexManifest: AgentManifest = {
     }
   }),
 
+  // The one harness where the server family is the default for EVERY auth mode:
+  // ChatGPT subscription auth works headless (`~/.codex/auth.json` serves `exec`
+  // and `app-server` alike), so there is no auth mode that forces the terminal.
+  runtime: {
+    server: supported({
+      driverId: 'codex-app-server',
+      kind: 'jsonrpc',
+      spawn: ['codex', 'app-server'],
+      /**
+       * A PRIVATE PER-SESSION UNIX LISTENER, SHARED WITH THE STOCK TUI.
+       *
+       * The audit-era stdio host was a valid private engine path, but it could
+       * not support `codex resume --remote`. The pinned 0.147.0 listener carries
+       * JSON-RPC as WebSocket text frames over Unix and accepts multiple clients,
+       * so Podium's driver and the stock TUI now share one app-server process.
+       *
+       * The socket lives below the instance state root in a 0700 directory and
+       * is mode 0600. Those filesystem permissions are the local authentication
+       * boundary, so a separate correlation secret is neither accepted by this
+       * transport nor required.
+       */
+      transport: 'unix-socket',
+      requiresPerSessionSecret: false,
+      // PINNED AGAINST RECORDED FIXTURES, not guessed (W6). Every shape the
+      // driver reads was captured from a live 0.147.0 app-server and replays in
+      // `packages/agent-runtime/src/drivers/codex/__fixtures__`. The 0.150.1
+      // generated bindings and real subscription live suite were compared on
+      // 2026-08-29 (POD-3093); `manifest-axis.test.ts` keeps this advertised
+      // range equal to the runtime gate.
+      versionRange: supported('>=0.147 <0.151'),
+      /**
+       * `codex resume --remote <socket>` — the stock TUI, joined to the
+       * app-server this session is already running.
+       *
+       * BUILT FROM THIS MANIFEST'S OWN `launch()`, not restated. How codex is
+       * told which thread to reopen (`resume -C <cwd> <threadId>`, and the
+       * `-C` reason recorded there) is one fact, and a second copy of it here
+       * would drift the way this epic keeps finding second copies drift. What
+       * is genuinely extra is `--remote`: the address of the per-session Unix
+       * listener the TUI dials DIRECTLY.
+       *
+       * THAT DIRECT DIAL IS ALSO A TEARDOWN OBLIGATION. The stock TUI holds its
+       * own writer to the listener, so a client left alive after the control
+       * lease is released could push queued keystrokes past the lease gate. The
+       * daemon closes every client terminal on release for exactly this reason
+       * — unconditionally, so the obligation cannot be lost by asking which
+       * harness this is.
+       */
+      clientTerminal: supported({
+        labelToken: 'cx',
+        /**
+         * NEVER PARKED: the obligation the block above states. The stock TUI
+         * holds its own writer to the per-session Unix listener, so a client
+         * left warm after the control lease is released could push queued
+         * keystrokes straight past the daemon's lease gate. Dropping the
+         * daemon's handle would not revoke that writer; only ending the process
+         * does.
+         */
+        parkOnRelease: false,
+        launch: ({ cwd, conversation, endpoint }) => {
+          const spec = codexManifest.launch({
+            cwd,
+            resume: { kind: 'codex-thread', value: conversation },
+          })
+          return {
+            ...spec,
+            args: [...spec.args, ...(endpoint.address ? ['--remote', endpoint.address] : [])],
+          }
+        },
+      }),
+    }),
+    embedded: unsupported('Codex ships a server, not a library to host in-process'),
+    // The permanent fallback: a protocol break degrades Codex sessions to the
+    // terminal driver instead of stranding them (spec §3, churn stance).
+    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    // App-server is the default for every LOGGED-IN Codex auth mode when the
+    // version probe admits it. A logged-out session needs the PTY's interactive
+    // login affordance; the terminal driver also remains the permanent
+    // protocol-churn fallback.
+    select: (ctx) =>
+      selectRuntimeDriver(
+        ctx,
+        ctx.auth === 'logged-out' ? ['generic-pty'] : ['codex-app-server', 'generic-pty'],
+      ),
+  },
   headless: supported({
     driver: 'codex-json',
     outputFormat: 'codex-jsonl',

@@ -1,0 +1,1 @@
+ALTER TABLE `messages` ADD `attachments_json` text;

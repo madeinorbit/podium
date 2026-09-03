@@ -1,0 +1,55 @@
+{
+  "id": "A4a",
+  "arm": "headless",
+  "verdict": "BLOCKED",
+  "summary": "permission probe turn produced no durable transcript items or delta frames, so the ask path was not exercised",
+  "control": {
+    "fired": false,
+    "what": "the permission probe turn produces any durable transcript item",
+    "detail": "0 transcript items; 0 delta frames"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A4a / A4b  permission ask, and answering it twice   harness=grok",
+    "==============================================================================",
+    "session 2411c8fc-60f0-43fd-a527-b51a9c7626d5 created",
+    "BOUND DRIVER       grok-acp (family server)",
+    "terminal viewer    4431 byte(s) on attach (outputSeen=false)",
+    "CONTROL            the turn produced 0 transcript item(s), 0 delta frame(s) — DID NOT FIRE",
+    "REFUSED — the positive control did not fire.",
+    "  control watched: the turn producing durable transcript items at all",
+    "  control saw:     0 item(s), 0 delta frame(s)",
+    "  A session that produced no turn cannot be shown to have missed an ask."
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "terminalAttachBytes": 4431,
+    "terminalOutputSeen": false,
+    "transcriptItems": 0,
+    "deltaFrames": 0
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a4a-dedicated",
+  "pin": {
+    "codeCommit": "c26c267be1c4b2f8cc6ccc2e66ea675e84024587",
+    "codeTree": "7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4",
+    "serverPid": 1954661,
+    "daemonPid": 1968990,
+    "webSourceSha": "c26c267",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "positiveControl": "BLOCKED — the probe turn produced zero durable items and zero delta frames",
+    "chatCard": "UNMEASURED — no ask turn existed",
+    "terminalSameAsk": "UNMEASURED — terminal attached, but no ask existed to compare",
+    "answerResolvesBoth": "UNMEASURED — there was no interaction to answer"
+  },
+  "admission": {
+    "diskFreeKb": 12550696,
+    "memAvailableKb": 4718232,
+    "load1": 4.45,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 12:18:55 CEST",
+  "discardedAttempts": "Two aggregate attempts were not reused because their probe send was queued on the POD-2920 path and never delivered."
+}

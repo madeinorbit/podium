@@ -147,8 +147,38 @@ export function extractImports(source: string): ImportRef[] {
   return refs
 }
 
+/**
+ * Test code, for every rule that exempts it.
+ *
+ * `fixtures/` and `test-support/` are here because the repository had ALREADY
+ * decided they are test infrastructure and then said so in only one place:
+ * `CONSOLE_TEST_DIR_SEGMENTS` in scripts/check-boundaries.ts carries exactly
+ * these two names, with POD-1906's note that a `*.test.ts` glob "would have
+ * swept apps/server/src/test-support/capture-logs.ts and the daemon/web
+ * fixtures, which are test infrastructure that simply is not named .test.ts".
+ * That judgement is not specific to console output, and leaving it in one rule
+ * meant the same directory was test code for the logging rule and product code
+ * for every other one. POD-888's shipping fixture is what walked into the gap:
+ * `apps/daemon/src/shipping/fixtures/server-recovery-worker.ts` is a worker
+ * script that only ever runs under `spawn` from an integration test, and it was
+ * read as the daemon taking a runtime dependency on apps/server.
+ *
+ * DELIBERATELY NOT the alternative, which was to declare `apps/daemon ->
+ * apps/server` in {@link SAME_LAYER_ALLOWED}: that set is workspace-granular, so
+ * blessing the edge for one fixture blesses it for daemon PRODUCT code too, and
+ * the next `SessionStore` import into the real daemon would land silently. The
+ * true statement is that this file is test scaffolding, not that the daemon may
+ * depend on the server.
+ *
+ * NARROW ON PURPOSE, same as {@link APP_BUILD_TIER_RE}: both segments must be
+ * whole path segments, so `src/fixtures-loader.ts` or a `fixtures.ts` module is
+ * still product code.
+ */
 export function isTestFile(file: string): boolean {
-  return /\.(test|spec)\.tsx?$/.test(file) || /\/(test|tests|__tests__)\//.test(file)
+  return (
+    /\.(test|spec)\.tsx?$/.test(file) ||
+    /\/(test|tests|__tests__|fixtures|test-support)\//.test(file)
+  )
 }
 
 /**
@@ -177,8 +207,42 @@ const APP_BUILD_TIER_RE = /^apps\/[^/]+\/scripts\//
  * without creating a runtime dependency from the workspace back into scripts. */
 const WORKSPACE_TOOLING_RE = /^(?:apps|packages)\/[^/]+\/(?:vite|vitest)\.config\.ts$/
 
+/**
+ * ARCHITECTURE GUARDS FILED UNDER A WORKSPACE ARE BUILD TIER (POD-2820).
+ *
+ * Same decision as `APP_BUILD_TIER_RE` above, applied to the one other shape
+ * that provoked a false accusation. A guard like
+ * `apps/daemon/src/claude-sdk-isolation.test.ts` does not exercise the daemon:
+ * it READS THE REPOSITORY, walking the static import graph from every
+ * daemon-hosting entry point to prove the Claude Agent SDK is never loaded into
+ * the daemon's address space. That is exactly the work
+ * `scripts/check-boundaries.ts` does, and it needs exactly the tools that work
+ * needs — `extractImports`, `stripComments`, `isTestFile` from this very file.
+ * The alternative to importing them is a SECOND import-graph parser, which the
+ * guard's own header explains is how such a check rots: the copy drifts, and the
+ * drift is invisible because both halves still pass.
+ *
+ * So the accusation `manifest-layer` made — "apps/daemon imports UP into
+ * scripts" — was TRUE ABOUT THE PATH AND FALSE ABOUT THE FILE. Nothing here
+ * ships; no daemon build or daemon runtime acquires a dependency on the build
+ * tier. Reclassifying says the true thing, where an exemption would merely
+ * excuse a false one.
+ *
+ * A NAMED LIST, NOT A PATTERN, and deliberately so. `*.test.ts` under an app is
+ * the wrong shape to widen on: it would let ANY daemon test reach the build tier
+ * and would grow silently. This set cannot grow without someone editing it here
+ * and writing down why — the same review checkpoint `metadata.ts`'s enumerated
+ * export list exists to force.
+ */
+export const ARCHITECTURE_GUARD_FILES: ReadonlySet<string> = new Set([
+  // POD-2753's SDK isolation guard. Three parser primitives from this file, no
+  // @podium package at all — its other imports are node builtins and vitest.
+  'apps/daemon/src/claude-sdk-isolation.test.ts',
+])
+
 /** Workspace a repo-relative file path belongs to: 'apps/x', 'packages/y' or 'scripts'. */
 export function workspaceOf(file: string): string {
+  if (ARCHITECTURE_GUARD_FILES.has(file)) return 'scripts'
   if (APP_BUILD_TIER_RE.test(file) || WORKSPACE_TOOLING_RE.test(file)) return 'scripts'
   const parts = file.split('/')
   if (parts[0] === 'apps' || parts[0] === 'packages') return `${parts[0]}/${parts[1]}`
@@ -487,8 +551,67 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     // action on a host. `./browser` is open for the same reason AND bundlable,
     // which `./metadata` is not: openness is a statement about the SURFACE, and
     // POD-2176 is what it cost to read it as a statement about the closure.
-    consumers: ['apps/daemon', 'scripts'],
     openEntrypoints: ['@podium/harness/metadata', '@podium/harness/browser'],
+    // `packages/agent-runtime` joins the consumer set in POD-2019: the drivers
+    // behind the runtime contract ARE the thing that reads manifests to launch
+    // and observe a harness, so it takes the capability rather than routing
+    // around it. See that package's entry below for the argument.
+    consumers: ['apps/daemon', 'packages/agent-runtime', 'scripts'],
+  },
+  // The Agent Runtime contract (POD-1761 W1): the typed primitive surface every
+  // harness driver sits behind — lifecycle, turns, interactions, observation,
+  // transcript, attach, export — plus the driver-conformance corpus.
+  //
+  // WHY IT IS L2 AND NOT L3. It is a PORT, not a feature: it defines what a
+  // session IS and owns no engine of its own. That puts it in the same family as
+  // `packages/pty` (the PTY port) and `packages/harness` (the manifest port),
+  // and it composes both — which is why the two same-layer edges below exist and
+  // why the ordinal alone could not have expressed this.
+  //
+  // WHY IT TAKES THE HOST CAPABILITY. The whole point of the package is that its
+  // drivers spawn things: abduco masters (terminal family), harness server
+  // processes (server family) and SDK worker children (embedded family). That is
+  // the same capability `packages/pty` and `packages/harness` carry, and the
+  // same consumer restriction applies for the same reason — an ordinal cannot
+  // say it, because the edges it forbids (apps/server L4 → here L2) all point
+  // correctly DOWN.
+  //
+  // WHY THERE IS AN OPEN ENTRYPOINT ANYWAY. `apps/server` genuinely needs part
+  // of this package and never wanted the capability: it projects RuntimeEvents
+  // onto the wire, stores PendingInteractions, renders a session's driver and
+  // family, and reads the permitted-failures table to decide whether a weak
+  // outcome is a bug. All of that is DESCRIPTION, none of it is an action on a
+  // host — exactly the distinction `@podium/harness/metadata` was built to make,
+  // and the same enforcement (`manifest-open-entrypoint`: no `export *`, no
+  // process-driving export names, no process-API import) holds it.
+  //
+  // PRINCIPAL-FREE, like its two neighbours: `SessionSpec`'s account selector
+  // names a harness-native login, never a user, grant or visibility class.
+  // Authorization lives at the server projection boundary (POD-1079).
+  'packages/agent-runtime': {
+    layer: 2,
+    platform: 'node-only',
+    features: ['agent-runtime-contract'],
+    // `packages/pty` is DELIBERATELY ABSENT until a driver here needs it. The
+    // contract package imports no PTY today, and a declared edge nobody
+    // exercises is mechanism-presence rather than coverage — the same argument
+    // this file makes about open entrypoints. W3's terminal driver did NOT add
+    // it: its concrete half lives in the daemon because it is composed of daemon
+    // internals, so the PTY import stayed there. W5's opencode driver does not
+    // need it either — its process management is likewise in the daemon.
+    //
+    // `packages/transcript` IS here as of POD-2023 (W5), and the edge is
+    // deliberate rather than incidental. The opencode server driver's SSE
+    // payloads are the SAME message+part pair the sqlite transcript source has
+    // always read, so it calls `opencodePartToItems`/`stampOpencodeItems`
+    // instead of writing a second opencode→TranscriptItem mapper. Two mappers
+    // for one harness is two renderings of the same tool call, diverging on the
+    // first tool opencode adds — which is exactly the drift a shared port
+    // exists to prevent. The edge points from a PORT to a PARSER, both L2, and
+    // carries no capability: `@podium/transcript` is pure normalization.
+    deps: ['packages/protocol', 'packages/model', 'packages/harness', 'packages/transcript'],
+    consumers: ['apps/daemon', 'scripts'],
+    openEntrypoints: ['@podium/agent-runtime/metadata'],
   },
   'packages/terminal-client': {
     layer: 2,
@@ -511,6 +634,18 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
 
   // L3 — features / adapters / engine.
   'packages/client-core': { layer: 3, platform: 'browser-safe', features: ['viewmodels'] },
+  // Maintenance/steward jobs (change-log + event prune, auto-archive, message
+  // expiry, connect scan) and the worker client that hosts them. node-only:
+  // node:crypto/node:path/node:worker_threads plus @podium/runtime's sqlite and
+  // config subpaths.
+  //
+  // L3 RATHER THAN AN APP (PDM-27): the loop is an ENGINE, not a composition
+  // root — its dependency profile has always been a package's (logger, model,
+  // protocol, runtime and nothing else), and `apps/server` now owns its
+  // lifecycle, which as an app-to-app edge rule 1 forbids. The same engine is
+  // what a future shared out-of-process janitor service would run, reaching its
+  // servers over the `/maintenance/*` HTTP seam it already uses.
+  'packages/janitor': { layer: 3, platform: 'node-only', features: ['maintenance-jobs'] },
   'packages/terminal-client-react': {
     layer: 3,
     platform: 'browser-safe',
@@ -521,12 +656,6 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
   'apps/cli': { layer: 4, platform: 'node-only', features: ['cli-surface'] },
   'apps/daemon': { layer: 4, platform: 'node-only', features: ['daemon-surface'] },
   'apps/desktop': { layer: 4, platform: 'browser-safe', features: ['desktop-shell'] },
-  // Maintenance/steward jobs (change-log + event prune, auto-archive, message
-  // expiry, connect scan) lifted out of apps/server into their own composition
-  // root. node-only: node:crypto/node:path plus @podium/runtime's sqlite and
-  // config subpaths. NOT roleTiered — role tiers are file-level and delegated
-  // to apps/server/src/roles.ts, which janitor has no counterpart to.
-  'apps/janitor': { layer: 4, platform: 'node-only', features: ['maintenance-jobs'] },
   'apps/mobile': { layer: 4, platform: 'browser-safe', features: ['mobile-surface'] },
   'apps/server': {
     layer: 4,
@@ -565,6 +694,17 @@ export const SAME_LAYER_ALLOWED: ReadonlySet<string> = new Set<string>([
   // the half that actually uses them (POD-397).
   'packages/harness -> packages/runtime',
   'packages/harness -> packages/transcript',
+  // L2 (POD-2019): the Agent Runtime contract sits in front of the manifest
+  // port and composes it. `harness` is where the driver taxonomy and the three
+  // `*RuntimeSpec` shapes are DEFINED (agent-runtime re-exports them — the
+  // reverse direction would be a cycle), and where `Declared<T>` comes from.
+  // The `-> packages/pty` edge is deliberately NOT declared yet: W3's terminal
+  // driver adds it in the commit that first wraps the durable-host stack.
+  'packages/agent-runtime -> packages/harness',
+  /** POD-2023 (W5): the opencode driver reuses the sqlite source's own
+   *  message+part → `TranscriptItem` mapper rather than writing a second one.
+   *  Port → parser, both L2, no capability crosses. See the workspace entry. */
+  'packages/agent-runtime -> packages/transcript',
   // L3: the React adapter binds hooks to client-core's transport port; it owns no
   // socket protocol state of its own.
   'packages/terminal-client-react -> packages/client-core',
@@ -634,6 +774,9 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // `createRequire is not a function` before it could render. This row is what
   // keeps `./browser` the only reachable one, and holds it to importing nothing.
   ['@podium/harness/browser', 'packages/harness/src/browser.ts'],
+  // packages/transcript — opaque cursor and stream-item identity only. Parsing,
+  // filesystem paging and tailing remain behind the host-only root barrel.
+  ['@podium/transcript/browser', 'packages/transcript/src/browser.ts'],
   // packages/telemetry — the pure display example apps/web renders in its
   // privacy and setup copy. The bare specifier pulls the emitter and node:fs.
   ['@podium/telemetry/example', 'packages/telemetry/src/example.ts'],
@@ -645,6 +788,47 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   ['@podium/sync/adapters/indexeddb', 'packages/sync/src/adapters/indexeddb/index.ts'],
   ['@podium/sync/adapters/mobile-sqlite', 'packages/sync/src/adapters/mobile-sqlite/index.ts'],
   ['@podium/sync/adapters/legacy-replica', 'packages/sync/src/adapters/legacy-replica/index.ts'],
+])
+
+/**
+ * PLANE-SPLIT PACKAGES: browser barrel -> the entry that owns the other plane.
+ *
+ * A package on this list ships two wire planes from one source tree, and the
+ * split is load-bearing rather than tidy: eager Zod schemas are constructed at
+ * MODULE SCOPE, so one value import from the browser barrel pulls the whole
+ * module into every browser bundle and no bundler can shake it back out. Only
+ * the import EDGE decides membership. Rule `manifest-plane-leak` walks the
+ * barrel's transitive closure and refuses to find the other plane's modules in
+ * it.
+ *
+ * DERIVED, NOT LISTED. The forbidden set is whatever the restricted entry
+ * itself re-exports, read at check time — so a new daemon-plane family is
+ * protected the moment `daemon.ts` picks it up, with nobody having to remember
+ * this file. That is the specific failure this rule exists for: POD-1761 W1
+ * added a whole new runtime contract and every named assertion stayed green
+ * because none of them knew to grow.
+ *
+ * WHY AN EDGE RULE AND NOT A NAME RULE (POD-2470, and this is the second
+ * attempt). The first guard compared EXPORT NAMES — it diffed the two halves'
+ * `Object.keys` and asserted the daemon-plane names were absent from the common
+ * barrel. A reviewer defeated it in one line:
+ *
+ *     export { RuntimeEvent as BrowserRuntimeEvent } from './runtime'
+ *
+ * which recreates the exact dependency the split removed while exposing no name
+ * the guard was looking for. A rename is invisible to a namespace check and
+ * plain to an edge check. The other half of the argument is TRANSITIVITY: the
+ * original leak was `index -> sync -> runtime`, two hops, because `sync.ts`
+ * parsed one interaction schema out of the daemon-plane module. A one-hop scan
+ * of the barrel would not have caught the bug this rule is named after.
+ */
+export const PLANE_SPLIT_ENTRIES: ReadonlyMap<string, string> = new Map([
+  // @podium/protocol — the browser speaks ClientMessage/ServerMessage; control,
+  // daemon, runtime and shipping frames live on the server-to-daemon socket.
+  // Before the split, ~19 kB of daemon-plane request/result envelopes sat in
+  // every browser bundle and the only thing that noticed was a byte ceiling,
+  // which names no cause and goes quiet the moment POD-2560 returns headroom.
+  ['packages/protocol/src/index.ts', 'packages/protocol/src/daemon.ts'],
 ])
 
 /** The declared browser specifiers of one workspace, for a failure message that
@@ -1520,6 +1704,9 @@ export const MANIFEST_RULES: ReadonlySet<string> = new Set([
   'harness-branching',
   'harness-classifier-boundary',
   'manifest-retired-path',
+  // POD-2470 — the browser/daemon plane split, enforced on the import EDGE.
+  // See PLANE_SPLIT_ENTRIES for why a name-level check was not enough.
+  'manifest-plane-leak',
 ])
 
 /**

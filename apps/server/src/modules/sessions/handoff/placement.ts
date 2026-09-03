@@ -33,6 +33,8 @@
 
 import { randomUUID } from 'node:crypto'
 import {
+  agentCapabilityRejection,
+  agentProbeTimeoutDescription,
   asMachineId,
   HandoffManifestV1,
   type MachineId,
@@ -184,8 +186,21 @@ export function resolveHandoffPlacement(
     )
   if (!targetMachine?.online)
     throw new HandoffRefusalError('target machine is offline', 'unreachable')
+  const capability = agentCapabilityRejection(targetMachine, session.agentKind)
+  if (capability === 'inventory-unavailable') {
+    throw new HandoffRefusalError(
+      `could not determine whether ${session.agentKind} is installed on target machine '${targetMachine.name}' (inventory not reported yet); retry shortly`,
+      'unreachable',
+    )
+  }
+  if (capability === 'harness-probe-timed-out') {
+    throw new HandoffRefusalError(
+      `could not determine whether ${session.agentKind} is installed on target machine '${targetMachine.name}' (probe ${agentProbeTimeoutDescription(targetMachine, session.agentKind)}); retry`,
+      'unreachable',
+    )
+  }
   const harness = targetMachine.inventory?.agents.find((agent) => agent.kind === session.agentKind)
-  if (!harness?.installed || harness.login.state === 'out') {
+  if (capability === 'harness-missing' || harness?.login.state === 'out') {
     throw new Error(`target machine cannot run logged-in ${session.agentKind}`)
   }
   return {

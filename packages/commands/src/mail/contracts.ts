@@ -42,6 +42,7 @@
 
 import { IssueIdField, SessionIdField } from '@podium/model'
 import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
+import { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import { z } from 'zod'
 import type {
   AttributionPolicy,
@@ -123,14 +124,22 @@ const ADDRESS_ORACLE_RULE = {
 // Input schemas — the ONE validation source for every transport (ADR 3 D1)
 // ---------------------------------------------------------------------------
 
-export const mailSendInput = z.object({
-  to: z.string().min(1),
-  body: z.string().min(1).max(32_768),
-  urgency: z.enum(['fyi', 'next-turn', 'interrupt']).optional(),
-  lifecycle: z.enum(['wait', 'wake']).optional(),
-  expectResponse: z.boolean().optional(),
-  expiresAt: z.string().datetime().optional(),
-})
+export const mailSendInput = z
+  .object({
+    to: z.string().min(1),
+    body: z.string().max(32_768),
+    /** Internal chat sends carry refs minted by runtime staging. The CLI has no
+     * attachment argument, but it shares this governed delivery contract. */
+    attachments: z.array(RuntimeAttachmentRef).min(1).max(20).optional(),
+    urgency: z.enum(['fyi', 'next-turn', 'interrupt']).optional(),
+    lifecycle: z.enum(['wait', 'wake']).optional(),
+    expectResponse: z.boolean().optional(),
+    expiresAt: z.string().datetime().optional(),
+  })
+  .superRefine((input, ctx) => {
+    if (input.body.length > 0 || input.attachments?.length) return
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'body or an attachment is required' })
+  })
 
 export const mailReplyInput = z.object({
   id: z.string(),

@@ -5,6 +5,7 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { afterAll, describe, expect, it } from 'vitest'
 import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from './grok-hooks'
 
@@ -19,7 +20,6 @@ function trackTmp(prefix: string): string {
 afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
-
 
 const execFileAsync = promisify(execFile)
 
@@ -106,7 +106,9 @@ describe('ensurePodiumGrokHooks', () => {
 
   it('is discovered by the installed Grok CLI in an isolated home', async () => {
     try {
-      await execFileAsync('grok', ['--version'], { timeout: 10_000 })
+      await execFileAsync('grok', ['--version'], {
+        timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+      })
     } catch {
       return
     }

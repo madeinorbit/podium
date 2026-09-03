@@ -72,6 +72,18 @@ export interface QueuedWriterPolicy {
   maxFiles: number
   /** Records held ACROSS ALL KEYS before drop-oldest begins. */
   maxPending: number
+  /**
+   * Rotation for the files this writer opens — the DISK budget, as opposed to
+   * {@link maxFiles}, which is how many distinct senders get one.
+   *
+   * Configurable per store (POD-3184) rather than inherited, because the two
+   * stores no longer have the same volume profile: a browser forwards while
+   * somebody is looking at it, and a daemon now forwards continuously for weeks.
+   * Both default to `createFileSink`'s 10 MiB × 5.
+   */
+  rotateBytes?: number
+  /** Live file plus archives, per key. */
+  rotateFiles?: number
   /** Records written per event-loop turn. Defaults to {@link WRITE_SLICE}. */
   writeSlice?: number
   /** Injected by tests. Production uses the rotating file sink. */
@@ -129,6 +141,8 @@ export class QueuedRecordWriter {
           // forwarding, so a gate here would discard exactly the `debug` records
           // an operator raised a client or a daemon to get.
           minLevel: 'trace',
+          ...(policy.rotateBytes !== undefined ? { maxBytes: policy.rotateBytes } : {}),
+          ...(policy.rotateFiles !== undefined ? { maxFiles: policy.rotateFiles } : {}),
         }))
   }
 

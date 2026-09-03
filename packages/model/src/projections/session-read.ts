@@ -70,6 +70,12 @@ export interface SessionStatusResult {
    *  carried separately because the status renderer labels it "harness" and
    *  {@link SessionStatusSubagent} names only that half (ab75ab1e). */
   harness: string
+  /** Runtime driver actually bound by the daemon; null when no driver was
+   * reported. */
+  driverId: string | null
+  /** Manifest-default or machine-wide server preference that degraded to
+   * driverId; null when the preferred driver was honoured. */
+  requestedDriverId: string | null
   /** SCHEMA: SessionLifecycle.status */
   status: string
   /** SCHEMA: AgentRuntimeState.phase, flattened for display. */

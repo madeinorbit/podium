@@ -1,0 +1,114 @@
+{
+  "id": "A5",
+  "label": "[single supersedes unqualified] current-tip 3cd8fa16a Grok A5 explicit-permission re-drive",
+  "arm": "single",
+  "harness": "grok-acp",
+  "verdict": "PASS",
+  "summary": "After the protocol permission ask was answered with allow-once, Grok completed the tool turn with a paired call/result and the exact provider result survived reload.",
+  "control": {
+    "fired": true,
+    "what": "The fresh session bound grok-acp/server and the A5 turn completed.",
+    "detail": "A2b boot control reached status=live, phase=idle, driver=grok-acp at t+3193ms; A5 produced four transcript items, two tool items, and four delta frames."
+  },
+  "evidence": [
+    "Canonical pin verifier passed for server, daemon, served web, and policy arm at 3cd8fa16aadfb6741c88a157cdaa8ce825f93a75.",
+    "Product reported driverId=grok-acp and driverFamily=server.",
+    "The protocol observer saw interaction id=0, kind=permission, source=protocol, and answered decision=allow-once; the response returned ok=true.",
+    "Live transcript had four items and two tool items; the exact toolUseId call-f3cbfb0d-bca7-466b-bc3f-8afcaebb0c1b-0 had call=true and result=true.",
+    "The live provider result was exit: 0 followed by TRANSCRIPT-13DHO4 and the turn completed.",
+    "Reload served four items with zero live items missing, two tool items, the marker still present, the same provider result, paired=true, and exact tool history=true.",
+    "The observer made 188 polls and one typed permission answer; daemon logs recorded watch acquisition and release."
+  ],
+  "data": {
+    "sessionId": "4bb66044-fb33-484e-8493-a82a00554aff",
+    "providerSessionId": "01a0463d-bcbf-7890-b76c-390bf14efddf",
+    "bindingStateAfterCleanup": "retired",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "instanceId": "p2777a5g202608280240343852629",
+    "instanceUuid": "20461423-a10b-45f0-bdfc-c9928e21c29f",
+    "cwd": "/tmp/pod-2777-grok-a5-20260828024034-3852629/repo",
+    "marker": "TRANSCRIPT-13DHO4",
+    "turnCompleted": true,
+    "live": {
+      "transcriptItems": 4,
+      "toolItems": 2,
+      "deltaFrames": 4,
+      "toolUseId": "call-f3cbfb0d-bca7-466b-bc3f-8afcaebb0c1b-0",
+      "call": true,
+      "result": true,
+      "providerResult": "exit: 0\nTRANSCRIPT-13DHO4\n"
+    },
+    "reload": {
+      "transcriptItems": 4,
+      "missingLiveItems": 0,
+      "toolItems": 2,
+      "toolUseIdHistorySame": true,
+      "markerObserved": true,
+      "providerResult": "exit: 0\nTRANSCRIPT-13DHO4\n",
+      "paired": true,
+      "exactToolHistory": true
+    },
+    "grokVersion": "0.2.118 (1e1687c1cf) [stable]"
+  },
+  "pin": {
+    "codeCommit": "3cd8fa16aadfb6741c88a157cdaa8ce825f93a75",
+    "codeTree": "a5e2a5367bb36c981d5dd0d57a6e28664779c80d",
+    "server": {
+      "pid": 3852715,
+      "spawnSha": "3cd8fa16aadfb6741c88a157cdaa8ce825f93a75",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3025-grok-tool-result-loss"
+    },
+    "daemon": {
+      "pid": 3852928,
+      "spawnSha": "3cd8fa16aadfb6741c88a157cdaa8ce825f93a75",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3025-grok-tool-result-loss"
+    },
+    "servedWeb": {
+      "sourceSha": "3cd8fa1",
+      "bundleVersion": "bundle+DmPc5z98",
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "builtAt": "2026-08-28T02:38:14.156Z",
+      "port": 29134
+    },
+    "verifier": "passed at 2026-08-28 04:40:43 CEST; server, daemon, served web, and arm all matched"
+  },
+  "admission": {
+    "instance": "p2777a5g202608280240343852629",
+    "stateRoot": "/home/mgw/.local/state/podium/p2777a5g202608280240343852629",
+    "stateRootPreparation": "The product-created runtime/tmux directories were intentionally adopted with PODIUM_ADOPT_STATE=1; no product path was overridden.",
+    "pathOverrides": {
+      "PODIUM_STATE_DIR": false,
+      "ABDUCO_SOCKET_DIR": false,
+      "TMUX_TMPDIR": false,
+      "HOME": false,
+      "PODIUM_RUNTIME_DRIVER": false
+    },
+    "uniqueCwd": true,
+    "noConcurrentProbe": true,
+    "testHeavyLease": "The successful retry reused the bundle built during the failed first-run setup; no heavy build ran during the scored retry. Coordinator verified test:heavy free after cleanup.",
+    "processCleanup": {
+      "serverPid": 3852715,
+      "daemonPid": 3852928,
+      "providerPid": 3853328,
+      "allGone": true
+    },
+    "postCleanupHostObservation": "2026-08-28 04:44:27 CEST; 6.6GiB available, 35GiB swap free; vmstat first sample si=1156/so=1307 kB/s then si=0/so=0 in the next two samples. This is post-cleanup context, not a substitute for a run-time admission sample.",
+    "lockAfterCleanup": "test:heavy free"
+  },
+  "criterionClauses": {
+    "productDriver": "PASS — product reported grok-acp/server.",
+    "positiveControl": "PASS — fresh session bound live and the A5 turn produced a completed transcript.",
+    "permissionHandling": "PASS — protocol permission id=0 was answered with typed allow-once and returned ok=true.",
+    "liveToolCallResultPair": "PASS — exact toolUseId had call=true and result=true; provider result was present.",
+    "reloadHistoryIdentity": "PASS — reload served four items, missing=0, marker=true, and exact tool history was true.",
+    "reloadToolCallResultPair": "PASS — the same provider result survived reload and paired=true.",
+    "overall": "PASS"
+  },
+  "runWindow": "2026-08-28 04:40:34.746–04:41:49.985 CEST",
+  "localTimestamp": "2026-08-28 04:48:42 CEST",
+  "rawRunDirectory": "/tmp/pod-2777-grok-a5-20260828024034-3852629",
+  "rawTranscript": "readings/a5-current-3cd8.txt",
+  "supersedes": "docs/evidence/pod-2927/readings/a5-current-dded.json",
+  "defect": "POD-3025"
+}

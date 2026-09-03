@@ -458,6 +458,8 @@ const defs = {
             path: input.path,
             ...(input.title ? { title: input.title } : {}),
             ...(input.extraPaths ? { extraPaths: input.extraPaths } : {}),
+            ...(input.terminalEvidence ? { terminalEvidence: true } : {}),
+            ...(input.sourceRoot ? { sourceRoot: input.sourceRoot } : {}),
           },
           ctx.caller.capability.actorSessionId
             ? { actorSessionId: ctx.caller.capability.actorSessionId }

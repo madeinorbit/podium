@@ -16,7 +16,13 @@ import type {
   MachineId,
 } from '@podium/model'
 import type { AgentKind, UserId } from '@podium/model'
-import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
+import type {
+  MetadataChange,
+  SubscriptionRegistry,
+} from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -86,6 +92,12 @@ export interface SessionLifecycleDeps {
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
+  /** Persist the sender-facing correction when a driver queue abandons delivery. */
+  queueDrainAbandoned?(input: {
+    sessionId: SessionId
+    turnIds: readonly string[]
+    reason: QueueDrainAbandonedReason
+  }): void
   /** Cancel a queued source intent after the harness reports that the operator
    *  interrupted the physical delivery before it became a turn. */
   interruptQueuedMessage?(messageId: string): void

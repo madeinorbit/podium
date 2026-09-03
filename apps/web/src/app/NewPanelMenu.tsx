@@ -6,6 +6,7 @@ import {
   type AgentKind,
   agentCapabilityRejection,
   agentLoginCondition,
+  agentProbeTimeoutDescription,
   asMachineId,
   type IssueId,
   type MachineId,
@@ -39,6 +40,8 @@ import {
 } from '@/lib/agent-capability'
 import { AGENT_KIND_ICON } from '@/lib/agent-tone'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_SECTION } from '@/lib/menu-surface'
+import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
+import { useFeature } from '@/lib/use-feature'
 import { useStoreSelector } from './store'
 
 type IconComponent = React.ComponentType<Record<string, unknown>>
@@ -53,6 +56,7 @@ const NEW_AGENT_LABELS: readonly (readonly [AgentKind, string])[] = [
   ['grok', 'New Grok'],
   ['opencode', 'New OpenCode'],
   ['cursor', 'New Cursor'],
+  ['pi', 'New Pi'],
   ['shell', 'New Shell'],
 ]
 
@@ -136,13 +140,20 @@ export function NewPanelMenu({
   /** Override the default "+" trigger button (e.g. a compact per-repo "+"). */
   trigger?: React.ReactElement
 }): JSX.Element {
-  const { trpc, repos, sessions, machines } = useStoreSelector(
-    (s) => ({ trpc: s.trpc, repos: s.repos, sessions: s.sessions, machines: s.machines }),
+  const { trpc, repos, sessions, machines, setPanelMode } = useStoreSelector(
+    (s) => ({
+      trpc: s.trpc,
+      repos: s.repos,
+      sessions: s.sessions,
+      machines: s.machines,
+      setPanelMode: s.setPanelMode,
+    }),
     shallowEqual,
   )
   // Uncontrolled fallback so the desktop/mobile "+" still works without a parent
   // driving its open state; the controlled props win when supplied.
   const [internalOpen, setInternalOpen] = useState(false)
+  const runtimeDriversEnabled = useFeature('runtime-drivers')
   const isControlled = controlledOpen !== undefined
   const open = isControlled ? controlledOpen : internalOpen
   const setOpen = (next: boolean) => {
@@ -176,14 +187,33 @@ export function NewPanelMenu({
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 
-  async function create(agentKind: AgentKind, machineId?: MachineId) {
+  async function create(
+    agentKind: AgentKind,
+    machineId?: MachineId,
+    runtimeContract?: string | true,
+  ) {
     const cwd = cwdFor(machineId)
+    // OpenCode's headed default is the stock native CLI attached to its existing
+    // server-family engine. `true` asks the shared resolver for the manifest
+    // default without naming a driver, so an unavailable/logged-out server can
+    // still degrade to the interactive terminal login path. The experimental
+    // driver row passes its concrete string and therefore remains an explicit
+    // per-session selection rather than being collapsed into this default.
+    const headedOpencode = runtimeContract === undefined && agentKind === 'opencode'
+    const driverRequest = runtimeContract ?? (headedOpencode ? true : undefined)
     const { sessionId } = await trpc.sessions.create.mutate({
       agentKind,
       cwd,
       ...(machineId ? { machineId } : {}),
       ...(issueId ? { issueId } : {}),
+      ...(driverRequest !== undefined ? { runtimeContract: driverRequest } : {}),
     })
+    // Server-family sessions derive Chat before startScreen/device preferences.
+    // Materialize this row's headed intent before exposing the new tab, matching
+    // the established blank-launch ordering in ColdStartComposer. The explicit
+    // experimental driver row intentionally receives no override and stays
+    // chat-first.
+    if (headedOpencode) setPanelMode(sessionId, 'native')
     onOpened(sessionId)
   }
 
@@ -208,6 +238,7 @@ export function NewPanelMenu({
 
   // Single-machine (or no machines yet): no Machines region to choose between.
   if (machines.length <= 1) {
+    const machine = machines[0]
     return (
       // modal={false}: this opens a pixel from the tab strip inside a shell that
       // scrolls behind it, and scroll-locking the whole window for a 248px menu
@@ -220,9 +251,15 @@ export function NewPanelMenu({
         >
           {header}
           {TAB_AGENTS.map(({ kind, label, Icon }) => {
-            const machine = machines[0]
             const rejection = machine ? agentCapabilityRejection(machine, kind) : undefined
-            const reason = machine ? capabilityReason(machine.name, label, rejection) : undefined
+            const reason = machine
+              ? capabilityReason(
+                  machine.name,
+                  label,
+                  rejection,
+                  agentProbeTimeoutDescription(machine, kind),
+                )
+              : undefined
             const hint = machine ? capabilityHint(rejection) : undefined
             const warning = machine
               ? loginWarning(machine.name, label, agentLoginCondition(machine, kind))
@@ -241,6 +278,9 @@ export function NewPanelMenu({
               />
             )
           })}
+          {runtimeDriversEnabled && machine ? (
+            <HeadlessDriverItems machine={machine} onCreate={create} />
+          ) : null}
           <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
         </DropdownMenuContent>
       </DropdownMenu>
@@ -319,7 +359,14 @@ export function NewPanelMenu({
               )
             }
 
-            return <MachineSubmenu key={machine.id} machine={machine} onCreate={create} />
+            return (
+              <MachineSubmenu
+                key={machine.id}
+                machine={machine}
+                onCreate={create}
+                runtimeDriversEnabled={runtimeDriversEnabled}
+              />
+            )
           })}
         </TooltipProvider>
 
@@ -401,12 +448,60 @@ function RecentFilesSection({
 }
 
 /** The submenu for one eligible machine in the multi-machine menu. */
-function MachineSubmenu({
+function HeadlessDriverItems({
   machine,
   onCreate,
 }: {
   machine: MachineWire
-  onCreate: (kind: AgentKind, machineId: MachineId) => Promise<void>
+  onCreate: (
+    kind: AgentKind,
+    machineId: MachineId,
+    runtimeContract?: string | true,
+  ) => Promise<void>
+}): JSX.Element | null {
+  const drivers = headlessRuntimeDrivers(machine)
+  if (drivers.length === 0) return null
+  return (
+    <>
+      <div className={MENU_SECTION}>HEADLESS DRIVERS</div>
+      {drivers.map((driver) => {
+        const agent = NEW_AGENTS.find((candidate) => candidate.kind === driver.harness)
+        if (!agent) return null
+        const Icon = agent.Icon
+        const loggedOut = agentLoginCondition(machine, driver.harness) === 'logged-out'
+        return (
+          <CapabilityAgentItem
+            key={`${driver.harness}:${driver.id}`}
+            label={`${agent.label} — ${runtimeDriverLabel(driver.id)}`}
+            icon={<Icon className={`${MENU_GLYPH} text-text-dim`} aria-hidden="true" />}
+            status={{
+              ...(loggedOut
+                ? {
+                    warning: `${machine.name} is logged out; this driver may refuse or fall back.`,
+                    hint: 'logged out',
+                  }
+                : {}),
+            }}
+            onSelect={() => void onCreate(driver.harness, machine.id, driver.id)}
+          />
+        )
+      })}
+    </>
+  )
+}
+
+function MachineSubmenu({
+  machine,
+  onCreate,
+  runtimeDriversEnabled,
+}: {
+  machine: MachineWire
+  onCreate: (
+    kind: AgentKind,
+    machineId: MachineId,
+    runtimeContract?: string | true,
+  ) => Promise<void>
+  runtimeDriversEnabled: boolean
 }): JSX.Element {
   return (
     <DropdownMenuSub>
@@ -422,7 +517,12 @@ function MachineSubmenu({
       <DropdownMenuSubContent className="min-w-[168px]">
         {TAB_AGENTS.map(({ kind, label, Icon }) => {
           const rejection = agentCapabilityRejection(machine, kind)
-          const reason = capabilityReason(machine.name, label, rejection)
+          const reason = capabilityReason(
+            machine.name,
+            label,
+            rejection,
+            agentProbeTimeoutDescription(machine, kind),
+          )
           const hint = capabilityHint(rejection)
           const warning = loginWarning(machine.name, label, agentLoginCondition(machine, kind))
           return (
@@ -439,6 +539,9 @@ function MachineSubmenu({
             />
           )
         })}
+        {runtimeDriversEnabled ? (
+          <HeadlessDriverItems machine={machine} onCreate={onCreate} />
+        ) : null}
       </DropdownMenuSubContent>
     </DropdownMenuSub>
   )

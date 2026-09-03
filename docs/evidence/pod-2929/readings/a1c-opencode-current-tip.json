@@ -1,0 +1,88 @@
+{
+  "cell": "A1c",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "FAIL",
+  "summary": "The dead-session send was accepted but no delayed terminal outcome arrived.",
+  "evidence": [
+    "alive control=true; the live send was answered before the kill",
+    "stamp uuid=6cc1555d-e373-4c9c-a279-fe5fdbe9fcff source=/home/mgw/.local/state/podium/p2929y/instance.json",
+    "session=886e2c0f-d5d8-47b9-afe1-7ac9db3f61d5",
+    "exact stamped target before kill: pid=3567561 cwd=/tmp/pod-2929-rig-y/repo",
+    "SIGKILL pid=3567561 sent=true; exact PID gone=true; remaining stamped targets=(none)",
+    "dead-session send={ok:true,queued:true,position:1,disposition:queued}",
+    "typedRefusal=false; resumeOffer=false; accepted=true; delayed outcome=LOST through 120s"
+  ],
+  "data": {
+    "controlFired": true,
+    "deadConfirmed": true,
+    "typedRefusal": false,
+    "resumeOffer": false,
+    "accepted": true,
+    "delayedDelivered": false,
+    "delayedOutcomeWindowMs": 120000,
+    "send": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "instanceUuid": "6cc1555d-e373-4c9c-a279-fe5fdbe9fcff",
+    "uuidSource": "/home/mgw/.local/state/podium/p2929y/instance.json",
+    "sessionId": "886e2c0f-d5d8-47b9-afe1-7ac9db3f61d5",
+    "targetBefore": [
+      {
+        "pid": 3567561,
+        "cwd": "/tmp/pod-2929-rig-y/repo",
+        "cmd": "/home/mgw/.opencode/bin/opencode serve --port 38975 --hostname 127.0.0.1",
+        "instanceUuid": "6cc1555d-e373-4c9c-a279-fe5fdbe9fcff",
+        "sessionId": "886e2c0f-d5d8-47b9-afe1-7ac9db3f61d5"
+      }
+    ],
+    "targetAfterKill": []
+  },
+  "targetCwd": "/tmp/pod-2929-rig-y/repo",
+  "instance": "p2929y",
+  "codePin": "b3343f39a68e97f5f2c22072db8c2858fa916722",
+  "pin": {
+    "codeSha": "b3343f39a68e97f5f2c22072db8c2858fa916722",
+    "codeShort": "b3343f3",
+    "server": {
+      "pid": 3558500,
+      "cwd": "/tmp/pod-2929-product",
+      "sha": "b3343f39a68e97f5f2c22072db8c2858fa916722"
+    },
+    "daemon": {
+      "pid": 3558556,
+      "cwd": "/tmp/pod-2929-product",
+      "sha": "b3343f39a68e97f5f2c22072db8c2858fa916722"
+    },
+    "bundleSourceSha": "b3343f3",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "hostSnapshot": {
+    "capturedAt": "2026-08-27T23:55:22Z",
+    "loadAverage": ["7.17", "6.66", "6.41"],
+    "memAvailableKb": 6987728,
+    "swapUsedKb": 5158280,
+    "diskFreeKb": 5787116
+  },
+  "recordedAt": "2026-08-27T23:55:22Z",
+  "error": "",
+  "log": [
+    "PINJSON {\"want\":\"b3343f39a68e97f5f2c22072db8c2858fa916722\",\"short\":\"b3343f3\",\"spawnedSha\":\"b3343f39a68e97f5f2c22072db8c2858fa916722\",\"serverPid\":3558500,\"daemonPid\":3558556,\"webSourceSha\":\"b3343f3\",\"contract\":\"1\",\"streaming\":\"1\",\"driver\":\"\"}",
+    "BOUND product driver opencode-server family=server",
+    "CONTROL a send to this session WHILE ALIVE was answered: true",
+    "target stamp uuid=6cc1555d-e373-4c9c-a279-fe5fdbe9fcff source=/home/mgw/.local/state/podium/p2929y/instance.json",
+    "target processes 1 exact stamped PID before kill: 3567561",
+    "SIGKILL target pid=3567561 sent=true",
+    "exact PID gone true; remaining stamped target PIDs=(none)",
+    "send to dead {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}",
+    "typed refusal false; offers resume false; accepted true; delayed outcome LOST after <=120s",
+    "A1c FAIL: accepted send without delayed terminal outcome"
+  ]
+}

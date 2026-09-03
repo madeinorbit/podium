@@ -1,0 +1,45 @@
+arm=headless driver=codex-app-server
+t+ 10s phase=working  previews= 43 transcriptChars=     0 screenBytes=0
+t+ 20s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 31s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 41s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 51s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 61s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 72s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 82s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+ 92s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+102s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+112s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+122s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+132s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+142s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+152s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+162s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+172s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+182s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+192s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+202s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+212s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+222s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+233s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+243s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+253s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+263s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+273s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+283s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+293s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+303s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+313s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+323s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+333s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+343s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+353s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+364s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+374s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+384s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+394s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+404s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+414s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+t+426s phase=working  previews= 80 transcriptChars=     0 screenBytes=0
+FINAL phase=working previews=80 transcriptChars=0 items=1
+the turn's text survived: false

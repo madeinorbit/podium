@@ -33,6 +33,7 @@ function client(answer: unknown) {
       },
     } as unknown as IssueTrpc,
     artifactRead,
+    panelApply,
   }
 }
 
@@ -123,5 +124,31 @@ describe('artifact --get', () => {
   it('refuses --file/--out without --get rather than silently listing', async () => {
     const c = client(answerFor('x'))
     await expect(artifact().run(c.trpc, { id: '7', out: '/tmp/x' })).rejects.toThrow(/only apply/)
+  })
+})
+
+describe('artifact --add terminal evidence', () => {
+  it('sends explicit acknowledgement and the current checkout root', async () => {
+    const c = client(undefined)
+    await artifact().run(c.trpc, {
+      id: '7',
+      add: 'artifacts/live.png',
+      terminalEvidence: true,
+    })
+    expect(c.panelApply).toHaveBeenCalledWith({
+      id: '7',
+      op: 'artifact-add',
+      path: 'artifacts/live.png',
+      terminalEvidence: true,
+      sourceRoot: process.cwd(),
+    })
+  })
+
+  it('does not let the acknowledgement silently become a list or remove operation', async () => {
+    const c = client(undefined)
+    await expect(
+      artifact().run(c.trpc, { id: '7', terminalEvidence: true }),
+    ).rejects.toThrow(/only applies to --add/)
+    expect(c.panelApply).not.toHaveBeenCalled()
   })
 })

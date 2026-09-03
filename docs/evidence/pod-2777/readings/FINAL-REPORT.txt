@@ -1,0 +1,92 @@
+================================================================================================
+POD-1761 ACCEPTANCE DRIVE — did the headless drivers beat the terminal ones?
+================================================================================================
+
+arm                   driver bound        pin (server+daemon)   web bundle  when
+------------------------------------------------------------------------------------------------
+codex / terminal      generic-pty         2a9630dc61fb          2a9630d     2026-08-25T23:49:48
+opencode / terminal   generic-pty         26f99a8adfff          26f99a8     2026-08-25T19:41:03
+claude / headless     claude-pty          9d7ca3c12838          9d7ca3c     2026-08-25T23:28:24
+opencode / headless   opencode-server     21e9f04c89d5          21e9f04     2026-08-25T22:32:50
+codex / headless      codex-app-server    c172add95c27          c172add     2026-08-25T22:30:26
+
+Every row above verified server, daemon AND web bundle against the same commit
+BEFORE it ran; drive.ts exits 4 rather than measure a rig that failed that check.
+
+NOTE: cells in this table were taken at 8 different commits (2a9630d, 26f99a8, 9d7ca3c, e28013a, f3691cf, 21e9f04, 5c5a4d5, c172add).
+Per-cell pins are printed in the evidence section; no cell inherits another run's.
+
+================================================================================================
+PER-HARNESS RESULT — headless (H) beside terminal (T), same rig, same probes
+================================================================================================
+
+                                  codex         opencode      claude        
+behaviour                         H     T       H     T       H     T       
+------------------------------------------------------------------------------------------------
+send a turn, get a reply          PASS  PASS    PASS  PASS    —     PASS    
+streaming deltas arrive           PASS  FAIL    PASS  n/a     —     n/a     
+interrupt a running turn          REF   FAIL    REF   FAIL    —     REF     
+stop                              PASS  PASS    PASS  PASS    —     PASS    
+resume after a kill               PASS  REF     PASS  FAIL    —     PASS    
+attach a file                     FAIL  PASS    PASS  FAIL    —     FAIL    
+pending interaction               n/a   n/a     n/a   n/a     —     REF     
+provider error surfaced honestly  n/a   n/a     n/a   FAIL    —     n/a     
+model / effort switch             n/a   n/a     n/a   n/a     —     n/a     
+------------------------------------------------------------------------------------------------
+PASS = driven and observed working.   FAIL = driven and did not work.
+n/a  = the behaviour has no product surface to drive (see its evidence).
+REF  = REFUSED: the probe's positive control did not fire, so the rig could not
+       be told apart from a dead one and the number is withheld — including zero.
+—    = not applicable: claude has no headless driver, so it runs one arm.
+
+================================================================================================
+THE COMPARISON — where the two arms disagree
+================================================================================================
+
+HEADLESS IS WORSE HERE — printed first because it is the finding that matters:
+  ✗ codex · attach a file: headless FAIL, terminal PASS — text refused as declared, and the image it does declare was not read back
+
+HEADLESS BETTER   3 scored cell(s)
+  ✓ codex · streaming deltas arrive: headless PASS, terminal FAIL — 78 preview frames, 96→1830 chars, monotonic per row
+  ✓ opencode · resume after a kill: headless PASS, terminal FAIL — THIS conversation came back — REMEMBER-O6GDWN recalled, original exchange intact, same pointer
+  ✓ opencode · attach a file: headless PASS, terminal FAIL — the agent read the file and echoed FILESECRET-7VT24I
+
+SAME              4 scored cell(s)
+HEADLESS WORSE    1 scored cell(s)
+
+================================================================================================
+THE OTHER HALF — are the harnesses still on the terminal driver any worse?
+================================================================================================
+
+claude runs the terminal driver ('claude-pty') and is the harness this
+question is about. Of the behaviours the terminal driver actually CLAIMS:
+  3/4 PASS
+  ✗ attach: the file was staged and sent, but its contents never came back
+
+WHAT THIS DOES AND DOES NOT SHOW. It is one commit, so it cannot be a
+before-and-after in time. What it does show is that the terminal driver still
+does everything it declares, on the same rig that drove the headless arms — and
+the terminal columns for codex/grok/opencode are the same driver under the same
+probes, so a terminal-path regression would have to hide from all four.
+
+================================================================================================
+REFUSED MEASUREMENTS — 5
+================================================================================================
+
+A refusal is the rig working. These cells are withheld, not failed:
+  codex/terminal · resume
+      control watched: a conversation existing to restore — the pre-park turn answered with the secret
+      control saw:     the pre-park turn never produced the secret, so there is nothing whose return could be measured
+  claude/headless · interaction
+      control watched: the turn producing durable transcript items at all (transcriptDelta on the same socket)
+      control saw:     0 new transcript item(s) after the prompt; 2 delta frame(s) total
+  claude/headless · interrupt
+      control watched: the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+      control saw:     none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes
+  opencode/headless · interrupt
+      control watched: the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+      control saw:     none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+  codex/headless · interrupt
+      control watched: the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+      control saw:     none; phase=working, 0 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+

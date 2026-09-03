@@ -62,10 +62,11 @@ import {
 import type {
   AgentInstruction,
   DaemonPtyInputBatch,
+  RuntimeContractRequest,
   SessionBindingSpawnInstruction,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { resolveRole } from '@podium/runtime'
+import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { harnessSupportsInitialPrompt } from '../../harness-manifest'
 import { assertModelSelectionValid } from '../../model-validation'
 import type { SessionStore } from '../../store'
@@ -151,7 +152,13 @@ export interface SessionStartPorts {
     workflowRevisionId?: string
   }): { instructions: AgentInstruction[]; commit(): void }
   sessionOwner(sessionId: SessionId): { owner: UserId; grants: string[] } | undefined
-  setSessionDraft(input: { sessionId: SessionId; text: string }, fromClientId?: string): void
+  /** Seed the non-argv creation prompt into the recoverable composer draft. */
+  setSessionDraft?(input: { sessionId: SessionId; text: string }): void
+  queueInitialPrompt(input: { sessionId: SessionId; text: string }): {
+    ok: boolean
+    queued?: boolean
+    reason?: string
+  }
   emitSessionCreated(payload: {
     sessionId: SessionId
     agentKind: AgentKind
@@ -185,6 +192,25 @@ export class SessionStart {
     use?: MachineUseResolver
     binding?: Omit<SessionBindingSpawnInstruction, 'transitionId' | 'machineAccess' | 'issueId'>
     loginHarness?: Exclude<AgentKind, 'shell'>
+    /**
+     * THE OPERATOR'S PER-SPAWN DRIVER CHOICE (POD-1761 W5; spec §9 phase 3).
+     *
+     * `true` drives this session through the Agent Runtime contract with
+     * whatever the harness manifest's `select()` policy picks — which is the
+     * terminal driver for every harness today. A DRIVER ID names one
+     * explicitly, and is how a single opencode session runs on
+     * `opencode-server` while every other session on the same daemon stays
+     * terminal.
+     *
+     * ABSENT IS THE DEFAULT AND CHANGES NOTHING. The daemon takes the OR of this
+     * and its machine-wide flag, so a spawn that says nothing is byte-for-byte
+     * the spawn it was before this field existed.
+     *
+     * NO UI, deliberately (the epic's non-goals): a settings/CLI lever and this
+     * field are what an operator needs to test a driver, and a picker in the
+     * spawn dialog would be a product decision nobody has made.
+     */
+    runtimeContract?: RuntimeContractRequest
   }): SessionSpawnResult {
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
@@ -282,6 +308,7 @@ export class SessionStart {
       ...(input.effort !== undefined ? { effort: input.effort } : {}),
       ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
+      ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
       ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
       ...(input.workflowStepId ? { workflowStepId: input.workflowStepId } : {}),
@@ -293,7 +320,11 @@ export class SessionStart {
     })
     preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
-      this.ports.setSessionDraft({ sessionId: spawned.sessionId, text: taskPrompt })
+      this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
+      const queued = this.ports.queueInitialPrompt({ sessionId: spawned.sessionId, text: taskPrompt })
+      if (!queued.ok) {
+        throw new Error(queued.reason ?? 'initial prompt could not be queued')
+      }
     }
     // Fire-and-forget notification (post-spawn, so subscribers observe the new
     // world). Its telemetry consumer reads the harness kind [spec:SP-f933]. The
@@ -351,6 +382,9 @@ export class SessionStart {
     /** The attribution pair, already derived from the binding principal by the
      *  caller. Optional only for the in-process spawn paths that predate it. */
     createdBy?: Attribution
+    /** The operator's per-spawn driver choice — see `create()`'s field of the
+     *  same name. Carried straight onto the spawn frame; absent changes nothing. */
+    runtimeContract?: RuntimeContractRequest
   }): SessionSpawnResult {
     // A server-minted uuid was unique by construction; a client-supplied id is
     // not. Reject a collision rather than let the registry overwrite the live
@@ -372,14 +406,30 @@ export class SessionStart {
         ? { model: input.model, effort: input.effort }
         : undefined,
     )
-    const selectedAccountId =
+    const inheritedAccountId =
       input.agentKind === 'shell'
         ? undefined
-        : (input.accountId ??
-          resolveRole(
+        : resolveRole(
             this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
             'coding',
-          ).accountId)
+          ).accountId
+    // A native role default names the CLI whose login it represents. Since the
+    // coding default is shared across agent kinds, an omitted account must not
+    // carry a different CLI's identity into per-session driver resolution. An
+    // explicit account is user intent and remains byte-for-byte unchanged for
+    // the existing downstream compatibility/refusal behavior.
+    const inheritedNativePrefix = `native:${input.agentKind}`
+    const inheritedMatchesAgent =
+      inheritedAccountId === inheritedNativePrefix ||
+      inheritedAccountId?.startsWith(inheritedNativePrefix + ':')
+    const selectedAccountId =
+      input.accountId !== undefined
+        ? input.accountId
+        : input.agentKind !== 'shell' &&
+            inheritedAccountId?.startsWith('native:') &&
+            !inheritedMatchesAgent
+          ? nativeAccountId(input.agentKind)
+          : inheritedAccountId
     const accountId =
       input.agentKind === 'shell' || selectedAccountId === undefined
         ? undefined
@@ -432,6 +482,9 @@ export class SessionStart {
       ...(input.issueId ? { issueId: input.issueId } : {}),
       ...(input.name ? { name: input.name } : {}),
       ...(input.nameSource ? { nameSource: input.nameSource } : {}),
+      ...(typeof input.runtimeContract === 'string'
+        ? { requestedDriverId: input.runtimeContract }
+        : {}),
     })
     this.ports.registerSession(session)
     // Naming point (#474): input.issueId is the resolved birth issue (or absent
@@ -479,6 +532,7 @@ export class SessionStart {
       // The suffix is durable session attribution only; launch with the selected account unchanged.
       ...this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
+      ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
     })
     this.ports.broadcastSessions()
     return {

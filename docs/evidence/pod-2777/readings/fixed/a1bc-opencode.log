@@ -1,0 +1,48 @@
+==============================================================================
+A1b / A1c  sending when the session cannot take it now   harness=opencode
+==============================================================================
+
+A1b  send while busy
+------------------------------------------------------------------------------
+  session 617825c8-0a5a-4e52-bd90-8dea5475cc5a
+  driver           opencode-server (family server)
+  CONTROL          phase reached 'working': true (2627ms)
+  second send      {"ok":true,"queued":true,"disposition":"queued"}
+  disposition      "queued"
+  position in the send's return: (absent)
+  position in any socket frame:  (no frame carried one)
+  frames seen      hostMetricsChanged=2 sessionAgentStateChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1
+  after reload     sessions.queue -> null
+  waiting for the busy turn to finish and the queued one to run …
+  busy turn ended  true (BUSY-NYNZPT)
+  queued delivered true (QUEUED-00ZYJF)
+
+  A1b PARTIAL
+      queued with position: yes (queued, position not reported)
+      survived a real reload (socket closed and reopened): true
+      delivered when idle: true
+      PARTIAL, not PASS: the message was NOT lost — it reported itself as
+      queued, survived the reload and ran when the session went idle — but NO
+      POSITION reached the caller, on the return or on any socket frame.
+      The product does compute one (runtime-gateway.ts:49, 1-based, read off
+      the real queue depth); sessions.sendText narrows its reply to four
+      pinned keys (command-plane.ts:459) and position is not among them, and
+      the receipt that does carry it travels the MESSAGE path, not the chat
+      one. So a chat UI cannot show a person where they are in a queue.
+
+A1c  send to a DEAD session
+------------------------------------------------------------------------------
+  session b949a8bf-ad69-40b3-a2a5-542c29e982b6
+  CONTROL          a send to this session WHILE ALIVE was answered: true
+  after kill       row: (row gone entirely)
+  send to dead     {"ok":false,"reason":"dead-lettered: session no longer exists","disposition":"dead_letter"}
+  typed refusal    true — reason="dead-lettered: session no longer exists"
+  offers resume    false
+  silently accepted (the forbidden outcome): false
+
+  A1c PASS
+
+==============================================================================
+A1b  PARTIAL
+A1c  PASS
+==============================================================================

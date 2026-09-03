@@ -37,6 +37,14 @@ import {
 import { persistFirstTaskDraft, readFirstTaskDraft } from './first-task-draft'
 import { SetupError } from './SetupFeedback'
 
+/** The one-line sign-in command shown when a harness is missing (copied to the
+ *  clipboard). Harnesses whose sign-in is inside the TUI name the TUI itself. */
+const SETUP_COMMANDS: Partial<Record<IssueAgentKind, string>> = {
+  opencode: 'opencode auth login',
+  cursor: 'cursor-agent login',
+  pi: 'pi',
+}
+
 function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): string {
   if (agent === 'opencode' && readiness.state === 'logged-out') {
     return 'Installed but not signed in. You can continue now and sign in before you run it.'
@@ -48,6 +56,9 @@ function setupHint(agent: IssueAgentKind, readiness: ActivationAgentReadiness): 
   }
   if (agent === 'cursor') {
     return 'Install the Cursor CLI on this machine, then run “cursor-agent login”. Podium will detect it automatically.'
+  }
+  if (agent === 'pi') {
+    return 'Install Pi on this machine, then run “pi” and sign in with its /login command. Podium will detect it automatically.'
   }
   return activationReadinessCopy(readiness, issueAgentLabel(agent))
 }
@@ -374,7 +385,7 @@ export function FirstTaskActivation({
     (agent) => !activationAgentIsReady(readinessByAgent[agent]),
   )
   const copySetupCommand = (agent: IssueAgentKind): void => {
-    const command = agent === 'cursor' ? 'cursor-agent login' : 'opencode auth login'
+    const command = SETUP_COMMANDS[agent] ?? 'opencode auth login'
     void navigator.clipboard?.writeText(command)
   }
 
@@ -383,12 +394,7 @@ export function FirstTaskActivation({
       const readiness = readinessByAgent[agent]
       const ready = activationAgentIsReady(readiness)
       const needsLogin = readiness.state === 'logged-out'
-      const setupCommand =
-        readiness.state === 'missing' && (agent === 'opencode' || agent === 'cursor')
-          ? agent === 'cursor'
-            ? 'cursor-agent login'
-            : 'opencode auth login'
-          : null
+      const setupCommand = readiness.state === 'missing' ? (SETUP_COMMANDS[agent] ?? null) : null
       const status = ready ? 'Ready' : needsLogin ? 'Sign-in optional' : 'Waiting'
 
       return (

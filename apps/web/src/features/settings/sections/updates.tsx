@@ -60,7 +60,6 @@ interface FleetSnapshot {
   channelChecks?: ChannelCheck[]
 }
 
-
 interface VersionInfo {
   appVersion?: string
 }
@@ -116,6 +115,13 @@ export function UpdatesSection(): JSX.Element {
   // the server resolves machines against the env value. When it is set, the
   // selector must say so rather than offer a write that cannot take (POD-1882).
   const [envForced, setEnvForced] = useState(false)
+  /**
+   * WHO REPLACES THIS SERVER'S OWN BINARY (PDM-26). Under `fleet-only` the
+   * deployment does — a container image, a CI deploy — and the updater only ever
+   * touches the joined machines, so offering a server update here would be a
+   * button whose step nothing will take.
+   */
+  const [updateScope, setUpdateScope] = useState<'all' | 'fleet-only'>('all')
   const [channelError, setChannelError] = useState<string | null>(null)
   const [versionInfo, setVersionInfo] = useState<VersionInfo | null>(null)
   const [fleet, setFleet] = useState<FleetSnapshot | null>(null)
@@ -142,6 +148,7 @@ export function UpdatesSection(): JSX.Element {
         if (cancelled) return
         setChannel(c.channel)
         setEnvForced(c.envForced)
+        setUpdateScope(c.updateScope ?? 'all')
       })
       .catch((e) => {
         if (!cancelled) setChannelError(e instanceof Error ? e.message : String(e))
@@ -859,6 +866,12 @@ export function UpdatesSection(): JSX.Element {
         <p className="mt-2 settings-prose text-warning">
           PODIUM_UPDATE_CHANNEL is set in this deployment&rsquo;s environment and overrides the
           configured channel. Unset it to choose the fleet default here.
+        </p>
+      )}
+      {updateScope === 'fleet-only' && (
+        <p className="mt-2 settings-prose text-muted-foreground">
+          Server updates are managed by this deployment; machines still update from the{' '}
+          {channel ?? 'configured'} feed.
         </p>
       )}
       {channelError && <p className="mt-2 settings-prose text-destructive">{channelError}</p>}

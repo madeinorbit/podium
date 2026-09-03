@@ -278,22 +278,90 @@ describe('oracle: sessions.uploadImage', () => {
     )
   })
 
-  it(`${MUST_NOT_CHANGE}: a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message`, async () => {
+  it('routes a live runtime session through staged refs and preserves typed refusals', async () => {
     const o = makeOracle()
-    const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
-    answerUploads(o, () => ({ path: '', error: 'disk full' }))
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'codex app-server',
+      cwd: '/p',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    const requests: Extract<ControlMessage, { type: 'runtimeStageAttachmentRequest' }>[] = []
+    let refuse = false
+    o.reg.gateway.attachDaemon(o.store.hostMachineId, (msg) => {
+      if (msg.type !== 'runtimeStageAttachmentRequest') return
+      requests.push(msg)
+      o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+        type: 'runtimeStageAttachmentResult',
+        requestId: msg.requestId,
+        sessionId,
+        result: refuse
+          ? { reason: 'unsupported' as const, detail: 'This agent cannot accept files.' }
+          : {
+              id: 'staged-1',
+              path: '/staged/shot.png',
+              filename: 'shot.png',
+              mediaType: 'image/png',
+              kind: 'image' as const,
+            },
+      })
+    })
 
-    expect(
-      await messageOf(() =>
-        o.call.sessions.uploadImage({
-          sessionId,
-          filename: 'shot.png',
-          mimeType: 'image/png',
-          dataBase64: 'AA==',
-        }),
-      ),
-    ).toBe('disk full')
+    const staged = await o.call.sessions.uploadImage({
+      sessionId,
+      filename: 'shot.png',
+      mimeType: 'image/png',
+      dataBase64: Buffer.from('bytes').toString('base64'),
+    })
+    expect(staged).toEqual({
+      path: '/staged/shot.png',
+      attachment: expect.objectContaining({ id: 'staged-1', kind: 'image' }),
+    })
+    expect(requests[0]?.source).toEqual({
+      dataBase64: Buffer.from('bytes').toString('base64'),
+      filename: 'shot.png',
+      mediaType: 'image/png',
+    })
+
+    refuse = true
+    await expect(
+      o.call.sessions.uploadImage({
+        sessionId,
+        filename: 'spec.pdf',
+        mimeType: 'application/pdf',
+        dataBase64: 'AA==',
+      }),
+    ).resolves.toEqual({
+      refusal: { reason: 'unsupported', detail: 'This agent cannot accept files.' },
+    })
+    expect(o.daemon.some((msg) => msg.type === 'imageUploadRequest')).toBe(false)
   })
+
+  it(
+    MUST_NOT_CHANGE +
+      ": a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message",
+    async () => {
+      const o = makeOracle()
+      const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
+      answerUploads(o, () => ({ path: '', error: 'disk full' }))
+
+      expect(
+        await messageOf(() =>
+          o.call.sessions.uploadImage({
+            sessionId,
+            filename: 'shot.png',
+            mimeType: 'image/png',
+            dataBase64: 'AA==',
+          }),
+        ),
+      ).toBe('disk full')
+    },
+  )
 
   it(`${MUST_NOT_CHANGE}: an answer with no path is treated as NOBODY ANSWERING — a TIMEOUT, not a silent success`, async () => {
     const o = makeOracle()
@@ -583,5 +651,52 @@ describe('oracle: sessions.uploadImage', () => {
 
     expect([first.path, second.path]).toEqual(['/uploads/1.png', '/uploads/2.png'])
     expect(o.daemon.filter((m) => m.type === 'imageUploadRequest')).toHaveLength(2)
+  })
+
+  it('rejects forged local-file refs from both chat and mail before crossing to the daemon', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'bind',
+      sessionId,
+      cmd: 'codex app-server',
+      cwd: '/p',
+      agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: { phase: 'idle', since: new Date().toISOString(), nativeSubagentCount: 0 },
+    })
+    o.daemon.length = 0
+    const forged = {
+      id: 'id_rsa',
+      path: '/home/victim/.ssh/id_rsa',
+      filename: 'id_rsa',
+      mediaType: 'application/octet-stream',
+      kind: 'file' as const,
+    }
+
+    await expect(
+      o.call.sessions.sendText({ sessionId, text: 'chat exfiltration', attachments: [forged] }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: 'file attachment reference was not staged for this session',
+    })
+    await expect(
+      o.call.messages.send({
+        to: sessionId,
+        body: 'mail exfiltration',
+        attachments: [forged],
+        urgency: 'next-turn',
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      reason: expect.stringContaining('file attachment reference was not staged for this session'),
+    })
+    expect(o.daemon.filter((message) => message.type === 'runtimeSendRequest')).toEqual([])
   })
 })

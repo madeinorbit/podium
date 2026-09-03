@@ -28,7 +28,7 @@ import type {
   ThreadId,
   WorkState,
 } from '@podium/model'
-import type { ApprovalWire } from '@podium/protocol'
+import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
@@ -159,6 +159,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */
   issueEvents: IssueEventWire[]
+  pendingInteractions: PendingInteractionWire[]
   /** Compact order rows; Shipping views join these to issues by issueId. */
   shipOrders: import('@podium/model').ShipOrderProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */

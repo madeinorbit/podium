@@ -1,0 +1,81 @@
+POD-3044 A1c real-instance A/B evidence
+========================================
+
+Date: 2026-08-28 (Europe/Berlin)
+Procedure: docs/evidence/pod-2777/drive-verify.sh, then
+           docs/evidence/pod-2777/a1.ts codex a1c
+           with PODIUM_A1C_OUTCOME_MS=120000.
+Both runs used contract arm CONTRACT=1, STREAMING=1, Codex 0.149.1, a
+separate isolated instance, an alive-send positive control, exact stamped-child
+attribution, SIGKILL, and the full delayed observation window. The web bundle was
+unchanged between the commits and was reused only where drive-verify proved it.
+
+PRE-FIX — FAIL
+--------------
+Commit:  cfb96fe179fbcc44d7421a058db69d6abb043327 (cfb96fe)
+Instance: p3044pre, server :19878, hook :46878, relay :46879
+Server:   pid 1724986, spawned at cfb96fe
+Daemon:   pid 1725098, spawned at cfb96fe
+Web:      served sourceSha 727e291, unchanged through cfb96fe
+PINJSON:  {"want":"cfb96fe179fbcc44d7421a058db69d6abb043327","short":"cfb96fe","spawnedSha":"cfb96fe179fbcc44d7421a058db69d6abb043327","serverPid":1724986,"daemonPid":1725098,"webSourceSha":"727e291","contract":"1","streaming":"1","driver":""}
+
+  session          15c9be90-4ee6-4546-bb97-b8d37f893149
+  product driver   codex-app-server family=server
+  CONTROL          a send to this session WHILE ALIVE was answered: true
+  target stamp     uuid=a02f1919-ac58-4c90-9dc0-cbf1660ab6f6
+  target process   pid=1729882 cwd=/tmp/pod-3044-pre-ab/repo
+  SIGKILL          sent=true; exact PID gone=true; dead confirmed=true
+  after child kill  session row status=live
+  send to dead     {"ok":true,"queued":true,"position":1,"disposition":"queued"}
+  typed refusal    false
+  accepted         true
+  delayed outcome  LOST after <=120s
+  A1c              FAIL
+
+POST-FIX — PASS
+---------------
+Commit:  727e29103d380f4b19d632f27d794394f19e4a1e (727e291)
+Instance: p3044fix, server :19868, hook :46868, relay :46869
+Server:   pid 1699471, spawned at 727e291
+Daemon:   pid 1699673, spawned at 727e291
+Web:      served sourceSha 727e291
+PINJSON:  {"want":"727e29103d380f4b19d632f27d794394f19e4a1e","short":"727e291","spawnedSha":"727e29103d380f4b19d632f27d794394f19e4a1e","serverPid":1699471,"daemonPid":1699673,"webSourceSha":"727e291","contract":"1","streaming":"1","driver":""}
+
+  session          abb27b01-c7ad-4046-9cb4-8a26643af47c
+  product driver   codex-app-server family=server
+  CONTROL          a send to this session WHILE ALIVE was answered: true
+  target stamp     uuid=51fa939a-6862-4ad8-8e35-79767c5c3f9e
+  target process   pid=1713177 cwd=/tmp/pod-3044-fix/repo
+  SIGKILL          sent=true; exact PID gone=true; dead confirmed=true
+  after child kill  session row status=live
+  send to dead     {"ok":false,"reason":"dead-lettered: delivery-failed","disposition":"dead_letter"}
+  typed refusal    true; offers resume=false; accepted=false
+  delayed outcome  not applicable (refused before acceptance)
+  A1c              PASS
+
+SCORER-CONTROL GATE
+--------------------
+Command: PODIUM_TEST_WORKERS=1 /home/mgw/.bun/bin/bun --conditions=@podium/source docs/evidence/pod-2777/scorer-controls.ts
+Result:  SCORER CONTROLS PASS
+  A1c accepted-then-lost -> FAIL
+  A1c resume-only -> FAIL
+  A9 rebound at 15s -> FAIL
+  A9 rebound at 300s -> FAIL
+  A9 original alive but unstamped at 15s -> FAIL
+  A9 original alive but unstamped at 300s -> FAIL
+
+The candidate remains on issue branch issue/3044-dead-session-send-has-no-typed-refusal.
+No merge or landing onto main was performed.
+
+VALIDATION COUNTS
+-----------------
+Final gate rerun at the rebased tip with PODIUM_TEST_WORKERS=1.
+Lean gate: GREEN — 4 of 1042 collected unit files, 80 tests executed.
+  packages/runtime/src/boot.test.ts             16
+  apps/server/src/router.setup.test.ts          19
+  apps/daemon/src/connection-state.test.ts      12
+  scripts/test-configuration.test.ts            33
+Typecheck: 25 successful / 25 total tasks; 21 cached / 25 total tasks.
+Services shard: 97 passed / 104 files; 1839 passed / 1873 tests; 7 files and
+34 tests failed in unrelated session machine-probing, handoff, upload,
+attribution, stop, and oracle failures. No changed message-path test failed.

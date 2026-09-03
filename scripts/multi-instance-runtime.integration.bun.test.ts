@@ -24,6 +24,12 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 import {
+  ABDUCO_SUN_PATH_MAX,
+  abducoSocketDir,
+  abducoSocketPathBytes,
+  longestDurableLabelFor,
+} from '@podium/runtime/abduco-socket'
+import {
   abducoSocketPath,
   killAbducoSession,
   resolveAbducoBin,
@@ -810,9 +816,27 @@ describe('multi-instance runtime isolation', () => {
     expect(JSON.parse(readFileSync(join(named.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
       instanceId: 'blue',
     })
+    // A NAMED INSTANCE GETS A PRIVATE DURABLE-SOCKET ROOT, and since POD-2853
+    // that root is NOT under its state directory. It used to be
+    // `<state>/runtime/abduco`, and the composed socket path
+    // (`<root>/abduco/<user>/podium-<instance>-<uuid>@<host>`) then ran past the
+    // 108-byte `sun_path` ceiling on the documented state layout — measured at
+    // 121 bytes — so every terminal spawn on a named instance died with
+    // "create-session: File name too long". The root now comes from the runtime
+    // directory, which is both short enough and where sockets belong.
     expect(existsSync(join(compat.stateDir, 'runtime', 'abduco'))).toBe(false)
     expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(false)
-    expect(existsSync(instanceSocketRuntimeDir('blue', named.stateDir))).toBe(true)
+    const namedSocketRoot = instanceSocketRuntimeDir('blue', named.stateDir)
+    expect(existsSync(namedSocketRoot)).toBe(true)
+    // AND IT FITS, which is the property the old pin failed. Asserted with the
+    // real user and host, because those bytes are in the same budget.
+    expect(
+      abducoSocketPathBytes(
+        abducoSocketDir(namedSocketRoot, userInfo().username),
+        longestDurableLabelFor('blue'),
+        `@${hostname()}`,
+      ),
+    ).toBeLessThan(ABDUCO_SUN_PATH_MAX)
 
     const inspectBoot = (spec: InstanceSpec) => {
       const db = openDatabase(join(spec.stateDir, 'podium.db'))

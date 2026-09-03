@@ -1,0 +1,120 @@
+{
+  "cell": "A2B",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2917-tip0828/probes/shell-a2b",
+  "at": "2026-08-28T11:08:22.774Z",
+  "pin": {
+    "cell": "A2B",
+    "at": "2026-08-28T11:08:22.789Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "serverSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "daemonSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T10:35:29.926Z",
+      "appVersion": "dev+98ef8d6",
+      "sourceSha": "98ef8d6",
+      "bundleVersion": "bundle+Dbh-P3IM"
+    },
+    "serverPid": "313446",
+    "daemonPid": "313566",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "20486156 kB",
+      "SwapFree": "41942992 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "fresh session reported idle at boot",
+  "control": {
+    "fired": true,
+    "what": "a unique shell marker echoed while checking boot status",
+    "detail": "marker=P2917-A2B-MTCULZ78; echo=true; created={\"sessionId\":\"8577c02b-f37d-43a4-9ca0-185be24c04c8\",\"agentId\":\"8577c02b-f37d-43a4-9ca0-185be24c04c8\",\"harness\":\"shell\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"3408edd2-2f34-46bb-9380-bc4a612d0fe6\",\"accountId\":null}"
+  },
+  "evidence": [
+    "CONTROL ECHO      true in 500ms; marker=P2917-A2B-MTCULZ78",
+    "STATUS            {\"sessionId\":\"8577c02b-f37d-43a4-9ca0-185be24c04c8\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"error\"",
+    "SESSION ROW       {\"sessionId\":\"8577c02b-f37d-43a4-9ca0-185be24c04c8\",\"agentKind\":\"shell\",\"title\":\"shell-a2b\",\"cwd\":\"/tmp/pod-2917-tip0828/probes/shell-a2b\",\"status\":\"live\",\"controllerId\":\"c2\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,\"clientCount\":1,\"createdAt\":\"2026-08-28T11",
+    "FRAME TYPES       outputFrame=3 machinesChanged=2 hostMetricsChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1",
+    "SCREEN TAIL       \"mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a2b$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a2b$ printf \\\"%s\\\\n\\\" \\\"$(printf \\\"%s\\\" \\\"UDI5MTctQTJCLU1UQ1VMWjc4\\\" | base64 -d)\\\"\\nP2917-A2B-MTCULZ78\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a2b$\""
+  ],
+  "data": {
+    "sid": "8577c02b-f37d-43a4-9ca0-185be24c04c8",
+    "marker": "P2917-A2B-MTCULZ78",
+    "echo": {
+      "ok": true,
+      "ms": 500
+    },
+    "status": {
+      "sessionId": "8577c02b-f37d-43a4-9ca0-185be24c04c8",
+      "agentKind": "shell",
+      "harness": "shell",
+      "driverId": null,
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": null,
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [],
+      "files": [],
+      "unackedMessages": 0
+    },
+    "row": {
+      "sessionId": "8577c02b-f37d-43a4-9ca0-185be24c04c8",
+      "agentKind": "shell",
+      "title": "shell-a2b",
+      "cwd": "/tmp/pod-2917-tip0828/probes/shell-a2b",
+      "status": "live",
+      "controllerId": "c2",
+      "geometry": {
+        "cols": 80,
+        "rows": 24
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-28T11:08:22.798Z",
+      "lastActiveAt": "2026-08-28T11:08:26.357Z",
+      "lastInputAt": "2026-08-28T11:08:26.349Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "3408edd2-2f34-46bb-9380-bc4a612d0fe6",
+      "machineName": "flatblock",
+      "neverBound": true,
+      "busy": true,
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      }
+    }
+  }
+}

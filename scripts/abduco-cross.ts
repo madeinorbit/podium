@@ -33,6 +33,7 @@ import { homedir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { sharedCacheDir } from './shared-cache-dir'
+import { readToolPins } from './tool-pins'
 
 /** Repo root, from this file's location (works under bun run and bun --compile alike). */
 export const REPO_ROOT = fileURLToPath(new URL('..', import.meta.url))
@@ -189,12 +190,40 @@ function findTool(envName: string, binary: string, fallbacks: string[]): string 
   )
 }
 
+/**
+ * The found tool must MATCH the mise.toml pin [POD-3187]. Both tools change the bytes a
+ * release ships (zig compiles the embedded helper, rcodesign writes the Darwin signature),
+ * so a drifted local install must fail here, loudly, rather than produce a bundle that
+ * differs from what CI would have built. `PODIUM_SKIP_TOOL_PIN_CHECK=1` waives it for
+ * deliberate experiments. Memoized per (tool, path): one probe per process, not per call.
+ */
+const pinChecked = new Set<string>()
+function assertPinnedVersion(tool: string, path: string, args: string[], pinned: string): string {
+  if (process.env.PODIUM_SKIP_TOOL_PIN_CHECK === '1') return path
+  const key = `${tool}\0${path}`
+  if (pinChecked.has(key)) return path
+  const printed = spawnSync(path, args, { encoding: 'utf8' }).stdout?.trim() ?? ''
+  if (!printed.split(/\s+/).includes(pinned)) {
+    throw new Error(
+      `abduco-cross: ${tool} at ${path} reports "${printed}" but mise.toml pins ${pinned}. ` +
+        `Run \`mise install\` (or install ${tool} ${pinned}), or set PODIUM_SKIP_TOOL_PIN_CHECK=1 ` +
+        `to build with an off-pin toolchain deliberately.`,
+    )
+  }
+  pinChecked.add(key)
+  return path
+}
+
 export function resolveZig(): string {
-  return findTool('PODIUM_ZIG', 'zig', [join(homedir(), '.local/bin/zig')])
+  const zig = findTool('PODIUM_ZIG', 'zig', [join(homedir(), '.local/bin/zig')])
+  return assertPinnedVersion('zig', zig, ['version'], readToolPins().zig)
 }
 
 export function resolveRcodesign(): string {
-  return findTool('PODIUM_RCODESIGN', 'rcodesign', [join(homedir(), '.cargo/bin/rcodesign')])
+  const rcodesign = findTool('PODIUM_RCODESIGN', 'rcodesign', [
+    join(homedir(), '.cargo/bin/rcodesign'),
+  ])
+  return assertPinnedVersion('rcodesign', rcodesign, ['--version'], readToolPins().rcodesign)
 }
 
 /**

@@ -4,14 +4,14 @@
 // reconciles roles only from a post-response replacement child.
 // The pure policy lives in @podium/runtime/transfer-lifecycle — this module only binds it.
 // Design: docs/internal/superpowers/specs/2026-08-06-server-transfer-design.md
-import { loadConfig, localServerUrl, type PodiumConfig, resolvePort } from '@podium/runtime/config'
+import { loadConfig, type PodiumConfig, resolvePort } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
 import { liveRecord, type RunRole, reclaim } from '@podium/runtime/run-registry'
 import {
   promoteTargetServer,
   type RoleSupervisor,
-  type TargetServerRuntimeOutcome,
   runRoleTransition,
+  type TargetServerRuntimeOutcome,
 } from '@podium/runtime/transfer-lifecycle'
 import { spawnDetached, waitForHealth } from './cli-spawn'
 import {
@@ -21,7 +21,6 @@ import {
   hasSystemctl,
   hasUserSystemd,
   renderDaemonUnit,
-  renderJanitorUnit,
   renderParentUnit,
   renderServerUnit,
   systemdUnitActive,
@@ -68,7 +67,11 @@ export function roleUnitBody(
     case 'server':
       return renderServerUnit({ instanceId: id, port: ctx.port })
     case 'janitor':
-      return renderJanitorUnit({ port: ctx.port, instanceId: id })
+      // PDM-27: no janitor unit is ever written again. The name still resolves
+      // (`roleUnit`) because a LEGACY unit or detached process from an older
+      // install is still stopped and disabled during the topology migration —
+      // retiring one is not the same as being able to render one.
+      throw new Error('the janitor is a server worker and has no unit of its own')
     case 'daemon':
       // Bare `podium daemon`: serverUrl + pair code come from config, which the cutover
       // (or promotion) has already rewritten — never pin a stale URL into the unit.
@@ -105,11 +108,9 @@ export function managedRoleSupervisor(
       if (role === 'parent') return spawnDetached('parent', { port: ctx.port })
       if (role === 'daemon') return spawnDetached('daemon', {})
       if (role === 'janitor')
-        // Legacy peer janitor; parent-supervised installs host janitor in-server.
-        return spawnDetached('janitor', {
-          port: ctx.port,
-          serverUrl: localServerUrl(ctx.port),
-        })
+        // PDM-27: every server hosts its own janitor thread, so there is no
+        // sibling process to spawn — only legacy ones left to retire.
+        throw new Error('the janitor is a server worker and is never spawned as a peer')
       return spawnDetached('server', { port: ctx.port })
     })
   const writeUnit = deps.writeUnit ?? ((_role, _unit, body) => writeUserUnit(_unit, body))

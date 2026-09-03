@@ -300,6 +300,15 @@ export interface AuthRouteOptions {
   /** Number of reverse-proxy hops whose right-appended forwarding values are trusted. */
   trustedProxyHops?: number
   onCredentialRevoked?: (tokenHash: string) => void
+  /**
+   * A successful login, for a composition root that publishes it (podium-cloud's
+   * analytics subscriber). Fired AFTER the session row is written, on both
+   * delivery shapes, so a login that failed to persist is never reported as one.
+   *
+   * Best-effort by contract: the call site swallows a throw, because an observer
+   * must never turn a good login into a 500.
+   */
+  onLogin?: (event: { userId: UserId; delivery: 'cookie' | 'native'; platform?: string }) => void
 }
 
 export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void {
@@ -404,6 +413,17 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
     failures = 0
     lockedUntil = 0
 
+    // Best-effort and isolated: an observer must never turn a good login into a 500.
+    const reportLogin = (event: {
+      userId: UserId
+      delivery: 'cookie' | 'native'
+      platform?: string
+    }): void => {
+      try {
+        opts.onLogin?.(event)
+      } catch {}
+    }
+
     const token = randomBytes(32).toString('base64url')
     const expiresMs = at + SESSION_TTL_MS
     const expiresAt = new Date(expiresMs).toISOString()
@@ -421,6 +441,11 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
         platform: nativeLogin.platform,
         lastSeenAt: new Date(at).toISOString(),
       })
+      reportLogin({
+        userId,
+        delivery: 'native',
+        ...(nativeLogin.platform ? { platform: nativeLogin.platform } : {}),
+      })
       return c.json({
         ok: true as const,
         delivery: 'native' as const,
@@ -430,6 +455,7 @@ export function registerAuthRoute(app: Hono, opts: AuthRouteOptions = {}): void 
       })
     }
     store?.createClientSession(hashToken(token), userId, expiresAt)
+    reportLogin({ userId, delivery: 'cookie' })
 
     setSessionCookie(c, token, opts.trustedProxyHops)
     return c.json({ ok: true, userId })

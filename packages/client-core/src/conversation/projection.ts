@@ -1,4 +1,5 @@
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
 export interface ConversationPendingTurn {
   id: string
@@ -10,6 +11,11 @@ export interface ConversationPendingTurn {
   state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
   kind: 'message' | 'offer'
   error?: string
+  /** Out-of-band staged attachment refs delivered with this turn (POD-2408).
+   *  Opaque here: the adapter's `deliver` is what puts them on the wire. */
+  attachments?: readonly RuntimeAttachmentRef[]
+  /** 1-based position the authority returned when this send entered its FIFO. */
+  queuePosition?: number
   tags?: TranscriptTag[]
   toolPaths?: string[]
   files?: readonly { path: string }[]
@@ -20,6 +26,8 @@ export interface ConversationQueuedMessage {
   id: string
   text: string
   at: number
+  /** 1-based position the authority returned when this row entered its FIFO. */
+  queuePosition?: number
   injectedAt: number | null
 }
 
@@ -50,6 +58,7 @@ export function queuedConversationMessages(
       id: row.id as string,
       text: row.body as string,
       at: Date.parse(row.createdAt as string) || 0,
+      ...(typeof row.queuePosition === 'number' ? { queuePosition: row.queuePosition } : {}),
       injectedAt: typeof row.injectedAt === 'string' ? Date.parse(row.injectedAt) || null : null,
     }))
     .sort((left, right) => left.at - right.at || left.id.localeCompare(right.id))

@@ -7,6 +7,8 @@ import {
   type NativeServer,
   serveNative,
   type WsHandle,
+  type WsTransportDeps,
+  wsOriginVerdict,
 } from './gateway/ws-server'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
@@ -52,6 +54,52 @@ describe('isAllowedWsOrigin', () => {
   })
 })
 
+describe('isAllowedWsOrigin with an allowed-origins list', () => {
+  const allowed = new Set(['https://app.meetpodium.com'])
+
+  test('an exact allowed origin may open a browser socket', () => {
+    expect(isAllowedWsOrigin('https://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      true,
+    )
+  })
+
+  test('scheme, host and port must all match', () => {
+    expect(isAllowedWsOrigin('http://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      false,
+    )
+    expect(
+      isAllowedWsOrigin('https://app.meetpodium.com:8443', 'api.meetpodium.com', allowed),
+    ).toBe(false)
+    expect(isAllowedWsOrigin('https://evil.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      false,
+    )
+  })
+
+  test('the asymmetry with the HTTP predicate is preserved', () => {
+    // No Origin is a native peer; a loopback REQUEST host is a reverse proxy,
+    // where the edge owns origin policy. The list adds a case; it removes none.
+    expect(isAllowedWsOrigin(undefined, 'api.meetpodium.com', allowed)).toBe(true)
+    expect(isAllowedWsOrigin('https://box.tailnet.ts.net', 'localhost:18787', allowed)).toBe(true)
+  })
+
+  test('an omitted list behaves exactly as before', () => {
+    expect(isAllowedWsOrigin('https://app.meetpodium.com', 'api.meetpodium.com')).toBe(false)
+  })
+
+  test('the verdict names why it refused', () => {
+    expect(wsOriginVerdict(undefined, 'api.meetpodium.com')).toBe('allowed')
+    expect(wsOriginVerdict('not a url', 'api.meetpodium.com')).toBe('parse')
+    expect(wsOriginVerdict('https://evil.example', 'api.meetpodium.com')).toBe('not-allowed')
+    expect(
+      wsOriginVerdict(
+        'https://app.meetpodium.com',
+        'api.meetpodium.com',
+        new Set(['https://app.meetpodium.com']),
+      ),
+    ).toBe('allowed')
+  })
+})
+
 /**
  * THE GUARD, WIRED (POD-391).
  *
@@ -82,13 +130,17 @@ describe('the CSWSH guard on the real upgrade path', () => {
     server = handle = store = registry = undefined
   })
 
-  async function start(): Promise<string> {
+  async function start(deps: WsTransportDeps = {}): Promise<string> {
     store = new SessionStore(':memory:')
     registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
-    handle = attachWebSockets(registry, {
-      userForClient: () => FIRST_ADMIN_USER_ID,
-      roleForClient: () => 'admin',
-    })
+    handle = attachWebSockets(
+      registry,
+      {
+        userForClient: () => FIRST_ADMIN_USER_ID,
+        roleForClient: () => 'admin',
+      },
+      deps,
+    )
     server = serveNative({
       port: 0,
       hostname: '127.0.0.1',
@@ -141,5 +193,20 @@ describe('the CSWSH guard on the real upgrade path', () => {
     // those, the fleet would be unreachable on any directly-exposed deployment.
     const base = await start()
     expect(await attempt(`${base}/daemon`)).toBe('open')
+  })
+
+  test('an allow-listed app host is admitted, and a foreign origin is still refused', async () => {
+    // The split-hosting case on the real upgrade path: the page is app.<site>,
+    // the socket lands on api.<site>, and the forged Host above is what makes
+    // this the DIRECT-exposure shape the guard actually enforces on.
+    const refusals: string[] = []
+    const base = await start({
+      allowedOrigins: new Set(['https://app.podium.example.com']),
+      onOriginRefused: (info) => refusals.push(`${info.reason}:${info.origin}`),
+    })
+    expect(await attempt(`${base}/client`, 'https://app.podium.example.com')).toBe('open')
+    expect(refusals).toEqual([])
+    expect(await attempt(`${base}/client`, 'https://evil.example')).toBe('rejected')
+    expect(refusals).toEqual(['not-allowed:https://evil.example'])
   })
 })

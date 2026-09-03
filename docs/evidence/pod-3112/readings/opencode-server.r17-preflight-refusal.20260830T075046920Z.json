@@ -1,0 +1,25 @@
+{
+  "at": "2026-08-30T07:50:46.920Z",
+  "issue": "POD-3112",
+  "kind": "r17-isolation-preflight-refusal",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "bc0263ccf49d499f60988c297c60554b4217a6b6",
+  "evidenceHeadAtBuild": "0ff791b686425983959f0feeb2035ee705d4bfb2",
+  "requestedInstance": "p3112-oc-ui-lifecycle-r17",
+  "ports": [20327, 47342, 47343],
+  "providerPrompts": 0,
+  "web": {
+    "wireSchemaDigest": "325e219a891fc6c8",
+    "sourceSha": "0ff791b",
+    "bundleVersion": "bundle+BUphcYN_"
+  },
+  "credentialPosture": {
+    "sourcePath": "/home/mgw/.local/share/opencode/auth.json",
+    "sourceMode": "600",
+    "sourceSize": 126,
+    "sourceMtime": "2026-08-04 14:46:44.680078633 +0200",
+    "contentsAccessed": false
+  },
+  "verdict": "REFUSED",
+  "reason": "The source entrypoint ignored the trailing --instance argument, reported instance=default, and failed during migration before binding the requested isolated port. No retry was attempted."
+}

@@ -1,0 +1,229 @@
+/**
+ * WHAT THE codex app-server DRIVER CAN HONESTLY CLAIM (POD-1761 W6; spec §3).
+ *
+ * ---------------------------------------------------------------------------
+ * THE ONE FIELD THAT IS NEW IN THE FLEET
+ * ---------------------------------------------------------------------------
+ *
+ * `send.native` CONTAINS `'steer'`, and this is the first driver in the epic for
+ * which that is true. W5 measured that opencode has no steer verb — a prompt
+ * POSTed into an open turn becomes a second turn afterwards — and added
+ * `no-native-steer` to every family row as a result. Codex has `turn/steer`, it
+ * was exercised live against 0.147.0 (recorded in
+ * `./__fixtures__/steer-interrupt.json`), and the words joined the OPEN turn.
+ *
+ * That is exactly the situation the permitted-failures table was reshaped for:
+ * the family row still PERMITS the weakness, and the corpus's real check is that
+ * `deliveredAs` names a delivery the driver DECLARED native — in both
+ * directions. So this declaration is not decoration; it is what the suite holds
+ * the driver to. See ./permitted-failures.ts.
+ *
+ * The two fields the whole epic turns on — `send.mayReturnUnverified: false` and
+ * `interactions.atLeastOnce: false` — are false here for the same reasons they
+ * are false for opencode, and a server driver claiming either is refused by the
+ * corpus in both directions.
+ */
+
+import { supported, unsupported } from '@podium/harness'
+import type { DriverCapabilities } from '../../capabilities.js'
+
+export function codexAppServerCapabilities(): DriverCapabilities {
+  return {
+    // ---- CORE ----
+    send: {
+      /**
+       * `steer` IS PRESENT, MEASURED RATHER THAN HOPED.
+       *
+       * `turn/steer {threadId, expectedTurnId, input}` into a RUNNING turn
+       * returns `{turnId}` and the words join that turn. The precondition is
+       * real and is why the driver waits for `turn/started` before steering: the
+       * turn/start RESPONSE lands before the turn is actually open, and a steer
+       * fired in that window is refused with "no active turn to steer". Both
+       * frames are in the fixtures.
+       */
+      native: ['when-ready', 'queue', 'interrupt', 'steer'],
+      /** The `turn/start` response carrying a `Turn` with `status: inProgress`.
+       *  Nothing else is consulted, and nothing else is needed. */
+      proof: ['protocol-ack'],
+      /**
+       * FALSE, AND THE CORPUS CHECKS THE CONVERSE. There is no verification
+       * window to fall out of: either the JSON-RPC call answered with a turn or
+       * it answered an error, and both are knowable synchronously.
+       */
+      mayReturnUnverified: false,
+    },
+    interrupt: {
+      // `turn/interrupt` REQUESTS the stop and answers `{}`; the fence lands
+      // when Codex reports `turn/completed` with `status: 'interrupted'` — its
+      // own verdict, not the driver's inference. Verified live.
+      fenceOnProviderConfirmation: true,
+    },
+    interactions: supported({
+      /**
+       * TWO KINDS, BECAUSE TWO KINDS ARE WHAT CODEX ASKS through channels this
+       * driver has exercised. `permission` covers all three approval requests
+       * (command execution, file change, permission profile) — they are one kind
+       * with three payloads, not three kinds. `elicitation` is Codex's MCP
+       * channel and this is the first harness in the fleet to have one.
+       *
+       * `question` is NOT listed, and its absence is a measurement rather than
+       * an oversight: `item/tool/requestUserInput` exists in 0.147.0's bindings
+       * but never fired in any live run, and a driver that declared a kind it
+       * has never seen would promise an ask it cannot produce.
+       */
+      kinds: ['permission', 'elicitation'],
+      source: 'protocol',
+      /** Answered by responding to the exact JSON-RPC request that asked — not
+       *  by typing digits at a menu and hoping it was the right one. */
+      answerable: 'structured',
+      /** EXACTLY-ONCE. The ask IS a JSON-RPC request id; the same request never
+       *  arrives twice and an answer names the request it answers. */
+      atLeastOnce: false,
+    }),
+    observation: {
+      /**
+       * BOTH LEVELS, FILTERED IN USER SPACE (spec §5) — like opencode and grok,
+       * and not for want of a protocol knob.
+       *
+       * `optOutNotificationMethods` on the initialize handshake does tell the
+       * server which notifications not to send at all, and this driver still
+       * uses it for the fragment kinds it never reads. It is the wrong place for
+       * the WATCH LEVEL, though, and POD-2745 is what that cost: the handshake
+       * happens once, so a level expressed through it is fixed for the
+       * CONNECTION's life, and lifting it meant a reconnect that abandons an
+       * in-flight turn. A viewer who opened a chat mid-turn therefore could not
+       * be served until that turn ended — which on a session started with an
+       * initial prompt is the first turn, and the only one most people watch.
+       *
+       * So the level lives where it can change: `watchers.fine`, checked per
+       * fragment in `ingest` — see `watch()` in ./runtime.ts.
+       */
+      watchLevels: ['coarse', 'fine'],
+      /** Thread id + the driver's own monotonic event ordinal, persisted as a
+       *  high-water mark so a rebind resumes rather than replays. */
+      cursorMaterial: 'event-offset',
+    },
+    transcript: supported({ history: true }),
+    /**
+     * BOTH KINDS, BECAUSE CODEX TAKES BOTH — MEASURED, NOT INFERRED (POD-2819).
+     *
+     * This read `kinds: ['image'], promptForm: 'local-image'`, and the driver
+     * refused a text file with "Codex accepts image attachments only". The
+     * refusal was honest about the declaration and the declaration was wrong,
+     * which made it the epic's only cell where headless was WORSE than what
+     * ships today: codex on a PTY reads an attached text file fine.
+     *
+     * WHAT CODEX ACCEPTS, from the server rather than from documentation.
+     * Handed an input variant it does not know, it enumerates the ones it does:
+     *
+     *   unknown variant `localFile`, expected one of `text`, `image`,
+     *   `localImage`, `audio`, `localAudio`, `skill`, `mention`
+     *
+     * TWO FORMS, BECAUSE THE TWO KINDS TRAVEL DIFFERENTLY AND ONE LABEL WOULD
+     * BE A LIE ABOUT ONE OF THEM.
+     *
+     * - An IMAGE is a `localImage` part and the pixels reach the model. Driven
+     *   raw against codex-cli 0.149.1 and again through Podium: a nonce drawn
+     *   into the image came back at four to six digits of six, where guessing
+     *   is one in ten per digit.
+     *
+     * - A FILE is `path-text`, the same shape the terminal driver uses and the
+     *   one POD-2777 measured codex PASSING with on its PTY. `mention` LOOKS
+     *   like the right vehicle — it is `{ name, path }`, codex's own
+     *   `@`-mention — and it is not: the server accepts it and then drops it.
+     *   Measured on the rollout JSONL that `thread/start` names, which records
+     *   the exact input the model was sent, in three shapings (name matching
+     *   the file's basename, name differing, and `@name` written into the text
+     *   beside it). The staged path appears in the model's prompt in NONE of
+     *   them, and in the path-text arm it appears. That is why this driver
+     *   spends a `mention` on nothing.
+     *
+     *   Scoring this on the ANSWER instead is how it was first got wrong here:
+     *   a mention arm "passed" because the agent ran `find /tmp/... -type f`,
+     *   located the file itself and read it. An answer-scored probe cannot tell
+     *   delivery from hunting; the model's own input can.
+     */
+    staging: supported({
+      kinds: ['image', 'file'],
+      promptForm: { image: 'local-image', file: 'path-text' },
+    }),
+    /**
+     * `client`, not `engine`: the headless app-server remains authoritative and
+     * Native launches Codex's original resume TUI beside it.
+     *
+     * There is no engine terminal: the session is a headless JSON-RPC child with
+     * no PTY. The daemon host resumes the bound thread with `codex resume`,
+     * streams that sibling PTY under the parent session id, and preserves the
+     * exclusive human-controller lease while it is visible.
+     *
+     * The shared daemon client-terminal host implements the machine-specific
+     * endpoint; a host that cannot spawn it returns the contract's typed
+     * `unsupported` refusal without weakening this family-wide capability.
+     */
+    attach: supported({ kinds: ['client'] }),
+    lease: supported({ humanTakeover: true }),
+    /** The draft is Podium-owned state for this family: an app-server child has
+     *  no composer to scrape, so what a snapshot carries is what was set through
+     *  the contract — which is exactly why it can be carried faithfully. */
+    snapshot: supported({ includesDraft: true }),
+    archive: supported({
+      formatVersion: 1,
+      /**
+       * TRUE, AND THIS IS THE ONE PLACE CODEX BEATS opencode.
+       *
+       * `thread/start` returns the thread's `path`: the rollout JSONL file that
+       * IS the conversation, one file per thread, owned by nothing else. So the
+       * archive is those exact bytes rather than a re-serialization of a message
+       * tree — and `codex resume <id>` on the destination machine reads the same
+       * format. W5 had to declare `false` because opencode's sessions live in a
+       * SHARED sqlite database with no per-session file to copy; Codex has one,
+       * so the honest answer here is the opposite one.
+       */
+      byteFaithful: true,
+    }),
+    /** `thread/start` mints the thread id before a single turn runs, so the
+     *  resume ref exists from the moment the handle does — and `hibernate()`
+     *  therefore never has to refuse. */
+    resumeRefTiming: 'spawn',
+    placement: 'dedicated',
+
+    // ---- EXTENDED ----
+    /** Read AND write: it is our own state, held beside the binding journal, so
+     *  there is no scrape to be honest about. */
+    draft: supported({ read: true, write: true }),
+    /**
+     * MODEL AND EFFORT, STICKY, FROM THE NEXT TURN (POD-3081).
+     *
+     * This axis used to declare UNSUPPORTED, on the reasoning that codex has no
+     * sticky-configuration RPC and that "send a turn override and hope the next
+     * turn inherits it" cannot honour the spec's sticky-vs-one-turn split. The
+     * premise was right and the conclusion was not. The driver does not rely on
+     * codex inheriting anything: it sends `model` and `effort` on EVERY
+     * `turn/start` out of `session.spec.model`, so the sticky value lives in
+     * state this driver owns and journals, and it is read afresh for each turn.
+     * That is exactly the property the split asks for — a per-turn override is
+     * gone with its turn, this survives the turn, the reload and the adoption —
+     * and `runtime.configure()` documents the precedence line that keeps them
+     * apart.
+     *
+     * `permissionMode` is NOT here, and that is the honest half: codex takes its
+     * approval policy at thread start and exposes no route to change it on a
+     * live thread, so the field refuses `unsupported` rather than being accepted
+     * and dropped.
+     *
+     * `next-turn` because a turn already generating cannot be moved to another
+     * model, and saying so beats reporting a switch the open turn will not
+     * honour.
+     */
+    configure: supported({ fields: ['model', 'effort'], effective: 'next-turn' }),
+    /** Per turn, from `thread/tokenUsage/updated` — which Codex sends unprompted
+     *  and which carries the model's context window, so this is the one driver
+     *  that can report the used-percent without a second lookup. */
+    usage: supported({ perTurn: true }),
+    openUrl: unsupported('codex app-server publishes no browser-open notification'),
+    /** Codex names a thread from its own conversation (`Thread.name`), and falls
+     *  back to `preview` — a real title from a real source. */
+    title: supported({ source: 'transcript' }),
+    accentColor: unsupported('codex exposes no per-session accent'),
+  }
+}

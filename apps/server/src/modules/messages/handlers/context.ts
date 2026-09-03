@@ -223,10 +223,11 @@ export function mailPolicy(opts?: { ceiling?: HumanCeiling; machines?: MachineAc
  * It comes from the COMPOSITION ROOT, never from payload: `mailSendInput` has no
  * field for it, so a caller cannot ask a send not to be confirmed.
  *
- * Why the session chat path needs `immediate`, concretely: POD-379's oracle pins
- * `sessions.sendText` to an unreachable machine as `{ok:true, queued:true,
- * disposition:'queued'}`. Blocking would turn that into `accepted` — a pinned
- * shape changed by a delivery-mode default nobody chose.
+ * Why legacy session chat still needs `immediate`, concretely: POD-379's oracle
+ * pins an unreachable machine as `{ok:true, queued:true, disposition:'queued'}`.
+ * Blocking a legacy send would turn that into `accepted` — a pinned shape changed
+ * by a delivery-mode default nobody chose. Contract-backed sessions use `confirm`
+ * so the driver's existing receipt can refuse a send whose process disappeared.
  */
 export type MailDeliveryMode = 'confirm' | 'immediate'
 
@@ -394,6 +395,7 @@ export class MailAccess {
       body: m.body,
       createdAt: m.createdAt,
       status: m.status,
+      ...(m.queuePosition !== undefined ? { queuePosition: m.queuePosition } : {}),
       ackedBy: m.ackedBy,
       deliveredAt: m.deliveredAt,
       deliveredTo: m.deliveredTo,
@@ -403,6 +405,8 @@ export class MailAccess {
       hop: m.hop,
       readAt: m.readAt ?? null,
       deadLetteredAt: m.deadLetteredAt ?? null,
+      deliveryDeferredAt: m.deliveryDeferredAt ?? null,
+      deliveryDeferredReason: m.deliveryDeferredReason ?? null,
       expectsResponse: m.expectsResponse ?? false,
     }
   }

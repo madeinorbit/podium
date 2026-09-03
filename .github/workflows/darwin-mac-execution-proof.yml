@@ -22,8 +22,6 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  ZIG_VERSION: '0.16.0'
-  APPLE_CODESIGN_VERSION: '0.29.0'
   BUN_VERSION: '1.3.14'
 
 jobs:
@@ -40,28 +38,8 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: bun-${{ hashFiles('bun.lock') }}
-      - uses: actions/cache@v4
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-          key: cargo-rcodesign-${{ env.APPLE_CODESIGN_VERSION }}-${{ runner.os }}
-      - uses: dtolnay/rust-toolchain@stable
-
-      - name: Install zig + rcodesign
-        run: |
-          set -euo pipefail
-          curl -fsSL -o /tmp/zig.tar.xz \
-            "https://ziglang.org/download/${ZIG_VERSION}/zig-x86_64-linux-${ZIG_VERSION}.tar.xz"
-          sudo tar -xJf /tmp/zig.tar.xz -C /opt
-          sudo ln -sfn "/opt/zig-x86_64-linux-${ZIG_VERSION}/zig" /usr/local/bin/zig
-          zig version
-          command -v rcodesign >/dev/null \
-            || cargo install apple-codesign --locked --bin rcodesign --version "${APPLE_CODESIGN_VERSION}"
-          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
-          rcodesign --version
+      # zig + rcodesign versions come from mise.toml — the one pin site dev machines share.
+      - uses: jdx/mise-action@v2
 
       - name: bun install
         run: bun install --frozen-lockfile --ignore-scripts

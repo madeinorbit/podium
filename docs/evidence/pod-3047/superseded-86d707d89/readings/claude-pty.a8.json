@@ -1,0 +1,82 @@
+{
+  "cell": "A8",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3047n/probes/claude-pty-a8",
+  "at": "2026-08-28T13:42:13.079Z",
+  "pin": {
+    "cell": "A8",
+    "at": "2026-08-28T13:42:13.132Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "c7ebf4bb3d91479311bad28c69f80f1e6083e498",
+    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "c7ebf4b",
+      "appsWebIdentical": true
+    },
+    "serverPid": "989426",
+    "daemonPid": "1096919",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "13766084 kB",
+      "SwapFree": "41688236 kB"
+    },
+    "rootFreeKiB": 83063800,
+    "load1m": 22.44,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "login path is visible; completing external OAuth is outside this rig",
+  "control": {
+    "fired": true,
+    "what": "logged-out Claude spawn producing a live surface",
+    "detail": "attached=1; screenBytes=4499; items=0"
+  },
+  "evidence": [
+    "SCREEN            \"78\\nAccessingworkspace:\\n/tmp/pod-3047n/probes/claude-pty-a8\\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyour\\nowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,\\ntakeamomenttoreviewwhat'sinthisfolderfirst.\\nClaudeCode'llbeabletoread,edit,andexecutefileshere.\\nSecurityguide\\n1.Yes,Itrustthisfolder\\n2.No,exit\\nEntertoconfirmEsctocancel\\n]11;?[>0q(BYes, I trust this folder\\n]0; Claude CodeClaude Codev2.1.236                                              Tips for getting started                       Welcome back!AskClaudetocreateanewap                            What's newBugfixesandreliabilityimp                                    Aded`--restricted`or `CLA                                       Added `experimentl.cacheTtl`   Opus 5 (1M context)  API Usage Billing    /release-notes for more/tmp/pod-3047n/probes/claude-pty-a8  manual mode on  ? for shortcuts   for agentsNot logged in  Run /login                                 high  /effort\\nNot logged in  Run /login\\nUpdateinstalledRestarttoupdate\\nhigh/effort\\n(B\"",
+    "LOGIN PATH        true",
+    "CLASS             {\"errorClass\":\"authentication\",\"retryable\":false}",
+    "STATUS            {\"sessionId\":\"593cd35d-0da7-4132-976d-1062949598fc\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
+  ],
+  "data": {
+    "sid": "593cd35d-0da7-4132-976d-1062949598fc",
+    "loginPath": true,
+    "class": {
+      "errorClass": "authentication",
+      "retryable": false
+    },
+    "isolatedCredential": false
+  }
+}

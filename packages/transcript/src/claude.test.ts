@@ -3,6 +3,8 @@ import {
   claudeRecordColor,
   claudeRecordModel,
   claudeRecordToItems,
+  claudeToolCallItem,
+  claudeToolResultItem,
   toolInputPreview,
 } from './claude'
 
@@ -325,9 +327,7 @@ describe('claudeRecordToItems', () => {
 describe('toolInputPreview', () => {
   it('prefers the human-meaningful field', () => {
     expect(toolInputPreview({ command: 'bun test', description: 'Run tests' })).toBe('bun test')
-    expect(toolInputPreview({ cmd: 'bun run test:web', workdir: '/repo' })).toBe(
-      'bun run test:web',
-    )
+    expect(toolInputPreview({ cmd: 'bun run test:web', workdir: '/repo' })).toBe('bun run test:web')
     expect(toolInputPreview({ file_path: '/a/b.ts' })).toBe('/a/b.ts')
     expect(toolInputPreview({ target_file: '/repo/chat.ts', offset: 10 })).toBe('/repo/chat.ts')
     expect(toolInputPreview({ target_directory: '/repo/packages/transcript' })).toBe(
@@ -892,5 +892,68 @@ describe('claudeRecordToItems toolPaths', () => {
     })
     expect(items[0]).toMatchObject({ role: 'tool', toolName: 'SendUserFile' })
     expect(items[0]!.toolPaths).toEqual(['/tmp/a.png', '/tmp/b.png'])
+  })
+})
+
+describe('one shape for a tool item, live and on reload (POD-3050)', () => {
+  // The Claude SDK driver publishes a tool call the moment the model issues it;
+  // a reload re-reads the same call from the harness's own JSONL. Two code
+  // paths, one item — if they drift, the same conversation renders one way live
+  // and another way after a refresh. These assert they agree by construction.
+  const INPUT = { command: 'cat /tmp/fixture.txt', description: 'read the fixture' }
+
+  it('builds the same call item the JSONL parser does', () => {
+    const [fromRecord] = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'rec-1',
+      timestamp: '2026-08-28T00:00:00.000Z',
+      message: {
+        content: [{ type: 'tool_use', id: 'toolu_live', name: 'Bash', input: INPUT }],
+      },
+    })
+    const live = claudeToolCallItem({
+      id: 'toolu_live',
+      toolName: 'Bash',
+      input: INPUT,
+      ts: '2026-08-28T00:00:00.000Z',
+      toolUseId: 'toolu_live',
+    })
+    expect(live).toStrictEqual(fromRecord)
+    // Not a bare shape check: the fields a renderer actually reads are present.
+    expect(live).toMatchObject({
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: 'cat /tmp/fixture.txt',
+      toolTitle: 'read the fixture',
+      toolUseId: 'toolu_live',
+    })
+  })
+
+  it('builds the same result item the JSONL parser does', () => {
+    const [fromRecord] = claudeRecordToItems({
+      type: 'user',
+      uuid: 'rec-2',
+      timestamp: '2026-08-28T00:00:01.000Z',
+      message: {
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_live', content: 'MARKER-OK' }],
+      },
+    })
+    const live = claudeToolResultItem({
+      id: 'rec-2-result-toolu_live',
+      output: 'MARKER-OK',
+      ts: '2026-08-28T00:00:01.000Z',
+      toolUseId: 'toolu_live',
+    })
+    expect(live).toStrictEqual(fromRecord)
+  })
+
+  it('gives an output-less tool an empty result rather than none', () => {
+    // Absent content and empty content are the same fact: the call returned.
+    expect(claudeToolResultItem({ id: 'r', output: undefined, toolUseId: 't' }).toolResult).toBe('')
+    expect(claudeToolResultItem({ id: 'r', output: [], toolUseId: 't' }).toolResult).toBe('')
+    expect(claudeToolResultItem({ id: 'r', output: '', toolUseId: 't' })).toHaveProperty(
+      'toolResult',
+    )
   })
 })

@@ -1,0 +1,402 @@
+{
+  "instance": "grok2877",
+  "arm": "headless",
+  "results": [
+    {
+      "id": "A1a",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A1a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a1a",
+      "memoryMb": 3792,
+      "pin": "PIN OK row=A1a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:42:58.383Z"
+    },
+    {
+      "id": "A1b",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A1b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a1b",
+      "memoryMb": 3887,
+      "pin": "PIN OK row=A1b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:00.247Z"
+    },
+    {
+      "id": "A1c",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A1c arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a1c",
+      "memoryMb": 3879,
+      "pin": "PIN OK row=A1c arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:02.769Z"
+    },
+    {
+      "id": "A2a",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A2a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a2a",
+      "memoryMb": 3845,
+      "pin": "PIN OK row=A2a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:10.007Z"
+    },
+    {
+      "id": "A2b",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A2b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a2b",
+      "memoryMb": 3718,
+      "pin": "PIN OK row=A2b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:11.517Z"
+    },
+    {
+      "id": "A3",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A3 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a3",
+      "memoryMb": 3722,
+      "pin": "PIN OK row=A3 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:13.117Z"
+    },
+    {
+      "id": "A4a",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A4a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a4a",
+      "memoryMb": 3677,
+      "pin": "PIN OK row=A4a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:17.556Z"
+    },
+    {
+      "id": "A4b",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A4b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a4b",
+      "memoryMb": 3487,
+      "pin": "PIN OK row=A4b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:21.374Z"
+    },
+    {
+      "id": "A5",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A5 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a5",
+      "memoryMb": 3716,
+      "pin": "PIN OK row=A5 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:23.405Z"
+    },
+    {
+      "id": "A6a",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A6a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a6a",
+      "memoryMb": 3617,
+      "pin": "PIN OK row=A6a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:33.099Z"
+    },
+    {
+      "id": "A6b",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A6b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a6b",
+      "memoryMb": 3480,
+      "pin": "PIN OK row=A6b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:40.974Z"
+    },
+    {
+      "id": "A7a",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A7a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a7a",
+      "memoryMb": 3162,
+      "pin": "PIN OK row=A7a arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:52.829Z"
+    },
+    {
+      "id": "A7b",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A7b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a7b",
+      "memoryMb": 3371,
+      "pin": "PIN OK row=A7b arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:43:58.290Z"
+    },
+    {
+      "id": "A8",
+      "arm": "headless",
+      "verdict": "PARTIAL",
+      "summary": "logged-out spawn exposed a login path, but no credential was available to restore the authenticated Grok server driver",
+      "control": {
+        "fired": true,
+        "what": "a logged-out Grok spawn binds and produces a visible native login path",
+        "detail": "driver=generic-pty family=terminal screenBytes=947"
+      },
+      "evidence": [
+        "AUTH OFF          Grok auth already absent",
+        "DAEMON RESTART     daemon left running; derived Grok credential was already absent",
+        "LOGGED OUT         driver=generic-pty family=terminal screen=true",
+        "LOGIN SCREEN       [>0q[>0q/tmp/pod-2877-grok/cells/headless-a8/logged-outConnecting...ctrl+qquit/tmp/pod-2877-grok/cells/headless-a8/logged-outConnecting...ctrl+qquit/tmp/pod-2877-grok/cells/headless-a8/logged-outConnecting...ctrl+qquitApproveinyourbrowser to finishsigningin.DMBT-VNNBMakesureyourbrowsershowsthiscode.Ifitdoesn'topen,clickheretocopy.          Copying not working? Click here to show full URL.Waitingforapproval...ctrl+qquit",
+        "AUTH RESTORED      no normal-home Grok credential; leaving the derived agent home logged out for A8/login-path evidence\nGrok auth remains absent at /home/mgw/.local/state/podium/grok2877/agent-home/.grok/auth.json; no credential was available to restore",
+        "DAEMON REARMED     daemon left running; there was no credential to restore",
+        "NEXT SESSION       driver=generic-pty family=terminal server=false",
+        "LIMIT              no operator OAuth/login was performed; restored fixture credential is not counted as completing login"
+      ],
+      "data": {
+        "loginPath": true,
+        "expectedServer": true,
+        "authChanged": false,
+        "loggedOutDriver": "generic-pty",
+        "loggedOutFamily": "terminal",
+        "restoredDriver": "generic-pty",
+        "restoredFamily": "terminal",
+        "serverAfterRestore": false
+      },
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a8",
+      "memoryMb": 3740,
+      "pin": "PIN OK row=A8 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "82e122d0-81da-4af4-8b07-57ec4b1ef34e",
+        "c7cc6a97-e71a-4bd8-ae78-2392fede5af2"
+      ],
+      "at": "2026-08-26T12:44:11.473Z"
+    },
+    {
+      "id": "A9",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A9 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a9",
+      "memoryMb": 3263,
+      "pin": "PIN OK row=A9 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:44:14.795Z"
+    },
+    {
+      "id": "A10",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=A10 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-a10",
+      "memoryMb": 2878,
+      "pin": "PIN OK row=A10 arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:44:31.566Z"
+    },
+    {
+      "id": "B-provider-error",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=B-provider-error arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-b-provider-error",
+      "memoryMb": 3790,
+      "pin": "PIN OK row=B-provider-error arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:44:34.033Z"
+    },
+    {
+      "id": "B-oom-kill",
+      "arm": "headless",
+      "verdict": "BLOCKED",
+      "summary": "probe threw before a positive control fired",
+      "control": {
+        "fired": false,
+        "what": "the cell-specific positive control",
+        "detail": "Error: wrong binding: driver=generic-pty family=terminal"
+      },
+      "evidence": [
+        "EXCEPTION         Error: wrong binding: driver=generic-pty family=terminal",
+        "PIN               PIN OK row=B-oom-kill arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME"
+      ],
+      "data": {},
+      "cwd": "/tmp/pod-2877-grok/cells/headless-b-oom-kill",
+      "memoryMb": 3487,
+      "pin": "PIN OK row=B-oom-kill arm=headless instance=grok2877 serverPid=2468351 daemonPid=2492340 serverSha=6c10b6643a7c86f3d951216dcf029528ff50d671 webSourceSha=6c10b66 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [],
+      "at": "2026-08-26T12:44:45.785Z"
+    }
+  ]
+}

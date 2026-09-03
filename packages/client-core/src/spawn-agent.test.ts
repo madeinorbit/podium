@@ -140,7 +140,7 @@ describe('firstPrompt delivery (POD-549)', () => {
     expect(resumeAndSend).not.toHaveBeenCalled()
   })
 
-  it('falls back to resumeAndSend for non-argv agents after create seeds the draft', async () => {
+  it('passes non-argv firstPrompt to create for server-owned durable delivery', async () => {
     const { trpc, create, resumeAndSend } = api()
     await createDraftAgent({
       ...base,
@@ -153,10 +153,7 @@ describe('firstPrompt delivery (POD-549)', () => {
     expect(create).toHaveBeenCalledWith(
       expect.objectContaining({ initialPrompt: 'do the thing', agentKind: 'opencode' }),
     )
-    expect(resumeAndSend).toHaveBeenCalledWith({
-      sessionId: 'session-1',
-      text: 'do the thing',
-    })
+    expect(resumeAndSend).not.toHaveBeenCalled()
   })
 
   it('omits initialPrompt and resumeAndSend when firstPrompt is blank', async () => {

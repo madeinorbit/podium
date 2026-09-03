@@ -79,6 +79,7 @@ describe('grok live state provider', () => {
     const usageLimit = `API error (status 402 Payment Required): Grok Build usage balance exhausted
 
 Request URL: https://cli-chat-proxy.grok.com/v1/responses`
+    const normalizedUsageLimit = usageLimit.replace(/\s+/g, ' ').trim()
 
     await expect(
       translateGrokUpdatePayload({
@@ -92,7 +93,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }])
+    ).resolves.toEqual([
+      {
+        kind: 'turn_failed',
+        errorClass: 'usage_limit',
+        retryable: false,
+        detail: normalizedUsageLimit,
+      },
+    ])
 
     await expect(
       translateGrokUpdatePayload({
@@ -106,7 +114,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+    ).resolves.toEqual([
+      {
+        kind: 'turn_failed',
+        errorClass: 'rate_limit',
+        retryable: true,
+        detail: 'API error (status 429 Too Many Requests): service at capacity',
+      },
+    ])
 
     await expect(
       translateGrokUpdatePayload({
@@ -119,7 +134,30 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
           },
         },
       }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'usage_limit', retryable: false }])
+    ).resolves.toEqual([
+      {
+        kind: 'turn_failed',
+        errorClass: 'usage_limit',
+        retryable: false,
+        detail: normalizedUsageLimit,
+      },
+    ])
+  })
+
+  it('accepts live failure notifications and ignores empty stop hook markers', async () => {
+    const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
+    const update = (sessionUpdate: string, fields: Record<string, unknown>) =>
+      translateGrokUpdatePayload({
+        method: '_x.ai/session_notification',
+        params: { update: { sessionUpdate, ...fields } },
+      })
+
+    await expect(
+      update('retry_state', { type: 'failed', error_type: 'api', message: detail }),
+    ).resolves.toEqual([
+      { kind: 'turn_failed', errorClass: 'usage_limit', retryable: false, detail },
+    ])
+    await expect(update('hook_execution', { event_name: 'stop_failure' })).resolves.toEqual([])
   })
 
   it('maps native camelCase Grok hooks and classifies Stop from chat history', async () => {
@@ -138,7 +176,14 @@ Request URL: https://cli-chat-proxy.grok.com/v1/responses`
     ).resolves.toEqual([{ kind: 'needs_user', need: 'permission', summary: 'Bash' }])
     await expect(
       translateGrokUpdatePayload({ hookEventName: 'StopFailure', errorType: 'rate_limit' }),
-    ).resolves.toEqual([{ kind: 'turn_failed', errorClass: 'rate_limit', retryable: true }])
+    ).resolves.toMatchObject([
+      {
+        kind: 'turn_failed',
+        errorClass: 'rate_limit',
+        retryable: true,
+        detail: expect.any(String),
+      },
+    ])
 
     const home = await mkdtemp(join(tmpdir(), 'podium-grok-hook-'))
     const paths = grokSessionPaths({ homeDir: home, cwd: '/repo/grok', sessionId: 'g-native' })

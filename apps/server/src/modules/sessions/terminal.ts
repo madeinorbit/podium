@@ -4,6 +4,7 @@ import type {
   ObservationInputOrigin,
   PresenceIdentity,
   ServerMessage,
+  TurnPreviewMessage,
 } from '@podium/protocol'
 import {
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -25,6 +26,142 @@ const SHELL_BUSY_WINDOW_MS = 4000
 
 function submitsCommandLine(bytes: Uint8Array): boolean {
   return bytes.includes(0x0d) || bytes.includes(0x0a)
+}
+
+/**
+ * Merge logical transcript rows by either stable alias. Providers may preserve
+ * an id while rotating a cursor, or preserve a cursor while deriving a new id;
+ * either match identifies the same row. A disjoint-set pass joins aliases in
+ * near-linear time, including a bridge item that connects two former roots.
+ *
+ * Complete rows are ordered by their real event timestamps. A missing/invalid
+ * timestamp sorts before dated rows and keeps observed order as a deterministic
+ * fallback, so it cannot masquerade as the newest item in a latest-page read.
+ * Alias history follows the winning item across calls so an old replay remains
+ * absorbed after an id or cursor rotates.
+ */
+interface TranscriptAliases {
+  ids: Set<string>
+  cursors: Set<string>
+  order: number
+}
+
+const transcriptAliases = new WeakMap<TranscriptItem, TranscriptAliases>()
+
+function transcriptTimestamp(item: TranscriptItem): number | undefined {
+  if (!item.ts) return undefined
+  const parsed = Date.parse(item.ts)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+export function mergeTranscriptItems(
+  previous: TranscriptItem[],
+  delta: TranscriptItem[],
+  limit = MAX_TRANSCRIPT_ITEMS,
+): TranscriptItem[] {
+  if (delta.length === 0) return previous
+  const items = [...previous, ...delta]
+  const parent = items.map((_, index) => index)
+  const find = (index: number): number => {
+    let root = index
+    while (parent[root] !== root) root = parent[root] ?? root
+    while (parent[index] !== index) {
+      const next = parent[index] ?? root
+      parent[index] = root
+      index = next
+    }
+    return root
+  }
+  const union = (left: number, right: number): void => {
+    const leftRoot = find(left)
+    const rightRoot = find(right)
+    if (leftRoot !== rightRoot) parent[rightRoot] = leftRoot
+  }
+  const byId = new Map<string, number>()
+  const byCursor = new Map<string, number>()
+  const aliasesFor = (item: TranscriptItem, fallbackOrder: number): TranscriptAliases => {
+    const retained = transcriptAliases.get(item)
+    return {
+      ids: new Set([...(retained?.ids ?? []), ...(item.id.length > 0 ? [item.id] : [])]),
+      cursors: new Set([
+        ...(retained?.cursors ?? []),
+        ...(item.cursor !== undefined && item.cursor.length > 0 ? [item.cursor] : []),
+      ]),
+      order: retained?.order ?? fallbackOrder,
+    }
+  }
+  const retainedOrders = previous.map((item, index) => aliasesFor(item, index).order)
+  let nextOrder = Math.max(-1, ...retainedOrders) + 1
+  const aliases = items.map((item, index) =>
+    aliasesFor(item, index < previous.length ? index : nextOrder++),
+  )
+  for (const [index, itemAliases] of aliases.entries()) {
+    for (const id of itemAliases.ids) {
+      const prior = byId.get(id)
+      if (prior !== undefined) union(index, prior)
+      byId.set(id, index)
+    }
+    for (const cursor of itemAliases.cursors) {
+      const prior = byCursor.get(cursor)
+      if (prior !== undefined) union(index, prior)
+      byCursor.set(cursor, index)
+    }
+  }
+  const roots = new Map<
+    number,
+    { winner: number; order: number; ids: Set<string>; cursors: Set<string> }
+  >()
+  for (const [index, itemAliases] of aliases.entries()) {
+    const root = find(index)
+    const aggregate = roots.get(root) ?? {
+      winner: index,
+      order: itemAliases.order,
+      ids: new Set<string>(),
+      cursors: new Set<string>(),
+    }
+    aggregate.winner = Math.max(aggregate.winner, index)
+    aggregate.order = Math.min(aggregate.order, itemAliases.order)
+    for (const id of itemAliases.ids) aggregate.ids.add(id)
+    for (const cursor of itemAliases.cursors) aggregate.cursors.add(cursor)
+    roots.set(root, aggregate)
+  }
+  const merged = [...roots.values()].map((root) => {
+    const item = items[root.winner]
+    if (!item) throw new Error('transcript alias root lost its winning item')
+    transcriptAliases.set(item, { ids: root.ids, cursors: root.cursors, order: root.order })
+    return { item, order: root.order }
+  })
+  merged.sort((a, b) => {
+    const aTimestamp = transcriptTimestamp(a.item)
+    const bTimestamp = transcriptTimestamp(b.item)
+    if (aTimestamp !== undefined && bTimestamp !== undefined && aTimestamp !== bTimestamp) {
+      return aTimestamp - bTimestamp
+    }
+    if (aTimestamp === undefined && bTimestamp !== undefined) return -1
+    if (aTimestamp !== undefined && bTimestamp === undefined) return 1
+    if (a.order !== b.order) return a.order - b.order
+    const cursorOrder = (a.item.cursor ?? '').localeCompare(b.item.cursor ?? '')
+    return cursorOrder !== 0 ? cursorOrder : a.item.id.localeCompare(b.item.id)
+  })
+  const result = merged.map(({ item }) => item)
+  return result.length > limit ? result.slice(-limit) : result
+}
+
+export function mergeLatestTranscriptPage(
+  providerItems: TranscriptItem[],
+  runtimeItems: TranscriptItem[],
+  limit: number,
+): { items: TranscriptItem[]; hasMore: boolean } {
+  const boundedLimit = Math.max(0, limit)
+  const allItems = mergeTranscriptItems(
+    providerItems,
+    runtimeItems,
+    Number.MAX_SAFE_INTEGER,
+  )
+  return {
+    items: boundedLimit === 0 ? [] : allItems.slice(-boundedLimit),
+    hasMore: allItems.length > boundedLimit,
+  }
 }
 
 // biome-ignore lint/suspicious/noControlCharactersInRegex: terminal escape sequences
@@ -57,6 +194,12 @@ export interface SessionTerminalInit {
   lastResumedAt?: string | null
   onActivity?: (at: string, changed: boolean) => void
   onTranscriptAvailable?: () => void
+  /**
+   * Whether this session asks its daemon for a token-level watch while a viewer
+   * has the chat open (POD-2293). The flag lives on the terminal because the
+   * subscriber count that drives it does — see `reconcileWatchLevel`.
+   */
+  turnPreviewEnabled?: boolean
 }
 
 /**
@@ -70,6 +213,9 @@ export interface SessionTerminalInit {
 export class SessionTerminal {
   geometry: Geometry
   epoch = 0
+  /** Monotonic revision for the authoritative geometry timeline. A client can
+   * reject a delayed logical state without guessing from the dimensions. */
+  geometryRevision = 0
   /** Websocket connection id of the current controller (device, not person). */
   controllerId: string | null = null
   /**
@@ -95,13 +241,45 @@ export class SessionTerminal {
   private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
   private shellCommandRunning = false
   private nextSeq = 0
+  /**
+   * What the DAEMON currently believes this session's level is.
+   *
+   * INITIALISED TO `coarse` BECAUSE THAT IS ALREADY TRUE (POD-2745), not as a
+   * guess. A daemon holds no watch for a session until asked, and `coarse` is
+   * the name for holding none — so starting this `undefined` made the first
+   * reconcile treat "still coarse" as a crossing and send a frame telling the
+   * daemon to be what it already was. That fired for EVERY session on any
+   * transcript-subscription lifecycle event, including plain `detachClient` on a
+   * session nobody had ever opened a chat on, which is how a PTY session with no
+   * viewer ended up producing runtime traffic the moment this plane's default
+   * flipped on.
+   *
+   * The field's meaning is what makes {@link resetWatchLevel} necessary: it is a
+   * claim about ANOTHER PROCESS's state, so anything that resets that process
+   * has to reset this with it.
+   */
+  private watchLevelSent: 'coarse' | 'fine' = 'coarse'
   private readonly clients = new Map<string, ClientConn>()
   private readonly clientAttributions = new WeakMap<ClientConn, ReturnType<typeof perfPrincipal>>()
   private readonly outputLog: { seq: number; bytes: Buffer }[] = []
   private outputLogBytes = 0
   private transcript: TranscriptItem[] = []
+  /** Complete items committed through the runtime event log. Kept separately
+   * so a legacy tail reset cannot erase the shared terminal bridge. */
+  private runtimeTranscript: TranscriptItem[] = []
   private transcriptAvailable = false
   private readonly transcriptSubscribers = new Map<string, ClientConn>()
+  /**
+   * THE LATEST PREVIEW FRAME, AND ONLY THE LATEST (POD-2293).
+   *
+   * One slot, newest wins — which IS the backpressure policy rather than a
+   * simplification of one. Every frame is a complete snapshot of the in-progress
+   * turn, so a client that missed the last three has lost nothing by receiving
+   * only the fourth, and a client subscribing mid-turn is caught up by replaying
+   * this one. A queue here would buy ordering nobody needs and would grow under
+   * exactly the slowness it was meant to survive.
+   */
+  private turnPreview: TurnPreviewMessage | undefined
 
   constructor(private readonly init: SessionTerminalInit) {
     this.geometry = { ...init.geometry }
@@ -200,6 +378,7 @@ export class SessionTerminal {
       controllerId: this.controllerId,
       controllerIdentity: this.controllerIdentity,
       geometry: { ...this.geometry },
+      geometryRevision: this.geometryRevision,
       epoch: this.epoch,
       resumed,
       // The client cannot tell a PTY that has printed nothing since spawn from
@@ -234,7 +413,7 @@ export class SessionTerminal {
     // the next attach too. A clean resume keeps its screen and only needs the delta —
     // including a caught-up one, whose empty delta is "nothing changed", NOT "nothing to
     // rebuild from"; only an EMPTY LOG (a restarted server) means the latter.
-    if (!resumed || this.outputLog.length === 0) this.redraw()
+    if (!resumed || this.outputLog.length === 0) this.redraw(this.outputLog.length === 0)
   }
 
   reassignController(fromId: string, toId: string): void {
@@ -258,14 +437,83 @@ export class SessionTerminal {
     if (replay.length > 0) {
       client.send({ type: 'transcriptDelta', sessionId: this.init.sessionId, items: replay })
     }
+    // AFTER the durable replay, never before: the preview is the part of the
+    // turn the transcript does NOT have yet, so a client that received it first
+    // would briefly show the in-progress rows above the items they follow.
+    if (this.turnPreview) client.send(this.turnPreview)
+    this.reconcileWatchLevel()
   }
 
   unsubscribeTranscript(clientId: string): void {
     this.transcriptSubscribers.delete(clientId)
+    this.reconcileWatchLevel()
+  }
+
+  /**
+   * Tell the daemon what this session's viewers need.
+   *
+   * SUBSCRIBER-DRIVEN rather than always-on: a fine watch costs a token stream
+   * per session, and on codex it costs a reconnect to acquire — paying that for
+   * sessions nobody is looking at is the exact cost the two watch levels exist
+   * to avoid. The frame carries a desired STATE, so calling this on every
+   * crossing (and only on crossings) is safe: a duplicate is a no-op and a lost
+   * one is corrected by the next.
+   *
+   * Sent for EVERY session, contract or not. Deciding whether a fine watch means
+   * anything is the daemon's job — it holds the driver and its capability
+   * declaration — and a server that guessed would be wrong for exactly the
+   * sessions whose family it could not see. What bounds the blast radius is not
+   * the family but the VIEWER: a session nobody opens a chat on never crosses,
+   * so it sends nothing at all, whatever it is running (POD-2745).
+   */
+  private reconcileWatchLevel(): void {
+    if (!this.init.turnPreviewEnabled) return
+    const wanted = this.transcriptSubscribers.size > 0 ? 'fine' : 'coarse'
+    if (wanted === this.watchLevelSent) return
+    this.watchLevelSent = wanted
+    this.init.toDaemon({ type: 'runtimeWatch', sessionId: this.init.sessionId, level: wanted })
+  }
+
+  /**
+   * A daemon just (re)bound this session — forget what the old one was told.
+   *
+   * A DAEMON THAT RESTARTED HOLDS NO WATCHES (POD-2745). Its watch registry is
+   * per-process and its release functions belonged to handles that no longer
+   * exist, so a reattached daemon is at `coarse` for everything by definition.
+   * `watchLevelSent` is a claim about that process, and it outlived it: a viewer
+   * who had a chat open across a daemon restart left this reading `fine`, every
+   * later reconcile agreed with itself, and no frame was ever sent again. The
+   * viewer's stream stopped and nothing said so — the same "a watcher gets
+   * nothing" failure this issue is about, reached by a different road.
+   *
+   * Resetting and re-reconciling in one step is what makes it self-healing: the
+   * re-ask happens only if a viewer is still there, and a session nobody is
+   * watching goes back to sending nothing.
+   */
+  resetWatchLevel(): void {
+    this.watchLevelSent = 'coarse'
+    this.reconcileWatchLevel()
+  }
+
+  /** Fan one preview frame out, and retain it for whoever subscribes next. A
+   *  terminal frame clears the slot rather than filling it — there is nothing
+   *  left to catch a late subscriber up on. */
+  applyTurnPreview(frame: TurnPreviewMessage): void {
+    this.turnPreview = frame.done ? undefined : frame
+    for (const client of this.transcriptSubscribers.values()) client.send(frame)
   }
 
   transcriptItems(): TranscriptItem[] {
     return this.transcript
+  }
+
+  runtimeTranscriptItems(): TranscriptItem[] {
+    return this.runtimeTranscript
+  }
+
+  applyRuntimeDelta(items: TranscriptItem[]): boolean {
+    this.runtimeTranscript = mergeTranscriptItems(this.runtimeTranscript, items)
+    return this.applyDelta(items, {})
   }
 
   applyDelta(items: TranscriptItem[], opts: { reset?: boolean; tail?: string }): boolean {
@@ -275,15 +523,12 @@ export class SessionTerminal {
       this.transcriptAvailable = true
       this.init.onTranscriptAvailable?.()
     }
-    if (opts.reset) this.transcript = []
-    this.transcript = this.transcript.concat(items)
-    if (this.transcript.length > MAX_TRANSCRIPT_ITEMS) {
-      this.transcript = this.transcript.slice(-MAX_TRANSCRIPT_ITEMS)
-    }
+    const deltaItems = opts.reset ? mergeTranscriptItems(items, this.runtimeTranscript) : items
+    this.transcript = mergeTranscriptItems(opts.reset ? [] : this.transcript, deltaItems)
     const delta: ServerMessage = {
       type: 'transcriptDelta',
       sessionId: this.init.sessionId,
-      items,
+      items: deltaItems,
       ...(opts.tail !== undefined ? { tail: opts.tail } : {}),
       ...(opts.reset ? { reset: true } : {}),
     }
@@ -300,6 +545,7 @@ export class SessionTerminal {
     client?.viewports.delete(this.init.sessionId)
     this.clients.delete(clientId)
     this.transcriptSubscribers.delete(clientId)
+    this.reconcileWatchLevel()
     if (this.controllerId !== clientId) return
     // If the departure leaves one measured native renderer, hand it control
     // through the same atomic controller+geometry path as an explicit claim.
@@ -322,6 +568,7 @@ export class SessionTerminal {
         controllerId: this.controllerId,
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
+        geometryRevision: this.geometryRevision,
       })
     } else {
       this.clearController()
@@ -332,6 +579,11 @@ export class SessionTerminal {
     for (const client of this.clients.values()) client.viewports.delete(this.init.sessionId)
     this.clients.clear()
     this.transcriptSubscribers.clear()
+    // The retained frame goes with the viewers. It describes a turn that may
+    // well have ended by the time anyone comes back, and a stale preview
+    // replayed to a fresh subscriber is a session that looks like it is typing.
+    this.turnPreview = undefined
+    this.reconcileWatchLevel()
     this.clearController()
   }
 
@@ -391,6 +643,7 @@ export class SessionTerminal {
       controllerId: null,
       controllerIdentity: null,
       geometry: { ...this.geometry },
+      geometryRevision: this.geometryRevision,
     })
   }
 
@@ -415,7 +668,13 @@ export class SessionTerminal {
     if (clientId !== this.controllerId || !client?.viewVisible.has(this.init.sessionId)) return
     this.setGeometry(cols, rows)
     this.init.toDaemon({ type: 'resize', sessionId: this.init.sessionId, cols, rows })
-    this.broadcast({ type: 'geometry', sessionId: this.init.sessionId, cols, rows })
+    this.broadcast({
+      type: 'geometry',
+      sessionId: this.init.sessionId,
+      cols,
+      rows,
+      geometryRevision: this.geometryRevision,
+    })
   }
 
   reconcileGeometry(clientId: string): void {
@@ -438,6 +697,7 @@ export class SessionTerminal {
       sessionId: this.init.sessionId,
       cols: this.geometry.cols,
       rows: this.geometry.rows,
+      geometryRevision: this.geometryRevision,
     })
   }
 
@@ -488,6 +748,7 @@ export class SessionTerminal {
         controllerId: clientId,
         controllerIdentity: this.controllerIdentity,
         geometry: { ...this.geometry },
+        geometryRevision: this.geometryRevision,
       })
     }
     if (transferred || geometryChanged) {
@@ -496,6 +757,7 @@ export class SessionTerminal {
         sessionId: this.init.sessionId,
         cols: this.geometry.cols,
         rows: this.geometry.rows,
+        geometryRevision: this.geometryRevision,
       })
     }
   }
@@ -511,8 +773,12 @@ export class SessionTerminal {
     if (attribution) this.lastInputAttribution = attribution
   }
 
-  redraw(): void {
-    this.init.toDaemon({ type: 'redraw', sessionId: this.init.sessionId })
+  redraw(replayRequired = false): void {
+    this.init.toDaemon({
+      type: 'redraw',
+      sessionId: this.init.sessionId,
+      ...(replayRequired ? { replayRequired: true } : {}),
+    })
   }
 
   onFrame(data: string): void {
@@ -609,7 +875,28 @@ export class SessionTerminal {
   }
 
   restoreState(state: SessionTerminalState, preserveGeometry: boolean): void {
-    if (!preserveGeometry) this.geometry = { ...state.grid }
+    // A durable-write rollback is still a live geometry transition. Keep the
+    // revision timeline monotonic and announce the restored grid to the PTY and
+    // clients instead of copying state.grid behind an already-emitted revision.
+    if (
+      !preserveGeometry &&
+      (this.geometry.cols !== state.grid.cols || this.geometry.rows !== state.grid.rows)
+    ) {
+      this.setGeometry(state.grid.cols, state.grid.rows)
+      this.init.toDaemon({
+        type: 'resize',
+        sessionId: this.init.sessionId,
+        cols: this.geometry.cols,
+        rows: this.geometry.rows,
+      })
+      this.broadcast({
+        type: 'geometry',
+        sessionId: this.init.sessionId,
+        cols: this.geometry.cols,
+        rows: this.geometry.rows,
+        geometryRevision: this.geometryRevision,
+      })
+    }
     ;[this.outputAtMs_, this.inputAtMs_, this.resumedAtMs_] = state.times
     ;[this.inputCount_, this.outputCount_, this.activityCount_] = state.counts
     this.activityDirty_ = state.dirty
@@ -633,6 +920,7 @@ export class SessionTerminal {
   private setGeometry(cols: number, rows: number): void {
     if (this.geometry.cols === cols && this.geometry.rows === rows) return
     this.geometry = { cols, rows }
+    this.geometryRevision += 1
     this.activityDirty_ = true
   }
 

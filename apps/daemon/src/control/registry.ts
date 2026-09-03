@@ -1,4 +1,5 @@
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -26,6 +27,7 @@ import { workspaceHandlers } from './workspace'
  */
 export const CONTROL_HANDLERS: ControlHandlers = {
   ...sessionHandlers,
+  ...runtimeHandlers,
   ...discoveryHandlers,
   ...transcriptHandlers,
   ...fileHandlers,

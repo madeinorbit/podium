@@ -6,6 +6,7 @@ import {
   subscribeUpdatePanel,
 } from '@/features/updates/open-panel'
 import { forceReload } from '@/lib/force-reload'
+import { navigateReload } from '@/lib/navigate'
 import { currentSkew, type SkewNotice, subscribeSkew } from './skew-notice'
 
 /**
@@ -136,7 +137,7 @@ export function WireSkewBanner(): JSX.Element | null {
         onClick={() => {
           if (staleAssets) {
             const opened = openUpdatePanel()
-            if (!opened) void forceReload()
+            if (!opened) void forceReload('stale-assets-banner')
             return
           }
           /**
@@ -152,7 +153,7 @@ export function WireSkewBanner(): JSX.Element | null {
            * back to the reload it always did.
            */
           const opened = openUpdatePanel()
-          if (!opened) window.location.reload()
+          if (!opened) navigateReload('wire-skew', 'no-update-panel-listening')
         }}
         style={{
           border: '1px solid currentColor',

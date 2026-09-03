@@ -1,0 +1,548 @@
+{
+  "schema": "pod-3097-a11-v1",
+  "issue": "POD-3097",
+  "cell": "grok",
+  "verdict": "PASS",
+  "startedAt": "2026-08-29T22:01:23.406Z",
+  "finishedAt": "2026-08-29T22:02:06.734Z",
+  "control": {
+    "marker": "P3097-GROK-CONTROL-YZ06I84",
+    "startedAt": "2026-08-29T22:01:27.993Z",
+    "finishedAt": "2026-08-29T22:01:30.293Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+      "status": "live",
+      "phase": "idle",
+      "driverId": "grok-acp",
+      "driverFamily": "server",
+      "configureFields": [
+        "permissionMode"
+      ],
+      "resume": {
+        "kind": "grok-session",
+        "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+      }
+    },
+    "fired": true
+  },
+  "expectedDriver": "grok-acp",
+  "before": {
+    "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "configureFields": [
+      "permissionMode"
+    ],
+    "resume": {
+      "kind": "grok-session",
+      "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+    }
+  },
+  "target": {
+    "model": "grok-4.5",
+    "effort": "high"
+  },
+  "configuredAt": "2026-08-29T22:02:00.864Z",
+  "configureOutcome": {
+    "reason": "unsupported",
+    "detail": "this driver cannot change model or effort on a running session; it can change permissionMode"
+  },
+  "immediate": {
+    "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "configureFields": [
+      "permissionMode"
+    ],
+    "resume": {
+      "kind": "grok-session",
+      "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+    }
+  },
+  "nextTurn": null,
+  "afterTurn": {
+    "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "configureFields": [
+      "permissionMode"
+    ],
+    "resume": {
+      "kind": "grok-session",
+      "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+    }
+  },
+  "reloaded": {
+    "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "configureFields": [
+      "permissionMode"
+    ],
+    "resume": {
+      "kind": "grok-session",
+      "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+    }
+  },
+  "restarted": {
+    "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "configureFields": [
+      "permissionMode"
+    ],
+    "resume": {
+      "kind": "grok-session",
+      "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+    }
+  },
+  "persistenceTurn": null,
+  "final": {
+    "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "configureFields": [
+      "permissionMode"
+    ],
+    "resume": {
+      "kind": "grok-session",
+      "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+    }
+  },
+  "initialPins": {
+    "at": "2026-08-29T22:01:23.422Z",
+    "head": "13029a02d387dc72a1558c02593f62f632a727ef",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "nonEvidenceChanges": [],
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1585026",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1585415",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T215802Z",
+    "capacity": {
+      "load1m": 15.95,
+      "memAvailable": "17600132 kB",
+      "rootFreeKiB": 76016248
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "finalPins": {
+    "at": "2026-08-29T22:02:05.695Z",
+    "head": "13029a02d387dc72a1558c02593f62f632a727ef",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "nonEvidenceChanges": [],
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1612503",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1613417",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T220201Z",
+    "capacity": {
+      "load1m": 14.73,
+      "memAvailable": "16750352 kB",
+      "rootFreeKiB": 75956304
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "events": [
+    {
+      "at": "2026-08-29T22:01:23.406Z",
+      "event": "cell-start",
+      "detail": {
+        "cell": "grok"
+      }
+    },
+    {
+      "at": "2026-08-29T22:01:24.568Z",
+      "event": "initial-pins-proved",
+      "detail": {
+        "at": "2026-08-29T22:01:23.422Z",
+        "head": "13029a02d387dc72a1558c02593f62f632a727ef",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "nonEvidenceChanges": [],
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1585026",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1585415",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T215802Z",
+        "capacity": {
+          "load1m": 15.95,
+          "memAvailable": "17600132 kB",
+          "rootFreeKiB": 76016248
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:01:26.924Z",
+      "event": "live-catalog-read",
+      "detail": {
+        "fetchedAt": 1788040886900,
+        "counts": {
+          "grok": 2,
+          "cursor": 0,
+          "opencode": 32,
+          "codex": 7,
+          "claude-code": 10
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:01:26.954Z",
+      "event": "session-created",
+      "detail": {
+        "sid": "405c37e3-1786-4f70-92de-f47c99190cc7",
+        "agentKind": "grok"
+      }
+    },
+    {
+      "at": "2026-08-29T22:01:27.986Z",
+      "event": "driver-bound",
+      "detail": {
+        "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "grok-acp",
+        "driverFamily": "server",
+        "configureFields": [
+          "permissionMode"
+        ],
+        "resume": {
+          "kind": "grok-session",
+          "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:00.860Z",
+      "event": "independent-positive-control",
+      "detail": {
+        "marker": "P3097-GROK-CONTROL-YZ06I84",
+        "startedAt": "2026-08-29T22:01:27.993Z",
+        "finishedAt": "2026-08-29T22:01:30.293Z",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "userObserved": true,
+        "assistantObserved": true,
+        "row": {
+          "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "grok-acp",
+          "driverFamily": "server",
+          "configureFields": [
+            "permissionMode"
+          ],
+          "resume": {
+            "kind": "grok-session",
+            "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+          }
+        },
+        "fired": true
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:00.864Z",
+      "event": "configure-request",
+      "detail": {
+        "model": "grok-4.5",
+        "effort": "high"
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:00.880Z",
+      "event": "configure-reply",
+      "detail": {
+        "configureOutcome": {
+          "reason": "unsupported",
+          "detail": "this driver cannot change model or effort on a running session; it can change permissionMode"
+        },
+        "immediate": {
+          "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "grok-acp",
+          "driverFamily": "server",
+          "configureFields": [
+            "permissionMode"
+          ],
+          "resume": {
+            "kind": "grok-session",
+            "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:00.941Z",
+      "event": "fresh-client-reload",
+      "detail": {
+        "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "grok-acp",
+        "driverFamily": "server",
+        "configureFields": [
+          "permissionMode"
+        ],
+        "resume": {
+          "kind": "grok-session",
+          "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:01.198Z",
+      "event": "isolated-restart-start"
+    },
+    {
+      "at": "2026-08-29T22:02:04.937Z",
+      "event": "isolated-restart-complete",
+      "detail": {
+        "stdout": ""
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:05.654Z",
+      "event": "post-server-daemon-restart",
+      "detail": {
+        "sessionId": "405c37e3-1786-4f70-92de-f47c99190cc7",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "grok-acp",
+        "driverFamily": "server",
+        "configureFields": [
+          "permissionMode"
+        ],
+        "resume": {
+          "kind": "grok-session",
+          "value": "01a04f8a-bc4c-7001-80fa-cdd93b4840f7"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:02:06.734Z",
+      "event": "final-pins-proved",
+      "detail": {
+        "at": "2026-08-29T22:02:05.695Z",
+        "head": "13029a02d387dc72a1558c02593f62f632a727ef",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "nonEvidenceChanges": [],
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1612503",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1613417",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T220201Z",
+        "capacity": {
+          "load1m": 14.73,
+          "memAvailable": "16750352 kB",
+          "rootFreeKiB": 75956304
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    }
+  ]
+}

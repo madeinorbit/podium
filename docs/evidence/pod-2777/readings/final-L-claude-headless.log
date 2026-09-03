@@ -1,0 +1,163 @@
+ok  server pid=1034161 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 9d7ca3c
+  ok  daemon pid=1034230 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 9d7ca3c
+  ok  exactly one daemon (pid 1034230) on state root /tmp/pod-2777/state
+  ok  worktree at 9d7ca3c12838975972c3c58733eaedaac5dc5be8, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 9d7ca3c
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"9d7ca3c12838975972c3c58733eaedaac5dc5be8","short":"9d7ca3c","spawnedSha":"9d7ca3c12838975972c3c58733eaedaac5dc5be8","serverPid":1034161,"daemonPid":1034230,"webSourceSha":"9d7ca3c","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 9d7ca3c12838975972c3c58733eaedaac5dc5be8 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=claude  arm=headless  expecting driver 'a terminal-family driver'
+PIN                9d7ca3c12838975972c3c58733eaedaac5dc5be8 (web bundle 9d7ca3c, server pid 1034161, daemon pid 1034230)
+==============================================================================
+session 2e601682-94f3-4d3f-9dbf-9cef79381283 created; giving the harness 25000ms to come up
+BOUND DRIVER       claude-pty (family terminal)
+
+NOTE: claude has no headless driver. It bound 'claude-pty' (family terminal)
+on the headless arm too — this harness runs ONE path and the driver preference
+does not move it. Its column is the terminal path.
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 3.2s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-NA8TBM. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-NA8TBM — a blank session cannot produce this by luck
+   REPLY             arrived after 3230ms
+   ASSISTANT TEXT    13 chars: "PODIUM-NA8TBM"
+   ELAPSED           3441ms
+
+── attach — attach a file
+   FAIL  the file was staged and sent, but its contents never came back
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   STAGED            path=/tmp/pod-2777/state/uploads/2e601682-94f3-4d3f-9dbf-9cef79381283/31c4ecea-9bf1-4727-a451-f3659f94ada1.txt ref={"id":"31c4ecea-9bf1-4727-a451-f3659f94ada1","path":"/tmp/pod-2777/state/uploads/2e601682-94f3-4d3f-9dbf-9cef79381283/31c4ecea-9bf1-4727-a451-f3659f94ada1.txt","filename":"podium-2777-secret.txt","med
+   SECRET IN FILE    FILESECRET-Z50F6W — present in the bytes and nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+                     (a 'queued' disposition here would mean the session was still busy)
+   ECHOED BACK       no
+   APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the
+                     attachment raises an external_directory permission ask. A drive that
+                     did not answer it would time out and report "never read the file".
+   WHY A NONCE       an agent can agree that it sees a file without reading one;
+                     it cannot produce these bytes without having read them.
+
+── interaction — a pending interaction (permission / approval)
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — 0 new transcript item(s) after the prompt; 2 delta frame(s) total
+   CONTROL WATCHED   the turn producing durable transcript items at all (transcriptDelta on the same socket)
+   CONTROL SAW       0 new transcript item(s) after the prompt; 2 delta frame(s) total
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no ask appeared and no tool ran
+   REFUSING to report it, including as a failure.
+   
+   --- what the probe saw anyway (diagnostic, not a result) ---
+   INTERACTIONS.LIST empty for this session after 21s
+   TOOL CALLS SEEN   (none)
+   FAIL: the agent neither asked nor acted, so nothing exercised the ask path.
+
+── model-switch — model / effort switch
+   BLOCKED  no product surface exists to switch model or effort mid-session
+   control: FIRED — model=(unset) observedModel=claude-opus-5
+   REQUESTED MODEL   (session default)
+   OBSERVED MODEL    claude-opus-5
+   OBSERVED EFFORT   high
+   DECLARATION       codex: configure unsupported ("model and effort are set at
+                     thread start and per turn"); opencode: unsupported; terminal:
+                     unsupported ("a TUI takes its model at launch"); grok: supported
+                     for permissionMode ONLY, explicitly not model/effort.
+   PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText
+                     carries no per-turn model or effort override either.
+   READING           the declaration and the behaviour agree, and the product does
+                     not offer a switch it cannot honour. Nothing is broken and
+                     nothing is proven — the cell is empty on BOTH arms, so this is
+                     not a way in which headless is better or worse.
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   BLOCKED  the turn had already finished when the chat opened (phase=idle)
+   control: FIRED — 1 frame(s), first at +12ms
+   JOINED            8559ms after the send, and the session was already phase=idle
+   The ordering under test is a viewer arriving DURING a turn. This agent
+   answered inside the join delay, so there was no in-flight turn to watch
+   and a preview count of zero is a fact about the timing, not the plane.
+   BLOCKED rather than FAIL: re-run with a longer prompt or a shorter join
+   delay (P2777_JOIN_MS) to measure this cell on this harness.
+
+── interrupt — interrupt a running turn
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes
+   CONTROL WATCHED   the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+   CONTROL SAW       none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — could not get a running turn to interrupt
+   REFUSING to report it, including as a failure.
+   
+   --- what the probe saw anyway (diagnostic, not a result) ---
+   WATCHED           none; phase=idle, 0 preview frame(s), 13 new transcript chars, 20356 new terminal bytes
+
+── stop — stop (the session — the turn-scoped stop is absent from the contract)
+   PASS  session left its running state 55ms after stop (status=hibernated)
+   control: FIRED — present, status=live phase=idle
+   BEFORE            status=live phase=idle
+   STOP RETURNED     {"ok":true,"worktreeFreed":false,"deferredKill":false}
+   AFTER             status=hibernated phase=idle
+   VERIFIED IN       55ms
+   NOTE              this is sessions.stop (the SESSION). The catalogue records
+                     "stop this turn, keep the session" as ABSENT from the contract
+                     on all four drivers; this drive does not pretend otherwise.
+
+── resume — resume after a kill
+   PASS  THIS conversation came back — REMEMBER-LHNN7J recalled, original exchange intact, same pointer
+   control: FIRED — the session repeated REMEMBER-LHNN7J before it was parked
+   SECRET            REMEMBER-LHNN7J — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":true}; PARKED after 48ms (status=hibernated)
+   RESURRECT         {"ok":true}
+     → back live?    YES after 1063ms
+   RESUMEANDSEND     {"ok":true,"disposition":"delivered"}
+     → back live?    YES after 44ms
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret came back after 3064ms
+   SAME CONVERSATION YES — pointer conv_1c9eb99c-d5fd-47b1- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+── provider-error — a provider error surfaced honestly
+   BLOCKED  no accepted-then-never-settles fault is known for claude
+   control: FIRED — probe 1 PASSED, so a failure in this probe is attributable to the injected fault
+   HARNESS           claude
+   This cell needs a fault the provider ACCEPTS and then never settles.
+   opencode/laguna-s-2.1-free does that on opencode (retired from the
+   gateway: binds, marked live, ACCEPTED with a turnEpoch, then silence —
+   POD-2604). No equivalent is known for this harness, and a nonsense
+   model string is NOT one: opencode ignored it entirely and answered
+   normally, which measures nothing about error surfacing.
+
+==============================================================================
+RESULT  claude / headless / driver=claude-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 3.2s
+attach          FAIL      fired     the file was staged and sent, but its contents never came back
+interaction     REFUSED   MISSING   control did not fire — refusing to report this measurement
+model-switch    BLOCKED   fired     no product surface exists to switch model or effort mid-session
+stream          BLOCKED   fired     the turn had already finished when the chat opened (phase=idle)
+interrupt       REFUSED   MISSING   control did not fire — refusing to report this measurement
+stop            PASS      fired     session left its running state 55ms after stop (status=hibernated)
+resume          PASS      fired     THIS conversation came back — REMEMBER-LHNN7J recalled, original exchange intact, same pointer
+provider-error  BLOCKED   fired     no accepted-then-never-settles fault is known for claude
+==============================================================================
+written /tmp/pod-2777/results/claude.headless.json

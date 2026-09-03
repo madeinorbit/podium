@@ -36,6 +36,7 @@ const PANEL_LABELS: Record<AgentKind, string> = {
   grok: 'Grok',
   opencode: 'OpenCode',
   cursor: 'Cursor',
+  pi: 'Pi',
   shell: 'Shell',
 }
 
@@ -59,7 +60,64 @@ const DEFAULT_CHAT_CAPABLE: Record<AgentKind, boolean> = {
   grok: true,
   opencode: true,
   cursor: true,
+  pi: true,
   shell: false,
+}
+
+/**
+ * IS THERE A TERMINAL BEHIND THIS SESSION'S NATIVE VIEW (POD-2290)?
+ *
+ * The chat/native pair is not a pair for every session. An `embedded`-family
+ * session has no external terminal. A `server`-family session does: its native
+ * surface is the harness's original resume/attach TUI, launched on demand while
+ * the headless engine remains the session driver.
+ *
+ * ABSENT READS AS A TERMINAL, deliberately and in one place. `driverFamily` is
+ * transient (it rides `driverId`, re-established on bind), so it is legitimately
+ * missing for an older daemon, a legacy session, a row that has not bound yet,
+ * and a parked row. Unknown must therefore mean "behave exactly as before driver
+ * families existed", which for every session that has ever existed is: it has a
+ * terminal. Failing the other way would strand a PTY session on the chat view
+ * with no way back the moment a bind frame was late.
+ *
+ * A COUNTERPART EXISTS AND IS NOT THIS ONE. The server's reap guard
+ * (`machine-reconciler.ts`, `mayBeServerDriven`) fails CLOSED, because there a
+ * wrong guess spawns a second credentialed child. It prefers the bound
+ * `driverId` — the bind MEASURED which driver is running the row, which is
+ * strictly better evidence than any per-harness tell — and falls back to the
+ * durable `resume.kind` (`isServerFamilyResumeKind`) only for a row that holds
+ * no `driverId`, which is the parked-through-a-redeploy case the fallback exists
+ * for. That fallback is a per-HARNESS fact — true of PTY-driven codex and grok
+ * rows too — so a view that leaned on it would take the terminal away from
+ * sessions that have one. Views fail open; reaps fail closed. The two questions
+ * have the same subject and opposite safe directions, which is why they do not
+ * share an answer.
+ */
+export type TerminalOutlook = 'terminal' | 'none' | 'unknown'
+
+export function sessionTerminalOutlook(
+  session: Pick<SessionMeta, 'driverFamily' | 'attachKinds'> | undefined,
+): TerminalOutlook {
+  if (session?.attachKinds !== undefined)
+    return session.attachKinds.length > 0 ? 'terminal' : 'none'
+  const family = session?.driverFamily
+  if (family === undefined) return 'unknown'
+  return family === 'embedded' ? 'none' : 'terminal'
+}
+
+/**
+ * The two-valued reading, for the callers that must commit either way.
+ *
+ * `unknown` resolves to TRUE here, and that is the fail-open direction argued
+ * above: a legacy session, an older daemon and a row whose daemon has not
+ * reconnected all land on it, and every one of them has a terminal. The callers
+ * that must NOT commit during the unknown window — which is the whole of
+ * POD-2290's second round — ask {@link sessionTerminalOutlook} instead and wait.
+ */
+export function sessionHasTerminal(
+  session: Pick<SessionMeta, 'driverFamily' | 'attachKinds'> | undefined,
+): boolean {
+  return sessionTerminalOutlook(session) !== 'none'
 }
 
 // The agent's `/color` identity accent (Claude's named colours) → a vivid,
@@ -104,7 +162,12 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
   const s = meta.agentState
-  if (!s || s.phase === 'unknown') return null
+  if (!s) return null
+  if (s.phase === 'unknown') {
+    return s.observationGap
+      ? { label: 'state unavailable', tone: 'muted', showContinue: false }
+      : null
+  }
   switch (s.phase) {
     case 'working':
       return { label: 'working', tone: 'working', showContinue: false }
@@ -139,7 +202,12 @@ export function agentBadge(meta: SessionMeta, issue?: IssueWire): AgentBadge | n
         // `error: max_output_tokens` — a log line wearing a row's clothes, in
         // the one place the operator reads fastest. Same table the task-level
         // rollups use, so a row and the task above it never disagree.
-        label: errorPhrase(s.error?.class, 'lower'),
+        //
+        // The provider's bounded detail rides along when it has one (POD-2604),
+        // so the badge still says WHICH failure and not only its category.
+        label: s.error?.detail
+          ? `${errorPhrase(s.error.class, 'lower')}: ${s.error.detail}`
+          : errorPhrase(s.error?.class, 'lower'),
         tone: 'error',
         showContinue: s.error?.retryable ?? false,
       }

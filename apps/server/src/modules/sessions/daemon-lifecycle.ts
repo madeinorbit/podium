@@ -58,6 +58,44 @@ export interface SessionDaemonLifecyclePorts {
   reviveParkedButAlive(session: Session, machineId: string, reason: string): void
   /** This machine's live durable labels, pushed on connect [POD-1953]. */
   onDurableSessionCensus(principal: MachinePrincipal, labels: string[]): void
+  /**
+   * The Agent Runtime contract's inbound event sink (POD-1761 W3).
+   *
+   * OPTIONAL because a build without the contract wired has nowhere for these to
+   * go, and because every existing fixture predates it — an unflagged session
+   * produces none of these frames, so an absent sink is not a dropped fact.
+   */
+  runtimeEvents?: {
+    record(
+      machineId: MachineId,
+      msg: Extract<SessionsDaemonFrame, { type: 'runtimeEvent' | 'runtimeFineEvent' }>,
+    ): import('./runtime-event-gate').RuntimeEventGateResult
+    ready(sessionId: SessionId): boolean
+  }
+  /**
+   * The daemon reporting turns its queue never typed (POD-2132, POD-2202).
+   *
+   * Bound at the composition root to the message service, which moves each named
+   * durable row to its terminal not-delivered state. THE FRAME REPEATS from a
+   * durable daemon outbox until this lifecycle sends its acknowledgement after
+   * `record` returns, so whatever is bound here MUST DEDUPE BY TURN ID rather
+   * than assume one report per turn.
+   */
+  queueDrainAbandoned?: {
+    record(msg: Extract<SessionsDaemonFrame, { type: 'runtimeQueueDrainAbandoned' }>): void
+  }
+  /**
+   * THE PROTOCOL ASK INGRESS (POD-2023).
+   *
+   * Bound at the composition root to the interactions aggregate's `ask()`.
+   * Optional for the same reason as the sink above — a build with no contract
+   * wired receives none of these frames, so an absent handler drops nothing —
+   * and NOT optional in spirit: once a server-family session is running, this is
+   * the only way its asks become visible on any surface.
+   */
+  runtimeInteractions?: {
+    ask(msg: Extract<SessionsDaemonFrame, { type: 'runtimeInteractionAsked' }>): void
+  }
 }
 
 function isAttentionPhase(state: AgentRuntimeState | undefined): boolean {
@@ -94,6 +132,11 @@ function isExactFencedCheckpointReplay(
 }
 
 export class SessionDaemonLifecycle {
+  /** Unfenced legacy exits can only be deduplicated until their replacement
+   * binds. Runtime exits carry an observer generation and use the durable lease
+   * comparison instead, which remains valid after bind as well. */
+  private readonly unfencedExitsAwaitingBind = new Set<SessionId>()
+
   constructor(private readonly ports: SessionDaemonLifecyclePorts) {}
 
   private get sessions(): Map<SessionId, Session> {
@@ -142,6 +185,73 @@ export class SessionDaemonLifecycle {
   private readonly broadcastToClients = (message: LiveServerMessage): void =>
     this.ports.broadcastToClients(message)
   private readonly clearOffer = (sessionId: SessionId): void => this.ports.clearOffer(sessionId)
+
+  /**
+   * Apply a process death from either legacy `agentExit` or the durable runtime
+   * stream. The latter is the lossless copy: `agentExit` is an ordinary daemon
+   * frame and may be dropped while the daemon/server link is reconnecting.
+   */
+  private handleAgentExit(msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>): void {
+    const before = this.sessions.get(msg.sessionId)
+    const lease =
+      this.observationLeases.get(msg.sessionId) ??
+      this.store.observationCheckpoints.get(msg.sessionId)
+    // A replacement reuses the Podium session id but owns a newer runtime
+    // generation. Reject any exit not authored by the currently fenced
+    // process, including one repeated after the replacement has bound live.
+    // A stated generation with no lease fails closed: the runtime cannot
+    // legitimately spawn until terminal proof has minted that lease.
+    if (
+      msg.observerGeneration !== undefined &&
+      (!lease || msg.observerGeneration !== lease.observationGeneration)
+    ) {
+      return
+    }
+    // Older terminal/daemon frames have no generation. Preserve their
+    // pre-bind duplicate guard; an already-exited row is inert either way.
+    if (
+      (msg.observerGeneration === undefined &&
+        this.unfencedExitsAwaitingBind.has(msg.sessionId)) ||
+      before?.status === 'exited'
+    ) {
+      return
+    }
+    before?.onExit(msg.code)
+    this.autoContinue.onSessionGone(msg.sessionId)
+    // Free the lingering per-session title debouncer when the process ends (audit
+    // P1-12) — previously only killSession did, so every exited-but-not-killed
+    // session leaked its debouncer closure. The row stays (resurrectable); a new
+    // debouncer is created lazily if it ever emits a title again. Drafts are kept
+    // (resurrect/chat needs them).
+    this.daemonProjection.disposeTitle(msg.sessionId)
+    const s = this.sessions.get(msg.sessionId)
+    if (s) this.persist(s)
+    this.broadcastSessions()
+    // The assistant digest remains a legacy consumer in this vertical slice.
+    this.ports.onSessionActivity(msg.sessionId)
+    // Keep the issue attachment: an updater and an abandoned process both
+    // arrive as agentExit, and the exited session remains resumable.
+    // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
+    // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
+    // and the session's leases with it. Also durable for steward parent-wake
+    // (POD-904).
+    if (s?.status === 'exited') {
+      // Capture and publish the REAL death before requesting recovery. The
+      // wake reaction is synchronous through workspace ensure and mutates
+      // this same Session to `starting`; doing it first suppresses this
+      // event and loses lock release and parent wake.
+      if (msg.observerGeneration === undefined) {
+        this.unfencedExitsAwaitingBind.add(msg.sessionId)
+      }
+      this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
+      // A send can be durably admitted in the narrow interval between the
+      // child dying and this exit reaching the server. It was accepted while
+      // the row still said `live`, so queueText did not request resurrection.
+      // Once the real exit is published, hand that accepted row back to the
+      // ordinary delegated wake path; a fresh bind re-arms its FIFO drain.
+      this.inbox.recoverQueuedAfterExit(msg.sessionId)
+    }
+  }
 
   /**
    * A new turn began: does it retire the session's standing offer
@@ -196,13 +306,70 @@ export class SessionDaemonLifecycle {
         this.browserOpen.onOpenUrlResult(machineId, msg)
         break
       }
+      /**
+       * The daemon has DECIDED which driver this session gets and has not yet
+       * started it (POD-2290). Recorded and broadcast immediately, because the
+       * whole value of the frame is arriving before `bind` does — a client
+       * choosing a view during the launch window is the reason it exists.
+       *
+       * Deliberately does NOT mark the session live or touch `driverId`: a
+       * decision is not a binding, and the row must not claim a handle exists.
+       */
+      case 'driverSelected': {
+        const s = this.sessions.get(msg.sessionId)
+        if (s) {
+          s.selectedDriverId = msg.driverId
+          // PERSISTED, not merely held (POD-2290 round 2). Holding it in memory
+          // was the whole defect the reviewer drove: a server restart rehydrates
+          // live rows as `reconnecting`, and an in-memory-only selection is gone
+          // by then, so a headless session came back looking like it had a
+          // terminal. This write is what survives the restart.
+          this.persist(s)
+          this.broadcastSessions()
+        }
+        break
+      }
       case 'bind': {
+        this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
+        this.inbox.markSessionBound(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
         if (s) {
           // Whether the daemon runs the composer engine for this session (POD-859)
           // — surfaced in meta so a client retires its own sampler/flush.
           s.draftSyncEngine = msg.draftSyncEngine ?? false
+          // Whether the daemon drives this session through the agent-runtime
+          // contract (POD-1761 W4) — the fact W4's migrated senders branch on.
+          // Absent from an older daemon means the legacy path, which is both the
+          // truth and the safe default.
+          s.runtimeContract = msg.runtimeContract ?? false
+          // A BIND IS ALSO A REATTACH (POD-2745). Whatever level the previous
+          // daemon was told died with it — its watch registry is per-process —
+          // so anything this session's viewers still need has to be asked for
+          // again. Says nothing when nobody is watching.
+          s.terminal.resetWatchLevel()
+          // The resolved driver comes from the daemon's live handle binding, not
+          // from the requested override. Older daemons and legacy sessions omit it.
+          s.driverId = msg.driverId
+          // …and what that driver can change on a running session (POD-3087).
+          // Assigned unguarded, like `driverId` itself: a bind describes the
+          // handle that exists NOW, so an older daemon's silence must clear a
+          // previous daemon's answer rather than leave a stale capability
+          // standing for a driver this one may not even have bound.
+          s.configureFields = msg.configureFields
+          s.attachKinds = msg.attachKinds
+          /**
+           * …and the DURABLE record follows the binding, not the plan (POD-2290
+           * round 2). Normally they agree. Where they can differ — a launch that
+           * fell back — the persisted fact has to describe what actually ran, or
+           * the next restart rehydrates the session as the family it failed to
+           * become. Guarded so an older daemon's bind, which carries no driver,
+           * cannot erase a selection this session already reported.
+           */
+          if (msg.driverId) s.selectedDriverId = msg.driverId
+          // Present only for a permitted manifest/machine default degradation.
+          // Reattach echoes it so daemon reconnects preserve the fact.
+          if (msg.requestedDriverId && !s.requestedDriverId) s.requestedDriverId = msg.requestedDriverId
           this.persist(s)
           this.autoContinue.onSessionLive(s.sessionId)
         }
@@ -248,30 +415,15 @@ export class SessionDaemonLifecycle {
         break
       }
       case 'agentExit': {
-        this.sessions.get(msg.sessionId)?.onExit(msg.code)
-        this.autoContinue.onSessionGone(msg.sessionId)
-        // Free the lingering per-session title debouncer when the process ends (audit
-        // P1-12) — previously only killSession did, so every exited-but-not-killed
-        // session leaked its debouncer closure. The row stays (resurrectable); a new
-        // debouncer is created lazily if it ever emits a title again. Drafts are kept
-        // (resurrect/chat needs them).
-        this.daemonProjection.disposeTitle(msg.sessionId)
-        const s = this.sessions.get(msg.sessionId)
-        if (s) this.persist(s)
-        this.broadcastSessions()
-        this.ports.onSessionActivity(msg.sessionId)
-        // Keep the issue attachment: an updater and an abandoned process both
-        // arrive as agentExit, and the exited session remains resumable.
-        // Session-death notification [spec:SP-85d1] (lock auto-release et al.).
-        // Only a REAL exit fires: a hibernate kill keeps status 'hibernated'
-        // and the session's leases with it. Also durable for steward parent-wake
-        // (POD-904).
-        if (s?.status === 'exited') {
-          this.emitSessionExited(msg.sessionId, msg.code, s.spawnedBy)
-        }
+        this.handleAgentExit(msg)
         break
       }
       case 'spawnError': {
+        // No bind will arrive for this attempt. Retire the legacy pre-bind
+        // duplicate guard so a later explicitly authorized retry starts with
+        // clean lifecycle accounting; fenced Grok exits remain distinguishable
+        // by their observer generation across both attempts.
+        this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         this.sessions.get(msg.sessionId)?.markSpawnError(msg.message)
         const s = this.sessions.get(msg.sessionId)
         if (s) this.persist(s)
@@ -314,6 +466,10 @@ export class SessionDaemonLifecycle {
             this.emitSessionExited(s.sessionId, -1, s.spawnedBy)
           }
         }
+        // A queued send may have committed just before the server died, losing
+        // only its in-memory wake event. Once the durable host confirms this
+        // process is gone, reconstruct that wake from the durable queue.
+        this.inbox.reconcileQueuedWake(msg.sessionId)
         this.broadcastSessions()
         break
       }
@@ -502,7 +658,10 @@ export class SessionDaemonLifecycle {
         }
 
         const prev = session.agentState
-        session.applyObservationCheckpoint(outcome.checkpoint)
+        session.applyObservationCheckpoint(
+          outcome.checkpoint,
+          !this.ports.runtimeEvents?.ready(session.sessionId),
+        )
         const acceptedLive =
           outcome.kind === 'live_transition_accepted' || outcome.kind === 'live_refresh_accepted'
         if (acceptedLive) session.terminal.recordObservationActivity()
@@ -556,10 +715,16 @@ export class SessionDaemonLifecycle {
         // effect below is exclusive to one accepted causal live phase edge.
         if (outcome.kind !== 'live_transition_accepted') break
         this.autoContinue.onStateChange(session.sessionId, next)
+        // The assistant digest is not part of the board/recency slice; keep its
+        // legacy activity trigger until a later consumer migration owns replay.
         this.ports.onSessionActivity(session.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
-        if (prev?.phase === 'working' && next.phase !== 'working') {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          prev?.phase === 'working' &&
+          next.phase !== 'working'
+        ) {
           this.ports.onSessionTurnEnd(session.sessionId)
         }
         this.inbox.stateChanged({
@@ -571,7 +736,11 @@ export class SessionDaemonLifecycle {
         if (isAttentionPhase(prev) && !isAttentionPhase(next)) {
           this.state.clearAllSnoozes(session.sessionId)
         }
-        if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !isAttentionPhase(prev) &&
+          isAttentionPhase(next)
+        ) {
           this.ports.onSessionAttention(session.sessionId)
         }
         // A NEW turn opened after the offer means the conversation moved past
@@ -628,7 +797,7 @@ export class SessionDaemonLifecycle {
           break
         }
         const prev = session.agentState
-        session.setAgentState(msg.state)
+        session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId))
         const next = session.agentState ?? msg.state
         this.autoContinue.onStateChange(msg.sessionId, next)
         // Persist so the advanced recency (lastActiveAt) is durable across a server
@@ -644,10 +813,16 @@ export class SessionDaemonLifecycle {
           sessionId: msg.sessionId,
           state: next,
         })
+        // The assistant digest is not part of the board/recency slice; keep its
+        // legacy activity trigger until a later consumer migration owns replay.
         this.ports.onSessionActivity(msg.sessionId)
         // Turn end (working → anything else) is the only moment new commits can
         // appear — refresh the owning issue's git state [POD-98].
-        if (prev?.phase === 'working' && next.phase !== 'working') {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          prev?.phase === 'working' &&
+          next.phase !== 'working'
+        ) {
           this.ports.onSessionTurnEnd(msg.sessionId)
         }
         // Synchronous fan-out to bus subscribers (NotifyService) — same ordering
@@ -658,7 +833,11 @@ export class SessionDaemonLifecycle {
         }
         // Entering an attention phase = a new message needs the user: end any
         // "until next message" defer on the issue that owns this session.
-        if (!isAttentionPhase(prev) && isAttentionPhase(next)) {
+        if (
+          !this.ports.runtimeEvents?.ready(session.sessionId) &&
+          !isAttentionPhase(prev) &&
+          isAttentionPhase(next)
+        ) {
           this.ports.onSessionAttention(msg.sessionId)
         }
         // A NEW turn beginning after the offer was made means the conversation
@@ -674,6 +853,91 @@ export class SessionDaemonLifecycle {
           this.userOpenedTurn(session, session.offer.createdAt)
         ) {
           this.clearOffer(msg.sessionId)
+        }
+        break
+      }
+      case 'runtimeInteractionAsked': {
+        /**
+         * A PROTOCOL DRIVER'S ASK, ON ITS WAY TO THE DURABLE AGGREGATE
+         * (POD-2023).
+         *
+         * The same ownership check every session-owned frame gets, and then the
+         * W2 ingress — `ask()` with the driver's own id, `source: 'protocol'`
+         * and `answerable: 'structured'`. Nothing is synthesized here: the
+         * driver observed a real `permission.asked`/`question.asked` with a real
+         * request id, which is precisely why this path does not go anywhere near
+         * the screen classifier's at-least-once machinery.
+         */
+        const owner = this.sessions.get(msg.sessionId)
+        if (owner?.machineId === machineId) this.ports.runtimeInteractions?.ask(msg)
+        break
+      }
+      case 'runtimeQueueDrainAbandoned': {
+        const owner = this.sessions.get(msg.sessionId)
+        if (owner?.machineId === machineId && this.ports.queueDrainAbandoned) {
+          // `record` is the synchronous durable boundary: it returns only after
+          // the guarded queued→dead_letter update and its transition/notice work.
+          // If it throws, no ack is sent and the daemon retains/replays the report.
+          this.ports.queueDrainAbandoned.record(msg)
+          if (msg.reportId) {
+            this.ports.toMachine(machineId, {
+              type: 'runtimeQueueDrainAbandonedAck',
+              reportId: msg.reportId,
+            })
+          }
+        }
+        break
+      }
+      case 'runtimeFineEvent':
+      case 'runtimeEvent': {
+        // THE DURABLE COARSE RUNTIME STREAM (POD-2411).
+        //
+        // Ownership is checked before the one application gate advances its
+        // restart cursor, appends the event and projects board/recency. State,
+        // notification and chat compatibility frames remain separate consumers
+        // until their own vertical slices move; they no longer own board effects
+        // for a session that declared the runtime contract.
+        const owner = this.sessions.get(msg.sessionId)
+        if (msg.type === 'runtimeFineEvent') {
+          if (owner?.machineId === machineId) this.ports.runtimeEvents?.record(machineId, msg)
+          break
+        }
+        const result =
+          owner?.machineId === machineId
+            ? this.ports.runtimeEvents?.record(machineId, msg)
+            : ({ kind: 'rejected', reason: 'unknown-session' } as const)
+        if (!result) break
+        if (!msg.deliveryId) break
+        if (result.kind === 'rejected') {
+          this.ports.toMachine(machineId, {
+            type: 'runtimeEventAck',
+            deliveryId: msg.deliveryId,
+            outcome: 'rejected',
+            rejectionReason: result.reason,
+          })
+        } else {
+          // `runtimeEvent` is the durable copy of the process boundary. The
+          // Grok adapter also emits `agentExit` for legacy consumers, but that
+          // ordinary frame is lossy while the daemon/server link reconnects.
+          // Recover from the committed event before acknowledging its outbox
+          // record, preserving the queued-send resume contract.
+          if (
+            (result.kind === 'accepted' || result.kind === 'duplicate') &&
+            msg.event.t === 'process' &&
+            msg.event.ev.ev === 'exited'
+          ) {
+            this.handleAgentExit({
+              type: 'agentExit',
+              sessionId: msg.sessionId,
+              code: msg.event.ev.code ?? 0,
+              observerGeneration: msg.event.observerGeneration,
+            })
+          }
+          this.ports.toMachine(machineId, {
+            type: 'runtimeEventAck',
+            deliveryId: msg.deliveryId,
+            outcome: 'committed',
+          })
         }
         break
       }

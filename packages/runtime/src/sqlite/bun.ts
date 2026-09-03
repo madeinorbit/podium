@@ -90,7 +90,7 @@ function wrap(db: BunDb): SqlDatabase {
       const st = db.prepare(sql)
       return {
         run: (...p) => st.run(...p),
-        // Normalize bun's no-row sentinel to undefined (node:sqlite returns undefined).
+        // Normalize bun's no-row sentinel: the shim contract returns undefined for no row.
         get: (...p) => {
           const row = st.get(...p)
           return row === null ? undefined : row

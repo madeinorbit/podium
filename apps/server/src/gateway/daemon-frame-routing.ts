@@ -44,6 +44,7 @@ export type DaemonPortId = (typeof DAEMON_PORT_IDS)[number]
  */
 export const DAEMON_FRAME_PORTS = {
   // ---- session-owned: session-keyed runtime, lifecycle and host callbacks ----
+  driverSelected: ['sessions'],
   bind: ['sessions'],
   agentFrame: ['sessions'],
   agentFrameBatch: ['sessions'],
@@ -67,6 +68,26 @@ export const DAEMON_FRAME_PORTS = {
   sessionGitActivity: ['sessions'],
   sessionOpenUrl: ['sessions'],
   sessionOpenUrlResult: ['sessions'],
+  // AGENT RUNTIME CONTRACT (POD-1761 W3): the causal event stream a flagged
+  // session's driver produces. Session-owned like every other per-session
+  // observation, and attributed to the machine that sent it.
+  runtimeEvent: ['sessions'],
+  runtimeFineEvent: ['sessions'],
+  /**
+   * THE TURNS A QUEUE NEVER TYPED (POD-2132, POD-2202). Session-owned, and the
+   * ownership check matters more here than for a read-only observation: acting on
+   * this frame dead-letters durable rows, so only the machine that holds the
+   * session may report that its queue gave up on them.
+   */
+  runtimeQueueDrainAbandoned: ['sessions'],
+  /**
+   * THE PROTOCOL ASK (POD-2023). Session-owned like every other per-session
+   * observation: it names a session, it is attributed to the machine that sent
+   * it, and it is the ingress by which a server-family driver's `permission` and
+   * `question` asks reach the interactions aggregate. W1 held it out of the
+   * union because it had no producer; W5 is the producer.
+   */
+  runtimeInteractionAsked: ['sessions'],
 
   // ---- machine-owned ----
   inventoryReport: ['machines'],
@@ -118,6 +139,18 @@ export const DAEMON_FRAME_PORTS = {
   shippingJobResult: ['rpc'],
   shippingEvidenceResult: ['rpc'],
   shippingRepairApplyResult: ['rpc'],
+  // AGENT RUNTIME CONTRACT (POD-1761 W3). Six runtime request flows; their
+  // correlated receipts settle by `requestId` through the one correlator. The
+  // interrupt flow completes through the event stream rather than a receipt.
+  runtimeStageAttachmentResult: ['rpc'],
+  runtimeSendResult: ['rpc'],
+  runtimeLifecycleResult: ['rpc'],
+  runtimeConfigureResult: ['rpc'],
+  runtimeAnswerResult: ['rpc'],
+  /** The correlated reply to a snapshot request — the observation bootstrap a
+   *  server re-reads after a stream gap (POD-2023). Same correlator, no new
+   *  port. */
+  runtimeSnapshotResult: ['rpc'],
 
   // ---- headless-owned ----
   headlessTurnEvent: ['headless'],

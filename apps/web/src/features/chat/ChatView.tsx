@@ -5,8 +5,8 @@ import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { useSessionDraft } from '@/app/store'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useReplicaIssues, useSessionDraft, useStoreSelector } from '@/app/store'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './chat-md-click'
@@ -18,6 +18,17 @@ import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
+
+/**
+ * THE BLOCKED-SESSION BAR (POD-2414), LAZY — because it draws nothing almost
+ * always. A blocked session is the exception, so the card's markup, its answer
+ * buttons and their styles have no business in the eager chunk every session
+ * pays for. The gate below is one array scan, and the chunk is fetched the first
+ * time a session is actually stopped on something.
+ */
+const PendingInteractionBar = lazy(() =>
+  import('./PendingInteractionBar').then((module) => ({ default: module.PendingInteractionBar })),
+)
 
 /**
  * CHAT (POD-405) — the SHELL, and nothing else.
@@ -112,7 +123,7 @@ function ScopedChatComposer({
       taRef={chat.taRef}
       draft={draft}
       onDraftChange={setDraft}
-      enabled={chat.composer.enabled}
+      deliverable={chat.composer.deliverable}
       placeholder={chat.composer.placeholder}
       compact={compact}
       isMobile={chat.isMobile}
@@ -193,6 +204,22 @@ export function ChatView({
       : { initialPendingText: undefined }),
     onInitialPendingSettled,
   })
+  /**
+   * IS THIS SESSION STOPPED ON SOMETHING? (POD-2414)
+   *
+   * A count, not a card: the bar is code-split, and this decides whether to
+   * fetch it. Deliberately NOT `pendingInteractionCards` — that decides how an
+   * ask RENDERS and belongs in the chunk it renders from; all this needs is
+   * whether the aggregate holds an open row for this session. `?? []` because a
+   * replica whose `pendingInteraction` collection has not arrived is a partial
+   * world, not an error.
+   */
+  const blocked = useStoreSelector((s) =>
+    (s.pendingInteractions ?? []).some(
+      (row) => row.sessionId === sessionId && row.status === 'asked',
+    ),
+  )
+  const issues = useReplicaIssues()
   const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
   const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
   const quoteIntoDraft = useCallback((markdown: string) => {
@@ -361,9 +388,14 @@ export function ChatView({
             stickyEnabled={chat.stickyEnabled}
             isOperatorPromptRow={chat.isOperatorPromptRow}
             pending={chat.pending}
+            restoredFailed={chat.restoredFailed}
+            {...(chat.retryFailedMessage
+              ? { onRetryFailed: chat.retryFailedMessage }
+              : {})}
             restoredQueued={chat.restoredQueued}
             onRetractQueued={chat.retractQueuedMessage}
             overlay={chat.headless ? chat.headlessTurn.overlay : null}
+            turnPreview={chat.turnPreview}
             activity={chat.activity}
             attribution={chat.attribution}
             expandRuns={chat.expandRuns}
@@ -429,6 +461,17 @@ export function ChatView({
           </button>
         )}
       </div>
+      {/* Between the feed and the composer, because an ask that scrolls away is
+          the failure the aggregate exists to fix — and because the composer is
+          where a person's attention already is when they come to unblock
+          something. `fallback={null}` because the bar's own empty state is
+          nothing: a one-frame gap before a card appears reads as the card
+          appearing, while a spinner over the composer would not. */}
+      {blocked && (
+        <Suspense fallback={null}>
+          <PendingInteractionBar sessionId={sessionId} compact={compact} />
+        </Suspense>
+      )}
       {/* Host attachment is state so this leaf re-arms wherever it sits in the
           tree; issue deltas still render only the leaf and mutate attributes. */}
       <IssueChipLiveness root={issueLivenessRoot} />

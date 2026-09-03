@@ -301,10 +301,10 @@ describe('answerable questions and the last answer', () => {
 })
 
 describe('composer, queue, offer and activity', () => {
-  it('opens on live, on resumable-parked, and on headless between turns', () => {
+  it('delivers on live, on resumable-parked, and on headless between turns', () => {
     expect(
       composerState({ session: session(), headless: false, turnRunning: false, compact: false })
-        .enabled,
+        .deliverable,
     ).toBe(true)
     expect(
       composerState({
@@ -313,10 +313,10 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         compact: false,
       }),
-    ).toMatchObject({ enabled: true, sendable: false, canResume: true })
+    ).toMatchObject({ deliverable: true, sendable: false, canResume: true })
     expect(
       composerState({ session: session(), headless: true, turnRunning: true, compact: false }),
-    ).toMatchObject({ enabled: false, placeholder: 'Working — stop to interject…' })
+    ).toMatchObject({ deliverable: false, placeholder: 'Working — stop to interject…' })
     expect(
       composerState({
         session: session({ status: 'exited', resumable: false }),
@@ -324,7 +324,108 @@ describe('composer, queue, offer and activity', () => {
         turnRunning: false,
         compact: false,
       }),
-    ).toMatchObject({ enabled: false, placeholder: 'Session is not running.' })
+    ).toMatchObject({ deliverable: false, placeholder: 'Session is not running.' })
+  })
+
+  // POD-3219. Deliverability is a statement about the WIRE, and these are the
+  // cases where the box used to be locked with it: a session row that has not
+  // arrived, and a live agent whose socket is mid-reconnect. The state says
+  // "not deliverable"; the composer keeps typing open regardless.
+  it('is not deliverable while the session is unknown or reconnecting', () => {
+    expect(
+      composerState({ session: undefined, headless: false, turnRunning: false, compact: false }),
+    ).toMatchObject({ deliverable: false, sendable: false, canResume: false })
+    expect(
+      composerState({
+        session: session({ status: 'reconnecting' }),
+        headless: false,
+        turnRunning: false,
+        compact: false,
+      }),
+    ).toMatchObject({ deliverable: false, placeholder: 'Session is not running.' })
+  })
+
+  it('treats an archived resume ref as history, not a send route', () => {
+    const composer = composerState({
+      session: session({ status: 'hibernated', resumable: true, archived: true }),
+      headless: false,
+      turnRunning: false,
+      compact: false,
+    })
+    expect(composer).toMatchObject({
+      deliverable: false,
+      sendable: false,
+      canResume: false,
+      placeholder: 'Session is archived.',
+      refusalReason: 'Session is archived.',
+    })
+    expect(
+      chatSendRoute({
+        sessionId: asSessionId('s1'),
+        headless: false,
+        superThread: undefined,
+        composer,
+      }),
+    ).toEqual({ kind: 'refused', reason: 'Session is archived.' })
+  })
+
+  it('disables chat sends while a provider failure needs recovery', () => {
+    const blocked = session({
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        nativeSubagentCount: 0,
+        error: { class: 'usage_limit', retryable: false, detail: 'API quota exhausted' },
+      },
+    } as Partial<SessionMeta>)
+    const composer = composerState({
+      session: blocked,
+      headless: false,
+      turnRunning: false,
+      compact: false,
+    })
+    expect(composer).toMatchObject({
+      deliverable: false,
+      sendable: false,
+      canResume: false,
+      placeholder:
+        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
+      refusalReason:
+        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
+    })
+    expect(
+      chatSendRoute({
+        sessionId: asSessionId('s1'),
+        headless: false,
+        superThread: undefined,
+        composer,
+      }),
+    ).toEqual({
+      kind: 'refused',
+      reason:
+        'Usage limit reached: API quota exhausted — Fix the provider issue, then choose “Resume the session”.',
+    })
+  })
+
+  it('names the login action instead of promising a resume for auth failures', () => {
+    const blocked = session({
+      agentState: {
+        phase: 'errored',
+        since: '2026-08-22T10:00:00.000Z',
+        nativeSubagentCount: 0,
+        error: { class: 'authentication', retryable: false, detail: 'token expired' },
+      },
+    } as Partial<SessionMeta>)
+    expect(
+      composerState({
+        session: blocked,
+        headless: false,
+        turnRunning: false,
+        compact: false,
+      }).placeholder,
+    ).toBe(
+      'Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in — retry”.',
+    )
   })
 
   // POD-762. The whole point of these three is that they read the SERVER's
@@ -344,7 +445,7 @@ describe('composer, queue, offer and activity', () => {
           compact: false,
         }),
       ).toMatchObject({
-        enabled: true,
+        deliverable: true,
         canResume: true,
         placeholder: 'Waking the agent — message queues…',
       })

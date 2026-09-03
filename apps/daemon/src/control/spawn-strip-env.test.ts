@@ -1,0 +1,198 @@
+// WHICH VARIABLES A SPAWN DELETES, decided at the frame (POD-2296, widened by
+// POD-2117).
+//
+// WHY THE LIST IS SIX AND NOT TWO. `harnessChildStripEnv` unions TWO manifest
+// declarations, and they answer different questions:
+//
+//   inventory.foreignCredentialEnv  — credentials for this CLI that, if
+//     inherited, would outrank the account the agent home is logged into.
+//   environment.removeInherited     — controls that describe a PARENT
+//     invocation of the same CLI. Podium's daemon is routinely started from
+//     inside a Claude session, so `CLAUDE_CODE_SESSION_ID` and friends really
+//     do reach every child; a child that reads them subordinates itself to
+//     that conversation and stops writing a transcript — which is also
+//     Podium's state and history channel.
+//
+// Both are leaks of the same shape (the child believing it is some other
+// session), so both are stripped at the same point, and the manifest is the
+// only place the membership is written down. That is the same conclusion
+// POD-2823 reached from the other end when it pointed `STRIPPED_CODEX_CREDENTIALS`
+// at the manifest instead of a hand-kept twin, and the same one POD-2692
+// reached for the login READ path (`harnessLoginReadEnv` strips the same union).
+// Three paths, one declaration. This file's job is to pin what one spawn frame
+// resolves that declaration to — it is not a second copy of the list, which is
+// pinned once in `packages/harness/src/registry.test.ts`.
+//
+// THE LIMIT IS STILL A LIMIT. The widening did NOT reach into the exemption:
+// see `never deletes a credential the server put on the frame` below, and the
+// control-var case beside it that says why the exemption is credential-only.
+//
+// The bun twin (`apps/daemon/test/managed-account-env.bun.test.ts`) proves the
+// deletion reaches a real process's real environ. What it cannot reach is the
+// NATIVE LOGIN pane: that frame runs `<cli> login`, so there is no shell to ask
+// for its environment and no way to run one without driving a real OAuth flow.
+// This file pins the decision instead of the effect, by capturing the options the
+// daemon hands the PTY layer.
+
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import type { SpawnOptions } from '@podium/pty'
+import { afterAll, beforeEach, expect, it, vi } from 'vitest'
+import type { DaemonContext } from './context'
+
+/** Claude's hook settings file is written here at spawn; nothing reads it back. */
+const settingsDir = mkdtempSync(join(tmpdir(), 'podium-strip-env-settings-'))
+afterAll(() => rmSync(settingsDir, { recursive: true, force: true }))
+
+let captured: SpawnOptions | undefined
+
+vi.mock('@podium/pty', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@podium/pty')>()
+  return {
+    ...actual,
+    spawnAgent: (opts: SpawnOptions) => {
+      captured = opts
+      return {
+        pid: 4242,
+        onFrame: () => () => {},
+        onTitle: () => () => {},
+        onExit: () => () => {},
+        write: () => {},
+        resize: () => {},
+        redraw: () => {},
+        geometry: () => ({ cols: opts.cols, rows: opts.rows }),
+        dispose: () => {},
+      }
+    },
+  }
+})
+
+const { sessionHandlers } = await import('./session')
+
+function contextForSpawn(): DaemonContext {
+  return {
+    send: () => {},
+    instanceId: 'default',
+    backend: 'none',
+    machineId: 'strip-env-test-machine',
+    settingsDir,
+    launch: (_kind: string, opts: { cwd: string }) => ({
+      cmd: '/bin/true',
+      args: [],
+      cwd: opts.cwd,
+    }),
+    bridges: new Map(),
+    durableLabels: new Map(),
+    pendingResizes: new Map(),
+    durableLabelFor: (id: string) => `podium-${id}`,
+    sessionBinding: { transition: async () => ({ status: 'applied' }) },
+    composerEngine: { attach: () => false, onData: () => {}, detach: () => {}, has: () => false },
+    outputScheduler: { enqueue: () => {}, remove: () => {} },
+    observers: { initSessionObservers: () => {}, clearSession: () => {} },
+    sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
+    primeInjector: { reset: () => {} },
+    hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
+    agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
+  } as unknown as DaemonContext
+}
+
+async function spawnOptionsFor(frame: Record<string, unknown>): Promise<SpawnOptions> {
+  captured = undefined
+  await sessionHandlers.spawn(contextForSpawn(), {
+    type: 'spawn',
+    cwd: '/repo',
+    geometry: { cols: 80, rows: 24 },
+    binding: {
+      transitionId: 'strip-env-transition',
+      machineAccess: 'allowed',
+      principal: { kind: 'system', job: 'spawn-strip-env-test' },
+    },
+    ...frame,
+  } as Parameters<typeof sessionHandlers.spawn>[1])
+  const start = Date.now()
+  while (!captured && Date.now() - start < 5_000) await new Promise((r) => setTimeout(r, 10))
+  if (!captured) throw new Error('the daemon never reached the PTY layer')
+  return captured
+}
+
+beforeEach(() => {
+  captured = undefined
+})
+
+/** The full resolved list for a claude spawn: credentials, then parent controls. */
+const CLAUDE_STRIP = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_EXECPATH',
+]
+
+it('deletes what would outrank a claude session’s own login, and what would make it another session’s child', async () => {
+  const opts = await spawnOptionsFor({ sessionId: 'strip-claude', agentKind: 'claude-code' })
+  expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
+})
+
+it('deletes them for a NATIVE LOGIN pane, which is filed as a shell', async () => {
+  // THE ONE THAT WOULD HAVE BEEN MISSED. `accounts/native-login.ts` creates the
+  // session with agentKind 'shell' and loginHarness set — so reading agentKind
+  // alone would exempt the exact pane whose purpose is to establish an account,
+  // and `claude login` would run under the inherited key it is meant to replace.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-login',
+    agentKind: 'shell',
+    loginHarness: 'claude-code',
+  })
+  expect(opts.stripEnv).toEqual(CLAUDE_STRIP)
+})
+
+it('leaves a plain operator shell alone', async () => {
+  const opts = await spawnOptionsFor({ sessionId: 'strip-shell', agentKind: 'shell' })
+  expect(opts.stripEnv).toEqual([])
+})
+
+it('never strips a subscription OAuth token the server put on the frame', async () => {
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-oauth',
+    agentKind: 'claude-code',
+    env: { CLAUDE_CODE_OAUTH_TOKEN: 'oat-test-1' },
+  })
+  expect(opts.stripEnv).not.toContain('CLAUDE_CODE_OAUTH_TOKEN')
+  expect(opts.env?.CLAUDE_CODE_OAUTH_TOKEN).toBe('oat-test-1')
+  expect(JSON.stringify(opts.stripEnv)).not.toMatch(/oat-test-1/)
+})
+
+it('never deletes a credential the server put on the frame', async () => {
+  // THE LIMIT ON THE SCRUB, asserted first and on its own so that widening the
+  // list can never quietly consume it: a key on the frame IS the account Podium
+  // resolved for this session (a managed account, #216), and deleting it would
+  // send the agent back to whatever the machine happens to carry.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-managed',
+    agentKind: 'claude-code',
+    env: { ANTHROPIC_API_KEY: 'sk-managed' },
+  })
+  expect(opts.stripEnv).not.toContain('ANTHROPIC_API_KEY')
+  expect(opts.env?.ANTHROPIC_API_KEY).toBe('sk-managed')
+  // And exactly that one is exempted — nothing else narrows with it.
+  expect(opts.stripEnv).toEqual(CLAUDE_STRIP.filter((key) => key !== 'ANTHROPIC_API_KEY'))
+})
+
+it('still deletes a parent CONTROL on the frame — the exemption is credential-only', async () => {
+  // WHY THE ASYMMETRY IS DELIBERATE, since the exemption above could look like
+  // it should apply to the whole list. A credential on the frame is an ACCOUNT
+  // the server resolved. A parent-harness control is not an account and Podium
+  // never resolves one for a child — nothing in the daemon writes a
+  // `CLAUDE_CODE_*` control onto a spawn frame, and if something ever starts,
+  // the value it would be passing on is the parent conversation's identity,
+  // which is the exact leak POD-2117 closed. So `harnessChildStripEnv` filters
+  // `sessionEnv` out of the credential half only.
+  const opts = await spawnOptionsFor({
+    sessionId: 'strip-control-on-frame',
+    agentKind: 'claude-code',
+    env: { CLAUDE_CODE_SESSION_ID: 'a-parent-conversation' },
+  })
+  expect(opts.stripEnv).toContain('CLAUDE_CODE_SESSION_ID')
+})

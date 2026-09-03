@@ -2,24 +2,24 @@ import { randomBytes } from 'node:crypto'
 import type { UserId } from '@podium/model'
 import {
   encodePairingEnvelope,
-  mobilePairingUrl,
   MobilePairClaimRequest,
   MobilePairCompleteRequest,
+  type MobilePairEnvelope,
   MobilePairingIdRequest,
+  mobilePairingUrl,
   normalizeHttpOrigin,
   RevokeMobileClientSessionRequest,
-  type MobilePairEnvelope,
 } from '@podium/protocol'
 import type { Context, Hono } from 'hono'
 import {
+  type ClientCredentialHeaders,
   hashToken,
   isHttps,
   resolveClientCredential,
   SESSION_TTL_MS,
   setSessionCookie,
-  type ClientCredentialHeaders,
 } from './auth-route'
-import { MobilePairingManager } from './mobile-pairing'
+import type { MobilePairingManager } from './mobile-pairing'
 import type { AuthRepository } from './store/auth'
 
 const PAIRING_UNAVAILABLE = { error: 'pairing unavailable' } as const
@@ -146,7 +146,12 @@ function transportReadiness(serverUrl: string) {
 export interface MobilePairingRouteOptions {
   store: AuthRepository
   pairing: MobilePairingManager
-  serverIdentity: () => { publicUrl?: string; instanceId: string }
+  serverIdentity: () => {
+    publicUrl?: string
+    /** Where the web UI lives when it is not this server (PDM-26); absent means here. */
+    appUrl?: string
+    instanceId: string
+  }
   loginRequired: () => boolean
   resolveUserId: (headers: ClientCredentialHeaders) => UserId | undefined
   now?: () => number

@@ -6,6 +6,7 @@ import { asMachineId, asSessionId } from '@podium/model'
 import { createHandshakeDialer, type DaemonPtyOutputBatch } from '@podium/protocol'
 import { createTRPCClient, httpBatchLink, TRPCClientError } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { resolveServerRole } from './roles'
 import type { AppRouter } from './router'
 import { startServer } from './server'
@@ -49,6 +50,9 @@ describe('startServer with the hub role disabled (node shape)', () => {
 
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-role-node-'))
+    // The role boundary is downstream of setup readiness. Declare the fixture
+    // configured before boot so a 503 from the newer readiness gate cannot
+    // masquerade as a role-gating result.
     writeFileSync(
       join(stateDir, 'config.json'),
       JSON.stringify({
@@ -58,7 +62,11 @@ describe('startServer with the hub role disabled (node shape)', () => {
       }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ port: 0, role: { hub: false } })
+    handle = await startServer({
+      janitorWorkerForTests: noJanitorWorkerForTests,
+      port: 0,
+      role: { hub: false },
+    })
     trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${handle.port}/trpc` })],
     })
@@ -232,7 +240,7 @@ describe('startServer default role keeps hub surfaces on', () => {
       }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
   })
 
   afterAll(async () => {

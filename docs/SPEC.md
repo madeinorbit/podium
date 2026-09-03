@@ -14,7 +14,7 @@ A control plane for running many real agent sessions (Claude Code, Codex CLI, mo
 
 These are load-bearing. When a decision is ambiguous, these break the tie.
 
-1. **Native substrate, structured intelligence.** The dev works against the *real* CLI in a PTY — reusing native auth, full subscription power, zero feature lag, no abstraction that hides output or blocks input. Every smart feature is built on structured data harvested from the interactive session's own free side-channels (transcript, hooks, statusline, injected MCP — see §3.1), **not** the separately-metered `claude -p` / Agent SDK path. We observe the agent; we never re-implement it.
+1. **Native substrate, structured intelligence.** Podium runs the *real* harnesses (Claude Code, Codex, later others), reusing native auth and full subscription power, with no abstraction that hides output or blocks input. Interactive work still uses the real CLI in a PTY when the human wants the wheel. **Headless Claude is first-class** via the Claude Agent SDK; the persistent SDK path may use the managed subscription credential under an explicit rollout acknowledgement ([policy](architecture/claude-subscription-oauth-policy.md)). The PTY path is the fallback, not the only compliant Claude path. Every smart feature is built on structured data the session already emits (transcript, hooks, statusline, injected MCP — see §3.1). We observe the agent; we never re-implement it.
 2. **The unit is the workstream, not the terminal.** You steer from a board of workstreams (status, blockers, recaps, does-it-need-me) and drop into the raw PTY only when you want the wheel. The terminal is a drill-down; the workstream is home.
 3. **Fit the user's workflow.** Adapt to their existing repos, worktrees, and harnesses. Don't impose scrum/kanban or a new process.
 4. **Attention-first.** The product's core job is surfacing *where the human is needed* — ask-user tools, blocked agents, errors, limits.
@@ -40,7 +40,7 @@ Clients (web: mobile + desktop; native apps later)
 
 ### 3.1 What we observe, and how
 
-Smart features never parse the TUI. They consume the structured side-channels the *interactive* (subscription) session already emits for free — so we get rich signal without the metered `claude -p` / SDK path, and without re-implementing the agent:
+Smart features never parse the TUI. They consume the structured side-channels the session already emits — so we get rich signal without re-implementing the agent. That is true of both the interactive PTY and the first-class Claude Agent SDK path:
 
 | Channel | What it gives us |
 |---------|------------------|
@@ -104,7 +104,7 @@ The hard technical bar. Split into **fidelity** (must work) and **intelligence**
 - Auto-retry on errors (rate limits etc.).
 - **Browser-open hijack** — agents/shells on the remote server try to open URLs (e.g. auth). Intercept the OS open mechanism, show a "app tried to open a URL" popup so the user can complete auth; let them paste the callback link for us to curl server-side.
 - **Low-bandwidth mode** — locally cached, high-fidelity history view (Claude/ChatGPT-app quality) for bad connections or mobile reflow failures, plus a native input field that writes through to the harness.
-- *(Acknowledged-risk feature)* **Scheduled / after-hours start** — kick a task at a set time, or "after hours" (evening in user's TZ + 4h idle). Gated behind explicit acknowledgement: we start an *interactive* session to be picked up (not `claude -p`), but the terms are ambiguous about this.
+- *(Acknowledged-risk feature)* **Scheduled / after-hours start** — kick a task at a set time, or "after hours" (evening in user's TZ + 4h idle). Gated behind explicit acknowledgement. Headless Claude via the Agent SDK may use the managed subscription credential under that acknowledgement ([policy](architecture/claude-subscription-oauth-policy.md)); the PTY path remains the fallback.
 
 ### 5.5 Conversation history & search
 - Index **every** conversation found on any attached machine — unified across Claude Code, Codex, future agents. Backed up and tracked.

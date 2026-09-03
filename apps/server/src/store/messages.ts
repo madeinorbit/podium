@@ -16,6 +16,7 @@ import {
   type IssueId,
   type SessionId,
 } from '@podium/model'
+import { RuntimeAttachmentRef, type QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
@@ -51,8 +52,19 @@ function storedActor(r: Record<string, unknown>): ActorRef | null {
   return actorSystem(id)
 }
 
+function storedAttachments(value: unknown): MessageRow['attachments'] {
+  if (typeof value !== 'string') return undefined
+  try {
+    const parsed = RuntimeAttachmentRef.array().safeParse(JSON.parse(value))
+    return parsed.success ? parsed.data : undefined
+  } catch {
+    return undefined
+  }
+}
+
 function mapMessage(r: Record<string, unknown>): MessageRow {
   const actor = storedActor(r)
+  const attachments = storedAttachments(r.attachments_json)
   return {
     id: r.id as string,
     threadId: asThreadId(r.thread_id as string),
@@ -81,6 +93,7 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     urgency: r.urgency as MessageRow['urgency'],
     lifecycle: r.lifecycle as MessageRow['lifecycle'],
     body: r.body as string,
+    ...(attachments ? { attachments } : {}),
     expiresAt: (r.expires_at as string | null) ?? null,
     createdAt: r.created_at as string,
     status: r.status as MessageStatus,
@@ -89,6 +102,9 @@ function mapMessage(r: Record<string, unknown>): MessageRow {
     deliveredTo: (r.delivered_to as SessionId | null) ?? null,
     readAt: (r.read_at as string | null) ?? null,
     injectedAt: (r.injected_at as string | null) ?? null,
+    deliveryDeferredAt: (r.delivery_deferred_at as string | null) ?? null,
+    deliveryDeferredReason:
+      (r.delivery_deferred_reason as MessageRow['deliveryDeferredReason']) ?? null,
     deadLetteredAt: (r.dead_lettered_at as string | null) ?? null,
     ackedBy: (r.acked_by as string | null) ?? null,
     hop: (r.hop as number | null) ?? 0,
@@ -109,10 +125,10 @@ export class MessagesRepository {
         `INSERT INTO messages
            (id, thread_id, in_reply_to, from_kind, from_session, from_name, from_issue,
             actor_kind, actor_id, on_behalf_of, delegation_ref,
-            to_kind, to_id, kind, urgency, lifecycle, body, expires_at,
+            to_kind, to_id, kind, urgency, lifecycle, body, attachments_json, expires_at,
             created_at, status, delivered_at, delivered_to, acked_by, hop, clamped_from,
             expects_response, fact_key, fact_target)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(
         m.id,
@@ -138,6 +154,7 @@ export class MessagesRepository {
         m.urgency,
         m.lifecycle,
         m.body,
+        m.attachments?.length ? JSON.stringify(m.attachments) : null,
         m.expiresAt,
         m.createdAt,
         m.status,
@@ -225,6 +242,36 @@ export class MessagesRepository {
       )
       .all(...(params as never[])) as Record<string, unknown>[]
     return rows.map(mapMessage)
+  }
+
+  /**
+   * The current 1-based position of a queued message for one concrete session.
+   * This is deliberately a read-time count, not a stored ordinal: earlier rows
+   * leave the queue as soon as they are confirmed, so a receipt's enqueue-time
+   * position is not an honest reload-time position.
+   *
+   * Rows can be waiting in either form used by the delivery service: addressed
+   * directly to the session, or already injected toward it (`delivered_to`).
+   * The SQL ordering is the same `(created_at, id)` ordering used by the ledger
+   * and its high-water cursors.
+   */
+  queuedPositionForSession(sessionId: SessionId, messageId: string): number | undefined {
+    const target = "((to_kind = 'session' AND to_id = ?) OR delivered_to = ?)"
+    const row = this.db
+      .prepare(
+        `SELECT created_at, id FROM messages
+           WHERE id = ? AND status = 'queued' AND injected_at IS NULL AND ${target}`,
+      )
+      .get(messageId, sessionId, sessionId) as { created_at?: string; id?: string } | undefined
+    if (!row?.created_at || !row.id) return undefined
+    const count = this.db
+      .prepare(
+        `SELECT COUNT(*) AS n FROM messages
+           WHERE status = 'queued' AND injected_at IS NULL AND ${target}
+             AND (created_at < ? OR (created_at = ? AND id <= ?))`,
+      )
+      .get(sessionId, sessionId, row.created_at, row.created_at, row.id) as { n: number }
+    return Number(count.n)
   }
 
   /** One bounded keyset page of queued rows for a principal. */
@@ -507,6 +554,145 @@ export class MessagesRepository {
     return r.changes === 1
   }
 
+  /**
+   * queued → dead_letter, because a driver queue gave up: the session never went
+   * live before its ready deadline (`never-live`), it was torn down with the turn
+   * still undelivered (`teardown`), or a server-family driver took the turn off
+   * its own queue and the send failed (`delivery-failed`) [POD-2132, POD-2202,
+   * POD-2297]. TERMINAL — this is the write
+   * that ends the stale `queued` receipt the sender was left holding, and after it
+   * the server never re-sends this row (`countPending` drops it, the sweep skips
+   * it, a blocked `waitFor` gets its answer).
+   *
+   * The `delivery_deferred_*` stamps record WHEN the driver reported giving up and
+   * WHICH report said so, next to the terminal status and `dead_lettered_at`.
+   *
+   * THE `status = 'queued'` GUARD IS THE DEDUPE. Abandonment reports are retryable
+   * and repeat across restarts, so the same turn id arrives more than once; the
+   * second one finds a row that is no longer queued and returns false, which is how
+   * the caller emits exactly one transition per turn.
+   */
+  markDeliveryAbandoned(
+    id: string,
+    deliveredTo: SessionId,
+    at: string,
+    reason: QueueDrainAbandonedReason,
+  ): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages
+         SET status = 'dead_letter', dead_lettered_at = ?,
+             delivery_deferred_at = ?, delivery_deferred_reason = ?,
+             delivered_to = COALESCE(delivered_to, ?)
+         WHERE id = ? AND status = 'queued'`,
+      )
+      .run(at, at, reason, deliveredTo, id)
+    return r.changes === 1
+  }
+
+  /**
+   * THE PUSH THIS ROW IS RESTING ON WAS REFUSED, SO THE ROW GOES BACK IN THE
+   * QUEUE [POD-2298].
+   *
+   * The optimistic half of the receipt migration is that a send toward a live
+   * driver records its ledger state IMMEDIATELY — `delivered` for a body that is
+   * confirmed on injection, `injected_at` for one still owed an echo — and the
+   * driver's receipt arrives afterwards to correct it. When that receipt is a
+   * refusal whose cause CLEARS ON ITS OWN (a turn was open, a person owes an
+   * answer, a human holds the lease), the correction is to undo the optimism and
+   * let the ordinary retry machinery run again: status back to `queued`,
+   * `delivered_at` and `injected_at` erased so the idle drain and the sweep both
+   * see an un-pushed row.
+   *
+   * `delivered_to` STAYS. It is the last place this row was aimed, the sweep
+   * re-reads it rather than trusting it, and clearing it would erase the only
+   * evidence of which session refused.
+   *
+   * THE READ RECEIPT GOES WITH THE DELIVERY. `markDelivered` records one, and a
+   * per-reader receipt saying this session saw a message it never got is the same
+   * lie one table over — it hides the row from that session's own pending set.
+   *
+   * {@link MessagesRepository.RESTING_ON_A_PUSH} IS THE GUARD AND THE IDEMPOTENCY.
+   * A repeat finds the row already `queued` with no `injected_at`, matches
+   * nothing and changes nothing.
+   */
+  retractOptimisticDelivery(id: string, deliveredTo: SessionId): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages SET status = 'queued', delivered_at = NULL, injected_at = NULL
+         WHERE ${MessagesRepository.RESTING_ON_A_PUSH}`,
+      )
+      .run(id, deliveredTo)
+    if (r.changes !== 1) return false
+    this.db
+      .prepare(`DELETE FROM message_reads WHERE message_id = ? AND session_id = ?`)
+      .run(id, deliveredTo)
+    return true
+  }
+
+  /**
+   * IS THIS ROW STILL RESTING ON AN UNANSWERED PUSH TO `delivered_to`? The
+   * predicate both refusal writers correct through, written once so they cannot
+   * drift apart [POD-2298].
+   *
+   * Optimistic delivery leaves exactly two fingerprints, and they are what the two
+   * arms name. `delivered` WITH NO `injected_at` is a body confirmed on injection
+   * — an unwrapped operator chat line or a best-effort ack, which `injectAndMark`
+   * marks delivered outright because no echo will ever come. `queued` WITH an
+   * `injected_at` is an enveloped body whose bytes were dispatched and whose echo
+   * is still owed.
+   *
+   * WHAT THE TWO ARMS TOGETHER EXCLUDE IS THE POINT. A row that is `delivered` AND
+   * carries `injected_at` was confirmed by the transcript echo or the turn
+   * boundary — the agent demonstrably has it — and a driver's refusal arriving
+   * afterwards is late evidence about a question the transcript already answered.
+   * Walking that row backwards would be the mirror image of the defect this
+   * predicate exists to fix. `read`, `cancelled` and `dead_letter` are terminal or
+   * retracted and match neither arm.
+   */
+  private static readonly RESTING_ON_A_PUSH = `
+    id = ? AND delivered_to = ?
+    AND (
+      (status = 'delivered' AND injected_at IS NULL)
+      OR (status = 'queued' AND injected_at IS NOT NULL)
+    )`
+
+  /**
+   * queued|delivered → dead_letter, because the driver REFUSED the push this row
+   * was already resting on [POD-2298].
+   *
+   * The sibling of {@link markDeliveryAbandoned}, and it exists rather than
+   * widening it because that one is guarded `status = 'queued'` — the whole point
+   * here is a row that optimistic delivery already moved past `queued`, which
+   * that guard silently skips. Both write the same `delivery_deferred_*` stamps
+   * so one undelivered turn reads the same way whichever route reported it.
+   *
+   * `reason` is deliberately the EXISTING abandonment vocabulary rather than the
+   * refusal's own: the wire enum stays three arms wide (widening it is a
+   * rolling-upgrade event, POD-2297) and the precise `RefusalReason` is already on
+   * the `message.receipt` event emitted beside this write.
+   *
+   * Guarded through the same {@link MessagesRepository.RESTING_ON_A_PUSH}
+   * predicate as {@link retractOptimisticDelivery}, for the same reason — a
+   * refusal corrects the push it answers, never a row that has since moved on.
+   */
+  markSendRefused(
+    id: string,
+    deliveredTo: SessionId,
+    at: string,
+    reason: QueueDrainAbandonedReason,
+  ): boolean {
+    const r = this.db
+      .prepare(
+        `UPDATE messages
+         SET status = 'dead_letter', dead_lettered_at = ?,
+             delivery_deferred_at = ?, delivery_deferred_reason = ?
+         WHERE ${MessagesRepository.RESTING_ON_A_PUSH}`,
+      )
+      .run(at, at, reason, id, deliveredTo)
+    return r.changes === 1
+  }
+
   /** queued → delivered: the PUSH is CONFIRMED — the message's envelope appeared
    *  as a turn in the target's transcript (transcript echo, [POD-834]). Only now
    *  does the ledger claim the agent has it in context. Guarded on status so a
@@ -574,14 +760,26 @@ export class MessagesRepository {
 
   /** queued → dead_letter: the target was gone before the message could land
    *  (issue closed/archived, session deleted with nowhere to re-route) [POD-834].
-   *  Terminal; the sender is told once. Guarded on status='queued'. */
-  markDeadLetter(id: string, at: string): boolean {
+   *  Terminal; the sender is told once. Guarded on status='queued'.
+   *
+   *  `cause` RECORDS WHY, FOR THE ROWS WHERE "GONE" IS NOT THE ANSWER [POD-2574].
+   *  A dead letter with no cause reads, downstream, as a vanished target — which
+   *  is right for the callsites this was written for and wrong for a driver that
+   *  refused the send. Passing a cause stamps the same two columns
+   *  {@link markDeliveryAbandoned} uses, so both refusal paths — the late one the
+   *  daemon reports and the synchronous one answered inside the send — leave a row
+   *  a reader can tell apart from a target that disappeared. */
+  markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): boolean {
     const r = this.db
       .prepare(
-        `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?
-         WHERE id = ? AND status = 'queued'`,
+        cause
+          ? `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?,
+                 delivery_deferred_at = ?, delivery_deferred_reason = ?
+             WHERE id = ? AND status = 'queued'`
+          : `UPDATE messages SET status = 'dead_letter', dead_lettered_at = ?
+             WHERE id = ? AND status = 'queued'`,
       )
-      .run(at, id)
+      .run(...(cause ? [at, at, cause, id] : [at, id]))
     return r.changes === 1
   }
 

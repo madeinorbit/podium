@@ -1,0 +1,40 @@
+{
+  "_recordedFrom": "codex-cli 0.147.0, live `codex app-server` over child stdio",
+  "initializeRequest": {
+    "jsonrpc": "2.0",
+    "id": 1,
+    "method": "initialize",
+    "params": {
+      "clientInfo": {
+        "name": "podium",
+        "title": "Podium",
+        "version": "0.0.0"
+      },
+      "capabilities": {
+        "experimentalApi": true,
+        "requestAttestation": false
+      }
+    }
+  },
+  "initializeResponse": {
+    "id": 1,
+    "result": {
+      "userAgent": "podium/0.147.0 (Ubuntu 26.4.0; x86_64) xterm-256color (podium; 0.0.0)",
+      "codexHome": "/home/mgw/.codex",
+      "platformFamily": "unix",
+      "platformOs": "linux"
+    }
+  },
+  "initializedNotification": {
+    "jsonrpc": "2.0",
+    "method": "initialized"
+  },
+  "getAuthStatusResponse": {
+    "id": 3,
+    "result": {
+      "authMethod": "chatgpt",
+      "authToken": null,
+      "requiresOpenaiAuth": true
+    }
+  }
+}

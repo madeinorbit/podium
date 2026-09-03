@@ -18,6 +18,7 @@ import {
   UpdateTarget,
 } from '@podium/protocol'
 import { resolveInstanceId, stateDir } from '@podium/runtime/config'
+import { instanceBuildSliceName } from '@podium/runtime/instance'
 import {
   type ReleaseBuildTimingDeps,
   releaseBuildTimingEnvironment,
@@ -1158,9 +1159,11 @@ export function devReleaseBuildArgs(
 
 async function defaultSpawnBuild(ctx: DevBuildSpawnContext): Promise<undefined> {
   const signingKey = ctx.signingKey ?? developmentSigningKey(ctx.root)
+  const instanceId = ctx.instanceId ?? resolveInstanceId()
   const platforms = ctx.artifacts.map((artifact) => artifact.platform)
   await runLowTierBuild({
-    unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, ctx.instanceId ?? resolveInstanceId()),
+    unit: devBuildScopeUnit(DEV_BUNDLE_BUILD_ROLE, instanceId),
+    slice: instanceBuildSliceName(instanceId),
     description: `Podium development release build (${ctx.version}, ${platforms.join(', ')})`,
     command: devBuildCommand(process.env),
     // ONE child for the whole publish; see devReleaseBuildArgs.

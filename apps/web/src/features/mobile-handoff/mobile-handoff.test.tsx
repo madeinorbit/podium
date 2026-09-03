@@ -225,6 +225,34 @@ describe('the footer chip', () => {
     await waitFor(() => expect(screen.queryByTestId('mobile-handoff-sheet')).toBeNull())
   })
 
+  /**
+   * PDM-34: on a split-hosted deployment the public URL is the API, which has no
+   * `/mobile` page — only a redirect to one. The code has to name the host that
+   * actually serves it, so the phone lands in one hop and the address a person
+   * reads is the address they end up on.
+   */
+  it('carries the app host when the UI is served from one', async () => {
+    // The address no longer shows up in the plate's label — it is the ORIGIN
+    // scoped into the `podium:` link — so ask the hook that mints it.
+    fixture.infoQuery.mockResolvedValue({
+      publicUrl: 'https://api.meetpodium.com',
+      appUrl: 'https://app.meetpodium.com',
+    })
+    const trpc = fixture.trpc as never
+    const { result } = renderHook(() =>
+      useMobileHandoffUrl(trpc, 'https://local.example', 'a-session'),
+    )
+    await waitFor(() =>
+      expect(result.current).toBe(
+        mobileHandoffUrl('https://app.meetpodium.com', 'instance-one', 'a-session'),
+      ),
+    )
+    // Not the API, which has no `/mobile` page of its own — only a redirect.
+    expect(result.current).not.toBe(
+      mobileHandoffUrl('https://api.meetpodium.com', 'instance-one', 'a-session'),
+    )
+  })
+
   it('carries the public URL once the instance reports one', async () => {
     withOneTask()
     fixture.infoQuery.mockResolvedValue({ publicUrl: 'https://podium.example.com' })

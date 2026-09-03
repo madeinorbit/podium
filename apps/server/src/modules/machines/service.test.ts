@@ -5,6 +5,7 @@ import type { Inventory, UserId } from '@podium/model'
 import { asAccountId, asMachineId, asSessionId, asUserId } from '@podium/model'
 import type { DaemonPtyInputBatch } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { describe, expect, test } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
 import { SessionStore } from '../../store'
@@ -167,6 +168,16 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     ;(svc as unknown as { listMachines: () => unknown[] }).listMachines = () => machines
     return svc
   }
+  function refusal(machines: unknown[]): TRPCError {
+    try {
+      serviceListing(machines).requireAgent(MACHINE, 'codex')
+    } catch (error) {
+      expect(error).toBeInstanceOf(TRPCError)
+      return error as TRPCError
+    }
+    throw new Error('expected requireAgent to refuse the machine')
+  }
+
   const runnable = {
     id: MACHINE,
     name: 'vmi',
@@ -181,12 +192,42 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     expect(() =>
       serviceListing([{ ...runnable, online: true }]).requireAgent(MACHINE, 'codex'),
     ).not.toThrow()
-    expect(() =>
-      serviceListing([{ ...runnable, online: true, use: 'denied' }]).requireAgent(MACHINE, 'codex'),
-    ).toThrow(/do not have access/)
-    expect(() =>
-      serviceListing([{ ...runnable, online: false }]).requireAgent(MACHINE, 'codex'),
-    ).toThrow(/is offline/)
+    expect(refusal([{ ...runnable, online: true, use: 'denied' }])).toMatchObject({
+      code: 'FORBIDDEN',
+      message: "you do not have access to run agents on machine 'vmi'",
+    })
+    expect(refusal([{ ...runnable, online: false }])).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message: "machine 'vmi' is offline",
+    })
+  })
+
+  test('distinguishes unknown inventory as retryable 4xx preconditions', () => {
+    expect(refusal([{ id: MACHINE, name: 'vmi', online: true }])).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "machine 'vmi' is still probing whether codex is installed; wait for the probe or run `podium machine reprobe vmi`",
+    })
+    const timedOut = {
+      id: MACHINE,
+      name: 'vmi',
+      online: true,
+      inventory: {
+        agents: [
+          {
+            kind: 'codex',
+            installed: null,
+            probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+            login: { state: 'in' },
+          },
+        ],
+      },
+    }
+    expect(refusal([timedOut])).toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "could not determine whether codex is installed on machine 'vmi' (probe timed out after 60s); retry",
+    })
   })
 
   test('a shell on a denied machine is refused too — spawning is `use`', () => {
@@ -368,6 +409,45 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
       'native:codex:fp-b',
     )
+  })
+
+  test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
+    const { svc, store } = makeStoreService()
+    store.machines.upsertMachine({
+      id: MACHINE,
+      name: 'Builder',
+      hostname: 'vmi',
+      tokenHash: 'x',
+      ownerUserId: asUserId('user:sole'),
+    })
+    svc.recordInventory(MACHINE, {
+      ...INV,
+      agents: [{ kind: 'claude-code', installed: false, login: { state: 'unknown' } }],
+    })
+    const daemon = recorder()
+    svc.attach(MACHINE, daemon.send)
+
+    expect(svc.listMachines().find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
+    expect(() => svc.requireAgent(MACHINE, 'claude-code')).toThrow(
+      "machine 'Builder' is still probing whether claude-code is installed",
+    )
+
+    const waiting = svc.waitForInventory(MACHINE)
+    expect(daemon.got).toEqual([{ type: 'inventoryRequest' }])
+    svc.recordInventory(MACHINE, {
+      ...INV,
+      agents: [
+        {
+          kind: 'claude-code',
+          installed: true,
+          version: '2.1.231 (Claude Code)',
+          login: { state: 'in' },
+        },
+      ],
+    })
+    await waiting
+
+    expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'claude-code')).toBe(MACHINE)
   })
 
   test('explicit session placement rejects a missing harness but starts logged out', () => {

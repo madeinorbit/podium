@@ -14,7 +14,8 @@ import {
   runHeadlessTurn,
 } from '../headless-drivers.js'
 import type { ControlHandlers, DaemonContext } from './context'
-import { sessionRelayEnv, spawnEnv } from './session'
+import { sessionRelayEnv } from './session'
+import { spawnEnv } from './session-env'
 
 const log = createLogger('daemon:headless')
 
@@ -178,6 +179,7 @@ async function runHeadlessTurnRequest(
             ctx.agentRelayEndpointFor(msg.sessionId),
             ctx.instanceId,
             msg.agent,
+            ctx.instanceUuid,
           ),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
           ...(msg.toolPolicy === 'none' && ctx.accountHome

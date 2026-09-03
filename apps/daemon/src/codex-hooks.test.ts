@@ -7,6 +7,7 @@ import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { finished } from 'node:stream/promises'
 import { promisify } from 'node:util'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { addSink, type LogRecord } from '@podium/logger'
 import { afterAll, describe, expect, it, vi } from 'vitest'
 import {
@@ -264,7 +265,10 @@ describe('codex hooks real-binary smoke', () => {
     existsSync(auth) &&
     (() => {
       try {
-        execFileSync('codex', ['--version'], { timeout: 10_000, stdio: 'ignore' })
+        execFileSync('codex', ['--version'], {
+          timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+          stdio: 'ignore',
+        })
         return true
       } catch {
         return false
@@ -284,7 +288,9 @@ describe('codex hooks real-binary smoke', () => {
     '[real-agent:codex] official hook payload reaches the ingest URL',
     async () => {
       try {
-        await execFileAsync('codex', ['--version'], { timeout: 10_000 })
+        await execFileAsync('codex', ['--version'], {
+          timeout: AGENT_VERSION_PROBE_TIMEOUT_MS,
+        })
       } catch {
         return // codex binary not runnable here
       }

@@ -1,15 +1,129 @@
-import { describe, expect, it } from 'vitest'
+import type { GitRepositoryWire, MachineWire } from '@podium/model'
+import { asMachineId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import type { PodiumClientApi } from '../api'
 import { BootFetches } from './boot'
 import type { EngineState } from './state'
 
-/**
- * refreshRepos coalescing (perf round): a cold boot fires the refresh from the
- * boot fan-out, the machines listener and worktreesChanged in overlapping
- * fashion, and each used to cost a concurrent server-side enrichment mutation.
- * The contract now: one mutation in flight at a time, mid-flight triggers join
- * ONE trailing follow-up run (never stale relative to their cause, never a
- * dropped trigger), and a settled instance coalesces nothing.
- */
+describe('BootFetches.refreshRepos', () => {
+  it('publishes the authorized machine snapshot atomically with a durable repo fallback', async () => {
+    const machineId = asMachineId('daemon-after-rebind')
+    const repository = {
+      path: '/tmp/dummy-repo',
+      kind: 'repository',
+      machineId,
+      worktrees: [],
+    } as GitRepositoryWire
+    const machine = {
+      id: machineId,
+      name: 'isolated daemon',
+      online: true,
+      use: 'granted',
+    } as MachineWire
+    const publish = vi.fn<(patch: Partial<EngineState>) => void>()
+    const api = {
+      discovery: {
+        refreshRepos: {
+          mutate: vi.fn(async () => ({
+            repositories: [repository],
+            diagnostics: [],
+            machines: [machine],
+          })),
+        },
+      },
+    } as unknown as PodiumClientApi
+    const boot = new BootFetches({
+      api,
+      publish,
+      replicatedLayout: {} as never,
+    })
+
+    await boot.refreshRepos()
+
+    expect(publish).toHaveBeenNthCalledWith(1, { reposLoading: true })
+    expect(publish).toHaveBeenNthCalledWith(2, {
+      repos: [repository],
+      repoDiagnostics: [],
+      machines: [machine],
+    })
+    expect(publish).toHaveBeenNthCalledWith(3, {
+      reposLoading: false,
+      reposLoaded: true,
+    })
+  })
+
+  it('leaves the newer authorized snapshot standing when a machine invalidation refreshes', async () => {
+    type RefreshResult = {
+      repositories: GitRepositoryWire[]
+      diagnostics: never[]
+      machines: MachineWire[]
+    }
+    const stale = {
+      repositories: [
+        {
+          path: '/tmp/stale-repo',
+          kind: 'repository',
+          machineId: asMachineId('stale-daemon'),
+          worktrees: [],
+        } as GitRepositoryWire,
+      ],
+      diagnostics: [],
+      machines: [],
+    } satisfies RefreshResult
+    const fresh = {
+      repositories: [
+        {
+          path: '/tmp/dummy-repo',
+          kind: 'repository',
+          machineId: asMachineId('rebound-daemon'),
+          worktrees: [],
+        } as GitRepositoryWire,
+      ],
+      diagnostics: [],
+      machines: [
+        {
+          id: asMachineId('rebound-daemon'),
+          name: 'rebound daemon',
+          online: true,
+          use: 'granted',
+        } as MachineWire,
+      ],
+    } satisfies RefreshResult
+    let resolveStale!: (value: RefreshResult) => void
+    let resolveFresh!: (value: RefreshResult) => void
+    const api = {
+      discovery: {
+        refreshRepos: {
+          mutate: vi
+            .fn()
+            .mockImplementationOnce(
+              () => new Promise<RefreshResult>((r) => (resolveStale = r)),
+            )
+            .mockImplementationOnce(() => new Promise<RefreshResult>((r) => (resolveFresh = r))),
+        },
+      },
+    } as unknown as PodiumClientApi
+    const publish = vi.fn<(patch: Partial<EngineState>) => void>()
+    const boot = new BootFetches({ api, publish, replicatedLayout: {} as never })
+
+    // Coalescing (see `refreshRepos`) means the second trigger does not race the
+    // first on the wire — it joins the trailing run — so the two responses
+    // settle in order. What must hold either way is the epic's rule: the newer
+    // authorized snapshot is the one left standing, never undone by the older.
+    const older = boot.refreshRepos()
+    const newer = boot.refreshRepos()
+    resolveStale(stale)
+    await older
+    await new Promise<void>((resolve) => setTimeout(resolve, 0))
+    resolveFresh(fresh)
+    await newer
+
+    const published = publish.mock.calls.filter(([patch]) => patch.repos !== undefined)
+    expect(published.at(-1)).toEqual([
+      { repos: fresh.repositories, repoDiagnostics: [], machines: fresh.machines },
+    ])
+  })
+})
 
 type Deferred = { resolve: () => void; reject: (error: unknown) => void }
 

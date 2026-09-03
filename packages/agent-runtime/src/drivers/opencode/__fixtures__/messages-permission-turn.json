@@ -1,0 +1,185 @@
+[
+    {
+        "info": {
+            "id": "msg_ffe99d646001aChn5HAVUH8yWE",
+            "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+            "role": "user",
+            "time": {
+                "created": 1786682922567
+            },
+            "summary": {
+                "diffs": []
+            },
+            "agent": "build",
+            "model": {
+                "providerID": "opencode",
+                "modelID": "laguna-s-2.1-free"
+            }
+        },
+        "parts": [
+            {
+                "id": "prt_ffe99d659001qTYGfu9Wgduh0p",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99d646001aChn5HAVUH8yWE",
+                "type": "text",
+                "text": "Run the shell command `echo hello` using the bash tool. Do it now."
+            }
+        ]
+    },
+    {
+        "info": {
+            "id": "msg_ffe99d68f001wohdz3yeNMuQsQ",
+            "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+            "role": "assistant",
+            "time": {
+                "created": 1786682922639,
+                "completed": 1786682929360
+            },
+            "parentID": "msg_ffe99d646001aChn5HAVUH8yWE",
+            "modelID": "laguna-s-2.1-free",
+            "providerID": "opencode",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+                "cwd": "/tmp/claude-1001/oc-work",
+                "root": "/tmp/claude-1001/oc-work"
+            },
+            "cost": 0,
+            "tokens": {
+                "total": 8090,
+                "input": 36,
+                "output": 22,
+                "reasoning": 0,
+                "cache": {
+                    "read": 8032,
+                    "write": 0
+                }
+            },
+            "finish": "tool-calls"
+        },
+        "parts": [
+            {
+                "id": "prt_ffe99ec8b001aHW4EkJI7BB6LZ",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99d68f001wohdz3yeNMuQsQ",
+                "type": "step-start",
+                "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            },
+            {
+                "id": "prt_ffe99ec9c001b7opl8ATDmK60X",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99d68f001wohdz3yeNMuQsQ",
+                "type": "tool",
+                "callID": "chatcmpl-tool-dd2d76f45b0e4be5a598aaea0c62bdc1",
+                "tool": "bash",
+                "state": {
+                    "status": "completed",
+                    "input": {
+                        "command": "echo hello"
+                    },
+                    "output": "hello\n",
+                    "title": "echo hello",
+                    "metadata": {
+                        "output": "hello\n",
+                        "exit": 0,
+                        "truncated": false
+                    },
+                    "time": {
+                        "start": 1786682928776,
+                        "end": 1786682928937
+                    }
+                }
+            },
+            {
+                "id": "prt_ffe99f01b0010Tw4vHCvNYPAb2",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99d68f001wohdz3yeNMuQsQ",
+                "type": "step-finish",
+                "reason": "tool-calls",
+                "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+                "cost": 0,
+                "tokens": {
+                    "total": 8090,
+                    "input": 36,
+                    "output": 22,
+                    "reasoning": 0,
+                    "cache": {
+                        "read": 8032,
+                        "write": 0
+                    }
+                }
+            }
+        ]
+    },
+    {
+        "info": {
+            "id": "msg_ffe99f0e0001V2NZ40cw9VHv1P",
+            "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+            "role": "assistant",
+            "time": {
+                "created": 1786682929376,
+                "completed": 1786682930630
+            },
+            "parentID": "msg_ffe99d646001aChn5HAVUH8yWE",
+            "modelID": "laguna-s-2.1-free",
+            "providerID": "opencode",
+            "mode": "build",
+            "agent": "build",
+            "path": {
+                "cwd": "/tmp/claude-1001/oc-work",
+                "root": "/tmp/claude-1001/oc-work"
+            },
+            "cost": 0,
+            "tokens": {
+                "total": 8107,
+                "input": 41,
+                "output": 2,
+                "reasoning": 0,
+                "cache": {
+                    "read": 8064,
+                    "write": 0
+                }
+            },
+            "finish": "stop"
+        },
+        "parts": [
+            {
+                "id": "prt_ffe99f489001e6vfT7clDkx18Z",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99f0e0001V2NZ40cw9VHv1P",
+                "type": "step-start",
+                "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
+            },
+            {
+                "id": "prt_ffe99f493001yys6rMpNy4fIdW",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99f0e0001V2NZ40cw9VHv1P",
+                "type": "text",
+                "text": "hello",
+                "time": {
+                    "start": 1786682930323,
+                    "end": 1786682930335
+                }
+            },
+            {
+                "id": "prt_ffe99f54c001dDptTi1tDWYQ7J",
+                "sessionID": "ses_0016629e4ffex6R17g25YMjzHr",
+                "messageID": "msg_ffe99f0e0001V2NZ40cw9VHv1P",
+                "type": "step-finish",
+                "reason": "stop",
+                "snapshot": "4b825dc642cb6eb9a060e54bf8d69288fbee4904",
+                "cost": 0,
+                "tokens": {
+                    "total": 8107,
+                    "input": 41,
+                    "output": 2,
+                    "reasoning": 0,
+                    "cache": {
+                        "read": 8064,
+                        "write": 0
+                    }
+                }
+            }
+        ]
+    }
+]

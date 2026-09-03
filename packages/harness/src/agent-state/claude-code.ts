@@ -14,6 +14,7 @@ import type {
   SessionObservationCheckpointV1,
 } from '@podium/protocol'
 import { locateClaudeSessionFile } from './claude-locate.js'
+import { classifyClaudeScreen } from './claude-screen.js'
 import { type DeterministicAgentState, deterministicStateToEvents } from './deterministic.js'
 import { carryAcrossRebuild, reduceAgentState } from './reducer.js'
 import type { TranscriptClassifier } from './transcript-classifier.js'
@@ -104,6 +105,7 @@ export const claudeCodeStateProvider: AgentStateProvider = {
     }
   },
   translate: async (payload) => withStateChannel(await translateClaudeHookPayload(payload), 'hook'),
+  screen: classifyClaudeScreen,
   bootEvents: async (opts) => withStateChannel(await claudeBootEvents(opts), 'classifier'),
 }
 
@@ -677,9 +679,16 @@ export class ClaudeCausalObserver {
   }
 
   /** Hooks sharing a transcript byte boundary still need distinct cursor
-   * positions; the ack-rebased fence makes the local suffix restart-safe. */
-  nextHookOffset(observedOffset: number): number {
-    return Number.isSafeInteger(observedOffset) ? observedOffset : this.lastOffset
+   * positions; the ack-rebased fence makes the local suffix restart-safe.
+   *
+   * `null` is the caller with no boundary to offer — the transcript could not be
+   * read at all. Holding the last accepted position is what lets such a hook
+   * still be folded: the hook plane of the cursor advances on its own, so the
+   * observation is still strictly after the checkpoint. [POD-2810] */
+  nextHookOffset(observedOffset: number | null): number {
+    return observedOffset !== null && Number.isSafeInteger(observedOffset)
+      ? observedOffset
+      : this.lastOffset
   }
   recordInputOrigin(origin: ObservationInputOrigin): void {
     if (origin === 'provider' || origin === 'unknown') return

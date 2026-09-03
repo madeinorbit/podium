@@ -1,9 +1,10 @@
 // scripts/lifecycle.integration.bun.test.ts
 //
-// Real-process smoke for the detached split (#98): spawns server + janitor + daemon
-// as three independent processes (from source), asserts the run registry shows all three up with
-// distinct PIDs (proving isolation + that the `--local` daemon authenticated to the local
-// server), then stops them. Complements the unit tests (which mock processes) and the manual
+// Real-process smoke for the detached split (#98): spawns the parent, which supervises
+// server and daemon as independent processes (from source), asserts the run registry shows
+// all three up with distinct PIDs (proving isolation + that the `--local` daemon
+// authenticated to the local server), then stops them. There is deliberately NO janitor
+// record: it is a worker thread inside the server, not a process of its own (PDM-27). Complements the unit tests (which mock processes) and the manual
 // compiled-binary verification. Only the run-registry + spawn plumbing is exercised here; the
 // compiled selfInvocation branch is covered by the manual real-binary check.
 //
@@ -33,7 +34,7 @@ beforeAll(() => {
 
 afterAll(async () => {
   const reg = await import('../packages/runtime/src/run-registry')
-  for (const role of ['server', 'janitor', 'daemon'] as const) {
+  for (const role of ['parent', 'server', 'janitor', 'daemon'] as const) {
     try {
       await reg.reclaim(role)
     } catch {}
@@ -43,7 +44,7 @@ afterAll(async () => {
 })
 
 describe('detached split lifecycle', () => {
-  it('runs server + janitor + daemon as three processes, then stops all', async () => {
+  it('runs parent + server + daemon as three processes, then stops all', async () => {
     const spawn = await import('../apps/cli/src/cli-spawn')
     const reg = await import('../packages/runtime/src/run-registry')
 
@@ -51,17 +52,19 @@ describe('detached split lifecycle', () => {
     expect(serverUp).toBe(true)
 
     // Give the --local daemon a moment to connect + write its pidfile.
-    for (let i = 0; i < 40 && (!reg.liveRecord('janitor') || !reg.liveRecord('daemon')); i++) {
+    for (let i = 0; i < 40 && (!reg.liveRecord('server') || !reg.liveRecord('daemon')); i++) {
       await new Promise((r) => setTimeout(r, 250))
     }
 
+    const parent = reg.liveRecord('parent')
     const server = reg.liveRecord('server')
-    const janitor = reg.liveRecord('janitor')
     const daemon = reg.liveRecord('daemon')
+    expect(parent?.pid).toBeGreaterThan(0)
     expect(server?.pid).toBeGreaterThan(0)
-    expect(janitor?.pid).toBeGreaterThan(0)
     expect(daemon?.pid).toBeGreaterThan(0)
-    expect(new Set([server?.pid, janitor?.pid, daemon?.pid]).size).toBe(3)
+    expect(new Set([parent?.pid, server?.pid, daemon?.pid]).size).toBe(3)
+    // The janitor runs in the server's PID, so it claims no role of its own.
+    expect(reg.liveRecord('janitor')).toBeUndefined()
     const reconcile = await import('../apps/cli/src/role-reconcile')
     const config = await import('../packages/runtime/src/config')
     const lifecycle = await import('../packages/runtime/src/transfer-lifecycle')
@@ -72,7 +75,6 @@ describe('detached split lifecycle', () => {
     })
     expect(demotion.changed).toBe(true)
     expect(reg.liveRecord('server')?.pid).toBe(server?.pid)
-    expect(reg.liveRecord('janitor')?.pid).toBe(janitor?.pid)
     expect(reg.liveRecord('daemon')?.pid).toBe(daemon?.pid)
     expect(config.loadConfig()).toMatchObject({
       mode: 'daemon',
@@ -88,10 +90,12 @@ describe('detached split lifecycle', () => {
 
     const postResponse = await reconcile.prepareForegroundDaemon()
     expect(postResponse.owner).toBe('foreground')
-    expect(postResponse.stopped).toEqual(expect.arrayContaining(['server', 'janitor']))
+    // The PARENT is what gets retired: it owns the server and daemon children,
+    // and the janitor is a thread inside the server rather than a peer role.
+    expect(postResponse.stopped).toEqual(expect.arrayContaining(['parent']))
+    expect(postResponse.stopped).not.toContain('janitor')
     expect(postResponse.stopped).not.toContain('all-in-one')
     expect(reg.liveRecord('server')).toBeUndefined()
-    expect(reg.liveRecord('janitor')).toBeUndefined()
     expect(reg.liveRecord('daemon')).toBeUndefined()
 
     spawn.spawnDetached('daemon')
@@ -104,10 +108,8 @@ describe('detached split lifecycle', () => {
     expect(reg.liveRecord('server')).toBeUndefined()
 
     await reg.reclaim('server')
-    await reg.reclaim('janitor')
     await reg.reclaim('daemon')
     expect(reg.liveRecord('server')).toBeUndefined()
-    expect(reg.liveRecord('janitor')).toBeUndefined()
     expect(reg.liveRecord('daemon')).toBeUndefined()
   }, 60_000)
 })

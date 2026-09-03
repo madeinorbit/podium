@@ -1,0 +1,53 @@
+{
+  "id": "A5",
+  "arm": "headless",
+  "verdict": "FAIL",
+  "summary": "tool/history transcript did not satisfy the paired-and-reload criterion",
+  "control": {
+    "fired": true,
+    "what": "the same socket receiving the probe prompt as a durable user transcript item",
+    "detail": "user=true answer=true transcriptDelta=2 assistantChars=18"
+  },
+  "evidence": [
+    "PRODUCT DRIVER    driverId=grok-acp family=server",
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "ANSWER            true after 6311ms",
+    "TOOLS BEFORE      1 [{\"id\":\"call-23e1762d-bcaa-4f2f-8bf7-da69eb35c03d-0\",\"role\":\"tool\",\"ts\":\"2026-08-27T09:42:14.962Z\",\"text\":\"\",\"toolName\":\"tool\",\"toolInput\":\"{\\\"command\\\":\\\"printf 'TRANSCRIPT-K7KJSI' > /tmp/pod-2927-grok/cells/headless-a5/TRANSCRIPT-K7KJSI.txt && cat /tmp/pod-2927-grok/cells/headless-a5/TRANSCRIPT-K7KJSI.txt\\\",\\\"description\\\":\\\"Write token file and read it back\\\"}\",\"toolTitle\":\"run_terminal_command\",\"toolUseId\":\"call-23e1762d-bcaa-4f2f-8bf7-da69eb35c03d-0\"}]",
+    "CALL              true RESULT=false PAIRED=false",
+    "RELOAD            user=true assistant=true toolItems=1",
+    "HISTORY SAME      true"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "hasCall": true,
+    "hasResult": false,
+    "paired": false,
+    "sameHistory": true,
+    "toolsBefore": 1,
+    "toolsAfter": 1
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a5",
+  "memoryMb": 4809,
+  "pin": "PIN OK row=A5 arm=headless instance=grok2927 serverPid=1851034 daemonPid=1851119 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=6b6a7fd3f813e860191f75807db231f34e828e64 runtimeTree=aa7ed6068076e46d5f3ca68d2dfa7620a7744627 nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "fc3cbbef-0f40-4a30-a22e-65013ed44d31"
+  ],
+  "at": "2026-08-27T09:42:19.964Z",
+  "criterionClauses": {
+    "toolCallsPairedToResults": "FAIL — one tool call carried toolUseId call-23e1762d-bcaa-4f2f-8bf7-da69eb35c03d-0 and no result item or result payload",
+    "reloadShowsSameHistory": "PASS for identity, FAIL for completeness — the durable user and assistant nonce and the same single incomplete tool item returned after reload"
+  },
+  "admission": {
+    "diskFreeKb": 12719296,
+    "memAvailableKb": 4742264,
+    "load1": 4.06,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 11:42:19 CEST",
+  "confirmation": {
+    "cwd": "/tmp/pod-2927-grok/cells/headless-a5-authoritative",
+    "productDriver": "grok-acp/server",
+    "observation": "the current dedicated toolUseId scorer independently saw one tool item with result=false; its reload phase wedged and was interrupted, so the completed aggregate reading remains the scored cell"
+  }
+}

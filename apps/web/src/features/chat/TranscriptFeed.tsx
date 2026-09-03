@@ -12,8 +12,9 @@ import {
   isInteractiveTool,
   sessionWaking,
 } from '@podium/client-core/viewmodels'
+import { agentErrorRecoveryInstruction, formatAgentError } from '@podium/model/browser'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
-import { ArrowUp, Image as ImageIcon } from 'lucide-react'
+import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
@@ -21,6 +22,7 @@ import { renderMarkdownUnsafe } from '@/lib/markdown-renderer'
 import { cn } from '@/lib/utils'
 import { ChatBlockView, type ProcessPosition, type TurnPosition } from './ChatBlockView'
 import type { ProjectedPendingItem, QueuedChatMessage } from './chat'
+import type { DeadLetteredChatMessage } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
@@ -30,6 +32,7 @@ import { transcriptComputeClient } from './transcript-compute-client'
 import { dayKey, dayLabel, rowTimestamp } from './transcript-time'
 import { rowIdentity, useFeedArrivals } from './use-feed-arrivals'
 import type { HeadlessOverlay } from './use-headless-turn'
+import type { TurnPreview } from './use-turn-preview'
 
 /** Render a live partial through the same worker boundary as settled messages. */
 function StreamingMarkdown({ text }: { text: string }): JSX.Element {
@@ -151,6 +154,30 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
   return undefined
 }
 
+export function queueIsBlocked(session: SessionMeta | undefined): boolean {
+  return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
+}
+export function queuePositionSuffix(position: number | undefined): string {
+  return typeof position === 'number' && Number.isInteger(position) && position > 0
+    ? ` · queue position ${position}`
+    : ''
+}
+
+export function queuedDeliveryLabel(
+  session: SessionMeta | undefined,
+  position?: number,
+): string {
+  const error = queueIsBlocked(session) ? session?.agentState?.error : undefined
+  if (error) {
+    const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
+    return `blocked · ${formatAgentError(error)} — ${instruction} to send${queuePositionSuffix(position)}`
+  }
+  const label = sessionWaking(session)
+    ? 'pending · sends once the agent is up'
+    : 'pending · sends after this turn'
+  return `${label}${queuePositionSuffix(position)}`
+}
+
 /** Public process narration is visible transcript content, not hidden chain of
  * thought. It includes the assistant's intermediate commentary and the tool
  * activity that commentary introduces, then ends before the final answer. */
@@ -219,8 +246,11 @@ export function TranscriptFeed({
   isOperatorPromptRow,
   pending,
   restoredQueued,
+  restoredFailed = [],
   onRetractQueued,
+  onRetryFailed,
   overlay,
+  turnPreview,
   activity,
   attribution,
   expandRuns = false,
@@ -263,8 +293,15 @@ export function TranscriptFeed({
   isOperatorPromptRow: (row: RenderableRow['row']) => boolean
   pending: readonly ProjectedPendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
+  restoredFailed?: readonly DeadLetteredChatMessage[]
   onRetractQueued: (id: string) => Promise<void>
+  onRetryFailed?: (text: string) => void
   overlay: HeadlessOverlay | null
+  /** The in-progress half of the open turn (POD-2293) — assistant text still
+   *  being written and tool calls still running, for driver-backed sessions.
+   *  Null for every session that produces no fragments, which is what keeps a
+   *  PTY chat byte-identical to what it renders today. */
+  turnPreview: TurnPreview | null
   activity: ChatActivity | null
   /** The session's three attribution pairs (doc §3.1.3 A3), derived once by the
    *  slice. Each row picks its pair by role; the objects are stable, so the
@@ -286,6 +323,9 @@ export function TranscriptFeed({
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
+  const previewHasText =
+    turnPreview?.items.some((item) => item.kind === 'text') === true
+
   const dayMarks = useMemo(() => dayMarksByPosition(rows, new Date()), [rows])
   const lastRow = rows[rows.length - 1]?.row
   const tailActivity: ChatActivity | null = overlay?.status
@@ -473,7 +513,9 @@ export function TranscriptFeed({
         })}
         {pending.map((p) => {
           const durable = p.durable
-          const handedOver = durable?.injectedAt != null && !sessionWaking(session)
+          const queuePosition = durable ? durable.queuePosition : p.queuePosition
+          const handedOver =
+            durable?.injectedAt != null && !sessionWaking(session) && !queueIsBlocked(session)
           return (
             <div
               key={p.id}
@@ -533,38 +575,42 @@ export function TranscriptFeed({
                 The delivered design said "queued"; main had already settled on
                 "pending" for the same state, and one vocabulary matters more
                 here than one word. */}
-                {p.state === 'interrupted' ? (
-                  <div className="msg-foot" data-side="right">
-                    <span className="transcript-delivery">interrupted</span>
-                  </div>
-                ) : durable && !handedOver ? (
-                  <div className="msg-foot" data-side="right">
-                    <span className="transcript-delivery">
-                      {sessionWaking(session)
-                        ? 'pending · sends once the agent is up'
-                        : 'pending · sends after this turn'}
-                    </span>
-                    <button
-                      data-pressable
-                      type="button"
-                      className="msg-action msg-action--retract"
-                      aria-label="Retract pending message"
-                      title="Retract pending message"
-                      onClick={() => void onRetractQueued(durable.id)}
-                    >
-                      <MetaGlyph name="close" />
-                    </button>
-                  </div>
-                ) : p.state !== 'sending' && !handedOver ? (
-                  <div className="msg-foot" data-side="right">
-                    {p.state === 'queued' && <span className="transcript-delivery">pending</span>}
-                    {p.state === 'failed' && (
-                      <span className="transcript-delivery transcript-delivery--error">
-                        not delivered
-                      </span>
-                    )}
-                  </div>
-                ) : null}
+            {p.state === 'interrupted' ? (
+              <div className="msg-foot" data-side="right">
+                <span className="transcript-delivery">interrupted</span>
+              </div>
+            ) : durable && !handedOver ? (
+              <div className="msg-foot" data-side="right">
+                <span className="transcript-delivery">
+                  {queuedDeliveryLabel(session, queuePosition)}
+                </span>
+                <button
+                  data-pressable
+                  type="button"
+                  className="msg-action msg-action--retract"
+                  aria-label="Retract pending message"
+                  title="Retract pending message"
+                  onClick={() => void onRetractQueued(durable.id)}
+                >
+                  <MetaGlyph name="close" />
+                </button>
+              </div>
+            ) : p.state !== 'sending' && !handedOver ? (
+              <div className="msg-foot" data-side="right">
+                {p.state === 'queued' && (
+                  <span className="transcript-delivery">
+                    {queueIsBlocked(session)
+                      ? queuedDeliveryLabel(session, queuePosition)
+                      : `pending${queuePositionSuffix(queuePosition)}`}
+                  </span>
+                )}
+                {p.state === 'failed' && (
+                  <span className="transcript-delivery transcript-delivery--error">
+                    {p.failure ? `not delivered — ${p.failure}` : 'not delivered'}
+                  </span>
+                )}
+              </div>
+            ) : null}
               </div>
             </div>
           )
@@ -598,58 +644,93 @@ export function TranscriptFeed({
           WAKING session is the exception — its row is queued for a process that
           does not exist yet, so the stamp says nothing about a CLI and the
           reservation stands. */}
-        {restoredQueued.map((message) => {
-          const handedOver = message.injectedAt !== null && !sessionWaking(session)
-          return (
-            <div
-              key={message.id}
-              className="transcript-row transcript-turn-open transcript-arrive-bubble"
-              data-testid="queued-chat-message"
-            >
-              <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
-              <div className="transcript-body transcript-you">
-                <div
-                  className={cn(
-                    'transcript-you-bubble',
-                    !handedOver && 'transcript-you-bubble--queued',
-                  )}
-                >
-                  <div className="transcript-you-body">
-                    <div className="chat-md whitespace-pre-wrap">{message.text}</div>
-                  </div>
-                </div>
-                {!handedOver && (
-                  <div className="msg-foot" data-side="right">
-                    <span className="transcript-delivery">
-                      {sessionWaking(session)
-                        ? 'pending · sends once the agent is up'
-                        : 'pending · sends after this turn'}
-                    </span>
-                    <button
-                      data-pressable
-                      type="button"
-                      className="msg-action msg-action--retract"
-                      aria-label="Retract pending message"
-                      title="Retract pending message"
-                      onClick={() => void onRetractQueued(message.id)}
-                    >
-                      <MetaGlyph name="close" />
-                    </button>
-                  </div>
+      {restoredQueued.map((message) => {
+        const handedOver =
+          message.injectedAt !== null && !sessionWaking(session) && !queueIsBlocked(session)
+        return (
+          <div
+            key={message.id}
+            className="transcript-row transcript-turn-open transcript-arrive-bubble"
+            data-testid="queued-chat-message"
+          >
+            <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+            <div className="transcript-body transcript-you">
+              <div
+                className={cn(
+                  'transcript-you-bubble',
+                  !handedOver && 'transcript-you-bubble--queued',
                 )}
+              >
+                <div className="transcript-you-body">
+                  <div className="chat-md whitespace-pre-wrap">{message.text}</div>
+                </div>
+              </div>
+              {!handedOver && (
+                <div className="msg-foot" data-side="right">
+                  <span className="transcript-delivery">
+                    {queuedDeliveryLabel(session, message.queuePosition)}
+                  </span>
+                  <button
+                    data-pressable
+                    type="button"
+                    className="msg-action msg-action--retract"
+                    aria-label="Retract pending message"
+                    title="Retract pending message"
+                    onClick={() => void onRetractQueued(message.id)}
+                  >
+                    <MetaGlyph name="close" />
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+        )
+      })}
+      {/* Headless streaming overlay: the in-progress assistant text (or the
+          driver's status label) below the last transcript row. Replaced by
+          the real item when it lands via the transcript tail; cleared on
+          turn-end. Native sessions never emit these frames. */}
+
+      {/* A dead letter is terminal delivery history: the transcript provider
+          cannot echo it because the session never took the turn. Keep the
+          durable attempt visible and retry by making a fresh normal send. */}
+      {restoredFailed.map((message) => (
+        <div
+          key={message.id}
+          className="transcript-row transcript-turn-open transcript-pending transcript-pending--failed"
+          data-testid="dead-lettered-chat-message"
+        >
+          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+          <div className="transcript-body transcript-you">
+            <div className="transcript-you-bubble">
+              <div className="transcript-you-body">
+                <div className="chat-md whitespace-pre-wrap">{message.text}</div>
               </div>
             </div>
-          )
-        })}
-        {/* Headless streaming overlay: in-progress assistant text below the last
-          transcript row. Driver status is routed into the permanent tail,
-          keeping one live-status owner. The overlay is replaced by the real
-          item when it lands and cleared on turn-end.
-
-          The text carries a caret while it is still being written (POD-423):
+            <div className="msg-foot" data-side="right">
+              <span className="transcript-delivery transcript-delivery--error">
+                {message.failure}
+              </span>
+              {onRetryFailed && (
+                <button
+                  data-pressable
+                  type="button"
+                  className="msg-action"
+                  aria-label="Retry failed message"
+                  title="Retry failed message"
+                  onClick={() => onRetryFailed(message.text)}
+                >
+                  <RotateCcw size={12} strokeWidth={1.7} aria-hidden="true" />
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+      {/* The text carries a caret while it is still being written (POD-423):
           the overlay exists only mid-turn, so its presence IS the signal, and
           it goes away when the finished item takes over. */}
-        {overlay?.text !== undefined && (
+        {overlay?.text !== undefined && !previewHasText && (
           <div
             className={cn(
               'transcript-row transcript-process-row',
@@ -665,8 +746,42 @@ export function TranscriptFeed({
               <StreamingMarkdown text={overlay.text} />
             </div>
           </div>
-        )}
-        {/* The question Claude Code has not written down yet (POD-1273). A
+      )}
+      {/* THE IN-PROGRESS TURN (POD-2293), in the position its durable items will
+          occupy. Each row disappears when the item carrying its identity lands
+          on the transcript plane — the server retires it there, so a row still
+          drawn here is one the transcript genuinely does not have yet.
+
+          Deliberately LIGHTER than the blocks below it: assistant text renders
+          through the same StreamingMarkdown the headless overlay uses, and a
+          running tool is one muted line rather than a ToolBlock. A preview row
+          that looked identical to a finished one would be claiming a result it
+          does not have. */}
+      {turnPreview && turnPreview.items.length > 0 && (
+        <div className="transcript-row" data-turn-preview>
+          <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
+          <div className="transcript-body">
+            {turnPreview.items.map((item) =>
+              item.kind === 'text' ? (
+                <StreamingMarkdown
+                  key={item.itemId}
+                  text={item.text}
+                />
+              ) : (
+                <div
+                  key={item.itemId}
+                  className="mt-1 text-xs text-muted-foreground italic"
+                  data-turn-preview-tool
+                >
+                  {item.item.toolName ?? 'tool'}
+                  {item.item.toolInput ? ` ${item.item.toolInput}` : ''}
+                </div>
+              ),
+            )}
+          </div>
+        </div>
+      )}
+      {/* The question Claude Code has not written down yet (POD-1273). A
           pending AskUserQuestion reaches the hook channel immediately but the
           transcript only once it RESOLVES, so for the whole time the agent is
           waiting there is no item to render — the state carries the ask instead

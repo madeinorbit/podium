@@ -29,7 +29,11 @@ import {
   PANEL_MODE_DEFAULT_KEY,
   type PanelMode,
 } from '@podium/client-core/ui-state'
-import { defaultChatCapable } from '@podium/client-core/viewmodels'
+import {
+  defaultChatCapable,
+  type TerminalOutlook,
+  sessionTerminalOutlook,
+} from '@podium/client-core/viewmodels'
 import type { SessionId, SessionMeta } from '@podium/model/browser'
 import { useEffect, useRef, useState } from 'react'
 import { useStoreSelector } from '@/app/store'
@@ -50,6 +54,10 @@ export interface PanelArbitration {
   /** True once the effective mode no longer depends on the settings request. */
   readonly modeSettled: boolean
   readonly chatCapable: boolean
+  /** Three-valued "does this session have a terminal" — `unknown` until the
+   *  daemon has said. The panel needs the third value to tell an honest wait
+   *  from an ordinary one (POD-2290). */
+  readonly terminalOutlook: TerminalOutlook
   readonly pickMode: (mode: PanelMode) => void
 }
 
@@ -76,6 +84,12 @@ export function usePanelSurface(input: {
   )
   const { sessionId, session, paneActive, spawnConfirmed, inTransit, onEnterNative } = input
   const chatCapable = panelChatCapable(session, defaultChatCapable)
+  // Does the native view have anything behind it (POD-2290)? Three-valued, and
+  // the third value is the whole of round two: `unknown` is not "probably a
+  // terminal", it is "the daemon has not said yet", and `panelSurface` holds the
+  // panel neutral rather than committing to a pane it may have to take back.
+  const terminal = sessionTerminalOutlook(session)
+  const terminalCapable = terminal !== 'none'
 
   // Fetch the startScreen setting once; default to 'native' while loading. This
   // drives the configurable default mode for sessions the user has never toggled.
@@ -107,17 +121,30 @@ export function usePanelSurface(input: {
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
   const savedMode = panelMode[sessionId]
   const deviceDefault = uiState.get(PANEL_MODE_DEFAULT_KEY)
-  const mode: PanelMode = effectivePanelMode({
-    startScreen,
-    chatCapable,
-    isMobile,
-    saved: savedMode,
-    deviceDefault,
-  })
+  // A login failure is only actionable in the native terminal, where the user
+  // can run the agent's login command. Force that surface transiently; do not
+  // persist the forced mode over the user's chat preference.
+  const loginRequired = session?.condition === 'logged-out'
+  const mode: PanelMode = loginRequired
+    ? 'native'
+    : effectivePanelMode({
+        startScreen,
+        chatCapable,
+        isMobile,
+        terminalCapable,
+        serverFamily: session?.driverFamily === 'server',
+        saved: savedMode,
+        deviceDefault,
+      })
   // Shells cannot show chat, and explicit per-session/device choices are already
   // authoritative. Fresh chat-capable sessions wait for the setting request so
   // the provisional native fallback cannot pull xterm into a chat-first load.
+  //
+  // A forced login surface is settled by the same rule: the mode is not a
+  // provisional fallback there, it is the one surface the failure is actionable
+  // on, so it must not wait on a setting it will ignore.
   const modeSettled =
+    loginRequired ||
     !chatCapable ||
     savedMode !== undefined ||
     deviceDefault === 'chat' ||
@@ -134,8 +161,9 @@ export function usePanelSurface(input: {
     // derived fallback creates a stale writer when a warm/hidden panel mounts
     // while another panel is being switched.
     if (savedModeRef.current !== undefined) return
+    if (loginRequired) return
     setPanelMode(sessionId, mode)
-  }, [sessionId, mode, modeSettled, setPanelMode])
+  }, [sessionId, mode, loginRequired, modeSettled, setPanelMode])
 
   const pickMode = (m: PanelMode): void => {
     // Persist the per-session override in the store (#35)…
@@ -157,16 +185,45 @@ export function usePanelSurface(input: {
     // Only a *transition* into native fires; the first observation (prev null)
     // is the mount-in-native case, already handled by the mount effect.
     if (prev === null || prev === 'native') return
+    // The forced login-repair route is not a user-selected chat → native edge;
+    // never flush a chat draft into a terminal whose only job is authentication.
+    if (loginRequired) return
     enterNativeRef.current?.()
-  }, [mode])
+  }, [loginRequired, mode])
 
   const surface = panelSurface({
     status: session?.status,
     inTransit,
     chatCapable,
     mode,
+    terminal,
   })
-  const gates = panelGates(surface, { paneActive, spawnConfirmed, chatCapable })
+  /**
+   * THE SWITCHER IS MONOTONE PER SESSION (POD-2290 round two).
+   *
+   * The operator watched it disappear mid-session — "the native and chat button
+   * vanished?!" — when a late driver fact turned a terminal session into a
+   * headless one under them. A ref, not state: it only ever latches true, and a
+   * render that latches it has already computed the gate that reads it, so
+   * there is nothing to re-render for. Keyed on the session so a panel reused
+   * for a different session starts clean.
+   */
+  const switchOfferedRef = useRef<{ sessionId: SessionId; offered: boolean }>({
+    sessionId,
+    offered: false,
+  })
+  if (switchOfferedRef.current.sessionId !== sessionId) {
+    switchOfferedRef.current = { sessionId, offered: false }
+  }
+  const gates = panelGates(surface, {
+    paneActive,
+    spawnConfirmed,
+    chatCapable,
+    terminalCapable,
+    switchAlreadyOffered: switchOfferedRef.current.offered,
+    loginRequired,
+  })
+  if (gates.modeSwitchOffered) switchOfferedRef.current.offered = true
 
-  return { surface, gates, mode, modeSettled, chatCapable, pickMode }
+  return { surface, gates, mode, modeSettled, chatCapable, terminalOutlook: terminal, pickMode }
 }

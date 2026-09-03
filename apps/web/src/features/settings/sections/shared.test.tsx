@@ -76,6 +76,7 @@ describe('accountOptions', () => {
       'native:grok',
       'native:opencode',
       'native:cursor',
+      'native:pi',
     ])
     expect(accountOptions('background').map((option) => option.id)).toEqual([
       'native:codex',
@@ -104,6 +105,7 @@ describe('accountOptions', () => {
       'native:grok',
       'native:opencode',
       'native:cursor',
+      'native:pi',
       'native:grok:fingerprint',
     ])
   })

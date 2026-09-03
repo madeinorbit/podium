@@ -1,0 +1,46 @@
+==============================================================================
+A8  logged-out spawn   harness=opencode
+==============================================================================
+credential         /home/mgw/.local/state/podium/p2777/agent-home/.local/share/opencode/auth.json
+                   present: true
+
+CONTROL            with the credential PRESENT:
+                   driverId=opencode-server  family=server  status=live
+                   binds its server driver: true
+
+credential moved aside -> /home/mgw/.local/state/podium/p2777/agent-home/.local/share/opencode/auth.json.a8-parked
+
+LOGGED OUT         with the credential ABSENT:
+                   driverId=generic-pty  family=terminal  status=live
+                   condition=(none)  requestedDriverId=opencode-server
+                   accounts.list loginRequired: true
+                   interactions.list offering a login: none
+
+==============================================================================
+A8  PARTIAL (first half)
+    A logged-out opencode became a terminal-family session, and it DECLARED IT:
+      condition=undefined  requestedDriverId=opencode-server -> driverId=generic-pty
+      accounts.list loginRequired=true
+    So this is NOT POD-2772's silent demotion: the demotion is recorded as
+    requested-versus-actual, the session carries a typed condition, and the
+    account readout asks for a login. Degrading to the terminal path so an
+    interactive login is possible is the documented behaviour.
+
+    What is NOT there is a login AFFORDANCE on the session itself:
+      interactions.list = empty — nothing offers to log you in
+    The catalogue already declares this: login(harness, method) as a utility
+    session is ABSENT, and logout/exportCredential/seedCredential are missing
+    from the contract entirely (section 12). PARTIAL rather than PASS because
+    the row asks for a WORKING login path and there is a declaration, not a path.
+
+    SECOND HALF — "after login, the next session lands on the server driver"
+    NOT DRIVEN, and not counted either way. These harnesses authenticate by
+    OAuth against live accounts. Performing a login from this drive would
+    either mint credentials the rig must not mint, or ROTATE the operator's
+    own token and log them out of their daily driver mid-release. The epic
+    declined that trade once already, in writing, for claude; declining it
+    again here rather than reporting an untested half as passing.
+    controls: FIRED — the same harness bound opencode-server with its credential present
+==============================================================================
+
+credential restored -> /home/mgw/.local/state/podium/p2777/agent-home/.local/share/opencode/auth.json (present: true)

@@ -1,9 +1,18 @@
 import { mkdir, stat } from 'node:fs/promises'
 import { homedir, hostname } from 'node:os'
 import { join } from 'node:path'
-import { agentLaunchCommand, declaredValue } from '@podium/harness'
-import { createLogger, resolveLevel } from '@podium/logger'
-import { FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
+import { createOpencode2Client } from '@podium/agent-runtime'
+import {
+  agentLaunchCommand,
+  buildMachineInventory,
+  declaredValue,
+  type HarnessEnvironment,
+  harnessDetectLogin,
+  harnessLoginReadEnv,
+  resolvedHarnessPath,
+} from '@podium/harness'
+import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
+import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
@@ -50,6 +59,7 @@ import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
+import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
@@ -62,12 +72,31 @@ import type { DaemonInstanceBootstrap } from './instance-bootstrap'
 import { reportLongTick, startLoopAttribution } from './loop-attribution'
 import { AGENT_RELAY_ENDPOINT, describePortConflict, HOOK_INGEST_ENDPOINT } from './loopback-listen'
 import { composeResponders, createAckReminderInjector, createMailInjector } from './mail-injector'
+import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { clearPendingGrant, readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
 import { createPrimeInjector } from './prime-injector'
 import { makeQuotaFetcher } from './quota-fetch'
 import { createReattachGates } from './reattach-gates'
+import { stageRuntimeAttachment } from './runtime/attachment-staging'
+import {
+  createDaemonClaudeSdkRuntime,
+  type DaemonClaudeSdkRuntime,
+} from './runtime/claude-sdk-driver'
+import { createCodexHost } from './runtime/codex-app-server'
+import { createDaemonCodexRuntime, type DaemonCodexRuntime } from './runtime/codex-driver'
+import { runtimeContractEnabledByEnv } from './runtime/flag'
+import { createGrokAcpHost } from './runtime/grok-acp-server'
+import { createDaemonGrokRuntime, type DaemonGrokRuntime } from './runtime/grok-driver'
+import { daemonRuntimeHost } from './runtime/host'
+import { createDaemonMachineRuntime, type DaemonMachineRuntime } from './runtime/machine-runtime'
+import { createOpencodeClientTerminals } from './runtime/opencode-attach'
+import { createDaemonOpencodeRuntime, type DaemonOpencodeRuntime } from './runtime/opencode-driver'
+import { createOpencodeHost, opencode2VersionDiagnostic } from './runtime/opencode-server'
+import { createScopeMonitor } from './runtime/scope-monitor'
+import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
+import { createTerminalRuntime, type TerminalRuntime } from './runtime/terminal-driver'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sweepUploads, UPLOADS_GC_INTERVAL_MS } from './session-uploads'
@@ -78,6 +107,17 @@ import { DiscoveryWorkerClient } from './worker-client'
 import { createCwdResolver, createSessionCwdTracker } from './worktree-resolve'
 
 const log = createLogger('daemon:host')
+/**
+ * THE UPDATE PATH'S OWN NAMESPACE (POD-3224).
+ *
+ * `daemon:host` is the busiest namespace this process has, and the update lines
+ * are the ones an operator wants forwarded to the coordinator without asking.
+ * Splitting them out is what lets `daemon:update` carry an `info` floor —
+ * so the phases of a delivery reach the coordinator even when the socket that
+ * would have reported them is the thing the update took away — while the rest of
+ * the daemon keeps the `warn`+ steady stream it has always had.
+ */
+const updateLog = createLogger('daemon:update')
 
 const DEFAULT_HOST_METRICS_INTERVAL_MS = 5_000
 
@@ -97,6 +137,77 @@ export interface DaemonHostRuntime {
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
 
+type CloseAgentRuntime = Pick<
+  DaemonMachineRuntime,
+  'registeredBindings' | 'serverHandleFor' | 'journalledServerProcess' | 'dispose'
+>
+
+/**
+ * Full harness shutdown is the one daemon close mode that owns server-family
+ * children too. Snapshot the bindings while the handles still exist, then let
+ * the common measured reaper terminate each server family before the runtime
+ * maps are disposed. Retirement is intentional: a throwaway harness session
+ * must not leave its credentialed journal address behind.
+ *
+ * The optional I/O seam keeps the call site regression deterministic without
+ * changing the production reaper, whose default measures real pids and scopes.
+ */
+export async function reapServerSessionsOnClose(
+  ctx: DaemonContext,
+  agentRuntime: Pick<DaemonMachineRuntime, 'registeredBindings'> | undefined,
+  io?: ServerReapIo,
+): Promise<void> {
+  await Promise.all(
+    (agentRuntime?.registeredBindings() ?? [])
+      .filter((binding) => binding.family === 'server')
+      .map((binding) => beginServerDriverReap(ctx, binding.sessionId, { retire: true }, io)),
+  )
+}
+
+export async function reapServerSessionsBeforeDispose(
+  ctx: DaemonContext,
+  agentRuntime: Pick<DaemonMachineRuntime, 'registeredBindings'> | undefined,
+  reapSessions: boolean,
+  dispose: () => void,
+  io?: ServerReapIo,
+): Promise<void> {
+  try {
+    if (reapSessions) await reapServerSessionsOnClose(ctx, agentRuntime, io)
+  } finally {
+    // Disposal is not optional when a binding snapshot or one child reap
+    // rejects. The host close path must still release the runtime maps before
+    // it moves on to observers, composer state, and durable PTY reaps.
+    dispose()
+  }
+}
+/**
+ * Keep the synchronous spawn gate on the exact home inventory uses.
+ *
+ * `credentialHome`, NOT the ambient one (POD-2692). This gate used to read the
+ * right home and then let the daemon's own environment move it: `harnessDetectLogin`
+ * falls back to `process.env` for a harness whose state root is selected by
+ * `CODEX_HOME`/`GROK_HOME`, so an ambient selector pointed the gate at the
+ * operator's harness state while the session it was gating ran under the
+ * instance's. `harnessLoginReadEnv` composes the environment the CHILD gets, so
+ * the gate now answers about the account that child will actually run as.
+ */
+function daemonHarnessLoginContext(
+  homeDir: string | undefined,
+  credentialHome: string,
+): Pick<DaemonContext, 'homeDir' | 'harnessLoginState'> {
+  return {
+    homeDir,
+    harnessLoginState: (agentKind) =>
+      agentKind === 'shell'
+        ? undefined
+        : harnessDetectLogin(
+            agentKind,
+            credentialHome,
+            harnessLoginReadEnv(agentKind, credentialHome, process.env),
+          )?.state,
+  }
+}
+
 /**
  * Construct the host-control runtime independently of the server connection.
  * Every handler consumes the explicit DaemonContext (including SessionBinding);
@@ -109,6 +220,12 @@ export async function createDaemonHostRuntime(args: {
   installDir: string | undefined
   send: (message: DaemonMessage) => void
   sendOutput: (batch: DaemonPtyOutputBatch) => void
+  acknowledgeQueueDrainReport: (reportId: string) => void
+  acknowledgeRuntimeEvent: (deliveryId: string) => void
+  /** Test-only runtime seam for exercising the returned host close contract. */
+  testAgentRuntime?: CloseAgentRuntime
+  /** Test-only server-child process effects; production uses real process probes. */
+  testServerReapIo?: ServerReapIo
   /**
    * Whether the server link is up RIGHT NOW (POD-3156).
    *
@@ -120,7 +237,54 @@ export async function createDaemonHostRuntime(args: {
    */
   isConnected: () => boolean
 }): Promise<DaemonHostRuntime> {
-  const { options: opts, instance, build, installDir, send, sendOutput } = args
+  const { options: opts, instance, build, installDir, send: sendUpstream, sendOutput } = args
+  /**
+   * THE AGENT RUNTIME CONTRACT'S TERMINAL DRIVER (POD-1761 W3), when the flag is
+   * on for this daemon or for an individual session.
+   *
+   * Declared here, built after the context it needs, and TAPPED on the outbound
+   * frame sink below — see `terminal-driver.ts`'s header for why that sink is the
+   * driver's event source rather than a set of new observer callbacks.
+   */
+  let terminalRuntime: TerminalRuntime | undefined
+  let claudeRuntime: DaemonClaudeSdkRuntime | undefined
+  let opencodeRuntime: DaemonOpencodeRuntime | undefined
+  let opencode2Runtime: DaemonOpencodeRuntime | undefined
+  let codexRuntime: DaemonCodexRuntime | undefined
+  let grokRuntime: DaemonGrokRuntime | undefined
+  let agentRuntime: DaemonMachineRuntime | undefined
+  /**
+   * The context, once it exists, for the frame sink below. Declared here for the
+   * same reason the four runtimes above are: `send` is built before the context
+   * its own consumers need, and the assignment that closes the cycle is at the
+   * bottom of the wiring, beside `ctx.agentRuntime`.
+   *
+   * THE SINK FAILS OPEN ACROSS THAT WINDOW — a frame sent before this is assigned
+   * goes upstream untapped rather than throwing. That is safe today because the
+   * only `await` in between is `buildMachineInventory` and no session is bound
+   * yet, but it is safe by ARRANGEMENT, not by construction: anything that binds
+   * or adopts a session above the assignment would silently lose the native-attach
+   * re-arm for it. Keep the assignment as early as the wiring allows.
+   */
+  let context: DaemonContext | undefined
+  const runtimeContractEnabled = runtimeContractEnabledByEnv(process.env)
+  /**
+   * Every outbound daemon frame, past both observation taps.
+   *
+   * THE SINK ITSELF LIVES IN `frame-sink.ts`, with its own test, because the taps
+   * it applies are load-bearing and an anonymous closure here was reachable only
+   * by booting the daemon — see that file's header. The properties it keeps are
+   * stated there: it must not recurse on the driver's own `runtimeEvent` output,
+   * and it must cost nothing when nothing is listening.
+   *
+   * The ports are read PER FRAME rather than captured, because the runtime and
+   * the context are both built below this line.
+   */
+  const send = createFrameSink({
+    upstream: sendUpstream,
+    runtime: () => agentRuntime,
+    context: () => context,
+  })
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
   const backend = selectDurableBackend(opts)
@@ -161,12 +325,15 @@ export async function createDaemonHostRuntime(args: {
         })
       : undefined
   const machineHome = opts.discovery?.homeDir ?? process.env.HOME ?? homedir()
+  /**
+   * ONE HOME FOR EVERY LOGIN ANSWER (POD-2692). Named once here and handed to
+   * both the inventory probe and the synchronous spawn gate below, so the two
+   * cannot drift apart the way they did when each derived its own.
+   */
+  const credentialHome = accountHome?.path ?? homeDir ?? machineHome
   const harnessRuntime = opts.launch
     ? undefined
-    : new DaemonHarnessRuntime({
-        machineHome,
-        credentialHome: accountHome?.path ?? homeDir ?? machineHome,
-      })
+    : new DaemonHarnessRuntime({ machineHome, credentialHome })
   const replayPendingBindingReceipts = async (): Promise<number> => {
     let replayed = 0
     for (const owner of await bindingStore.ownersWithPendingReceipts()) {
@@ -214,13 +381,19 @@ export async function createDaemonHostRuntime(args: {
       }),
   })
   const gates = createReattachGates()
+  // A native Claude login emits a terminal success line before its credential
+  // store is necessarily observable by any portable file detector. Keep the
+  // observer callback cheap and install the inventory reprobe once `ctx` exists.
+  let requestAuthRefresh: (sessionId: SessionId) => void = () => {}
   const observers = createSessionObservers({
     sessionBinding,
     send,
     homeDir,
+    transcriptRoot: join(identityStateDir, 'transcripts'),
     onTranscriptDirty: (path) => discoveryLoop.markConversationDirty(path),
     cwdTracker: sessionCwdTracker,
     onIdleState: (sessionId, idle) => composerEngine.setIdle(sessionId, idle),
+    onAuthSignal: (sessionId) => requestAuthRefresh(sessionId),
     onExactCodexBinding: async (sessionId, nativeId) => {
       await sessionBinding.transition({
         event: 'hook-repin',
@@ -299,7 +472,14 @@ export async function createDaemonHostRuntime(args: {
         throw new Error(`Codex receipt ${sessionId} has no owned binding`)
       }
     },
-    onPayload: (sessionId, payload) => observers.onHookPayload(sessionId, payload),
+    onPayload: (sessionId, payload) => {
+      // THE DRIVER SEES THE RAW HOOK FIRST. A `UserPromptSubmit` is the causal
+      // accept a terminal receipt anchors to, and waiting for it to become a
+      // delivered, acked, fenced observation would report `unverified` for sends
+      // the harness had already taken (POD-1761 W3). No-op when unflagged.
+      agentRuntime?.onHookPayload(sessionId, payload)
+      observers.onHookPayload(sessionId, payload)
+    },
   })
 
   if (opts.installCodexHooks) {
@@ -404,6 +584,26 @@ export async function createDaemonHostRuntime(args: {
         '); applying again will retry it'
     }
 
+    /**
+     * WHAT THIS BOOT CONCLUDED ABOUT THE GRANT IT WAS APPLYING (POD-3224, q13).
+     *
+     * This is the only place that can answer "did the restart land on the
+     * version it was supposed to?", and it answers it from the machine's own
+     * disk rather than from a socket — which matters because the report below is
+     * dropped outright if the coordinator is still coming back up. Without this
+     * line, a machine that rolled back or spent one of its convergence attempts
+     * left the coordinator with silence and left itself with nothing.
+     */
+    updateLog.info('boot reconciled a pending update grant', {
+      grantId: pending.grantId,
+      targetVersion: pending.targetVersion,
+      previousVersion: pending.previousVersion,
+      runningVersion,
+      action: verdict.action,
+      attempts: pending.attempts,
+      reported: state,
+      ...(detail ? { detail } : {}),
+    })
     send({
       type: 'updateStatus',
       grantId: pending.grantId,
@@ -507,11 +707,36 @@ export async function createDaemonHostRuntime(args: {
         requestHandover: (request) => requestParentHandover(request),
         exit: process.exit,
       }),
-    report: (status) => send(status),
+    /**
+     * EVERY REPORT THIS MACHINE SENDS, AND WHETHER IT WENT (POD-3224, q13).
+     *
+     * `send` drops silently when the link is down, which is precisely what
+     * happens while the coordinator is applying its own grant — so a wave that
+     * "stopped hearing from a machine" and a machine that stopped reporting were
+     * the same observation from the coordinator's side, and this side said
+     * nothing at all. `debug`, because a download reports per progress frame;
+     * the PHASE transitions are the `info` lines above.
+     */
+    report: (status) => {
+      updateLog.debug('update status reported', {
+        grantId: status.grantId,
+        state: status.state,
+        version: status.version,
+        ...(status.percent !== undefined ? { percent: status.percent } : {}),
+        ...(status.phaseDetail ? { phaseDetail: status.phaseDetail } : {}),
+        ...(status.detail ? { detail: status.detail } : {}),
+      })
+      send(status)
+    },
     // THE FLIGHT RECORDER FOR AN UPDATE (POD-3170). `send` drops when the link
     // is down, and a coordinator applying its own grant takes the link down —
     // so the phases of a lost delivery are only ever knowable from here.
-    log: (event, fields) => log.info(event, fields),
+    //
+    // On its OWN namespace since POD-3224, so these reach the coordinator's
+    // `logs/fleet/<machine>.ndjson` under the steady stream rather than only
+    // under an operator's raise — which is the raise nobody thinks to make until
+    // after the update they wanted to understand.
+    log: (event, fields) => updateLog.info(event, fields),
     now: Date.now,
   })
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
@@ -535,16 +760,45 @@ export async function createDaemonHostRuntime(args: {
    * Installed here rather than in `connected()` because its entire value is
    * having been running when the thing an operator later asks about happened —
    * a recorder armed at first connect is a recorder that missed every boot
-   * problem there is. Nothing leaves the host until a raise arrives; see
-   * `@podium/runtime/log-forward`.
+   * problem there is. `warn`+ leaves the host continuously from this point on,
+   * and an `error` takes the recorder's unsent tail with it; see
+   * `@podium/runtime/log-forward` (POD-3184).
    *
    * `boot` is READ, not assumed: it is whatever this process's own logging
    * composition root settled on (env, defaults, supervision mode), so a reset
    * puts the daemon back where it started rather than at a level written down
    * here that could disagree with it.
    */
+  /**
+   * THE UPDATE PATH IS WORTH MORE THAN THIS DAEMON'S DEFAULT (POD-3224).
+   *
+   * A floor rather than a level: an operator raising this daemon to `debug`
+   * still gets `debug` here, which a most-specific-wins override would have
+   * capped at `info` at the exact moment they were asking.
+   *
+   * It lifts BOTH what the journal keeps and what the steady stream forwards
+   * (`log-forward.ts` reads the same floor), so a delivery's phases —
+   * accepted, download deciles, verified, swapped, restarting, and what the next
+   * boot concluded — reach the coordinator's `logs/fleet/<machine>.ndjson`
+   * without anybody having raised this machine first. That raise is the one
+   * nobody thinks to make until after the update they wanted to understand.
+   *
+   * Bounded by the call sites: per-frame status reports and per-chunk download
+   * progress are `debug` and stay local.
+   */
+  setNamespaceFloor('daemon:update', 'info')
   const logForwarding = installDaemonLogForwarding({
     boot: resolveLevel('daemon'),
+    /**
+     * A LOCAL LINK MEANS THIS DAEMON IS THE SERVER'S OWN PROCESS (POD-3184).
+     *
+     * It is the same fact the boot record reports as `topology: 'local-link'`,
+     * read from the same option. There the steady stream would file a second
+     * copy of records this process's own file sink has already written to this
+     * machine's disk, so it is off — and a raise still forwards, which is what
+     * makes an all-in-one install answer a raise with its whole process.
+     */
+    coResident: opts.localLink !== undefined,
     // The socket DROPS rather than queues when the link is down
     // (`connection-state.ts`), so this reports whether the frame went out and
     // the sink keeps the batch when it did not.
@@ -565,6 +819,8 @@ export async function createDaemonHostRuntime(args: {
 
   const ctx: DaemonContext = {
     send,
+    acknowledgeQueueDrainReport: args.acknowledgeQueueDrainReport,
+    acknowledgeRuntimeEvent: args.acknowledgeRuntimeEvent,
     logForwarding,
     machineId,
     instanceId: instance.instanceId,
@@ -574,10 +830,18 @@ export async function createDaemonHostRuntime(args: {
     launch,
     ...(harnessRuntime ? { harnessRuntime } : {}),
     settingsDir: instance.settingsDir,
-    homeDir,
     ...(accountHome ? { accountHome } : {}),
+    // Inventory publishes this detector's result; selection reads the same fact
+    // synchronously so a spawn racing the asynchronous inventory report cannot
+    // start a headless server before a logout or Codex grace state reaches the
+    // server cache.
+    ...daemonHarnessLoginContext(homeDir, credentialHome),
+    instanceUuid: instance.instanceUuid,
     bridges,
     pendingResizes: new Map<SessionId, { cols: number; rows: number }>(),
+    nativeClientRequests: new Set<SessionId>(),
+    nativeClientTransitions: new Map<SessionId, Promise<void>>(),
+    nativeClientRetries: new Map<SessionId, number>(),
     composerEngine,
     outputScheduler,
     observers,
@@ -607,6 +871,242 @@ export async function createDaemonHostRuntime(args: {
       }),
     retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
     applyUpdateGrant,
+    runtimeContractEnabled,
+  }
+  /**
+   * Client terminals (POD-2059), built here and put on the CONTEXT as well as
+   * into the opencode host: `sessionPriority` (the viewer signal its idle clock
+   * runs on) and `reclaimAttachments` (the server's pressure order) are control
+   * frames about the machine, not about a driver, and their handlers reach it
+   * through `ctx`.
+   *
+   * NOT GATED ON abduco BEING PRESENT, deliberately. Probing for it here would
+   * make every daemon boot pay for resolving (and on a cold machine, BUILDING)
+   * the vendored binary, for a client most sessions never open. A machine that
+   * cannot start one says so at the attach that asks for it — the spawn fails,
+   * the port answers `undefined`, and the driver refuses with the per-machine
+   * wording.
+   */
+  const clientTerminals = createOpencodeClientTerminals({
+    // One session-addressed relay for engine terminals and on-demand harness
+    // client terminals. The latter intentionally returns the parent session id.
+    frames: (streamId, frame) => ctx.outputScheduler.enqueue(asSessionId(streamId), frame),
+    releaseStream: (streamId) => ctx.outputScheduler.remove(asSessionId(streamId)),
+    // Executable discovery belongs to the machine command environment, while
+    // `homeDir` below is the isolated credential home passed to the child. Keep
+    // those identities separate: the resolver must find the installed CLI before
+    // the child’s HOME is replaced for account isolation.
+    commandEnvironment: (): Promise<HarnessEnvironment> =>
+      harnessRuntime
+        ? harnessRuntime.current().then((snapshot) => snapshot.commandEnvironment.env)
+        : Promise.resolve(process.env),
+    ...(homeDir ? { homeDir } : {}),
+    instanceUuid: instance.instanceUuid,
+  })
+  ctx.clientTerminals = clientTerminals
+
+  /**
+   * THE ONE CGROUP OBSERVER (POD-2413).
+   *
+   * Built before the runtimes and reading them lazily, because it is on both
+   * sides of the same wiring cycle the terminal runtime documents below: every
+   * driver host asks it for resource truth, and it asks the machine runtime
+   * which sessions exist. Family-blind by construction — a binding carries a
+   * scope unit whatever produced it, so one poller covers abduco masters,
+   * app-servers and ACP children alike.
+   */
+  const scopeMonitor = createScopeMonitor({
+    subjects: () =>
+      (agentRuntime?.registeredBindings() ?? []).map((binding) => ({
+        sessionId: binding.sessionId,
+        ...(binding.process.scopeUnit ? { scopeUnit: binding.process.scopeUnit } : {}),
+        label: binding.process.key,
+        ...(binding.process.pid !== undefined ? { pid: binding.process.pid } : {}),
+      })),
+    // The pre-cgroup answer, kept for every session that has no scope to read:
+    // macOS, an unscoped fallback spawn, or a scope systemd already collected.
+    fallbackMemoryBytes: ({ sessionId, label, pid }) =>
+      attributeMemory(
+        snapshotProcesses(),
+        [{ sessionId, label, ...(pid !== undefined ? { pid } : {}) }],
+        [],
+        { selfPid: process.pid },
+      ).agents.find((agent) => agent.sessionId === sessionId)?.bytes,
+    onOomKill: ({ sessionId, scopeUnit }) => agentRuntime?.reportOomKill(sessionId, scopeUnit),
+  })
+  ctx.scopeMonitor = scopeMonitor
+
+  const stageAttachment = (input: Parameters<typeof stageRuntimeAttachment>[0]) =>
+    ctx.portableStateFence.run(() => stageRuntimeAttachment(input))
+
+  // Built AFTER the context because the driver hosts need that context. The
+  // single assignment at the end closes the wiring cycle: handlers reach every
+  // family through `ctx.agentRuntime`, which reaches the daemon through `ctx`.
+  const contractHost = daemonRuntimeHost(ctx, send, stageAttachment)
+  terminalRuntime = createTerminalRuntime(contractHost)
+  const generationInventory = harnessRuntime ? await harnessRuntime.current() : undefined
+  const opencode2Executable = generationInventory?.commandEnvironment.resolve('opencode2')
+  claudeRuntime = createDaemonClaudeSdkRuntime({
+    send,
+    host: contractHost,
+    // The instance agent home the transcript reader already resolves against
+    // (control/transcripts.ts sourceForRead), so the SDK child writes its JSONL
+    // where sessions.read looks for it (POD-3057).
+    ...(homeDir ? { homeDir } : {}),
+    ...(generationInventory?.executables.has('claude-code')
+      ? { executablePath: resolvedHarnessPath(generationInventory, 'claude-code') }
+      : {}),
+  })
+  /**
+   * THE SERVER-FAMILY RUNTIME (POD-1761 W5), built the same way and for the same
+   * reason: its host port is this context.
+   *
+   * UNCONDITIONAL, and it costs nothing. Constructing it allocates two maps; a
+   * session only reaches it if its spawn explicitly asked for `opencode-server`,
+   * and no `opencode serve` is started until then. Gating the CONSTRUCTION on a
+   * flag would mean the flag had to be read before the context existed, which is
+   * how the terminal path's own wiring cycle got its comment above.
+   */
+  opencodeRuntime = createDaemonOpencodeRuntime({
+    send,
+    host: createOpencodeHost({
+      resources: (subject) => scopeMonitor.resources(subject),
+      stageAttachment,
+      /**
+       * `attach()`'s client terminal (POD-2059), on the frames path this daemon
+       * already runs. The stream id is the key, exactly as the engine variant's
+       * endpoint uses the session id — one relay, two kinds of terminal.
+       *
+       * NOT GATED ON abduco BEING PRESENT, deliberately. Probing for it here
+       * would make every daemon boot pay for resolving (and on a cold machine,
+       * BUILDING) the vendored binary, for a client most sessions never open. A
+       * machine that cannot start one says so at the attach that asks for it —
+       * the spawn fails, the port answers `undefined`, and the driver refuses
+       * with the per-machine wording.
+       */
+      clientTerminals,
+      ...(generationInventory?.executables.has('opencode')
+        ? { executablePath: resolvedHarnessPath(generationInventory, 'opencode') }
+        : {}),
+      // The instance agent home: a server-driver child's HOME must be the
+      // instance's, exactly as the PTY path's children get it (POD-2247).
+      ...(homeDir ? { homeDir } : {}),
+      instanceUuid: instance.instanceUuid,
+    }),
+  })
+  opencode2Runtime = createDaemonOpencodeRuntime({
+    send,
+    host: {
+      ...createOpencodeHost({
+        resources: (subject) => scopeMonitor.resources(subject),
+        clientTerminals,
+        stageAttachment,
+        ...(opencode2Executable ? { executablePath: opencode2Executable } : {}),
+        ...(homeDir ? { homeDir } : {}),
+        instanceUuid: instance.instanceUuid,
+        variant: {
+          driverId: 'opencode2-server',
+          executable: 'opencode2',
+          username: 'opencode',
+          healthPath: '/api/health',
+          scopeToken: 'oc2',
+          journalNamespace: 'opencode2-servers',
+          // V2 currently migrates the stable CLI's default database to an incompatible schema.
+          // Isolate only the database so v1 and v2 can coexist while both still read the
+          // instance's shared OpenCode credentials and configuration.
+          env: {
+            OPENCODE_DB: join(stateDir(), 'opencode2.db'),
+            // Preview servers self-update in the background. Keep the admitted API build
+            // stable for the lifetime of the installed Podium driver.
+            OPENCODE_DISABLE_AUTOUPDATE: '1',
+          },
+          versionDiagnostic: opencode2VersionDiagnostic,
+        },
+      }),
+      makeClient: createOpencode2Client,
+    },
+  })
+  /**
+   * THE SECOND SERVER-FAMILY RUNTIME (POD-1761 W6), constructed on the same
+   * terms and for the same reason as the first: it allocates two maps, and no
+   * `codex app-server` child starts until a spawn explicitly asks for
+   * `codex-app-server`.
+   */
+  codexRuntime = createDaemonCodexRuntime({
+    send,
+    host: createCodexHost({
+      resources: (subject) => scopeMonitor.resources(subject),
+      stageAttachment,
+      attachClient: async ({ sessionId, threadId, clientAddress, workdir }) => {
+        try {
+          return await clientTerminals.attach({
+            sessionId,
+            // The 0600 Unix listener the stock TUI dials directly; filesystem
+            // permission is the authentication, so there is no secret with it.
+            target: {
+              kind: 'codex',
+              conversation: threadId,
+              endpoint: { address: clientAddress },
+              workdir,
+            },
+          })
+        } catch (err) {
+          log.warn('could not host a Codex client terminal', { err, sessionId })
+          return undefined
+        }
+      },
+      detachClient: ({ sessionId }) => clientTerminals.close(sessionId, 'codex'),
+      // Same instance-home rule as the opencode host above (POD-2247).
+      ...(homeDir ? { homeDir } : {}),
+      instanceUuid: instance.instanceUuid,
+    }),
+  })
+  grokRuntime = createDaemonGrokRuntime({
+    send,
+    host: createGrokAcpHost({
+      resources: (subject) => scopeMonitor.resources(subject),
+      attachClient: async ({ sessionId, grokSessionId, workdir }) => {
+        try {
+          return await clientTerminals.attach({
+            sessionId,
+            // A stdio engine has nothing to address: the client comes back
+            // through grok's own native store, so the endpoint is empty.
+            target: { kind: 'grok', conversation: grokSessionId, endpoint: {}, workdir },
+          })
+        } catch (err) {
+          log.warn('could not host a Grok client terminal', { err, sessionId })
+          return undefined
+        }
+      },
+      // Same instance-home rule as the opencode host above (POD-2247).
+      ...(homeDir ? { homeDir } : {}),
+      instanceUuid: instance.instanceUuid,
+    }),
+  })
+  agentRuntime = createDaemonMachineRuntime({
+    terminal: terminalRuntime,
+    claude: claudeRuntime,
+    opencode: opencodeRuntime,
+    opencode2: opencode2Runtime,
+    codex: codexRuntime,
+    grok: grokRuntime,
+    inventory: async () =>
+      harnessRuntime
+        ? (await harnessRuntime.current()).inventory
+        : (await buildMachineInventory({ machineId, ...(homeDir ? { homeDir } : {}) })).inventory,
+  })
+  const closeAgentRuntime = args.testAgentRuntime ?? agentRuntime
+  ctx.agentRuntime = closeAgentRuntime as DaemonMachineRuntime
+  // Closes the cycle the `let context` declaration above describes. Nothing that
+  // binds a session may move above this line — see that comment.
+  context = ctx
+
+  let pendingAuthReprobe: Promise<void> | undefined
+  requestAuthRefresh = (_sessionId) => {
+    if (pendingAuthReprobe) return
+    pendingAuthReprobe = reportInventory(ctx, { reprobe: true }).finally(() => {
+      pendingAuthReprobe = undefined
+    })
   }
   const frameGuard = createFrameGuard(ctx)
 
@@ -618,12 +1118,21 @@ export async function createDaemonHostRuntime(args: {
   let kickedOff = false
   let disposed = false
   const pushHostMetrics = (): void => {
+    const sessionsMemory = scopeMonitor.sessionsMemory()
     send({
       type: 'hostMetrics',
       hostname: hostname(),
       sampledAt: new Date().toISOString(),
       memory: sampleHostMemory(),
       load: sampleHostLoad(),
+      // What this machine can give back WITHOUT parking a session (spec §5).
+      // Always sent, including as 0 — which the server treats exactly as an
+      // absent field, since both mean "nothing here to reclaim first".
+      reclaimableAttachments: clientTerminals.reclaimable(),
+      // Whose pressure it is (POD-2413). Absent on a host with no cgroups, or
+      // before any session has been scoped here — the server then reads only
+      // the host-wide number, exactly as it did before this existed.
+      ...(sessionsMemory ? { sessionsMemory } : {}),
     })
   }
 
@@ -659,6 +1168,7 @@ export async function createDaemonHostRuntime(args: {
     if (!kickedOff) {
       kickedOff = true
       discoveryLoop.start()
+      scopeMonitor.start()
       if (metricsBackground) {
         pushHostMetrics()
         metricsTimer = setInterval(pushHostMetrics, metricsIntervalMs)
@@ -697,6 +1207,7 @@ export async function createDaemonHostRuntime(args: {
     await ingest.close()
     await agentRelay.close()
     discoveryLoop.stop()
+    scopeMonitor.dispose()
     if (metricsTimer) clearInterval(metricsTimer)
     if (uploadsGcTimer) clearInterval(uploadsGcTimer)
     stopInventoryRefresh?.()
@@ -718,6 +1229,23 @@ export async function createDaemonHostRuntime(args: {
       else turn.dispose?.()
     }
     ctx.runningHeadlessTurns.clear()
+    try {
+      await reapServerSessionsBeforeDispose(
+        ctx,
+        closeAgentRuntime,
+        reapSessions,
+        () => {
+          closeAgentRuntime?.dispose()
+          if (closeAgentRuntime !== agentRuntime) agentRuntime?.dispose()
+        },
+        args.testServerReapIo,
+      )
+    } catch (err) {
+      // A failed binding snapshot or child reap must not abort the rest of
+      // host teardown. The helper finally disposed runtimes; continue through
+      // observer/composer disposal and awaited PTY reaps.
+      log.warn('could not reap server sessions before host disposal', { err })
+    }
     observers.disposeObservers()
     composerEngine.disposeAll()
     await Promise.all(durableReaps)

@@ -19,7 +19,7 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
-import { asMachineId, layoutRowId, readPositionRowId } from '@podium/model'
+import { asMachineId, interactionRowId, layoutRowId, readPositionRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
@@ -33,6 +33,7 @@ import {
   encode,
   encodeBinaryEnvelope,
   type HeadlessActivityEvent,
+  type TurnPreviewMessage,
   isKnownMetadataChange,
   type MetadataChange,
   type MetadataChangeLenient,
@@ -49,6 +50,7 @@ import {
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   WIRE_VERSION,
+  type PendingInteractionWire,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
@@ -142,7 +144,7 @@ export interface ConnectionViewport {
   dpr: number
 }
 
-export type TerminalOutcome = 'unauthorized' | 'unreachable'
+export type TerminalOutcome = 'unauthorized' | 'unreachable' | 'unsupported'
 
 export interface ConnectionState {
   connected: boolean
@@ -154,6 +156,9 @@ export interface ConnectionState {
   role: 'controller' | 'spectator'
   cols: number
   rows: number
+  /** Server-issued monotonic revision for the authoritative geometry timeline.
+   * Optional for older servers/embedders; current server messages populate it. */
+  geometryRevision?: number
   /**
    * Geometry this connection most recently asked the server to make
    * authoritative. Non-null means the controller/geometry acknowledgment has
@@ -183,6 +188,12 @@ export interface SessionCallbacks {
    * resume, where the view keeps its content and appends.
    */
   onReset?: () => void
+  /**
+   * The attach belongs to a new in-memory server geometry timeline. Reset
+   * geometry ordering state without clearing the screen; an empty resumed
+   * attach has no replay frames to rebuild it.
+   */
+  onGeometryTimelineReset?: () => void
   /**
    * The server confirmed the attach (the PTY is bound and ready for input). Fires
    * on every `attached` message — independent of whether any output follows, so a
@@ -502,6 +513,11 @@ export interface HubEvents {
    *  `issueEvent`) — the chat feed's content, which used to arrive on a 15 s
    *  RPC timer of its own. Bounded server-side; evictions arrive as deletes. */
   issueEvents: [events: IssueEventWire[]]
+  /** The OPEN blocking asks after any change (POD-2020, entity kind
+   *  `pendingInteraction`) — every interaction a session is stopped on, so
+   *  answering from one surface clears the card on all of them. Resolving an ask
+   *  removes it; the resolved history is an RPC read, not a feed kind. */
+  pendingInteractions: [interactions: PendingInteractionWire[]]
   /** Compact shipping read rows, joined to issues by `issueId`. */
   shipOrders: [orders: ShipOrderProjection[]]
   /**
@@ -542,6 +558,12 @@ export interface HubEvents {
    *  subscription these frames depend on). */
   transcriptDelta: [sessionId: SessionId, items: TranscriptItem[], meta: { reset: boolean }]
   headlessActivity: [sessionId: SessionId, event: HeadlessActivityEvent]
+  /** The in-progress half of a turn (POD-2293): a SNAPSHOT of everything the
+   *  agent is producing right now, superseded row by row as the durable items
+   *  land on `transcriptDelta`. Frames are subscriber-scoped — the server sends
+   *  them only to clients holding a transcript subscription on that session — so
+   *  this needs no subscription of its own beyond that one. */
+  turnPreview: [sessionId: SessionId, frame: TurnPreviewMessage]
   presenceRoomState: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomState' }>]
   presenceRoomDelta: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomDelta' }>]
   presenceRoomClosed: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomClosed' }>]
@@ -562,7 +584,7 @@ export class SocketHub {
   private readonly scheduleFeedTask: (task: () => void) => void
   /** Only set when this hub built its own scheduler — an injected one belongs to
    *  the caller and is not this class's to tear down. */
-  private readonly ownFeedScheduler: FeedTaskScheduler | undefined
+  private ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
     raw: string
@@ -615,6 +637,7 @@ export class SocketHub {
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
+  private pendingInteractionList: PendingInteractionWire[] = []
   private shipOrderList: ShipOrderProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
@@ -741,9 +764,15 @@ export class SocketHub {
       this.ownFeedScheduler = undefined
       this.scheduleFeedTask = opts.scheduleFeedTask
     } else {
-      const scheduler = createFeedTaskScheduler()
-      this.ownFeedScheduler = scheduler
-      this.scheduleFeedTask = (task) => scheduler.schedule(task)
+      // Runtime dispose is reversible: React StrictMode starts the SAME runtime
+      // again after its probe cleanup. Resolve the owned scheduler at every
+      // enqueue so dispose can release its MessageChannel and the replacement
+      // socket can lazily receive a fresh one. Capturing this first scheduler
+      // forever stranded every feed frame delivered after that remount.
+      this.scheduleFeedTask = (task) => {
+        this.ownFeedScheduler ??= createFeedTaskScheduler()
+        this.ownFeedScheduler.schedule(task)
+      }
     }
     this.legacyFeed?.bind({
       apply: (changes) => this.applyChanges(changes),
@@ -1762,6 +1791,7 @@ export class SocketHub {
     // scheduler disposed there would leave the next frame with nothing to wake
     // it.
     this.ownFeedScheduler?.dispose()
+    this.ownFeedScheduler = undefined
     this.connectedFlag = false
     this.inputBinaryTransport = false
     this.inputBinaryAcknowledged = false
@@ -2072,6 +2102,11 @@ export class SocketHub {
     headlessActivity: (msg) => {
       this.emit('headlessActivity', msg.sessionId, msg.event)
     },
+    turnPreview: (msg) => {
+      // A pure forward: no cursor to track and nothing to accumulate, because
+      // every frame is the whole preview. The consumer applies newest-wins.
+      this.emit('turnPreview', msg.sessionId, msg)
+    },
     transcriptDelta: (msg) => {
       // Track the newest cursor so a reconnect resumes from here. A reset frame
       // re-seeds: keep the new tail too (the caller re-reads its window).
@@ -2256,6 +2291,18 @@ export class SocketHub {
             (x) => x.id === c.id,
           )
           break
+        case 'pendingInteraction':
+          // POD-2020. Matched on the composite id the Authority logs
+          // (`interactionRowId`), not the row's own `id`: a resolved ask arrives
+          // as a `remove` carrying only that composite, and the row's bare id
+          // would not match it.
+          this.pendingInteractionList = applyChange(
+            this.pendingInteractionList,
+            c.op,
+            c.value,
+            (x) => interactionRowId(x.sessionId, x.id) === c.id,
+          )
+          break
         case 'userLayout':
           // Feed demux for POD-1350's per-user layout rows. Match on the same
           // composite id the Authority logs (layoutRowId), not payload equality.
@@ -2285,6 +2332,8 @@ export class SocketHub {
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
     if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
+    if (touched.has('pendingInteraction'))
+      this.emit('pendingInteractions', this.pendingInteractionList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
@@ -2352,6 +2401,7 @@ export class SessionConnection {
   private cols: number
   private rows: number
   private requestedGeometry: Geometry | null = null
+  private geometryRevision = 0
   private epoch = 0
   private lastSeq = -1
   /** What the last attach said about the session's durable output counter. An
@@ -2458,6 +2508,7 @@ export class SessionConnection {
       role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
+      geometryRevision: this.geometryRevision,
       requestedGeometry: this.requestedGeometry ? { ...this.requestedGeometry } : null,
       epoch: this.epoch,
       lastSeq: this.lastSeq,
@@ -2484,12 +2535,16 @@ export class SessionConnection {
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
+      const previousGeometryRevision = this.geometryRevision
+      this.geometryRevision = msg.geometryRevision ?? 0
+      const geometryTimelineReset = this.geometryRevision < previousGeometryRevision
       this.epoch = msg.epoch
       if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
       this.attachOutputSeen = msg.outputSeen !== false
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
       // screen and appends the missed frames.
+      if (geometryTimelineReset) this.cb.onGeometryTimelineReset?.()
       if (msg.resumed !== true) this.cb.onReset?.()
       this.emit()
       this.cb.onAttached?.()
@@ -2498,6 +2553,7 @@ export class SessionConnection {
       this.ingestOutput(msg.seq, msg.epoch, fromBase64Bytes(msg.data))
     },
     controllerChanged: (msg) => {
+      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.controllerId = msg.controllerId
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
@@ -2507,6 +2563,7 @@ export class SessionConnection {
       this.emit()
     },
     geometry: (msg) => {
+      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.cols = msg.cols
       this.rows = msg.rows
       this.settleRequestedGeometry()
@@ -2542,6 +2599,21 @@ export class SessionConnection {
 
   private emit(): void {
     this.cb.onState?.(this.state())
+  }
+
+  /**
+   * Production geometry fence: reject a delayed logical state from the same
+   * server timeline before it reaches subscribers. `geometryRevision` is an
+   * in-memory per-process counter, not durable session state; one server process
+   * owns a session, and a lower revision on attach starts a new timeline. The
+   * counter is monotonic and is not modulo-wrapped. Missing revisions remain
+   * accepted for older peers/embedders.
+   */
+  private acceptGeometryRevision(revision: number | undefined): boolean {
+    if (revision === undefined) return true
+    if (revision < this.geometryRevision) return false
+    this.geometryRevision = revision
+    return true
   }
 
   private settleRequestedGeometry(): void {

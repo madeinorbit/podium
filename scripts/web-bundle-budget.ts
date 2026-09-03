@@ -140,6 +140,7 @@ const INTERACTION_ONLY_MODULES = [
  * and a tab moving between them remounts its terminal.
  */
 const DEFERRED_FIRST_PAINT_MODULES = [
+  'src/app/Workspace.tsx',
   'packages/model/src/predicates/machine-capability.ts',
   'packages/model/src/predicates/machine-handoff.ts',
   'src/app/IterationModeFrame.tsx',
@@ -204,7 +205,16 @@ const BROWSER_HOSTILE_SOURCES = [
   'packages/transcript/src/',
 ] as const
 
-const BROWSER_HOSTILE_EXCEPTIONS = ['packages/harness/src/browser.ts'] as const
+/** Exact source files admitted through declared, transitively audited browser
+ * entrypoints. Keep this narrower than a directory: `manifest-browser-reach`
+ * proves these modules' complete closure remains Node-free, while this build
+ * check continues to reject every parser, pager and tailer in transcript. */
+const BROWSER_HOSTILE_EXCEPTIONS = [
+  'packages/harness/src/browser.ts',
+  'packages/transcript/src/browser.ts',
+  'packages/transcript/src/cursor-codec.ts',
+  'packages/transcript/src/stream-identity.ts',
+] as const
 
 /**
  * THE DUPLICATE CHECK LIVES NEXT DOOR, in web-bundle-duplicates.ts: the
@@ -667,6 +677,17 @@ if (checkBudget) {
   // sonner 65,887. None of it is needed to keep this gate honest for months, and
   // the owner table a breach now prints is how the next person finds the list
   // without re-deriving it.
+  //
+  // KEPT AT 7_000_000 THROUGH THE AGENT-RUNTIME MERGE (POD-3070). The epic's own
+  // entry had raised this to 7_780_000 for growth it could not defer — AgentPanel
+  // +7,670, panel-surface +5,006, startup-overlay +4,235, use-panel-surface +1,757
+  // — and every one of those now sits BEHIND `AgentPanelLazy`, which is the
+  // deferral this ratchet was cut against. What the epic adds that is still eager
+  // is the schema half: runtime-interactions.ts and the protocol/model/viewmodel
+  // growth around it, ~54k, against 810,952 of clearance. The epic's `Workspace`
+  // deferral survives in DEFERRED_FIRST_PAINT_MODULES above, so both sides' named
+  // guards hold. Raising the ceiling to carry growth that is no longer eager would
+  // hand the paydown straight back.
   atMost('eager parsed source bytes', report.eager.sourceBytes, 7_000_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
   atMost('settings gzip bytes', report.settings.gzip, 30_000)

@@ -119,6 +119,7 @@ export const ROW = {
 
   locks: id('advisory-locks'),
   approvals: id('approval-requests'),
+  pendingInteractions: id('pending-interactions'),
   automations: id('automations-and-runs'),
   // POD-1211's coordination-shaped adoptions. Each is server-internal
   // bookkeeping the SWEEP found with no row at all; see `serverBookkeeping`
@@ -2303,6 +2304,55 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     open: [],
   },
   {
+    id: ROW.pendingInteractions,
+    section: 'coordination',
+    title: 'Pending interactions',
+    sites: ['`pending_interactions`', 'apps/server interactions module'],
+    home: 'server',
+    idMinting: 'Server id',
+    writers: ['agent-session', 'operator'],
+    replication: 'server-to-clients',
+    conflict: 'cmd',
+    conflictNote:
+      'A state machine, and the first answer settles it. Load-bearing rather than conventional: the claim is a conditional UPDATE on `status = asked`, because a second delivery on a keystroke-emulated ask types digits at a menu that has already moved.',
+    tombstone: 'never-delete',
+    tombstoneNote:
+      'Terminal states retained — an answered ask is the audit trail for a decision a headless run made without a human, which is the property the aggregate exists to provide. Trimmed by AGE, never by status; an unanswered ask is never trimmed.',
+    offline: 'online-only',
+    secret: 'public',
+    secretNote:
+      'No credential ever crosses this vocabulary: a `login` ask is answered with completed/cancelled, a report that the credential was refreshed elsewhere. The `permission` payload names a command about to run and is a bounded, derived summary, never the raw tool input.',
+    owner: {
+      kind: 'user',
+      resolves: 'routed-to-human',
+      note: 'The human watching the blocked session. Same resolution as `approvals` and for the same reason — this aggregate is its general form (ADR 9 D8 S3).',
+    },
+    visibility: 'personal',
+    grants: {
+      kind: 'inherits',
+      from: ROW.sessionIdentity,
+      note: 'Inherits the SESSION it blocks; the subject rides the feed row id so a `remove` can be scoped after the row is gone.',
+    },
+    attribution: { actor: 'required', onBehalfOf: 'required' },
+    // MAY-WRITE, and this row is the clearest case of it: the SYNTHESIZER mints
+    // every ask by observing `session.stateChanged`, so there is no caller to
+    // attribute a creation to. Answering is separately attributed, and
+    // `answeredBy` is what keeps "a human decided" distinguishable from "the
+    // per-session default answer table did".
+    systemWriter: 'may-write',
+    systemWriterRule: SYSTEM_WRITER_RULE,
+    inheritanceOnCreate: {
+      kind: 'on-behalf-of-human',
+      note: 'DECLARED as the human the blocked session belongs to: an ask must reach a PERSON, and there is no caller at mint time to inherit from.',
+    },
+    visibilityMutability: {
+      mutable: true,
+      verbs: ['share', 'unshare', 'revoke'],
+      note: 'PHASE 2 MUST HANDLE: follows its session.',
+    },
+    open: [],
+  },
+  {
     id: ROW.automations,
     section: 'coordination',
     title: 'Automations / runs',
@@ -2577,7 +2627,7 @@ const COORDINATION_ROWS: readonly MatrixRow[] = [
     sites: [
       '`maintenance_leases`',
       'apps/server/src/store/maintenance.ts',
-      'apps/janitor/src/janitor.ts',
+      'packages/janitor/src/janitor.ts',
       '[spec:SP-c29e]',
     ],
     idMinting: 'Key `name`; the holder is `(generation_id, fencing_token)`',

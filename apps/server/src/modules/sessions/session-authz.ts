@@ -17,6 +17,7 @@ import type { Capability } from '../../issue-authz'
 import { machineUseDecision, ownershipFromMachines } from '../../machine-access'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { GrantRow } from '../../store/grants'
+import { SUPERAGENT_AGENT_IDENTITY } from '../messages/types'
 import { type InboxPrincipalReference, inboxPrincipalFromCommand } from './inbox'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
 import type { Session } from './session'
@@ -95,11 +96,49 @@ export class SessionAuthz {
       ) {
         return refused
       }
-      principal = resolvePrincipal(this.capabilityForSession(actorSessionId), {
-        parentSessionOf: (sessionId) =>
-          spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
-        onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
-      })
+      /**
+       * THE SUPERAGENT IS NOT A DELEGATED SESSION (POD-2838).
+       *
+       * It is an in-process server job with no transport row, and it sends mail
+       * under a LITERAL agent identity — `SUPERAGENT_AGENT_IDENTITY`, never a
+       * session id. Resolving it through `capabilityForSession` is a category
+       * error: there is no session, so the empty capability comes back and
+       * `resolvePrincipal` reads it as a HUMAN capability and throws.
+       *
+       * So it is admitted here, where the `kind: 'system'` principal above is
+       * already admitted, because that is the category it is in. THIS GRANTS
+       * NOTHING NEW: superagent-attributed mail to an idle session is typed
+       * synchronously through `sendText`/`typeText`, which consults no drain
+       * gate at all — this boundary was never what stood between a forged
+       * attribution and the PTY, and `messages.send`'s own acceptance of
+       * caller-supplied attribution is where that question belongs. What
+       * changes is only that the queued path stops CRASHING where the
+       * synchronous path delivers.
+       */
+      if (input.principal.principalRef === SUPERAGENT_AGENT_IDENTITY) return { ok: true }
+      /**
+       * AND THE BOUNDARY RETURNS A VERDICT, WHATEVER HAPPENS (POD-2838).
+       *
+       * `resolvePrincipal` throws on two reachable inputs — a delegation naming
+       * no live session, and a live session with no owner — and the throw does
+       * not fail closed. It escapes `deliverNext` into `tick`, killing the drain
+       * pass with the row neither delivered, nor removed, nor handed to
+       * `authorization.rejected`: the exact silent loss the durable queue exists
+       * to prevent, reached through the guard meant to prevent it. An
+       * unresolvable principal carries no authority, so it refuses — and a
+       * refusal is VISIBLE, because the caller removes the row and reports it.
+       */
+      let delegated: CommandPrincipal
+      try {
+        delegated = resolvePrincipal(this.capabilityForSession(actorSessionId), {
+          parentSessionOf: (sessionId) =>
+            spawnedByParentSessionId(this.ports.sessions.get(sessionId)?.spawnedBy),
+          onBehalfOfFor: (sessionId) => this.sessionOwner(sessionId)?.owner ?? undefined,
+        })
+      } catch {
+        return refused
+      }
+      principal = delegated
       if (
         principal.kind !== 'agent' ||
         !this.ports.store.users.get(principal.onBehalfOf) ||
@@ -122,8 +161,8 @@ export class SessionAuthz {
       return refused
     }
 
-    // Every apply — including outbox replay — re-runs the ordinary session
-    // scope gate. The source message proves intent and ordering, never rights.
+    // Every apply — including outbox replay — re-runs the session gate against
+    // CURRENT rights. The source message proves intent and ordering, never rights.
     const access = {
       listSessions: () => this.ports.listSessions(),
       sessionById: (sessionId: SessionId) => this.ports.sessionById(sessionId),
@@ -132,10 +171,38 @@ export class SessionAuthz {
     }
     const resolved = resolveSessionTarget(principal, input.sessionId, access)
     if (resolved.kind === 'absent') return refused
+    /**
+     * RIGHTS ARE RE-CHECKED; THE SCOPE CONFIRMATION IS NOT RE-ASKED (POD-3226).
+     *
+     * `assertMayCommandSession` carries two different answers. `forbidden` is a
+     * rights boundary (a viewer role, an issueless target that only its parent
+     * or the operator may command) and D8 says a row that lost its rights is
+     * rejected — so that half still runs here. `confirm-required` is ADR 3 D2's
+     * scope-crossing footgun guard: the sender may always satisfy it, and the
+     * gate that ACCEPTED this row already did (`--outside-scope` on a command
+     * send, or a mail rule that never asks — a worker replying to its
+     * coordinator on the parent issue, `issue mail send` to any visible box).
+     * A queued row carries no confirmation envelope, so re-asking here could
+     * only refuse what was already allowed. It did: a worker's reply to its
+     * coordinator died whenever the coordinator was busy or had a queued row,
+     * and landed whenever it was idle, because only the queued path re-asks.
+     * `overrideScope` answers the confirmation the send gate already took. It
+     * is applied to EVERY queued row, not only mail: every producer of an
+     * agent row (command send, mail send/reply, issue mail, wake) ran its own
+     * scope policy before the row existed, and none of them can re-present a
+     * confirmation here.
+     *
+     * A refusal on a target that EXISTS and passed the owner, grant and
+     * machine checks above names its rule. Those checks are the collapse that
+     * protects the existence oracle (`visibility` is unconditional at this
+     * site); past them the target has nothing left to hide, and "session no
+     * longer exists" sent two agents hunting for a coordinator that was alive.
+     */
     try {
-      assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access)
-    } catch {
-      return refused
+      assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access, true)
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error)
+      return { ok: false, reason: `not authorized: ${detail}` }
     }
     return { ok: true }
   }

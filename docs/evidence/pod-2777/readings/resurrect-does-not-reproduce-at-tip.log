@@ -1,0 +1,22 @@
+harness=opencode session=7b5eceda-1a9a-478f-8164-d3149079666e
+pre-park turn answered: true
+
+BINDING JOURNAL BEFORE PARK: {"status":"live","phase":"idle","resume":{"kind":"opencode-session","value":"ses_fc4b7e9fcffejD5kXy66zATxkK"},"conv":"conv_ee8a183a-ce63-4fe2-a98f-a31b3ff91e01"}
+hibernate: {"ok":true}
+BINDING JOURNAL AFTER PARK:  {"status":"hibernated","phase":"idle","resume":{"kind":"opencode-session","value":"ses_fc4b7e9fcffejD5kXy66zATxkK"},"conv":"conv_ee8a183a-ce63-4fe2-a98f-a31b3ff91e01"}
+
+=== sessions.resurrect, status series ===
+resurrect returned in 27ms: {"ok":true}
+  + 0s  status=starting  phase=idle
+  + 1s  status=starting  phase=idle
+  + 2s  status=starting  phase=idle
+  + 5s  status=starting  phase=idle
+  +10s  status=live  phase=idle
+  +15s  status=live  phase=idle
+  +20s  status=live  phase=idle
+BINDING JOURNAL AFTER RESURRECT: {"status":"live","phase":"idle","resume":{"kind":"opencode-session","value":"ses_fc4b7e9fcffejD5kXy66zATxkK"},"conv":"conv_ee8a183a-ce63-4fe2-a98f-a31b3ff91e01"}
+
+=== DAEMON LOG for this session across that window ===
+  {"ts":"2026-08-25T23:36:42.973Z","level":"info","ns":"daemon:session","msg":"resumed a parked server-family session from its binding journal","sessionId":"7b5eceda-1a9a-478f-8164-d3149079666e","driver":"opencode-server","role":"daemon","v":
+  {"ts":"2026-08-25T23:36:42.999Z","level":"debug","ns":"daemon:runtime-watch","msg":"fine watch acquired","sessionId":"7b5eceda-1a9a-478f-8164-d3149079666e","role":"daemon","v":"dev+acab1cc-dirty","platform":"linux","instance":"p2777"}
+EXIT=0

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { OpencodeMessagePartRow } from './opencode'
 import { classifyOpencodeIdleText, opencodePartToItems } from './opencode'
+import { stampOpencodeItems } from './source'
 
 function row(
   overrides: Partial<OpencodeMessagePartRow> & {
@@ -102,5 +103,40 @@ describe('classifyOpencodeIdleText', () => {
 
   it('classifies statements as done', () => {
     expect(classifyOpencodeIdleText('All set.')).toMatchObject({ kind: 'done' })
+  })
+})
+
+describe('OpenCode interruption records', () => {
+  it.each([
+    'MessageAborted',
+    'MessageAbortedError',
+  ])('maps %s synthetic rows to one stable visible marker across batches and reloads', (name) => {
+    const synthetic = row({
+      messageId: 'msg-aborted',
+      partId: 'interrupt:msg-aborted',
+      messageData: JSON.stringify({ role: 'assistant', error: { name } }),
+      partData: JSON.stringify({ type: 'interrupt' }),
+    })
+    const expected = expect.objectContaining({
+      id: 'opencode-interrupt-msg-aborted',
+      role: 'user',
+      text: '[Request interrupted by user]',
+    })
+    const batches = [
+      stampOpencodeItems([synthetic], 'ses-1'),
+      stampOpencodeItems([synthetic], 'ses-1'),
+    ]
+    for (const markers of batches) {
+      expect(markers).toEqual([expected])
+      expect(Object.hasOwn(markers[0] ?? {}, 'cursor')).toBe(false)
+    }
+
+    const repeatedPart = row({
+      messageId: 'msg-aborted',
+      partId: 'prt-later',
+      messageData: synthetic.messageData,
+      partData: JSON.stringify({ type: 'text', text: 'late text' }),
+    })
+    expect(stampOpencodeItems([repeatedPart], 'ses-1')).toEqual([])
   })
 })

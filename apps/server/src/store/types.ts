@@ -19,6 +19,7 @@ import type {
   VisibilityClass,
 } from '@podium/model'
 import type { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
+import type { QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 
 /** ALIASES @podium/model's PinKind (POD-380). The three literals had four
  *  declarations — here, router.ts, the presence contract and the model family — and
@@ -143,6 +144,12 @@ export interface SessionRow {
   /** Resolved launch configuration captured on the session at spawn [spec:SP-dae6]. */
   model?: string | null
   effort?: string | null
+  /** The model/effort last asked for at RUNTIME through `sessions.configure`
+   *  (POD-3081). Null = nobody changed it, and the launch pair above is the
+   *  requested one. See the schema column for why this is durable and the
+   *  OBSERVED pair is not. */
+  requestedModel?: string | null
+  requestedEffort?: string | null
   /** Account selection, not credential material. */
   accountId?: AccountId | null
   /** Harness authenticated by this shell; null for every ordinary session. */
@@ -169,6 +176,23 @@ export interface SessionRow {
   conversationId: string | null
   resumeKind: string | null
   resumeValue: string | null
+  /**
+   * The driver the daemon DECIDED on for this session (POD-2290 round 2).
+   *
+   * Not the bound one: `driverId` belongs to a live handle and is transient by
+   * design, while this is the decision reported before the launch and is
+   * therefore a fact about how the session was started. Persisting it is what
+   * lets a server restart rehydrate a headless row still knowing it has no
+   * terminal — without it the row comes back `reconnecting` and family-unknown,
+   * which the panel reads as "assume a terminal" and renders as the original
+   * bug's dead pane.
+   *
+   * `null` = a row from before this column, or one whose daemon never reported
+   * a selection. Never backfilled.
+  */
+  selectedDriverId?: string | null
+  /** Concrete per-session driver preference, preserved independently of fallback. */
+  requestedDriverId?: string | null
   /** Did this launch EVER have a native conversation — see {@link ConversationBinding}.
    *  Absent/null = the row predates the fact and makes no claim either way. */
   conversationBinding?: ConversationBinding | null
@@ -231,7 +255,13 @@ export interface SessionRow {
   refDraft?: number | null
   /** Durable terminal-transition metadata for completion decay. [spec:SP-6144] */
   stoppedAt?: string | null
-  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
+  /** The four-value column vocabulary. `oom` is NOT one of them — it is derived
+   *  from {@link SessionRow.oomKilledAt} on the way back in, because widening
+   *  the CHECK would mean a table rebuild (see the store's write path). */
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
+  /** Event time of the last kernel OOM kill observed in this session's scope
+   *  (POD-2413), or null where none was. */
+  oomKilledAt?: string | null
   /** OPTIONAL workflow-coordination pass-through metadata (#285 via #237
    *  [spec:SP-34d7 cross-harness]): stamped at spawn/assignment by an external
    *  coordinator, never interpreted by the substrate. Parent linkage rides
@@ -574,9 +604,14 @@ export interface MessageRow {
   urgency: MessageUrgency
   lifecycle: MessageLifecycle
   body: string
+  /** Runtime-staged files carried by this turn. Persisted so a retry cannot
+   * silently degrade an attachment send into a text-only send. */
+  attachments?: readonly import('@podium/protocol/daemon').RuntimeAttachmentRef[]
   expiresAt: string | null
   createdAt: string
   status: MessageStatus
+  /** Current 1-based position while queued. Derived for read projections; never persisted. */
+  queuePosition?: number
   /** When status reached `delivered` — the transcript echo, NOT the enqueue. */
   deliveredAt: string | null
   /** The session that actually received it (set on inject; confirmed at delivered). */
@@ -588,7 +623,17 @@ export interface MessageRow {
    *  echo confirms `delivered`. Drives auto-requeue — an injected row with no echo
    *  within the window was a ghost push and is re-attempted [POD-834]. */
   injectedAt?: string | null
-  /** When status reached `dead_letter` — the target was gone. */
+  /** When the daemon reported that its drain gave up on this turn [POD-2132,
+   * POD-2202]. The row is `dead_letter` by then — this stamp is the CAUSE beside
+   * the status, not a softer state next to it. (The column keeps its original
+   * `delivery_deferred_*` name from the migration that introduced it.) */
+  deliveryDeferredAt?: string | null
+  /** Typed machine observation behind `deliveryDeferredAt`: the session never
+   * became ready inside the deadline, it was torn down still holding the turn,
+   * or a server-family driver's send for it failed outright (POD-2297). */
+  deliveryDeferredReason?: QueueDrainAbandonedReason | null
+  /** When status reached `dead_letter` — the target was gone, or the drain that
+   * owned the turn gave up on it (see `deliveryDeferredReason`). */
   deadLetteredAt?: string | null
   /** Ack message id (denormalized for the steward's suppression check). */
   ackedBy: string | null

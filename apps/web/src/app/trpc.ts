@@ -134,7 +134,11 @@ async function waitForServer(
         cache: 'no-store',
         ...(signal ? { signal } : {}),
       })
-      if (!response.ok) continue
+      // A 503 here is a server that IS up and is telling us its data plane is
+      // blocked (PDM-26). That is the end of this wait — it answered — and
+      // spinning on it would stall every reconnect behind an activation that
+      // only a human can clear.
+      if (!response.ok && response.status !== 503) continue
       JSON.parse(await response.text())
       return
     } catch (error) {

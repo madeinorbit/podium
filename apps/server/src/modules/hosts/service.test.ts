@@ -109,6 +109,7 @@ function harness(input: {
   const parked: string[] = []
   const shellParked: string[] = []
   const hibernateRequireProof: Array<{ sessionId: string; requireTerminalProof?: boolean }> = []
+  const toMachine: Array<{ machineId: string; type: string }> = []
   const deps: HostsDeps = {
     getSettings: () => settings,
     clients: () => [],
@@ -153,12 +154,16 @@ function harness(input: {
         settle: vi.fn(),
         nextRequestId: vi.fn(),
       } as unknown as HostsDeps['daemonRequest']),
+    toMachine: (machineId, message) => {
+      toMachine.push({ machineId, type: message.type })
+    },
   }
   return {
     service: new HostsService(deps, new EventBus()),
     parked,
     shellParked,
     hibernateRequireProof,
+    toMachine,
   }
 }
 
@@ -240,6 +245,56 @@ describe('idle-session cap', () => {
 
     service.onHostMetrics(asMachineId('local'), sample(90))
 
+    expect(parked).toEqual(['one'])
+  })
+
+  /**
+   * SPEC §5's RECLAIM ORDER. An attach terminal is a convenience someone opened
+   * onto a session; the session is the work. Parking an agent while a warm
+   * terminal — possibly the very thing that crossed the threshold — sits idle is
+   * the inversion §5 rules out.
+   */
+  it('gives back client terminals BEFORE parking any agent under memory pressure', () => {
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
+    const { service, parked, toMachine } = harness({ sessions, maxIdleSessions: 10 })
+
+    service.onHostMetrics(asMachineId('local'), {
+      ...sample(90),
+      reclaimableAttachments: 2,
+    })
+
+    expect(toMachine).toEqual([{ machineId: 'local', type: 'reclaimAttachments' }])
+    // INSTEAD OF, not before: this sample takes no session at all. The next one
+    // re-reads real memory — if freeing the terminals was enough, no agent was
+    // ever touched.
+    expect(parked).toEqual([])
+  })
+
+  it('parks an agent on the NEXT sample when giving the terminals back was not enough', () => {
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
+    const { service, parked, toMachine } = harness({ sessions, maxIdleSessions: 10 })
+
+    service.onHostMetrics(asMachineId('local'), { ...sample(90), reclaimableAttachments: 1 })
+    expect(parked).toEqual([])
+
+    // The cooldown the reclaim spent has to pass, exactly as a park's would.
+    vi.advanceTimersByTime(60_000)
+    service.onHostMetrics(asMachineId('local'), { ...sample(90), reclaimableAttachments: 0 })
+
+    expect(toMachine).toHaveLength(1)
+    expect(parked).toEqual(['one'])
+  })
+
+  it('parks as it always did for a daemon too old to report attachments', () => {
+    const sessions = [session(asSessionId('one')), session(asSessionId('two'))]
+    const { service, parked, toMachine } = harness({ sessions, maxIdleSessions: 10 })
+
+    // `undefined`, not 0 — the field is absent from the sample entirely. A
+    // mixed-version fleet must not stall its pressure relief waiting for a
+    // machine that has nothing to give.
+    service.onHostMetrics(asMachineId('local'), sample(90))
+
+    expect(toMachine).toEqual([])
     expect(parked).toEqual(['one'])
   })
 

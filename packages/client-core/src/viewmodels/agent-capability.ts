@@ -1,5 +1,9 @@
 import type { AgentCapabilityRejection, AgentLoginCondition, HandoffMachine } from '@podium/model'
-import { agentLoginCondition, harnessRejection } from '@podium/model'
+import {
+  agentLoginCondition,
+  agentProbeTimeoutDescription,
+  harnessRejection,
+} from '@podium/model'
 import type { MachineAvailability } from './slices/machines/authority'
 
 export const SIGNED_OUT_HINT = 'signed out'
@@ -22,6 +26,7 @@ export function agentCapabilityReason(
   machineName: string,
   label: string,
   rejection: AgentCapabilityRejection | undefined,
+  probeDescription?: string,
 ): string | undefined {
   switch (rejection) {
     case undefined:
@@ -36,6 +41,10 @@ export function agentCapabilityReason(
       return `${machineName} runs no Podium daemon, so it can’t run agents.`
     case 'offline':
       return `${machineName} is offline.`
+    case 'inventory-unavailable':
+      return `${machineName} hasn’t reported its agent inventory yet; retry shortly.`
+    case 'harness-probe-timed-out':
+      return `Couldn’t determine whether ${spawnAgentLabel(label)} is installed on ${machineName}; probe ${probeDescription ?? 'timed out'}. Retry.`
     case 'harness-missing':
       return `${spawnAgentLabel(label)} is not installed on ${machineName}.`
     default: {
@@ -55,6 +64,10 @@ export function agentCapabilityHint(
       return 'no daemon'
     case 'offline':
       return 'offline'
+    case 'inventory-unavailable':
+      return 'inventory pending'
+    case 'harness-probe-timed-out':
+      return 'probe timed out'
     case 'harness-missing':
       return 'not installed'
     default:
@@ -75,6 +88,7 @@ export function agentLoginWarning(
 export interface AgentCandidate {
   machineName: string
   rejection?: AgentCapabilityRejection
+  probeDescription?: string
   loggedOut?: boolean
 }
 
@@ -91,7 +105,12 @@ export function agentFleetStatus(
   if (usable.length === 0) {
     const only = candidates.length === 1 ? candidates[0] : undefined
     if (only) {
-      const reason = agentCapabilityReason(only.machineName, label, only.rejection)
+      const reason = agentCapabilityReason(
+        only.machineName,
+        label,
+        only.rejection,
+        only.probeDescription,
+      )
       const hint = agentCapabilityHint(only.rejection)
       return { ...(reason ? { reason } : {}), ...(hint ? { hint } : {}) }
     }
@@ -142,6 +161,9 @@ export function candidateFromAvailability<M extends HandoffMachine & { name: str
   return {
     machineName: machine.name,
     ...(rejection ? { rejection } : {}),
+    ...(rejection === 'harness-probe-timed-out'
+      ? { probeDescription: agentProbeTimeoutDescription(machine, agentKind) }
+      : {}),
     ...(rejection === undefined && agentLoginCondition(machine, agentKind) === 'logged-out'
       ? { loggedOut: true }
       : {}),

@@ -36,8 +36,9 @@ const noopAttachments: UseAttachmentsResult = {
   processFiles: async () => {},
   remove: () => {},
   clear: () => {},
+  clearReady: () => {},
   uploading: false,
-  ready: () => ({ paths: [], tags: [], draftArtifacts: [] }),
+  ready: () => ({ paths: [], legacyPaths: [], refs: [], tags: [], draftArtifacts: [] }),
   dropHandlers: { onDragOver: () => {}, onDragLeave: () => {}, onDrop: () => {} },
   onPaste: () => {},
   onFileInputChange: () => {},
@@ -62,6 +63,7 @@ async function mount(
     turnRunning?: boolean
     interruptError?: string | null
     transcriptFreshness?: 'checking' | 'rendering' | 'saved' | null
+    deliverable?: boolean
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -71,7 +73,7 @@ async function mount(
         taRef={taRef}
         draft={opts.draft ?? ''}
         onDraftChange={opts.onDraftChange ?? (() => {})}
-        enabled
+        deliverable={opts.deliverable ?? true}
         placeholder="Ask across all tasks…"
         compact={opts.compact}
         isMobile={false}
@@ -177,6 +179,41 @@ describe('ChatComposer, non-compact (the main chat)', () => {
     expect(ta.className).not.toContain('prompt-input')
     expect(container.querySelector('.prompt-mark')).toBeNull()
     expect(ta.className).toContain('caret-foreground')
+  })
+
+  // POD-3219. Deliverability gates the SEND, never the box. Before this the
+  // textarea carried `disabled={!enabled}`, so a reconnect blip, a not-yet-loaded
+  // session row or an ended session refused keystrokes and dropped focus — and
+  // the Enter chords relied on that disabled attribute to keep them from firing.
+  it('stays writable while a send would not be delivered, and Enter does not send', async () => {
+    const onSend = vi.fn()
+    const onDraftChange = vi.fn()
+    const { ta } = await mount({
+      compact: false,
+      draft: 'half a thought',
+      deliverable: false,
+      onSend,
+      onDraftChange,
+    })
+    expect(ta.disabled).toBe(false)
+    expect(sendButton().disabled).toBe(true)
+    act(() => {
+      ta.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    act(() => {
+      ta.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', metaKey: true, bubbles: true }),
+      )
+    })
+    expect(onSend).not.toHaveBeenCalled()
+    // And the same keystroke sends once delivery is possible again.
+    await mount({ compact: false, draft: 'half a thought', deliverable: true, onSend })
+    act(() => {
+      ta.ownerDocument
+        .querySelector('textarea')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
+    })
+    expect(onSend).toHaveBeenCalledTimes(1)
   })
 
   it('keeps empty send neutral and turns it yellow only when actionable', async () => {
@@ -407,7 +444,7 @@ describe('ChatComposer backend rail', () => {
           taRef={taRef}
           draft=""
           onDraftChange={() => {}}
-          enabled
+          deliverable
           placeholder="Ask across all tasks…"
           compact
           isMobile={false}

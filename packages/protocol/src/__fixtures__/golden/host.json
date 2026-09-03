@@ -139,14 +139,20 @@
               "fifteen": 1,
               "cpuCount": 1
             },
-            "idleCapUnmet": 1
+            "idleCapUnmet": 1,
+            "reclaimableAttachments": 1,
+            "sessionsMemory": {
+              "currentBytes": 1,
+              "highBytes": 1,
+              "stalledPct": 1
+            }
           }
         ]
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1}]}"
+      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1}}]}"
     },
     {
       "schema": "HostMetricsMessage",
@@ -188,12 +194,18 @@
           "fifteen": 1,
           "cpuCount": 1
         },
-        "idleCapUnmet": 1
+        "idleCapUnmet": 1,
+        "reclaimableAttachments": 1,
+        "sessionsMemory": {
+          "currentBytes": 1,
+          "highBytes": 1,
+          "stalledPct": 1
+        }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1}"
+      "encoded": "{\"type\":\"hostMetrics\",\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1}}"
     },
     {
       "schema": "MachineDiagnosticMessage",
@@ -261,6 +273,10 @@
                 {
                   "kind": "claude-code",
                   "installed": true,
+                  "probeError": {
+                    "reason": "timed-out",
+                    "timeoutMs": 1
+                  },
                   "version": "machines[0].inventory.agents[0].version",
                   "path": "machines[0].inventory.agents[0].path",
                   "login": {
@@ -275,10 +291,21 @@
                   }
                 }
               ],
+              "runtimeDrivers": [
+                {
+                  "harness": "claude-code",
+                  "id": "machines[0].inventory.runtimeDrivers[0].id",
+                  "family": "terminal"
+                }
+              ],
               "tools": [
                 {
                   "name": "machines[0].inventory.tools[0].name",
                   "installed": true,
+                  "probeError": {
+                    "reason": "timed-out",
+                    "timeoutMs": 1
+                  },
                   "version": "machines[0].inventory.tools[0].version",
                   "path": "machines[0].inventory.tools[0].path"
                 }
@@ -301,7 +328,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"machines[0].inventory.agents[0].login.identity.fingerprint\",\"email\":\"machines[0].inventory.agents[0].login.identity.email\",\"providerAccountId\":\"machines[0].inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"machines[0].appVersion\",\"wireSchemaDigest\":\"machines[0].wireSchemaDigest\",\"installKind\":\"machines[0].installKind\",\"deliveryCaps\":[\"machines[0].deliveryCaps[0]\"],\"supervised\":true,\"buildReportedAt\":\"machines[0].buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"machines[0].targetVersion\",\"targetUnavailableReason\":\"machines[0].targetUnavailableReason\"}]}"
+      "encoded": "{\"type\":\"machinesChanged\",\"machines\":[{\"id\":\"machines[0].id\",\"name\":\"machines[0].name\",\"hostname\":\"machines[0].hostname\",\"online\":true,\"lastSeenAt\":\"machines[0].lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"machines[0].inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"machines[0].inventory.agents[0].version\",\"path\":\"machines[0].inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"machines[0].inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"machines[0].inventory.agents[0].login.identity.fingerprint\",\"email\":\"machines[0].inventory.agents[0].login.identity.email\",\"providerAccountId\":\"machines[0].inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"machines[0].inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"machines[0].inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"machines[0].inventory.tools[0].version\",\"path\":\"machines[0].inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"machines[0].appVersion\",\"wireSchemaDigest\":\"machines[0].wireSchemaDigest\",\"installKind\":\"machines[0].installKind\",\"deliveryCaps\":[\"machines[0].deliveryCaps[0]\"],\"supervised\":true,\"buildReportedAt\":\"machines[0].buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"machines[0].targetVersion\",\"targetUnavailableReason\":\"machines[0].targetUnavailableReason\"}]}"
     },
     {
       "schema": "MemoryBreakdownRequestMessage",
@@ -505,6 +532,28 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"agent\":\"claude-code\",\"email\":\"email\",\"machineId\":\"machineId\",\"windowKey\":\"windowKey\",\"label\":\"label\",\"plan\":\"plan\",\"usedPercent\":1,\"resetsAtMs\":1,\"windowMinutes\":1,\"atMs\":1}"
+    },
+    {
+      "schema": "ReclaimAttachmentsMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "reclaimAttachments"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reclaimAttachments\"}"
+    },
+    {
+      "schema": "ReclaimAttachmentsMessage",
+      "variant": "full",
+      "wire": {
+        "type": "reclaimAttachments"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"reclaimAttachments\"}"
     },
     {
       "schema": "ReclaimDiskEstimateRequestMessage",

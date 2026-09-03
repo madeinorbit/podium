@@ -1,4 +1,5 @@
 import { createLogger } from '@podium/logger'
+import { navigateReload } from '@/lib/navigate'
 
 const log = createLogger('web:setup')
 
@@ -43,7 +44,10 @@ export async function restartPodiumShell(): Promise<ShellRestart> {
     return 'unavailable'
   }
   try {
-    window.location.reload()
+    // Through the one navigation seam (POD-3224), which logs the site and the
+    // reason and RETHROWS — so this function still answers `unavailable` for a
+    // reload the embedder refused, exactly as it did before.
+    navigateReload('restart-shell', 'shell-restart-requested')
     return 'started'
   } catch (cause) {
     log.error('page reload refused', { reason: reason(cause) })

@@ -14,6 +14,7 @@ import type {
   MachineId,
   ThreadId,
 } from '@podium/model'
+import type { LogOrigin } from '@podium/commands'
 import type { AgentObservation, MetadataChange, SessionOpenUrlMessage } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { InboxPrincipalReference } from './sessions/inbox'
@@ -35,6 +36,12 @@ const log = createLogger('server:bus')
  *   down the mutation path that emitted).
  */
 export interface EventMap {
+  /**
+   * A human client authenticated (POST /auth/login, either delivery shape).
+   * Emitted AFTER the session row is written, so a login that failed to persist
+   * is never reported as one.
+   */
+  'auth.login': { userId: UserId; delivery: 'cookie' | 'native'; platform?: string }
   /** A session's agent runtime state changed (daemon agentState message). */
   'session.stateChanged': {
     sessionId: SessionId
@@ -54,16 +61,47 @@ export interface EventMap {
   'session.wakeRequested': { sessionId: SessionId; principal: InboxPrincipalReference }
   /** System derived-field maintenance driven by committed/live session facts. */
   'issue.sessionDerived':
-    | { kind: 'gitActivity'; sessionId: SessionId; commits?: string[]; touched?: string[] }
-    | { kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'; sessionId: SessionId }
+    | {
+        kind: 'gitActivity'
+        sessionId: SessionId
+        eventId?: number
+        commits?: string[]
+        touched?: string[]
+      }
+    | {
+        kind: 'activity' | 'attention' | 'turnEnd' | 'removedOrArchived'
+        sessionId: SessionId
+        eventId?: number
+      }
     | {
         kind: 'adoptWorktree'
         issueId: IssueId
         machineId: MachineId
         message: Extract<DaemonMessage, { type: 'sessionCwd' }>
       }
+  /** Oplog-replayed board/recency vertical slice; every input has a durable id. */
+  'issue.runtimeDerived':
+    | {
+        kind: 'gitActivity'
+        sessionId: SessionId
+        eventId: number
+        commits?: string[]
+        touched?: string[]
+      }
+    | {
+        kind: 'attention' | 'turnEnd'
+        sessionId: SessionId
+        eventId: number
+      }
   /** A remote session asked its host to open a browser URL. [spec:SP-a43e] */
   'session.openUrl': SessionOpenUrlMessage
+  /**
+   * An issue was created by the create funnel — NOT any later mutation. The
+   * in-process twin of the `issue.created` row `crud.ts` already appends to the
+   * durable event log, emitted from the same line, so the two can never disagree
+   * about when an issue came into existence.
+   */
+  'issue.created': { issueId: IssueId; title: string; ownerUserId: UserId }
   /** One issue changed and was published (single-issue fast path, issue #22). */
   'issue.updated': { issue: IssueWire }
   /** An issue reached the closed stage. */
@@ -91,7 +129,12 @@ export interface EventMap {
   /** A host reported a fresh metrics sample. */
   'host.metrics': { sample: HostMetricsWire }
   /** An agent needs attention (the attention-notice seam notify consumes). */
-  'attention.raised': { sessionId: SessionId; title: string; body: string }
+  'attention.raised': {
+    sessionId: SessionId
+    ownerUserId: UserId
+    title: string
+    body: string
+  }
   /** Per-user Telegram delivery requested after notification policy decides to push. */
   'notification.telegramRequested': {
     ownerUserId: UserId
@@ -132,16 +175,24 @@ export interface EventMap {
     harness?: HarnessAgent
     harnessErrorKind?: HarnessErrorKind
   }
+  /**
+   * A client crash was stored (modules/logs/service.ts).
+   *
+   * Carries the serialized error AS IT ARRIVED and deliberately NOT
+   * `input.snapshot`: the snapshot is the client's whole log ring buffer, which
+   * is what makes the durable crash event useful to support and exactly what a
+   * subscriber that only needs the error has no business forwarding anywhere.
+   */
+  'client.crashed': { origin: LogOrigin; err: unknown; crashId?: string }
 }
 
 export type EventName = keyof EventMap
-export type Listener<E extends EventName> = (payload: EventMap[E]) => void
+export type Listener<E extends EventName> = (payload: EventMap[E]) => unknown
 
 /**
- * Minimal typed emitter over {@link EventMap}. Synchronous dispatch (emit
- * returns after every listener ran) so ordering stays deterministic for tests;
- * per-listener try/catch so one broken observer can't break the emitter or
- * its sibling subscribers.
+ * Minimal typed emitter over {@link EventMap}. Regular dispatch invokes every
+ * listener synchronously and observes asynchronous rejection without blocking;
+ * durable dispatch additionally awaits every listener before it returns.
  */
 export class EventBus {
   private readonly listeners = new Map<EventName, Set<Listener<EventName>>>()
@@ -163,7 +214,7 @@ export class EventBus {
   once<E extends EventName>(event: E, listener: Listener<E>): () => void {
     const dispose = this.on(event, (payload) => {
       dispose()
-      listener(payload)
+      return listener(payload)
     })
     return dispose
   }
@@ -171,15 +222,40 @@ export class EventBus {
   emit<E extends EventName>(event: E, payload: EventMap[E]): void {
     const set = this.listeners.get(event)
     if (!set) return
-    // Snapshot so a listener that unsubscribes (or subscribes) mid-dispatch
-    // doesn't mutate the iteration.
     for (const listener of [...set]) {
       try {
-        listener(payload)
+        void Promise.resolve(listener(payload)).catch((err) =>
+          log.warn('event listener rejected', { err, event }),
+        )
       } catch (err) {
         log.warn('event listener threw', { err, event })
       }
     }
+  }
+
+  /** Durable projector dispatch: await every sibling listener, then report the
+   * first failure so the caller leaves its oplog cursor before the row. */
+  async emitDurable<E extends EventName>(event: E, payload: EventMap[E]): Promise<void> {
+    const set = this.listeners.get(event)
+    if (!set) return
+    const pending: Promise<unknown>[] = []
+    for (const listener of [...set]) {
+      try {
+        pending.push(Promise.resolve(listener(payload)))
+      } catch (err) {
+        pending.push(Promise.reject(err))
+      }
+    }
+    const settled = await Promise.allSettled(pending)
+    let failure: unknown
+    for (const result of settled) {
+      if (result.status === 'rejected') {
+        failure ??= result.reason
+        const err = result.reason
+        log.warn('durable event listener rejected', { err, event })
+      }
+    }
+    if (failure) throw failure
   }
 
   listenerCount(event: EventName): number {

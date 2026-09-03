@@ -58,6 +58,16 @@ function withResizableAddon(): { set: (cols: number, rows: number) => void } {
     },
   }
 }
+/** Return a valid-but-stale grid for a few measurements, then the settled grid. */
+function withSequencedAddon(grids: ReadonlyArray<{ cols: number; rows: number } | undefined>): void {
+  const proto = FitAddon.prototype as unknown as { proposeDimensions: () => unknown }
+  const original = proto.proposeDimensions
+  let index = 0
+  proto.proposeDimensions = () => grids[Math.min(index++, grids.length - 1)]
+  protoPatchRestorers.push(() => {
+    proto.proposeDimensions = original
+  })
+}
 
 /** Like withFittableAddon, but measurability is toggled by the test — undefined
  *  until `measurable = true`, then 150×50 (a pane hidden / mid-layout, revealed later). */
@@ -130,6 +140,8 @@ function fakeHub() {
     role: 'controller' as 'controller' | 'spectator',
     cols: 80,
     rows: 24,
+    requestedGeometry: null as { cols: number; rows: number } | null,
+    geometryRevision: 0,
     epoch: 0,
     connected: true,
   }
@@ -175,8 +187,14 @@ function fakeHub() {
   return {
     hub,
     calls,
-    state: (cols: number, rows: number, role: 'controller' | 'spectator' = 'controller') => {
-      current = { ...current, cols, rows, role }
+    state: (
+      cols: number,
+      rows: number,
+      role: 'controller' | 'spectator' = 'controller',
+      requestedGeometry: { cols: number; rows: number } | null = null,
+      geometryRevision: number = current.geometryRevision,
+    ) => {
+      current = { ...current, cols, rows, role, requestedGeometry, geometryRevision }
       cbs.onState?.(current as never)
     },
     role: (role: 'controller' | 'spectator') => {
@@ -194,6 +212,16 @@ function fittableHost(): HTMLDivElement {
   Object.defineProperty(el, 'clientWidth', { value: 1200, configurable: true })
   Object.defineProperty(el, 'clientHeight', { value: 800, configurable: true })
   return el
+}
+
+/** Feed the same xterm input seam used by DOM mouse reports into mountSession. */
+function emitTerminalInput(mounted: ReturnType<typeof mountSession>, data: string): void {
+  const term = (
+    mounted.view as unknown as {
+      term: { input(data: string): void }
+    }
+  ).term
+  term.input(data)
 }
 
 describe('mountSession eligibility-gated sizing', () => {
@@ -214,8 +242,9 @@ describe('mountSession eligibility-gated sizing', () => {
     mounted.dispose()
   })
 
-  it('claims control and resizes when it becomes active and is measurable', () => {
+  it('claims control with fitted geometry when it becomes active', () => {
     withResizeObserver()
+    withFakeTimedRaf()
     withFittableAddon()
     const { hub, calls } = fakeHub()
     const mounted = mountSession(fittableHost(), {
@@ -224,13 +253,61 @@ describe('mountSession eligibility-gated sizing', () => {
       active: false,
     })
     mounted.setActive(true)
+    expect(calls.claims).toEqual([])
+    vi.advanceTimersByTime(16)
+    expect(calls.claims).toEqual([])
+    vi.advanceTimersByTime(16 * 2)
     expect(calls.leaseAcquire).toBe(1)
     expect(calls.requestControl).toBe(1)
-    expect(calls.resize.length).toBeGreaterThanOrEqual(1)
-    expect(calls.resize.at(-1)?.[0]).toBeGreaterThan(2) // a real fitted width, not the 80 default-only path
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    expect(calls.resize, 'the reveal claim carries geometry atomically').toEqual([])
     mounted.setActive(false)
     expect(calls.leaseRelease).toBe(1)
     mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('holds reveal-time mouse motion until geometry settles without killing connected mouse input', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    const motion = '\x1b[<35;87;24M'
+    const release = '\x1b[<0;87;24m'
+
+    // The ordinary connected path must remain live. This assertion kills the
+    // tempting mutation that fixes the flash by making every mouse report dead.
+    emitTerminalInput(mounted, motion)
+    expect(calls.input).toEqual([motion])
+
+    mounted.setActive(false)
+    calls.input.length = 0
+    mounted.setActive(true)
+    emitTerminalInput(mounted, motion)
+    expect(calls.input, 'stale motion is withheld while the reveal claim settles').toEqual([])
+    emitTerminalInput(mounted, motion + motion)
+    expect(calls.input, 'a coalesced burst is withheld as one reveal-time input').toEqual([])
+
+    // Never strand a release or swallow a coalesced keystroke: only standalone
+    // SGR motion reports belong to the reveal fence.
+    emitTerminalInput(mounted, release)
+    emitTerminalInput(mounted, 'q')
+    const mixed = motion + 'z'
+    emitTerminalInput(mounted, mixed)
+    expect(calls.input).toEqual([release, 'q', mixed])
+
+    vi.advanceTimersByTime(16 * 3)
+    state(150, 50) // authoritative geometry acknowledgment ends the reveal fence
+    emitTerminalInput(mounted, motion)
+    expect(calls.input).toEqual([release, 'q', mixed, motion])
+
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
   })
 
   it('keeps a server-grid spectator on the authoritative grid and only reports its viewport', () => {
@@ -359,6 +436,7 @@ describe('mountSession eligibility-gated sizing', () => {
 
   it('stays silent while the page is hidden, then resizes on visibilitychange', () => {
     withResizeObserver()
+    withFakeTimedRaf()
     withFittableAddon()
     // Hide the page before mounting: active tab, but the page is not visible, so the
     // eligibility gate must keep the terminal silent. Restored in afterEach.
@@ -383,9 +461,316 @@ describe('mountSession eligibility-gated sizing', () => {
     // Page becomes visible → the visibilitychange listener should make it eligible.
     Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
     document.dispatchEvent(new Event('visibilitychange'))
+    vi.advanceTimersByTime(16 * 2)
     expect(calls.requestControl).toBe(1)
-    expect(calls.resize.length).toBeGreaterThanOrEqual(1)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    expect(calls.resize).toEqual([])
     mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('re-fits when focus returns without a visibilitychange event', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    protoPatchRestorers.push(() => {
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility)
+      else
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    })
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    expect(calls.requestControl).toBe(0)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    window.dispatchEvent(new Event('focus'))
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.requestControl).toBe(1)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('re-fits when pageshow returns without focus or visibilitychange', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState')
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    protoPatchRestorers.push(() => {
+      if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility)
+      else
+        Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    })
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    expect(calls.requestControl).toBe(0)
+    Object.defineProperty(document, 'visibilityState', { value: 'visible', configurable: true })
+    window.dispatchEvent(new Event('pageshow'))
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.requestControl).toBe(1)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('removes the focus resume listener when disposed', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    const requestControlBeforeDispose = calls.requestControl
+    mounted.dispose()
+    window.dispatchEvent(new Event('focus'))
+    vi.advanceTimersByTime(16 * 3)
+    expect(calls.requestControl).toBe(requestControlBeforeDispose)
+  })
+
+  it('removes the pageshow resume listener when disposed', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+    const requestControlBeforeDispose = calls.requestControl
+    mounted.dispose()
+    window.dispatchEvent(new Event('pageshow'))
+    vi.advanceTimersByTime(16 * 3)
+    expect(calls.requestControl).toBe(requestControlBeforeDispose)
+  })
+
+  it('cancels stale reveal callbacks when a newer page resume supersedes them', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    mounted.setActive(true)
+    window.dispatchEvent(new Event('focus'))
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.requestControl).toBe(1)
+    expect(calls.claims).toEqual([{ cols: 150, rows: 50 }])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('reclaims the fitted grid after a stale server state overwrites it', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    state(80, 24)
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 2)
+    expect(calls.claims).toEqual([{ cols: 150, rows: 50 }])
+
+    // The server's delayed 80×24 echo arrives after the correct claim. It must
+    // not reflow the view back to the stale grid; the client must re-assert the
+    // applied fitted grid instead.
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    vi.advanceTimersByTime(16)
+    expect(calls.claims).toEqual([
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+    ])
+
+    // A second stale echo must remain fenced until the requested geometry is
+    // acknowledged; one repair frame is not enough for the live race.
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    vi.advanceTimersByTime(16)
+    expect(calls.claims).toEqual([
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+    ])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('lets a non-pending server resize supersede a stale claim', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 2)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+
+    // No pending local claim: this authoritative server resize must win.
+    state(100, 30, 'controller', null, 2)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 100,
+      rows: 30,
+    })
+
+    // A later logical state can still be an older server revision. It must not
+    // overwrite the legitimate superseding resize after the local claim is gone.
+    state(80, 24, 'controller', null, 1)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 100,
+      rows: 30,
+    })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('applies a server grid when the local view no longer matches the assertion', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    state(80, 24)
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 3)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+
+    mounted.view.resize(80, 24)
+    state(70, 20)
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 70,
+      rows: 20,
+    })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+
+  it('honors a pending requested grid before applying a stale server state', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withFittableAddon()
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: true,
+    })
+
+    // The ordinary fit has applied the local 150×50 grid, but this path has not
+    // made a reveal assertion. The transport's pending request is the only fence
+    // available when the stale 80×24 state arrives.
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    state(80, 24, 'controller', { cols: 150, rows: 50 })
+
+    expect({ cols: mounted.view.cols(), rows: mounted.view.rows() }).toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    vi.advanceTimersByTime(16)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('resets the reveal settle streak after an invalid measurement', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withSequencedAddon([
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      undefined,
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+      { cols: 150, rows: 50 },
+    ])
+    const { hub, calls } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    mounted.setActive(true)
+    vi.advanceTimersByTime(16 * 4)
+    expect(calls.claims).toEqual([])
+    vi.advanceTimersByTime(16)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
+  })
+
+  it('settles a valid stale fit before claiming foreground geometry', () => {
+    withResizeObserver()
+    withFakeTimedRaf()
+    withSequencedAddon([
+      { cols: 80, rows: 24 },
+      { cols: 80, rows: 24 },
+      { cols: 80, rows: 24 },
+      { cols: 80, rows: 24 },
+      { cols: 80, rows: 24 },
+      { cols: 150, rows: 50 },
+    ])
+    const { hub, calls, state } = fakeHub()
+    const mounted = mountSession(fittableHost(), {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+    })
+    state(80, 24)
+    mounted.setActive(true)
+    expect(calls.claims).toEqual([])
+    vi.advanceTimersByTime(16 * 5)
+    expect(calls.claims.at(-1)).toEqual({ cols: 150, rows: 50 })
+    expect(calls.resize).toEqual([])
+    mounted.dispose()
+    vi.advanceTimersByTime(1)
   })
 
   it('re-fits and re-asserts size on reconnect (server-reload quarter-size fix)', () => {
@@ -448,6 +833,7 @@ describe('mountSession eligibility-gated sizing', () => {
     recover.mockClear()
     calls.resize.length = 0
     mounted.setActive(true) // reveal: grid unchanged → repaint the live renderer in place
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => setTimeout(r, 0))
     expect(recover, 'unchanged-grid reveal repaints in place').toHaveBeenCalled()
@@ -524,8 +910,13 @@ describe('mountSession eligibility-gated sizing', () => {
     recover.mockClear()
     mounted.setActive(true) // reveal: grid changes → resize, no extra recovery
     await new Promise((r) => requestAnimationFrame(() => r(null)))
+    await new Promise((r) => requestAnimationFrame(() => r(null)))
     await new Promise((r) => setTimeout(r, 0))
-    expect(calls.resize.at(-1), 'reveal resizes the PTY to the fitted grid').toEqual([150, 50])
+    expect(calls.claims.at(-1), 'reveal claims the fitted PTY geometry').toEqual({
+      cols: 150,
+      rows: 50,
+    })
+    expect(calls.resize).toEqual([])
     expect(recover, 'changed-grid reveal needs no extra recovery').not.toHaveBeenCalled()
     mounted.dispose()
   })

@@ -134,6 +134,45 @@ describe('useAttachments', () => {
     expect(result.current.ready().tags).toEqual([{ kind: 'image', label: 'shot.png' }])
   })
 
+  it('keeps a staged runtime ref out of legacy prompt paths', async () => {
+    const ref = {
+      id: 'staged-1',
+      path: '/staged/shot.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    mutate.mockResolvedValueOnce({ path: ref.path, attachment: ref })
+    const { result } = renderHook(() => useAttachments({ sessionId, trpc }))
+
+    await act(async () => {
+      await result.current.processFiles([new File(['x'], 'shot.png', { type: 'image/png' })])
+    })
+
+    expect(result.current.ready()).toMatchObject({
+      paths: [ref.path],
+      legacyPaths: [],
+      refs: [ref],
+    })
+  })
+
+  it("shows the driver's typed refusal on the attachment chip", async () => {
+    mutate.mockResolvedValueOnce({
+      refusal: { reason: 'unsupported', detail: 'Grok cannot accept file attachments yet.' },
+    })
+    const { result } = renderHook(() => useAttachments({ sessionId, trpc }))
+
+    await act(async () => {
+      await result.current.processFiles([new File(['x'], 'shot.png', { type: 'image/png' })])
+    })
+
+    expect(result.current.attachments[0]).toMatchObject({
+      state: 'failed',
+      error: 'Grok cannot accept file attachments yet.',
+    })
+    expect(result.current.ready().refs).toEqual([])
+  })
+
   /* The one thing widening past mime types must NOT widen. Copied prose arrives
    * as `kind: 'string'`; if the composer intercepted that, ordinary pasting into
    * the prompt box would stop working. */

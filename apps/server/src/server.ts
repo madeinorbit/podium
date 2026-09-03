@@ -20,7 +20,18 @@ import {
   wireSchemaDigest,
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { loadConfig, resolveDevArtifactOrigin, resolveInstanceId } from '@podium/runtime/config'
+import {
+  assertAppUrlCompatible,
+  loadConfig,
+  resolveAllowedOrigins,
+  resolveAppUrl,
+  resolveDevArtifactOrigin,
+  resolveInstanceId,
+  resolveMode,
+  resolvePublicUrl,
+  resolveTranscriptLake,
+  resolveUpdateScope,
+} from '@podium/runtime/config'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -105,6 +116,7 @@ import {
   timerSchedule,
 } from './modules/updates/target-refresh'
 import { updateOperationContext, websiteDigestReader } from './modules/updates/trpc'
+import { originRefusalReporter } from './origin-refusal'
 import type { PodiumPlugin } from './plugins'
 import {
   authReadinessBoundary,
@@ -138,6 +150,12 @@ const log = createLogger('server:http')
 // (PODIUM_LOG='server:loop=debug') without also turning up request logging.
 const loopLog = createLogger('server:loop')
 const repoDiscoveryLog = createLogger('server:repo-discovery')
+/**
+ * The served-website identity. `server:updates` rather than `server:http`,
+ * because the reader is somebody following an update end to end and this is the
+ * server's side of "the assets under this page were replaced" (POD-3224).
+ */
+const versionLog = createLogger('server:updates')
 
 /**
  * Thrown (as a rejection) by {@link startServer} when the chosen port is already
@@ -304,6 +322,16 @@ export function registerVersionRoute(
     web?: () => ServedWebIdentity
     /** Parent health gate + settings: is the local daemon connected? */
     daemonConnected?: () => boolean
+    /**
+     * Where the web UI is served from, when it is not this server (PDM-26).
+     *
+     * On the PRE-BOOT probe for the same reason `feedScoping` is: a client that
+     * has to go somewhere else for its UI must learn that from the one request
+     * it already makes first, not from a frame it can only receive after it has
+     * loaded a page this origin does not have. Absent means "here", which is
+     * every self-hosted install.
+     */
+    appUrl?: () => string | undefined
     /** Janitor co-host status for DEGRADED projection [POD-2505]. */
     janitor?: () =>
       | {
@@ -315,6 +343,49 @@ export function registerVersionRoute(
       | undefined
   },
 ): void {
+  /**
+   * WHAT THIS SERVER IS SERVING, LOGGED WHEN IT MOVES (POD-3224, question 11).
+   *
+   * `/version` is read once every 30 s by every open tab and once a second while
+   * an update runs, so logging the response would be the loudest line in the
+   * process. What is worth a record is the CHANGE: the served identity moving is
+   * the exact event that makes every already-loaded page stale, and it is the
+   * fact `assets === 'replaced'` on the client is derived from. One line per
+   * release, on the server, is what lets a stale-page report be lined up against
+   * the moment the dist under it was replaced.
+   *
+   * Held in a closure rather than compared against a stored row: this is a
+   * property of THIS PROCESS's disk as it currently reads, and a successor
+   * legitimately reports its own first read as a change.
+   */
+  let servedIdentity: string | undefined
+  const noteServed = (
+    appVersion: string,
+    sourceDigest: string | undefined,
+    web: ServedWebIdentity | undefined,
+    mobileWeb: MobileWebIdentity | undefined,
+  ): void => {
+    const signature = [
+      appVersion,
+      sourceDigest ?? '',
+      web?.present === true ? (web.bundle ?? '') : 'absent',
+      web?.digest ?? '',
+      mobileWeb?.present === true ? (mobileWeb.digest ?? '') : 'absent',
+    ].join('|')
+    if (signature === servedIdentity) return
+    const first = servedIdentity === undefined
+    servedIdentity = signature
+    versionLog.info(first ? 'serving' : 'served identity changed', {
+      appVersion,
+      ...(sourceDigest ? { sourceDigest } : {}),
+      webPresent: web?.present === true,
+      ...(web?.bundle ? { webBundle: web.bundle } : {}),
+      ...(web?.digest ? { webDigest: web.digest } : {}),
+      mobileWebPresent: mobileWeb?.present === true,
+      ...(mobileWeb?.digest ? { mobileWebDigest: mobileWeb.digest } : {}),
+    })
+  }
+
   app.get('/version', async (c) => {
     let target: UpdateTarget | undefined
     try {
@@ -335,6 +406,12 @@ export function registerVersionRoute(
       web = undefined
     }
     const sourceDigest = deps.sourceDigest?.()
+    noteServed(
+      deps.appVersion?.() ?? process.env.PODIUM_APP_VERSION ?? 'dev',
+      sourceDigest,
+      web,
+      mobileWeb,
+    )
     const daemonConnected = deps.daemonConnected?.() === true
     const janitor = deps.janitor?.()
     const components = {
@@ -354,6 +431,7 @@ export function registerVersionRoute(
       ...(sourceDigest ? { sourceDigest } : {}),
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
+      ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
       components,
@@ -421,11 +499,19 @@ export async function startServer(
     /** Advertise the safe local all-in-one first-run default to loopback web clients. */
     localSetupDefault?: boolean
     /**
-     * The janitor worker client injected by the composition root so this app
-     * never imports another app. Presence means this server owns the janitor
-     * thread; server constructions without the injection remain janitor-free.
+     * Whether this process mirrors daemon transcripts into the lake (PDM-26).
+     *
+     * A composition root that knows its own storage story may state it directly;
+     * otherwise it is resolved from PODIUM_TRANSCRIPT_LAKE → config.transcriptLake
+     * → 'on', which is every install that exists today.
      */
-    startJanitorWorker?: import('./janitor-host').StartJanitorWorkerFn
+    transcriptLake?: 'on' | 'off'
+    /**
+     * TEST ONLY. Replaces the janitor worker client so server tests never spawn
+     * a thread (PDM-27). It is not an opt-out: absent means the real client, and
+     * every server process hosts a janitor. Production callers must not set it.
+     */
+    janitorWorkerForTests?: import('./janitor-host').StartJanitorWorkerFn
   } = {},
 ): Promise<ServerHandle> {
   const config = loadConfig()
@@ -443,6 +529,16 @@ export async function startServer(
   const appVersion = captureServerBuildVersion()
   const appSourceDigest = serverBuildSourceDigest()
   const instanceId = resolveInstanceId()
+  // THE DEPLOYMENT'S ANSWERS, resolved once at boot (PDM-26). Every one of these
+  // is `env → config.json → default`; reading them here rather than at each use
+  // site keeps this process's shape decided in one place, and makes the env
+  // layer's "boot-time, never stale" property literally true.
+  const envMode = resolveMode(config, process.env)
+  // Fails the boot rather than advertising a UI origin whose browser could never
+  // hold this server's session cookie (PDM-26).
+  assertAppUrlCompatible(config, process.env)
+  const updateScope = resolveUpdateScope(config, process.env)
+  const fleetOnly = updateScope === 'fleet-only'
   ensureInstanceStateIdentity({ instanceId })
   // Role composition (roles.ts): which optional module groups this process
   // activates. Explicit opts win; else the H1 shape, core + hub.
@@ -494,6 +590,18 @@ export async function startServer(
       durationMs: bootPrune.metrics.totalDurationMs,
     })
   }
+  // The Settings toggle is the bottom layer; env and config.json sit above it.
+  // Read at boot because the lake's presence decides how the registry is built —
+  // flipping the toggle takes effect on the next start, which is what the
+  // settings copy says.
+  const lakeEnabled =
+    (opts.transcriptLake ??
+      resolveTranscriptLake(
+        store.settings.getSettings().transcripts.mirror,
+        config,
+        process.env,
+      )) === 'on'
+
   // The transcript lake lives in the state dir next to podium.db (transcript-mirror
   // spec §2.1). Passing the dir opts the registry into mirroring; tests that construct
   // SessionRegistry without it produce no mirror traffic.
@@ -526,7 +634,11 @@ export async function startServer(
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
-    mirrorLakeDir: join(stateDir(), 'transcripts'),
+    // Absent under `transcriptLake: 'off'` (PDM-26), which is the no-op shape
+    // TranscriptLake already supports — the mirror and the indexer are simply
+    // never constructed. Spread rather than `undefined` so its absence keeps
+    // meaning exactly what it means for every test that omits it today.
+    ...(lakeEnabled ? { mirrorLakeDir: join(stateDir(), 'transcripts') } : {}),
     portableStateFence,
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
@@ -538,6 +650,10 @@ export async function startServer(
     // local daemon's `hello` path is untouched.
     ...(role.hub ? { pairing: new PairingManager() } : {}),
     updatePubkey: () => updateSigningKey.publicKey,
+    // Under `updateScope: 'fleet-only'` this server's binary belongs to the
+    // deployment, so the wave planner drops the coordinator row instead of
+    // holding it for a step nothing will ever take (PDM-26).
+    ...(fleetOnly ? { coordinatorExcluded: () => true } : {}),
     updateKeyRotations: () => updateSigningKey.rotations,
     // Live model enumeration is only wired in the real process; tests get the empty
     // default and nothing is ever asked of a daemon.
@@ -622,6 +738,9 @@ export async function startServer(
   // Automatic connect-scan orchestration RETIRED from the bus path [POD-925]:
   // janitor issues connect-scan commands; deep scans stay interactive via API.
   const superagent = new SuperagentService(registry.modules, repos, store)
+  // Its turn reaper is a periodic write; the registry's dispose is what stops it
+  // before `store.close()` on every close path (POD-2772).
+  registry.adoptSuperagent(superagent)
   // Messaging-app bridge [spec:SP-5d81]: two-way Telegram chat with the
   // superagent, riding the notification bot config. configure() is a no-op
   // until a bot token + chat id are set; settings.changed re-arms it live.
@@ -675,21 +794,31 @@ export async function startServer(
    * parameter did not have.
    */
   let pendingCoordinatorVersion: string | undefined
-  const requestCoordinatorRestart = developmentRuntime.runningFromSource
-    ? createSourceRedeployRequest({ instanceId })
-    : createInstalledCoordinatorRestart({
-        instanceId,
-        port: () => boundPort,
-        pendingVersion: () => pendingCoordinatorVersion,
-      })
-  const prepareCoordinatorUpdate = developmentRuntime.runningFromSource
+  /**
+   * BY CONSTRUCTION, NOT BY PROBE (PDM-26). `canRestartServer` is derived from
+   * `requestCoordinatorRestart` being present (operation.ts), and under
+   * `fleet-only` the deployment replaces this binary itself — so the honest way
+   * to say "there is no server step here" is to not have one, rather than to
+   * rely on a container happening to have no parent supervisor.
+   */
+  const requestCoordinatorRestart = fleetOnly
     ? undefined
-    : createInstalledCoordinatorUpdate({
-        pinnedPubkey: updateSigningKey.publicKey,
-        onInstalled: (version) => {
-          pendingCoordinatorVersion = version
-        },
-      })
+    : developmentRuntime.runningFromSource
+      ? createSourceRedeployRequest({ instanceId })
+      : createInstalledCoordinatorRestart({
+          instanceId,
+          port: () => boundPort,
+          pendingVersion: () => pendingCoordinatorVersion,
+        })
+  const prepareCoordinatorUpdate =
+    fleetOnly || developmentRuntime.runningFromSource
+      ? undefined
+      : createInstalledCoordinatorUpdate({
+          pinnedPubkey: updateSigningKey.publicKey,
+          onInstalled: (version) => {
+            pendingCoordinatorVersion = version
+          },
+        })
   const devPublisher = wireDevBundlePublisher({
     sourceRoot: developmentSourceRoot,
     instanceId,
@@ -767,16 +896,20 @@ export async function startServer(
    * process listing and a pidfile to explain.
    *
    * A packaged coordinator declining is the surprising case and the one worth a
-   * warning; a source checkout is the documented shape and stays at debug.
+   * warning; a source checkout, and a deployment that has DECLARED it owns this
+   * binary (`updateScope: 'fleet-only'`), are documented shapes and stay quiet.
    */
   if (localUpdateParticipant === undefined) {
-    const why = developmentRuntime.runningFromSource
-      ? 'this coordinator runs from source'
-      : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
-        ? 'the local participant is disabled for this run'
-        : 'no supervising parent is discoverable in the run registry'
+    const why = fleetOnly
+      ? 'this deployment owns the server binary (updateScope=fleet-only)'
+      : developmentRuntime.runningFromSource
+        ? 'this coordinator runs from source'
+        : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
+          ? 'the local participant is disabled for this run'
+          : 'no supervising parent is discoverable in the run registry'
     const note = `this machine will not report its build or appear online in its own fleet: ${why}`
-    if (developmentRuntime.runningFromSource) log.debug(note)
+    if (fleetOnly) log.info(note)
+    else if (developmentRuntime.runningFromSource) log.debug(note)
     else log.warn(note)
   }
 
@@ -875,6 +1008,8 @@ export async function startServer(
   const readiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
+    // An env-set mode is this process's mode, and the file cannot contradict it.
+    ...(envMode ? { envMode } : {}),
   })
   let targetsResolvedOnBoot = false
   const app = new Hono()
@@ -888,8 +1023,26 @@ export async function startServer(
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
+  // RESOLVED ONCE, AT BOOT. This is a trust decision — which other origins may
+  // make credentialed calls and open sockets — and re-reading it per request
+  // would let it change under a socket that is already open. Empty on every
+  // install that names nothing, which is what makes both predicates below
+  // behave exactly as they did before this existed (PDM-24).
+  const allowedOrigins: ReadonlySet<string> = new Set(
+    resolveAllowedOrigins(loadConfig(), process.env),
+  )
+  const reportOriginRefusal = originRefusalReporter((message, fields) => log.warn(message, fields))
+  const cors = () => podiumCors({ allowed: allowedOrigins, onRefused: reportOriginRefusal })
+  // BEFORE the route, or Hono never runs it: middleware and handlers share one
+  // ordered list, so middleware registered after its handler is dead code.
+  //
+  // `/version` is how a page decides whether the bundle it is running is still
+  // the one being served (apps/web/src/lib/served-assets.ts). With the UI on its
+  // own host that question crosses an origin, so the answer needs CORS.
+  app.use('/version', cors())
   registerVersionRoute(app, {
     instanceId,
+    appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
     installKind: () => (developmentRuntime.runningFromSource ? 'source' : 'installed'),
@@ -973,8 +1126,8 @@ export async function startServer(
     trustedProxyHops,
   })
   const boundary = readinessBoundary({ readiness, isHostLocal: isHostLocalRequest })
-  app.use('/setup/*', podiumCors())
-  app.use('/readiness', podiumCors())
+  app.use('/setup/*', cors())
+  app.use('/readiness', cors())
   registerReadinessRoute(app, readiness)
   registerSetupRoute(app, {
     readiness,
@@ -985,7 +1138,7 @@ export async function startServer(
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
   // same-origin in the supported network topologies; the password store gates it.
-  app.use('/auth/*', podiumCors())
+  app.use('/auth/*', cors())
   app.use('/auth/*', authReadinessBoundary(readiness))
   let revokeConnectedMobileSession: (credentialId: string) => void = () => {}
   registerAuthRoute(app, {
@@ -1006,11 +1159,16 @@ export async function startServer(
     trustedProxyHops,
     readiness,
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
+    onLogin: (event) => registry.modules.bus.emit('auth.login', event),
   })
   registerMobilePairingRoutes(app, {
     store: store.auth,
     pairing: mobilePairing,
-    serverIdentity: () => ({ publicUrl: loadConfig().publicUrl, instanceId }),
+    serverIdentity: () => ({
+      publicUrl: resolvePublicUrl(loadConfig(), process.env),
+      appUrl: resolveAppUrl(loadConfig(), process.env),
+      instanceId,
+    }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's
     // synthetic first-admin principal must never authorize session mutation.
@@ -1024,6 +1182,12 @@ export async function startServer(
       request.headers.get('x-podium-peer-address') ?? requestPeerAddresses.get(request),
     onCredentialRevoked: (tokenHash) => revokeConnectedMobileSession(tokenHash),
   })
+  // An <img src> or a download link from another origin needs no CORS, but a
+  // fetch() of /files/asset does — and HtmlFilePanel and OpenInBrowserButton
+  // both build asset URLs from the resolved httpOrigin expecting them to be
+  // fetchable. `clientAuthGuard` already passes OPTIONS through, so the
+  // preflight reaches this middleware rather than the login gate.
+  app.use('/files/*', cors())
   app.use('/files/*', boundary)
   app.use('/files/*', guard)
   registerAssetRoute(app, {
@@ -1056,7 +1220,7 @@ export async function startServer(
     // The per-thread token each harness invocation's mcp-config carries (issue #67).
     { resolveThread: (token) => superagent.threadForMcpToken(token) },
   )
-  app.use('/trpc/*', podiumCors())
+  app.use('/trpc/*', cors())
   app.use('/trpc/*', boundary)
   app.use('/trpc/*', async (c, next) => {
     // A host-local first run must remain possible when PODIUM_PASSWORD already
@@ -1169,10 +1333,30 @@ export async function startServer(
   // Routing first so its /mobile fallback middleware owns the dist-absent case;
   // presence is probed per request (the mobile dist may be exported after boot).
   const mobileIndex = mobileWebDir ? join(mobileWebDir, 'index.html') : ''
+  const expoMobilePresent = (): boolean => mobileIndex !== '' && existsSync(mobileIndex)
   registerMobileRouting(app, {
-    expoMobilePresent: () => mobileIndex !== '' && existsSync(mobileIndex),
+    expoMobilePresent,
     redirectPhoneRoot: opts.redirectPhoneRootToMobile ?? true,
     operatorEntryAvailable: () => readiness().dataPlane === 'available',
+    /**
+     * ONLY WHEN THIS SERVER SERVES NO UI AT ALL (PDM-26).
+     *
+     * An API-only deployment has no page to give a browser, so those routes 404
+     * or bounce today and the app URL is the true answer. A server that HAS a
+     * bundle keeps serving it: redirecting away from a working local UI would
+     * take it from the operator standing in front of the box, which is the one
+     * person who most needs it.
+     */
+    appUrl: () =>
+      // A BUNDLE THAT IS ACTUALLY SERVED, not a directory path. `desktopWebDir()`
+      // answers where the dist WOULD be and is a non-empty string in every
+      // compiled binary, whether or not anything is there — so testing it
+      // directly made this accessor return `undefined` on exactly the API-only
+      // deployment the redirects exist for. This is the same predicate `/version`
+      // publishes as `web.present`, which is what a client is told (PDM-34).
+      servedWebIdentity(desktopWebDir()).present || expoMobilePresent()
+        ? undefined
+        : resolveAppUrl(loadConfig(), process.env),
   })
   // crossOriginIsolated: expo-sqlite web needs SharedArrayBuffer for durable
   // OPFS persistence (POD-541). Without these headers the replica degrades to
@@ -1225,37 +1409,43 @@ export async function startServer(
       )
     }
 
-    const ws = attachWebSockets(registry, {
-      readinessForClient: readiness,
-      validateClientCredential: (credentialId) =>
-        maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
-      principalForClient: (request) => {
-        if (
-          request.headers.has('authorization') &&
-          !isSecureRequest(
-            request.url,
-            request.headers.get('x-forwarded-proto') ?? undefined,
-            trustedProxyHops,
-          )
-        ) {
-          return undefined
-        }
-        const headers = {
-          cookieHeader: request.headers.get('cookie') ?? undefined,
-          authorizationHeader: request.headers.get('authorization') ?? undefined,
-        }
-        const credential = resolveClientCredential(store.auth, headers)
-        const principal = requestPrincipal(headers)
-        if (!principal) return undefined
-        const userRole = store.users.roleOf(principal.user)
-        if (!userRole) return undefined
-        return {
-          userId: principal.user,
-          userRole,
-          ...(credential ? { credentialId: credential.tokenHash } : {}),
-        }
+    const ws = attachWebSockets(
+      registry,
+      {
+        readinessForClient: readiness,
+        validateClientCredential: (credentialId) =>
+          maintainClientCredentialByHash(store.auth, credentialId) !== undefined,
+        principalForClient: (request) => {
+          if (
+            request.headers.has('authorization') &&
+            !isSecureRequest(
+              request.url,
+              request.headers.get('x-forwarded-proto') ?? undefined,
+              trustedProxyHops,
+            )
+          ) {
+            return undefined
+          }
+          const headers = {
+            cookieHeader: request.headers.get('cookie') ?? undefined,
+            authorizationHeader: request.headers.get('authorization') ?? undefined,
+          }
+          const credential = resolveClientCredential(store.auth, headers)
+          const principal = requestPrincipal(headers)
+          if (!principal) return undefined
+          const userRole = store.users.roleOf(principal.user)
+          if (!userRole) return undefined
+          return {
+            userId: principal.user,
+            userRole,
+            ...(credential ? { credentialId: credential.tokenHash } : {}),
+          }
+        },
       },
-    })
+      // The same list and the same reporter as the HTTP plane: one statement of
+      // trust, read by both boundaries, so they cannot drift apart.
+      { allowedOrigins, onOriginRefused: reportOriginRefusal },
+    )
     revokeConnectedMobileSession = (sessionId) => ws.revokeClientCredential(sessionId)
 
     let server: Pick<NativeServer<never>, 'port' | 'stop'>
@@ -1285,16 +1475,17 @@ export async function startServer(
 
     settled = true
     boundPort = server.port
-    // The server owns the janitor's worker thread. Construction stays off the
-    // listen path, and the client turns faults/stalls into observable degraded
-    // state plus automatic replacement rather than request-loop failure.
+    // EVERY server process owns a janitor worker thread (PDM-27) — dev,
+    // self-hosted and cloud are the same composition, and there is no mode or
+    // environment that turns it off. Construction stays off the listen path,
+    // and the client turns faults/stalls into observable degraded state plus
+    // automatic replacement rather than request-loop failure.
     void (async () => {
-      if (!opts.startJanitorWorker) return
       const { startJanitorHost } = await import('./janitor-host')
       const startedJanitorHost = await startJanitorHost({
         port: boundPort,
         token: bootstrapToken,
-        startJanitorWorker: opts.startJanitorWorker,
+        ...(opts.janitorWorkerForTests ? { start: opts.janitorWorkerForTests } : {}),
       })
       if (janitorHostClosing) startedJanitorHost.close()
       else janitorHost = startedJanitorHost

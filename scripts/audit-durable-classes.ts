@@ -181,7 +181,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     kind: 'runtime-table',
     row: null,
     notEntityState:
-      'An FTS5 index over the `conversations` row, created per boot and rebuilt from it. It is a derived read structure, not durable truth: dropping it costs a reindex and loses nothing that is not in the table it indexes.',
+      'An FTS5 index over the `conversations` row, created per boot when the `command-palette` flag is on and rebuilt from the table. It is a derived read structure, not durable truth: dropping it costs a reindex and loses nothing that is not in the table it indexes.',
     writeSites: [],
   },
   {
@@ -189,7 +189,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
     kind: 'runtime-table',
     row: null,
     notEntityState:
-      'An FTS5 index over mirrored transcript text, created per boot from the segments and the lake. Derived read structure, rebuilt from its sources; the classified state is `conversation_segments` and the blobs it points at.',
+      'An FTS5 index over mirrored transcript text, created per boot from the segments and the lake when the `command-palette` flag is on. Derived read structure, rebuilt from its sources; the classified state is `conversation_segments` and the blobs it points at.',
     writeSites: [],
   },
   {
@@ -273,6 +273,7 @@ export const DURABLE_STORES: readonly DurableStore[] = [
   { store: 'locks', kind: 'drizzle-table', row: 'advisory-locks' },
   { store: 'lock_waiters', kind: 'drizzle-table', row: 'advisory-locks' },
   { store: 'approval_requests', kind: 'drizzle-table', row: 'approval-requests' },
+  { store: 'pending_interactions', kind: 'drizzle-table', row: 'pending-interactions' },
   { store: 'automations', kind: 'drizzle-table', row: 'automations-and-runs' },
   { store: 'automation_runs', kind: 'drizzle-table', row: 'automations-and-runs' },
   { store: 'maintenance_leases', kind: 'drizzle-table', row: 'maintenance-lease' },
@@ -486,7 +487,7 @@ export const NON_CLASS_WRITE_SITES: readonly { readonly file: string; readonly r
         'The SQLite driver seam itself — it opens whatever database it is handed. The classes live in the tables, and the callers that own those tables are the entries above.',
     },
     {
-      file: 'apps/janitor/src/janitor.ts',
+      file: 'packages/janitor/src/janitor.ts',
       reason:
         'Opens the server database READ-ONLY to observe expiry, and writes through the maintenance lease/command rows, which are classified. It introduces no store of its own.',
     },

@@ -1,0 +1,152 @@
+ok  server pid=777302 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 5c5a4d5
+  ok  daemon pid=777674 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 5c5a4d5
+  ok  exactly one daemon (pid 777674) on state root /tmp/pod-2777/state
+  ok  worktree at 5c5a4d5479f5ff2f07e94d9311a534bd8f921361, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 5c5a4d5
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"5c5a4d5479f5ff2f07e94d9311a534bd8f921361","short":"5c5a4d5","spawnedSha":"5c5a4d5479f5ff2f07e94d9311a534bd8f921361","serverPid":777302,"daemonPid":777674,"webSourceSha":"5c5a4d5","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 5c5a4d5479f5ff2f07e94d9311a534bd8f921361 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=headless  expecting driver 'codex-app-server'
+PIN                5c5a4d5479f5ff2f07e94d9311a534bd8f921361 (web bundle 5c5a4d5, server pid 777302, daemon pid 777674)
+==============================================================================
+session 642f73ae-3bf2-4784-b8cf-ce08a246d629 created; giving the harness 25000ms to come up
+BOUND DRIVER       codex-app-server (family server)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 2.5s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-BZ1LXP. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-BZ1LXP — a blank session cannot produce this by luck
+   REPLY             arrived after 2543ms
+   ASSISTANT TEXT    13 chars: "PODIUM-BZ1LXP"
+   ELAPSED           2902ms
+
+── attach — attach a file
+   FAIL  text refused as declared, and the image it does declare was not read back
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   TEXT REFUSED      reason=unsupported detail=Codex accepts image attachments only
+                     a TYPED refusal honouring the driver's own declaration — the
+                     contract working, not a defect. So the probe attached the kind
+                     this driver DOES declare instead of stopping there.
+   IMAGE STAGED      /tmp/pod-2777/state/uploads/642f73ae-3bf2-4784-b8cf-ce08a246d629/68aa00d8-6b2e-4e03-902b-72c8eb395b70.png (4801 bytes, 960x264 RGB PNG)
+   SECRET IN PIXELS  663332 — drawn into the image, present nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+   READ BACK         no
+
+── interaction — a pending interaction (permission / approval)
+   BLOCKED  no ask — this harness ran the tool without asking (permissive posture)
+   control: FIRED — 4 new transcript item(s) after the prompt; 8 delta frame(s) total
+   INTERACTIONS.LIST empty for this session after 21s
+   TOOL CALLS SEEN   Bash
+   BLOCKED, NOT FAILED: the harness approved its own tool call, so the
+   product was never handed an ask to surface. That is a fact about this
+   rig's permission posture, not about the product's ask plane.
+
+── model-switch — model / effort switch
+   BLOCKED  no product surface exists to switch model or effort mid-session
+   control: FIRED — model=(unset) observedModel=(none)
+   REQUESTED MODEL   (session default)
+   OBSERVED MODEL    (none — renders "requested, not yet observed")
+   OBSERVED EFFORT   (none)
+   DECLARATION       codex: configure unsupported ("model and effort are set at
+                     thread start and per turn"); opencode: unsupported; terminal:
+                     unsupported ("a TUI takes its model at launch"); grok: supported
+                     for permissionMode ONLY, explicitly not model/effort.
+   PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText
+                     carries no per-turn model or effort override either.
+   READING           the declaration and the behaviour agree, and the product does
+                     not offer a switch it cannot honour. Nothing is broken and
+                     nothing is proven — the cell is empty on BOTH arms, so this is
+                     not a way in which headless is better or worse.
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   PASS  78 preview frames, 96→1830 chars, monotonic per row
+   control: FIRED — 1 frame(s), first at +19ms
+   JOINED            8679ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)
+   PHASE AT JOIN     working — a turn was in flight when the viewer arrived
+   PREVIEW FRAMES    78
+   FIRST             +19ms  epoch=3 seq=50 rows=3 chars=96
+   LAST              +9216ms  epoch=4 seq=512 rows=1 chars=1830
+   GROWTH            76/77 transitions increased the visible character count
+   MONOTONIC/ROW     YES — no row ever shrank
+   FINE WATCH        ACQUIRED — the daemon moved the driver's fine refcount for this session
+   FRAME TYPES       turnPreview=78 hostMetricsChanged=6 sessionDraftChanged=5 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1
+
+── interrupt — interrupt a running turn
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — none; phase=working, 0 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   CONTROL WATCHED   the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+   CONTROL SAW       none; phase=working, 0 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — could not get a running turn to interrupt
+   REFUSING to report it, including as a failure.
+
+── stop — stop (the session — the turn-scoped stop is absent from the contract)
+   PASS  session left its running state 24ms after stop (status=hibernated)
+   control: FIRED — present, status=live phase=working
+   BEFORE            status=live phase=working
+   STOP RETURNED     {"ok":true,"worktreeFreed":false,"deferredKill":false}
+   AFTER             status=hibernated phase=working
+   VERIFIED IN       24ms
+   NOTE              this is sessions.stop (the SESSION). The catalogue records
+                     "stop this turn, keep the session" as ABSENT from the contract
+                     on all four drivers; this drive does not pretend otherwise.
+
+── resume — resume after a kill
+   PASS  THIS conversation came back — REMEMBER-G9BMBG recalled, original exchange intact, same pointer
+   control: FIRED — the session repeated REMEMBER-G9BMBG before it was parked
+   SECRET            REMEMBER-G9BMBG — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":true}; PARKED after 23ms (status=hibernated)
+   RESURRECT         {"ok":true}
+     → back live?    NO — status=exited
+   RESUMEANDSEND     {"ok":true,"queued":true,"disposition":"queued"}
+     → back live?    YES after 3283ms
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret came back after 3529ms
+   SAME CONVERSATION YES — pointer conv_a96e7bc9-4a38-449b- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+── provider-error — a provider error surfaced honestly
+   BLOCKED  no accepted-then-never-settles fault is known for codex
+   control: FIRED — probe 1 PASSED, so a failure in this probe is attributable to the injected fault
+   HARNESS           codex
+   The fault this cell needs is one the provider ACCEPTS and then never
+   settles — opencode/laguna-s-2.1-free does that on opencode (retired
+   from the gateway: binds, marked live, ACCEPTED with a turnEpoch, then
+   silence; POD-2604). No equivalent is known for this harness, and a
+   nonsense model string is NOT one: opencode ignored it entirely and
+   answered normally, which measures nothing about error surfacing.
+   n/a with the reason beats a fault that does not fire.
+
+==============================================================================
+RESULT  codex / headless / driver=codex-app-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 2.5s
+attach          FAIL      fired     text refused as declared, and the image it does declare was not read back
+interaction     BLOCKED   fired     no ask — this harness ran the tool without asking (permissive posture)
+model-switch    BLOCKED   fired     no product surface exists to switch model or effort mid-session
+stream          PASS      fired     78 preview frames, 96→1830 chars, monotonic per row
+interrupt       REFUSED   MISSING   control did not fire — refusing to report this measurement
+stop            PASS      fired     session left its running state 24ms after stop (status=hibernated)
+resume          PASS      fired     THIS conversation came back — REMEMBER-G9BMBG recalled, original exchange intact, same pointer
+provider-error  BLOCKED   fired     no accepted-then-never-settles fault is known for codex
+==============================================================================
+written /tmp/pod-2777/results/codex.headless.json

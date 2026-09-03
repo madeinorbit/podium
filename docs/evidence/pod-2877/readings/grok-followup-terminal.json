@@ -1,0 +1,73 @@
+{
+  "instance": "grok2877",
+  "arm": "terminal",
+  "results": [
+    {
+      "id": "A10",
+      "arm": "terminal",
+      "verdict": "PASS",
+      "summary": "generic-pty override demoted the logged-in Grok session to the terminal driver",
+      "control": {
+        "fired": true,
+        "what": "the fresh session binding receipt, which exists independently of model output",
+        "detail": "driver=generic-pty family=terminal session=eccecb96-61ff-44a0-8b54-526e9f593b9e"
+      },
+      "evidence": [
+        "SESSION           eccecb96-61ff-44a0-8b54-526e9f593b9e",
+        "DRIVER            generic-pty",
+        "FAMILY            terminal",
+        "EXPECTATION       generic-pty terminal demotion",
+        "MATCH             true"
+      ],
+      "data": {
+        "driverId": "generic-pty",
+        "driverFamily": "terminal",
+        "serverFamily": false,
+        "grokServer": false,
+        "genericOverride": true,
+        "terminalFamily": true,
+        "expected": true
+      },
+      "cwd": "/tmp/pod-2877-grok-followup/cells/terminal-a10",
+      "memoryMb": 3094,
+      "pin": "PIN OK row=A10 arm=terminal instance=grok2877 serverPid=2635415 daemonPid=2636509 serverSha=93e5312134ef67e53a16cefc6f82316fff7e6fab webSourceSha=93e5312 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "eccecb96-61ff-44a0-8b54-526e9f593b9e"
+      ],
+      "at": "2026-08-26T13:20:54.098Z"
+    },
+    {
+      "id": "B-provider-error",
+      "arm": "terminal",
+      "verdict": "PASS",
+      "summary": "exhausted-quota provider fault surfaced with explicit quota/rate/limit wording",
+      "control": {
+        "fired": true,
+        "what": "the fresh authenticated session binding receipt before the exhausted-quota turn",
+        "detail": "driver=generic-pty family=terminal session=485d977e-f593-4a8f-84bf-d003a6c155dd"
+      },
+      "evidence": [
+        "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+        "FAULT VISIBLE     true after 636ms",
+        "ROW               {\"sessionId\":\"485d977e-f593-4a8f-84bf-d003a6c155dd\",\"agentKind\":\"grok\",\"accountId\":\"native:claude-code\",\"title\":\"grok\",\"cwd\":\"/tmp/pod-2877-grok-followup/cells/terminal-b-provider-error\",\"status\":\"live\",\"controllerId\":\"c1\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,\"clientCount\":1,\"createdAt\":\"2026-08-26T13:20:55.897Z\",\"lastActiveAt\":\"2026-08-26T13:20:55.897Z\",\"origin\":{\"kind\":\"spawn\"},\"archived\":false,\"readAt\":null,\"unread\":true,\"machineId\":\"4c0070fa-e5b2-4c6b-a10e-efc504c11670\",\"machineName\":\"flatblock\",\"resumable\":true,\"resume\":{\"kind\":\"grok-session\",\"value\":\"19c4405e-91c0-4b04-809e-bc16808774d2\"},\"driverId\":\"generic-pty\",\"driverFamily\":\"terminal\",\"conversationPodiumId\":\"conv_da75fd3d-85ba-4c12-9a37-eba3b1eee915\",\"spawnedBy\":\"user\",\"createdBy\":{\"actor\":{\"kind\":\"user\",\"id\":\"user:sole\"},\"onBehalfOf\":\"user:sole\"},\"harnessHandoff\":false,\"harnessPromptModeHints\":false}",
+        "ASSISTANT         ",
+        "SCREEN            rl+qGrok 4.6 is here!Select'Grok4.6'under/model.HelpimproveGrok[Optout][Optin]Offbydefault.Opt-intoallowSpaceXAItoretaincodingdata,e.g.,prompts,traces,&metrics,fortraininganddebuggingpurposes.Changeanytimeviasettings.ReadTermsandPrivacy Policy.Grok4.6(high)Grok Build  0.2.118[stable] Beta                                                                                                     Shift+Tab:mode    Ctrl+x:shortcuts                                Replywithexactlythiswordandnothingelse:QUOTA-1RML99.Enter:send   Alt+Enter:newline    Shift+Tab:mode    Ctrl+x:shortcuts+1#1Replywithexactlythiswordandnothingelse:QUOTA-1RML99.Startingsession0.0s                              Help improve Grok                                  [Optout][Optin]Off by default. Opt-in to allow SpaceXAI toretain codingata, e.., prmpts, tracs, & metrics, for trainingand                                                     Weekly limit left: 0% Shift+Tab:mode   Ctrl+;:queue  Ctrl+x:shortcuts                    1234",
+        "QUOTA WORDING     true"
+      ],
+      "data": {
+        "faultVisible": true,
+        "namesQuota": true,
+        "elapsed": 636,
+        "driverId": "generic-pty",
+        "driverFamily": "terminal"
+      },
+      "cwd": "/tmp/pod-2877-grok-followup/cells/terminal-b-provider-error",
+      "memoryMb": 2944,
+      "pin": "PIN OK row=B-provider-error arm=terminal instance=grok2877 serverPid=2635415 daemonPid=2636509 serverSha=93e5312134ef67e53a16cefc6f82316fff7e6fab webSourceSha=93e5312 driver=generic-pty state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "485d977e-f593-4a8f-84bf-d003a6c155dd"
+      ],
+      "at": "2026-08-26T13:21:12.522Z"
+    }
+  ]
+}

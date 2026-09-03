@@ -333,6 +333,18 @@ export function decideWave(ctx: {
   platforms?: readonly string[]
   /** Which key the target requires; absent means the baked release key. */
   trust?: UpdateTrustRoot
+  /**
+   * THE COORDINATOR IS NOT OURS TO REPLACE (PDM-26, `updateScope: 'fleet-only'`).
+   *
+   * Distinct from the `coordinator-last` hold below, and the difference is the
+   * point: holding says "this machine goes at the end", excluding says "this
+   * machine is not part of this rollout at all". Under `fleet-only` the
+   * deployment replaces the server binary out-of-band — a container image, a CI
+   * deploy — so a HELD coordinator would sit in the plan forever waiting for a
+   * step nothing will ever take, and a fleet whose only machine is the
+   * coordinator would report a finished rollout that did nothing.
+   */
+  coordinatorExcluded?: boolean
 }): WaveDecision {
   const gate = ctx.canaryHealthy ? 'widen' : 'canary'
   const inFlight = ctx.machines.filter((machine) => IN_FLIGHT.has(machine.state)).length
@@ -374,7 +386,12 @@ export function decideWave(ctx: {
    * machine is proved without risking the server that has to watch the proof.
    */
   const withoutCoordinator = eligible.filter((machine) => machine.coordinator !== true)
-  if (withoutCoordinator.length !== eligible.length) {
+  if (ctx.coordinatorExcluded === true) {
+    // Not held, not reported: this deployment's server is simply not a machine
+    // this planner can act on. It is deliberately absent from `held` too — a
+    // hold is something a human can wait out, and this one never resolves.
+    eligible = withoutCoordinator
+  } else if (withoutCoordinator.length !== eligible.length) {
     const othersConverging =
       withoutCoordinator.length > 0 ||
       ctx.machines.some((machine) => machine.coordinator !== true && IN_FLIGHT.has(machine.state))
@@ -415,6 +432,7 @@ export function planWave(ctx: {
   deliveries?: readonly string[]
   platforms?: readonly string[]
   trust?: UpdateTrustRoot
+  coordinatorExcluded?: boolean
 }): string[] {
   return decideWave(ctx).selected
 }

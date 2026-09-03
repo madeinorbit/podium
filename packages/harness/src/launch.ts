@@ -25,8 +25,9 @@ export function agentLaunchCommand(kind: AgentKind, opts: LaunchOptions): Launch
   if (kind === 'shell') {
     // SHELL is the user's stated preference everywhere it's set (including git-bash on
     // Windows). Windows normally doesn't set it — COMSPEC is the OS's own equivalent.
-    const fallback = process.platform === 'win32' ? process.env.COMSPEC || 'cmd.exe' : '/bin/bash'
-    const shell = process.env.SHELL || fallback
+    const env = opts.env ?? process.env
+    const fallback = process.platform === 'win32' ? env.COMSPEC || 'cmd.exe' : '/bin/bash'
+    const shell = env.SHELL || fallback
     return { cmd: shell, args: [], cwd: opts.cwd }
   }
   const adapter = harnessAdapterFor(kind)

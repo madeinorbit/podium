@@ -1,0 +1,46 @@
+driver: opencode-server phase: idle
+send: {"ok":true,"disposition":"delivered"}
+  +5s phase=working previews=0 chars=0 err=-
+  +10s phase=working previews=21 chars=0 err=-
+  +15s phase=working previews=23 chars=0 err=-
+  +20s phase=working previews=23 chars=0 err=-
+  +25s phase=working previews=23 chars=0 err=-
+  +30s phase=working previews=23 chars=0 err=-
+  +35s phase=working previews=23 chars=0 err=-
+  +40s phase=working previews=23 chars=0 err=-
+  +45s phase=working previews=23 chars=0 err=-
+  +50s phase=working previews=23 chars=0 err=-
+  +55s phase=working previews=23 chars=0 err=-
+  +60s phase=working previews=23 chars=0 err=-
+EXIT=0
+
+--- THE CONTROL: the identical prompt, direct opencode, same isolated HOME, no Podium ---
+$ HOME=/tmp/pod-2777/state/agent-home opencode run \
+    "Count from 1 to 200, one number per line, each with a short sentence. No tools."
+  > build · gpt-5.6-luna
+  ...
+  196. One hundred ninety-six is fourteen squared.
+  197. One hundred ninety-seven is prime.
+  198. One hundred ninety-eight comes next.
+  199. One hundred ninety-nine is prime.
+  200. Two hundred completes the count.
+  exit=0   (ran to completion)
+
+A short prompt through the same path also answers correctly:
+$ HOME=... opencode run "Reply with exactly the word DIRECTSHORT and nothing else."
+  DIRECTSHORT
+  exit=0
+
+READING: the provider generates 200 lines on demand. Through Podium the same
+prompt produces a burst of 23 preview frames in the first 15s, then nothing:
+phase stays `working`, the durable transcript stays at ZERO characters, and no
+error ever arrives. Short prompts through Podium do complete and do write durable
+text (the reply and attach cells pass on this harness), so this is specific to a
+long turn, not to the harness being dead.
+
+WHY THIS BLOCKS THE INTERRUPT CELL: the interrupt row's control requires the turn
+to be observed IN FLIGHT immediately before the call — because interrupting
+nothing always looks like success. A turn that is stalled rather than generating
+cannot satisfy that, so the cell is REFUSED rather than scored. Reporting FAIL
+here would be reporting that interrupt is broken on the strength of a turn that
+was not running.

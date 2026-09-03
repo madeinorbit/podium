@@ -13,6 +13,32 @@
  * not.
  *
  * ---------------------------------------------------------------------------
+ * AND A MEMORY BOUND, WHICH THE CPU TIER IS NOT (POD-2472)
+ * ---------------------------------------------------------------------------
+ *
+ * The scope above bounded a build's CPU and nothing else: no `MemoryMax`, no
+ * swap bound, no OOM policy, and no slice. That is the same unbounded shape
+ * agent sessions had before POD-2413, on the same live host, and it fails the
+ * same way — a compile that wants more than the box has does not fail, it pages
+ * the box into the ground, and the kernel's OOM killer then picks its victim by
+ * badness score, which on this machine is as likely to be an agent or the
+ * daemon as the build.
+ *
+ * So a build now runs in `podium[-<instance>]-builds.slice` with the budget
+ * `@podium/runtime/scope` derives for it: `MemoryMax`, `MemorySwapMax=0`,
+ * `TasksMax`, `OOMPolicy=continue`, and deliberately NO `MemoryHigh` — a `High`
+ * throttles rather than kills, and a wedged build holding the update lock is
+ * worse than a failed one. The slice is a SIBLING of the sessions slice, not a
+ * member: the reclaim policy parks agents on that slice's pressure, and a build
+ * inside it would make every redeploy look like agents starving.
+ *
+ * What an over-budget build looks like from here, driven end to end on this host
+ * against a hog under a 256 MiB cap: the kernel SIGKILLs the build, `--scope`
+ * having exec'd it in place so the signal reaches the process this module waits
+ * on, and the rejection names the cap ({@link describeBuildExit}). The update
+ * path reports a build failure, which is what an operator can act on.
+ *
+ * ---------------------------------------------------------------------------
  * SCOPE, NOT SERVICE — measured on ludovico (systemd 255), 2026-08-13
  * ---------------------------------------------------------------------------
  *
@@ -57,6 +83,15 @@
 import { spawn, spawnSync } from 'node:child_process'
 import { existsSync } from 'node:fs'
 import { createLogger } from '@podium/logger'
+import { instanceBuildSliceName } from '@podium/runtime/instance'
+import {
+  buildsSliceBudgetArgv,
+  resolveBuildBudget,
+  resolveBuildsSliceBudget,
+  type ScopeBudget,
+  type ScopeBudgetEnv,
+  scopeBudgetProperties,
+} from '@podium/runtime/scope'
 
 const log = createLogger('server:updates')
 
@@ -77,25 +112,42 @@ export function devBuildScopeUnit(role: string, instanceId: string): string {
 }
 
 /**
- * argv for `systemd-run` that runs `command` in its own batch-tier scope.
+ * argv for `systemd-run` that runs `command` in its own batch-tier, budgeted
+ * scope inside the instance's builds slice.
+ *
  * Properties must precede the `--` separator or systemd-run reads them as
- * arguments to the command.
+ * arguments to the command — which is why the budget is spliced in HERE and not
+ * appended by a caller.
+ *
+ * WHY THIS IS NOT `systemdScopeArgv` (`packages/pty/src/abduco.ts`), which
+ * assembles the same kind of argv for a session scope. POD-2413's reviewer
+ * would rather one builder existed, and that is a fair thing to want. What the
+ * two share is four constant flags; what they do not share is every line that
+ * carries policy — a session takes CPUWeight=50/IOWeight=100 and no quota, a
+ * build takes IOWeight=50 under a hard `CPUQuota` and a description, and the
+ * budgets come from different resolvers. Unifying them means a builder
+ * parameterised on each of those axes, which is one function answering two
+ * questions and the shape that lets a session's policy change quietly alter a
+ * build's. The BUDGET is shared, in `@podium/runtime/scope`, because that is
+ * the part where drift would actually hurt.
  */
 export function devBuildScopeArgv(
   unit: string,
   command: readonly string[],
-  opts: { description?: string } = {},
+  opts: { description?: string; slice?: string; budget?: ScopeBudget } = {},
 ): string[] {
   return [
     '--user',
     '--scope',
     '--collect',
     '--quiet',
+    `--slice=${opts.slice ?? instanceBuildSliceName()}`,
     `--unit=${unit}`,
     ...(opts.description ? [`--description=${opts.description}`] : []),
     `--property=CPUWeight=${DEV_BUILD_CPU_WEIGHT}`,
     `--property=IOWeight=${DEV_BUILD_IO_WEIGHT}`,
     `--property=CPUQuota=${DEV_BUILD_CPU_QUOTA}`,
+    ...scopeBudgetProperties(opts.budget ?? resolveBuildBudget()),
     '--',
     ...command,
   ]
@@ -158,6 +210,14 @@ export function resetDevBuildScopeProbe(): void {
 export interface LowTierBuild {
   /** Deterministic transient unit name; reclaimed before launch. */
   unit: string
+  /**
+   * The instance's builds slice. Carried beside the unit rather than derived
+   * here, because the unit name is already instance-derived at the call site
+   * and a slice resolved separately could name a DIFFERENT instance — which
+   * would put one instance's build under another's aggregate cap. Defaults to
+   * this process's instance for callers that have no instance in hand.
+   */
+  slice?: string
   description?: string
   command: string
   args: readonly string[]
@@ -197,8 +257,79 @@ export function lowTierSpawnPlan(
     file: 'systemd-run',
     args: devBuildScopeArgv(build.unit, [build.command, ...build.args], {
       ...(build.description ? { description: build.description } : {}),
+      ...(build.slice ? { slice: build.slice } : {}),
+      // The BUILD's env, not the process's: it is the env the build actually
+      // runs with, so the cap the scope carries is the cap the failure message
+      // later names.
+      budget: resolveBuildBudget(build.env),
     }),
   }
+}
+
+/**
+ * What to say when a build does not finish.
+ *
+ * THE KILL ARRIVES AS A SIGNAL, NOT AS A CODE — measured by driving this path
+ * against a hog under a 256 MiB cap. `systemd-run --scope` execs the build in
+ * place, so the process this module waits on IS the build: the kernel's SIGKILL
+ * reaches it directly and node reports `code: null, signal: 'SIGKILL'`. A shell
+ * would have shown 137 and the old message said "exited with status unknown",
+ * which names neither the kill nor the cap — the operator's two facts. (137 is
+ * still accepted here: a build the fallback path runs through a wrapper reports
+ * it that way.)
+ *
+ * BOTH CAPS, BECAUSE ONLY THE KERNEL KNOWS WHICH ONE BOUND. Two limits can end
+ * a build: its own scope's `MemoryMax` and the builds slice's aggregate. When
+ * the SLICE cap is the binding one the kernel still attributes the kill to the
+ * scope unit, so an earlier version of this message named the per-scope cap and
+ * prescribed `PODIUM_BUILD_MEMORY_MAX` — a number the build never reached and a
+ * knob that could not help. Reproduced by POD-2472's reviewer with two
+ * concurrent builds under a tight slice cap: the victim died at a 378 MiB peak
+ * and was told to raise a 500 MiB scope limit. An 8 GiB host hides it, because
+ * there the two caps are the same number.
+ *
+ * So the message states every bound that is set and points at the peak, which
+ * is the fact that separates them. Naming both is deliberate over guessing one:
+ * `--collect` removes the scope the moment its last process exits, so its
+ * `memory.peak` is gone before this line runs, and a guess that reads "no OOM
+ * here" because the cgroup already vanished is worse than an honest pair.
+ * systemd's own journal line for the unit records both the OOM kill and the
+ * peak, and it is already where operators look.
+ */
+export function describeBuildExit(
+  command: string,
+  exit: { status: number | null; signal?: NodeJS.Signals | null },
+  budget: ScopeBudget,
+  sliceBudget: ScopeBudget = {},
+): string {
+  const base = exit.signal
+    ? `${command} was killed by ${exit.signal}`
+    : `${command} exited with status ${exit.status ?? 'unknown'}`
+  const killed = exit.signal === 'SIGKILL' || exit.status === 137
+  if (!killed) return base
+
+  const bounds: string[] = []
+  if (budget.memoryMaxBytes !== undefined) {
+    bounds.push(`this build at ${formatCap(budget.memoryMaxBytes)} (PODIUM_BUILD_MEMORY_MAX)`)
+  }
+  if (sliceBudget.memoryMaxBytes !== undefined) {
+    bounds.push(
+      `all concurrent builds at ${formatCap(sliceBudget.memoryMaxBytes)} (PODIUM_BUILDS_MEMORY_MAX)`,
+    )
+  }
+  if (bounds.length === 0) return base
+  const swapOff = budget.memorySwapMaxBytes === 0 || sliceBudget.memorySwapMaxBytes === 0
+  return (
+    `${base} — memory is capped: ${bounds.join(', ')}${swapOff ? ', and swap is disabled' : ''}. ` +
+    "The unit's journal line records the peak, which says which bound it hit."
+  )
+}
+
+/** MiB below a GiB: an operator who set `256M` reads their own number back. */
+function formatCap(bytes: number): string {
+  return bytes < 1024 ** 3
+    ? `${Math.round(bytes / 1024 ** 2)} MiB`
+    : `${(bytes / 1024 ** 3).toFixed(1)} GiB`
 }
 
 function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv): Promise<void> {
@@ -222,12 +353,15 @@ function runQuietly(file: string, args: string[], env: NodeJS.ProcessEnv): Promi
 export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
   const scoped = canScopeDevBuild()
   const env = scoped ? scopeEnv(build.env) : build.env
+  const budget = scoped ? resolveBuildBudget(build.env) : {}
+  const sliceBudget = scoped ? resolveBuildsSliceBudget(build.env) : {}
   if (scoped) {
+    await applyBuildsSliceBudget(build.slice ?? instanceBuildSliceName(), build.env, env)
     for (const args of devBuildScopeReclaimArgvs(build.unit)) {
       await runQuietly('systemctl', args, env)
     }
   } else if (process.platform === 'linux' && !process.env.PODIUM_NO_SCOPE) {
-    log.warn("no systemd user manager reachable; this build runs at the server's CPU tier", {
+    log.warn("no systemd user manager reachable; this build runs UNBOUNDED at the server's tier", {
       unit: build.unit,
     })
   }
@@ -235,9 +369,56 @@ export async function runLowTierBuild(build: LowTierBuild): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(plan.file, plan.args, { cwd: build.cwd, env, stdio: 'inherit' })
     child.once('error', reject)
-    child.once('close', (status) => {
+    child.once('close', (status, signal) => {
       if (status === 0) resolve()
-      else reject(new Error(`${build.command} exited with status ${status ?? 'unknown'}`))
+      else {
+        reject(new Error(describeBuildExit(build.command, { status, signal }, budget, sliceBudget)))
+      }
     })
+  })
+}
+
+/**
+ * Put the aggregate cap on the instance's builds slice, best-effort.
+ *
+ * Once per build rather than once at boot, and idempotent: the slice is
+ * transient, so it is GC'd whenever no build is live and takes its runtime
+ * properties with it. Setting it here means the cap is in force for the build
+ * about to start — verified on this host that `set-property --runtime` applies
+ * to a slice with no members yet and survives into the first scope launched
+ * into it. A failure is not fatal: every build scope still carries its own
+ * `MemoryMax`, so losing the aggregate loses the bound on CONCURRENT builds,
+ * not the bound.
+ *
+ * BUT IT IS SAID OUT LOUD. `runQuietly` (right for the reclaim calls beside it,
+ * where "no such unit" is the normal answer) resolves on a non-zero exit too,
+ * which left a refused `set-property` with no trace anywhere — the operator
+ * would learn that concurrent builds were unbounded only from the outage. The
+ * degraded state is worth one warn line.
+ */
+async function applyBuildsSliceBudget(
+  slice: string,
+  buildEnv: ScopeBudgetEnv,
+  env: NodeJS.ProcessEnv,
+): Promise<void> {
+  const argv = buildsSliceBudgetArgv(slice, resolveBuildsSliceBudget(buildEnv))
+  const status = await runReporting('systemctl', argv, env)
+  if (status === 0) return
+  log.warn('could not bound the builds slice; concurrent builds are capped only per build', {
+    slice,
+    status,
+  })
+}
+
+/** Like {@link runQuietly}, but the caller is told how it went. */
+function runReporting(
+  file: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+): Promise<number | null> {
+  return new Promise((resolve) => {
+    const child = spawn(file, args, { stdio: 'ignore', env })
+    child.once('error', () => resolve(null))
+    child.once('close', (status) => resolve(status))
   })
 }

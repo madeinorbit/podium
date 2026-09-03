@@ -55,6 +55,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
+import { instanceBuildSliceName } from '@podium/runtime/instance'
 import { type ServedWebIdentity, servedWebIdentity } from '../../web-bundle-stamp'
 import { devBuildCommand, devBuildScopeUnit, runLowTierBuild } from './build-scope'
 
@@ -191,6 +192,7 @@ export function createDevWebBuilder(deps: DevWebBuilderDeps): DevWebBuilder {
     ((step: { role: string; label: string; args: readonly string[] }, appVersion?: string) =>
       runLowTierBuild({
         unit: devBuildScopeUnit(step.role, deps.instanceId),
+        slice: instanceBuildSliceName(deps.instanceId),
         description: `Podium development web build (${step.label})`,
         command: devBuildCommand(process.env),
         args: step.args,

@@ -1,9 +1,23 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type {
+  CodexRuntimeHost,
+  CodexTransport,
+  GrokAcpRuntimeHost,
+  GrokAcpTransport,
+} from '@podium/agent-runtime'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
@@ -36,7 +50,19 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
+import type { DaemonContext } from './control/context'
+import { launchServerDriverSession, sessionHandlers } from './control/session'
+import { runtimeHandlers } from './runtime/handlers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import {
+  codexAppServerVersionProbe,
+  resetCodexAppServerVersionProbe,
+} from './runtime/codex-app-server'
+import { createDaemonCodexRuntime } from './runtime/codex-driver'
+import { createDaemonMachineRuntime } from './runtime/machine-runtime'
+import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
+import { createDaemonGrokRuntime } from './runtime/grok-driver'
+import { createVersionProbeCache } from './runtime/version-probe'
 import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
@@ -304,6 +330,39 @@ describe('daemon multi-bridge', () => {
     }
   }
 
+  /**
+   * POD-2290: the DECISION has to reach the server before the LAUNCH does.
+   *
+   * `bind` already carries the driver and carries it too late — it is the frame
+   * that marks a session live, so on the drive instance an `opencode` session
+   * went twelve seconds with no driver fact at all while its server booted. The
+   * web panel has to choose a view during that window, and with nothing to go on
+   * it chose the terminal, which for a server-family session is a pane that can
+   * never attach.
+   *
+   * Asserted as an ORDER, not a presence: a `driverSelected` that arrived after
+   * `bind` would satisfy every "is the field there" check and fix nothing.
+   */
+  it('announces the selected driver BEFORE the bind that follows it', async () => {
+    send({ type: 'spawn', sessionId: 'sel1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sel1'))
+    const order = received
+      .filter(
+        (m) =>
+          (m.type === 'driverSelected' || m.type === 'bind') &&
+          (m as { sessionId?: string }).sessionId === 'sel1',
+      )
+      .map((m) => m.type)
+    expect(order[0]).toBe('driverSelected')
+    const selected = received.find(
+      (m) => m.type === 'driverSelected' && (m as { sessionId?: string }).sessionId === 'sel1',
+    ) as { driverId?: string } | undefined
+    // Claude Code declares no server driver, so it never reaches a probe: the
+    // answer is its terminal driver and it is knowable without starting
+    // anything, which is why this arrives first.
+    expect(selected?.driverId).toBe('claude-pty')
+  })
+
   it('spawns independent bridges and tags bind + frames by sessionId', async () => {
     send({ type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     send({ type: 'spawn', sessionId: 's2', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
@@ -320,7 +379,14 @@ describe('daemon multi-bridge', () => {
   // names the session at spawn, which both makes grok create it at boot and lets
   // the observer bind it without waiting for the user to type. [POD-386]
   it('mints a native session id for a fresh grok spawn and binds it immediately', async () => {
-    send({ type: 'spawn', sessionId: 'g1', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    send({
+      type: 'spawn',
+      sessionId: 'g1',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      runtimeContract: 'generic-pty',
+    })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'g1'))
 
     const minted = launchOpts.at(-1)?.newSessionId
@@ -977,6 +1043,734 @@ describe('daemon multi-bridge', () => {
     // and (with the fix) removeSessionUploads is called before agentExit.
     await waitFor(() => received.some((m) => m.type === 'agentExit' && m.sessionId === sessionId))
     expect(existsSync(uploadDir)).toBe(false)
+  })
+})
+
+type DefaultServerTransport = CodexTransport | GrokAcpTransport
+
+function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport {
+  let handler: { line(line: string): void; closed(): void } | undefined
+  const reply = (id: string | number, result: unknown): void => {
+    const frame = kind === 'codex' ? { id, result } : { jsonrpc: '2.0', id, result }
+    handler?.line(JSON.stringify(frame))
+  }
+  return {
+    write(line) {
+      const frame = JSON.parse(line) as { id?: string | number; method?: string }
+      if (frame.id === undefined || frame.method === undefined) return
+      if (kind === 'codex') {
+        const result =
+          frame.method === 'initialize'
+            ? { userAgent: 'fixture', codexHome: '/fixture/.codex' }
+            : frame.method === 'thread/start'
+              ? { thread: { id: 'fixture-codex-thread', path: null } }
+              : frame.method === 'getAuthStatus'
+                ? { authMethod: 'chatgpt' }
+                : {}
+        reply(frame.id, result)
+        return
+      }
+      const result =
+        frame.method === 'initialize'
+          ? { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+          : frame.method === 'session/new'
+            ? { sessionId: 'fixture-grok-session' }
+            : {}
+      reply(frame.id, result)
+    },
+    onLine(next) {
+      handler = next
+    },
+    close() {
+      handler?.closed()
+    },
+  }
+}
+
+function defaultCodexRuntime(sent: DaemonMessage[]) {
+  const entries = new Map<SessionId, Parameters<CodexRuntimeHost['journal']['write']>[0]>()
+  const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'test-attachment',
+      path: '/tmp/test-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+    }),
+    journal: {
+      read: (id) => entries.get(id),
+      write: (entry) => void entries.set(entry.sessionId, entry),
+      clear: (id) => void entries.delete(id),
+    },
+    now: () => 1_786_700_000_000,
+    mintSessionId: () => asSessionId('fixture-codex-session'),
+    async launch(input) {
+      const transport = defaultServerTransport('codex') as CodexTransport
+      return {
+        transport,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
+        process: { key: `podium-cx-${input.sessionId}` },
+        stop: async () => transport.close(),
+        kill: async () => transport.close(),
+        resources: () => undefined,
+      }
+    },
+  }
+  return createDaemonCodexRuntime({ send: (msg) => void sent.push(msg), host })
+}
+
+function defaultGrokRuntime(sent: DaemonMessage[]) {
+  const entries = new Map<SessionId, Parameters<GrokAcpRuntimeHost['journal']['write']>[0]>()
+  const host: GrokAcpRuntimeHost = {
+    journal: {
+      read: (id) => entries.get(id),
+      write: (entry) => void entries.set(entry.sessionId, entry),
+      clear: (id) => void entries.delete(id),
+    },
+    now: () => 1_786_700_000_000,
+    mintSessionId: () => asSessionId('fixture-grok-session'),
+    async launch(input) {
+      const transport = defaultServerTransport('grok') as GrokAcpTransport
+      let alive = true
+      return {
+        transport,
+        process: { key: `podium-gk-${input.sessionId}` },
+        stop: async () => {
+          alive = false
+          transport.close()
+        },
+        kill: async () => {
+          alive = false
+          transport.close()
+        },
+        resources: () => undefined,
+        alive: () => alive,
+      }
+    },
+  }
+  return createDaemonGrokRuntime({ send: (msg) => void sent.push(msg), host })
+}
+function unavailableServerRuntime(id: string, harness: string) {
+  return {
+    driver: { id, harness, family: 'server', capabilities: () => ({ placement: 'dedicated' }) },
+    handleFor: () => undefined,
+    bindings: () => [],
+    journal: { read: () => undefined, clear: vi.fn() },
+    async launch() {
+      throw new Error(`driver '${id}' is not wired`)
+    },
+    adoptFromJournal: async () => undefined,
+    dispose: vi.fn(),
+  }
+}
+
+function terminalRuntimeFixture() {
+  return {
+    driverFor(harness: string, profile: { driverId: string }) {
+      return {
+        id: profile.driverId,
+        harness,
+        family: 'terminal',
+        capabilities: () => ({ placement: 'dedicated' }),
+      }
+    },
+    handleFor: () => undefined,
+    bindings: () => [],
+    observe: vi.fn(),
+    onHookPayload: vi.fn(),
+    register: vi.fn(),
+    clear: vi.fn(),
+    dispose: vi.fn(),
+  }
+}
+
+function defaultServerSpawnContext(
+  sent: DaemonMessage[],
+  runtimes: {
+    codexRuntime?: ReturnType<typeof defaultCodexRuntime>
+    grokRuntime?: ReturnType<typeof defaultGrokRuntime>
+  },
+): DaemonContext {
+  return {
+    send: (msg: DaemonMessage) => void sent.push(msg),
+    machineId: 'default-server-machine',
+    durableLabelFor: (id: SessionId) => `default-server-${id}`,
+    sessionBinding: {
+      transition: async () => ({ status: 'applied' }),
+    },
+    sessionCwdTracker: {
+      setLaunchCwd: async () => {},
+    },
+    harnessLoginState: () => 'in',
+    agentRuntime: createDaemonMachineRuntime({
+      terminal: terminalRuntimeFixture(),
+      opencode: unavailableServerRuntime('opencode-server', 'opencode'),
+      opencode2: unavailableServerRuntime('opencode2-server', 'opencode'),
+      codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
+      grok: runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
+      inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0]),
+  } as unknown as DaemonContext
+}
+
+async function waitForDefaultServerBind(
+  sent: DaemonMessage[],
+  sessionId: string,
+): Promise<Extract<DaemonMessage, { type: 'bind' }>> {
+  await vi.waitFor(() =>
+    expect(sent.some((msg) => msg.type === 'bind' && msg.sessionId === sessionId)).toBe(true),
+  )
+  const bind = sent.find(
+    (msg): msg is Extract<DaemonMessage, { type: 'bind' }> =>
+      msg.type === 'bind' && msg.sessionId === sessionId,
+  )
+  if (!bind) throw new Error(`missing bind for ${sessionId}`)
+  return bind
+}
+
+describe('default server-driver spawn integration', () => {
+  afterEach(() => {
+    resetCodexAppServerVersionProbe()
+    resetGrokAcpVersionProbe()
+  })
+
+  it('routes a bare Codex spawn through app-server and binds that driver', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'default-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await expect(waitForDefaultServerBind(sent, 'default-codex')).resolves.toMatchObject({
+        runtimeContract: true,
+        driverId: 'codex-app-server',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  /**
+   * POD-2291: the operator's first chat prompt into a fresh codex spawn
+   * vanished. The daemon's half of the promise is honesty about the readiness
+   * window — the app-server handle exists only after the child spawn, the
+   * handshake and the thread mint, and a send arriving before that must come
+   * back `refused` (so the server keeps the row visibly queued) rather than
+   * being swallowed. Once the thread exists the same send must deliver.
+   */
+  it('answers refused inside the codex readiness window, then delivers once the thread is minted', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    const sendResults = () =>
+      sent.filter(
+        (msg): msg is Extract<DaemonMessage, { type: 'runtimeSendResult' }> =>
+          msg.type === 'runtimeSendResult',
+      )
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'readiness-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      // Inside the readiness window: the spawn is dispatched but the launch has
+      // not registered a handle yet. The answer is a refusal the server can act
+      // on — never silence, never a fake acceptance.
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId: 'req-early',
+        turnId: 'turn-early',
+        sessionId: 'readiness-codex',
+        text: 'sent before the thread exists',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
+      await vi.waitFor(() =>
+        expect(sendResults().some((msg) => msg.requestId === 'req-early')).toBe(true),
+      )
+      expect(sendResults().find((msg) => msg.requestId === 'req-early')?.receipt).toMatchObject({
+        outcome: 'refused',
+        refusal: { reason: 'not_running' },
+      })
+
+      await waitForDefaultServerBind(sent, 'readiness-codex')
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId: 'req-after-bind',
+        turnId: 'turn-after-bind',
+        sessionId: 'readiness-codex',
+        text: 'sent after the thread exists',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
+      await vi.waitFor(() =>
+        expect(sendResults().some((msg) => msg.requestId === 'req-after-bind')).toBe(true),
+      )
+      expect(
+        sendResults().find((msg) => msg.requestId === 'req-after-bind')?.receipt,
+      ).toMatchObject({
+        outcome: 'accepted',
+        provenBy: 'protocol-ack',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('stages attachment bytes through the correlated runtime handler', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'staging-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await waitForDefaultServerBind(sent, 'staging-codex')
+      runtimeHandlers.runtimeStageAttachmentRequest(ctx, {
+        type: 'runtimeStageAttachmentRequest',
+        requestId: 'stage-1',
+        sessionId: 'staging-codex',
+        source: {
+          dataBase64: Buffer.from('image-bytes').toString('base64'),
+          filename: 'diagram.png',
+          mediaType: 'image/png',
+        },
+      } as never)
+      await vi.waitFor(() =>
+        expect(
+          sent.some(
+            (msg) => msg.type === 'runtimeStageAttachmentResult' && msg.requestId === 'stage-1',
+          ),
+        ).toBe(true),
+      )
+      const result = sent.find(
+        (msg) => msg.type === 'runtimeStageAttachmentResult' && msg.requestId === 'stage-1',
+      )
+      expect(result).toMatchObject({
+        result: { filename: 'diagram.png', mediaType: 'image/png', kind: 'image' },
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('reads Codex login from the same home inventory publishes', async () => {
+    const inventoryHome = trackTmp('podium-codex-login-home-')
+    const ambientHome = trackTmp('podium-codex-ambient-home-')
+    const fakeBin = trackTmp('podium-codex-bin-')
+    const probeMarker = join(trackTmp('podium-codex-probe-'), 'called')
+    mkdirSync(join(inventoryHome, '.codex'))
+    mkdirSync(join(ambientHome, '.codex'))
+    writeFileSync(
+      join(ambientHome, '.codex', 'auth.json'),
+      JSON.stringify({ tokens: { access_token: 'a', refresh_token: 'r' } }),
+    )
+    const fakeCodex = join(fakeBin, 'codex')
+    writeFileSync(
+      fakeCodex,
+      '#!/bin/sh\nprintf probe >> "$PODIUM_TEST_CODEX_PROBE_MARKER"\nprintf "codex-cli 0.147.0\\n"\n',
+    )
+    chmodSync(fakeCodex, 0o755)
+    vi.stubEnv('HOME', ambientHome)
+    vi.stubEnv('CODEX_HOME', '')
+    vi.stubEnv('PATH', fakeBin)
+    vi.stubEnv('PODIUM_TEST_CODEX_PROBE_MARKER', probeMarker)
+
+    const sent: DaemonMessage[] = []
+    const productionSessionId = asSessionId('production-grace-home')
+    const wss = new WebSocketServer({ port: 0 })
+    let daemon: DaemonHandle | undefined
+    let serverSocket: WS | undefined
+    try {
+      await new Promise<void>((resolve) => wss.once('listening', () => resolve()))
+      const port = (wss.address() as { port: number }).port
+      const connected = new Promise<void>((resolve) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          void handshakeAndCollect(ws, sent).then(resolve)
+        })
+      })
+      daemon = await startDaemon({
+        serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
+        identityDir: trackTmp('podium-codex-identity-'),
+        hooks: { port: 0, settingsDir: trackTmp('podium-codex-hooks-') },
+        agentRelay: { port: 0 },
+        backend: 'none',
+        metrics: { background: false },
+        discovery: {
+          homeDir: inventoryHome,
+          background: false,
+          cachePath: ':memory:',
+        },
+        workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
+        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      })
+      await connected
+      serverSocket?.send(encode({ type: 'inventoryRequest' }))
+      await vi.waitFor(
+        () => expect(sent.some((message) => message.type === 'inventoryReport')).toBe(true),
+        { timeout: 5_000 },
+      )
+      const inventoryReport = sent.find(
+        (message): message is Extract<DaemonMessage, { type: 'inventoryReport' }> =>
+          message.type === 'inventoryReport',
+      )
+      expect(
+        inventoryReport?.inventory.agents.find((agent) => agent.kind === 'codex')?.login.state,
+      ).toBe('unknown')
+      // Boot inventory legitimately version-probes installed CLIs. Admission
+      // must add no SECOND Codex probe once that same home's grace fact has
+      // already selected the interactive path.
+      const probeCallsBeforeSpawn = existsSync(probeMarker) ? readFileSync(probeMarker, 'utf8') : ''
+      serverSocket?.send(
+        encode({
+          type: 'spawn',
+          sessionId: productionSessionId,
+          agentKind: 'codex',
+          cwd: '/tmp',
+          geometry: G,
+        }),
+      )
+
+      await vi.waitFor(() =>
+        expect(
+          sent.find(
+            (message) =>
+              message.type === 'driverSelected' && message.sessionId === productionSessionId,
+          ),
+        ).toMatchObject({ driverId: 'generic-pty' }),
+      )
+      await vi.waitFor(() =>
+        expect(
+          sent.some(
+            (message) => message.type === 'bind' && message.sessionId === productionSessionId,
+          ),
+        ).toBe(true),
+      )
+      expect(existsSync(probeMarker) ? readFileSync(probeMarker, 'utf8') : '').toBe(
+        probeCallsBeforeSpawn,
+      )
+    } finally {
+      await daemon?.close({ reapSessions: true })
+      for (const client of wss.clients) client.terminate()
+      await Promise.race([
+        new Promise<void>((resolve) => wss.close(() => resolve())),
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ])
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('routes a bare Grok spawn through ACP and binds that driver', async () => {
+    resetGrokAcpVersionProbe()
+    expect((await grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true }))).drivable).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultGrokRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { grokRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'default-grok',
+        agentKind: 'grok',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await expect(waitForDefaultServerBind(sent, 'default-grok')).resolves.toMatchObject({
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
+
+describe('server-driver admission control path', () => {
+  type Verdict =
+    | { drivable: true }
+    | {
+        drivable: false
+        reason: 'unsupported' | 'unprobeable'
+        diagnostic: { title: string; body: string }
+      }
+
+  const cachedProbe = (
+    run: () => { output: string; ok: boolean } | Promise<{ output: string; ok: boolean }>,
+  ) => {
+    const cache = createVersionProbeCache<Verdict>({
+      evaluate: ({ output, ok }) =>
+        ok
+          ? { drivable: true }
+          : {
+              drivable: false,
+              reason: 'unprobeable',
+              diagnostic: { title: 'probe did not answer', body: output },
+            },
+    })
+    return (_driverId: string, policy?: { retryInconclusive?: boolean }) => cache.probe(run, policy)
+  }
+
+  const spawn = (
+    sessionId: string,
+    runtimeContract?: string,
+    agentKind: 'codex' | 'opencode' = 'codex',
+  ) =>
+    withTestBindingInstruction({
+      type: 'spawn',
+      sessionId,
+      agentKind,
+      cwd: '/tmp',
+      geometry: G,
+      ...(runtimeContract ? { runtimeContract } : {}),
+    }) as never
+
+  it('starts no probe child for a logged-out default spawn', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    ctx.harnessLoginState = () => 'out'
+    let childProcesses = 0
+    const result = await launchServerDriverSession(
+      ctx,
+      spawn('logged-out-opencode', undefined, 'opencode'),
+      cachedProbe(() => {
+        childProcesses += 1
+        return { output: 'codex-cli 0.147.0', ok: true }
+      }),
+    )
+
+    expect(result).toEqual({ handled: false, requestedDriverId: 'opencode-server' })
+    expect(childProcesses).toBe(0)
+  })
+
+  it('degrades an unsettled Codex default to PTY but refuses an explicit server request', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    ctx.harnessLoginState = () => 'unknown'
+    let probes = 0
+    const probe = cachedProbe(() => {
+      probes += 1
+      return { output: 'codex-cli 0.147.0', ok: true }
+    })
+
+    await expect(launchServerDriverSession(ctx, spawn('grace-default'), probe)).resolves.toEqual({
+      handled: false,
+      requestedDriverId: 'codex-app-server',
+    })
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'driverSelected',
+        sessionId: 'grace-default',
+        driverId: 'generic-pty',
+      }),
+    )
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('grace-explicit', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'spawnError',
+      sessionId: 'grace-explicit',
+      message: expect.stringContaining("harness 'codex' login is not confirmed yet"),
+    })
+    expect(
+      sent.some((msg) => msg.type === 'driverSelected' && msg.sessionId === 'grace-explicit'),
+    ).toBe(false)
+    expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
+    expect(probes).toBe(0)
+  })
+
+  it('coalesces concurrent spawns behind one probe and binds neither before it resolves', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    let childProcesses = 0
+    let finish!: (result: { output: string; ok: boolean }) => void
+    const probe = cachedProbe(() => {
+      childProcesses += 1
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    })
+
+    const first = launchServerDriverSession(ctx, spawn('coalesced-one'), probe)
+    const second = launchServerDriverSession(ctx, spawn('coalesced-two'), probe)
+    await Promise.resolve()
+    expect(childProcesses).toBe(1)
+    expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
+
+    finish({ output: 'codex-cli 0.147.0', ok: true })
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { handled: true },
+      { handled: true },
+    ])
+    expect(sent.filter((msg) => msg.type === 'bind')).toHaveLength(2)
+    runtime.dispose()
+  })
+
+  it('fresh-probes an explicit retry after a completed transient miss', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    let childProcesses = 0
+    const probe = cachedProbe(() => {
+      childProcesses += 1
+      return childProcesses === 1
+        ? { output: 'codex: ENOENT', ok: false }
+        : { output: 'codex-cli 0.147.0', ok: true }
+    })
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('explicit-miss', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(sent.at(-1)).toMatchObject({ type: 'spawnError', sessionId: 'explicit-miss' })
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('explicit-recovered', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(childProcesses).toBe(2)
+    expect(sent.some((msg) => msg.type === 'bind' && msg.sessionId === 'explicit-recovered')).toBe(
+      true,
+    )
+    runtime.dispose()
+  })
+
+  /**
+   * POD-2775 — RESUMING A PARKED SERVER SESSION.
+   *
+   * `sessions.resume` arrives here as a `spawn` frame, and this path turned every
+   * one of them into `runtime.create()`. `createWithId` REFUSES a session that
+   * already holds a binding-journal entry (two children under one session id is
+   * the POD-2249 double-spawn), and a parked server session holds exactly such an
+   * entry on purpose — it is the address the conversation lives at. So every
+   * resume of a hibernated codex session put the row on `exited` with `already
+   * has a persisted server journal` and left it there, because the retry is the
+   * same frame. Measured live before this test existed.
+   *
+   * The assertion that matters is `created === 0`: the create must not be
+   * REACHED, not merely survived. A version that called it and then recovered
+   * would still be starting a second child on any journal entry whose process is
+   * genuinely alive.
+   */
+  it('resumes a PARKED server session by adopting its journal rather than reaching the create', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    const adopted = {
+      binding: { driver: 'codex-app-server', family: 'server' },
+      state: async () => ({ phase: 'idle' as const }),
+    }
+    let created = 0
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      // Parked: the journal entry survived, the handle did not.
+      serverHandleFor: () => undefined,
+      handleFor: () => undefined,
+      adoptJournalled: async () => ({
+        found: true as const,
+        what: 'codex app-server',
+        workdir: '/parked-workdir',
+        handle: adopted,
+      }),
+      create: async () => {
+        created += 1
+        throw new Error("session 'parked-codex' already has a persisted server journal")
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        spawn('parked-codex'),
+        cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(created).toBe(0)
+    expect(sent.some((msg) => msg.type === 'spawnError')).toBe(false)
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'bind',
+        sessionId: 'parked-codex',
+        // THE JOURNAL'S WORKDIR, not the frame's `/tmp`: the adopted child is
+        // opened where the conversation actually lives.
+        cwd: '/parked-workdir',
+        runtimeContract: true,
+        driverId: 'codex-app-server',
+      }),
+    )
+  })
+
+  /**
+   * The other side of the same guard: a journal entry beside a LIVE handle is a
+   * session this daemon is already running, and a redelivered frame for one must
+   * not be turned into an adopt that starts a second child. That case keeps its
+   * previous behaviour exactly — it falls through to the create, which refuses.
+   */
+  it('does NOT adopt when a live handle already holds the session — a redelivered frame still refuses', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    let adoptions = 0
+    let created = 0
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      serverHandleFor: () => ({ binding: { driver: 'codex-app-server', family: 'server' } }),
+      handleFor: () => undefined,
+      adoptJournalled: async () => {
+        adoptions += 1
+        return { found: false as const }
+      },
+      create: async () => {
+        created += 1
+        throw new Error("session 'live-codex' already has a persisted server journal")
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        spawn('live-codex'),
+        cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(adoptions).toBe(0)
+    expect(created).toBe(1)
+    expect(sent.at(-1)).toMatchObject({
+      type: 'spawnError',
+      sessionId: 'live-codex',
+      message: expect.stringContaining('already has a persisted server journal'),
+    })
   })
 })
 
@@ -2158,7 +2952,14 @@ describe('agent state instrumentation', () => {
   })
 
   it('native Grok hook POSTs drive normalized live state', async () => {
-    send({ type: 'spawn', sessionId: 'gHook', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    send({
+      type: 'spawn',
+      sessionId: 'gHook',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      runtimeContract: 'generic-pty',
+    })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'gHook'))
     const post = (payload: unknown) =>
       fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/gHook`, {

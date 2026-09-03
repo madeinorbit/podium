@@ -1,0 +1,47 @@
+{
+  "cell": "A1c",
+  "arm": "headless",
+  "harness": "codex",
+  "driver": "codex-app-server",
+  "verdict": "BLOCKED",
+  "summary": "The current-tip Codex A1c arm was not started because root free space was below the fail-closed 5 GiB floor.",
+  "evidence": [
+    "preflight root free=5228788 KiB",
+    "required floor=5242880 KiB (5 GiB)",
+    "no Codex server, daemon, web build, named instance, or session was started",
+    "no product positive control, dead-session control, or process attribution was inferred",
+    "the prior b3343f39 Codex generic-pty refusal is historical and was not reused as a current-tip result"
+  ],
+  "data": {
+    "controlFired": false,
+    "stampProof": false,
+    "serverStarted": false,
+    "daemonStarted": false,
+    "sessionStarted": false,
+    "rootFreeKb": 5228788,
+    "floorKb": 5242880,
+    "reason": "disk floor gate refused before Codex headless arm bring-up"
+  },
+  "instance": "p2929z",
+  "codePin": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+  "pin": {
+    "codeSha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+    "server": null,
+    "daemon": null,
+    "bundleSourceSha": null,
+    "expectedDriver": "codex-app-server",
+    "actualRuntimeDriver": null
+  },
+  "hostAdmissionSnapshot": {
+    "capturedAt": "2026-08-28T04:52:25Z",
+    "rootFreeKb": 5228788,
+    "floorKb": 5242880
+  },
+  "lease": "test:heavy was free after the prior headless drive; no heavy runtime was started for this blocked arm",
+  "recordedAt": "2026-08-28T04:52:25Z",
+  "error": "",
+  "log": [
+    "free_kb=5228788 floor_kb=5242880",
+    "BLOCKED: below 5GiB floor; no Codex headless arm started"
+  ]
+}

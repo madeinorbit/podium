@@ -251,14 +251,147 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['dr2'])
   })
 
-  it('never promotes session-bearing worktrees into pseudo-issue rows', () => {
+  it('promotes unowned session-bearing worktrees into roster rows', () => {
     const withSess = navWt('/r/a/.worktrees/x', {
       isMain: false,
       sessions: [idle('s', '/r/a/.worktrees/x')],
     })
     const bare = navWt('/r/a')
     const rows = unifiedWorkList(emptySections([withSess, bare]), [], [], [], NOW)
-    expect(rows).toEqual([])
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : `worktree:${r.worktree.path}`))).toEqual([
+      'worktree:/r/a/.worktrees/x',
+    ])
+  })
+
+  it('keeps an unowned idle session visible across the coarse-clock tick', () => {
+    const path = '/r/a/.worktrees/x'
+    const wt = navWt(path, {
+      isMain: false,
+      sessions: [idle('s', path, { lastActiveAt: new Date(NOW - 60_000).toISOString() })],
+    })
+    const before = unifiedWorkList(emptySections([wt]), [], [], [], NOW)
+    const after = unifiedWorkList(emptySections([wt]), [], [], [], NOW + 60_000)
+    expect(before.map((row) => row.kind)).toEqual(['worktree'])
+    expect(after.map((row) => row.kind)).toEqual(['worktree'])
+    expect((after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map((s) => s.sessionId)).toEqual([
+      's',
+    ])
+  })
+
+  it('keeps a displayed live session when its issue projection disappears on the coarse-clock tick', () => {
+    const path = '/r/a/.worktrees/x'
+    const session = idle('s', path, { issueId: 'draft' })
+    const wt = navWt(path, { isMain: false, sessions: [session] })
+
+    const before = unifiedWorkList(
+      emptySections([wt]),
+      [issue({ id: 'draft', draft: true })],
+      [session],
+      [],
+      NOW,
+    )
+    const after = unifiedWorkList(emptySections([wt]), [], [session], [], NOW + 60_000)
+
+    expect(
+      before.map((row) => (row.kind === 'issue' ? 'issue:' + row.issue.id : 'worktree')),
+    ).toEqual(['issue:draft'])
+    expect(
+      after.map((row) =>
+        row.kind === 'worktree' ? 'worktree:' + row.worktree.path : 'issue',
+      ),
+    ).toEqual(['worktree:' + path])
+    expect(
+      (after[0]?.kind === 'worktree' ? after[0].worktree.sessions : []).map(
+        (s) => s.sessionId,
+      ),
+    ).toEqual(['s'])
+  })
+
+  it('promotes an unowned session from the repository main checkout', () => {
+    const path = '/r/a'
+    const wt = navWt(path, { isMain: true, sessions: [idle('main', path)] })
+    const rows = unifiedWorkList(emptySections([wt]), [], [], [], NOW)
+    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([path])
+  })
+
+  it('hides an unowned session after its finished decay window', () => {
+    const path = '/r/a/.worktrees/old'
+    const old = idle('old', path, {
+      stoppedAt: new Date(NOW - 2 * 24 * HOUR).toISOString(),
+      readAt: new Date(NOW - 2 * 24 * HOUR).toISOString(),
+      lastActiveAt: new Date(NOW - 2 * 24 * HOUR).toISOString(),
+    })
+    const wt = navWt(path, { isMain: false, sessions: [old] })
+    expect(unifiedWorkList(emptySections([wt]), [], [], [], NOW)).toEqual([])
+  })
+
+  it('does not re-home a finished idle session when its issue has decayed', () => {
+    const path = '/r/a/.worktrees/done'
+    const closedAt = new Date(NOW - 2 * 24 * HOUR).toISOString()
+    const done = issue({
+      id: 'done',
+      stage: 'done',
+      parentId: 'root',
+      closedReason: 'done',
+      closedAt,
+      readAt: closedAt,
+      updatedAt: closedAt,
+      unread: false,
+    })
+    const finished = {
+      ...idle('done-session', path, {
+        status: 'hibernated',
+        unread: false,
+        readAt: closedAt,
+        lastActiveAt: closedAt,
+      }),
+      issueId: 'done',
+      agentState: { phase: 'idle', since: closedAt, idle: { kind: 'done' } },
+    } as SessionMeta
+    const wt = navWt(path, { isMain: false, sessions: [finished] })
+    expect(unifiedWorkList(emptySections([wt]), [done], [finished], [], NOW)).toEqual([])
+  })
+
+  it('does not re-home a nested started-by child session into a worktree row', () => {
+    const path = '/r/a/.worktrees/nested'
+    const parent = issue({ id: 'parent', audience: 'human' })
+    const child = issue({ id: 'child', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'parent' })
+    const own = { ...idle('own', path), issueId: 'parent' } as SessionMeta
+    const nested = { ...working('nested', path), issueId: 'child' } as SessionMeta
+    const wt = navWt(path, { isMain: false, sessions: [own, nested] })
+    const rows = unifiedWorkList(emptySections([wt]), [parent, child], [own, nested], [], NOW)
+    expect(rows.map((row) => row.kind)).toEqual(['issue'])
+  })
+
+  it('does not re-home a three-level started-by grandchild session into a worktree row', () => {
+    const path = '/r/a/.worktrees/deep'
+    const root = issue({ id: 'root', audience: 'human' })
+    const child = issue({ id: 'child', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'root' })
+    const grandchild = issue({ id: 'grandchild', audience: 'agent' as IssueNavigationModel['audience'], parentId: 'child' })
+    const own = { ...idle('own-deep', path), issueId: 'root' } as SessionMeta
+    const nested = { ...working('child-deep', path), issueId: 'child' } as SessionMeta
+    const deepSession = { ...working('grandchild-deep', path), issueId: 'grandchild' } as SessionMeta
+    const wt = navWt(path, { isMain: false, sessions: [own, nested, deepSession] })
+    const rows = unifiedWorkList(
+      emptySections([wt]),
+      [root, child, grandchild],
+      [own, nested, deepSession],
+      [],
+      NOW,
+    )
+    expect(rows.map((row) => row.kind)).toEqual(['issue'])
+    const rootRow = rows[0] as Extract<UnifiedWorkRow, { kind: 'issue' }>
+    expect(rootRow.startedByChildren?.[0]?.startedByChildren?.map((row) => row.issue.id)).toEqual([
+      'grandchild',
+    ])
+  })
+
+  it('promotes an unowned session from a pinned worktree', () => {
+    const path = '/r/a/.worktrees/pinned'
+    const wt = navWt(path, { isMain: false, sessions: [idle('pinned', path)] })
+    const sections: SidebarSections = { pinnedWorktrees: [wt], pinnedRepos: [], repos: [] }
+    const rows = unifiedWorkList(sections, [], [], [], NOW)
+    expect(rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : 'issue'))).toEqual([path])
   })
 
   it('suppresses a worktree row whose sessions are ALL attached to live issues', () => {
@@ -271,7 +404,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(rows.map((r) => r.kind)).toEqual(['issue'])
   })
 
-  it('keeps unattached and orphaned sessions out of the issue-only work list', () => {
+  it('keeps unattached and orphaned sessions in the worktree roster', () => {
     const wtPath = '/r/a/.worktrees/x'
     const owned = idle('s1', wtPath, { issueId: 'i1' })
     const free = idle('s2', wtPath)
@@ -284,7 +417,15 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       [],
       NOW,
     )
-    expect(rows.map((row) => (row.kind === 'issue' ? row.issue.id : row.kind))).toEqual(['i1'])
+    expect(rows.map((row) => (row.kind === 'issue' ? row.issue.id : `worktree:${row.worktree.path}`))).toEqual([
+      'i1',
+      'worktree:/r/a/.worktrees/x',
+    ])
+    const roster = rows[1]
+    expect(roster?.kind === 'worktree' ? roster.worktree.sessions.map((s) => s.sessionId) : []).toEqual([
+      's2',
+      's3',
+    ])
   })
 
   it('orders newest-created first — immutable creation order, not urgency (#64)', () => {
@@ -326,7 +467,7 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
     expect(after.map((r) => (r.kind === 'issue' ? r.issue.id : ''))).toEqual(['b', 'a'])
   })
 
-  it('ignores worktree rows while preserving issue order', () => {
+  it('keeps worktree rows after issues without changing issue order', () => {
     const i = issue({ id: 'i', createdAt: '2026-06-01T00:00:00.000Z' })
     const wtB = navWt('/r/a/b', { isMain: false, sessions: [idle('w1', '/r/a/b')] })
     const wtA = navWt('/r/a/a', { isMain: false, sessions: [idle('w2', '/r/a/a')] })
@@ -337,7 +478,11 @@ describe('unifiedWorkList (content filter + status ordering)', () => {
       ['/r/a/b', '/r/a/a'],
       NOW,
     )
-    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : r.worktree.path))).toEqual(['i'])
+    expect(rows.map((r) => (r.kind === 'issue' ? r.issue.id : r.worktree.path))).toEqual([
+      'i',
+      '/r/a/a',
+      '/r/a/b',
+    ])
   })
 
   it('floats pinned & returned-from-defer to the top band, sinks snoozed to the bottom', () => {
@@ -668,14 +813,16 @@ describe('partitionUnifiedWork (WORKING move-out)', () => {
     expect(work.map((r) => r.kind)).toEqual(['issue'])
   })
 
-  it('keeps a fully-working unowned worktree out of both sidebar partitions', () => {
+  it('keeps a fully-working unowned worktree in WORKING', () => {
     const wt = navWt('/r/a/.worktrees/x', {
       isMain: false,
       sessions: [working('s', '/r/a/.worktrees/x')],
     })
     const { working: w, work } = partitionUnifiedWork(emptySections([wt]), [], [], [], NOW)
     expect(work).toEqual([])
-    expect(w).toEqual([])
+    expect(w.map((entry) => (entry.kind === 'worktree' ? entry.row.worktree.path : entry.kind))).toEqual([
+      '/r/a/.worktrees/x',
+    ])
   })
 })
 
@@ -728,7 +875,7 @@ describe('groupUnifiedWorkRows', () => {
     expect(groups[0]?.rows).toHaveLength(2)
   })
 
-  it('falls back to repoPath when repoId is missing and ignores worktree-only groups', () => {
+  it('falls back to repoPath when repoId is missing and groups worktree-only rows', () => {
     const wt = navWt('/r/b/.worktrees/x', {
       isMain: false,
       repoPath: '/r/b',
@@ -741,8 +888,9 @@ describe('groupUnifiedWorkRows', () => {
       [wt],
     )
     const groups = groupUnifiedWorkRows(rows)
-    expect(groups.map((g) => g.key).sort()).toEqual(['/r/a'])
+    expect(groups.map((g) => g.key).sort()).toEqual(['/r/a', '/r/b'])
     expect(groups.find((g) => g.key === '/r/a')?.label).toBe('a')
+    expect(groups.find((g) => g.key === '/r/b')?.label).toBe('b')
   })
 
   it('preserves incoming creation order within groups and orders groups by first row (#64)', () => {
@@ -773,7 +921,7 @@ describe('groupUnifiedWorkRows', () => {
     ])
   })
 
-  it('does not create groups for worktrees even when they share a repoId', () => {
+  it('groups worktrees even when they share a repoId', () => {
     const wt1 = navWt('/m1/a/.worktrees/x', {
       isMain: false,
       repoPath: '/m1/a',
@@ -789,7 +937,12 @@ describe('groupUnifiedWorkRows', () => {
       sessions: [idle('s2', '/m2/a/.worktrees/y')],
     })
     const groups = groupUnifiedWorkRows(rowsFor([], [], [wt1, wt2]))
-    expect(groups).toEqual([])
+    expect(groups).toHaveLength(1)
+    expect(groups[0]?.key).toBe('repo-a')
+    expect(groups[0]?.rows.map((row) => (row.kind === 'worktree' ? row.worktree.path : row.issue.id))).toEqual([
+      '/m1/a/.worktrees/x',
+      '/m2/a/.worktrees/y',
+    ])
   })
 
   it('folds only settled top-level closures while open selection stays visible', () => {

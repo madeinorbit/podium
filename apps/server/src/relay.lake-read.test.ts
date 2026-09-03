@@ -5,6 +5,11 @@ import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
+import { forceFeature } from './test-support/features'
+
+// Lake reads resolve segments through the transcript index, which exists only
+// when the search flag is on (PDM-25).
+forceFeature('command-palette', true)
 
 // Lake-fallback transcript reads (docs/spec/search-v1.md §2.2): with the daemon
 // gone, readTranscript serves the window from the server's mirrored copy; with a

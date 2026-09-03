@@ -20,7 +20,10 @@ function state(phase: AgentRuntimeState['phase'], since: string): AgentRuntimeSt
   return { phase, since, nativeSubagentCount: 0 }
 }
 
-function makeSession(toDaemon = vi.fn(), seed: { outputCount?: number } = {}) {
+function makeSession(
+  toDaemon = vi.fn(),
+  seed: { outputCount?: number; turnPreviewEnabled?: boolean } = {},
+) {
   return new Session({
     ...seed,
     sessionId: asSessionId('s1'),
@@ -109,6 +112,7 @@ describe('Session', () => {
       controllerId: 'a',
       controllerIdentity: { kind: 'user', user: a.principal.user },
       geometry: geo,
+      geometryRevision: 0,
       epoch: 0,
       resumed: false,
       outputSeen: false,
@@ -174,6 +178,7 @@ describe('Session', () => {
       controllerId: null,
       controllerIdentity: null,
       geometry: geo,
+      geometryRevision: 0,
     })
   })
 
@@ -245,6 +250,37 @@ describe('Session', () => {
     })
   })
 
+  it('rolls back geometry as a new authoritative revision', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon)
+    const snapshot = s.terminal.captureState()
+
+    // An uncontrolled daemon bind can move the live geometry without a client
+    // broadcast; a later durable rollback must still be a new wire revision.
+    s.terminal.adoptGeometryIfUncontrolled({ cols: 203, rows: 51 })
+    const client = makeClient('a')
+    s.terminal.attachClient(client)
+    toDaemon.mockClear()
+
+    s.terminal.restoreState(snapshot, false)
+
+    expect(s.terminal.geometry).toEqual(geo)
+    expect(s.terminal.geometryRevision).toBe(2)
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'resize',
+      sessionId: asSessionId('s1'),
+      cols: 80,
+      rows: 24,
+    })
+    expect(client.sent).toContainEqual({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 80,
+      rows: 24,
+      geometryRevision: 2,
+    })
+  })
+
   it('applies a resize from a controller that is rendering the session', () => {
     const toDaemon = vi.fn()
     const s = makeSession(toDaemon)
@@ -282,6 +318,7 @@ describe('Session', () => {
         sessionId: asSessionId('s1'),
         cols: 200,
         rows: 50,
+        geometryRevision: 1,
       })
     }
   })
@@ -300,6 +337,7 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       cols: 200,
       rows: 50,
+      geometryRevision: 1,
     })
   })
 
@@ -330,12 +368,14 @@ describe('Session', () => {
         controllerId: 'b',
         controllerIdentity: { kind: 'user', user: b.principal.user },
         geometry: { cols: 50, rows: 60 },
+        geometryRevision: 1,
       })
       expect(c.sent).toContainEqual({
         type: 'geometry',
         sessionId: asSessionId('s1'),
         cols: 50,
         rows: 60,
+        geometryRevision: 1,
       })
     }
   })
@@ -384,6 +424,7 @@ describe('Session', () => {
       sessionId: asSessionId('s1'),
       cols: 62,
       rows: 36,
+      geometryRevision: 1,
     })
   })
 
@@ -743,7 +784,9 @@ describe('Session', () => {
       const toDaemon = vi.fn()
       const s = makeSession(toDaemon)
       s.terminal.attachClient(makeClient('a'), 99)
-      expect(redraws(toDaemon)).toHaveLength(1)
+      expect(redraws(toDaemon)).toEqual([
+        { type: 'redraw', sessionId: asSessionId('s1'), replayRequired: true },
+      ])
     })
 
     it('does NOT nudge a clean resume — the client keeps its screen and takes the delta', () => {
@@ -870,14 +913,21 @@ describe('Session', () => {
   it('keeps the daemon spawn diagnosis in wire and durable state until retry', () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const s = makeSession()
+    s.selectedDriverId = 'generic-pty'
+    s.attachKinds = ['client']
     s.markSpawnError('codex executable was not found')
+    expect(s.attachKinds).toBeUndefined()
 
     expect(s.toMeta(NO_SESSION_USER_STATE)).toMatchObject({
       status: 'exited',
       exitCode: -1,
       spawnFailure: 'codex executable was not found',
     })
-    expect(s.toRow()).toMatchObject({ spawnFailure: 'codex executable was not found' })
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    expect(s.toRow()).toMatchObject({
+      spawnFailure: 'codex executable was not found',
+      selectedDriverId: null,
+    })
 
     s.markResumed()
     expect(s.toMeta(NO_SESSION_USER_STATE).spawnFailure).toBeUndefined()
@@ -1137,6 +1187,47 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(s.terminal.transcriptItems()).toEqual([item('u1', 'c1'), item('u2', 'c2')])
   })
 
+  it('delivers Grok daemon items live and replays stable ids once to a reload subscriber', () => {
+    const s = makeSession()
+    const live = makeClient('grok-live')
+    s.terminal.subscribeTranscript(live)
+    const items = [
+      item('grok-user-token', 'grok-user-cursor', 'user token'),
+      item('grok-assistant-token', 'grok-assistant-cursor', 'assistant token'),
+    ]
+
+    s.terminal.applyDelta(items, { reset: true, tail: 'grok-assistant-cursor' })
+    s.terminal.applyDelta(items, { reset: true, tail: 'grok-assistant-cursor' })
+    expect(s.terminal.transcriptItems()).toEqual(items)
+    expect(live.sent.filter((message) => message.type === 'transcriptDelta')).toHaveLength(2)
+
+    const reload = makeClient('grok-reload')
+    s.terminal.subscribeTranscript(reload)
+    expect(reload.sent).toEqual([
+      { type: 'transcriptDelta', sessionId: asSessionId('s1'), items },
+    ])
+  })
+
+  it('replaces a re-emitted cursor in the cache instead of recording it twice', () => {
+    const s = makeSession()
+    const partial = item('provider-v1', 'stable-cursor', 'Hel')
+    const complete = item('provider-v2', 'stable-cursor', 'Hello')
+
+    s.terminal.applyDelta([partial], {})
+    s.terminal.applyDelta([complete], {})
+
+    expect(s.terminal.transcriptItems()).toEqual([complete])
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    expect(late.sent).toEqual([
+      {
+        type: 'transcriptDelta',
+        sessionId: asSessionId('s1'),
+        items: [complete],
+      },
+    ])
+  })
+
   it('applyDelta({reset}) clears the cache and fans out reset:true', () => {
     const s = makeSession()
     const a = makeClient('a')
@@ -1266,5 +1357,285 @@ describe('Session transcript cache (recent-delta window)', () => {
     expect(s.toRow().lastOutputAt).toBeNull()
     expect(s.toRow().lastInputAt).toBeNull()
     expect(s.toRow().lastResumedAt).toBeNull()
+  })
+})
+
+describe('driver family on the wire (POD-2290)', () => {
+  /**
+   * The web panel picks chat-vs-native from this field. Before it existed, an
+   * opencode/codex/grok session — which has no PTY at all — opened on the native
+   * pane and sat behind a "Starting <Harness>…" spinner that could never resolve,
+   * because the client had only the driver ID and no way to know what it meant.
+   */
+  it('projects the family of the driver the daemon actually bound', () => {
+    const s = makeSession()
+    s.driverId = 'opencode-server'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+    s.attachKinds = ['client']
+    expect(s.toMeta(NO_SESSION_USER_STATE).attachKinds).toEqual(['client'])
+
+    s.driverId = 'claude-pty'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+  })
+
+  it('reads the BOUND driver, not the one that was asked for', () => {
+    // A degraded selection is exactly the case a `requestedDriverId`-derived
+    // family would get backwards: this session asked for a server and got a
+    // terminal, and it has the terminal.
+    const s = makeSession()
+    s.driverId = 'generic-pty'
+    s.requestedDriverId = 'grok-acp'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+  })
+
+  it('answers from the SELECTED driver before any bind has happened', () => {
+    /**
+     * The measurement that reopened this issue (POD-2290 round two): on the
+     * drive instance an `opencode` session sat `starting` with no `driverId`
+     * for TWELVE SECONDS while `opencode serve` booted, and the web panel had
+     * to choose a view in that window. The daemon knew the answer the whole
+     * time; it now says so before it launches anything, and this is where that
+     * lands.
+     */
+    const s = makeSession()
+    s.selectedDriverId = 'opencode-server'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('server')
+    // …and the bind that follows is still what wins, because a launch that
+    // failed and fell back must not be described by the plan it abandoned.
+    s.driverId = 'generic-pty'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBe('terminal')
+  })
+
+  it('is ABSENT rather than guessed when there is nothing to derive it from', () => {
+    // `driverId` is transient — an older daemon, a legacy session, and a row
+    // that has not bound yet all have none. Absent means unknown, and every
+    // client reads unknown as "assume a terminal", which is what keeps a PTY
+    // session behaving exactly as it did before this field existed.
+    const s = makeSession()
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+    // …and an id from a newer build that no manifest here claims is unknown too,
+    // rather than being forced into whichever family this build defaults to.
+    s.driverId = 'some-driver-from-2027'
+    expect(s.toMeta(NO_SESSION_USER_STATE).driverFamily).toBeUndefined()
+  })
+})
+
+describe('OOM truth on the row (POD-2413)', () => {
+  it('names an exit that followed a kernel kill "oom" instead of "exited"', () => {
+    const session = makeSession()
+    session.recordOomKill(new Date().toISOString())
+    session.onExit(137)
+    expect(session.status).toBe('exited')
+    expect(session.stopReason).toBe('oom')
+  })
+
+  it('upgrades a stamped exit when the kill report lands after it', () => {
+    // The daemon samples cgroups on a timer, so the evidence routinely arrives
+    // AFTER the exit frame. A row that stayed "exited" because the observer was
+    // a few seconds late would hide the one death an operator can act on.
+    const session = makeSession()
+    session.onExit(137)
+    expect(session.stopReason).toBe('exited')
+    session.recordOomKill(new Date().toISOString())
+    expect(session.stopReason).toBe('oom')
+  })
+
+  it('leaves an unrelated later exit alone', () => {
+    // `OOMPolicy=continue` means a killed build does not end the session. If it
+    // keeps working and exits cleanly an hour later, that exit is not an OOM.
+    const session = makeSession()
+    session.recordOomKill(new Date(Date.now() - 60 * 60 * 1000).toISOString())
+    session.onExit(0)
+    expect(session.stopReason).toBe('exited')
+  })
+
+  it('does not overwrite the richer reason an explicit stop already stamped', () => {
+    const session = makeSession()
+    session.stoppedAt = new Date().toISOString()
+    session.stopReason = 'forced'
+    session.recordOomKill(new Date().toISOString())
+    session.onExit(137)
+    expect(session.stopReason).toBe('forced')
+  })
+
+  it('never resurrects a hibernated row into an OOM death', () => {
+    // A hibernate kill IS a SIGKILL, and its cgroup may well carry an earlier
+    // kill. `onExit` returns early for a hibernated row; this pins that the OOM
+    // path did not become a way around it.
+    const session = makeSession()
+    session.status = 'hibernated'
+    session.recordOomKill(new Date().toISOString())
+    session.onExit(137)
+    expect(session.status).toBe('hibernated')
+    expect(session.stopReason).toBeUndefined()
+  })
+})
+
+
+/**
+ * THE PREVIEW PLANE ON THE TERMINAL (POD-2293).
+ *
+ * The terminal owns the transcript-subscriber set, so it owns the two things
+ * that follow from it: telling the daemon what level this session's viewers
+ * need, and catching a late subscriber up on the turn already in progress.
+ */
+describe('Session turn preview', () => {
+  const frame = (turnEpoch: number, text: string, done?: boolean) =>
+    ({
+      type: 'turnPreview' as const,
+      sessionId: asSessionId('s1'),
+      turnEpoch,
+      seq: 1,
+      items: [{ kind: 'text' as const, itemId: 'a', text }],
+      ...(done ? { done: true } : {}),
+    })
+
+  it('asks for fine on the FIRST subscriber and coarse on the last unsubscribe', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    const a = makeClient('a')
+    const b = makeClient('b')
+
+    s.terminal.subscribeTranscript(a)
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'runtimeWatch',
+      sessionId: asSessionId('s1'),
+      level: 'fine',
+    })
+    // A SECOND viewer is not a second request. The frame carries a desired
+    // state, and re-sending it per subscriber would be noise the daemon has to
+    // dedupe on the other side.
+    toDaemon.mockClear()
+    s.terminal.subscribeTranscript(b)
+    expect(toDaemon).not.toHaveBeenCalled()
+
+    // Nor is losing ONE of two viewers a reason to stop streaming.
+    s.terminal.unsubscribeTranscript('a')
+    expect(toDaemon).not.toHaveBeenCalled()
+
+    s.terminal.unsubscribeTranscript('b')
+    expect(toDaemon).toHaveBeenCalledWith({
+      type: 'runtimeWatch',
+      sessionId: asSessionId('s1'),
+      level: 'coarse',
+    })
+  })
+
+  /**
+   * THE OTHER DIRECTION, AND IT IS THE ONE THE PLANE'S CONTAINMENT CLAIM RESTED
+   * ON (POD-2745). "Fine is only taken for a session someone is watching" cannot
+   * be shown by any number of subscribe-then-assert-fine tests: they would all
+   * pass just as well if the level were always on. What shows it is a session
+   * with a full client lifecycle and NO chat ever opened, producing no runtime
+   * traffic whatsoever.
+   *
+   * This failed before the fix, and not in a way anyone would have looked for:
+   * the very first reconcile compared `coarse` against an UNSET field, called
+   * that a crossing, and told the daemon to be what it already was. A plain
+   * detach on an ordinary PTY session was enough to fire it.
+   */
+  it('says nothing about a session nobody ever opened a chat on', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    const desktop = makeClient('desktop')
+    const phone = makeClient('phone')
+    s.terminal.attachClient(desktop)
+    s.terminal.attachClient(phone)
+    s.terminal.detachClient('desktop')
+    s.terminal.detachAll()
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([])
+  })
+
+  /**
+   * A BIND IS A NEW DAEMON, AND A NEW DAEMON HOLDS NO WATCHES.
+   *
+   * `watchLevelSent` is a claim about another process's state. When that process
+   * restarts the claim is stale in the one direction that fails silently: it
+   * still reads `fine`, so every later reconcile agrees with itself and no frame
+   * is ever sent again. The viewer keeps their chat open and the fragments just
+   * stop.
+   */
+  it('re-asks for fine when a daemon rebinds under a viewer who never left', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    s.terminal.subscribeTranscript(makeClient('a'))
+    toDaemon.mockClear()
+
+    s.terminal.resetWatchLevel()
+
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([
+      [{ type: 'runtimeWatch', sessionId: asSessionId('s1'), level: 'fine' }],
+    ])
+  })
+
+  it('re-asks for nothing when a daemon rebinds with no viewer', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: true })
+    s.terminal.attachClient(makeClient('a'))
+    toDaemon.mockClear()
+
+    s.terminal.resetWatchLevel()
+
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([])
+  })
+
+  it('asks for nothing at all while the switch is off', () => {
+    const toDaemon = vi.fn()
+    const s = makeSession(toDaemon, { turnPreviewEnabled: false })
+    s.terminal.subscribeTranscript(makeClient('a'))
+    expect(toDaemon.mock.calls.filter(([m]) => m.type === 'runtimeWatch')).toEqual([])
+  })
+
+  it('fans a frame out to subscribers and catches the next one up on it', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    const a = makeClient('a')
+    s.terminal.subscribeTranscript(a)
+    s.terminal.applyTurnPreview(frame(1, 'half a rep'))
+    expect(a.sent.at(-1)).toEqual(frame(1, 'half a rep'))
+
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    expect(late.sent.at(-1)).toEqual(frame(1, 'half a rep'))
+  })
+
+  it('replays the preview AFTER the durable items it follows', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    s.terminal.applyDelta(
+      [{ id: 'u1', role: 'user' as const, text: 'hi', cursor: 'c1' }],
+      { tail: 'c1' },
+    )
+    s.terminal.applyTurnPreview(frame(1, 'repl'))
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    // Order matters: the preview is the part of the turn the transcript does
+    // not have yet, so a client receiving it first would briefly render the
+    // in-progress rows above the items they follow.
+    expect(late.sent.map((m) => m.type)).toEqual(['transcriptDelta', 'turnPreview'])
+  })
+
+  it('stops retaining a preview once the turn is done', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    const a = makeClient('a')
+    s.terminal.subscribeTranscript(a)
+    s.terminal.applyTurnPreview(frame(1, 'half'))
+    s.terminal.applyTurnPreview({ ...frame(1, ''), items: [], done: true })
+    // The terminal frame still reaches the open viewer — it is what clears the
+    // rows — but nothing is kept for the next one.
+    expect(a.sent.at(-1)).toMatchObject({ type: 'turnPreview', done: true })
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    expect(late.sent.filter((m) => m.type === 'turnPreview')).toEqual([])
+  })
+
+  it('drops the retained preview when every viewer detaches', () => {
+    const s = makeSession(vi.fn(), { turnPreviewEnabled: true })
+    s.terminal.subscribeTranscript(makeClient('a'))
+    s.terminal.applyTurnPreview(frame(1, 'half'))
+    s.terminal.detachAll()
+    const late = makeClient('late')
+    s.terminal.subscribeTranscript(late)
+    // A preview replayed after a gap describes a turn that has very likely
+    // ended, and shows a session that looks like it is still typing.
+    expect(late.sent.filter((m) => m.type === 'turnPreview')).toEqual([])
   })
 })

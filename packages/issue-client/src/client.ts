@@ -63,6 +63,13 @@ export interface IssueTrpc {
   repos: { inferFromPath: IssueProc }
   specs: Record<SpecProcName, IssueProc>
   lock: Record<LockProcName, IssueProc>
+  /** The PendingInteraction aggregate (POD-2020, spec §4) — `podium
+   *  interactions` drives these. The union is hand-typed rather than derived
+   *  from `@podium/commands`, and deliberately: two of the three are READS, and
+   *  the contract table holds only writes (a `visibility` class describes what a
+   *  command writes). The write half is checked at the server registry's
+   *  `satisfies Record<InteractionContractName, …>`. */
+  interactions: Record<'list' | 'forSession' | 'answer', IssueProc>
   features?: { state: IssueProc }
   workflows: Record<WorkflowProcName, IssueProc>
   /** Read-only, and here only so `--machine <name>` can be resolved to the id the

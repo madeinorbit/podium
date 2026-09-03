@@ -1,0 +1,77 @@
+{
+  "cell": "A6a",
+  "arm": "terminal",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "terminal echo, resize repaint, and second-viewer sharing all observed",
+  "evidence": [
+    "marker=ECHO-HIR4IW",
+    "attachBytes=14349",
+    "echoed=true",
+    "echoDelta=45884",
+    "resizeNarrowBytes=7846",
+    "resizeWideBytes=12691",
+    "secondViewerBytes=60233",
+    "shared=true",
+    "tail=                                                                                                        /tmp/pod-2919/probes/terminal-a6a                                                                                                                    1.18.16"
+  ],
+  "data": {
+    "marker": "ECHO-HIR4IW",
+    "controlBytes": 14349,
+    "echoed": true,
+    "narrow": 7846,
+    "wide": 12691,
+    "secondViewerBytes": 60233,
+    "shared": true
+  },
+  "requestedCwd": "/tmp/pod-2919/probes/terminal-a6a",
+  "cwdFromSpawn": null,
+  "instance": "oc2919",
+  "codePin": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+  "pin": {
+    "codeSha": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+    "codeShort": "1f531c6",
+    "server": {
+      "pid": 856239,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "daemon": {
+      "pid": 856666,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "bundleSourceSha": "1f531c6",
+    "expectedDriver": "generic-pty",
+    "expectedFamily": "terminal",
+    "actualRuntimeDriver": "generic-pty",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "host": {
+    "load": [
+      "10.34",
+      "9.62",
+      "12.15"
+    ],
+    "memAvailableKb": 3947704,
+    "swapFreeKb": 36801488,
+    "diskFreeKb": 15444476
+  },
+  "at": "2026-08-27T02:35:22.780Z",
+  "error": "",
+  "log": [
+    "PIN PINJSON {\"codeSha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\",\"codeShort\":\"1f531c6\",\"server\":{\"pid\":856239,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"daemon\":{\"pid\":856666,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"bundleSourceSha\":\"1f531c6\",\"expectedDriver\":\"generic-pty\",\"expectedFamily\":\"terminal\",\"actualRuntimeDriver\":\"generic-pty\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=856239 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN daemon pid=856666 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN bundle sourceSha=1f531c6 expected=1f531c6",
+    "PIN daemon runtime driver=generic-pty expected=generic-pty family=terminal",
+    "HOST {\"load\":[\"8.31\",\"9.08\",\"12.09\"],\"memAvailableKb\":4242400,\"swapFreeKb\":36894772,\"diskFreeKb\":15695324}",
+    "SESSION sid=9a220861-5318-48d3-afcf-34f62ed7317d",
+    "CWD requested=/tmp/pod-2919/probes/terminal-a6a",
+    "CWD spawn-observed=/",
+    "CWD query=/tmp/pod-2919/probes/terminal-a6a match=false",
+    "DRIVER bound=generic-pty family=terminal status=live",
+    "CONTROL attachBytes=14349 echo=true resizeBytes=20537 secondViewerBytes=60233 shared=true"
+  ]
+}

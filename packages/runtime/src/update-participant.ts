@@ -119,6 +119,13 @@ export async function applyGrant(
     })
 
     if (plan.action === 'already-current') {
+      // A machine already on the target still ANSWERS the grant, and this is the
+      // commonest reason a wave finishes faster than it looks like it should.
+      deps.log?.('update grant needed nothing', {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+      })
       report(deps, grant, 'current', current)
       return
     }
@@ -131,17 +138,28 @@ export async function applyGrant(
        * release that is immutable. The constructor lives in the protocol
        * because the classifier that reads this sentence lives there too.
        */
-      report(
-        deps,
-        grant,
-        'rejected',
-        current,
-        convergenceRefusal(plan, { platform, target: grant.target }),
-      )
+      const reason = convergenceRefusal(plan, { platform, target: grant.target })
+      // WHY a machine refused, written on the machine that refused. The report
+      // carries the same sentence, and the report is what the coordinator loses
+      // when its own restart takes the link.
+      deps.log?.('update grant refused by convergence planning', {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+        platform,
+        detail: reason,
+      })
+      report(deps, grant, 'rejected', current, reason)
       return
     }
     const refusal = deps.refuse?.(grant.target)
     if (refusal) {
+      deps.log?.('update grant refused by this machine', {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+        detail: refusal,
+      })
       report(deps, grant, 'rejected', current, refusal)
       return
     }
@@ -173,12 +191,40 @@ export async function applyGrant(
         throw new Error('update participant has no installation capability')
       }
       const downloadAt = sinceMs()
+      /**
+       * PROGRESS ON THE MACHINE'S OWN DISK, NOT ONLY ON THE WIRE (POD-3224).
+       *
+       * A download reports to the coordinator over the socket, and the socket is
+       * exactly what a coordinator applying its own grant takes away — so a
+       * seven-minute delivery whose link dropped at minute one left no evidence
+       * of whether the bytes were still arriving. `deps.log` writes to this
+       * host's own log, which survives all of that.
+       *
+       * DECILES, not frames. `onProgress` fires per chunk; a line per chunk on a
+       * 325 MB bundle is thousands of records for one download. Ten of them
+       * answer both questions anybody asks — did it move, and how fast — and the
+       * per-frame detail is still on the wire for the live panel.
+       */
+      let loggedDecile = -1
       const artifact = await deps.fetchArtifact(
         plan.asset,
         grant.target.trust,
         signal,
         (progress) => {
           if (signal?.aborted) return
+          const decile =
+            progress.percent === undefined ? -1 : Math.floor(Math.min(progress.percent, 100) / 10)
+          if (decile > loggedDecile) {
+            loggedDecile = decile
+            phase('update download progress', {
+              percent: progress.percent,
+              ...(progress.receivedBytes !== undefined
+                ? { receivedBytes: progress.receivedBytes }
+                : {}),
+              ...(progress.totalBytes !== undefined ? { totalBytes: progress.totalBytes } : {}),
+              downloadMs: sinceMs() - downloadAt,
+            })
+          }
           report(deps, grant, 'downloading', current, undefined, progress)
         },
         grant.updatePubkey,

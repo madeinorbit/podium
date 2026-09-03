@@ -185,12 +185,12 @@ export class SessionsRepository {
   private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
     const rows = this.db
       .prepare(
-        `SELECT id, owner_user_id, agent_kind, model, effort, account_id, cwd, title, name, name_source, origin_kind, conversation_id,
+        `SELECT id, owner_user_id, agent_kind, model, effort, requested_model, requested_effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
                 resume_kind,
-                resume_value, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
+                resume_value, selected_driver_id, requested_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
                 terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
                 archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
+                spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
                 deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
                 ref_issue_id, ref_letter, ref_draft,
                 created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of
@@ -214,6 +214,12 @@ export class SessionsRepository {
       agentKind: r.agent_kind as string,
       ...(r.model != null ? { model: r.model as string } : {}),
       ...(r.effort != null ? { effort: r.effort as string } : {}),
+      // ABSENT, NOT NULL, when nobody has changed it — the same spelling as the
+      // launch pair above. `requestedModel: null` and an absent key read the
+      // same at every consumer here, but the absent form keeps "never
+      // configured" from looking like a recorded decision to clear it.
+      ...(r.requested_model != null ? { requestedModel: r.requested_model as string } : {}),
+      ...(r.requested_effort != null ? { requestedEffort: r.requested_effort as string } : {}),
       ...(r.account_id != null ? { accountId: r.account_id as AccountId } : {}),
       ...(r.login_harness != null
         ? { loginHarness: AgentKind.exclude(['shell']).parse(r.login_harness) }
@@ -228,6 +234,8 @@ export class SessionsRepository {
       conversationId: (r.conversation_id as string | null) ?? null,
       resumeKind: (r.resume_kind as string | null) ?? null,
       resumeValue: (r.resume_value as string | null) ?? null,
+      selectedDriverId: (r.selected_driver_id as string | null) ?? null,
+      requestedDriverId: (r.requested_driver_id as string | null) ?? null,
       // Anything else on disk (an old/rogue value) reads as "no claim recorded"
       // rather than as proof — the same conservative decode as `name_source`,
       // and here it is the safety property itself: only a literal 'never'
@@ -302,6 +310,7 @@ export class SessionsRepository {
         r.stop_reason === 'exited'
           ? r.stop_reason
           : null,
+      oomKilledAt: (r.oom_killed_at as string | null) ?? null,
       workflowRunId: (r.workflow_run_id as string | null) ?? null,
       workflowStepId: (r.workflow_step_id as string | null) ?? null,
       executionProfileId: (r.execution_profile_id as string | null) ?? null,
@@ -326,20 +335,22 @@ export class SessionsRepository {
     this.db
       .prepare(
         `INSERT INTO sessions
-           (id, owner_user_id, agent_kind, model, effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
+           (id, owner_user_id, agent_kind, model, effort, requested_model, requested_effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
             resume_kind,
-            resume_value, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
+            resume_value, selected_driver_id, requested_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
             terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
             archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, stopped_at, stop_reason, deleted_at, deletion_source,
+            spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
             deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
             ref_issue_id, ref_letter, ref_draft,
             created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(id) DO UPDATE SET
            cwd = excluded.cwd,
            model = excluded.model,
            effort = excluded.effort,
+           requested_model = excluded.requested_model,
+           requested_effort = excluded.requested_effort,
            account_id = excluded.account_id,
            login_harness = COALESCE(sessions.login_harness, excluded.login_harness),
            title = excluded.title,
@@ -349,6 +360,8 @@ export class SessionsRepository {
            conversation_id = excluded.conversation_id,
            resume_kind = excluded.resume_kind,
            resume_value = excluded.resume_value,
+           selected_driver_id = excluded.selected_driver_id,
+           requested_driver_id = excluded.requested_driver_id,
            -- BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
            -- native conversation, no later write may say it never did. The rule
            -- lives here rather than in the caller because it is the premise the
@@ -379,6 +392,7 @@ export class SessionsRepository {
            issue_id = excluded.issue_id,
            stopped_at = excluded.stopped_at,
            stop_reason = excluded.stop_reason,
+           oom_killed_at = excluded.oom_killed_at,
            deleted_at = excluded.deleted_at,
            deletion_source = excluded.deletion_source,
            deleted_by_issue_id = excluded.deleted_by_issue_id,
@@ -407,6 +421,8 @@ export class SessionsRepository {
         row.agentKind,
         row.model ?? null,
         row.effort ?? null,
+        row.requestedModel ?? null,
+        row.requestedEffort ?? null,
         row.accountId ?? null,
         row.loginHarness ?? null,
         row.cwd,
@@ -417,6 +433,8 @@ export class SessionsRepository {
         row.conversationId,
         row.resumeKind,
         row.resumeValue,
+        row.selectedDriverId ?? null,
+        row.requestedDriverId ?? null,
         row.conversationBinding ?? null,
         row.status,
         row.exitCode,
@@ -440,7 +458,17 @@ export class SessionsRepository {
         row.headless ? 1 : 0,
         row.issueId ?? null,
         row.stoppedAt ?? null,
-        row.stopReason ?? null,
+        /**
+         * `stop_reason` KEEPS ITS FOUR-VALUE VOCABULARY, and `oom` is not one
+         * of them: `sessions_stop_reason_check` admits only self/parent/
+         * forced/exited, and widening it means a SQLite table rebuild the
+         * expand-only gate refuses. So the DEATH persists as `exited` and the
+         * CAUSE persists beside it as a timestamp; `Session.hydrate` re-derives
+         * `oom` from the pair. Without this the whole write threw on the CHECK
+         * and took the durable `oomKilled` event append down with it.
+         */
+        row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
+        row.oomKilledAt ?? null,
         row.deletedAt ?? null,
         row.deletionSource ?? null,
         row.deletedByIssueId ?? null,
@@ -551,6 +579,7 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: SessionId): void {
+    this.db.prepare('DELETE FROM runtime_event_checkpoints WHERE session_id = ?').run(id)
     this.purgeObservationCheckpoint(id)
     this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
     this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)

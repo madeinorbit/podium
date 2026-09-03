@@ -96,6 +96,9 @@ export interface TmuxSpawnOptions {
   cols: number
   rows: number
   env?: Record<string, string>
+  /** Variables to REMOVE from the pane's environment — see `SpawnOptions.stripEnv`.
+   *  Applied to the CREATE call, which is where the agent's own env is fixed. */
+  stripEnv?: readonly string[]
   backend?: PtyBackend
 }
 
@@ -105,19 +108,25 @@ export interface TmuxSpawnOptions {
  * pane with "open terminal failed: terminal does not support clear" so the
  * fixture/agent never paints — reattach looks like a silent PTY. [spec:SP-3f93]
  */
-function tmuxClientEnv(extra?: Record<string, string>): Record<string, string> {
-  return {
+function tmuxClientEnv(
+  extra?: Record<string, string>,
+  strip?: readonly string[],
+): Record<string, string> {
+  const env = {
     ...process.env,
     TERM: 'xterm-256color',
     COLORTERM: 'truecolor',
     ...extra,
   } as Record<string, string>
+  // After the merge — the same ordering rule the other two backends apply.
+  for (const key of strip ?? []) delete env[key]
+  return env
 }
 
 /** Create a detached per-session tmux server running the agent, apply config, attach a client. */
 export async function spawnTmuxAgent(opts: TmuxSpawnOptions): Promise<AgentSession> {
   const inner = [opts.cmd, ...(opts.args ?? [])].map(shellQuote).join(' ')
-  const env = tmuxClientEnv(opts.env)
+  const env = tmuxClientEnv(opts.env, opts.stripEnv)
   const socketDir = env.TMUX_TMPDIR ?? env.TMPDIR ?? '/tmp'
   const uid = typeof process.getuid === 'function' ? process.getuid() : 0
   assertLinuxUnixSocketPath(

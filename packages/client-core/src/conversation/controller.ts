@@ -1,4 +1,6 @@
+import { formatAgentError } from '@podium/model'
 import type { SessionId, SessionOffer, TranscriptItem, TranscriptTag } from '@podium/model'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { TranscriptState } from '../transcript'
 import {
   type ConversationPendingTurn,
@@ -17,6 +19,8 @@ export interface ConversationTranscript {
 
 export interface ConversationDeliveryResult {
   state?: 'queued' | 'sent'
+  /** The authority's 1-based FIFO position, when it returned one. */
+  position?: number
 }
 
 export interface ConversationSendInput {
@@ -24,6 +28,7 @@ export interface ConversationSendInput {
   wire?: string
   tags?: TranscriptTag[]
   toolPaths?: string[]
+  attachments?: readonly RuntimeAttachmentRef[]
   files?: readonly { path: string }[]
   acceptsAppendedBrief?: boolean
 }
@@ -31,6 +36,9 @@ export interface ConversationSendInput {
 export interface ConversationContext {
   agentSince?: string
   agentPhase?: string
+  /** A terminal provider failure, when the session reports one. Authoritative
+   *  for a turn still in flight; see {@link ConversationController.updateContext}. */
+  agentError?: { class: string; retryable: boolean; detail?: string } | undefined
   offer?: SessionOffer | null
   canInterrupt: boolean
   latestOperatorPrompt?: string | null
@@ -54,6 +62,15 @@ export interface ConversationControllerOptions {
   createDeliveryId(): string
   deliver(turn: ConversationPendingTurn): Promise<ConversationDeliveryResult | void>
   readQueue?: () => Promise<unknown>
+  /**
+   * The rows {@link readQueue} just returned, handed over RAW.
+   *
+   * ONE READ, TWO PROJECTIONS. An adapter that needs a second view of the same
+   * ledger — the web chat's dead-lettered rows, whose wording is its own — must
+   * not issue its own query for it: two reads of one ledger race each other,
+   * and the loser projects a snapshot the winner has already moved past.
+   */
+  onQueueRows?: (rows: unknown) => void
   retract?: (id: string) => Promise<void>
   dismissOffer?: (offerCreatedAt: string) => Promise<void>
   /** False when the adapter's durable outbox already projects the dismissal. */
@@ -206,7 +223,30 @@ export class ConversationController {
       dismissedOfferAt: this.dismissedOfferAt,
       canInterrupt: context.canInterrupt,
     })
+    this.applyTerminalAgentError(context)
     this.reconcileOpenSend()
+  }
+
+  /**
+   * A terminal provider failure fails every turn still in flight (POD-2604).
+   * Only `sending` turns are rewritten: one that reached `sent` crossed the
+   * send boundary, and calling it "not delivered" would be a claim about a
+   * message that did arrive.
+   */
+  private applyTerminalAgentError(context: ConversationContext): void {
+    const error =
+      context.agentPhase === 'errored' && context.agentError?.retryable === false
+        ? context.agentError
+        : undefined
+    if (!error) return
+    const failure = formatAgentError(error)
+    let changed = false
+    const pending = this.state.pending.map((turn) => {
+      if (turn.state !== 'sending') return turn
+      changed = true
+      return { ...turn, state: 'failed' as const, error: failure }
+    })
+    if (changed) this.patch({ pending })
   }
 
   async submit(input: ConversationSendInput): Promise<ConversationPendingTurn | null> {
@@ -366,6 +406,7 @@ export class ConversationController {
     try {
       const rows = await this.options.readQueue()
       if (this.disposed || serial !== this.queueReadSerial) return
+      this.options.onQueueRows?.(rows)
       this.patch({
         queued: queuedConversationMessages(rows, this.options.sessionId).filter(
           (message) => !this.retractingQueueIds.has(message.id),
@@ -404,7 +445,7 @@ export class ConversationController {
   ): ConversationPendingTurn | null {
     const text = input.text.trim()
     const wire = (input.wire ?? input.text).trim()
-    if (!wire) return null
+    if (!wire && !input.attachments?.length) return null
     const turn: ConversationPendingTurn = {
       id: `pending-${++this.pendingSeq}`,
       deliveryId: this.options.createDeliveryId(),
@@ -416,6 +457,9 @@ export class ConversationController {
       ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
       ...(input.toolPaths && input.toolPaths.length > 0 ? { toolPaths: input.toolPaths } : {}),
       ...(input.files && input.files.length > 0 ? { files: input.files } : {}),
+      ...(input.attachments && input.attachments.length > 0
+        ? { attachments: input.attachments }
+        : {}),
       ...(input.acceptsAppendedBrief ? { acceptsAppendedBrief: true } : {}),
     }
     this.patch({ pending: [...this.state.pending, turn] })
@@ -431,7 +475,13 @@ export class ConversationController {
     this.armSettle(turn.id)
     try {
       const result = await this.options.deliver(turn)
-      if (result?.state) this.replacePending({ ...turn, state: result.state })
+      if (result?.state) {
+        this.replacePending({
+          ...turn,
+          state: result.state,
+          ...(result.position !== undefined ? { queuePosition: result.position } : {}),
+        })
+      }
       if (result?.state === 'queued') {
         this.armAckTimer()
         void this.refreshQueue()

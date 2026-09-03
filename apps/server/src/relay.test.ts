@@ -5,6 +5,7 @@ import {
   type AgentPhase,
   type AgentRuntimeState,
   actorAgent,
+  actorUser,
   agentCapabilityRejection,
   asAgentIdentityId,
   asMachineId,
@@ -16,9 +17,10 @@ import {
   type SessionId,
   SOLE_USER_ID,
 } from '@podium/model'
-import { type ServerMessage, WIRE_VERSION } from '@podium/protocol'
+import { asDelegationRef, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterAll, describe, expect, it, vi } from 'vitest'
+import { advanceToComposerReady, expectSubmitStillDeferred } from './test-support/readiness-queue'
 
 /** Every durable session row names a machine (POD-318) — there is no column default. */
 const TEST_MACHINE = asMachineId('machine-under-test')
@@ -26,6 +28,8 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
 import { MessageDeliveryService } from './modules/messages/service'
+import { sessionCommandCtx } from './modules/sessions/command-ctx'
+import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
 import { type SessionRow, SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
@@ -1899,6 +1903,120 @@ describe('SessionRegistry', () => {
     expect(reg2.modules.sessions.listSessions().at(0)?.status).toBe('live')
   })
 
+  /**
+   * POD-2290 ROUND 2, the seam the reviewer DROVE rather than read.
+   *
+   * A server restart rehydrates persisted live/starting rows as `reconnecting`.
+   * Round two held the driver decision in memory only, so after a restart a
+   * headless session came back with no driver family at all — and the web panel
+   * reads a family-unknown live row as "assume a terminal", which is the
+   * original bug's screen: the OpenCode session opened on NATIVE with a
+   * switcher and a spinner that could not end while the daemon was away.
+   *
+   * Driven through the REAL rehydration path (a second registry over the same
+   * database file), not by hand-building a row: the defect was that the fact
+   * never reached the row, and a test that constructed the row itself would
+   * have passed against the broken code.
+   */
+  it('carries the driver family across a server restart, with the daemon away', () => {
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store1 = new SessionStore(file, TEST_MACHINE)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/a',
+    })
+    // The daemon announces its decision before it launches anything; it never
+    // gets as far as a bind here, which is also the case that used to lose it.
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'opencode-server',
+    })
+    expect(reg1.modules.sessions.listSessions().at(0)?.driverFamily).toBe('server')
+    store1.close()
+
+    // Restart, and DO NOT attach a daemon — that is the window.
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
+    const restored = reg2.modules.sessions.listSessions().at(0)
+    expect(restored?.status).toBe('reconnecting')
+    expect(restored?.driverFamily).toBe('server')
+    // …and still no claim that a live handle exists, which is the other half:
+    // `driverId` names a driver we are currently driving through, and after a
+    // restart with the daemon away we are driving through nothing.
+    expect(restored?.driverId).toBeUndefined()
+  })
+
+  it('lets a bind correct the persisted decision when the launch fell back', () => {
+    // The durable fact has to describe what actually ran. A session that asked
+    // for a server driver and ended up on the terminal one must come back from
+    // a restart as a TERMINAL session, or the panel withholds a view it has.
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store1 = new SessionStore(file, TEST_MACHINE)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'opencode',
+      cwd: '/a',
+    })
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'opencode-server',
+    })
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      agentKind: 'opencode',
+      driverId: 'generic-pty',
+      attachKinds: ['engine'],
+    })
+    expect(reg1.modules.sessions.listSessions().at(0)?.attachKinds).toEqual(['engine'])
+    store1.close()
+
+    const reg2 = new SessionRegistry(new SessionStore(file, TEST_MACHINE), undefined, {
+      instanceId: 'default',
+    })
+    expect(reg2.modules.sessions.listSessions().at(0)?.driverFamily).toBe('terminal')
+  })
+
+  it('clears a persisted pre-launch driver decision when the spawn is refused', () => {
+    const file = join(trackTmp('podium-relay-'), 'podium.db')
+    const store1 = new SessionStore(file, TEST_MACHINE)
+    const reg1 = new SessionRegistry(store1, undefined, { instanceId: 'default' })
+    reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg1.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/a',
+    })
+
+    // Defend the durable boundary even against an older daemon that announced
+    // its fallback before discovering that the explicit server request must be
+    // refused. No driver bound, so no driver may survive the spawn error.
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'driverSelected',
+      sessionId,
+      driverId: 'generic-pty',
+    })
+    reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, {
+      type: 'spawnError',
+      sessionId,
+      message: 'explicit codex-app-server request cannot be honoured',
+    })
+    expect(store1.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
+    store1.close()
+
+    const store2 = new SessionStore(file, TEST_MACHINE)
+    const reg2 = new SessionRegistry(store2, undefined, { instanceId: 'default' })
+    const restored = reg2.modules.sessions.listSessions().at(0)
+    expect(restored?.status).toBe('exited')
+    expect(restored?.driverFamily).toBeUndefined()
+    expect(store2.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
+    store2.close()
+  })
+
   it('reattachFailed marks the session exited', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
     const store1 = new SessionStore(file, TEST_MACHINE)
@@ -2854,6 +2972,38 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
   })
 })
 
+/**
+ * THE TWO LANES AGREE FROM HERE, AND THIS IS THE SENTENCE THAT SAYS SO (POD-2837).
+ *
+ * `apps/server/src/modules/sessions/inbox.test.ts` is the unit lane over the
+ * same call, and it asserts `{ok: true, queued: true}` for a chat send to a
+ * bound claude-code session with nothing on the PTY until the readiness window
+ * has run. This file used to assert the opposite about that one call — a bare
+ * `{ok: true}` and a bracketed paste on the wire at +100ms of fake time. The
+ * tip carried both answers; only one lane was gated; an eleven-test regression
+ * stayed invisible for three days.
+ *
+ * THE QUEUE IS THE CONTRACT for a bound, idle claude-code session (ruled
+ * 2026-08-26, `docs/plans/pod-1761-release-ledger.md`). A bind makes a session
+ * live BEFORE its composer is mounted, and bytes typed into an unmounted
+ * composer are accepted by the pty and dropped by the app (POD-2116) — a
+ * SILENT loss, where the queue's cost is a visible wait. Claude's composer
+ * readiness cannot be observed at all (`composerReadiness: 'confirmed-turn'`,
+ * POD-2823), so the only proof it will take typing is a user turn in the
+ * transcript, and no synchronous contract can be honoured for it.
+ *
+ * SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER. A repo that asserts both
+ * answers drifts back to whichever one nobody runs. There are four files in
+ * that set, not two: `relay.outbox.test.ts` (BOUNDARY) and
+ * `modules/sessions/oracle-commands.test.ts` (SERVICES) were brought to the
+ * same answer by POD-2842.
+ *
+ * WHAT DID NOT CHANGE IS A SINGLE BYTE. The paste wrapper, the separated CR,
+ * the bounded submit retry and the needs_user guard are asserted below exactly
+ * as they were — same envelopes, same `\r`, same counts. Only the moment they
+ * are asserted at moved, and the tests now reach the typing by driving the
+ * queue instead of by assuming there is no queue.
+ */
 describe('sendText (chat send path)', () => {
   const readInputs = (daemon: ControlMessage[]): string[] =>
     daemon
@@ -2869,6 +3019,10 @@ describe('sendText (chat send path)', () => {
       sessionId,
       state: { phase, since: '2026-01-01T00:00:00.000Z', nativeSubagentCount: 0, ...extra },
     }) as const
+
+  // `advanceToComposerReady` and `expectSubmitStillDeferred` live in
+  // `test-support/readiness-queue.ts` — `relay.outbox.test.ts` drives the same
+  // queue and a second copy is how the two lanes drifted apart (POD-2842).
 
   it('POD-901: first Grok chat send types raw keystrokes, not bracketed paste', () => {
     vi.useFakeTimers()
@@ -2903,13 +3057,23 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES: the send is accepted and
+      // held, not typed. `queued: true` is the caller's warning that the bytes
+      // are not on the wire yet.
       expect(reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })).toEqual({
         ok: true,
+        queued: true,
       })
-      // The paste block goes out immediately; the submitting CR is DEFERRED so it
+      // And nothing is typed into a composer that has not proven it is mounted.
+      // This is the whole point of the queue: the pty would ACCEPT these bytes
+      // and the app would drop them, with nothing to say so.
+      vi.advanceTimersByTime(100)
+      expect(readInputs(daemon)).toEqual([])
+      // The paste block goes out as one write; the submitting CR is DEFERRED so it
       // lands in a separate PTY read — a CR fused to the paste-end marker is swallowed
       // by the new Claude renderer, so the message types in but the turn never starts.
-      expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~'])
+      advanceToComposerReady(() => readInputs(daemon).length)
+      expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~run the tests\x1b[201~')
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~run the tests\x1b[201~', '\r'])
     } finally {
@@ -2928,7 +3092,14 @@ describe('sendText (chat send path)', () => {
         cwd: '/w',
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
-      reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'a\nb' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      advanceToComposerReady(() => readInputs(daemon).length)
+      // The embedded newline stays INSIDE the paste envelope — it must never be
+      // the thing that submits a half-written message.
+      expectSubmitStillDeferred(() => readInputs(daemon), '\x1b[200~a\nb\x1b[201~')
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~a\nb\x1b[201~', '\r'])
     } finally {
@@ -2950,6 +3121,11 @@ describe('sendText (chat send path)', () => {
       // An image send: the composer converts the pasted path to an attachment,
       // which outlasts the CR delay — the CR is swallowed, nothing submits.
       reg.modules.sessions.sendText({ sessionId, text: '/up/img.png\nlook at this' })
+      advanceToComposerReady(() => readInputs(daemon).length)
+      expectSubmitStillDeferred(
+        () => readInputs(daemon),
+        '\x1b[200~/up/img.png\nlook at this\x1b[201~',
+      )
       vi.advanceTimersByTime(100)
       expect(readInputs(daemon)).toEqual(['\x1b[200~/up/img.png\nlook at this\x1b[201~', '\r'])
       // No user-turn echo and the phase never left idle → verify resends the CR.
@@ -2977,6 +3153,10 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'run the tests' })
+      // Reach the typing FIRST. Setting the phase before the paste is on the
+      // wire would make this pass for the wrong reason — the retry it forbids
+      // is the one that fires after a submit, so the submit has to happen.
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       reg.gateway.routeDaemonFrame(
         reg.sessionStore.hostMachineId,
@@ -3001,6 +3181,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'quick one' })
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // The turn ran so fast the phase is already back to idle — but the user turn
       // reached the transcript cache, which is submit evidence on its own.
@@ -3029,6 +3210,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'hello' })
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // A trailing assistant item from the PREVIOUS turn arrives late; it must not
       // be mistaken for the echo of the just-sent user turn.
@@ -3057,6 +3239,7 @@ describe('sendText (chat send path)', () => {
       })
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       reg.modules.sessions.sendText({ sessionId, text: 'submitted fine' })
+      advanceToComposerReady(() => readInputs(daemon).length)
       vi.advanceTimersByTime(100)
       // The turn started and hit an AskUserQuestion before the verify fired. A
       // retry CR would answer the menu's highlighted default (#473) — forbidden.
@@ -3099,6 +3282,50 @@ describe('sendText (chat send path)', () => {
     }
   })
 
+  /**
+   * THE BACKSTOP, REACHED THE WAY THE QUEUE REACHES IT (POD-2837, #473).
+   *
+   * The test above refuses a menu that is ALREADY up, at accept time. This is
+   * the other order, and the queue is what created it: the send is accepted
+   * while the session is idle, and the menu opens while the row is still
+   * waiting for the composer to mount. Nothing about accepting was wrong;
+   * typing it NOW would be — a submitting CR at a live AskUserQuestion answers
+   * the highlighted default, picking an option on the human's behalf.
+   *
+   * So `typeText`'s own refusal is not redundant with `sendText`'s, and this is
+   * the case that says why: A CHECK THAT RUNS AT ACCEPT TIME CANNOT SEE A MENU
+   * THAT APPEARS AFTERWARDS. Deleting the inner guard leaves every other test
+   * in this file green.
+   */
+  it('#473: a menu that opens WHILE the row waits still stops the typing', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/w',
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      // Idle at accept time, so the send is legitimately taken and held.
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'queued before the menu' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      reg.gateway.routeDaemonFrame(
+        'local',
+        agentStateMsg(sessionId, 'needs_user', { need: { kind: 'question' } }),
+      )
+      // Well past the readiness window: the drain reached the typing and was
+      // refused there. No paste, and above all no CR.
+      vi.advanceTimersByTime(60_000)
+      expect(readInputs(daemon)).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('#473: once the menu resolves (phase leaves needs_user), a fresh sendText types normally', () => {
     vi.useFakeTimers()
     try {
@@ -3118,13 +3345,23 @@ describe('sendText (chat send path)', () => {
       // Human answers the menu → phase → idle.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, agentStateMsg(sessionId, 'idle'))
       const before = daemon.length
-      expect(reg.modules.sessions.sendText({ sessionId, text: 'now ok' }).ok).toBe(true)
+      const inputsSince = (): string[] =>
+        daemon
+          .slice(before)
+          .filter((m) => m.type === 'input')
+          .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
+      // ACCEPTED now, because the menu is gone — and the refusal above is the
+      // proof the queue did not swallow it. `readinessQueueRefusal` asks the
+      // needs_user question BEFORE the diversion (POD-2828), so "not yet" and
+      // "no" stay different answers.
+      expect(reg.modules.sessions.sendText({ sessionId, text: 'now ok' })).toEqual({
+        ok: true,
+        queued: true,
+      })
+      advanceToComposerReady(() => inputsSince().length)
+      expectSubmitStillDeferred(inputsSince, '\x1b[200~now ok\x1b[201~')
       vi.advanceTimersByTime(100)
-      const inputs = daemon
-        .slice(before)
-        .filter((m) => m.type === 'input')
-        .map((m) => Buffer.from((m as { data: string }).data, 'base64').toString())
-      expect(inputs).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
+      expect(inputsSince()).toEqual(['\x1b[200~now ok\x1b[201~', '\r'])
     } finally {
       vi.useRealTimers()
     }
@@ -3386,6 +3623,280 @@ describe('hibernation', () => {
     expect(daemon.map((m) => m.type)).toContain('reattach')
   })
 
+  // POD-2249. For the PTY family the revive's reattach is passive; for the
+  // server family it routes to adoptFromJournal, and codex's adopt() STARTS A
+  // FRESH APP-SERVER — so a blind revive of an unconfirmed reap would put a
+  // second credentialed child beside the un-killable first, once per receipt,
+  // unbounded. A killed:false for a server-family row must hold the park.
+  it('holds the park on an unconfirmed kill of a SERVER-family session — no reattach, no spawn loop', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805180' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: `podium-cx-${sessionId}`,
+      killed: false,
+      reason: 'the server-driver process is still running',
+    })
+
+    // Parked, held: no reattach means no adopt means no second codex child.
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  // The guard's first version keyed on driverId, which is transient — bind-only,
+  // not in toRow() — so a parked server row that survived a SERVER REDEPLOY had
+  // driverId undefined and failed OPEN into the spawn loop. The persisted
+  // resume kind is the durable fallback; this is the no-bind shape that caught it.
+  it('…and still holds it after a server redeploy, when the bind-time driverId is gone', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805181' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    // New registry on the SAME store — the redeploy. The rehydrated row has no
+    // driverId (never persisted; hibernated rows are never reattached) but its
+    // resume kind survives in the row.
+    const reg2 = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon2: ControlMessage[] = []
+    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
+
+    daemon2.length = 0
+    reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: `podium-cx-${sessionId}`,
+      killed: false,
+      reason: 'the server-driver process is still running',
+    })
+
+    expect(reg2.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon2.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  // The hold must NOT swallow the census repair for PTY-driven rows of the same
+  // harnesses: the census measures a live abduco host under the row's label — an
+  // identity no server-family session ever has — so its revive stays a passive
+  // PTY reattach and is exempt from the server-family hold.
+  it('the census still revives a PTY-driven codex row the hold would otherwise catch', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/w',
+    })
+    // A plain PTY bind: no driverId, no runtimeContract — but the same
+    // per-harness resume kind the server driver reports.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex',
+      agentKind: 'codex',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: '019fff94-7326-7032-b90b-3cc7e1805182' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    // Simulate the redeployed shape for the guard too: driverId is transient,
+    // and the census-vs-receipt split must not depend on it surviving.
+    // biome-ignore lint/suspicious/noExplicitAny: reach the live session to model the post-redeploy row
+    ;(reg as any).modules.sessions.sessions.get(sessionId).driverId = undefined
+
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'durableSessionCensus',
+      labels: [`podium-${sessionId}`],
+    })
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('reconnecting')
+    expect(daemon.map((m) => m.type)).toContain('reattach')
+  })
+
+  /**
+   * POD-2456: the same unknown-driver-id inversion as POD-2327, at the guard
+   * whose recorded consequence is a SPAWN LOOP, so the safe direction flips.
+   *
+   * The guard used to ask `driverIdIsServerFamily`, and an id no manifest here
+   * declares answers false — which both let the revive through AND skipped the
+   * durable `resume.kind` fallback, so it was less safe WITH a driver id than
+   * without one. A newer daemon binding a renamed or brand-new server driver
+   * therefore walked the row into `adoptFromJournal`, and codex's `adopt()`
+   * starts a fresh app-server: a second credentialed child per `killed:false`.
+   *
+   * The driver ids below are SYNTHETIC AND DELIBERATELY UNKNOWN. Nothing is
+   * meant to add them to the manifests later — the point is that this server
+   * cannot enumerate what a future daemon will bind.
+   */
+  const parkedCodexRow = (
+    reg: SessionRegistry,
+    bindFields: { driverId?: string; runtimeContract?: true },
+    resumeValue: string,
+  ) => {
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'codex',
+      agentKind: 'codex',
+      ...bindFields,
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'codex-thread', value: resumeValue },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+    return sessionId
+  }
+
+  const unconfirmedKill = (reg: SessionRegistry, sessionId: SessionId, label: string) =>
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionKillResult',
+      sessionId,
+      durableLabel: label,
+      killed: false,
+      reason: 'the server-driver process is still running',
+    })
+
+  it('holds the park for a driver id no manifest declares — no reattach, no adopt [POD-2456]', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    // A newer daemon's server driver. This build has never heard of it.
+    const sessionId = parkedCodexRow(
+      reg,
+      { driverId: 'codex-app-server-v2', runtimeContract: true },
+      '019fff94-7326-7032-b90b-3cc7e1805190',
+    )
+
+    daemon.length = 0
+    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+
+    // …and once per receipt, unbounded, is the shape that made this a spawn
+    // loop rather than a single stray child. Repeat it.
+    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    unconfirmedKill(reg, sessionId, `podium-cx-${sessionId}`)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  it('holds the park for an EMBEDDED driver id too — it has no PTY either [POD-2456]', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      runtimeContract: true,
+      driverId: 'claude-sdk', // declared, but as claude-code's EMBEDDED driver
+    })
+    // claude-code declares NO server driver, so the durable fallback would let
+    // this row through. The hold has to come from the driver id alone.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'claude-session', value: 'abc-456' },
+    })
+    expect(reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+
+    daemon.length = 0
+    unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  it('…and the durable resume kind still holds that row after a redeploy drops the unknown id [POD-2456]', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = parkedCodexRow(
+      reg,
+      { driverId: 'codex-app-server-v2', runtimeContract: true },
+      '019fff94-7326-7032-b90b-3cc7e1805191',
+    )
+
+    // The redeploy: a new server over the same store. `driverId` never
+    // persisted, so the unknown id is gone and only the resume kind is left —
+    // the two facts have to compose, not mask each other.
+    const reg2 = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    const daemon2: ControlMessage[] = []
+    reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, (m) => daemon2.push(m))
+
+    daemon2.length = 0
+    unconfirmedKill(reg2, sessionId, `podium-cx-${sessionId}`)
+
+    expect(reg2.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+    expect(daemon2.map((m) => m.type)).not.toContain('reattach')
+  })
+
+  // The guard must not have become "always hold": a manifest-declared TERMINAL
+  // driver PROVES a PTY behind the row, so its reattach is the passive bind and
+  // receipt-driven repair stays on — even for a harness that also declares a
+  // server driver, whose per-harness resume kind alone cannot tell the two
+  // apart. This is the one case where believing `driverId` is a proof.
+  it('still revives a row bound to a manifest-declared TERMINAL driver [POD-2456]', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const sessionId = parkedCodexRow(
+      reg,
+      { driverId: 'generic-pty' },
+      '019fff94-7326-7032-b90b-3cc7e1805192',
+    )
+
+    daemon.length = 0
+    unconfirmedKill(reg, sessionId, `podium-${sessionId}`)
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('reconnecting')
+    expect(daemon.map((m) => m.type)).toContain('reattach')
+  })
+
   it('leaves a parked row alone when the daemon confirms the kill', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
@@ -3548,6 +4059,640 @@ describe('hibernation', () => {
       }),
     )
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+  })
+
+  it('rejects a fenced Grok exit when both live and durable leases are absent', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    const spawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const generation = spawn?.observationGeneration
+    expect(generation).toEqual(expect.any(Number))
+    if (generation === undefined) throw new Error('initial spawn was not fenced')
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+
+    const leaseBook = (
+      reg.modules.sessions as unknown as {
+        observationLeases: {
+          hydrate(rows: Iterable<never>): void
+          get(sessionId: SessionId): unknown
+        }
+      }
+    ).observationLeases
+    leaseBook.hydrate([])
+    reg.sessionStore.observationCheckpoints.purge(sessionId)
+    expect(leaseBook.get(sessionId)).toBeUndefined()
+    expect(reg.sessionStore.observationCheckpoints.get(sessionId)).toBeNull()
+    daemon.length = 0
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: generation,
+    })
+
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+    expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
+    reg.dispose()
+  })
+
+  it('hands a live busy Grok ledger send to exit recovery and the next bind', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'grok',
+        cwd: '/w',
+      })
+      const initialSpawn = daemon.find(
+        (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+          message.type === 'spawn' && message.sessionId === sessionId,
+      )
+      const initialGeneration = initialSpawn?.observationGeneration
+      expect(initialGeneration).toEqual(expect.any(Number))
+      if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
+
+      const grokBind = {
+        ...bind(sessionId),
+        cmd: 'grok agent stdio (grok-acp)',
+        agentKind: 'grok',
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      } as const
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'sessionResumeRef',
+        sessionId,
+        resume: { kind: 'grok-session', value: 'grok-ledger-exit-resume' },
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-bootstrap',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'prompt_submitted' },
+          at: '2026-08-23T00:00:00.000Z',
+          provenance: 'bootstrap',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 1 } },
+          observerGeneration: initialGeneration,
+          turnEpoch: 0,
+        },
+      })
+      daemon.length = 0
+
+      const result = await dispatchSessionCommand(
+        sessionCommandCtx(reg.modules, userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability),
+        'sendText',
+        { sessionId, text: 'accepted while Grok was busy' },
+      )
+      expect(result).toEqual({
+        ok: true,
+        queued: true,
+        position: 1,
+        disposition: 'queued',
+      })
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
+      const message = reg.sessionStore.messages
+        .listLedger({ sessionId })
+        .find((row) => row.body === 'accepted while Grok was busy')
+      expect(message).toBeDefined()
+      if (!message) throw new Error('command send did not create a ledger row')
+      expect(message).toMatchObject({
+        status: 'queued',
+        injectedAt: null,
+        deliveredTo: null,
+      })
+
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-process-exit',
+        sessionId,
+        event: {
+          t: 'process',
+          ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+          at: '2026-08-23T00:00:01.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 2 } },
+          observerGeneration: initialGeneration,
+          turnEpoch: 0,
+        },
+      })
+
+      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+      expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+      expect(reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
+        status: 'queued',
+        injectedAt: expect.any(String),
+        deliveredTo: sessionId,
+      })
+
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId,
+        code: 137,
+        observerGeneration: initialGeneration,
+      })
+      expect(daemon.filter((entry) => entry.type === 'spawn')).toHaveLength(1)
+      expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, grokBind)
+      const runtimeSendRequests = (): Array<
+        Extract<ControlMessage, { type: 'runtimeSendRequest' }>
+      > =>
+        daemon.filter(
+          (entry): entry is Extract<ControlMessage, { type: 'runtimeSendRequest' }> =>
+            entry.type === 'runtimeSendRequest' &&
+            entry.sessionId === sessionId &&
+            entry.turnId === message.id,
+        )
+      await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(1))
+      const firstRequest = runtimeSendRequests()[0]
+      expect(firstRequest).toBeDefined()
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: firstRequest!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: { reason: 'busy', detail: 'driver is still handling the prior turn' },
+        },
+      })
+      await vi.waitFor(() => expect(runtimeSendRequests()).toHaveLength(2))
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeEvent',
+        deliveryId: 'grok-ledger-rebind-ready',
+        sessionId,
+        event: {
+          t: 'state',
+          change: { kind: 'session_started' },
+          at: '2026-08-23T00:00:02.000Z',
+          provenance: 'live',
+          cursor: { segmentId: 'grok-ledger-segment', components: { seq: 3 } },
+          observerGeneration: initialGeneration,
+          turnEpoch: 0,
+        },
+      })
+      const request = runtimeSendRequests()[1]
+      expect(request).toBeDefined()
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          at: '2026-08-23T00:00:02.000Z',
+        },
+      })
+      await vi.waitFor(() =>
+        expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(0),
+      )
+      expect(reg.sessionStore.messages.getMessage(message.id)).toMatchObject({
+        status: 'delivered',
+        deliveredTo: sessionId,
+      })
+    } finally {
+      reg.dispose()
+    }
+  })
+
+  it('resumes a Grok row admitted just before its child exit reaches the server', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    const lifecycle: string[] = []
+    let target: SessionId | undefined
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => {
+      daemon.push(m)
+      if (m.type === 'spawn' && m.sessionId === target) lifecycle.push('spawn')
+    })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    target = sessionId
+    const initialSpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const initialGeneration = initialSpawn?.observationGeneration
+    expect(initialGeneration).toEqual(expect.any(Number))
+    if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
+    reg.bus.on('session.exited', (event) => {
+      if (event.sessionId === sessionId) lifecycle.push('exit')
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-dead-child-resume' },
+    })
+    daemon.length = 0
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-order-bootstrap',
+      sessionId,
+      event: {
+        t: 'state',
+        change: { kind: 'session_started' },
+        at: '2026-08-23T00:00:00.000Z',
+        provenance: 'bootstrap',
+        cursor: { segmentId: 'grok-order-segment', components: { seq: 1 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+
+    expect(
+      reg.modules.sessions.queueText({ sessionId, text: 'accepted before exit projection' }),
+    ).toEqual({ ok: true, queued: true })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: initialGeneration,
+    })
+
+    const recoverySpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(recoverySpawn).toMatchObject({
+      type: 'spawn',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-dead-child-resume' },
+    })
+    const recoveryGeneration = recoverySpawn?.observationGeneration
+    expect(recoveryGeneration).toBeGreaterThan(initialGeneration)
+    if (recoveryGeneration === undefined) throw new Error('recovery spawn was not fenced')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    // The real exit must publish before its synchronous wake mutates the same row.
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+
+    // A duplicate from the dead generation cannot poison or double-spawn the
+    // starting replacement.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: initialGeneration,
+    })
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    // The durable process event may arrive after the ordinary exit frame. The
+    // recovery above has already advanced the lease, so this same-generation
+    // replay must not apply a second exit or spawn another replacement.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-order-process-after-agent-exit',
+      sessionId,
+      event: {
+        t: 'process',
+        ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+        at: '2026-08-23T00:00:01.000Z',
+        provenance: 'live',
+        cursor: { segmentId: 'grok-order-segment', components: { seq: 2 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    // The automatic replacement can fail before bind. Its spawnError closes
+    // that attempt, while the accepted row remains durable for an authorized
+    // retry instead of being consumed or stranded behind lifecycle bookkeeping.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'spawnError',
+      sessionId,
+      message: 'grok session/load timed out',
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+
+    daemon.length = 0
+    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+      ok: true,
+    })
+    const retrySpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const retryGeneration = retrySpawn?.observationGeneration
+    expect(retryGeneration).toBeGreaterThan(recoveryGeneration)
+    if (retryGeneration === undefined) throw new Error('authorized retry was not fenced')
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    for (const staleGeneration of [initialGeneration, recoveryGeneration]) {
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId,
+        code: 137,
+        observerGeneration: staleGeneration,
+      })
+    }
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+      observerGeneration: recoveryGeneration,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+    // A matching current-generation exit after bind is the replacement's real
+    // death. It applies once and hands the still-durable row to the next wake.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 139,
+      observerGeneration: retryGeneration,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    const postBindSpawns = daemon.filter(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(postBindSpawns).toHaveLength(2)
+    expect(postBindSpawns[1]?.observationGeneration).toBeGreaterThan(retryGeneration)
+
+    // Recovery advanced the lease, so replaying that same exit generation is
+    // now stale. It cannot poison the new starting process or spawn a third one.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 139,
+      observerGeneration: retryGeneration,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(2)
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
+  it('recovers a queued Grok send from the durable process-exit event', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    const lifecycle: string[] = []
+    let target: SessionId | undefined
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => {
+      daemon.push(message)
+      if (message.type === 'spawn' && message.sessionId === target) lifecycle.push('spawn')
+    })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    target = sessionId
+    const initialSpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    const initialGeneration = initialSpawn?.observationGeneration
+    expect(initialGeneration).toEqual(expect.any(Number))
+    if (initialGeneration === undefined) throw new Error('initial spawn was not fenced')
+    reg.bus.on('session.exited', (event) => {
+      if (event.sessionId === sessionId) lifecycle.push('exit')
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-durable-exit-resume' },
+    })
+    daemon.length = 0
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-process-bootstrap',
+      sessionId,
+      event: {
+        t: 'state',
+        change: { kind: 'session_started' },
+        at: '2026-08-23T00:00:00.000Z',
+        provenance: 'bootstrap',
+        cursor: { segmentId: 'grok-durable-exit-resume', components: { seq: 1 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+    expect(reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' })).toEqual(
+      { ok: true, queued: true },
+    )
+    // The ordinary agentExit frame is intentionally absent: it is the frame
+    // that the daemon/server disconnect can drop after the child closes.
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'runtimeEvent',
+      deliveryId: 'grok-process-exit-1',
+      sessionId,
+      event: {
+        t: 'process',
+        ev: { ev: 'exited', code: null, signal: null, classification: 'crashed' },
+        at: '2026-08-23T00:00:01.000Z',
+        provenance: 'live',
+        cursor: { segmentId: 'grok-durable-exit-resume', components: { seq: 2 } },
+        observerGeneration: initialGeneration,
+        turnEpoch: 0,
+      },
+    })
+    // The legacy frame is the lossy copy, but it can race after the durable
+    // process event. The lease minted by recovery rejects this stale frame.
+    const spawnCountAfterDurableExit = daemon.filter((message) => message.type === 'spawn').length
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 0,
+      observerGeneration: initialGeneration,
+    })
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(
+      spawnCountAfterDurableExit,
+    )
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+
+    const recoverySpawn = daemon.find(
+      (message): message is Extract<ControlMessage, { type: 'spawn' }> =>
+        message.type === 'spawn' && message.sessionId === sessionId,
+    )
+    expect(recoverySpawn).toMatchObject({
+      type: 'spawn',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-durable-exit-resume' },
+    })
+    expect(recoverySpawn?.observationGeneration).toBeGreaterThan(initialGeneration)
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(lifecycle).toEqual(['exit', 'spawn'])
+    expect(daemon).toContainEqual({
+      type: 'runtimeEventAck',
+      deliveryId: 'grok-process-exit-1',
+      outcome: 'committed',
+    })
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
+  it('deduplicates legacy unfenced exits and clears their guard on spawnError', async () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/w',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-legacy-exit-resume' },
+    })
+    daemon.length = 0
+    expect(reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' })).toEqual(
+      { ok: true, queued: true },
+    )
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('starting')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'spawnError',
+      sessionId,
+      message: 'legacy replacement failed before bind',
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
+
+    daemon.length = 0
+    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+      ok: true,
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 138,
+    })
+    expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
+    expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
+  })
+
+  it('keeps a revoked delegated row durable without waking after exit', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+    const actorSessionId = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/actor',
+    }).sessionId
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'grok',
+      cwd: '/target',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      ...bind(sessionId),
+      cmd: 'grok agent stdio (grok-acp)',
+      agentKind: 'grok',
+      runtimeContract: true,
+      driverId: 'grok-acp',
+    })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'sessionResumeRef',
+      sessionId,
+      resume: { kind: 'grok-session', value: 'grok-revoked-resume' },
+    })
+    const principal = {
+      kind: 'agent' as const,
+      principalRef: actorSessionId,
+      delegation: asDelegationRef(actorSessionId),
+      attribution: {
+        actor: actorAgent(asAgentIdentityId(actorSessionId)),
+        onBehalfOf: FIRST_ADMIN_USER_ID,
+      },
+    }
+    expect(
+      reg.modules.sessions.queueText({
+        sessionId,
+        text: 'delegation revoked before process exit',
+        principal,
+      }),
+    ).toEqual({ ok: true, queued: true })
+
+    // Removing the delegated actor revokes the reference before the target's
+    // death applies. Exit recovery must re-resolve it live, refuse the wake,
+    // and retain the durable row for an explicit authorized recovery.
+    reg.modules.sessions.killSession({ sessionId: actorSessionId })
+    daemon.length = 0
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentExit',
+      sessionId,
+      code: 137,
+    })
+
+    expect(daemon.some((message) => message.type === 'spawn')).toBe(false)
+    expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+      'exited',
+    )
+    expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+    reg.dispose()
   })
 
   it('restarts an exited shell fresh in the same cwd — no resume ref needed', async () => {
@@ -4858,12 +6003,18 @@ describe('output-relay priority + frame batch', () => {
       focused: sessionId,
     })
     // Focused beats visible/attached: tier 0.
-    expect(priorities(daemon)).toContainEqual({ type: 'sessionPriority', sessionId, priority: 0 })
+    expect(priorities(daemon)).toContainEqual({
+      type: 'sessionPriority',
+      sessionId,
+      priority: 0,
+      nativeView: true,
+    })
   })
 
-  it('stores the rendered-mode map from a viewState message on the client (available, not used for scheduling)', () => {
+  it('stores the rendered-mode map and signals chat without changing relay priority', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
-    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const daemon: ControlMessage[] = []
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -4875,10 +6026,23 @@ describe('output-relay priority + frame batch', () => {
       type: 'viewState',
       visible: [sessionId],
       focused: sessionId,
+      modes: { [sessionId]: 'native' },
+    })
+    daemon.length = 0
+    reg.clientGateway.routeClientFrame(id, {
+      type: 'viewState',
+      visible: [sessionId],
+      focused: sessionId,
       modes: { [sessionId]: 'chat' },
     })
     const client = (reg as any).modules.sessions.clients.get(id)
     expect(client.viewModes).toEqual({ [sessionId]: 'chat' })
+    expect(priorities(daemon)).toContainEqual({
+      type: 'sessionPriority',
+      sessionId,
+      priority: 0,
+      nativeView: false,
+    })
   })
 
   it('defaults viewModes to {} when a viewState omits modes (backward compatible)', () => {
@@ -4930,8 +6094,18 @@ describe('output-relay priority + frame batch', () => {
 
     reg.clientGateway.routeClientFrame(id, { type: 'viewState', visible: [s1, s2], focused: s2 })
     const sent = priorities(daemon)
-    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s1, priority: 1 }) // visible
-    expect(sent).toContainEqual({ type: 'sessionPriority', sessionId: s2, priority: 0 }) // focused
+    expect(sent).toContainEqual({
+      type: 'sessionPriority',
+      sessionId: s1,
+      priority: 1,
+      nativeView: true,
+    }) // visible
+    expect(sent).toContainEqual({
+      type: 'sessionPriority',
+      sessionId: s2,
+      priority: 0,
+      nativeView: true,
+    }) // focused
   })
 
   it('only CHANGED sessions are re-pushed (deltas, not the whole map every time)', () => {
@@ -4983,6 +6157,7 @@ describe('output-relay priority + frame batch', () => {
       type: 'sessionPriority',
       sessionId,
       priority: 0,
+      nativeView: true,
     })
   })
 
@@ -5044,8 +6219,595 @@ describe('listDir routing', () => {
   })
 })
 
+describe('runtime queue abandonment composition [POD-2202]', () => {
+  it('carries a teardown report from the daemon frame into the durable terminal row', () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        ...bind(sessionId),
+        runtimeContract: true,
+      })
+
+      const sent = registry.modules.messages.send(
+        {
+          kind: 'superagent',
+          attribution: {
+            actor: actorAgent(asAgentIdentityId('superagent')),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+          delegationRef: 'superagent',
+        },
+        {
+          to: { kind: 'session', id: sessionId },
+          body: 'lost during daemon restart',
+          urgency: 'next-turn',
+        },
+      )
+      expect(sent.message.status).toBe('queued')
+      expect(daemon).toContainEqual(
+        expect.objectContaining({
+          type: 'runtimeSendRequest',
+          sessionId,
+          turnId: sent.message.id,
+        }),
+      )
+
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeQueueDrainAbandoned',
+        reportId: 'report-after-restart',
+        sessionId,
+        turnIds: [sent.message.id],
+        reason: 'teardown',
+      })
+
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'dead_letter',
+        deliveredTo: sessionId,
+        deliveryDeferredReason: 'teardown',
+        deadLetteredAt: expect.any(String),
+      })
+      expect(daemon).toContainEqual({
+        type: 'runtimeQueueDrainAbandonedAck',
+        reportId: 'report-after-restart',
+      })
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
+/**
+ * POD-2291: the operator's first prompt into a fresh codex app-server session
+ * showed "sending" and then vanished — no transcript entry, no error, no
+ * dead-letter. The send rode the durable queue (correct: the session was still
+ * `starting`), but the drain then "typed" it at a session with no PTY bridge:
+ * the daemon discarded the bytes silently while this side marked the ledger row
+ * delivered-via-injection. These pin the promise the drain now keeps: a queued
+ * chat prompt to a server-family session delivers through the contract, or
+ * stays visibly queued — it never becomes PTY bytes and never silently
+ * disappears.
+ */
+describe('codex app-server first-prompt delivery [POD-2291]', () => {
+  const codexBind = (sessionId: SessionId) =>
+    ({
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    }) as const
+
+  const sendFirstPrompt = (registry: SessionRegistry, sessionId: SessionId) =>
+    registry.modules.messages.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: sessionId }, body: 'first prompt', urgency: 'next-turn' },
+    )
+
+  const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
+    daemon.filter(
+      (message) =>
+        message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
+    )
+
+  it('a prompt sent during the starting window delivers through the contract on bind — never as PTY bytes', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      // The spawn (version probe + handshake + thread mint) is still in
+      // flight: the row rides the durable queue, visibly.
+      const sent = sendFirstPrompt(registry, sessionId)
+      expect(sent.message.status).toBe('queued')
+      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+
+      // bind lands with the server-family facts; the drain must now route the
+      // queued row through the contract.
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      // Real timers on purpose: the drain's ready poll is 200ms, and swapping in
+      // a fake clock around a full SessionRegistry orphans its background
+      // intervals into whichever test runs next.
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      expect(request).toMatchObject({
+        turnId: sent.message.id,
+        text: expect.stringContaining('first prompt'),
+      })
+      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+
+      // The driver acks the turn → the ledger row is honestly delivered.
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'accepted',
+          turnEpoch: 1,
+          deliveredAs: 'when-ready',
+          provenBy: 'protocol-ack',
+          at: '2026-01-01T00:00:00.000Z',
+        },
+      })
+      await vi.waitFor(() =>
+        expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+          status: 'delivered',
+        }),
+      )
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('a refused delivery leaves the row visibly queued — never delivered, never silently gone', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendFirstPrompt(registry, sessionId)
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      expect(request).toBeDefined()
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail: 'the daemon dropped the handle' },
+        },
+      })
+      // Give the refusal's continuation a real beat to run, then hold still:
+      // the row must not move.
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      // The row is still queued — the chat view keeps rendering its pending
+      // bubble — and nothing ever typed PTY bytes at the bridgeless session.
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+      expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+      expect(inputFramesWith(daemon, 'first prompt')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
+/**
+ * POD-2792: the same vanish as POD-2291, reached through the STOP BUTTON.
+ *
+ * `sessions.interrupt` went down the terminal path on every session, so for a
+ * server-family one the daemon logged `discarding input bytes for a bridgeless
+ * contract session` and the call had already answered `{ ok: true }`. Measured
+ * on the opencode and codex headless arms: the turn kept generating (35 and 66
+ * preview frames arrived AFTER the stop) while the product said it had worked.
+ *
+ * THESE ARE WIRING PINS AND THAT IS THE POINT. `inbox.test.ts` proves the branch
+ * chooses the contract; only a test that composes the real registry proves the
+ * PORT BEHIND IT IS CONNECTED — and an unwired port was the entire defect. Every
+ * layer of this existed and passed its own tests: the driver implements
+ * `interrupt()`, the daemon has a handler for the frame, the gateway has a
+ * method that sends it. Nothing called it.
+ */
+describe('the stop button on a session with no terminal [POD-2792]', () => {
+  const codexBind = (sessionId: SessionId) =>
+    ({
+      ...bind(sessionId),
+      cmd: 'codex app-server (codex-app-server)',
+      agentKind: 'codex',
+      runtimeContract: true,
+      driverId: 'codex-app-server',
+    }) as const
+
+  it('asks the driver to interrupt, and never types an abort key at a bridge that is not there', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+
+      const request = daemon.find(
+        (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
+      expect(request).toBeDefined()
+      // NOT AN `input` FRAME. codex's abort key is Ctrl-C; typing it at a session
+      // with no bridge is what the daemon threw away, and what this side called
+      // a success.
+      expect(daemon.filter((message) => message.type === 'input')).toEqual([])
+
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: request!.requestId,
+        sessionId,
+        result: { ok: true },
+      })
+      // `requested`, not `stopped`: the reply says the driver took the request.
+      // The fence is a provider-confirmed turn event and arrives later, if at all.
+      await expect(answer).resolves.toEqual({ ok: true, requested: 'protocol' })
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('tells the operator when the driver refused the stop, instead of confirming it', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+      const request = daemon.find(
+        (message) => message.type === 'runtimeInterruptRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeInterruptRequest' }> | undefined
+      expect(request).toBeDefined()
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeLifecycleResult',
+        requestId: request!.requestId,
+        sessionId,
+        result: { reason: 'not_running' },
+      })
+
+      // The chat composer prints this string. A refusal that resolved as ok is
+      // the shape this whole issue is about.
+      await expect(answer).resolves.toEqual({ ok: false, reason: 'not_running' })
+      expect(daemon.filter((message) => message.type === 'input')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+})
+
+/**
+ * POD-2327: the same vanish as POD-2291, reached through a VERSION-SKEW door.
+ *
+ * A daemon newer than this server binds a driver id no manifest here declares —
+ * a renamed server driver, a brand-new one, the embedded driver whose id is
+ * already written down. The drain's no-PTY test used to ask "is this id
+ * server-family?", and an unknown id answers false, so the row went down the
+ * PTY path at a session that has no bridge: the daemon warns and discards, this
+ * side confirms the row, and the operator's message is gone.
+ *
+ * The driver ids below are SYNTHETIC AND DELIBERATELY UNKNOWN. They are not
+ * placeholders for something to add to the manifests later — the point is that
+ * the server cannot enumerate what a future daemon will bind, so the predicate
+ * has to be right for ids it has never seen.
+ */
+describe('binds this build cannot classify fail toward keep-queued [POD-2327]', () => {
+  /** No manifest declares this. That is the entire fixture. */
+  const FUTURE_DRIVER = 'codex-app-server-v2'
+
+  /** Omit `driverId` for the OLDER daemon that binds the contract without one. */
+  const contractBind = (sessionId: SessionId, driverId?: string) =>
+    ({
+      ...bind(sessionId),
+      cmd: driverId ? `codex (${driverId})` : 'codex',
+      agentKind: 'codex',
+      runtimeContract: true,
+      ...(driverId === undefined ? {} : { driverId }),
+    }) as const
+
+  const inputFramesWith = (daemon: ControlMessage[], needle: string) =>
+    daemon.filter(
+      (message) =>
+        message.type === 'input' && Buffer.from(message.data, 'base64').toString().includes(needle),
+    )
+
+  const sendPrompt = (registry: SessionRegistry, sessionId: SessionId) =>
+    registry.modules.messages.send(
+      { kind: 'operator' },
+      { to: { kind: 'session', id: sessionId }, body: 'skewed prompt', urgency: 'next-turn' },
+    )
+
+  it('drains a queued row through the contract when bind reports a driver id this build has never heard of', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendPrompt(registry, sessionId)
+      expect(sent.message.status).toBe('queued')
+
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        contractBind(sessionId, FUTURE_DRIVER),
+      )
+      // Real timers, for the reason the POD-2291 pins above give: a fake clock
+      // around a live SessionRegistry orphans its background intervals.
+      //
+      // THE PTY ASSERTION IS INSIDE THE WAIT, AND FIRST, ON PURPOSE. With the
+      // fix the contract request lands in well under a second and this returns
+      // immediately — the generous timeout costs a passing run nothing. WITHOUT
+      // it, the terminal path types the row at the bridgeless session once the
+      // woken drain's 10s state grace expires, so the window has to outlast
+      // that; what this test then prints is the discarded payload itself
+      // rather than an opaque "no contract request".
+      await vi.waitFor(
+        () => {
+          expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+          expect(
+            daemon.filter(
+              (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+            ),
+          ).toHaveLength(1)
+        },
+        { timeout: 12_000 },
+      )
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('leaves the row visibly queued when the unknown driver refuses — never delivered, never gone', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendPrompt(registry, sessionId)
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        contractBind(sessionId, FUTURE_DRIVER),
+      )
+      await vi.waitFor(() =>
+        expect(
+          daemon.some(
+            (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+          ),
+        ).toBe(true),
+      )
+      const request = daemon.find(
+        (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+      ) as Extract<ControlMessage, { type: 'runtimeSendRequest' }> | undefined
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
+        type: 'runtimeSendResult',
+        requestId: request!.requestId,
+        sessionId,
+        receipt: {
+          outcome: 'refused',
+          refusal: { reason: 'not_running', detail: 'the daemon dropped the handle' },
+        },
+      })
+      await new Promise((resolve) => setTimeout(resolve, 250))
+
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+      expect(registry.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
+      expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  /**
+   * THE SKEW RUNS BOTH WAYS. The first fix guarded on `driverId !== undefined`,
+   * which left this door open: a daemon new enough to drive the contract but
+   * OLDER than the `driverId` field on `bind` reports `runtimeContract` with no
+   * driver at all, the guard answered "has a PTY", and the row vanished exactly
+   * as it did through the forward door. `runtimeContract` is assigned one line
+   * after `markLive` and nowhere else, so it — not the driver id — is what
+   * keeps a `starting` session off this path.
+   */
+  it('drains through the contract when an older daemon binds the contract with NO driver id', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      const sent = sendPrompt(registry, sessionId)
+      expect(sent.message.status).toBe('queued')
+
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        contractBind(sessionId),
+      )
+      // Same shape as the forward-skew pin above, and the same reason for the
+      // wide window: without the fix the PTY frame appears once the woken
+      // drain's 10s state grace expires, and the failure prints those bytes.
+      await vi.waitFor(
+        () => {
+          expect(inputFramesWith(daemon, 'skewed prompt')).toEqual([])
+          expect(
+            daemon.filter(
+              (message) => message.type === 'runtimeSendRequest' && message.sessionId === sessionId,
+            ),
+          ).toHaveLength(1)
+        },
+        { timeout: 12_000 },
+      )
+      expect(registry.sessionStore.messages.getMessage(sent.message.id)).toMatchObject({
+        status: 'queued',
+      })
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  /**
+   * THE OTHER HALF OF THE CONJUNCTION. `runtimeContract` is true for
+   * terminal-driver sessions too, and their drain is still PTY bytes — the
+   * negative test is what stops "unknown means no PTY" from quietly becoming
+   * "the contract means no PTY" and stranding every PTY session's queue.
+   */
+  it('still types at a runtimeContract session whose bound driver IS terminal-family', () => {
+    vi.useFakeTimers()
+    try {
+      const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        contractBind(sessionId, 'generic-pty'),
+      )
+      reg.modules.sessions.queueText({ sessionId, text: 'typed-not-contracted' })
+      // Past the silent-spawn fallback window: a PTY session with no output
+      // still gets served.
+      vi.advanceTimersByTime(7000)
+
+      expect(inputFramesWith(daemon, 'typed-not-contracted')).not.toEqual([])
+      expect(daemon.filter((m) => m.type === 'runtimeSendRequest')).toEqual([])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * FINDING 4 OF THE POD-2291 REVIEW: `typeText`'s server-family refusal was
+   * pinned only through the inbox's mock harness, where `serverDriven` is a
+   * hand-written dep. Nothing drove the DIRECT chat-send path at a bound
+   * session through production wiring, so a regression in how that dep is
+   * composed would have gone unnoticed — which is precisely the class of bug
+   * the rest of this file is about.
+   */
+  it('refuses a direct chat send at a bound server-family session, in production wiring', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        contractBind(sessionId, 'codex-app-server'),
+      )
+
+      expect(
+        reg.modules.sessions.sendText({ sessionId, text: 'typed at a server session' }),
+      ).toEqual({ ok: false })
+      expect(inputFramesWith(daemon, 'typed at a server session')).toEqual([])
+    } finally {
+      reg.dispose()
+    }
+  })
+
+  it('refuses a direct chat send at an UNKNOWN-driver session too', () => {
+    const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
+      const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/w' })
+      reg.gateway.routeDaemonFrame(
+        reg.sessionStore.hostMachineId,
+        contractBind(sessionId, FUTURE_DRIVER),
+      )
+
+      expect(
+        reg.modules.sessions.sendText({ sessionId, text: 'typed at a skewed session' }),
+      ).toEqual({ ok: false })
+      expect(inputFramesWith(daemon, 'typed at a skewed session')).toEqual([])
+    } finally {
+      reg.dispose()
+    }
+  })
+})
+
 describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
-  it('delivers once when bind/live metadata makes queued issue mail eligible', () => {
+  /**
+   * THE WIRING IS WHAT THIS PINS, NOT THE LATENCY (POD-2837).
+   *
+   * The assertion below is the one it always was: the mail is NOT on the PTY
+   * while the session is unbound, and after the bind makes it eligible it
+   * arrives EXACTLY ONCE. What moved is that it no longer arrives inside the
+   * synchronous return of `flushDeliveryTriggers`. The target is a claude-code
+   * session, so the send rides the readiness queue and is typed once the
+   * composer window has run — see the note above `describe('sendText …')` for
+   * why that is the contract, and `inbox.test.ts` for the same answer stated
+   * against the same call.
+   *
+   * Fake timers, installed before the registry so the drain's own polling is
+   * under this test's control, and `…Async` because the delivery path awaits.
+   */
+  it('delivers once when bind/live metadata makes queued issue mail eligible', async () => {
+    vi.useFakeTimers()
     const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     try {
       const daemon: ControlMessage[] = []
@@ -5085,14 +6847,161 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
       registry.modules.messages.flushDeliveryTriggers()
 
-      const deliveredInputs = daemon.filter(
-        (message) =>
-          message.type === 'input' &&
-          Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
-      )
-      expect(deliveredInputs).toHaveLength(1)
+      const deliveredInputs = (): ControlMessage[] =>
+        daemon.filter(
+          (message) =>
+            message.type === 'input' &&
+            Buffer.from(message.data, 'base64').toString().includes('deliver after bind'),
+        )
+      // The bind alone does not put it on the wire; the readiness window does.
+      expect(deliveredInputs()).toHaveLength(0)
+      await vi.advanceTimersByTimeAsync(15_000)
+
+      expect(deliveredInputs()).toHaveLength(1)
     } finally {
       registry.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * THE DRAIN SURVIVES A PRINCIPAL IT CANNOT RESOLVE (POD-2838).
+   *
+   * `authorizeQueuedInputAtApply` is typed to return a VERDICT, and it used to
+   * throw instead: an agent principal whose delegation names no live session
+   * produces the empty capability `capabilityForSession` gives an unknown id,
+   * and `resolvePrincipal` reads that as a human capability and raises. The
+   * throw escaped `deliverNext` into `tick`, so the pass died with the row
+   * neither delivered, nor removed, nor reported — the silent loss the durable
+   * queue exists to prevent, reached through the guard meant to prevent it.
+   * The mail test above is how it was found: every superagent send takes that
+   * path, because `superagent` is a literal identity and not a session id.
+   *
+   * THE ASSERTION IS THE MECHANISM, not a proxy for it. A refusal that merely
+   * dropped the bad row would look identical to a crash on the bad row alone —
+   * so a legitimate row is queued BEHIND it, and the property is that the
+   * second row still reaches the PTY. A dead tick cannot deliver it.
+   */
+  it('refuses an unresolvable delegation without killing the pass', async () => {
+    vi.useFakeTimers()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(sessionId))
+
+      const ghost = 'sess_no_such_session'
+      registry.modules.sessions.queueText({
+        sessionId,
+        text: 'from a session that is gone',
+        principal: {
+          kind: 'agent',
+          principalRef: ghost,
+          delegation: asDelegationRef(ghost),
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(ghost)),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+        },
+      })
+      registry.modules.sessions.queueText({
+        sessionId,
+        text: 'the row behind it',
+        principal: {
+          kind: 'user',
+          principalRef: FIRST_ADMIN_USER_ID,
+          delegation: null,
+          attribution: { actor: actorUser(FIRST_ADMIN_USER_ID), onBehalfOf: FIRST_ADMIN_USER_ID },
+        },
+      })
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      const typed = daemon
+        .filter((message) => message.type === 'input')
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+      // Refused: an unresolvable principal carries no authority, so its bytes
+      // never reach the terminal.
+      expect(typed.filter((data) => data.includes('from a session that is gone'))).toEqual([])
+      // And the pass lived: the row behind it was delivered.
+      expect(typed.filter((data) => data.includes('the row behind it'))).toHaveLength(1)
+    } finally {
+      registry.dispose()
+      vi.useRealTimers()
+    }
+  })
+
+  /**
+   * A WORKER'S QUEUED REPLY REACHES ITS COORDINATOR (POD-3226).
+   *
+   * The drain re-authorizes every row before typing it. It used to end with the
+   * issue-EDIT scope gate, so a worker scoped to the child issue got
+   * `confirm-required` for the coordinator's session on the parent issue and
+   * the row was dead-lettered as "session no longer exists" — but only on this
+   * queued path; an idle coordinator was typed into directly with no check, so
+   * the same reply landed or died on timing. The unit test pins the verdict;
+   * this pins the wiring: the row rides the real inbox, the real
+   * `authorizeAtDrain`, and comes out of the daemon gateway as input.
+   */
+  it('delivers a child worker\'s queued reply to the coordinator on the parent issue', async () => {
+    vi.useFakeTimers()
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const parent = registry.modules.issues.create({
+        repoPath: '/repo',
+        title: 'Epic',
+        startNow: false,
+      })
+      const child = registry.modules.issues.create({
+        repoPath: '/repo',
+        title: 'Child',
+        startNow: false,
+        parentId: parent.id,
+      })
+      const coordinator = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo/.worktrees/epic',
+        issueId: parent.id,
+      }).sessionId
+      const worker = registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo/.worktrees/child',
+        issueId: child.id,
+        spawnedBy: `session:${coordinator}`,
+      }).sessionId
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, bind(coordinator))
+
+      registry.modules.sessions.queueText({
+        sessionId: coordinator,
+        text: 'reply from the child worker',
+        principal: {
+          kind: 'agent',
+          principalRef: worker,
+          delegation: asDelegationRef(worker),
+          attribution: {
+            actor: actorAgent(asAgentIdentityId(worker)),
+            onBehalfOf: FIRST_ADMIN_USER_ID,
+          },
+        },
+      })
+      await vi.advanceTimersByTimeAsync(20_000)
+
+      const typed = daemon
+        .filter((message) => message.type === 'input')
+        .map((message) => Buffer.from((message as { data: string }).data, 'base64').toString())
+      expect(typed.filter((data) => data.includes('reply from the child worker'))).toHaveLength(1)
+    } finally {
+      registry.dispose()
+      vi.useRealTimers()
     }
   })
 

@@ -1,0 +1,63 @@
+{
+  "cell": "A1C",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2874/probes/shell-a1c",
+  "at": "2026-08-26T12:28:38.768Z",
+  "pin": {
+    "cell": "A1C",
+    "at": "2026-08-26T12:28:38.845Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2420776",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "3755972 kB",
+      "SwapFree": "37436388 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "dead-session send returned a typed refusal and did not disappear silently",
+  "control": {
+    "fired": true,
+    "what": "a baseline prompt appearing as a durable user turn before death",
+    "detail": "baseline user=true; baseline reply=true"
+  },
+  "evidence": [
+    "BASELINE          {\"needle\":\"P2874-A1C-CONTROL-MTA2LI8W\",\"sent\":{\"method\":\"native-input\",\"command\":\"shellPrint(P2874-A1C-CONTROL-MTA2LI8W)\"},\"user\":{\"ok\":true,\"ms\":501},\"assistant\":{\"ok\":true,\"ms\":501}}",
+    "DEAD SEND         {\"ok\":false,\"reason\":\"dead-lettered: session no longer exists\",\"disposition\":\"dead_letter\"}",
+    "TYPED REFUSAL     true",
+    "SILENT ACCEPT     false"
+  ],
+  "data": {
+    "sid": "45fa9e93-d3f0-4df7-ba05-93dd67dd693d",
+    "dead": "P2874-A1C-DEAD-MTA2LK8X",
+    "payload": {
+      "ok": false,
+      "reason": "dead-lettered: session no longer exists",
+      "disposition": "dead_letter"
+    },
+    "typed": true,
+    "delivered": false
+  }
+}

@@ -1631,6 +1631,28 @@ describe('classifyIdleTranscript', () => {
     expect(classifyIdleTranscript(records, 'default')?.kind).toBe('done')
   })
 
+  it('projects Claude login-expired transcript errors as non-retryable authentication', () => {
+    const records = parse([
+      userLine('Reply with exactly CLAUDE_HEADED_ONE'),
+      JSON.stringify({
+        type: 'assistant',
+        error: 'authentication_failed',
+        isApiErrorMessage: true,
+        message: {
+          role: 'assistant',
+          content: [text('Login expired · Please run /login')],
+        },
+      }),
+    ])
+
+    expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({
+      status: 'resolved',
+      label: 'error',
+      errorClass: 'authentication',
+      retryable: false,
+    })
+  })
+
   it('completed work plus optional follow-up is finished', () => {
     const records = parse([assistantLine([text('Done. Tests pass. Want me to push?')])])
     expect(classifyClaudeTranscriptState(records, 'default')).toMatchObject({

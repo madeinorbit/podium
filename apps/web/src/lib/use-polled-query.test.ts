@@ -31,9 +31,7 @@ afterEach(() => {
 describe('usePolledQuery', () => {
   it('repeats on the interval and keeps the last answer', async () => {
     const read = vi.fn().mockResolvedValue('one')
-    const { result } = renderHook(() =>
-      usePolledQuery({ key: 'k', intervalMs: 1_000, read }),
-    )
+    const { result } = renderHook(() => usePolledQuery({ key: 'k', intervalMs: 1_000, read }))
     await act(async () => {})
     expect(result.current.data).toBe('one')
 
@@ -255,5 +253,94 @@ describe('usePolledQuery', () => {
     await act(async () => {})
     expect(result.current.data).toBe('seeded')
     expect(seen).toEqual([])
+  })
+})
+
+/**
+ * THE READING THAT WAS TAKEN AND NOT USED (POD-3224 follow-up).
+ *
+ * Two silent discards, and the second is the one that explains a panel sitting
+ * still for 5.4 s after the server had answered. The follow-up that prompted
+ * this predicted an explicit `refresh()` being DROPPED by the in-flight guard;
+ * that cannot happen — `attempt` is in the effect's dependencies, so a refresh
+ * restarts the effect with a fresh guard. What it actually does is abandon the
+ * read already running, which these pin.
+ */
+describe('reporting a reading that was discarded', () => {
+  it('reports a tick that arrived while a read was still running', async () => {
+    const dropped: string[] = []
+    let release: (() => void) | undefined
+    const view = renderHook(() =>
+      usePolledQuery<number>({
+        key: 'drop-tick',
+        intervalMs: 10,
+        read: () =>
+          new Promise<number>((resolve) => {
+            release = () => resolve(1)
+          }),
+        onDropped: (reason) => dropped.push(reason),
+      }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(30)
+    })
+
+    expect(dropped).toContain('tick')
+    release?.()
+    view.unmount()
+  })
+
+  /**
+   * The real shape of the 5.4 s gap: the mutation returns, `run()` calls
+   * `refresh()`, and the reading that was seconds from arriving is thrown away
+   * rather than used — so the wait restarts instead of ending.
+   */
+  it('reports the in-flight answer a refresh abandoned', async () => {
+    const dropped: string[] = []
+    const releases: Array<() => void> = []
+    const view = renderHook(() =>
+      usePolledQuery<number>({
+        key: 'drop-superseded',
+        intervalMs: 0,
+        read: () =>
+          new Promise<number>((resolve) => {
+            releases.push(() => resolve(releases.length))
+          }),
+        onDropped: (reason) => dropped.push(reason),
+      }),
+    )
+
+    // A read is in flight; a caller asks for a fresh reading anyway.
+    await act(async () => {
+      view.result.current.refresh()
+    })
+    // The FIRST read now resolves — into an effect that has been torn down.
+    await act(async () => {
+      releases[0]?.()
+      await Promise.resolve()
+    })
+
+    expect(dropped).toContain('superseded')
+    view.unmount()
+  })
+
+  it('reports nothing when reads keep up', async () => {
+    const dropped: string[] = []
+    const view = renderHook(() =>
+      usePolledQuery<number>({
+        key: 'drop-quiet',
+        intervalMs: 50,
+        read: async () => 1,
+        onDropped: (reason) => dropped.push(reason),
+      }),
+    )
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(120)
+    })
+
+    expect(dropped).toEqual([])
+    view.unmount()
   })
 })

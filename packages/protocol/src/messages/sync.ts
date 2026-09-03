@@ -19,6 +19,7 @@ import {
 import { ShipOrderProjection } from '@podium/model/shipping-projection'
 import { z } from 'zod'
 import { changeRowArm } from './change-row'
+import { PendingInteractionWire } from './runtime-interactions'
 
 /**
  * Re-exported from `@podium/model` [POD-796, POD-822].
@@ -206,6 +207,26 @@ export const MetadataChange = z.discriminatedUnion('entity', [
    *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
    *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
   metadataChangeArm(z.literal('issueEvent'), IssueEventWire),
+  /** One blocking ask (POD-2020, spec §4) — the PendingInteraction aggregate on
+   *  the feed, so "answering from any surface resolves it everywhere" is a
+   *  property of the data path rather than of four clients agreeing.
+   *
+   *  Keyed by `interactionRowId(sessionId, id)`: the SUBJECT SESSION rides the
+   *  change id, the same device `issueEvent` uses and for the same two reasons —
+   *  `mayRead` answers from the id alone (no read of a row that a `delete` has
+   *  already removed), and a bootstrap prefetches every subject session in one
+   *  batched read instead of one `SELECT` per ask.
+   *
+   *  Its wire type is the ONE arm here that does not come from `@podium/model`:
+   *  `PendingInteractionWire` is the agent-runtime contract's `PendingInteraction`
+   *  plus the server aggregate's lifecycle, and it lives beside the contract type
+   *  it extends rather than being half-restated up here. See `./runtime.ts`.
+   *
+   *  Same additive contract as the kinds above: emitted unconditionally and
+   *  invisible to a build whose `MetadataEntityKind` predates it — those rows
+   *  fall to {@link UnknownMetadataChange}, are ignored, and the cursor advances.
+   *  `WIRE_VERSION` stays 1 (ADR 2 D4). */
+  metadataChangeArm(z.literal('pendingInteraction'), PendingInteractionWire),
 ])
 export type MetadataChange = z.infer<typeof MetadataChange>
 export const MetadataEntityKind = z.enum([
@@ -221,6 +242,7 @@ export const MetadataEntityKind = z.enum([
   'userLayout',
   'userReadPosition',
   'issueEvent',
+  'pendingInteraction',
 ])
 export type MetadataEntityKind = z.infer<typeof MetadataEntityKind>
 

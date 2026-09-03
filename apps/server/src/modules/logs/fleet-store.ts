@@ -1,6 +1,10 @@
 /**
- * FLEET DAEMON LOG INGESTION — where a remote daemon's raised records land
- * (POD-3156, chunk of [spec:2026-08-11-logging-strategy-design]).
+ * FLEET DAEMON LOG INGESTION — where a remote daemon's records land (POD-3156,
+ * chunk of [spec:2026-08-11-logging-strategy-design]).
+ *
+ * They arrive CONTINUOUSLY at `warn`+ since POD-3184, not only while an operator
+ * holds a raise open. The disk budget below is the half of this file that
+ * changed with them.
  *
  * ---------------------------------------------------------------------------
  * A SEPARATE STORE FROM `logs/clients`, AND HERE IS WHY
@@ -20,7 +24,9 @@
  *  2. THE VOLUME PROFILE IS NOT THE SAME. A browser tab logs while somebody is
  *     looking at it. A daemon logs for weeks. Sharing a rotation policy means
  *     one of the two is wrong, and the disk budget below is the knob that says
- *     which — separately, and out loud.
+ *     which — separately, and out loud. POD-3184 is where that stopped being
+ *     hypothetical: a daemon forwards `warn`+ continuously now, so this store's
+ *     rotation is set here rather than inherited.
  *
  *  3. THE ATTRIBUTION IS NOT THE SAME, and this is the reason that decides it.
  *     A client's `origin` is a SELF-DESCRIPTION off the wire; the server files
@@ -79,13 +85,41 @@ import { QueuedRecordWriter } from './queued-writer'
 /**
  * How many machines get their own file before the rest share one.
  *
- * SAY THE WORST CASE OUT LOUD, as the client store does: at the inherited
- * 10 MB × 5 rotation, 32 machines is 32 × 50 MB ≈ 1.6 GB before anything is
- * discarded. That is the ceiling of a 32-machine fleet all raised at once and
- * all chatty, not a steady state — forwarding is OFF until an operator raises a
- * machine, and a raise expires. A normal install spends nothing here at all.
+ * SAY THE WORST CASE OUT LOUD, as the client store does: at the rotation below,
+ * 32 machines is 32 × 20 MB = 640 MB before anything is discarded.
  */
 export const MAX_FLEET_FILES = 32
+
+/**
+ * THE DISK BUDGET, RE-SIZED FOR A STEADY STREAM (POD-3184).
+ *
+ * It used to be the inherited 10 MB × 5 = 50 MB per machine, and the reason it
+ * could be that large was written down next to it: forwarding was OFF until an
+ * operator raised a machine, a raise expires, and a normal install spent nothing
+ * here at all. That sentence is no longer true. A daemon now ships `warn`+
+ * continuously, so whatever this budget is, a fleet occupies it eventually
+ * rather than only during an incident.
+ *
+ * THE NUMBER THIS HAS TO SERVE IS NOT THE STEADY STATE. Continuous `warn`+ is
+ * kilobytes a day from a healthy daemon — the threshold is what makes the
+ * default affordable, and no plausible rotation budget is the binding constraint
+ * on it. What actually fills these files is the two loud cases: a raise at
+ * `debug`/`trace`, and a daemon stuck in a warning loop. So the budget is sized
+ * to hold a raise, and then bounded because it is now permanent.
+ *
+ * 10 MiB × 2 = 20 MiB per machine. The FILE size is unchanged, so a raised
+ * window still lands contiguously and an operator reading `<machine>.ndjson`
+ * sees the same span they did before; what came off is the ARCHIVE depth, which
+ * was retention of old incidents and is the part a continuously-forwarding fleet
+ * cannot be given for free. 640 MB is the ceiling of 32 machines all pathological
+ * at once, against 1.6 GB before.
+ *
+ * A user who wants deeper fleet history has the daemon's own journal on each
+ * machine, which this store never replaced — it adds a central copy, and removes
+ * nothing.
+ */
+export const FLEET_ROTATE_BYTES = 10 * 1024 * 1024
+export const FLEET_ROTATE_FILES = 2
 
 export interface FleetLogStoreDeps {
   /** Defaults to `<stateDir>/logs/fleet`. */
@@ -175,6 +209,12 @@ export function taggedDaemonRecord(
  * everything, and the answer to either has to be a bound rather than a heap that
  * grows until something else fails — the same reasoning as the daemon's own
  * queue, at the other end of the same pipe.
+ *
+ * UNCHANGED BY POD-3184, and that is a finding rather than an omission. This
+ * bounds a BURST against a slow disk, not a total: continuous `warn`+ arrives at
+ * a rate a drain of 16 records per event-loop turn does not notice, and the
+ * burst this was sized against — a reconnecting daemon draining its backlog in
+ * 500-record frames — is the same burst it was before.
  */
 const MAX_PENDING_RECORDS = 5000
 
@@ -196,6 +236,8 @@ export class FleetLogStore {
       kind: 'fleet',
       maxFiles: deps.maxMachineFiles ?? MAX_FLEET_FILES,
       maxPending: MAX_PENDING_RECORDS,
+      rotateBytes: FLEET_ROTATE_BYTES,
+      rotateFiles: FLEET_ROTATE_FILES,
       ...(deps.createSink ? { createSink: deps.createSink } : {}),
     })
   }

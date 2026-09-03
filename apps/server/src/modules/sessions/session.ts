@@ -22,10 +22,23 @@ import {
 } from '@podium/model'
 import type { DaemonPtyInputBatch, SessionObservationCheckpointV1 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { driverFamilyForId } from '../../harness-manifest'
 import type { ConversationBinding, SessionRow } from '../../store'
 import { SessionTerminal, type SessionTerminalState } from './terminal'
+import { turnPreviewEnabled } from './turn-preview-flag'
 
 const log = createLogger('server:sessions')
+
+/**
+ * How close a kernel OOM kill has to be to a process death to be called its
+ * cause (POD-2413).
+ *
+ * Wide enough for the supervisor's sampling lag in one direction and a slow
+ * death in the other; narrow enough that a build OOM-killed inside a session
+ * that keeps working for another few minutes never renames that session's
+ * eventual, unrelated exit.
+ */
+const OOM_ATTRIBUTION_WINDOW_MS = 60_000
 
 export type Send<T> = (msg: T) => void
 
@@ -50,6 +63,11 @@ export interface SessionInit {
   /** Resolved launch configuration, immutable for this session [spec:SP-dae6]. */
   model?: string
   effort?: string
+  /** The runtime request this session was rehydrated with (POD-3081). Set only
+   *  by the repository restoring a stored row — a fresh spawn has none, because
+   *  nobody has changed anything yet. */
+  requestedModel?: string
+  requestedEffort?: string
   accountId?: AccountId
   /** Native harness whose interactive login owns this shell, when applicable. */
   loginHarness?: HarnessAgent
@@ -97,6 +115,10 @@ export interface SessionInit {
   createdBy?: Attribution
   /** True for a headless harness session (no PTY; concierge unification). */
   headless?: boolean
+  /** The driver the daemon decided on, restored from the row (POD-2290). */
+  selectedDriverId?: string
+  /** Concrete driver requested at birth; durable lifecycle configuration. */
+  requestedDriverId?: string
   /** Explicit issue attachment (issue-as-workspace). Absent = unattached. */
   issueId?: IssueId
   /** Birth-issue nice-name fields (#474). Absent = not yet named. */
@@ -109,10 +131,15 @@ export interface SessionInit {
   workflowStepId?: string
   executionProfileId?: string
   stoppedAt?: string | null
-  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | null
+  stopReason?: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | null
+  /** Event time of the last kernel OOM kill observed in this session's scope. */
+  oomKilledAt?: string | null
   /** Called when a meta field changes outside the normal control flow (the
    *  debounced shell `busy` flag) so the registry can rebroadcast the session list. */
   onActivity?: () => void
+  /** Streamed turn previews for this session (POD-2293). Omitted reads the
+   *  machine switch; supplied is a test seam and the composition override. */
+  turnPreviewEnabled?: boolean
   /**
    * Called on a TERMINAL transition so the registry can re-arm unread (POD-1076).
    *
@@ -144,7 +171,8 @@ export interface SessionDurableState {
   nameSource: 'user' | 'agent' | undefined
   archived: boolean
   stoppedAt: string | undefined
-  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
+  oomKilledAt: string | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -156,6 +184,8 @@ export interface SessionDurableState {
   agentColor: string | undefined
   observedModel: string | undefined
   observedEffort: string | undefined
+  requestedModel: string | undefined
+  requestedEffort: string | undefined
   contextUsagePercent: number | undefined
   queuedMessageCount: number
   handoffTarget: string | undefined
@@ -260,7 +290,16 @@ export class Session {
   private onUnreadRearm: (() => void) | undefined
   /** Set only by the explicit stop lifecycle, not ordinary hibernation/exits. [spec:SP-6144] */
   stoppedAt: string | undefined
-  stopReason: 'self' | 'parent' | 'forced' | 'exited' | undefined
+  stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
+  /**
+   * Event time of the last kernel OOM kill observed in this session's scope.
+   *
+   * DURABLE, and it is the evidence rather than the conclusion. `stop_reason`
+   * cannot hold `oom` — its CHECK admits four values and widening it means a
+   * table rebuild — so what survives a restart is the kill's TIME, and the
+   * conclusion is re-derived from it on hydrate exactly as it was live.
+   */
+  private lastOomKillAt: string | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -281,6 +320,11 @@ export class Session {
   /** The effort tier OBSERVED on assistant turns (transcript top-level `effort`),
    *  learned alongside observedModel. */
   observedEffort: string | undefined
+  /** The model/effort this session was last ASKED for through `sessions.configure`
+   *  (POD-3081). Undefined until someone changes it, and then the launch pair
+   *  above is still the record of how it started — see `SessionLiveOverlay`. */
+  requestedModel: string | undefined
+  requestedEffort: string | undefined
   /** Latest exact harness-reported context-window usage, if this harness exposes it. */
   contextUsagePercent: number | undefined
   /** Count of durable queued messages awaiting delivery (queued_messages table).
@@ -302,6 +346,56 @@ export class Session {
    *  scrape/inject engine (reported on bind). Transient — not persisted; re-set on
    *  every (re)bind. Surfaced in toMeta so a client retires its own sampler/flush. */
   draftSyncEngine = false
+  /**
+   * AGENT RUNTIME CONTRACT (POD-1761 W4): true when this session's daemon built
+   * a driver handle for it, reported on bind.
+   *
+   * TRANSIENT ON PURPOSE, exactly like `draftSyncEngine` above. The fact belongs
+   * to a LIVE DRIVER, not to a session's history: a receipt can only be obtained
+   * from a daemon that is currently driving this session, so a value that
+   * survived the process that made it true would send W4's migrated callers down
+   * the receipt path for a session whose driver no longer exists. Re-set on every
+   * (re)bind, false whenever we have not been told otherwise — which is the safe
+   * direction, because false means "use the legacy path" and the legacy path
+   * always works.
+   */
+  runtimeContract = false
+  /** Runtime driver actually bound by the daemon. Transient like
+   * `runtimeContract`: the live handle owns this fact, so it is re-established
+   * by every bind and is never reconstructed from the spawn request. */
+  driverId: string | undefined = undefined
+  /**
+   * The driver the daemon DECIDED on, reported before it started anything
+   * (POD-2290). Transient in the same way `driverId` is, and strictly weaker:
+   * `driverId` overwrites the family this projects the moment a bind lands.
+   *
+   * It exists because `driverId` arrives too late to choose a view with. A
+   * measured `opencode` spawn sat twelve seconds between "the row exists" and
+   * "the daemon bound a driver", and a client that has to render during those
+   * twelve seconds either guesses or is told. This is being told.
+   */
+  selectedDriverId: string | undefined = undefined
+  /** Manifest-default or machine-wide server preference that degraded to
+   * driverId. Transient and re-established by daemon bind/reattach. */
+  requestedDriverId: string | undefined = undefined
+  /**
+   * WHAT THIS SESSION'S LIVE DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087),
+   * as its `configure.fields` declare — reported by the daemon on bind.
+   *
+   * TRANSIENT, EXACTLY LIKE `driverId`, and for the same reason stated a
+   * different way: this describes a LIVE HANDLE, and a value that outlived the
+   * process that made it would offer a model control for a driver that is gone.
+   * Re-established by every bind.
+   *
+   * UNDEFINED vs EMPTY is the distinction consumers must keep. Undefined = we
+   * have not been told (an older daemon, or a row that has not bound yet), so a
+   * client falls back to its previous behaviour. Empty = the daemon DID tell us
+   * and the answer is "nothing" — a TUI, whose model is an argv fact. Only the
+   * second licenses hiding a control; treating undefined as "cannot" would hide
+   * it on every session during a rolling upgrade.
+   */
+  configureFields: readonly string[] | undefined = undefined
+  attachKinds: readonly ('engine' | 'client')[] | undefined = undefined
   /** Agent action offer [spec:SP-c7f1] — a freeform message + action buttons the
    *  agent offers the user as next steps. Lives in its own `offers` table (not
    *  toRow()); the registry seeds it at load and on set/clear. undefined = none.
@@ -323,12 +417,19 @@ export class Session {
     this.createdBy = init.createdBy
     this.model = init.model
     this.effort = init.effort
+    this.requestedModel = init.requestedModel
+    this.requestedEffort = init.requestedEffort
     this.accountId = init.accountId
     this.loginHarness = init.loginHarness
     this.workflowRunId = init.workflowRunId
     this.workflowStepId = init.workflowStepId
     this.executionProfileId = init.executionProfileId
     this.headless = init.headless ?? false
+    // Restored from the row on a server restart, which is the entire point of
+    // persisting it: without this line the rehydrated session is family-unknown
+    // and the panel falls back to "assume a terminal" (POD-2290 round 2).
+    this.selectedDriverId = init.selectedDriverId
+    this.requestedDriverId = init.requestedDriverId
     this.issueId = init.issueId
     this.refIssueId = init.refIssueId ?? null
     this.refLetter = init.refLetter ?? null
@@ -355,6 +456,7 @@ export class Session {
         // us its native id yet.
         this.markConversationBound()
       },
+      turnPreviewEnabled: init.turnPreviewEnabled ?? turnPreviewEnabled(),
     })
     this.machineId = init.machineId
     this.durableLabel = init.durableLabel
@@ -372,6 +474,10 @@ export class Session {
     if (init.archived) this.archived = init.archived
     this.stoppedAt = init.stoppedAt ?? undefined
     this.stopReason = init.stopReason ?? undefined
+    this.lastOomKillAt = init.oomKilledAt ?? undefined
+    // A row read back as `exited` with a kill beside it is an OOM death; the
+    // window check is the same one the live path applies.
+    if (this.lastOomKillAt) this.recordOomKill(this.lastOomKillAt)
     if (init.workState) this.workState = init.workState
     this.onUnreadRearm = init.onUnreadRearm
   }
@@ -411,6 +517,38 @@ export class Session {
     this.terminal.recordResumeActivity()
   }
 
+  /**
+   * THE KERNEL OOM-KILLED SOMETHING IN THIS SESSION'S SCOPE (POD-2413).
+   *
+   * Arrives as a durable `process.oomKilled` runtime event, and is NOT by
+   * itself a death: `OOMPolicy=continue` means the usual victim is a build or a
+   * test run the agent started, and the session keeps serving. What it changes
+   * is what a LATER (or just-passed) exit is allowed to be called — a session
+   * whose process tree died within {@link OOM_ATTRIBUTION_WINDOW_MS} of a
+   * kernel kill exited because the box ran out of memory, and "exited" is the
+   * wrong word for that.
+   *
+   * BOTH ORDERINGS ARE REAL. The daemon samples cgroups on a timer, so the kill
+   * can be observed after the exit frame has already landed; and a session can
+   * be killed and take another second to die. So this upgrades an exit that has
+   * already been stamped, and `onExit` consults what this recorded.
+   */
+  recordOomKill(at: string): void {
+    const observed = Date.parse(at)
+    this.lastOomKillAt = Number.isFinite(observed) ? at : new Date().toISOString()
+    if (this.status !== 'exited' || this.stopReason !== 'exited') return
+    if (this.oomExplainsExit(Date.parse(this.stoppedAt ?? ''))) this.stopReason = 'oom'
+  }
+
+  /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its
+   *  cause? Absorbing in both directions — see {@link recordOomKill}. */
+  private oomExplainsExit(exitedAtMs: number): boolean {
+    if (!this.lastOomKillAt) return false
+    const killed = Date.parse(this.lastOomKillAt)
+    if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
+    return Math.abs(exitedAtMs - killed) <= OOM_ATTRIBUTION_WINDOW_MS
+  }
+
   onExit(code: number): void {
     // The PTY is gone — no more output, so it can't be "busy".
     this.terminal.stopOutput()
@@ -424,7 +562,11 @@ export class Session {
     // The explicit-stop path may already have stamped a richer reason; keep it.
     // [spec:SP-6144]
     this.stoppedAt ??= new Date().toISOString()
-    this.stopReason ??= 'exited'
+    // 'oom' when the supervisor saw the kernel kill something here moments ago
+    // (POD-2413) — a stated cause beats a bare "exited" for the one death an
+    // operator can actually act on. `??=` still holds: an explicit stop already
+    // stamped its own richer reason and keeps it.
+    this.stopReason ??= this.oomExplainsExit(Date.parse(this.stoppedAt)) ? 'oom' : 'exited'
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
     // Preserve the final turn diagnosis; lifecycle status owns liveness while
@@ -436,6 +578,15 @@ export class Session {
   markSpawnError(message: string): void {
     this.status = 'exited'
     this.exitCode = -1
+    // A spawn error means no driver ever bound. Drop both the pre-launch
+    // decision and any transient handle fact so persistence cannot describe an
+    // exited row as a driver family that never ran.
+    this.selectedDriverId = undefined
+    this.driverId = undefined
+    // …and the capability that came with the handle. Same reason: an exited row
+    // must not describe what a driver that never ran could have changed.
+    this.configureFields = undefined
+    this.attachKinds = undefined
     this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
     this.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
@@ -449,24 +600,36 @@ export class Session {
 
   /** Adopt a live terminal title the agent set (OSC). Replaces the cwd-derived default. */
   /** Harness-observed runtime state (hooks-driven). The cumulative compute base is persisted. */
-  applyObservationCheckpoint(checkpoint: SessionObservationCheckpointV1): void {
+  applyObservationCheckpoint(
+    checkpoint: SessionObservationCheckpointV1,
+    advanceRecency = true,
+  ): void {
     const state = checkpoint.turnState
     this.workingMsTotal = state.workingMsTotal
     this.incomingWorkingMsTotal = undefined
     this.agentState = state
     const providerAt = checkpoint.providerAt
-    if (providerAt && providerAt > this.lastActiveAt) this.lastActiveAt = providerAt
+    if (advanceRecency && providerAt && providerAt > this.lastActiveAt)
+      this.lastActiveAt = providerAt
     // An observer bound to a concrete provider thread is a conversation, even
     // if no `sessionResumeRef` ever reached us — this is the arm that closes the
     // gap for a harness whose id we learn only through the observation plane.
     if (checkpoint.providerSessionId) this.markConversationBound()
   }
 
+  /** Advance the board/sidebar recency projection from one accepted coarse runtime event. */
+  recordRuntimeActivity(at: string): boolean {
+    const candidate = Date.parse(at)
+    if (!Number.isFinite(candidate) || candidate <= Date.parse(this.lastActiveAt)) return false
+    this.lastActiveAt = new Date(candidate).toISOString()
+    return true
+  }
+
   /**
    * Legacy unfenced state path. Kept during mixed deployment only; causal v1
    * sessions bypass its daemon-counter reset heuristic.
    */
-  setAgentState(state: AgentRuntimeState): void {
+  setAgentState(state: AgentRuntimeState, advanceRecency = true): void {
     // The daemon reducer's total restarts at zero with each tracker. Persist only
     // positive deltas within one tracker epoch on top of our durable total; a
     // lower/reset incoming value becomes the next epoch's baseline.
@@ -491,7 +654,7 @@ export class Session {
     // sink the session below genuinely-older ones and every reattach re-asserted
     // it. The old stale-HIGH poisoning this could correct (mtime-derived stamps) is
     // gone since seeds stamp the last DATED record, so regression buys nothing.
-    if (state.since > this.lastActiveAt) this.lastActiveAt = state.since
+    if (advanceRecency && state.since > this.lastActiveAt) this.lastActiveAt = state.since
   }
 
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"
@@ -525,6 +688,29 @@ export class Session {
     if (!changed) return false
     this.observedModel = nextModel
     if (nextEffort !== undefined) this.observedEffort = nextEffort
+    return true
+  }
+
+  /**
+   * Record a sticky change the DRIVER GRANTED (POD-3081). Returns true when it
+   * actually moved, so the caller can skip a redundant broadcast.
+   *
+   * CALLED ONLY AFTER `{ok:true}`. A requested model written before the driver
+   * answered would show a person the model they picked while the session went on
+   * answering as something else — which is the requested-vs-observed split
+   * lying in the one place it exists to tell the truth.
+   */
+  setRequestedModel(input: { model?: string; effort?: string }): boolean {
+    const nextModel = input.model?.trim() || undefined
+    const nextEffort = input.effort?.trim() || undefined
+    // A PATCH, like the request that produced it: naming only the effort leaves
+    // the requested model exactly where it was.
+    const changed =
+      (nextModel !== undefined && nextModel !== this.requestedModel) ||
+      (nextEffort !== undefined && nextEffort !== this.requestedEffort)
+    if (!changed) return false
+    if (nextModel !== undefined) this.requestedModel = nextModel
+    if (nextEffort !== undefined) this.requestedEffort = nextEffort
     return true
   }
 
@@ -601,6 +787,7 @@ export class Session {
       archived: this.archived,
       stoppedAt: this.stoppedAt,
       stopReason: this.stopReason,
+      oomKilledAt: this.lastOomKillAt,
       workState: this.workState,
       cmd: this.cmd,
       status: this.status,
@@ -612,6 +799,8 @@ export class Session {
       agentColor: this.agentColor,
       observedModel: this.observedModel,
       observedEffort: this.observedEffort,
+      requestedModel: this.requestedModel,
+      requestedEffort: this.requestedEffort,
       contextUsagePercent: this.contextUsagePercent,
       queuedMessageCount: this.queuedMessageCount,
       handoffTarget: this.handoffTarget,
@@ -646,6 +835,7 @@ export class Session {
     this.archived = state.archived
     this.stoppedAt = state.stoppedAt
     this.stopReason = state.stopReason
+    this.lastOomKillAt = state.oomKilledAt
     this.workState = state.workState
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
@@ -657,6 +847,8 @@ export class Session {
     this.agentColor = state.agentColor
     this.observedModel = state.observedModel
     this.observedEffort = state.observedEffort
+    this.requestedModel = state.requestedModel
+    this.requestedEffort = state.requestedEffort
     this.contextUsagePercent = state.contextUsagePercent
     this.queuedMessageCount = state.queuedMessageCount
     if (!preserve.has('handoffTarget')) this.handoffTarget = state.handoffTarget
@@ -675,6 +867,13 @@ export class Session {
       agentKind: this.agentKind,
       model: this.model ?? null,
       effort: this.effort ?? null,
+      // POD-3081. The launch pair above is immutable; this pair is the last
+      // runtime change this server made and is the ONLY record of it — no
+      // harness stamps a REQUEST anywhere a reattach could re-learn it, which is
+      // what separates this from the observed pair (no column, re-learned from
+      // the transcript tail).
+      requestedModel: this.requestedModel ?? null,
+      requestedEffort: this.requestedEffort ?? null,
       accountId: this.accountId ?? null,
       loginHarness: this.loginHarness ?? null,
       cwd: this.cwd,
@@ -687,6 +886,12 @@ export class Session {
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
       resumeKind: this.resume?.kind ?? null,
       resumeValue: this.resume?.value ?? null,
+      // The daemon's DECISION survives the process that made it (POD-2290 round
+      // 2). `driverId` deliberately does not appear here and must not: it names
+      // a live handle, and a row that claimed one across a restart would send
+      // W4's migrated callers down the receipt path for a driver that is gone.
+      selectedDriverId: this.selectedDriverId ?? null,
+      requestedDriverId: this.requestedDriverId ?? null,
       conversationBinding: this.conversationBinding ?? null,
       status: this.status,
       exitCode: this.exitCode ?? null,
@@ -712,6 +917,7 @@ export class Session {
       refDraft: this.refDraft,
       stoppedAt: this.stoppedAt ?? null,
       stopReason: this.stopReason ?? null,
+      oomKilledAt: this.lastOomKillAt ?? null,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
@@ -720,6 +926,16 @@ export class Session {
 
   private static msToIso(ms: number): string | null {
     return ms > 0 ? new Date(ms).toISOString() : null
+  }
+
+  /** Preserve pre-requested-driver headless rows without turning terminal or unknown selections into policy. */
+  lifecycleDriverRequest(): string | undefined {
+    if (this.requestedDriverId) return this.requestedDriverId
+    const selectedFamily = driverFamilyForId(this.selectedDriverId ?? '')
+    if (this.selectedDriverId && (selectedFamily === 'server' || selectedFamily === 'embedded')) {
+      return this.selectedDriverId
+    }
+    return undefined
   }
 
   /**
@@ -737,6 +953,12 @@ export class Session {
    * signature does not change.
    */
   toMeta(overlay: SessionUserOverlay): SessionMeta {
+    // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
+    // is what the daemon decided before it started the harness; the binding is
+    // what it ended up with. They agree on every path that works, and where
+    // they can differ — a launch that failed and fell back — the one that
+    // describes a running session has to win.
+    const driverFamily = driverFamilyForId(this.driverId ?? this.selectedDriverId ?? '')
     return {
       sessionId: this.sessionId,
       agentKind: this.agentKind,
@@ -787,6 +1009,13 @@ export class Session {
       ...(this.agentColor ? { agentColor: this.agentColor } : {}),
       ...(this.observedModel ? { observedModel: this.observedModel } : {}),
       ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
+      ...(this.requestedModel ? { requestedModel: this.requestedModel } : {}),
+      ...(this.requestedEffort ? { requestedEffort: this.requestedEffort } : {}),
+      // POD-3087. Published even when EMPTY, because empty is an answer — "this
+      // driver changes nothing" — and a client that could not tell it from
+      // "nobody told me" would hide the control on both.
+      ...(this.configureFields ? { configureFields: [...this.configureFields] } : {}),
+      ...(this.attachKinds ? { attachKinds: [...this.attachKinds] } : {}),
       ...(this.contextUsagePercent !== undefined
         ? { contextUsagePercent: this.contextUsagePercent }
         : {}),
@@ -795,6 +1024,22 @@ export class Session {
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
       ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
       ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
+      ...(this.driverId ? { driverId: this.driverId } : {}),
+      ...(this.requestedDriverId ? { requestedDriverId: this.requestedDriverId } : {}),
+      // The bound driver's FAMILY, so a client can pick a surface without
+      // learning driver ids (POD-2290). Resolved through the manifests — the
+      // same lookup the reap guard uses — and omitted when the id is absent or
+      // no manifest claims it, because for this field absent means UNKNOWN and
+      // every client reads unknown as "assume a terminal".
+      //
+      // THIS ASSIGNMENT IS ALSO THE ONLY THING KEEPING THE TWO SPELLINGS OF THE
+      // TAXONOMY IN SYNC. `DriverFamily` lives in `@podium/harness` beside the
+      // manifest axis that declares it; the wire field is a zod enum in
+      // `@podium/model`, which may not import harness. Nothing reconciles them
+      // except this line, where a `DriverFamily` flows into the enum's type — so
+      // a fourth family added to the manifests fails HERE, at typecheck, rather
+      // than being silently dropped from every client's view.
+      ...(driverFamily ? { driverFamily } : {}),
       ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
       ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),

@@ -1,11 +1,40 @@
-import { createLogger } from '@podium/logger'
+import { reloadLog as log } from '@/lib/logging/update-logs'
 
-const log = createLogger('web:updates')
-
+/**
+ * THE HANDSHAKE NARRATES ITSELF TO THE OPERATOR, NOT JUST TO THE PANEL
+ * (POD-3224).
+ *
+ * Every claim anyone has made about what a Reload click does was unobservable
+ * before this. The phases below were logged at `info` on a client whose default
+ * is `warn`, so they reached a console nobody was watching and were forwarded
+ * nowhere; the four audit passes over "click Reload and nothing happens" each
+ * reasoned about this function from source and reached different conclusions.
+ *
+ * The split:
+ *
+ *  - PHASES at `debug`. There are up to five per click and they are progress,
+ *    not news. They reach the flight recorder, so a crash or a raise still has
+ *    them.
+ *  - the OUTCOME at `info` when it navigated, `warn` when it did not. That is
+ *    one record per click — the volume of a person's finger — and it is the one
+ *    an operator actually needs: which of `reloading` / `no-replacement` /
+ *    `failed`, through which signal, with the worker slots as they stood.
+ *
+ * `trigger` says who asked, because the three callers fail differently: the
+ * panel's button, the library's own prompt, and the stale-assets recovery path.
+ */
 export type ReloadPath = 'handshake' | 'direct' | 'waiting'
+
+/** Who asked for this handshake. Carried on every record it writes. */
+export type ReloadTrigger = 'panel' | 'library' | 'recovery'
 
 /** A diagnostic threshold, never a navigation deadline. */
 export const RELOAD_HANDSHAKE_BUDGET_MS = 2_000
+
+/** `performance.now()` where it exists, so `elapsedMs` is not a wall-clock delta. */
+function nowMs(): number {
+  return typeof performance === 'undefined' ? Date.now() : performance.now()
+}
 
 export type ReloadHandshakePhase =
   | 'checking'
@@ -65,6 +94,8 @@ type Container = Pick<ServiceWorkerContainer, 'addEventListener'> & {
 export interface ReloadHandshakeDeps {
   /** `navigator.serviceWorker`, or undefined in a context that has none. */
   serviceWorker: Container | undefined
+  /** Who asked. Defaults to the panel's Reload button, which is most of them. */
+  trigger?: ReloadTrigger
   /** The registration currently known by the PWA hook, when there is one. */
   registration?: Registration | null
   /** A replacement worker already reported by the PWA hook. */
@@ -158,7 +189,13 @@ export async function startReloadHandshake(
 ): Promise<ReloadHandshakeResult> {
   const serviceWorker = deps.serviceWorker
   const setTimer = deps.setTimer ?? ((run, ms) => void window.setTimeout(run, ms))
+  const trigger: ReloadTrigger = deps.trigger ?? 'panel'
+  const startedAt = nowMs()
   let registration = deps.registration ?? null
+  log.debug('reload handshake started', {
+    trigger,
+    ...snapshotOf(serviceWorker, deps.registration ?? null, deps.waitingWorker),
+  })
 
   const emit = (
     phase: ReloadHandshakePhase,
@@ -174,7 +211,10 @@ export async function startReloadHandshake(
       snapshot,
     }
     deps.onStatus?.(status)
-    log.info('service-worker reload handshake state', {
+    // A PHASE IS PROGRESS, NOT NEWS: `debug`, so the flight recorder and a raise
+    // keep it and the steady forwarded stream stays one record per click.
+    log.debug('service-worker reload handshake state', {
+      trigger,
       phase,
       detail: detail ?? snapshotDetail(snapshot),
       ...snapshot,
@@ -182,16 +222,41 @@ export async function startReloadHandshake(
     return status
   }
 
-  const result = (outcome: ReloadHandshakeOutcome, detail?: string): ReloadHandshakeResult => ({
-    outcome,
-    snapshot: snapshotOf(serviceWorker, registration, deps.waitingWorker),
-    ...(detail ? { detail } : {}),
-  })
+  /**
+   * THE OUTCOME, and the only line this function forwards by default.
+   *
+   * `no-replacement` and `failed` are `warn` because both are a Reload that did
+   * not reload — the reported symptom — and an operator must not have to raise a
+   * client to find out that it happened.
+   */
+  const result = (
+    outcome: ReloadHandshakeOutcome,
+    detail?: string,
+    how?: { via: ReloadPath; signal?: 'controllerchange' | 'activated' },
+  ): ReloadHandshakeResult => {
+    const snapshot = snapshotOf(serviceWorker, registration, deps.waitingWorker)
+    const fields = {
+      trigger,
+      outcome,
+      ...(how ? { via: how.via } : {}),
+      ...(how?.signal ? { signal: how.signal } : {}),
+      ...(detail ? { detail } : {}),
+      elapsedMs: Math.round(nowMs() - startedAt),
+      ...snapshot,
+    }
+    if (outcome === 'reloading') log.info('reload handshake finished', fields)
+    else log.warn('reload handshake finished without navigating', fields)
+    return {
+      outcome,
+      snapshot,
+      ...(detail ? { detail } : {}),
+    }
+  }
 
   if (!serviceWorker) {
     emit('reloading', 'This page has no service-worker context; a direct reload is safe.', false)
     deps.reload()
-    return result('reloading')
+    return result('reloading', undefined, { via: 'direct' })
   }
 
   emit('checking')
@@ -207,7 +272,7 @@ export async function startReloadHandshake(
       }
       emit('reloading', `No registration was found; a direct reload is safe. ${detail}`, false)
       deps.reload()
-      return result('reloading', detail)
+      return result('reloading', detail, { via: 'direct' })
     }
   }
 
@@ -227,7 +292,7 @@ export async function startReloadHandshake(
       false,
     )
     deps.reload()
-    return result('reloading')
+    return result('reloading', undefined, { via: 'direct' })
   }
 
   return discoverReplacement(deps, serviceWorker, registration, emit, result, setTimer)
@@ -238,7 +303,11 @@ async function discoverReplacement(
   serviceWorker: Container,
   registration: Registration,
   emit: (phase: ReloadHandshakePhase, detail?: string, canReset?: boolean) => ReloadHandshakeStatus,
-  result: (outcome: ReloadHandshakeOutcome, detail?: string) => ReloadHandshakeResult,
+  result: (
+    outcome: ReloadHandshakeOutcome,
+    detail?: string,
+    how?: { via: ReloadPath; signal?: 'controllerchange' | 'activated' },
+  ) => ReloadHandshakeResult,
   setTimer: (run: () => void, ms: number) => void,
 ): Promise<ReloadHandshakeResult> {
   let settled = false
@@ -351,7 +420,11 @@ async function observeTakeover(
   registration: Registration | null,
   waiting: Worker,
   emit: (phase: ReloadHandshakePhase, detail?: string, canReset?: boolean) => ReloadHandshakeStatus,
-  result: (outcome: ReloadHandshakeOutcome, detail?: string) => ReloadHandshakeResult,
+  result: (
+    outcome: ReloadHandshakeOutcome,
+    detail?: string,
+    how?: { via: ReloadPath; signal?: 'controllerchange' | 'activated' },
+  ) => ReloadHandshakeResult,
   setTimer: (run: () => void, ms: number) => void,
   settleOverride?: (value: ReloadHandshakeResult) => void,
 ): Promise<ReloadHandshakeResult> {
@@ -370,14 +443,12 @@ async function observeTakeover(
   const finish = (signal: 'controllerchange' | 'activated'): void => {
     if (settled) return
     emit('reloading', `Takeover observed through ${signal}.`, false)
-    log.info('replacement service worker is ready; reloading onto the new build', {
-      via: 'handshake' satisfies ReloadPath,
-      signal,
-      ...snapshotOf(serviceWorker, registration, waiting),
-    })
     try {
       deps.reload()
-      settle(result('reloading'))
+      // ONE record per click, and this is it: the outcome carries HOW as well
+      // as WHAT, so an operator reading the forwarded stream does not have to
+      // correlate two lines to learn which signal made the navigation safe.
+      settle(result('reloading', undefined, { via: 'handshake', signal }))
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       emit('failed', `The new interface activated, but reload failed: ${detail}`)

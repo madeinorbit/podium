@@ -1100,8 +1100,33 @@ describe('updates tRPC', () => {
       artifacts: { web: { digest: '47a01e3' } },
     })
 
+    // The coordinator itself can take a source update and must not force a pack
+    // (POD-2198). A bundle-only remote is the place this test says is waiting on
+    // packaging; without it there is correctly no prepare step anymore.
+    const bundleMachine = asMachineId('bundle-machine')
+    registry.sessionStore.machines.upsertMachine({
+      id: bundleMachine,
+      name: 'Bundle machine',
+      hostname: 'bundle-machine',
+      tokenHash: 'bundle-machine-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(bundleMachine, 'dev')
+    registry.modules.machines.setMachineBuild(
+      bundleMachine,
+      { appVersion: 'dev+aaaaaaa' },
+      ['update.delivery.bundle'],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
+
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+    expect(
+      registry.modules.operations.engine
+        .active('lifecycle')
+        ?.operation?.steps?.map((step) => step.id),
+    ).toContain('prepare')
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 

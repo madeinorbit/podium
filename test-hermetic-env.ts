@@ -31,9 +31,16 @@
  * globalThis so a second evaluation (or an explicit remint) does not nest containers or
  * stack exit listeners.
  */
-import { mkdtempSync, rmSync } from 'node:fs'
+import { type ChildProcess, spawn } from 'node:child_process'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
-import { delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import {
+  markTestRunRootOwned,
+  reapStaleTestRunProcesses,
+  recoverStaleTestRunRoots,
+} from './scripts/reap-stale-test-runs'
 import { assertHermeticStateDir } from './test-hermetic-state-guard'
 
 // PODIUM_CODEX_HOOK_* (the codex hook ingest locator — PODIUM_CODEX_HOOK_URL today, plus any
@@ -97,8 +104,9 @@ if (process.env.PATH) {
 //
 // Mechanism: create the container in the ORIGINAL tmpdir, then point TMPDIR at it. Verified
 // (bun 1.x and node both) that os.tmpdir() re-reads TMPDIR at call time, so every subsequent
-// os.tmpdir()/mkdtemp in this process is contained; child processes inherit process.env, so
-// their tmp writes are contained too. Cleanup: `releaseHermeticTmpContainer()` at file end
+// os.tmpdir()/mkdtemp in this process is contained. Child processes receive the same
+// containment only when callers pass `hermeticChildEnv()` explicitly as their env option.
+// Cleanup: `releaseHermeticTmpContainer()` at file end
 // (when a caller has one), with process 'exit' and best-effort signal handlers as the
 // backstop — a SIGKILLed fork still leaks its dirs, but the prefix 'podium-test-run-' is safe
 // to sweep.
@@ -118,9 +126,12 @@ interface HermeticTmpState {
   /** Last bun-test file key (Bun.main) this process minted for — detects file boundaries. */
   activeFileKey?: string
   exitHandlersInstalled?: boolean
+  guardians: Map<string, ChildProcess>
 }
 const HERMETIC_TMP_STATE = Symbol.for('podium.test.hermeticTmpState')
-const withState = globalThis as typeof globalThis & { [HERMETIC_TMP_STATE]?: HermeticTmpState }
+const withState = globalThis as typeof globalThis & {
+  [HERMETIC_TMP_STATE]?: HermeticTmpState
+}
 // Initialised only on the FIRST evaluation in this process, which is the only moment
 // tmpdir() still reports the host root rather than a container this module installed.
 if (!withState[HERMETIC_TMP_STATE]) {
@@ -137,9 +148,71 @@ if (!withState[HERMETIC_TMP_STATE]) {
     containers: [],
     hostTmpdir: tmpdir(),
     assignedStateDir: process.env.PODIUM_STATE_DIR,
+    guardians: new Map(),
   }
+  // Lane-start self-healing has two deliberately separate proofs. A still-present run root
+  // is removed only when its harness-written owner PID/start-time marker is dead; then only
+  // cwd links whose exact matched root is absent are eligible for process signals.
+  recoverStaleTestRunRoots(withState[HERMETIC_TMP_STATE].hostTmpdir)
+  reapStaleTestRunProcesses()
 }
 const tmpState = withState[HERMETIC_TMP_STATE]
+
+// Vite's happy-dom environment replaces the global URL constructor and resolves a file:
+// base through its http://localhost/@fs shim. Parse import.meta.url with Node directly so
+// merely loading the shared setup cannot fail before a web test is collected.
+const HERMETIC_ENV_DIR = dirname(fileURLToPath(import.meta.url))
+const GUARDIAN_ENTRY = join(HERMETIC_ENV_DIR, 'scripts', 'test-run-guardian.mjs')
+
+function procStartTime(pid: number): string | undefined {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, 'utf8')
+    return stat
+      .slice(stat.lastIndexOf(') ') + 2)
+      .trim()
+      .split(/\s+/)[19]
+  } catch {
+    return undefined
+  }
+}
+
+function liveLaneRequested(): boolean {
+  return Object.entries(process.env).some(
+    ([key, value]) =>
+      value === '1' &&
+      (/^PODIUM_[A-Z0-9_]+_LIVE$/.test(key) ||
+        key === 'PODIUM_E2E_REAL_AGENTS' ||
+        key === 'PODIUM_REAL_CLI'),
+  )
+}
+
+function guardRun(containerDir: string): void {
+  if (!liveLaneRequested() || process.platform !== 'linux') return
+  const startTime = procStartTime(process.pid)
+  if (!startTime) return
+  const canonicalContainerDir = markTestRunRootOwned(containerDir, {
+    pid: process.pid,
+    startTime,
+  })
+  const guardian = spawn(
+    process.execPath,
+    [GUARDIAN_ENTRY, String(process.pid), startTime, canonicalContainerDir],
+    {
+      cwd: resolve(HERMETIC_ENV_DIR),
+      env: process.env,
+      stdio: 'ignore',
+      detached: true,
+    },
+  )
+  guardian.unref()
+  tmpState.guardians.set(containerDir, guardian)
+}
+
+function releaseGuardian(containerDir: string): void {
+  const guardian = tmpState.guardians.get(containerDir)
+  tmpState.guardians.delete(containerDir)
+  guardian?.kill('SIGTERM')
+}
 
 const removeDir = (dir: string) => {
   try {
@@ -149,7 +222,10 @@ const removeDir = (dir: string) => {
   }
 }
 const removeAll = () => {
-  for (const dir of tmpState.containers.splice(0)) removeDir(dir)
+  for (const dir of tmpState.containers.splice(0)) {
+    releaseGuardian(dir)
+    removeDir(dir)
+  }
   tmpState.activeContainer = undefined
 }
 // Register exit handlers once per process — re-evaluating this module (vitest) or reminting
@@ -185,6 +261,7 @@ export function mintHermeticFileScope(): void {
   // determinism across processes + abduco's sun_path budget). [spec:SP-0be7]
   process.env.PODIUM_TEST_HOST_TMPDIR = tmpState.hostTmpdir
   process.env.TMPDIR = containerDir
+  guardRun(containerDir)
 
   // Remint when unset OR when the value is still one this module assigned (including the
   // ambient value seeded at process start — see DECISION above). A suite that set its own
@@ -239,13 +316,17 @@ export function releaseHermeticTmpContainer(): void {
   if (process.env.TMPDIR === containerDir) {
     process.env.TMPDIR = tmpState.hostTmpdir
   }
-  if (tmpState.assignedStateDir?.startsWith(containerDir + sep) || tmpState.assignedStateDir === containerDir) {
+  if (
+    tmpState.assignedStateDir?.startsWith(containerDir + sep) ||
+    tmpState.assignedStateDir === containerDir
+  ) {
     if (process.env.PODIUM_STATE_DIR === tmpState.assignedStateDir) {
       delete process.env.PODIUM_STATE_DIR
     }
     tmpState.assignedStateDir = undefined
   }
   tmpState.activeContainer = undefined
+  releaseGuardian(containerDir)
   removeDir(containerDir)
 }
 
@@ -253,3 +334,27 @@ export function releaseHermeticTmpContainer(): void {
 // bun preload evaluation (before any test file's beforeEach). Bun multi-file runs remint via
 // ensureHermeticFileScopeForBun from test-hermetic-bun-hooks.ts.
 mintHermeticFileScope()
+
+/**
+ * Return a standalone environment snapshot for a real child process.
+ *
+ * Bun's Node-compatible child-process layer can retain the environment that
+ * existed when a Vitest worker was created: later writes to `process.env` are
+ * not a reliable child-process boundary. Callers that need this hermetic
+ * setup must therefore pass this copy as `spawn`/`execFile`'s `env` option;
+ * mutating `process.env` alone is not isolation.
+ */
+export function hermeticChildEnv(
+  overrides: Readonly<Record<string, string | undefined>> = {},
+): Record<string, string> {
+  const env = Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === 'string',
+    ),
+  )
+  for (const [key, value] of Object.entries(overrides)) {
+    if (value === undefined) delete env[key]
+    else env[key] = value
+  }
+  return env
+}

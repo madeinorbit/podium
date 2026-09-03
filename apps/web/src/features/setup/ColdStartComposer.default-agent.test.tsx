@@ -34,6 +34,7 @@ function inventoryFor(kinds: readonly string[]) {
       login: { state: 'in' as const },
     })),
     tools: [],
+    runtimeDrivers: state.runtimeDrivers,
   }
 }
 
@@ -55,12 +56,15 @@ function session(kind: string, lastActiveAt: string) {
   }
 }
 
+const feature = { enabled: false }
+
 const state = {
   /** `roles.coding.accountId`. A native account NAMES its CLI, which is why the
    *  settings read never has to fall back to a session scan in practice. */
   accountId: '' as string,
   sessions: [] as unknown[],
   installed: ['claude-code', 'codex', 'grok'] as string[],
+  runtimeDrivers: [] as Array<{ harness: 'opencode'; id: string; family: 'server' }>,
 }
 
 const uiValues = new Map<string, string>()
@@ -139,6 +143,10 @@ vi.mock('@/app/store', () => ({
   useStoreSelector: (selector: (value: typeof store) => unknown) => selector(store),
 }))
 
+vi.mock('@/lib/use-feature', () => ({
+  useFeature: () => feature.enabled,
+}))
+
 vi.mock('@/lib/ModelEffortPicker', () => ({
   ModelPicker: () => null,
   EffortPicker: () => null,
@@ -151,6 +159,9 @@ afterEach(() => {
   state.accountId = ''
   state.sessions = []
   state.installed = ['claude-code', 'codex', 'grok']
+  state.runtimeDrivers = []
+  feature.enabled = false
+  store.spawnDraftAgent.mockClear()
   updatePersonal.mockClear()
 })
 
@@ -213,6 +224,54 @@ describe('the box opens on the harness the sidebar chip would have', () => {
     ]
     render(<ColdStartComposer first={false} />)
     await waitFor(() => expect(chip().textContent).toContain('Codex'))
+  })
+})
+
+describe('cold-start runtime driver choice', () => {
+  it('keeps the headed default with the experiment disabled', async () => {
+    state.accountId = 'native:opencode'
+    state.installed = ['opencode']
+    state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
+    render(<ColdStartComposer first={false} />)
+    await waitFor(() => expect(chip().textContent).toContain('OpenCode'))
+    expect(screen.queryByRole('button', { name: 'Driver' })).toBeNull()
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
+      expect.not.objectContaining({ runtimeContract: expect.anything() }),
+    )
+  })
+
+  it('keeps headed explicit by default and sends an available OpenCode server choice', async () => {
+    feature.enabled = true
+    state.accountId = 'native:opencode'
+    state.installed = ['opencode']
+    state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
+    render(<ColdStartComposer first={false} />)
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Driver' }).textContent).toContain('Headed'))
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(expect.not.objectContaining({ runtimeContract: expect.anything() }))
+    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'opencode-server' }))
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({ agentKind: 'opencode', runtimeContract: 'opencode-server' }),
+    )
+  })
+
+  it('refuses a selected driver that disappears from inventory', async () => {
+    feature.enabled = true
+    state.accountId = 'native:opencode'
+    state.installed = ['opencode']
+    state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
+    const view = render(<ColdStartComposer first={false} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Driver' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'opencode-server' }))
+    state.runtimeDrivers = []
+    view.rerender(<ColdStartComposer first={false} />)
+    expect((await screen.findByRole('status')).textContent).toContain('opencode-server unavailable')
+    expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).not.toHaveBeenCalled()
   })
 })
 

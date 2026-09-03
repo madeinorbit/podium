@@ -113,6 +113,7 @@ export function Composer({
   value: controlledValue,
   onChangeText: onDraftChange,
   disabled,
+  sendDisabled = false,
   caption,
   captionTone = 'working',
   draftInsertion,
@@ -133,7 +134,13 @@ export function Composer({
   /** Shared conversation draft. Omit both fields for a component-local draft. */
   value?: string
   onChangeText?: (text: string) => void
+  /** The whole control is inert: no typing, no send. Rare — the box is local
+   *  first, so a session's state should reach for `sendDisabled` instead. */
   disabled?: boolean
+  /** A send would not be delivered now (session down, reconnecting, unknown).
+   *  Gates the send disc and the attach picker; typing and dictation stay open
+   *  so nothing the operator writes is refused (POD-3219). */
+  sendDisabled?: boolean
   /** Compact agent activity inside the composer chrome; absent takes no space. */
   caption?: string | null
   captionTone?: 'working' | 'attention'
@@ -207,6 +214,7 @@ export function Composer({
   // it.
   const canSend =
     !disabled &&
+    !sendDisabled &&
     !uploading &&
     (committedText.trim().length > 0 || attached.some((file) => file.state === 'ready'))
 
@@ -389,7 +397,7 @@ export function Composer({
           {takesAttach ? (
             <AttachButton
               mode={attachments?.pick ? 'pick' : 'paste'}
-              disabled={disabled === true}
+              disabled={disabled === true || sendDisabled}
               onPress={attachments?.pick ?? attachments?.paste ?? (() => {})}
             />
           ) : null}

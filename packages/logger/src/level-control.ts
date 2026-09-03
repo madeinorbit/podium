@@ -1,13 +1,36 @@
-import { type LogLevel, parseLevel } from './levels'
+import { type LogLevel, moreVerbose, parseLevel } from './levels'
 
 /**
  * Level control: `PODIUM_LOG_LEVEL` for the global default, `PODIUM_LOG` for
- * per-namespace overrides (`"daemon:*=debug"`), and a programmatic setter for
- * the runtimes that have no env at all — a browser, a webview, a phone.
+ * per-namespace overrides (`"daemon:*=debug"`), `PODIUM_LOG_FLOOR` for
+ * per-namespace FLOORS, and a programmatic setter for the runtimes that have no
+ * env at all — a browser, a webview, a phone.
  *
  * Everything here is deliberately forgiving. A typo'd level in an env var must
  * not stop a process from booting or, worse, stop it from logging the reason it
  * did not; a bad entry is dropped and the rest of the spec still applies.
+ *
+ * ---------------------------------------------------------------------------
+ * A FLOOR IS NOT AN OVERRIDE, AND THAT DISTINCTION IS THE WHOLE POINT (POD-3224)
+ * ---------------------------------------------------------------------------
+ *
+ * Some namespaces are worth more than the process default, permanently, because
+ * the questions asked of them are asked AFTER the fact and from a log file. The
+ * update path is the canonical one: a client defaults to `warn`, so every line
+ * describing what a Reload click actually did was written at `info` and thrown
+ * away — the operator could see that a page was stale and never what it tried.
+ *
+ * A {@link setNamespaceLevel} override would fix that and break something else.
+ * Rules are resolved MOST-SPECIFIC-WINS, so `web:updates=info` beats a global
+ * raise to `debug` and silently CAPS the one namespace an operator raised the
+ * client to debug in order to read. A floor cannot do that: it is folded in with
+ * {@link moreVerbose}, so it can only ever make a namespace louder than the
+ * default and never quieter than what somebody asked for.
+ *
+ * Floors compose by verbosity rather than by specificity, for the same reason:
+ * two callers both saying "at least this much" want the union of what they
+ * asked for, and the most specific pattern is not necessarily the one that
+ * wanted the most.
  */
 
 /** One `pattern=level` rule. `pattern` may contain `*`. */
@@ -24,6 +47,8 @@ interface LevelState {
   envRules: readonly NamespaceRule[]
   programmaticGlobal: LogLevel | null
   programmaticRules: NamespaceRule[]
+  envFloors: readonly NamespaceRule[]
+  programmaticFloors: NamespaceRule[]
   version: number
 }
 
@@ -32,6 +57,8 @@ const state: LevelState = {
   envRules: [],
   programmaticGlobal: null,
   programmaticRules: [],
+  envFloors: [],
+  programmaticFloors: [],
   version: 0,
 }
 
@@ -107,10 +134,21 @@ export function selectLevel(
   return best
 }
 
-/** Read `PODIUM_LOG_LEVEL` and `PODIUM_LOG`. Explicit env so tests stay hermetic. */
+/**
+ * Read `PODIUM_LOG_LEVEL`, `PODIUM_LOG` and `PODIUM_LOG_FLOOR`. Explicit env so
+ * tests stay hermetic.
+ *
+ * `PODIUM_LOG_FLOOR` takes the same `pattern=level` spec as `PODIUM_LOG` and is
+ * how an operator adds a floor of their own — or, with a quieter level than the
+ * one a composition root installed, does NOT remove one: floors only ever
+ * compose upwards. Turning a floored namespace back down is `setNamespaceFloor`
+ * from the code that installed it, which is the party that knows why it is
+ * there.
+ */
 export function configureLevelsFromEnv(env: Record<string, string | undefined>): void {
   state.envGlobal = parseLevel(env.PODIUM_LOG_LEVEL)
   state.envRules = env.PODIUM_LOG ? parseNamespaceSpec(env.PODIUM_LOG) : []
+  state.envFloors = env.PODIUM_LOG_FLOOR ? parseNamespaceSpec(env.PODIUM_LOG_FLOOR) : []
   envRead = true
   state.version += 1
 }
@@ -127,13 +165,35 @@ function ensureEnvRead(): void {
   configureLevelsFromEnv(ambientEnv())
 }
 
-/** The effective level for a namespace. */
+/**
+ * The most verbose floor matching `ns`, or `null` when nothing floors it.
+ *
+ * Exported because the DAEMON's forwarding sink needs the same answer for a
+ * different question. Its steady stream is a second threshold sitting on top of
+ * the namespace level (`STEADY_FORWARD_LEVEL`), so a floored namespace would
+ * resolve to `info` and still not leave the host. Reading the floor there keeps
+ * "these namespaces are worth more" one declaration rather than two that can
+ * disagree about which ones they are.
+ */
+export function namespaceFloor(ns: string): LogLevel | null {
+  ensureEnvRead()
+  let floor: LogLevel | null = null
+  for (const rule of [...state.envFloors, ...state.programmaticFloors]) {
+    if (!matchesNamespace(rule.pattern, ns)) continue
+    floor = floor === null ? rule.level : moreVerbose(floor, rule.level)
+  }
+  return floor
+}
+
+/** The effective level for a namespace, floors included. */
 export function resolveLevel(ns: string): LogLevel {
   ensureEnvRead()
   const globalDefault = state.programmaticGlobal ?? state.envGlobal ?? DEFAULT_LEVEL
   // Programmatic rules come last so they win ties against env rules of equal
   // specificity — a runtime override must beat the environment it started in.
-  return selectLevel(ns, [...state.envRules, ...state.programmaticRules], globalDefault)
+  const selected = selectLevel(ns, [...state.envRules, ...state.programmaticRules], globalDefault)
+  const floor = namespaceFloor(ns)
+  return floor === null ? selected : moreVerbose(selected, floor)
 }
 
 /** Set the global default at runtime. Overrides `PODIUM_LOG_LEVEL`. */
@@ -152,6 +212,21 @@ export function setNamespaceLevel(pattern: string, level: LogLevel | null): void
 }
 
 /**
+ * Declare that `pattern` is worth AT LEAST `level`, whatever the process default
+ * is — or, with `null`, withdraw that declaration.
+ *
+ * Composition roots call this; a raise never has to know about it, because a
+ * floor cannot make anything quieter than what a raise asked for. See the
+ * header for why this is not `setNamespaceLevel`.
+ */
+export function setNamespaceFloor(pattern: string, level: LogLevel | null): void {
+  ensureEnvRead()
+  state.programmaticFloors = state.programmaticFloors.filter((rule) => rule.pattern !== pattern)
+  if (level) state.programmaticFloors.push({ pattern, level })
+  state.version += 1
+}
+
+/**
  * Monotonic counter bumped on every configuration change. A logger caches its
  * emission gate and re-derives it when this moves — the alternative, a listener
  * list, is a leak waiting to happen in a package every module imports.
@@ -166,6 +241,8 @@ export function resetLevels(): void {
   state.envRules = []
   state.programmaticGlobal = null
   state.programmaticRules = []
+  state.envFloors = []
+  state.programmaticFloors = []
   envRead = false
   state.version += 1
 }

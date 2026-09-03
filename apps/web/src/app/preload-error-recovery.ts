@@ -1,3 +1,5 @@
+import { navigateReload } from '@/lib/navigate'
+
 const PRELOAD_RELOAD_GUARD_KEY = 'podium.vite-preload-reloads'
 const MAX_RELOADS_PER_BUILD = 2
 const RELOAD_GUARD_TTL_MS = 5 * 60_000
@@ -104,7 +106,7 @@ export function installVitePreloadErrorRecovery(): void {
         getItem: (key) => window.sessionStorage.getItem(key),
         setItem: (key, value) => window.sessionStorage.setItem(key, value),
       },
-      reload: () => window.location.reload(),
+      reload: () => navigateReload('preload-recovery', 'lazy-chunk-unreachable'),
       now: Date.now(),
     })
   })

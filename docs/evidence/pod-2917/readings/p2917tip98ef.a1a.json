@@ -1,0 +1,189 @@
+{
+  "cell": "A1A",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2917-tip0828/probes/shell-a1a",
+  "at": "2026-08-28T11:07:24.522Z",
+  "pin": {
+    "cell": "A1A",
+    "at": "2026-08-28T11:07:24.542Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "serverSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "daemonSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T10:35:29.926Z",
+      "appVersion": "dev+98ef8d6",
+      "sourceSha": "98ef8d6",
+      "bundleVersion": "bundle+Dbh-P3IM"
+    },
+    "serverPid": "313446",
+    "daemonPid": "313566",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "20425244 kB",
+      "SwapFree": "41942992 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "three idle sends replied, including the required last send",
+  "control": {
+    "fired": true,
+    "what": "a prompt appearing as a durable user turn",
+    "detail": "3/3 user turns landed; last=true"
+  },
+  "evidence": [
+    "SENDS             [{\"i\":1,\"needle\":\"P2874-A1A-shell-1-MTCUKQ8T\",\"sent\":{\"method\":\"native-input\",\"command\":\"shellPrint(P2874-A1A-shell-1-MTCUKQ8T)\"},\"user\":true,\"assistant\":true,\"userMs\":501,\"assistantMs\":501,\"diskUser\":null,\"status\":{\"sessionId\":\"e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[],\"files\":[],\"unackedMessages\":0}},{\"i\":2,\"needle\":\"P2874-A1A-shell-2-MTCUKTV8\",\"sent\":{\"method\":\"native-input\",\"command\":\"shellPrint(P2874-A1A-shell-2-MTCUKTV8)\"},\"user\":true,\"assistant\":true,\"userMs\":501,\"assistantMs\":501,\"diskUser\":null,\"status\":{\"sessionId\":\"e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[],\"files\":[],\"unackedMessages\":0}},{\"i\":3,\"needle\":\"P2874-A1A-shell-3-MTCUKXHV\",\"sent\":{\"method\":\"native-input\",\"command\":\"shellPrint(P2874-A1A-shell-3-MTCUKXHV)\"},\"user\":true,\"assistant\":true,\"userMs\":501,\"assistantMs\":501,\"diskUser\":null,\"status\":{\"sessionId\":\"e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[],\"files\":[],\"unackedMessages\":0}}]",
+    "LAST DISK USER     n/a",
+    "SCREEN TAIL        \"mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a1a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a1a$ printf \\\"%s\\\\n\\\" \\\"$(printf \\\"%s\\\" \\\"UDI4NzQtQTFBLXNoZWxsLTEtTVRDVUtROFQ=\\\" | base64 -d)\\\"\\nP2874-A1A-shell-1-MTCUKQ8T\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a1a$ printf \\\"%s\\\\n\\\" \\\"$(printf \\\"%s\\\" \\\"UDI4NzQtQTFBLXNoZWxsLTItTVRDVUtUVjg=\\\" | base64 -d)\\\"\\nP2874-A1A-shell-2-MTCUKTV8\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a1a$ printf \\\"%s\\\\n\\\" \\\"$(printf \\\"%s\\\" \\\"UDI4NzQtQTFBLXNoZWxsLTMtTVRDVUtYSFY=\\\" | base64 -d)\\\"\\nP2874-A1A-shell-3-MTCUKXHV\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a1a$\"",
+    "FRAME TYPES        outputFrame=8 hostMetricsChanged=5 machinesChanged=3 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+  ],
+  "data": {
+    "sid": "e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4",
+    "turns": [
+      {
+        "i": 1,
+        "needle": "P2874-A1A-shell-1-MTCUKQ8T",
+        "sent": {
+          "method": "native-input",
+          "command": "shellPrint(P2874-A1A-shell-1-MTCUKQ8T)"
+        },
+        "user": true,
+        "assistant": true,
+        "userMs": 501,
+        "assistantMs": 501,
+        "diskUser": null,
+        "status": {
+          "sessionId": "e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4",
+          "agentKind": "shell",
+          "harness": "shell",
+          "driverId": null,
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "working",
+          "machine": "flatblock",
+          "model": null,
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": null,
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [],
+          "files": [],
+          "unackedMessages": 0
+        }
+      },
+      {
+        "i": 2,
+        "needle": "P2874-A1A-shell-2-MTCUKTV8",
+        "sent": {
+          "method": "native-input",
+          "command": "shellPrint(P2874-A1A-shell-2-MTCUKTV8)"
+        },
+        "user": true,
+        "assistant": true,
+        "userMs": 501,
+        "assistantMs": 501,
+        "diskUser": null,
+        "status": {
+          "sessionId": "e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4",
+          "agentKind": "shell",
+          "harness": "shell",
+          "driverId": null,
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "working",
+          "machine": "flatblock",
+          "model": null,
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": null,
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [],
+          "files": [],
+          "unackedMessages": 0
+        }
+      },
+      {
+        "i": 3,
+        "needle": "P2874-A1A-shell-3-MTCUKXHV",
+        "sent": {
+          "method": "native-input",
+          "command": "shellPrint(P2874-A1A-shell-3-MTCUKXHV)"
+        },
+        "user": true,
+        "assistant": true,
+        "userMs": 501,
+        "assistantMs": 501,
+        "diskUser": null,
+        "status": {
+          "sessionId": "e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4",
+          "agentKind": "shell",
+          "harness": "shell",
+          "driverId": null,
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "working",
+          "machine": "flatblock",
+          "model": null,
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": null,
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [],
+          "files": [],
+          "unackedMessages": 0
+        }
+      }
+    ],
+    "driver": {
+      "sessionId": "e9d9daa9-c40f-4b3c-b5d2-f08af2bfcaa4",
+      "agentKind": "shell",
+      "harness": "shell",
+      "driverId": null,
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": null,
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [],
+      "files": [],
+      "unackedMessages": 0
+    }
+  }
+}

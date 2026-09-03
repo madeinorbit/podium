@@ -1,6 +1,6 @@
-import { readdir, stat } from 'node:fs/promises'
+import { lstat, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, join } from 'node:path'
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path'
 
 /** Same shape as `GrokSessionPaths` — kept local so this file does not import grok.ts. */
 interface GrokSessionPaths {
@@ -69,10 +69,102 @@ export async function locateGrokChatHistory(opts: {
   sessionId: string
   pathHint?: string
   homeDir?: string
+  transcriptRoot?: string
 }): Promise<string | null> {
+  const authority = await locateCurrentTranscript(opts)
+  if (authority) return authority
   const paths = await locateGrokSessionPaths(opts)
   if (!paths || !(await isFile(paths.chatHistoryPath))) return null
   return paths.chatHistoryPath
+}
+
+/** Grok 0.2.118+ writes the chat authority outside its account HOME. */
+async function locateCurrentTranscript(opts: {
+  sessionId: string
+  pathHint?: string
+  transcriptRoot?: string
+}): Promise<string | null> {
+  if (!opts.transcriptRoot) return null
+  const lexicalRoot = resolve(opts.transcriptRoot)
+  let root: string
+  try {
+    root = await realpath(lexicalRoot)
+  } catch {
+    return null
+  }
+
+  if (opts.pathHint) {
+    const hinted = await confinedCurrentTranscript(root, lexicalRoot, opts.pathHint, opts.sessionId)
+    if (hinted) return hinted.path
+  }
+
+  let projects: string[]
+  try {
+    projects = (await readdir(root, { withFileTypes: true }))
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
+  } catch {
+    return null
+  }
+  const candidates: { path: string; mtimeMs: number }[] = []
+  for (const project of projects) {
+    const candidate = await confinedCurrentTranscript(
+      root,
+      root,
+      join(root, project, opts.sessionId + '.jsonl'),
+      opts.sessionId,
+    )
+    if (candidate) candidates.push(candidate)
+  }
+  candidates.sort((left, right) => right.mtimeMs - left.mtimeMs)
+  return candidates[0]?.path ?? null
+}
+
+async function confinedCurrentTranscript(
+  root: string,
+  lexicalRoot: string,
+  candidate: string,
+  sessionId: string,
+): Promise<{ path: string; mtimeMs: number } | null> {
+  try {
+    const lexicalWithinRoot = relative(lexicalRoot, resolve(candidate))
+    const lexicalParts = lexicalWithinRoot.split(sep)
+    if (
+      candidate.split(sep).includes('..') ||
+      !lexicalWithinRoot ||
+      isAbsolute(lexicalWithinRoot) ||
+      lexicalParts.length !== 2 ||
+      lexicalParts[0] === '..' ||
+      lexicalParts[1] !== sessionId + '.jsonl'
+    ) {
+      return null
+    }
+    const projectStats = await lstat(dirname(candidate))
+    const candidateStats = await lstat(candidate)
+    if (
+      projectStats.isSymbolicLink() ||
+      !projectStats.isDirectory() ||
+      candidateStats.isSymbolicLink() ||
+      !candidateStats.isFile()
+    ) {
+      return null
+    }
+    const path = await realpath(candidate)
+    const withinRoot = relative(root, path)
+    const parts = withinRoot.split(sep)
+    if (
+      !withinRoot ||
+      isAbsolute(withinRoot) ||
+      parts.length !== 2 ||
+      parts[0] === '..' ||
+      parts[1] !== sessionId + '.jsonl'
+    ) {
+      return null
+    }
+    return { path, mtimeMs: candidateStats.mtimeMs }
+  } catch {
+    return null
+  }
 }
 
 function pathsFromHint(pathHint: string, sessionId: string): GrokSessionPaths | null {

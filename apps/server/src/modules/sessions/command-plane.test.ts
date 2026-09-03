@@ -99,6 +99,8 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
+    stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
+    runtimeContractActive: (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
     // principal's own capability, through the real gate. Substituting the

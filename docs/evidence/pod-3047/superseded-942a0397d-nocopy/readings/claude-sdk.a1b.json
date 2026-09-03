@@ -1,0 +1,111 @@
+{
+  "cell": "A1B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a1b",
+  "at": "2026-08-28T16:10:19.549Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-28T16:10:19.573Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "5cef0dd",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1875467",
+    "daemonPid": "1875670",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18613228 kB",
+      "SwapFree": "41211136 kB"
+    },
+    "rootFreeKiB": 82430384,
+    "load1m": 5.98,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a1b",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a1b",
+      "exists": true,
+      "files": 4
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "the harness reported itself not logged in, so this cell could not be exercised for a reason that is not the behaviour under test: class=authentication retryable=false error={\"class\":\"authentication\",\"retryable\":false,\"detail\":\"Claude Code returned an error result: Not logged in · Please run /login\"}",
+  "control": {
+    "fired": true,
+    "what": "the first busy-turn send delivering and the session producing an in-flight signal",
+    "detail": "first user turn=true; preview=true; working=true at 16ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SECOND SEND       {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"accepted\"}",
+    "QUEUE POSITION    1",
+    "POSITION FIELD    true",
+    "RELOADED USER     false in 5138ms",
+    "RELOADED REPLY    false in 180026ms"
+  ],
+  "data": {
+    "sid": "f258fb9c-6b2a-4e8d-a8ec-a32ee47fd27f",
+    "first": "P3047-A1B-FIRST-MTD5E9IE",
+    "queued": "P3047-A1B-QUEUED-MTD5E9IE",
+    "firstUser": true,
+    "working": [
+      {
+        "ms": 16,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      }
+    ],
+    "second": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "accepted"
+    },
+    "secondUser": false,
+    "secondAssistant": false,
+    "position": 1,
+    "hasPositionField": true
+  }
+}

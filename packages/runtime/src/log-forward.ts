@@ -22,18 +22,45 @@
  *    (the `sending` re-entrancy gate) has no counterpart on the client side.
  *
  * ---------------------------------------------------------------------------
- * FORWARDING IS OFF UNTIL AN OPERATOR ASKS, AND THAT IS THE MAIN DECISION HERE
+ * WARN+ FLOWS CONTINUOUSLY, AND THAT IS THE MAIN DECISION HERE (POD-3184)
  * ---------------------------------------------------------------------------
- * A browser forwards `warn`+ continuously because its records are the user's
- * own, on the user's own server, one hop away. A remote daemon's records are a
- * DIFFERENT HOST'S contents crossing a network to a machine that is not it:
- * repository paths, worktree names, branch names, the shape of somebody's disk.
- * The default posture for that is closed.
+ * It did not. Nothing left a daemon until an operator raised it, on the grounds
+ * that a remote daemon's records are a DIFFERENT HOST'S contents — repository
+ * paths, worktree names, branch names — crossing a network.
  *
- * So nothing leaves a daemon until {@link DaemonLogForwarding.raise} enables it,
- * it lasts a bounded window, and it turns itself off. The daemon's own journal
- * or rotating file (`@podium/runtime/logging`) is unaffected throughout — this
- * adds a central COPY of a raised window, and removes nothing.
+ * That reasoning was wrong for this hop. The machine those records cross to is
+ * the user's OWN server; Podium never sees them. Whether anything at all should
+ * leave a user's machines is the telemetry decision, and it is made elsewhere.
+ * What was left here was a default that made a broken machine SILENT unless
+ * somebody already knew to ask it a question — which is the one situation where
+ * nobody knows to ask.
+ *
+ * So the daemon now matches the client family (`@podium/client-core/logging`):
+ * `warn`+ ships continuously, low volume by construction, one hop, on by
+ * default. Below `warn` still costs nothing on the wire.
+ *
+ * THE EXCEPTION IS A DAEMON CO-RESIDENT WITH ITS SERVER. Those records are
+ * already on that machine's disk, written by the same process's own file sink,
+ * and forwarding them files a second copy of them under `logs/fleet/`. So the
+ * steady stream is OFF there and the caller says which case it is in
+ * ({@link DaemonLogForwardOptions.coResident}). A RAISE still forwards on such a
+ * daemon — that is today's behaviour, it is what makes a raise capture the whole
+ * all-in-one process, and it stays correct because a raise is bounded.
+ *
+ * ---------------------------------------------------------------------------
+ * AN ERROR SHIPS THE MINUTE THAT EXPLAINS IT
+ * ---------------------------------------------------------------------------
+ * The flight recorder below already runs at `trace` on every daemon, all the
+ * time, costing memory and nothing else. Before POD-3184 a forwarded `error`
+ * said THAT something broke and the minute saying WHY was discarded when the
+ * ring rolled over. That was the largest thing being thrown away.
+ *
+ * So an `error` forwarded in the steady state carries the recorder's unsent tail
+ * ahead of it — the same trade the client's crash path makes, where the buffer
+ * rather than the message is the reason a crash report is worth having. The tail
+ * is bounded ({@link DEFAULT_ERROR_CONTEXT}) and never sent twice: the module
+ * remembers the last recorded record it shipped, so a burst of errors ships one
+ * window and not one window each.
  *
  * ---------------------------------------------------------------------------
  * THE RAISE SHIPS THE PAST, WHICH IS THE HALF THAT IS USUALLY MISSING
@@ -79,13 +106,15 @@
  * queue, which is what keeps that bound true after a reconnect.
  *
  * WHAT ABOUT AN ALL-IN-ONE INSTALL, where the daemon shares a process with the
- * server it forwards to? It works and is left working: the sinks are registered
- * in the shared logger, so a raise there captures the whole process — server
- * records included — and files a copy of the raised window under that machine.
- * That is a duplicate of records already on that host's own disk, bounded by the
- * raise and by rotation, and it keeps `logs/fleet/<machine>.ndjson` meaning the
- * same thing on every machine in a fleet. The server-side store does NOT stamp
- * `role: daemon` over those records for exactly this reason.
+ * server it forwards to? It forwards NOTHING in the steady state and everything
+ * under a raise, which is the {@link DaemonLogForwardOptions.coResident}
+ * exception above. Under a raise the sinks are registered in the shared logger,
+ * so the window captures the whole process — server records included — and files
+ * it under that machine, keeping `logs/fleet/<machine>.ndjson` mean the same
+ * thing on every machine in a fleet. It is a duplicate of records already on
+ * that host's own disk, which is why it is bounded by the raise rather than
+ * running continuously. The server-side store does NOT stamp `role: daemon` over
+ * those records for exactly this reason.
  */
 
 import {
@@ -94,10 +123,12 @@ import {
   createRingBufferSink,
   type LogLevel,
   type LogRecord,
-  removeSink,
+  meetsThreshold,
+  moreVerbose,
+  namespaceFloor,
   type RingBufferSink,
-  setLogLevel,
   type Sink,
+  setLogLevel,
 } from '@podium/logger'
 
 /**
@@ -211,6 +242,52 @@ const DEFAULT_MAX_QUEUE = 1000
 /** The flight recorder's depth — a minute or so of real traffic, in memory. */
 const DEFAULT_RING_CAPACITY = 500
 
+/**
+ * WHAT SHIPS WITHOUT ANYBODY ASKING. The client family's default, deliberately
+ * the same word (`installClientLogging`'s `warn`): an operator holding one
+ * threshold in their head for a phone and a daemon is the point of the parallel.
+ *
+ * Low volume BY CONSTRUCTION rather than by hope — a healthy daemon emits `warn`
+ * rarely, and that is what makes this affordable across a fleet. A raise lifts
+ * this floor entirely; see `forwardSink.write`.
+ */
+export const STEADY_FORWARD_LEVEL: LogLevel = 'warn'
+
+/**
+ * THE STEADY FLOOR IS PER-NAMESPACE, NOT ONE NUMBER (POD-3224).
+ *
+ * `warn` is the right default for a daemon's own chatter and the wrong one for
+ * the handful of namespaces whose whole purpose is to be read later — the update
+ * path above all. A grant that downloaded, verified, swapped and restarted
+ * writes five `info` lines on the machine doing the work, and before this every
+ * one of them stayed on that machine: the operator asking "what did ludovico
+ * actually do?" was answered by silence unless they had already raised the
+ * daemon before the update they wanted to understand.
+ *
+ * So the floor a composition root declares with `setNamespaceFloor` lifts the
+ * steady stream too. That keeps the declaration in ONE place — the namespace is
+ * either worth more than the default or it is not, and a second table here could
+ * only disagree with the first.
+ *
+ * It stays bounded by construction, because the floor is `info` and the update
+ * path's per-tick records are `debug`: what ships is the lifecycle, not the
+ * progress.
+ */
+function steadyLevelFor(ns: string): LogLevel {
+  const floor = namespaceFloor(ns)
+  return floor === null ? STEADY_FORWARD_LEVEL : moreVerbose(STEADY_FORWARD_LEVEL, floor)
+}
+
+/**
+ * The most recorder records one error drags along with it.
+ *
+ * The ring holds 500. Shipping all of them behind every error would put ten
+ * frames on the wire for one failure, and the records furthest back are the
+ * least likely to explain it. 100 is a few seconds of real traffic at `trace` —
+ * two frames — which is the span that actually names a cause.
+ */
+export const DEFAULT_ERROR_CONTEXT = 100
+
 /** What the server asks for. Structurally `SetDaemonLogLevelMessage` minus its
  *  `type`, restated so this module imports no wire schema. */
 export interface DaemonLogLevelCommand {
@@ -227,8 +304,14 @@ export interface DaemonLogForwardStatus {
   boot: LogLevel
   /** Epoch ms at which the raise lifts, or `null` when nothing is raised. */
   expiresAt: number | null
-  /** Whether records are being shipped at all. */
+  /** Whether records are being shipped at all — the steady `warn`+ stream, a
+   *  raise, or both. False only on a co-resident daemon outside a raise. */
   forwarding: boolean
+  /** Whether a raise is in force. Apart from {@link forwarding} because they
+   *  stopped being the same fact in POD-3184: a daemon can be shipping `warn`+
+   *  with nothing raised, and an operator asking "did my raise land?" must not
+   *  be answered by the default. */
+  raised: boolean
   /** Queued but not yet handed to the socket. */
   pending: number
   /** Records lost since boot — to the bounded queue, or to a send in progress. */
@@ -254,10 +337,28 @@ export interface DaemonLogForwardOptions {
   send(batch: DaemonLogBatch): boolean
   /** The level this daemon booted at — what a reset returns to. */
   boot: LogLevel
+  /**
+   * Does this daemon share a machine with the server it forwards to?
+   *
+   * `true` turns the steady `warn`+ stream OFF, and nothing else: a raise still
+   * forwards. The records are already on that machine's disk, written by this
+   * same process's file sink, so the steady stream would be a second copy of
+   * them. Only the caller knows — the daemon composition root reads it off the
+   * local link (`apps/daemon/src/daemon-options.ts`), which is the same fact its
+   * boot record reports as `topology: 'local-link'`.
+   *
+   * Defaults to `false`, so a caller that has not thought about it gets the
+   * remote posture: forwarding on. That is the safe direction — the cost of
+   * being wrong is a duplicate on one machine's disk, not a silent daemon.
+   */
+  coResident?: boolean
   flushIntervalMs?: number
   batchSize?: number
   maxQueue?: number
   ringCapacity?: number
+  /** Recorder records shipped ahead of a forwarded `error`. See
+   *  {@link DEFAULT_ERROR_CONTEXT}. Zero disables the context window. */
+  errorContext?: number
   now?: () => number
 }
 
@@ -291,7 +392,16 @@ export function installDaemonLogForwarding(
   })
 
   const queue: DaemonLogWireRecord[] = []
-  let forwarding = false
+  /**
+   * The steady `warn`+ stream — on everywhere except a daemon co-resident with
+   * its server. A CONSTANT for the life of the installation: it is a property of
+   * where this daemon runs, and nothing at runtime changes where that is.
+   */
+  const steady = options.coResident !== true
+  const errorContext = options.errorContext ?? DEFAULT_ERROR_CONTEXT
+  /** Whether a raise is open. Was the whole of `forwarding`; since POD-3184 it
+   *  is only the half an operator turned on. */
+  let raised = false
   let dropped = 0
   /** Drops not yet reported on a batch. Reset only once a batch carrying the
    *  count actually goes out, so a failed send does not lose the report. */
@@ -318,12 +428,35 @@ export function installDaemonLogForwarding(
     timer.unref?.()
   }
 
+  /** Is anything leaving this daemon right now? The steady stream, a raise, or
+   *  both — one predicate, so no path can consult half the answer. */
+  const forwarding = (): boolean => !disposed && (steady || raised)
+
   const drop = (count: number): void => {
     dropped += count
     unreportedDrops += count
   }
 
+  /**
+   * Records the recorder holds that have NOT already been put on the wire.
+   *
+   * IDENTITY, not timestamps or an index: the ring hands out the same objects
+   * the forwarding sink was given, so "already sent" is a fact about the object
+   * rather than a cursor two paths could disagree about. It is what makes the
+   * error window and the raise seed compose — an error that ships its context
+   * and a raise a second later do not send the same minute twice, and neither
+   * re-sends a `warn` that already went out under the steady stream.
+   */
+  const shipped = new WeakSet<LogRecord>()
+
+  const unsent = (limit: number, exclude?: LogRecord): LogRecord[] => {
+    if (limit <= 0) return []
+    const tail = ring.snapshot().filter((record) => record !== exclude && !shipped.has(record))
+    return tail.length > limit ? tail.slice(tail.length - limit) : tail
+  }
+
   const enqueue = (record: LogRecord): void => {
+    shipped.add(record)
     queue.push(toWireRecord(record))
     if (queue.length > maxQueue) {
       // OLDEST, for the client sink's reason: when a link has been down, the
@@ -343,7 +476,7 @@ export function installDaemonLogForwarding(
    * size re-arms immediately, so it drains at one frame per tick.
    */
   const pump = (): void => {
-    if (!forwarding || sending || queue.length === 0) return
+    if (!forwarding() || sending || queue.length === 0) return
     const batch = queue.slice(0, batchSize)
     const reporting = unreportedDrops
     sending = true
@@ -366,15 +499,28 @@ export function installDaemonLogForwarding(
 
   const forwardSink: Sink = {
     name: 'daemon-forward',
-    // NO `minLevel`, so the sink follows the namespace's configured level. That
-    // is what makes the raise ONE knob: the journal and the forwarded stream
-    // move together and cannot disagree about what this daemon is reporting.
+    // NO `minLevel`, so the sink SEES everything the logger emits and decides
+    // here. That is what makes the raise ONE knob: under a raise the journal and
+    // the forwarded stream move together on `setLogLevel` alone and cannot
+    // disagree about what this daemon is reporting. The steady floor below is
+    // not a second knob — it is what a daemon reports when nobody has touched
+    // the one knob at all.
     write(record: LogRecord): void {
-      if (!forwarding || disposed) return
-      if (sending) {
-        // Emitted by the send path itself. Counted, never queued — see header.
-        drop(1)
+      if (!forwarding() || sending) {
+        // A record emitted by the send path itself is COUNTED, never queued —
+        // see the header. One that is simply not being forwarded is not a loss
+        // and must not inflate the drop count that reports one.
+        if (sending && forwarding()) drop(1)
         return
+      }
+      if (!raised && !meetsThreshold(record.level, steadyLevelFor(record.ns))) return
+      // AN ERROR CARRIES THE MINUTE THAT EXPLAINS IT. Only outside a raise: a
+      // raise is already shipping that minute record by record, and prepending
+      // it again would duplicate the stream against itself. `exclude` is this
+      // record, which the recorder has already taken — it is enqueued below, in
+      // its own place, so the file reads in emission order.
+      if (!raised && record.level === 'error' && errorContext > 0) {
+        for (const past of unsent(errorContext, record)) enqueue(past)
       }
       enqueue(record)
       if (queue.length >= batchSize) pump()
@@ -397,16 +543,24 @@ export function installDaemonLogForwarding(
     const from = level
     level = options.boot
     setLogLevel(options.boot)
-    // BEFORE forwarding is switched off, and at `warn` so it survives any
-    // default this ships with: this line is the explanation for why the central
+    // BEFORE `raised` is cleared, and at `warn` so it survives any default this
+    // ships with: this line is the explanation for why the detail in the central
     // file stops, and it has to be IN that file rather than only in the journal.
     log.warn('daemon log level restored', { from, to: options.boot, reason })
     flushNow()
-    forwarding = false
+    raised = false
+    if (steady) {
+      // The stream does not stop here — only the detail does. Whatever is still
+      // queued describes the window the operator just closed and is still worth
+      // delivering, so it stays and drains on the normal timer.
+      if (queue.length > 0) arm()
+      return
+    }
     disarm()
-    // The tail that never made it out is not carried into the next raise: it
-    // describes a window the operator already closed, and holding it would make
-    // the next raise open with stale records under a fresh timestamp.
+    // A CO-RESIDENT DAEMON GOES SILENT AGAIN, and the tail that never made it
+    // out is not carried into the next raise: it describes a window the operator
+    // already closed, and holding it would make the next raise open with stale
+    // records under a fresh timestamp.
     if (queue.length > 0) drop(queue.length)
     queue.length = 0
   }
@@ -414,7 +568,7 @@ export function installDaemonLogForwarding(
   /** Push whatever is queued at the transport, one batch per attempt, until it
    *  refuses or runs out. Bounded by the queue, which is bounded. */
   const flushNow = (): void => {
-    if (!forwarding) return
+    if (!forwarding()) return
     let guard = Math.ceil(maxQueue / batchSize) + 1
     while (queue.length > 0 && guard > 0) {
       const before = queue.length
@@ -433,24 +587,26 @@ export function installDaemonLogForwarding(
       }
       const ttlMs = Math.min(command.ttlMs ?? DEFAULT_DAEMON_LEVEL_TTL_MS, MAX_DAEMON_LEVEL_TTL_MS)
       clearExpiry()
-      const wasForwarding = forwarding
+      const wasRaised = raised
       level = command.level
       expiresAt = now() + ttlMs
       // THE ONE CALL. Journal and forwarded stream move together, because this
-      // is the only threshold either of them consults.
+      // is the only threshold either of them consults once a raise is open.
       setLogLevel(command.level)
       // Seed with the flight recorder BEFORE the raise notice, so the central
       // file reads in emission order: the minute that led to the raise, then the
       // raise. Only on the transition — a re-raise inside an open window would
-      // otherwise re-send a buffer the server already has.
-      if (!wasForwarding) {
-        forwarding = true
-        for (const record of ring.snapshot()) enqueue(record)
+      // otherwise re-send a buffer the server already has — and only the part of
+      // it that has not already gone out under the steady stream or behind an
+      // error, which is why the whole ring is not simply replayed.
+      raised = true
+      if (!wasRaised) {
+        for (const record of unsent(Number.POSITIVE_INFINITY)) enqueue(record)
       }
       // `to`, not `level`: the record shape OWNS `level` and DROPS a caller
       // field of that name, so this would otherwise report a raise without
       // saying what it raised to.
-      log.warn('daemon log level raised', { to: command.level, ttlMs, seeded: !wasForwarding })
+      log.warn('daemon log level raised', { to: command.level, ttlMs, seeded: !wasRaised })
       expiryTimer = setTimeout(() => toBoot('expired'), ttlMs)
       expiryTimer.unref?.()
       pump()
@@ -459,7 +615,8 @@ export function installDaemonLogForwarding(
       level,
       boot: options.boot,
       expiresAt,
-      forwarding,
+      forwarding: forwarding(),
+      raised,
       pending: queue.length,
       dropped,
     }),
@@ -469,7 +626,7 @@ export function installDaemonLogForwarding(
       disposed = true
       clearExpiry()
       disarm()
-      forwarding = false
+      raised = false
       queue.length = 0
       disposeForward()
       disposeRing()

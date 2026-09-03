@@ -1,0 +1,67 @@
+{
+  "id": "A1c",
+  "arm": "headless",
+  "verdict": "BLOCKED",
+  "scorerVerdict": "REFUSED",
+  "summary": "live-send control passed, but no daemon stamp or exact child PID existed, so a dead session could not be established safely",
+  "control": {
+    "fired": true,
+    "what": "a send works while the same session is alive",
+    "detail": "exact live-send reply arrived"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A1b / A1c  sending when the session cannot take it now   harness=grok",
+    "selected row      a1c",
+    "==============================================================================",
+    "A1b  send while busy",
+    "------------------------------------------------------------------------------",
+    "A1c  send to a DEAD session",
+    "------------------------------------------------------------------------------",
+    "  session e263a485-67ae-4dae-a86b-293a7a328a8c",
+    "  driver           grok-acp (family server)",
+    "  CONTROL          a send to this session WHILE ALIVE was answered: true",
+    "  target stamp     uuid=(missing) source=(missing)",
+    "  target processes 0 exact stamped PID(s) before kill",
+    "  REFUSED — exact stamped agent child attribution was ambiguous.",
+    "  matching targets 0; all stamped targets 0",
+    "==============================================================================",
+    "A1b  SKIPPED",
+    "A1c  REFUSED",
+    "=============================================================================="
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "aliveSendAnswered": true,
+    "stampUuid": null,
+    "stampSource": null,
+    "exactStampedTargets": 0,
+    "processKilled": false
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a1c-authoritative-proof",
+  "pin": {
+    "codeCommit": "c26c267be1c4b2f8cc6ccc2e66ea675e84024587",
+    "codeTree": "7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4",
+    "serverPid": 2036499,
+    "daemonPid": 2036549,
+    "webSourceSha": "c26c267",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "liveSendPositiveControl": "PASS — the session answered while alive",
+    "exactDeadTargetAttribution": "BLOCKED — uuid/source were missing and zero exact stamped PIDs matched",
+    "deadSessionConfirmed": "UNMEASURED — no ambiguous process was killed",
+    "typedRefusalOrResumeOffered": "UNMEASURED — the dead-session send was not attempted",
+    "neverLostMessage": "UNMEASURED — no valid dead-session send existed to observe through the delayed outcome window"
+  },
+  "admission": {
+    "diskFreeKb": 12444124,
+    "memAvailableKb": 4015084,
+    "load1": 8.73,
+    "testHeavyLease": "free",
+    "health": "ok"
+  },
+  "localTimestamp": "2026-08-27 12:37:11 CEST",
+  "discardedAttempt": "The first identical refusal lacked a printed product driver row and was not reused; this fresh unique-CWD run added product-reported driverId/family."
+}

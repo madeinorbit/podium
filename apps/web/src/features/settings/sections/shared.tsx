@@ -135,6 +135,7 @@ const HARNESS_AGENT_LABELS: Record<HarnessAgent, string> = {
   grok: 'Grok',
   opencode: 'OpenCode',
   cursor: 'Cursor',
+  pi: 'Pi',
 }
 
 export function harnessAgentLabel(agent: HarnessAgent): string {
@@ -159,6 +160,7 @@ const NATIVE_HARNESSES: { harness: HarnessAgent; label: string }[] = [
   { harness: 'grok', label: 'Grok' },
   { harness: 'opencode', label: 'OpenCode' },
   { harness: 'cursor', label: 'Cursor' },
+  { harness: 'pi', label: 'Pi' },
 ]
 const MANAGED_PROVIDERS: { provider: 'anthropic' | 'openai' | 'openrouter'; label: string }[] = [
   { provider: 'anthropic', label: 'Anthropic API' },

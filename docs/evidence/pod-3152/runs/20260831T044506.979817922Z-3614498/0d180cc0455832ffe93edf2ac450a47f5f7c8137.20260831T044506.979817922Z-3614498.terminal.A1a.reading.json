@@ -1,0 +1,60 @@
+{
+  "id": "A1a",
+  "arm": "terminal",
+  "verdict": "BLOCKED",
+  "summary": "durable user-prompt control was missing in the live or reloaded transcript",
+  "control": {
+    "fired": false,
+    "what": "the probe prompt exists as a durable user transcript item in both live and freshly reloaded viewers",
+    "detail": "liveUser=0 reloadedUser=0 liveItems=[] reloadedItems=[]"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "DISPOSITION       delivered",
+    "REPLY LATENCY     120107ms; reload observed after 138763ms",
+    "LIVE USER         count=0 items=[]",
+    "LIVE ASSISTANT    count=0 items=[]",
+    "PROVIDER PIN      pid=3615331 exe=/home/mgw/.grok/downloads/grok-linux-x86_64 version=grok 0.2.118 (1e1687c1cf) [stable] versionSource=declared-exact-bytes sha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 home=/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/agent-home grokHome=/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/agent-home/.grok abducoSocketDir=/tmp/pd-PV-V9jqA8Q ambientOverrides=none",
+    "RELOAD USER       count=0 items=[]",
+    "RELOAD ASSISTANT  count=0 items=[]"
+  ],
+  "data": {
+    "disposition": "delivered",
+    "sent": true,
+    "token": "IDLE-WYQA3K",
+    "liveUser": {
+      "count": 0,
+      "itemIdentities": []
+    },
+    "liveAssistant": {
+      "count": 0,
+      "itemIdentities": []
+    },
+    "reloadedUser": {
+      "count": 0,
+      "itemIdentities": []
+    },
+    "reloadedAssistant": {
+      "count": 0,
+      "itemIdentities": []
+    },
+    "providerPin": {
+      "pid": 3615331,
+      "executable": "/home/mgw/.grok/downloads/grok-linux-x86_64",
+      "declaredExecutable": "/home/mgw/.grok/downloads/grok-linux-x86_64",
+      "version": "grok 0.2.118 (1e1687c1cf) [stable]",
+      "sha256": "c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6",
+      "home": "/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/agent-home",
+      "grokHome": "/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/agent-home/.grok",
+      "abducoSocketDir": "/tmp/pd-PV-V9jqA8Q",
+      "ambientOverrides": []
+    }
+  },
+  "cwd": "/tmp/pod-3152-grok-reply-0d180cc-r10/runs/20260831T044506.979817922Z-3614498/cells/terminal-a1a",
+  "memoryMb": 13339,
+  "pin": "PIN OK row=A1a arm=terminal instance=p3152-grok-reply-0d180cc-r10 serverPid=3614773 daemonPid=3614854 serverSha=0d180cc0455832ffe93edf2ac450a47f5f7c8137 webSourceSha=5d7eb60 driver=per-session-runtime-contract grokVersion='grok 0.2.118 (1e1687c1cf) [stable]' grokBinSha256=c192282e62abd24a9be64750363ff827d806ba613918399a8c69c815b1da08f6 state=/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "011bc9ad-add9-40ae-a157-05603b9810e9"
+  ],
+  "at": "2026-08-31T04:47:41.848Z"
+}

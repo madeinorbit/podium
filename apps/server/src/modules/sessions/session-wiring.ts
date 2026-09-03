@@ -14,8 +14,10 @@
  * (activityFlushTimer stays a field initializer on SessionLifecycle).
  */
 
+import { type AgentStateEvent, initialAgentState, reduceAgentState } from '@podium/harness/metadata'
 import { asUserId, computePriorities, type SessionId } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
+import type { RuntimeEvent } from '@podium/protocol/daemon'
 import { MutationLedger, type SyncRepository } from '@podium/sync'
 import { AutoContinueController } from '../../auto-continue'
 import { userCommandPrincipal } from '../../command-principal'
@@ -23,6 +25,8 @@ import { isFeatureEnabled } from '../../features'
 import { BrowserOpenGateway } from '../../gateway/browser-open'
 import { ClientRegistry } from '../../gateway/client-registry'
 import {
+  driverFamilyForId,
+  harnessComposerReadiness,
   harnessDisplayName,
   harnessInterrupt,
   harnessNeedsSubmitVerification,
@@ -36,10 +40,12 @@ import { AgentConcurrencyHistory } from './concurrency-history'
 import { SessionDaemonLifecycle } from './daemon-lifecycle'
 import { SessionDaemonProjection } from './daemon-projection'
 import {
+  archivedSessionSendReason,
   inboxActorColumns,
   inboxActorFromColumns,
   SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
+  terminalSessionSendFailureReason,
 } from './inbox'
 import { type IssueMailNudgeEvent, nudgeIssueMail } from './issue-mail-nudge'
 import { SessionLaunchConfig } from './launch-config'
@@ -51,7 +57,12 @@ type QueuedMessageRow = ReturnType<SyncRepository['listQueuedMessages']>[number]
 import { SessionMachineReconciler } from './machine-reconciler'
 import { SessionNaming } from './naming'
 import { SessionBroadcastCoordinator } from './publication/broadcast'
+import { ReceiptSender } from './receipt-send'
 import { SessionRepository } from './repository'
+import { RuntimeEventGate } from './runtime-event-gate'
+import type { RuntimeDurableQueuePort } from './runtime-gateway'
+import { SessionRuntimeGateway } from './runtime-gateway'
+import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
 import { SessionAuthz } from './session-authz'
 import { SessionBindingReceipts } from './session-binding'
 import { SessionClientPlane } from './session-client-plane'
@@ -64,6 +75,8 @@ import { sessionStatePrincipalFor } from './session-state/registry'
 import { SessionStateService } from './session-state/service'
 import { SessionTeardown } from './session-teardown'
 import { SessionTerminalProof } from './terminal-proof'
+import { TurnPreviewAccumulator } from './turn-preview'
+import { turnPreviewEnabled } from './turn-preview-flag'
 import { SessionView } from './view'
 import { SessionWorkspace } from './workspace'
 
@@ -164,10 +177,13 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
   })
+  let runtimeEventGate: RuntimeEventGate | undefined
   bag.daemonProjection = new SessionDaemonProjection({
     sessions: bag.sessions,
-    recordSessionGitActivity: (sessionId, input) =>
-      bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input }),
+    recordSessionGitActivity: (sessionId, input) => {
+      if (runtimeEventGate?.ready(sessionId) === true) return
+      bag.bus.emit('issue.sessionDerived', { kind: 'gitActivity', sessionId, ...input })
+    },
     binding: bag.bindingReceipts,
     persist: (session) => bag.repository.persist(session),
     broadcastSessions: () => bag.broadcastSessions(),
@@ -191,6 +207,16 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     settingsViewer: () => bag.settingsViewer(),
     onWorktreesChanged: (repoPath, machineId) => bag.deps.onWorktreesChanged(repoPath, machineId),
   })
+  const serverDriven = (session: Session): boolean =>
+    session.runtimeContract === true && driverFamilyForId(session.driverId ?? '') !== 'terminal'
+  const nativeViewActive = (sessionId: SessionId): boolean => {
+    const session = bag.sessions.get(sessionId)
+    return (
+      session !== undefined &&
+      serverDriven(session) &&
+      session.terminal.activeNativeRenderers().length > 0
+    )
+  }
 
   bag.state = new SessionStateService({
     store: bag.store,
@@ -216,6 +242,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       if (client) bag.clients.deliver(client, message)
     },
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
+    onNativeViewReleased: (sessionId) => bag.inbox?.drain(sessionId),
     onArchived: (sessionId) => {
       bag.bus.emit('issue.sessionDerived', { kind: 'removedOrArchived', sessionId })
       bag.parkArchivedSession(sessionId)
@@ -284,7 +311,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     soleOwnerForCwd: (cwd) => bag.deps.issueAccess.soleOwnerForCwd(cwd) ?? undefined,
     instructionsForStart: (i) => bag.deps.instructionsForStart(i),
     sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
-    setSessionDraft: (i, fromClientId) => bag.setSessionDraft(i, fromClientId),
+    setSessionDraft: (input) => bag.state.setDraft(input),
+    queueInitialPrompt: (i) => bag.inbox.queueInitialPrompt(i),
     emitSessionCreated: (payload) => bag.bus.emit('session.created', payload),
   })
   bag.headless = new HeadlessService({
@@ -373,6 +401,28 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           payload: { sessionId, ownerUserId, attribution },
         })
       },
+      promptFailed: ({ ownerUserId, sessionId, text, reason, initialPrompt }) => {
+        const title = initialPrompt ? 'Initial prompt not delivered' : 'Input not delivered'
+        const body = `${reason}. The queued text is still recoverable; check the session and send it again.`
+        // Persist first. The bus attention event is intentionally only a live
+        // notification; the event and queue are the recovery record even when
+        // there is no owner or no connected client.
+        bag.store.events.appendEvent({
+          ts: new Date(bag.now()).toISOString(),
+          kind: initialPrompt ? 'session.initial_prompt_failed' : 'session.input_unconfirmed',
+          subject: sessionId,
+          payload: {
+            sessionId,
+            ownerUserId: ownerUserId ?? null,
+            text,
+            reason,
+            recoverable: true,
+          },
+        })
+        if (ownerUserId) {
+          bag.bus.emit('attention.raised', { sessionId, ownerUserId, title, body })
+        }
+      },
     },
     now: () => bag.now(),
     persist: (session, options) =>
@@ -385,25 +435,91 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     broadcast: () => bag.broadcastSessions(),
     needsSubmitVerification: harnessNeedsSubmitVerification,
     usesRawFirstTurn: harnessUsesRawFirstTurn,
+    composerReadiness: harnessComposerReadiness,
     harnessInterrupt,
     harnessName: harnessDisplayName,
     prepareSend: (sessionId, attribution, kind, origin) =>
       bag.prepareInboxSend(sessionId, attribution, kind, origin),
     ownerOf: (sessionId) => bag.sessionOwner(sessionId)?.owner,
+    setSessionDraft: (input) => bag.state.setDraft(input),
+    draftText: (sessionId) => bag.state.draftText(sessionId),
     resurrect: (sessionId, principal) => {
       bag.bus.emit('session.wakeRequested', { sessionId, principal })
     },
     // Take-control / hold-control re-auth at every apply (POD-1081).
     authorizeDrive: (principal, sessionId) => bag.authorizeClientDrive(principal, sessionId),
+    nativeViewActive,
+    /**
+     * THE DRAIN'S NO-PTY FACT (POD-2291): this session is behind the runtime
+     * contract, and no manifest declares its bound driver TERMINAL-family.
+     *
+     * `runtimeContract` alone carries the timing guarantee. It is assigned in
+     * exactly one place — the `bind` case in `daemon-lifecycle.ts`, one line
+     * after `markLive` — so a `starting` session answers false and stays
+     * queued until bind says what it became, which is exactly when the drain
+     * runs. The second half is what keeps TERMINAL-driver sessions, which are
+     * behind the contract too, on their PTY drain.
+     *
+     * WHY THE DRIVER TEST IS NEGATIVE (POD-2327). It used to ask
+     * `driverIdIsServerFamily`, and an id no manifest claims answers false
+     * there — so a NEWER DAEMON binding a driver this server has never heard
+     * of (a renamed or brand-new server driver, an embedded one) landed on the
+     * PTY path, where the daemon finds no bridge, logs a warning, discards the
+     * bytes, and this side confirms the row. That is the POD-2291 vanish,
+     * reached through a version-skew door. Only a manifest-declared TERMINAL
+     * driver has a terminal; every other answer — server, embedded, unknown —
+     * means no PTY.
+     *
+     * AND NO DRIVER ID AT ALL IS ALSO NOT TERMINAL (POD-2327 review round).
+     * The first fix still guarded on `driverId !== undefined`, which opened the
+     * REVERSE skew door: an OLDER daemon — one new enough to drive the contract
+     * but predating the `driverId` field on `bind` (the W4/POD-2290 window) —
+     * binds `runtimeContract` with no driver at all, and the guard sent it down
+     * the PTY path to the same vanish. The empty string below reaches no
+     * manifest, so a missing id lands in the same "unknown" bucket every other
+     * unrecognized id does; `session.ts`'s `toMeta` spells it the same way.
+     *
+     * THE TWO WRONG ANSWERS ARE NOT SYMMETRIC, which is what makes "unknown"
+     * and "absent" safe to fold in here. Guess "no PTY" for a driver that has
+     * one and the row still delivers: terminal drivers are behind the same
+     * contract (`sessionIsBehindContract` is true for every runtime binding),
+     * so `contractDeliver` reaches the terminal driver's own injection path.
+     * Even against a daemon with no handler for the frame, the worst case is
+     * the RPC window closing as `unverified`, which leaves the row VISIBLY
+     * QUEUED. Guess "PTY" for a driver that has none and the bytes are gone.
+     * Fail toward keep-queued.
+     */
+    serverDriven,
+    // Late-bound on purpose: `bag.runtimeGateway` is constructed further down
+    // this function, and the first drain that can need it runs strictly after
+    // a bind frame — long past composition.
+    contractDeliver: (input) =>
+      bag.runtimeGateway.send({
+        sessionId: input.sessionId,
+        turnId: input.turnId,
+        text: input.text,
+        origin: input.origin,
+        delivery: 'when-ready',
+        principal: input.principal,
+      }),
+    // THE STOP BUTTON'S HALF OF THE SAME FACT (POD-2792). `serverDriven` says
+    // there is no PTY; this is what a session with no PTY is interrupted
+    // through. Late-bound for the same reason `contractDeliver` is.
+    contractInterrupt: (sessionId) => bag.runtimeGateway.interrupt(sessionId),
+    // Late-bound for the same reason the two above it are.
+    contractConfigure: (input) => bag.runtimeGateway.configure(input),
   })
   bag.sendText = (input: any) => bag.inbox.sendText(input)
   bag.interruptText = (input: any) => bag.inbox.interruptText(input)
   bag.interruptTurn = (input: any) => bag.inbox.interruptTurn(input)
+  bag.configureSession = (input: any) => bag.inbox.configureSession(input)
   bag.queueText = (input: any) => bag.inbox.queueText(input)
   bag.cancelQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.cancelQueuedMessage(sessionId, sourceMessageId)
   bag.hasQueuedMessage = (sessionId: SessionId, sourceMessageId: string) =>
     bag.inbox.hasQueuedMessage(sessionId, sourceMessageId)
+  bag.queuedMessagePosition = (sessionId: SessionId, sourceMessageId: string) =>
+    bag.inbox.queuedMessagePosition(sessionId, sourceMessageId)
   bag.resumeAndSend = (input: any) => bag.inbox.resumeAndSend(input)
   bag.answerAskUserQuestion = (input: any) =>
     bag.inbox.answerAskUserQuestion({
@@ -471,6 +587,208 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       return { live: s.status === 'live' || s.status === 'starting', state: s.agentState }
     },
   })
+  /**
+   * THE DURABLE FIFO, BUILT ONCE AND SHARED (POD-1761 W3, extracted by W4).
+   *
+   * Both the gateway and the send seam complete `queue` through this port, and
+   * they must complete it through the SAME one: two enqueues that agreed today
+   * and drifted tomorrow would be two queues with one name, differing in exactly
+   * the place — position, refusal vocabulary, resurrect — where callers read a
+   * promise about ordering.
+   *
+   * It is the reason `queue` never crosses the socket at all: the table survives
+   * a daemon restart, a machine going offline and a parked session, and
+   * forwarding it would move that promise to the one place that cannot keep it.
+   */
+  const durableQueue: RuntimeDurableQueuePort = {
+    enqueue: (input) => {
+      const queued = bag.inbox.queueText({
+        sessionId: input.sessionId,
+        text: input.text,
+        inputOrigin: input.origin,
+        // THE SENDER'S OWN PRINCIPAL, carried into the durable row so
+        // `authorizeAtDrain` re-resolves the right delegation immediately
+        // before the bytes cross. Hardcoding the system principal here — which
+        // this did until POD-2021's review — authorized every contract-routed
+        // turn as system, which is a privilege escalation the moment W4 routes
+        // a real caller.
+        principal: input.principal,
+        // CARRIED THROUGH, not defaulted away: the idempotency key that makes a
+        // steward/automation retry a no-op, and the ledger id the messages
+        // module confirms, cancels and sweep-guards a queued row by.
+        ...(input.mutationId ? { mutationId: input.mutationId } : {}),
+        ...(input.sourceMessageId ? { sourceMessageId: input.sourceMessageId } : {}),
+        ...(input.allowErrored ? { allowErrored: true } : {}),
+      })
+      if (!queued.ok) {
+        return {
+          ok: false as const,
+          reason:
+            queued.reason === 'no resume ref'
+              ? ('no_resume_ref' as const)
+              : ('not_running' as const),
+          ...(queued.reason ? { detail: queued.reason } : {}),
+        }
+      }
+      return {
+        ok: true as const,
+        // The position is the table's real depth, read back rather than counted
+        // here — a number that drifted from the table would be a promise about
+        // ordering that nothing kept.
+        position: bag.store.sync.listQueuedMessages(input.sessionId).length,
+      }
+    },
+  }
+  /**
+   * THE ONE COARSE-EVENT SIDE-EFFECT GATE (POD-2411).
+   *
+   * The durable event row, restart head and session recency all commit through
+   * the session ledger before board effects fan out. Other product consumers
+   * stay on compatibility frames until their own vertical slices migrate.
+   */
+  runtimeEventGate = new RuntimeEventGate({
+    events: bag.store.events,
+    session: (sessionId) => bag.sessions.get(sessionId),
+    persist: (sessionId, additionalWrite) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) throw new Error(`runtime event session disappeared: ${sessionId}`)
+      bag.repository.persist(session, additionalWrite)
+    },
+    board: (event) => bag.bus.emitDurable('issue.runtimeDerived', event),
+    // DEFERRED READ, on the same terms as `runtimeInteractions.ask` below: the
+    // interactions aggregate is built by the composition root after this
+    // function runs, so the sink is read through the closure rather than
+    // captured. A turn event that arrives before the aggregate exists is
+    // dropped, which cannot happen — nothing can spawn a session before the
+    // server is serving.
+    turn: (input) => bag.interactionTurn?.(input),
+    interaction: (input) => bag.interactionResolved?.(input),
+    state: ({ sessionId, change, at }) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) return undefined
+      const prev = session.agentState
+      const base = prev ?? initialAgentState(at)
+      const next = reduceAgentState(base, change as AgentStateEvent, at)
+      if (next === base) return undefined
+      // Keep the legacy accumulator rules for workingMsTotal, but do not let
+      // this causal projection advance recency: recordRuntimeActivity already
+      // owns that fact for the same event envelope.
+      session.setAgentState(next, false)
+      return { prev, next: session.agentState ?? next }
+    },
+    stateChanged: ({ sessionId, prev, next }) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) return
+      bag.autoContinue.onStateChange(sessionId, next)
+      bag.broadcastToClients({
+        type: 'sessionAgentStateChanged',
+        sessionId,
+        state: next,
+      })
+      // These are the same unmigrated consumers fed by a compatibility
+      // agentState frame. The causal event gate remains the single ingress;
+      // this callback only publishes its committed projection.
+      bag.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId })
+      bag.inbox.stateChanged({ sessionId, prev, next })
+      if (prev?.phase === 'needs_user' || prev?.phase === 'errored') {
+        if (next.phase !== 'needs_user' && next.phase !== 'errored') {
+          bag.state.clearAllSnoozes(sessionId)
+        }
+      }
+    },
+    now: () => bag.now(),
+  })
+  bag.runtimeGateway = new SessionRuntimeGateway({
+    rpc: bag.rpc,
+    queue: durableQueue,
+    machineOf: (sessionId: SessionId) => bag.sessions.get(sessionId)?.machineId,
+    // The one place "an unattributed turn acts as the system" is written down.
+    systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+    now: () => bag.now(),
+    events: runtimeEventGate,
+  })
+  // Complete runtime items are the shared terminal-to-transcript bridge. Capture
+  // them at the accepted-event seam so live chat and restart hydration agree.
+  // A parallel legacy transcriptDelta remains safe: SessionTerminal upserts it.
+  bag.runtimeGateway.onEvent((sessionId: SessionId, event: RuntimeEvent) => {
+    const item = runtimeTranscriptItemFromEvent(event)
+    if (!item) return
+    const session = bag.sessions.get(sessionId)
+    if (!session) return
+    if (session.terminal.applyRuntimeDelta([item])) {
+      bag.repository.persist(session)
+      bag.broadcastSessions()
+    }
+  })
+  /**
+   * THE PREVIEW PLANE (POD-2293), SUBSCRIBED TO A RECEIVER THAT ALREADY EXISTED.
+   *
+   * POD-2411 built the fine plane's daemon→server carriage and its receiver and
+   * deferred activation here. This is that activation: one listener on the
+   * gateway's already-fanned-out stream, folding the in-progress turn and
+   * publishing coalesced snapshots to whoever has the chat open. The daemon side
+   * of the activation is the `runtimeWatch` frame the terminal sends when its
+   * subscriber count crosses zero.
+   *
+   * The listener takes the WHOLE stream, coarse arms included, because two of
+   * the three things the fold reacts to are coarse: the complete item that
+   * retires a preview row, and the turn terminal that clears the epoch.
+   *
+   * Flag-gated at the SUBSCRIPTION, not inside the fold: with the switch off
+   * nothing is constructed, nothing listens, and no session sends a watch frame
+   * — which is what "flag off means zero diff" has to mean for a plane that
+   * would otherwise touch every open chat.
+   */
+  if (turnPreviewEnabled()) {
+    const previews = new TurnPreviewAccumulator({
+      publish: (sessionId, frame) => bag.sessions.get(sessionId)?.terminal.applyTurnPreview(frame),
+      now: () => bag.now(),
+    })
+    bag.runtimeGateway.onEvent((sessionId: SessionId, event: RuntimeEvent) =>
+      previews.record(sessionId, event),
+    )
+    bag.turnPreviews = previews
+  }
+  /**
+   * THE SEND SEAM W4'S MIGRATED CALLERS ROUTE THROUGH.
+   *
+   * One place reads the flag, so "is this session on the contract" is answered
+   * identically for messages, steward, the superagent and automations — and so
+   * the answer can be watched changing in one place rather than in ~29.
+   */
+  bag.receiptSender = new ReceiptSender({
+    legacy: bag.inbox,
+    contract: { send: (input) => bag.runtimeGateway.send(input) },
+    queue: durableQueue,
+    // REPORTED BY THE DAEMON ON BIND, never computed here: the daemon ORs a
+    // machine-wide env var it owns with the per-spawn field and declines the flag
+    // for harnesses with no turns to be honest about, so a server that inferred
+    // the answer would be wrong in both directions.
+    onContract: (sessionId: SessionId) => bag.sessions.get(sessionId)?.runtimeContract === true,
+    liveWithEmptyQueue: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return s?.status === 'live' && s.queuedMessageCount === 0
+    },
+    // The SAME condition `SessionInbox.sendText` uses to queue instead of type,
+    // and for the same reason: order. Once a driver exists there are two queues
+    // and nothing sequences between them, so a live send past a non-empty
+    // durable queue would land ahead of older messages still waiting to drain.
+    queueNotEmpty: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return (s?.queuedMessageCount ?? 0) > 0 || bag.inbox.isDraining(sessionId)
+    },
+    nativeViewActive,
+    archiveReason: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return s ? archivedSessionSendReason(s) : undefined
+    },
+    failureReason: (sessionId: SessionId) => {
+      const s = bag.sessions.get(sessionId)
+      return s ? terminalSessionSendFailureReason(s) : undefined
+    },
+    systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
+    now: () => bag.now(),
+  })
   bag.daemonLifecycle = new SessionDaemonLifecycle({
     sessions: bag.sessions,
     bus: bag.bus,
@@ -504,6 +822,32 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.machineReconciler.reviveParkedButAlive(session, machineId, reason),
     onDurableSessionCensus: (principal, labels) =>
       bag.machineReconciler.onDurableSessionCensus(principal, labels),
+    runtimeEvents: bag.runtimeGateway,
+    queueDrainAbandoned: {
+      record: (msg) =>
+        bag.deps.queueDrainAbandoned?.({
+          sessionId: msg.sessionId,
+          turnIds: msg.turnIds,
+          reason: msg.reason,
+        }),
+    },
+    /**
+     * THE PROTOCOL ASK INGRESS (POD-2023).
+     *
+     * A server-family driver's `permission`/`question` asks arrive as
+     * `runtimeInteractionAsked` and go straight into W2's durable aggregate with
+     * the DRIVER's own id, `source: 'protocol'` and `answerable: 'structured'`.
+     * Nothing is synthesized and nothing is fingerprint-deduped into an existing
+     * row by content: a protocol ask has a real request id, which is exactly the
+     * identity `hasReliableIdentity` branches on.
+     */
+    runtimeInteractions: {
+      // DEFERRED READ, deliberately: `interactionAsk` is assigned by the
+      // composition root after the interactions aggregate is built, which is
+      // after this function runs. Reading it inside the closure is what the
+      // construction-order audit permits and what makes the cycle unnecessary.
+      ask: (msg) => bag.interactionAsk?.(msg),
+    },
   })
   // Teardown needs repository/view/state and autoContinue/daemonProjection.
   // Built here so every port target already exists. Early constructor ports
@@ -633,13 +977,34 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   // Agent mail send-time nudge (issue #103): resolve membership and the
   // coordinator from the canonical issue id at delivery time. The nudge carries
   // no body; prime/inbox remain the durable pull path when nobody is live.
+  //
+  // MIGRATED, WITH BOTH ARMS PRESERVED EXACTLY (POD-1761 W4, C4).
+  //
+  // The obvious move is to collapse these two into one `when-ready`: that is
+  // what the mode has always been approximating — "now if it can take it,
+  // next turn boundary otherwise" — and it is what would finally retire
+  // the selection helper's phase peek, which W4 was asked to do.
+  //
+  // I did not, and the reason is durability rather than nerve. `when-ready`
+  // is the daemon's IN-MEMORY path; the busy-agent arm here is the DURABLE
+  // outbox, so collapsing them would silently drop any outstanding nudge
+  // across a daemon restart. That is a delivery-semantics change, and this
+  // item's rule is that behavioural improvements leave as subissues rather
+  // than riding in on a migration. POD-2043 carries the collapse, to be done
+  // when the operator flips the default and the trade can be judged on its
+  // own.
+  //
+  // What DOES change: both arms stop calling the legacy verbs directly, so
+  // the nudge gets a receipt and the C5 guard has nothing to except here.
   bag.bus.on('issue.mailSent', (event: IssueMailNudgeEvent) =>
     nudgeIssueMail(
       {
         issueMeta: (issueId) => bag.deps.issueAccess.getMeta(issueId) ?? undefined,
         sessionsForIssue: (worktreePath, issueId) => bag.view.listForIssue(worktreePath, issueId),
-        sendText: (input) => bag.sendText(input),
-        queueText: (input) => bag.queueText(input),
+        sendText: (input) => {
+          bag.receiptSender.send('now', input)
+        },
+        queueText: (input) => bag.receiptSender.send('queue', input),
       },
       event,
     ),

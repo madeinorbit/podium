@@ -212,6 +212,23 @@
       ],
       "outputs": []
     },
+    "@podium/agent-runtime#test": {
+      "dependsOn": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/vitest.config.ts",
+        "$TURBO_ROOT$/vitest.unit.config.ts",
+        "$TURBO_ROOT$/vitest.smoke-requirements.ts",
+        "$TURBO_ROOT$/scripts/package-vitest-config.ts",
+        "$TURBO_ROOT$/test-hermetic-env.ts",
+        "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
+        "$TURBO_ROOT$/test-hermetic-state-guard.ts",
+        "$TURBO_ROOT$/packages/model/src/**",
+        "$TURBO_ROOT$/packages/protocol/src/**",
+        "$TURBO_ROOT$/packages/harness/src/**"
+      ],
+      "outputs": []
+    },
     "@podium/composer#test": {
       "dependsOn": [],
       "inputs": [

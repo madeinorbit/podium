@@ -1,0 +1,149 @@
+{
+  "cell": "A2A",
+  "driver": "opencode-server",
+  "cwd": "/tmp/pod-3112-paired-r4/probes/opencode-server-a2a",
+  "at": "2026-08-30T02:41:57.265Z",
+  "pin": {
+    "cell": "A2A",
+    "at": "2026-08-30T02:41:57.288Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "4d31fd433940444a717f050e56dfcaa7cb4cd095",
+    "pinSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "serverSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "daemonSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "4d31fd4",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2551347",
+    "daemonPid": "2551567",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18804164 kB",
+      "SwapFree": "40428520 kB"
+    },
+    "rootFreeKiB": 69079244,
+    "load1m": 2.8,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r4/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "working push arrived within 2s, with no flicker and pushed final idle",
+  "control": {
+    "fired": true,
+    "what": "the direct push observer receiving both a working state and the assistant nonce",
+    "detail": "assistant=true; workingReceiveMs=-203.4023530000004"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "SEND ROUND-TRIP   275ms (excluded)",
+    "TIMING            PASS receive=-203.4023530000004ms source=-236ms",
+    "MID-TURN FLICKERS 0",
+    "PUSHED FINAL IDLE true"
+  ],
+  "data": {
+    "sid": "342a85a8-56e4-4a11-a662-8c17894dc24c",
+    "sendRoundTripMs": 275,
+    "assessment": {
+      "verdict": "PASS",
+      "timing": "PASS",
+      "firstWorkingReceiveMs": -203.4023530000004,
+      "sourceDeltaMs": -236,
+      "flickers": [],
+      "finalIdle": true,
+      "assistantNonceAtMonoMs": 10031.479859,
+      "reason": "working push arrived within 2s, with no flicker and pushed final idle"
+    },
+    "pushes": [
+      {
+        "receiveMonoMs": 6412.606768,
+        "receiveWallMs": 1788057723590,
+        "state": {
+          "phase": "working",
+          "since": "2026-08-30T02:42:03.557Z",
+          "nativeSubagentCount": 0
+        },
+        "phase": "working",
+        "since": "2026-08-30T02:42:03.557Z"
+      },
+      {
+        "receiveMonoMs": 7192.980066,
+        "receiveWallMs": 1788057724370,
+        "state": {
+          "phase": "working",
+          "since": "2026-08-30T02:42:03.557Z",
+          "nativeSubagentCount": 0
+        },
+        "phase": "working",
+        "since": "2026-08-30T02:42:03.557Z"
+      },
+      {
+        "receiveMonoMs": 8580.597736,
+        "receiveWallMs": 1788057725758,
+        "state": {
+          "phase": "working",
+          "since": "2026-08-30T02:42:03.557Z",
+          "nativeSubagentCount": 0
+        },
+        "phase": "working",
+        "since": "2026-08-30T02:42:03.557Z"
+      },
+      {
+        "receiveMonoMs": 10329.124848,
+        "receiveWallMs": 1788057727506,
+        "state": {
+          "phase": "working",
+          "since": "2026-08-30T02:42:03.557Z",
+          "nativeSubagentCount": 0
+        },
+        "phase": "working",
+        "since": "2026-08-30T02:42:03.557Z"
+      },
+      {
+        "receiveMonoMs": 10354.469888,
+        "receiveWallMs": 1788057727532,
+        "state": {
+          "phase": "idle",
+          "since": "2026-08-30T02:42:07.480Z",
+          "workingMsTotal": 3923,
+          "nativeSubagentCount": 0,
+          "idle": {
+            "kind": "done"
+          }
+        },
+        "phase": "idle",
+        "since": "2026-08-30T02:42:07.480Z"
+      }
+    ]
+  }
+}

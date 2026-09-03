@@ -14,7 +14,7 @@ import {
   type DaemonPtyOutputBatch,
   type MachinePrincipal,
 } from '@podium/protocol'
-import { type DaemonMessage } from '@podium/protocol/daemon'
+import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import {
@@ -190,7 +190,31 @@ describe('machine scope and the writer class', () => {
     // running) both drive a session-row repair, so both are session-owned and
     // both must arrive with the machine principal that observed them: the repair
     // only ever touches rows on the reporting machine.
-    expect(sessionFrames.length).toBe(23)
+    //
+    // 24 since POD-2021. `runtimeEvent` is the Agent Runtime contract's causal
+    // stream for a flagged session — a per-session observation like every other
+    // frame here, and one whose ownership check is exactly what stops a machine
+    // from narrating a session it does not hold.
+    //
+    // 25 since POD-2023. `runtimeInteractionAsked` is a server-family driver's
+    // protocol ask on its way to the interactions aggregate. Session-owned for
+    // the same reason and with more at stake: the ownership check is what stops
+    // a machine from opening a blocking ask against a session it does not hold,
+    // and an ask nobody can answer is the stuck session §4 exists to abolish.
+    //
+    // 26 since POD-2132. `runtimeQueueDrainAbandoned` names the turns a session's
+    // queue never typed, and what it triggers is a TERMINAL write to those durable
+    // rows. Session-owned with the ownership check earning its keep: a machine that
+    // does not hold the session must not be able to dead-letter its mail.
+    //
+    // 27 since POD-2292. `driverSelected` announces the daemon's driver decision
+    // before bind so the session view can select the correct surface during launch.
+    // It names one session and mutates that session's durable selection, so it
+    // carries the same ownership boundary as bind and the runtime frames above.
+    //
+    // 28 since POD-2411: fine token deltas have their own live-only frame but
+    // retain the same per-session machine ownership check as coarse events.
+    expect(sessionFrames.length).toBe(28)
     for (const type of sessionFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))
@@ -237,12 +261,39 @@ describe('machine scope and the writer class', () => {
     // the rpc port, and none of them arrives anonymously. The count is the
     // ratchet — a new rpc reply must be added here DELIBERATELY, which is how
     // this test noticed POD-1466's frame rather than absorbing it silently.
+    //
+    // 32 after composing POD-2021 with current main: 26 pre-shipping replies,
+    // the shipping job/evidence/repair replies, and the Agent Runtime contract
+    // three correlated receipts. Each takes the same rpc door; no private
+    // transport appeared.
+    //
+    // 33 after the runtime snapshot bootstrap; 34 with POD-2408's staging result.
+    // Both reuse the same correlator rather than adding a port.
     const rpcFrames = (Object.keys(DAEMON_FRAME_PORTS) as DaemonMessage['type'][]).filter((t) =>
       (DAEMON_FRAME_PORTS[t] as readonly DaemonPortId[]).includes('rpc'),
     )
-    // 32: the census had fallen one behind an rpc frame that landed without
-    // updating it, which is the drift a census exists to catch.
-    expect(rpcFrames.length).toBe(32)
+    //
+    // 37 after merging dev/mw into the agent-runtime epic (POD-3070). DERIVED
+    // from the merged table rather than added up from the two sides: the epic
+    // contributed the five contract replies (runtimeSend/Answer/Lifecycle/
+    // Snapshot/StageAttachment) and dev/mw contributed `devArtifactProbeResult`
+    // and `quotaHistoryResult`, and the merged table is exactly that union. The
+    // arithmetic would have given 36, because dev/mw's own ratchet was standing
+    // one behind ITS table at 31 against 32 — the same silent drift the note
+    // above records for `githubCliResult`, which is why this is counted off
+    // `DAEMON_FRAME_PORTS` and not off the previous number.
+    //
+    // 38 with `runtimeConfigureResult` (POD-3081) — the sixth contract reply, a
+    // sticky model/effort change answering back from the driver that granted or
+    // refused it. It takes the same correlator as its five siblings for the same
+    // reason: it is a correlated request/reply whose caller is waiting, not a
+    // new port.
+    //
+    // Still 38 after merging dev/mw into the epic for the dev/mw landing: the
+    // number was re-derived by counting 'rpc' rows in the MERGED
+    // `DAEMON_FRAME_PORTS`, not carried over. dev/mw contributed no new rpc
+    // reply on top of what POD-3070 already absorbed.
+    expect(rpcFrames.length).toBe(38)
     for (const type of rpcFrames) {
       const { ports, calls } = fakePorts()
       muxWith(ports).routeDaemonFrame(PRINCIPAL, sampleFrame(type))

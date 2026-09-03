@@ -14,6 +14,8 @@ import {
   reconcileConversationQueue,
 } from '@podium/client-core/conversation'
 import type { SessionId, TranscriptItem, TranscriptTag } from '@podium/model/browser'
+import { decodeCursor, streamIdOfCursor } from '@podium/transcript/browser'
+import { deadLetterDeliveryLine } from '../messages/message-ledger'
 
 /**
  * Pure helpers for the chat view: transcript search and the birds-eye minimap
@@ -98,10 +100,24 @@ export class FileLinkPathIndex {
   }
 }
 
-/** Identity key for dedup/merge: the opaque cursor when present (stable across
- *  re-reads), else the synthesized `id` (a few items have no cursor). */
+/** Identity key for dedup/merge: the transcript contract's stream identity.
+ *
+ * A full cursor is a POSITION, not always an item identity: OpenCode stamps its
+ * mutable `timeUpdated` into the offset, so the same provider part has a new
+ * cursor when hydration and the live subscription observe it at different
+ * moments. The shared contract zeros that mutable offset while retaining the
+ * provider part/sub-item identity; cursor-less families keep using `id`. */
 export function itemKey(item: TranscriptItem): string {
-  return item.cursor ?? item.id
+  if (item.cursor === undefined) return item.id
+  return cursorKey(item.cursor)
+}
+
+/** Offset-zeroed identity is safe only when the provider supplied a stable UUID.
+ * A null UUID means the cursor is purely positional, so its full offset remains
+ * part of the identity or distinct records at the same file/sub-index collapse. */
+function cursorKey(cursor: string): string {
+  const parts = decodeCursor(cursor)
+  return parts?.uuid != null ? (streamIdOfCursor(cursor) ?? cursor) : cursor
 }
 
 /**
@@ -178,7 +194,14 @@ export function reconcileReset(
   snapshot: TranscriptItem[],
   snapshotTail: string | undefined,
 ): TranscriptItem[] {
-  return reconcileTranscriptSnapshot(prev, snapshot, snapshotTail)
+  if (snapshot.length === 0) return prev
+  const tailKey = snapshotTail !== undefined ? cursorKey(snapshotTail) : undefined
+  const tailIdx = tailKey !== undefined ? prev.findIndex((it) => itemKey(it) === tailKey) : -1
+  // Roll/replacement (tail not in the held window): adopt the snapshot verbatim.
+  if (tailIdx < 0) return snapshot
+  // Same conversation: keep items the held window has beyond the snapshot's tail.
+  const newerHeld = prev.slice(tailIdx + 1)
+  return newerHeld.length > 0 ? mergeByCursor(snapshot, newerHeld) : snapshot
 }
 
 /**
@@ -294,8 +317,8 @@ export function ticksFromOffsets(
 /** An optimistic "You" bubble shown immediately on send, before the transcript
  *  tail echoes the real user turn back. `at` = creation time (ms), used to drop
  *  the "sending" affordance after a timeout.
- *  State: 'sending' (in flight) → 'sent' (delivered; echo just hasn't tailed back
- *  yet, so render it as a plain bubble) or 'failed' (the send itself rejected). */
+ *  State: 'sending' (in flight) → 'sent' (accepted; echo just has not tailed back
+ *  yet, so render it as a plain bubble) or 'failed' (the send or provider rejected it). */
 export interface PendingItem {
   id: string
   /** Client-minted idempotency key; queued ledger rows use this as their id. */
@@ -303,6 +326,10 @@ export interface PendingItem {
   text: string
   at: number
   state: 'sending' | 'queued' | 'sent' | 'failed' | 'interrupted'
+  /** 1-based position returned by the authority when this send enters its FIFO. */
+  queuePosition?: number
+  /** The server/provider reason for a failed optimistic send. */
+  failure?: string
   tags?: TranscriptTag[]
   /** Uploaded paths encoded into the submitted prompt. Transcript providers
    * normalize those paths out of `text`, so they are the stable identity used
@@ -314,6 +341,32 @@ export interface PendingItem {
   acceptsAppendedBrief?: boolean
 }
 
+/** Mark only an optimistic send that is still in flight as failed. A `sent`
+ * bubble has already crossed the send boundary and must not be rewritten as
+ * "not delivered" merely because a later turn failed. */
+export function markPendingSendingFailed(pending: PendingItem[], failure: string): PendingItem[] {
+  let changed = false
+  const next = pending.map((item) => {
+    if (item.state !== 'sending') return item
+    changed = true
+    return { ...item, state: 'failed' as const, failure }
+  })
+  return changed ? next : pending
+}
+
+/** Mark the exact optimistic send delivered synchronously by the authority.
+ * This closes the window where a provider failure could arrive after the bytes
+ * reached the agent but before a transcript echo changed `sending` to `sent`. */
+export function markPendingSendingDelivered(pending: PendingItem[], id: string): PendingItem[] {
+  let changed = false
+  const next = pending.map((item) => {
+    if (item.id !== id || item.state !== 'sending') return item
+    changed = true
+    return { ...item, state: 'sent' as const }
+  })
+  return changed ? next : pending
+}
+
 /** A human chat message durably held in the unified message ledger until the
  * agent reaches its next turn boundary. These rows are separate from the
  * sessions queued_messages outbox, so ChatView must restore them explicitly. */
@@ -321,6 +374,8 @@ export interface QueuedChatMessage {
   id: string
   text: string
   at: number
+  /** Current 1-based position in the recipient session FIFO at reload time. */
+  queuePosition?: number
   /** THE CLI HAS IT (POD-1242). The ledger stamps this when the bytes cross into
    * the harness, which is BEFORE the agent takes them: a busy Claude Code parks
    * typed input in its own composer queue until the running turn ends, and shows
@@ -328,6 +383,16 @@ export interface QueuedChatMessage {
    * unless the harness reports an explicit interrupt. Null while the row is
    * still only promised. */
   injectedAt: number | null
+}
+
+/** A terminal operator send that never reached this session. Unlike an
+ * optimistic failure, this row survives navigation and reload in the message
+ * ledger, so the transcript must restore it explicitly. */
+export interface DeadLetteredChatMessage {
+  id: string
+  text: string
+  at: number
+  failure: string
 }
 
 /** A local row promoted with its durable ledger identity without changing the
@@ -345,6 +410,16 @@ function conversationPending(item: PendingItem): ConversationPendingTurn {
   }
 }
 
+function attachDurableQueueRow(
+  item: PendingItem,
+  durable: QueuedChatMessage,
+): ProjectedPendingItem {
+  const projected: ProjectedPendingItem = { ...item, durable }
+  if (durable.queuePosition === undefined) delete projected.queuePosition
+  else projected.queuePosition = durable.queuePosition
+  return projected
+}
+
 /** Pair local bubbles with ledger rows once, using content plus the send-time
  * window. An older identical queued prompt is not the durable identity of a new
  * send and must remain independently retractable. */
@@ -355,16 +430,62 @@ export function pairPendingWithQueued(
   const projected = pairPendingWithConversationQueue(pending.map(conversationPending), queued)
   const original = new Map(pending.map((item) => [item.id, item]))
   return {
-    pending: projected.pending.map((item) => ({
-      ...(original.get(item.id) ?? item),
-      ...(item.durable ? { durable: item.durable } : {}),
-    })),
+    pending: projected.pending.map((item) =>
+      item.durable
+        ? attachDurableQueueRow(original.get(item.id) ?? (item as PendingItem), item.durable)
+        : ((original.get(item.id) ?? item) as ProjectedPendingItem),
+    ),
     queued: projected.queued,
   }
 }
 
 export function queuedOperatorMessages(rows: unknown, sessionId: SessionId): QueuedChatMessage[] {
   return queuedConversationMessages(rows, sessionId)
+}
+
+export function deadLetteredOperatorMessages(
+  rows: unknown,
+  sessionId: SessionId,
+): DeadLetteredChatMessage[] {
+  if (!Array.isArray(rows)) return []
+  return rows
+    .filter((row): row is Record<string, unknown> => typeof row === 'object' && row !== null)
+    .filter(
+      (row) =>
+        row.from === 'operator' &&
+        row.to === `session:${sessionId}` &&
+        row.status === 'dead_letter' &&
+        typeof row.id === 'string' &&
+        typeof row.body === 'string' &&
+        typeof row.createdAt === 'string',
+    )
+    .map((row) => ({
+      id: row.id as string,
+      text: row.body as string,
+      at: Date.parse(row.createdAt as string) || 0,
+      failure: deadLetterDeliveryLine(
+        typeof row.deliveryDeferredReason === 'string' ? row.deliveryDeferredReason : null,
+      ),
+    }))
+    .sort((a, b) => a.at - b.at || a.id.localeCompare(b.id))
+}
+
+/** Hide server-restored rows already represented by an optimistic bubble.
+ * Duplicate prompt text is consumed FIFO so two identical queued sends still
+ * render twice after refresh and only once each before it. */
+export function withoutOptimisticDuplicates(
+  queued: QueuedChatMessage[],
+  pending: PendingItem[],
+): QueuedChatMessage[] {
+  const optimisticTexts = pending
+    .filter((item) => item.state !== 'failed')
+    .map((item) => item.text.trim())
+  return queued.filter((item) => {
+    const index = optimisticTexts.indexOf(item.text.trim())
+    if (index === -1) return true
+    optimisticTexts.splice(index, 1)
+    return false
+  })
 }
 
 /** Collapse the optimistic bubble, durable ledger row, and transcript echo into

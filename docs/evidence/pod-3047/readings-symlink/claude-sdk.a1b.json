@@ -1,0 +1,119 @@
+{
+  "cell": "A1B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a1b",
+  "at": "2026-08-28T16:40:30.755Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-28T16:40:30.777Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "b3aafad7fe33db36bb3fd49b94dffcb0ad3c38b9",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b3aafad",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1989048",
+    "daemonPid": "1989144",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19405360 kB",
+      "SwapFree": "41213180 kB"
+    },
+    "rootFreeKiB": 82134696,
+    "load1m": 3.27,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a1b",
+      "exists": true,
+      "files": 4
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a1b",
+      "exists": true,
+      "files": 4
+    }
+  },
+  "verdict": "PARTIAL",
+  "summary": "sent while the session was provably working, the message was NOT lost and came back after a reload with a position, but the product reported it queued=false disposition=delivered — a disposition that contradicts both the position it carries and the running turn it was sent into. busyAtSend=true queuedFlag=false position=1 answeredAfterReload=true",
+  "control": {
+    "fired": true,
+    "what": "the first busy-turn send delivering and the session producing an in-flight signal",
+    "detail": "first user turn=true; preview=true; working=true at 20ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SECOND SEND       {\"ok\":true,\"queued\":false,\"position\":1,\"disposition\":\"delivered\"}",
+    "QUEUE POSITION    1",
+    "POSITION FIELD    true",
+    "RELOADED USER     true in 10ms",
+    "RELOADED REPLY    true in 3080ms",
+    "PHASE AT SEND     working (busyAtSend=true)",
+    "QUEUED FLAG       false"
+  ],
+  "data": {
+    "sid": "8d11170c-8671-42cc-a989-4f53f2d788bb",
+    "first": "P3047-A1B-FIRST-MTD6H313",
+    "queued": "P3047-A1B-QUEUED-MTD6H313",
+    "firstUser": true,
+    "working": [
+      {
+        "ms": 20,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      }
+    ],
+    "second": {
+      "ok": true,
+      "queued": false,
+      "position": 1,
+      "disposition": "delivered"
+    },
+    "secondUser": true,
+    "secondAssistant": true,
+    "position": 1,
+    "hasPositionField": true,
+    "phaseAtSend": "working",
+    "busyAtSend": true,
+    "queuedFlag": false
+  }
+}

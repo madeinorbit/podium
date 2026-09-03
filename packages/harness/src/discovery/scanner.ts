@@ -24,6 +24,7 @@ const builtInProviders: readonly ConversationProvider[] = [
   HARNESS_ADAPTERS.grok.discovery,
   HARNESS_ADAPTERS.opencode.discovery,
   HARNESS_ADAPTERS.cursor.discovery,
+  HARNESS_ADAPTERS.pi.discovery,
 ]
 
 const providersById = new Map(builtInProviders.map((provider) => [provider.id, provider]))

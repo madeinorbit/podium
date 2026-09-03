@@ -5,6 +5,7 @@ import {
   type SessionMetaInput,
   type TranscriptItem,
 } from '@podium/model'
+import { encodeCursor } from '@podium/transcript/browser'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -43,7 +44,19 @@ const fakeTrpc = {
         })
       },
     },
-    sendText: { mutate: vi.fn(async () => ({ disposition: 'delivered' })) },
+    sendText: {
+      mutate: vi.fn(
+        async (): Promise<{
+          ok?: boolean
+          disposition: string
+          reason?: string
+          queued?: boolean
+          position?: number
+        }> => ({
+          disposition: 'delivered',
+        }),
+      ),
+    },
     // `reason` is optional but PRESENT in the contract: a stop can be refused
     // with one, and a fake that could not express that could not test it.
     interrupt: {
@@ -69,6 +82,7 @@ const storeActions = {
 
 let storeSessions: SessionMeta[] = []
 let storeDrafts: Record<string, string> = {}
+let storeExitKind: 'evicted' | 'removed' | undefined
 const fakeUiValues = new Map<string, string>()
 const fakeUiListeners = new Set<() => void>()
 const fakeUiState = {
@@ -118,7 +132,7 @@ vi.mock('@/app/store', () => {
     useSession: (id: string | undefined) =>
       storeSessions.find((session) => session.sessionId === id),
     useSessionDraft: (id: string | undefined) => (id === undefined ? '' : (storeDrafts[id] ?? '')),
-    useSessionExitKind: () => undefined,
+    useSessionExitKind: () => storeExitKind,
     useStoreSelector: (sel: (s: unknown) => unknown) => sel(useStore() as never),
   }
 })
@@ -159,6 +173,20 @@ function item(id: string, cursor: string, text: string): TranscriptItem {
   return { id, cursor, role: 'assistant', text }
 }
 
+function providerItem(
+  id: string,
+  role: 'user' | 'assistant',
+  text: string,
+  offset: number,
+): TranscriptItem {
+  return {
+    id,
+    role,
+    text,
+    cursor: encodeCursor({ fileId: 'headless-thread', offset, uuid: id, sub: 0 }),
+  }
+}
+
 let container: HTMLDivElement
 let root: Root
 
@@ -167,6 +195,7 @@ beforeEach(() => {
   fakeHub.subscribes.length = 0
   storeSessions = [meta({})]
   storeDrafts = {}
+  storeExitKind = undefined
   fakeUiValues.clear()
   fakeUiListeners.clear()
   container = document.createElement('div')
@@ -184,6 +213,9 @@ async function flush(): Promise<void> {
   // Let pending microtasks (the awaited tRPC query) settle inside act.
   await act(async () => {
     await Promise.resolve()
+    // ChatView code-splits TranscriptFeed. A focused test run must not depend on
+    // an earlier case having warmed that module before this helper settles.
+    await vi.dynamicImportSettled()
     await Promise.resolve()
   })
 }
@@ -351,6 +383,61 @@ describe('ChatView read-then-subscribe', () => {
     expect(occurrences - 1).toBe(1)
   })
 
+  it('keeps provider user and assistant items unique through two reopen hydration cycles', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+
+    const hydrate = async (readIndex: number, offset: number): Promise<void> => {
+      const user = providerItem('provider-user-1', 'user', 'unique operator prompt', offset)
+      const assistant = providerItem(
+        'provider-assistant-1',
+        'assistant',
+        'unique assistant reply',
+        offset + 1,
+      )
+      await act(async () => {
+        reads[readIndex]?.resolve({
+          items: [user, assistant],
+          head: user.cursor,
+          tail: assistant.cursor,
+          hasMore: false,
+        })
+      })
+      await flush()
+    }
+
+    await hydrate(0, 10)
+    const subscription = fakeHub.subscribes[0]?.cb
+
+    for (let cycle = 0; cycle < 2; cycle++) {
+      // The live observer and the durable re-read describe the same provider
+      // items, but at later offsets — exactly the identity drift on reopen.
+      await act(async () => {
+        subscription?.(
+          [
+            providerItem('provider-user-1', 'user', 'unique operator prompt', 20 + cycle * 10),
+            providerItem(
+              'provider-assistant-1',
+              'assistant',
+              'unique assistant reply',
+              21 + cycle * 10,
+            ),
+          ],
+          { reset: false },
+        )
+        subscription?.([], { reset: true })
+      })
+      await hydrate(cycle + 1, 30 + cycle * 10)
+    }
+
+    const rows = [...container.querySelectorAll('.transcript-row')]
+    const rowCount = (text: string): number =>
+      rows.filter((row) => row.textContent?.includes(text)).length
+    expect(rowCount('unique operator prompt')).toBe(1)
+    expect(rowCount('unique assistant reply')).toBe(1)
+  })
+
   it('re-reads the window when a reset delta arrives', async () => {
     act(() => {
       root.render(<ChatView sessionId={asSessionId('s1')} />)
@@ -499,6 +586,38 @@ This is agent mail, not the operator's latest prompt.
 })
 
 describe('ChatView composer', () => {
+  it('shows the queue position returned by a busy live session', async () => {
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+      ok: true,
+      queued: true,
+      position: 2,
+      disposition: 'queued',
+    })
+    storeDrafts = { s1: 'second thought' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    await flush()
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: asSessionId('s1'), text: 'second thought' }),
+    )
+    expect(container.querySelector('.transcript-delivery')?.textContent).toBe(
+      'pending · queue position 2',
+    )
+  })
+
   it('restores a queued chat message from the durable ledger after refresh', async () => {
     fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
       {
@@ -508,6 +627,7 @@ describe('ChatView composer', () => {
         body: 'please do this next',
         createdAt: '2026-06-03T00:00:01.000Z',
         status: 'queued',
+        queuePosition: 2,
       },
     ])
     act(() => {
@@ -519,10 +639,221 @@ describe('ChatView composer', () => {
     expect(queued?.textContent).toContain('please do this next')
     // One noun for every not-yet-delivered bubble, whatever parked it.
     expect(queued?.textContent).toContain('pending · sends after this turn')
+    expect(queued?.textContent).toContain('pending · sends after this turn · queue position 2')
     expect(queued?.querySelector('.msg-action--retract')).not.toBeNull()
     // The bubble IS the queue notice now: the composer no longer repeats the
     // count above the field.
     expect(container.querySelector('[data-notice="queue"]')).toBeNull()
+  })
+
+  it('restores a dead-lettered chat message with its reason and retries it', async () => {
+    fakeTrpc.messages.ledger.query.mockResolvedValueOnce([
+      {
+        id: 'msg_failed',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'please try this again',
+        createdAt: '2026-06-03T00:00:01.000Z',
+        status: 'dead_letter',
+        deliveryDeferredReason: 'never-live',
+      },
+      {
+        id: 'msg_other_session',
+        from: 'operator',
+        to: 'session:s2',
+        body: 'do not show this here',
+        createdAt: '2026-06-03T00:00:02.000Z',
+        status: 'dead_letter',
+        deliveryDeferredReason: 'teardown',
+      },
+      {
+        id: 'msg_delivered',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'already delivered',
+        createdAt: '2026-06-03T00:00:03.000Z',
+        status: 'delivered',
+      },
+      {
+        id: 'msg_delivered_then_failed',
+        from: 'operator',
+        to: 'session:s1',
+        body: 'delivery later failed',
+        createdAt: '2026-06-03T00:00:04.000Z',
+        status: 'dead_letter',
+        deliveredAt: '2026-06-03T00:00:04.500Z',
+        deliveredTo: 'session:s1',
+        deliveryDeferredReason: 'delivery-failed',
+      },
+    ])
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const failed = container.querySelector('[data-testid="dead-lettered-chat-message"]')
+    expect(failed?.textContent).toContain('please try this again')
+    expect(failed?.textContent).toContain('not delivered · session never became ready')
+    expect(container.textContent).not.toContain('do not show this here')
+    expect(container.textContent).not.toContain('already delivered')
+    expect(container.textContent).toContain('delivery later failed')
+    expect(container.textContent).toContain('not delivered · delivery failed')
+
+    await act(async () => {
+      failed?.querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')?.click()
+      await Promise.resolve()
+    })
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: 's1', text: 'please try this again' }),
+    )
+  })
+
+  describe('dead-letter retry state matrix', () => {
+    const failedRow = {
+      id: 'msg_failed_matrix',
+      from: 'operator',
+      to: 'session:s1',
+      body: 'retry this safely',
+      createdAt: '2026-06-03T00:00:01.000Z',
+      status: 'dead_letter',
+      deliveryDeferredReason: 'delivery-failed',
+    } as const
+
+    it.each([
+      {
+        label: 'live',
+        session: meta({ status: 'live' }),
+        exitKind: undefined,
+        route: 'send',
+      },
+      {
+        label: 'hibernated',
+        session: meta({ status: 'hibernated', resumable: true }),
+        exitKind: undefined,
+        route: 'resume',
+      },
+      {
+        label: 'exited resumable',
+        session: meta({ status: 'exited', resumable: true }),
+        exitKind: undefined,
+        route: 'resume',
+      },
+      {
+        label: 'exited non-resumable',
+        session: meta({ status: 'exited', resumable: false }),
+        exitKind: undefined,
+        route: null,
+      },
+      {
+        label: 'gone',
+        session: null,
+        exitKind: 'removed',
+        route: null,
+      },
+      {
+        label: 'archived resumable',
+        session: meta({ status: 'hibernated', resumable: true, archived: true }),
+        exitKind: undefined,
+        route: null,
+      },
+      {
+        label: 'archived non-resumable',
+        session: meta({ status: 'exited', resumable: false, archived: true }),
+        exitKind: undefined,
+        route: null,
+      },
+    ] as const)(
+      '$label session exposes only a deliverable retry route',
+      async ({ session, exitKind, route }) => {
+        storeSessions = session ? [session] : []
+        storeExitKind = exitKind
+        fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+
+        act(() => {
+          root.render(<ChatView sessionId={asSessionId('s1')} />)
+        })
+        await flush()
+
+        const retry = container.querySelector<HTMLButtonElement>(
+          '[aria-label="Retry failed message"]',
+        )
+        expect(
+          container.querySelector('[data-testid="dead-lettered-chat-message"]'),
+        ).not.toBeNull()
+        expect(retry !== null).toBe(route !== null)
+        if (!retry || route === null) return
+
+        await act(async () => {
+          retry.click()
+          await Promise.resolve()
+        })
+        if (route === 'send') {
+          expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+            expect.objectContaining({ sessionId: 's1', text: failedRow.body }),
+          )
+          expect(storeActions.resumeAndSend).not.toHaveBeenCalled()
+        } else {
+          expect(storeActions.resumeAndSend).toHaveBeenCalledWith(
+            asSessionId('s1'),
+            failedRow.body,
+          )
+          expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+        }
+      },
+    )
+
+    it('shows an accepted retry as a new pending attempt while preserving failure history', async () => {
+      // The original failed attempt remains durable when the accepted retry's
+      // immediate refresh reads the ledger again.
+      fakeTrpc.messages.ledger.query.mockResolvedValue([failedRow])
+      fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+        ok: true,
+        disposition: 'accepted',
+      })
+      act(() => {
+        root.render(<ChatView sessionId={asSessionId('s1')} />)
+      })
+      await flush()
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')
+          ?.click()
+        await Promise.resolve()
+      })
+      await flush()
+
+      expect(container.querySelector('[data-testid="dead-lettered-chat-message"]')).not.toBeNull()
+      const retryAttempt = container.querySelector(
+        '.transcript-pending:not(.transcript-pending--failed)',
+      )
+      expect(retryAttempt?.textContent).toContain(failedRow.body)
+      expect(retryAttempt?.textContent).toContain('pending')
+    })
+
+    it('shows a refused retry as a distinct failed attempt with the refusal reason', async () => {
+      fakeTrpc.messages.ledger.query.mockResolvedValueOnce([failedRow])
+      fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+        ok: false,
+        disposition: 'dead_letter',
+        reason: 'session became unavailable',
+      })
+      act(() => {
+        root.render(<ChatView sessionId={asSessionId('s1')} />)
+      })
+      await flush()
+
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>('[aria-label="Retry failed message"]')
+          ?.click()
+        await Promise.resolve()
+      })
+      await flush()
+
+      expect(container.querySelectorAll('.transcript-pending--failed')).toHaveLength(2)
+      expect(container.textContent).toContain('not delivered — session became unavailable')
+    })
   })
 
   it('stops calling a queued message pending once the CLI has been handed it', async () => {
@@ -624,6 +955,116 @@ describe('ChatView composer', () => {
     )
   })
 
+  it('sends a staged attachment ref without pasting its path into message text', async () => {
+    const attachment = {
+      id: 'staged-1',
+      path: '/staged/shot.png',
+      filename: 'shot.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    fakeTrpc.sessions.uploadImage.mutate.mockResolvedValueOnce({
+      path: attachment.path,
+      attachment,
+    } as never)
+    storeDrafts = { s1: 'describe this image' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')
+    const textarea = container.querySelector('textarea')
+    expect(input).not.toBeNull()
+    expect(textarea).not.toBeNull()
+    if (!input || !textarea) return
+
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['pixels'], 'shot.png', { type: 'image/png' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
+    await act(async () => Promise.resolve())
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: asSessionId('s1'),
+        text: 'describe this image',
+        attachments: [attachment],
+      }),
+    )
+  })
+
+  it('shows the exact send refusal and preserves failed attachment chips', async () => {
+    const attachment = {
+      id: 'att-1',
+      path: '/state/uploads/s1/att-1.png',
+      filename: 'ready.png',
+      mediaType: 'image/png',
+      kind: 'image' as const,
+    }
+    fakeTrpc.sessions.uploadImage.mutate
+      .mockResolvedValueOnce({ path: attachment.path, attachment } as never)
+      .mockResolvedValueOnce({
+        refusal: { reason: 'unsupported', detail: 'This agent refused failed.png' },
+      } as never)
+    fakeTrpc.sessions.sendText.mutate.mockResolvedValueOnce({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'driver rejected staged file',
+    } as never)
+    storeDrafts = { s1: 'send what is ready' }
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    const input = container.querySelector<HTMLInputElement>('input[type=file]')
+    const textarea = container.querySelector('textarea')
+    expect(input).not.toBeNull()
+    expect(textarea).not.toBeNull()
+    if (!input || !textarea) return
+
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['ready'], 'ready.png', { type: 'image/png' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+      await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(1))
+    })
+    Object.defineProperty(input, 'files', {
+      configurable: true,
+      value: [new File(['failed'], 'failed.png', { type: 'image/png' })],
+    })
+    await act(async () => {
+      input.dispatchEvent(new Event('change', { bubbles: true }))
+    })
+    await vi.waitFor(() => expect(fakeTrpc.sessions.uploadImage.mutate).toHaveBeenCalledTimes(2))
+    await act(async () => Promise.resolve())
+    expect(container.textContent).toContain('This agent refused failed.png')
+
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+    })
+    await vi.waitFor(() => expect(container.textContent).toContain('driver rejected staged file'))
+
+    expect(fakeTrpc.sessions.sendText.mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ attachments: [attachment] }),
+    )
+    const strip = container.querySelector('[data-testid="attachment-strip"]')
+    expect(strip?.textContent).toContain('failed.png')
+    expect(strip?.textContent).toContain('This agent refused failed.png')
+    expect(strip?.textContent).not.toContain('ready.png')
+  })
+
   it('does not submit Enter when the browser only reports IME keyCode 229', async () => {
     storeDrafts = { s1: '中文' }
     act(() => {
@@ -646,6 +1087,57 @@ describe('ChatView composer', () => {
     })
 
     expect(fakeTrpc.sessions.sendText.mutate).not.toHaveBeenCalled()
+  })
+})
+
+describe('ChatView delivered send boundary', () => {
+  beforeEach(() => {
+    storeSessions = [meta({ status: 'live' })]
+    storeDrafts = { s1: 'already delivered' }
+    fakeTrpc.messages.ledger.query.mockResolvedValue([])
+  })
+
+  it('does not rewrite a delivered bubble as failed when a provider error follows', async () => {
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    const textarea = container.querySelector('textarea')
+    expect(textarea).not.toBeNull()
+    if (!textarea) return
+    await act(async () => {
+      textarea.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+      )
+      await Promise.resolve()
+    })
+    await flush()
+
+    const delivered = container.querySelector('.transcript-pending')
+    expect(delivered?.textContent).toContain('already delivered')
+    expect(delivered?.classList.contains('transcript-pending--failed')).toBe(false)
+
+    storeSessions = [
+      meta({
+        status: 'live',
+        agentState: {
+          phase: 'errored',
+          since: '2026-06-03T00:00:01.000Z',
+          nativeSubagentCount: 0,
+          error: { class: 'usage_limit', retryable: false, detail: 'balance exhausted' },
+        },
+      }),
+    ]
+    act(() => {
+      root.render(<ChatView sessionId={asSessionId('s1')} />)
+    })
+    await flush()
+
+    expect(container.querySelector('.transcript-pending--failed')).toBeNull()
+    expect(container.querySelector('.transcript-pending')?.textContent).toContain(
+      'already delivered',
+    )
   })
 })
 

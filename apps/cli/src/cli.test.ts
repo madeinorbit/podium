@@ -204,11 +204,17 @@ describe('resolvePlan — launch matrix', () => {
       port: defaultInstancePorts('blue').server,
     })
   })
-  it('explicit janitor mode targets only the requested local server', () => {
-    expect(plan({}, ['janitor', '--server', 'http://localhost:23000'])).toEqual({
-      kind: 'janitor',
-      serverUrl: 'http://localhost:23000',
-      takeover: false,
+  it('`podium janitor` says where the janitor went instead of starting one', () => {
+    // PDM-27 deleted the standalone process. The word survives as an ANSWER: an
+    // operator or an old script that types it learns the janitor is the
+    // server's, rather than reading "unknown argument".
+    expect(plan({}, ['janitor'])).toEqual({
+      kind: 'usage-error',
+      message:
+        'podium janitor: the janitor is a worker thread inside every Podium server — there is nothing to start.',
+    })
+    expect(plan({}, ['janitor', '--server', 'http://localhost:23000'])).toMatchObject({
+      kind: 'usage-error',
     })
   })
   it('detached-recorded box, bare invocation → ensure the detached split is up', () => {
@@ -218,39 +224,22 @@ describe('resolvePlan — launch matrix', () => {
       port: 18787,
     })
   })
-  it('legacy explicit server component leaves janitor ownership to its sibling unit', () => {
+  it('an explicit server component runs the server and nothing beside it', () => {
     const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'])
     expect(p).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, janitor: false, daemon: false },
-      claimRole: 'server',
-    })
-  })
-  it('parent-supervised server component owns its janitor worker', () => {
-    const p = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['server'], {
-      PODIUM_UNDER_PARENT: '1',
-    })
-    expect(p).toMatchObject({
-      kind: 'in-process',
-      roles: { server: true, janitor: true, daemon: false },
+      roles: { server: true, daemon: false },
       claimRole: 'server',
     })
   })
   it('desktop sidecar: configured mode, no persistence, non-TTY bare → in-process all-in-one', () => {
     expect(plan({ mode: 'all-in-one' })).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, janitor: true, daemon: true },
+      roles: { server: true, daemon: true },
       claimRole: 'all-in-one',
       daemonAuth: 'in-process-local',
       runRecordMode: 'foreground',
       showSetupHint: false,
-    })
-  })
-  it('desktop server-only supervision carries its janitor in the same child', () => {
-    expect(plan({ mode: 'server' }, ['server'], { PODIUM_DESKTOP_SUPERVISED: '1' })).toMatchObject({
-      kind: 'in-process',
-      roles: { server: true, janitor: true, daemon: false },
-      claimRole: 'server',
     })
   })
   it('mode set with no persistence is UNMANAGED, not half-configured (POD-333)', () => {
@@ -327,7 +316,7 @@ describe('resolvePlan — launch matrix', () => {
     const setupPlan = plan({ mode: 'all-in-one', persistence: 'systemd' }, ['setup'])
     expect(setupPlan).toMatchObject({
       kind: 'in-process',
-      roles: { server: true, janitor: false, daemon: false },
+      roles: { server: true, daemon: false },
       claimRole: undefined,
       showSetupHint: true,
     })

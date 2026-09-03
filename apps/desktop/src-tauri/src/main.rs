@@ -1206,8 +1206,15 @@ fn enable_hosting(pair_code: String) -> Result<(), String> {
 /// pointed at the ws(s) relay URL mapped to http(s) (see `remote_window_target`), so
 /// the capability pattern must be derived from that mapped URL — a raw `wss://…`
 /// origin would never match the page's `https://…` origin and the grant would be dead.
-fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
-    let url = bootstrap::validated_webview_http_url(server_url)?;
+///
+/// It therefore takes the LOADED origin, not "the server URL": under split hosting those
+/// differ (`bootstrap::remote_window_origin_url`), and it is the loaded one the page's
+/// `window.__TAURI__` calls come from. The transport policy is applied here too — a grant is
+/// the native bridge, and it is never handed to an origin the window was refused permission
+/// to load — and the ws(s) → http(s) mapping inside it keeps every self-hosted install, which
+/// passes a ws(s) server URL, on today's behaviour; an https app host passes through unchanged.
+fn remote_capability_pattern(window_origin: &str) -> Result<String, String> {
+    let url = bootstrap::validated_webview_http_url(window_origin)?;
     Ok(format!("{}/*", url.origin().ascii_serialization()))
 }
 
@@ -1443,15 +1450,22 @@ fn main() {
                 log::error!("could not initialize desktop update channel: {error}");
                 error
             })?;
-            let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
+            let action = bootstrap::resolve_launch(
+                cfg.mode.as_deref(),
+                cfg.server_url.as_deref(),
+                cfg.ui_url.as_deref(),
+            );
             log::info!("launch action: {action:?}");
             // Reject an insecure configured server before starting a daemon, loading its page, or
             // deriving any remote native capability from it. Local shell modes have no remote
             // server at this point; their loopback served origin is validated below like any other
             // capability target.
+            // `ui_url` is deliberately NOT a gate here: an app host the policy refuses is
+            // IGNORED by `remote_window_target`, which falls back to the validated server URL.
+            // Only the server URL can stop the launch.
             let server_transport_error = match &action {
-                bootstrap::LaunchAction::LocalDaemon { server_url }
-                | bootstrap::LaunchAction::ClientOnly { server_url } => {
+                bootstrap::LaunchAction::LocalDaemon { server_url, .. }
+                | bootstrap::LaunchAction::ClientOnly { server_url, .. } => {
                     bootstrap::validate_server_transport(server_url).err()
                 }
                 bootstrap::LaunchAction::LocalAllInOne
@@ -1504,9 +1518,13 @@ fn main() {
             // WKWebView's WebSocket from a tauri:// page to a remote TLS relay fails (1006).
             // Placeholder until the readiness probe (local) or remote_window_target (remote).
             let mut webview_url = WebviewUrl::default();
-            // Origin that needs CapabilityBuilder::remote grants. Local served-local uses the
-            // stable loopback URL; remote modes use the configured serverUrl.
-            let mut remote_window_server_url: Option<String> = None;
+            // Origin that needs CapabilityBuilder::remote grants — THE ORIGIN THE WINDOW
+            // ACTUALLY LOADS, which is the only thing a grant can match. Local served-local
+            // uses the stable loopback URL; remote modes use the server URL, or the app host
+            // when the server advertised one (PDM-34, `bootstrap::remote_window_origin_url`).
+            // None until a branch sets it: a server the transport policy refused loads no
+            // window, and so is granted nothing.
+            let mut remote_window_origin: Option<String> = None;
 
             let initial_action = action.clone();
 
@@ -1648,10 +1666,10 @@ fn main() {
                     // when the sidecar is up we load it; grants for an unused origin are
                     // harmless if we fall back to baked.
                     wait_local_port = Some(port);
-                    remote_window_server_url = Some(bootstrap::local_served_http_url(port));
+                    remote_window_origin = Some(bootstrap::local_served_http_url(port));
                 }
 
-                bootstrap::LaunchAction::LocalDaemon { server_url } => {
+                bootstrap::LaunchAction::LocalDaemon { server_url, ui_url } => {
                     // Spawn the local `podium`; it reads config → daemon mode → connects to the
                     // remote server. There is NO local server, so do not force PODIUM_PORT and do
                     // not wait for a local /health — the web client connects to the remote.
@@ -1721,21 +1739,27 @@ fn main() {
                     }
 
                     if server_transport_error.is_none() {
-                        remote_window_server_url = Some(server_url.clone());
+                        remote_window_origin = Some(bootstrap::remote_window_origin_url(
+                            &server_url,
+                            ui_url.as_deref(),
+                        ));
                         (webview_url, window_injection) =
-                            bootstrap::remote_window_target(&server_url)
+                            bootstrap::remote_window_target(&server_url, ui_url.as_deref())
                                 .expect("the validated remote server URL remains valid");
                     }
                     wait_local_port = None;
                 }
 
-                bootstrap::LaunchAction::ClientOnly { server_url } => {
+                bootstrap::LaunchAction::ClientOnly { server_url, ui_url } => {
                     // No backend, no monitor — just point the window at the remote server.
                     if server_transport_error.is_none() {
                         log::info!("client mode → {server_url} (no local backend)");
-                        remote_window_server_url = Some(server_url.clone());
+                        remote_window_origin = Some(bootstrap::remote_window_origin_url(
+                            &server_url,
+                            ui_url.as_deref(),
+                        ));
                         (webview_url, window_injection) =
-                            bootstrap::remote_window_target(&server_url)
+                            bootstrap::remote_window_target(&server_url, ui_url.as_deref())
                                 .expect("the validated remote server URL remains valid");
                     }
                     wait_local_port = None;
@@ -1795,8 +1819,8 @@ fn main() {
                 .permission("allow-repair-payload")
                 .permission("core:event:allow-listen")
                 .permission("core:event:allow-unlisten");
-            if let Some(server_url) = remote_window_server_url {
-                match remote_capability_pattern(&server_url) {
+            if let Some(window_origin) = remote_window_origin {
+                match remote_capability_pattern(&window_origin) {
                     Ok(pattern) => {
                         window_capability = window_capability.remote(pattern.clone());
                         opener_capability = opener_capability.remote(pattern.clone());
@@ -1805,7 +1829,7 @@ fn main() {
                         hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
                     Err(error) => log::warn!(
-                        "no remote window capability for invalid URL {server_url:?}: {error}"
+                        "no remote window capability for invalid URL {window_origin:?}: {error}"
                     ),
                 }
             }
@@ -2883,6 +2907,27 @@ mod tests {
             Ok("https://podium.example:55555/*".to_string())
         );
         assert!(remote_capability_pattern("not a URL").is_err());
+    }
+
+    #[test]
+    fn remote_capability_is_granted_to_the_app_host_under_split_hosting() {
+        // PDM-34: the page lives on the app host, so the grant has to name the app host.
+        // Derived through the same helper the navigation uses, so the two cannot disagree
+        // and leave the native bridge granted to an origin nothing is loaded from.
+        let origin = bootstrap::remote_window_origin_url(
+            "wss://api.meetpodium.com",
+            Some("https://app.meetpodium.com"),
+        );
+        assert_eq!(
+            remote_capability_pattern(&origin),
+            Ok("https://app.meetpodium.com/*".to_string())
+        );
+        // And with no app host it is still the API origin, exactly as before.
+        let same_origin = bootstrap::remote_window_origin_url("wss://api.meetpodium.com", None);
+        assert_eq!(
+            remote_capability_pattern(&same_origin),
+            Ok("https://api.meetpodium.com/*".to_string())
+        );
     }
 
     #[test]

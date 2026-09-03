@@ -14,7 +14,7 @@ const log = createLogger('runtime:sqlite')
 
 /**
  * Nesting depth per database handle. Podium opens ONE shared connection per
- * process and both drivers (`node:sqlite`, `bun:sqlite`) are fully synchronous,
+ * process and the driver (`bun:sqlite`) is fully synchronous,
  * so a plain counter keyed by handle is sound — there is no interleaving that
  * could observe a stale depth. WeakMap so a closed/discarded handle carries no
  * bookkeeping garbage.

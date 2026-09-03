@@ -1,0 +1,26 @@
+==============================================================================
+A6a  terminal attach and type   harness=codex
+==============================================================================
+session a0cb0e80-a104-4e01-9b22-d872a34f2392 created
+BOUND DRIVER       codex-app-server (family server)
+STATUS             live
+
+ATTACHED FRAME     {"resumed":false,"outputSeen":false,"epoch":0,"geometry":{"cols":120,"rows":40},"controllerId":"c9"}
+CONTROL            terminal produced 0 byte(s) on attach, before any keystroke
+                   the product's own durable counter says outputSeen=false
+
+REFUSED — the positive control did not fire.
+  control watched: the attached terminal emitting any bytes at all within 25000ms
+  control saw:     0 bytes; frames seen: hostMetricsChanged=6 machinesChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1
+  the product agrees: attached.outputSeen=false — this terminal has printed nothing since spawn (not a lost replay window)
+  session status:  live  driver codex-app-server
+  A silent screen and a session that never had a terminal are different
+  findings; this run cannot tell them apart, so it reports neither.
+
+  WHAT THE DAEMON LOGGED — none of which reaches any client surface:
+    [warn] pty:abduco: systemd scope unavailable; session will NOT survive a podium restart
+            label=podium-cx-attach-a0cb0e80-a104-4e01-9b22-d872a34f2392 (53 chars)
+            err=systemd-run exited 1: create-session: File name too long
+    [warn] daemon:host: could not host a Codex client terminal
+            err=/home/mgw/.local/state/podium/p2777/bin/abduco exited 1: create-session: File name too long
+    [warn] daemon:session: could not attach the native client terminal

@@ -1,7 +1,6 @@
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { expect, type Page, test } from '@playwright/test'
+import { harnessScratchRepo } from '../harness-env'
 import { newSession, openApp, podium } from './_harness'
 
 /**
@@ -17,7 +16,7 @@ import { newSession, openApp, podium } from './_harness'
 test.skip(({ isMobile }) => isMobile, 'desktop workspace policy only')
 
 const PORT = Number(process.env.PORT ?? 8799)
-const SCRATCH_REPO = join(tmpdir(), `zz-podium-e2e-repo-${PORT}`)
+const SCRATCH_REPO = harnessScratchRepo(PORT)
 const SCRATCH_FEAT = `${SCRATCH_REPO}-feat`
 const REPO_ROOT = fileURLToPath(new URL('../../../', import.meta.url)).replace(/\/$/, '')
 

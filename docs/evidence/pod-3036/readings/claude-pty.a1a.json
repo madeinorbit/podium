@@ -1,0 +1,151 @@
+{
+  "cell": "A1A",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3036n/probes/claude-pty-a1a",
+  "at": "2026-08-28T11:52:45.984Z",
+  "pin": {
+    "cell": "A1A",
+    "at": "2026-08-28T11:52:46.005Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "checkoutSha": "b736dd8df0f602e7f5c9ebd00459ff6fa0d7d70c",
+    "pinSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "serverSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "daemonSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b736dd8",
+      "appsWebIdentical": true
+    },
+    "serverPid": "536616",
+    "daemonPid": "536844",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19567340 kB",
+      "SwapFree": "41656212 kB"
+    },
+    "rootFreeKiB": 84986924,
+    "load1m": 3.06,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3036n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "one of the three idle sends did not land or reply",
+  "control": {
+    "fired": true,
+    "what": "send delivered or a needle appearing on the chat/transcript plane",
+    "detail": "1/1 delivered; user=1 assistant=0 lastAssistant=false"
+  },
+  "evidence": [
+    "SENDS             [{\"i\":1,\"needle\":\"P3036-A1A-claude-pty-1-MTCW7JDA\",\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"delivered\":true,\"user\":true,\"assistant\":false,\"userMs\":536,\"assistantMs\":180090,\"chatAssistant\":false,\"status\":{\"sessionId\":\"71396cbf-e28c-45ae-9d70-01e8f826f2c5\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":\"native:claude-code\",\"error\":{\"class\":\"unknown\",\"retryable\":true},\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[\"bcfef7e probe seed\"],\"files\":[\"## main\"],\"unackedMessages\":0}}]",
+    "IDENTITY          {\"sessionId\":\"71396cbf-e28c-45ae-9d70-01e8f826f2c5\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null",
+    "FRAME TYPES        hostMetricsChanged=42 outputFrame=19 machinesChanged=6 sessionTitleChanged=3 sessionAgentStateChanged=3 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1"
+  ],
+  "data": {
+    "sid": "71396cbf-e28c-45ae-9d70-01e8f826f2c5",
+    "turns": [
+      {
+        "i": 1,
+        "needle": "P3036-A1A-claude-pty-1-MTCW7JDA",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "delivered": true,
+        "user": true,
+        "assistant": false,
+        "userMs": 536,
+        "assistantMs": 180090,
+        "chatAssistant": false,
+        "status": {
+          "sessionId": "71396cbf-e28c-45ae-9d70-01e8f826f2c5",
+          "agentKind": "claude-code",
+          "harness": "claude-code",
+          "driverId": "claude-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "errored",
+          "machine": "flatblock",
+          "model": null,
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": "native:claude-code",
+          "error": {
+            "class": "unknown",
+            "retryable": true
+          },
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [
+            "bcfef7e probe seed"
+          ],
+          "files": [
+            "## main"
+          ],
+          "unackedMessages": 0
+        }
+      }
+    ],
+    "driverRow": {
+      "sessionId": "71396cbf-e28c-45ae-9d70-01e8f826f2c5",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "errored",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": {
+        "class": "unknown",
+        "retryable": true
+      },
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "bcfef7e probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

@@ -23,8 +23,11 @@ function fakeHub() {
   let cbs: SessionCallbacks = {}
   let current: ConnectionState = {
     role: 'controller',
+    controllerId: null,
     cols: 80,
     rows: 24,
+    requestedGeometry: null,
+    geometryRevision: 0,
     epoch: 0,
     connected: true,
   } as ConnectionState
@@ -45,6 +48,7 @@ function fakeHub() {
   return {
     hub,
     reset: () => cbs.onReset?.(),
+    timelineReset: () => cbs.onGeometryTimelineReset?.(),
     // Keep cols/rows at the mounted 80×24 so onState drives only the epoch/clear path,
     // never a view.resize.
     setState: (patch: Partial<ConnectionState>) => {
@@ -97,6 +101,25 @@ describe('session-mount clear semantics', () => {
     }
   })
 
+  it('resets geometry ordering without clearing on a resumed timeline reset', () => {
+    withResizeObserver()
+    const clear = vi.spyOn(TerminalView.prototype, 'clear')
+    try {
+      const { hub, timelineReset } = fakeHub()
+      const mounted = mountSession(document.createElement('div'), {
+        hub,
+        sessionId: asSessionId('s1'),
+        active: false,
+      })
+      clear.mockClear()
+      timelineReset()
+      expect(clear).not.toHaveBeenCalled()
+      mounted.dispose()
+    } finally {
+      clear.mockRestore()
+    }
+  })
+
   it('does not clear on an epoch change while disconnected (only onReset owns the reattach clear)', () => {
     withResizeObserver()
     const clear = vi.spyOn(TerminalView.prototype, 'clear')
@@ -117,6 +140,36 @@ describe('session-mount clear semantics', () => {
     } finally {
       clear.mockRestore()
     }
+  })
+
+  it('keeps non-geometry state flowing when an older geometry state arrives', () => {
+    withResizeObserver()
+    const host = document.createElement('div')
+    const onState = vi.fn()
+    const { hub, setState } = fakeHub()
+    const mounted = mountSession(host, {
+      hub,
+      sessionId: asSessionId('s1'),
+      active: false,
+      onState,
+    })
+    setState({ geometryRevision: 2 })
+    onState.mockClear()
+
+    setState({
+      geometryRevision: 1,
+      cols: 100,
+      rows: 30,
+      role: 'spectator',
+      epoch: 3,
+    })
+
+    expect(mounted.view.cols()).toBe(80)
+    expect(mounted.view.rows()).toBe(24)
+    expect(host.dataset.role).toBe('spectator')
+    expect(host.dataset.epoch).toBe('3')
+    expect(onState).toHaveBeenCalled()
+    mounted.dispose()
   })
 })
 

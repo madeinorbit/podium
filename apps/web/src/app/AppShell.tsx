@@ -98,7 +98,6 @@ import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
-import { Workspace } from './Workspace'
 
 /**
  * EVERY LAZY SURFACE GOES THROUGH `throughRestarts` (POD-2762).
@@ -110,6 +109,11 @@ import { Workspace } from './Workspace'
  * clicked, and it is deliberately shaped to leave these declarations reading
  * the way they always did.
  */
+// The app lands on the work list. Loading Workspace here used to pull the chat,
+// terminal and editor stack into first paint before a workspace was selected.
+const Workspace = lazy(() =>
+  throughRestarts(() => import('./Workspace')).then((module) => ({ default: module.Workspace })),
+)
 const SettingsView = lazy(() =>
   throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
     default: module.SettingsView,
@@ -788,6 +792,14 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   useEffect(() => {
     const cancels = [
       prefetchAfterFirstPaint(loadAgentPanel),
+      // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
+      // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts
+      // xterm nor attaches a session, so the first CLI click avoids the cold
+      // chunk without changing view leases or message delivery while Chat runs.
+      prefetchAfterFirstPaint(async () => {
+        const { preloadTerminalRuntime } = await import('@podium/terminal-client-react')
+        await preloadTerminalRuntime()
+      }),
       prefetchAfterFirstPaint(() => import('@/components/RefMiniview')),
       prefetchAfterFirstPaint(() => import('@/features/settings/SettingsView')),
     ]
@@ -1047,7 +1059,14 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                 )}
               </div>
             )}
-            <MainViewOutlet workspace={<Workspace />} view={baseView} />
+            <MainViewOutlet
+              workspace={
+                <Suspense fallback={<RouteFallback />}>
+                  <Workspace />
+                </Suspense>
+              }
+              view={baseView}
+            />
             {workspaceActive && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"

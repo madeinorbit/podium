@@ -1,0 +1,43 @@
+{
+  "at": "2026-08-30T05:26:43.590Z",
+  "issue": "POD-3112",
+  "kind": "r9-ui-lifecycle-verification",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "b6e0751c2c44aabef52fd475597afcbc66b01e97",
+  "instance": "p3112-oc-ui-lifecycle-r9",
+  "ports": [
+    20319,
+    47326,
+    47327
+  ],
+  "providerPrompts": 2,
+  "launch": {
+    "createRequests": [
+      {
+        "at": "2026-08-30T05:26:44.797Z",
+        "body": "{\"0\":{\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3112-oc-ui-lifecycle-r9/dummy-repo/.worktrees/issue-1-r9-lifecycle-ui-boundary\",\"machineId\":\"c5fb78fa-9951-4452-a4f1-ae0b9d06d54a\",\"issueId\":\"iss_1350f265-bf3f-406f-b85c-3851c5907cfd\",\"runtimeContract\":true}}"
+      }
+    ],
+    "identity": {
+      "sessionId": "ea9ca256-36b4-4164-afdc-c766b5f55733",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server"
+    },
+    "nativeFirst": true,
+    "authenticatedVisibleCli": true
+  },
+  "first": {
+    "sentAt": "2026-08-30T05:26:53.174Z",
+    "inputDispatch": true,
+    "workingMs": 3284.123942,
+    "terminalGrowthMs": 2975.7020740000007,
+    "providerReplyMs": 5735.737627999999,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "verdict": "REFUSED",
+  "reason": "TimeoutError: click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('[data-testid=\"composer-stop\"]')\u001b[22m\n\u001b[2m    - locator resolved to <button tabindex=\"0\" type=\"button\" data-slot=\"button\" data-pressable=\"true\" title=\"Stop this turn\" aria-label=\"Stop this turn\" data-testid=\"composer-stop\" class=\"group/button inline-flex shrink-0 items-center justify-center border border-transparent bg-clip-padding text-sm font-medium whitespace-nowrap outline-none select-none aria-invalid:border-destructive aria-invalid:ring-3 aria-invalid:ring-destructive/20 dark:aria-invalid:border-destructive/50 dark:aria-invalid:ring-destructive/40 [&_svg]:pointe…>…</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"flex shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3\">…</div> from <aside role=\"dialog\" aria-modal=\"false\" data-state=\"pending\" data-testid=\"release-proposal-card\" aria-label=\"Development release proposal\" class=\"fixed right-4 bottom-9 z-50 flex max-h-[min(42rem,calc(100vh-4rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div class=\"flex shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3\">…</div> from <aside role=\"dialog\" aria-modal=\"false\" data-state=\"pending\" data-testid=\"release-proposal-card\" aria-label=\"Development release proposal\" class=\"fixed right-4 bottom-9 z-50 flex max-h-[min(42rem,calc(100vh-4rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    42 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div class=\"flex shrink-0 items-center justify-between gap-3 border-t border-border bg-muted/30 px-4 py-3\">…</div> from <aside role=\"dialog\" aria-modal=\"false\" data-state=\"pending\" data-testid=\"release-proposal-card\" aria-label=\"Development release proposal\" class=\"fixed right-4 bottom-9 z-50 flex max-h-[min(42rem,calc(100vh-4rem))] w-[min(28rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-popover text-popover-foreground shadow-[0_14px_34px_rgb(0_0_0_/_0.65),0_2px_8px_rgb(0_0_0_/_0.5)]\">…</aside> subtree intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n\u001b[2m    - waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m  - element was detached from the DOM, retrying\u001b[22m\n",
+  "finishedAt": "2026-08-30T05:27:36.016Z"
+}

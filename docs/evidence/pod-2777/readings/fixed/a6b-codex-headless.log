@@ -1,0 +1,49 @@
+==============================================================================
+A6b  chat -> CLI -> chat -> CLI, twice   harness=codex
+==============================================================================
+session 14171f89-20d2-4bf4-8a31-8953d52a5134
+BOUND DRIVER       codex-app-server (family server)
+
+CONTROL B          chat answers BEFORE switching: true
+                   and the TUI painted it into scrollback: true
+CONTROL A          CLI echoes BEFORE switching: true (12766 terminal bytes)
+baseline           epoch=0  geometry={"cols":120,"rows":40}
+                   agent pids (census taken with chat declared, so no view processes):
+                     1742514  /tmp/pod-2777/state/agent-home/.opencode/bin/opencode serve --port 34465 --hostname 127.0.0.1
+                     2019315  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2019317  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2102942  timeout 900 bun docs/evidence/pod-2777/a6b.ts codex
+                     2102943  tee docs/evidence/pod-2777/readings/fixed/a6b-codex-headless.log
+                     2102944  tail -32
+                     2102945  bun docs/evidence/pod-2777/a6b.ts codex
+                     2102987  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+
+switching …
+
+  step          epoch  geometry            marker kept  term bytes  agent pids                 view procs
+  1. -> chat    0      {"cols":120,"rows":40}  true         12988       1742514,2019315,2019317,2102942,2102943,2102944,2102945,2102987  0
+  2. -> CLI     0      {"cols":120,"rows":40}  true         22309       1742514,2019315,2019317,2102942,2102943,2102944,2102945,2102987  3
+  3. -> chat    0      {"cols":120,"rows":40}  true         22309       1742514,2019315,2019317,2102942,2102943,2102944,2102945,2102987  0
+  4. -> CLI     0      {"cols":120,"rows":40}  true         31248       1742514,2019315,2019317,2102942,2102943,2102944,2102945,2102987  3
+
+after the four switches:
+  chat send still answers: true (CHATAFTER-WYMT1I)
+  CLI typing still echoes: true (+9852 bytes)
+
+==============================================================================
+A6b  PASS
+     no restart      epoch stable across all four: true (0)
+                     AGENT pid(s) unchanged:       true [1742514, 2019315, 2019317, 2102942, 2102943, 2102944, 2102945, 2102987]
+                     processes the VIEW adds while the CLI is declared, recorded not scored:
+                       2108304  /home/mgw/.local/state/podium/p2777/bin/abduco -n podium-cx-attach-14171f89-20d2-4bf4-8a31-8953d52a5
+                       2108305  codex resume -C /tmp/pod-2777/repo 01a03dc6-81fb-7b63-a371-de2819c39763 -c sandbox_workspace_write.n
+                       2108306  /home/mgw/.local/state/podium/p2777/bin/abduco -q -e � -a /run/user/1001/podium-p2777/abduco/mgw/pod
+                     (they come and go with the view. An attach-client cold start on a
+                      view switch is a declared gap in the catalogue — section 9, "cold
+                      start does not fake continuity", absent for every server driver —
+                      and an attach-client exit must never end the session, section 10.)
+     no corruption   scrollback marker survived every switch: true
+     correct size    geometry unchanged: true
+     both views work chat answers: true   CLI echoes: true
+     controls FIRED  CLI echoed and chat answered BEFORE any switching
+==============================================================================

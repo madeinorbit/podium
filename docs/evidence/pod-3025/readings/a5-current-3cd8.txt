@@ -1,0 +1,78 @@
+A5 current-tip 3cd8fa16a exact single-arm re-drive with explicit permission handling
+Run window: 2026-08-28 04:40:34.746–04:41:49.985 CEST
+Harness: grok-acp from the product; driverId=grok-acp; driverFamily=server
+Named instance: p2777a5g202608280240343852629
+Instance UUID: 20461423-a10b-45f0-bdfc-c9928e21c29f
+Session: 4bb66044-fb33-484e-8493-a82a00554aff
+Provider session: 01a0463d-bcbf-7890-b76c-390bf14efddf
+Worktree: /tmp/pod-2777-grok-a5-20260828024034-3852629/repo
+Expected marker: TRANSCRIPT-13DHO4
+
+Admission and pins
+- First-run setup was retried after the product-created runtime/tmux directories were
+  intentionally adopted with PODIUM_ADOPT_STATE=1. No PODIUM_STATE_DIR,
+  ABDUCO_SOCKET_DIR, TMUX_TMPDIR, HOME, or PODIUM_RUNTIME_DRIVER override was used.
+- One probe and one named instance; canonical verifier passed before the scored turn.
+- Server PID 3852715 and daemon PID 3852928 were spawned at
+  3cd8fa16aadfb6741c88a157cdaa8ce825f93a75 from the validator worktree.
+- Served web source 3cd8fa1, bundle+DmPc5z98, wire schema c847f4452ebd568b,
+  builtAt 2026-08-28T02:38:14.156Z, port 29134.
+- Code tree a5e2a5367bb36c981d5dd0d57a6e28664779c80d.
+- Grok binary /home/mgw/.local/bin/grok, version 0.2.118 (1e1687c1cf) [stable].
+- The successful retry reused the exact pinned bundle; no heavy build ran during the
+  scored retry. test:heavy was free after cleanup.
+
+Pin verifier
+  ok no other probe is driving this rig
+  ok server pid=3852715 cwd=/home/mgw/src/podium/.worktrees/issue-3025-grok-tool-result-loss spawned at 3cd8fa1
+  ok daemon pid=3852928 cwd=/home/mgw/src/podium/.worktrees/issue-3025-grok-tool-result-loss spawned at 3cd8fa1
+  ok exactly one daemon on instance p2777a5g202608280240343852629
+  ok worktree at 3cd8fa16aadfb6741c88a157cdaa8ce825f93a75; product tree clean
+  ok server answers on :29134 (not the operator's 19797)
+  ok web bundle served from :29134 was built at 3cd8fa1
+  ok arm live in the processes: daemon CONTRACT=1 DRIVER=(policy), server STREAMING=1
+  PINJSON {"want":"3cd8fa16aadfb6741c88a157cdaa8ce825f93a75","short":"3cd8fa1","spawnedSha":"3cd8fa16aadfb6741c88a157cdaa8ce825f93a75","serverPid":3852715,"daemonPid":3852928,"webSourceSha":"3cd8fa1","contract":"1","streaming":"1","driver":""}
+
+Permission control
+  observer polls: 188
+  interaction id=0 kind=permission source=protocol
+  answer: {"kind":"permission","decision":"allow-once"}
+  answer response: {"result":{"data":{"ok":true}}}
+
+Positive live control
+  session 4bb66044-fb33-484e-8493-a82a00554aff
+  A2b boot phase: idle at t+3193ms, status=live, driver=grok-acp
+  A10 control: driverId=grok-acp, driverFamily=server
+  A5 control: 4 transcript items, 2 tool items, 4 delta frames
+
+Live tool-call/result observation
+  turn completed: true
+  exact toolUseId: call-f3cbfb0d-bca7-466b-bc3f-8afcaebb0c1b-0
+  tool item count: 2 (one call/update identity)
+  call=true
+  result=true
+  provider result live: exit: 0 / TRANSCRIPT-13DHO4
+
+Reload observation
+  live items: 4
+  reloaded items: 4
+  missing live items after reload: 0
+  expected marker still in reloaded history: true
+  tool items after reload: 2 (live: 2)
+  provider result reload: exit: 0 / TRANSCRIPT-13DHO4
+  paired after reload: true
+  exact tool history: true
+
+Verdict
+  A5 PASS
+  live tool calls paired to provider results: true
+  paired provider payload survives reload: true
+  reload shows the same history: true
+  control FIRED: the turn produced two tool items and completed
+
+Cleanup
+  server 3852715: gone
+  daemon 3852928: gone
+  provider 3853328: gone
+  test:heavy: free
+  post-cleanup exact instance process scan: zero

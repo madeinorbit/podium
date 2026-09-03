@@ -1,0 +1,66 @@
+[
+  {
+    "arm": "mention-name-matches-basename",
+    "secret": "FILESECRET-B5D100D7",
+    "staged": "/tmp/pod2819-mention-name-matches-basename-c2695f33/uploads/staged.txt",
+    "rollout": "/home/mgw/.codex/sessions/2026/08/26/rollout-2026-08-26T02-37-56-01a03b80-8f97-7d52-afa2-1cba5b6fa242.jsonl",
+    "pathInModelPrompt": false,
+    "secretInModelPrompt": false,
+    "answerHasSecret": false,
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "agentMessage"
+    ],
+    "answer": "unknown",
+    "promptExcerpt": "Reply with ONLY the secret word contained in the attached file. Do not use any tools."
+  },
+  {
+    "arm": "mention-name-differs",
+    "secret": "FILESECRET-5A286D91",
+    "staged": "/tmp/pod2819-mention-name-differs-40ae8ef1/uploads/staged.txt",
+    "rollout": "/home/mgw/.codex/sessions/2026/08/26/rollout-2026-08-26T02-38-08-01a03b80-bf14-7a10-ad67-598ee03223ed.jsonl",
+    "pathInModelPrompt": false,
+    "secretInModelPrompt": false,
+    "answerHasSecret": false,
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "agentMessage"
+    ],
+    "answer": "unknown",
+    "promptExcerpt": "Reply with ONLY the secret word contained in the attached file. Do not use any tools."
+  },
+  {
+    "arm": "mention-with-at-in-text",
+    "secret": "FILESECRET-A0A57E86",
+    "staged": "/tmp/pod2819-mention-with-at-in-text-0f5626a3/uploads/staged.txt",
+    "rollout": "/home/mgw/.codex/sessions/2026/08/26/rollout-2026-08-26T02-38-14-01a03b80-d772-7c72-8559-fe1a8567c0e8.jsonl",
+    "pathInModelPrompt": false,
+    "secretInModelPrompt": false,
+    "answerHasSecret": false,
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "agentMessage"
+    ],
+    "answer": "unknown",
+    "promptExcerpt": "@staged.txt Reply with ONLY the secret word contained in the attached file. Do not use any tools."
+  },
+  {
+    "arm": "path-text",
+    "secret": "FILESECRET-DCCAA683",
+    "staged": "/tmp/pod2819-path-text-bade53f9/uploads/staged.txt",
+    "rollout": "/home/mgw/.codex/sessions/2026/08/26/rollout-2026-08-26T02-38-26-01a03b81-0419-7810-94f0-57df254f5879.jsonl",
+    "pathInModelPrompt": true,
+    "secretInModelPrompt": false,
+    "answerHasSecret": false,
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "agentMessage"
+    ],
+    "answer": "UNKNOWN",
+    "promptExcerpt": "/tmp/pod2819-path-text-bade53f9/uploads/staged.txt\nReply with ONLY the secret word contained in the attached file. Do not use any tools."
+  }
+]

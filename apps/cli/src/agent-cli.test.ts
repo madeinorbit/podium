@@ -43,6 +43,7 @@ function client(over?: Partial<Record<'spawnAgent' | 'awaitAgent', unknown>>) {
           status: 'live',
           phase: 'working',
           machine: 'buildbox',
+          driverId: 'generic-pty',
           model: 'gpt-5.7',
           effort: 'high',
           contextUsagePercent: 31.4,
@@ -67,7 +68,9 @@ describe('podium agent spawn', () => {
     const c = client()
     const out = await runAgentCli(['status', 'child1'], c)
     expect(c.sessions.status.query).toHaveBeenCalledWith({ ref: 'child1' })
-    expect(out).toContain('runtime: harness=codex model=gpt-5.7 effort=high context=31.4%')
+    expect(out).toContain(
+      'runtime: driver=generic-pty harness=codex model=gpt-5.7 effort=high context=31.4%',
+    )
     expect(out).toContain('placement: machine=buildbox account=openai:team')
   })
 

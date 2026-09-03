@@ -35,10 +35,10 @@ import {
   resolveLoggingMode,
   resolvePort,
   resolveRunRecordMode,
-  stateDir,
   resolveUpdateChannel,
   resolveUpdateFeed,
   selectInstance,
+  stateDir,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
@@ -59,7 +59,7 @@ const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
  *  silently fall through and boot the stack (issue #18). */
-const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'parent', 'janitor']
+const LAUNCH_BARE_WORDS: string[] = [...SUBCOMMANDS, 'all', 'setup', 'instance', 'parent']
 const LAUNCH_VALUE_FLAGS = ['--server', '--pair', '--name']
 const LAUNCH_BOOL_FLAGS = ['--local', '--reconfigure', '--takeover']
 
@@ -79,6 +79,7 @@ const HELP_DELEGATED = new Set([
   'telemetry',
   'quota',
   'machine',
+  'instance',
   'logs',
 ])
 
@@ -172,11 +173,12 @@ export type LaunchPlan =
   | { kind: 'quota'; args: string[] }
   /** `podium machine [list|show]`: read the fleet an agent may place work on. */
   | { kind: 'machine'; args: string[] }
+  /** `podium instance rekey`: mint a new owner UUID for a copied state root. */
+  | { kind: 'instance'; args: string[] }
   | { kind: 'join-config'; token: string }
   | { kind: 'set-server'; target: string }
   | { kind: 'server-transfer-promote'; transferId: string }
   | { kind: 'server-transfer-retire-daemon' }
-  | { kind: 'janitor'; serverUrl: string; takeover: boolean }
   /** Thin parent: supervises server (+ janitor worker) and optional daemon [POD-2505]. */
   | {
       kind: 'parent'
@@ -203,6 +205,7 @@ export type LaunchPlan =
   | { kind: 'worktree'; args: string[] }
   | { kind: 'workspace'; args: string[] }
   | { kind: 'lock'; args: string[] }
+  | { kind: 'interactions'; args: string[] }
   | { kind: 'workflow'; args: string[] }
   | { kind: 'merge-lock'; args: string[] }
   | { kind: 'status' }
@@ -226,7 +229,7 @@ export type LaunchPlan =
       kind: 'in-process'
       port: number
       /** Which components this PID hosts. */
-      roles: { server: boolean; janitor: boolean; daemon: boolean }
+      roles: { server: boolean; daemon: boolean }
       /** Run-registry role to claim before binding; undefined = no claim (the
        *  headless `podium setup` path, which only serves the web setup UI). */
       claimRole: 'server' | 'daemon' | 'all-in-one' | undefined
@@ -608,6 +611,7 @@ export function resolvePlan(
   // `podium machine [list|show]`: which machines exist, which are usable, and what
   // is registered on them — the read a coordinator needs before placing work.
   if (argv[0] === 'machine') return { kind: 'machine', args: argv.slice(1) }
+  if (argv[0] === 'instance') return { kind: 'instance', args: argv.slice(1) }
   // `podium join-config <TOKEN>`: non-interactive daemon configuration from a join token
   // (used by `install.sh --join`). Writes config; the daemon is started separately.
   if (argv[0] === 'join-config') {
@@ -636,22 +640,15 @@ export function resolvePlan(
   if (argv[0] === 'server-transfer-retire-daemon') {
     return { kind: 'server-transfer-retire-daemon' }
   }
-  // Internal sibling component [spec:SP-c29e]. It is deliberately not a
-  // PodiumMode: operators configure a host/server, and persistence composes the
-  // janitor automatically beside that server. Under the parent model the janitor
-  // runs as a server worker; this subcommand remains for legacy/debug.
+  // The janitor was once a sibling component with its own process and unit
+  // [spec:SP-c29e]. It is now a worker thread every server owns (PDM-27), so
+  // there is nothing here to start — a word an operator or an old script may
+  // still type, answered with the reason rather than "unknown command".
   if (argv[0] === 'janitor') {
-    const componentArgs = argv.slice(1).filter((arg) => arg !== '--takeover')
-    const takeover = argv.includes('--takeover')
-    if (componentArgs.length === 0) {
-      return { kind: 'janitor', serverUrl: localServerUrl(port), takeover }
-    }
-    if (componentArgs.length === 2 && componentArgs[0] === '--server' && componentArgs[1]) {
-      return { kind: 'janitor', serverUrl: componentArgs[1], takeover }
-    }
     return {
       kind: 'usage-error',
-      message: 'usage: podium janitor [--server <http(s)://url>] [--takeover]',
+      message:
+        'podium janitor: the janitor is a worker thread inside every Podium server — there is nothing to start.',
     }
   }
   // Thin parent process [POD-2505]: supervises server + daemon OS children.
@@ -706,6 +703,7 @@ export function resolvePlan(
   if (argv[0] === 'worktree') return { kind: 'worktree', args: argv.slice(1) }
   if (argv[0] === 'workspace') return { kind: 'workspace', args: argv.slice(1) }
   if (argv[0] === 'lock') return { kind: 'lock', args: argv.slice(1) }
+  if (argv[0] === 'interactions') return { kind: 'interactions', args: argv.slice(1) }
   if (argv[0] === 'workflow') return { kind: 'workflow', args: argv.slice(1) }
   if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
@@ -786,17 +784,6 @@ export function resolvePlan(
   // the web setup UI (server only), claim no run-registry role.
   const runServer = forceSetup || modePlan.mode === 'all-in-one' || modePlan.mode === 'server'
   const runDaemon = !forceSetup && (modePlan.mode === 'all-in-one' || modePlan.mode === 'daemon')
-  // The modern parent/all-in-one/desktop shapes own a janitor worker in their
-  // server. A bare explicit server stays janitor-free for compatibility with
-  // legacy split-unit installs, where a sibling janitor still exists during
-  // topology migration.
-  const runJanitor =
-    !forceSetup &&
-    runServer &&
-    (modePlan.mode === 'all-in-one' ||
-      env.PODIUM_UNDER_PARENT === '1' ||
-      env.PODIUM_DESKTOP_SUPERVISED === '1' ||
-      env.PODIUM_HOST_JANITOR === '1')
   const claimRole = forceSetup
     ? undefined
     : modePlan.mode === 'server'
@@ -818,7 +805,7 @@ export function resolvePlan(
   return {
     kind: 'in-process',
     port,
-    roles: { server: runServer, janitor: runJanitor, daemon: runDaemon },
+    roles: { server: runServer, daemon: runDaemon },
     claimRole,
     runRecordMode,
     logSinkMode,
@@ -896,6 +883,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '',
     'Work tools (each has its own help, e.g. `podium issue --help`):',
     '  issue <command>       Drive the native issue tracker',
+    '  instance rekey         Mint a fresh owner UUID for a copied state root',
     ...(enabledFeatures.has('specs')
       ? ['  spec <command>        Read/maintain the living project spec (<repo>/pspec/)']
       : []),
@@ -1077,11 +1065,7 @@ export function alreadyRunningMessage(
  * host modules; every other subcommand path never loads them.
  */
 export interface HostModules {
-  startServer(opts: {
-    port: number
-    /** Injected worker-thread client; keeps the server free of an app→app import. */
-    startJanitorWorker?: HostModules['startJanitorWorker']
-  }): Promise<{
+  startServer(opts: { port: number }): Promise<{
     port: number
     bootstrapToken?: string
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
@@ -1094,21 +1078,6 @@ export interface HostModules {
       onBlocked?: (info: { type: string; reason: string }) => void | Promise<void>
     },
   ): Promise<unknown>
-  startJanitorWorker(opts: { serverUrl: string; token: string }): Promise<{
-    progressVersion(): number
-    state(): 'running' | 'degraded' | 'stopped'
-    reason(): string | undefined
-    close(): void
-  }>
-  /** Legacy/debug standalone janitor command. Normal server paths use the worker above. */
-  startJanitor(opts: {
-    serverUrl: string
-    token: string
-    onCompatibilityRefusal?: (error: Error) => void
-  }): Promise<{
-    service: { progressVersion(): number }
-    close(): void
-  }>
 }
 
 /** Composition-root work that may touch the selected instance's state directory.
@@ -1197,15 +1166,12 @@ async function runInProcess(
   let serverPort = port
   let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
-  const host = roles.server || roles.janitor || roles.daemon ? await loadHost() : undefined
+  const host = roles.server || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
     let server: Awaited<ReturnType<typeof startServer>>
     try {
-      server = await startServer({
-        port,
-        ...(roles.janitor ? { startJanitorWorker: host.startJanitorWorker } : {}),
-      })
+      server = await startServer({ port })
     } catch (err) {
       // The port is taken (the common case on podium-host: the systemd podium-server
       // already owns :18787). Print actionable guidance and exit cleanly rather than
@@ -1265,7 +1231,9 @@ async function runInProcess(
         ? {
             onBlocked: async ({ type, reason }: { type: string; reason: string }) => {
               const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
-              console.error(`podium daemon: blocked-exit hook invoked pid=${process.pid} type=${type} reason=${reason}`)
+              console.error(
+                `podium daemon: blocked-exit hook invoked pid=${process.pid} type=${type} reason=${reason}`,
+              )
               console.error(
                 `podium daemon: blocked by the server (${type}: ${reason}) — exiting ${DAEMON_BLOCKED_EXIT_CODE}. Run \`podium status\` for recovery steps.`,
               )
@@ -1361,7 +1329,7 @@ export async function main(
   // ONE-SHOT CONFIG MIGRATIONS, before anything reads the config (POD-333).
   //
   // Here rather than in `loadConfig` because the loader runs in every process —
-  // server, daemon, janitor, each CLI invocation — and a loader that wrote would
+  // server, daemon, each CLI invocation — and a loader that wrote would
   // have all of them racing to save the same result on every boot. This is the
   // one invocation a human ran, and it runs AFTER selectInstance so a named
   // instance migrates its own file rather than the default one's.
@@ -1390,8 +1358,19 @@ export async function main(
   // human running one command, and their output is the command's own, not the
   // logger's. A long-lived component re-configures below once the plan says
   // which one it is — configureProcessLogging replaces rather than stacks.
+  //
+  // The parent's `PODIUM_LOGGING_MODE` is deliberately NOT honoured here: it is
+  // addressed to the server and daemon it spawns, and env reaches every
+  // descendant, so an agent's `podium issue …` under the daemon would otherwise
+  // take the journald sink and print NDJSON onto the stdout its caller parses.
+  // The component that IS the addressee re-configures below from `logSinkMode`,
+  // which does honour it.
   const { configureProcessLogging } = await import('@podium/runtime/logging')
-  configureProcessLogging({ role: 'cli', defaultLevel: 'warn' })
+  configureProcessLogging({
+    role: 'cli',
+    defaultLevel: 'warn',
+    mode: resolveLoggingMode(process.env, { honourParentDeclaration: false }),
+  })
   const { installProcessSafetyNet } = await import('@podium/runtime/process-safety')
   installProcessSafetyNet('podium')
 
@@ -1492,7 +1471,7 @@ export async function main(
     case 'join-config': {
       const { applyJoinToken } = await import('./cli-join')
       try {
-        const { name, warning } = applyJoinToken(plan.token)
+        const { name, warning } = await applyJoinToken(plan.token)
         console.log(`podium configured to join as "${name}"`)
         if (warning) console.warn(`\nWarning: ${warning}`)
       } catch (e) {
@@ -1501,10 +1480,18 @@ export async function main(
       }
       return
     }
+    case 'instance': {
+      const { instanceCliMain } = await import('./instance-cli')
+      const code = instanceCliMain(plan.args)
+      if (code !== 0) process.exitCode = code
+      return
+    }
     case 'set-server': {
-      const { applyServerUrl } = await import('@podium/runtime/setup')
+      const { applyServerUrl, fetchTargetAppUrl } = await import('@podium/runtime/setup')
       try {
-        const res = applyServerUrl(plan.target)
+        // Re-point the UI origin with the server URL (PDM-34): a rotated URL can be a
+        // different deployment, and the previous one's app host would then be wrong.
+        const res = applyServerUrl(plan.target, await fetchTargetAppUrl(plan.target))
         console.log(`podium server URL set to ${res.serverUrl}`)
         if (res.warning) console.warn(`\nWarning: ${res.warning}`)
         console.log('Restart the daemon to apply (e.g. `podium stop && podium`).')
@@ -1666,67 +1653,6 @@ export async function main(
       }
       return
     }
-    case 'janitor': {
-      ensureInstanceStateIdentity({ instanceId: resolveInstanceId() })
-      // This is a long-lived component, not a CLI command: re-configure logging
-      // under its own role so its records go to janitor.ndjson (or journald)
-      // rather than the console the `cli` role picked.
-      const janitorLogging = configureProcessLogging({ role: 'janitor' })
-      const { liveRecord, registerProcess } = await import('@podium/runtime/run-registry')
-      if (!plan.takeover) {
-        const holder = liveRecord('janitor')
-        if (holder) {
-          console.error(alreadyRunningMessage('janitor', holder))
-          process.exit(1)
-        }
-      }
-      try {
-        await registerProcess('janitor', {
-          mode: resolveRunRecordMode(process.env),
-        })
-      } catch (error) {
-        console.error((error as Error).message)
-        process.exit(1)
-      }
-      const { readOrCreateDaemonSecret } = await import('@podium/runtime/local-machine')
-      const host = await loadHost()
-      let handle: Awaited<ReturnType<HostModules['startJanitor']>>
-      try {
-        handle = await host.startJanitor({
-          serverUrl: plan.serverUrl,
-          token: readOrCreateDaemonSecret(),
-        })
-      } catch (error) {
-        if ((error as Error).name === 'MaintenanceCompatibilityError') {
-          const { DAEMON_BLOCKED_EXIT_CODE } = await import('@podium/runtime/connectivity')
-          console.error(`podium janitor: ${(error as Error).message}`)
-          process.exit(DAEMON_BLOCKED_EXIT_CODE)
-        }
-        throw error
-      }
-      console.log(`podium janitor up → ${plan.serverUrl}`)
-      const { startWatchdog } = await import('@podium/runtime/sd-notify')
-      // A live timer is not proof that maintenance advances: only completed
-      // janitor state-machine phases may keep the watchdog green [spec:SP-c29e].
-      const stopWatchdog = startWatchdog({
-        readProgress: () => handle.service.progressVersion(),
-      })
-      const shutdown = (): void => {
-        stopWatchdog?.()
-        handle.close()
-        // Drain before exiting so the last records of a clean shutdown are
-        // durable. Best-effort: a sink that cannot be closed must not be the
-        // reason a SIGTERM'd janitor fails to exit.
-        void janitorLogging
-          .close()
-          .catch(() => {})
-          .finally(() => process.exit(0))
-      }
-      process.on('SIGINT', shutdown)
-      process.on('SIGTERM', shutdown)
-      await new Promise(() => {})
-      return
-    }
     case 'repair-config': {
       // Never destructive — the broken file is renamed, not deleted (#21).
       const { repairConfig } = await import('./cli-setup')
@@ -1830,6 +1756,14 @@ export async function main(
       await workflowCliMain(plan.args)
       return
     }
+    // `podium interactions <command>` (POD-2020): the blocking asks a session
+    // is stopped on, listed and answered WITHOUT attaching a terminal — which is
+    // the whole point of the PendingInteraction aggregate (spec §4).
+    case 'interactions': {
+      const { interactionsCliMain } = await import('./interactions-cli')
+      await interactionsCliMain(plan.args)
+      return
+    }
     // `podium lock <command>`: advisory named lease locks [spec:SP-85d1].
     case 'lock': {
       const { lockCliMain } = await import('./lock-cli')
@@ -1869,7 +1803,13 @@ export async function main(
         input: process.stdin,
         output: process.stdout,
       })
-      await runCliSetup({ prompt: (q) => rl.question(q), print: (s) => console.log(s) }, plan.port)
+      await runCliSetup(
+        { prompt: (q) => rl.question(q), print: (s) => console.log(s) },
+        plan.port,
+        // `--confirm-url-change` answers the "this strands joined machines"
+        // question ahead of time, for a run that cannot answer a prompt.
+        argv.includes('--confirm-url-change') ? { confirmUrlChange: true } : {},
+      )
       rl.close()
       return
     }

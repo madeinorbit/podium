@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs'
-import { startJanitor } from '../../apps/janitor/src/janitor'
+import { startJanitor } from '../../packages/janitor/src/janitor'
 import { startWatchdog } from '../../packages/runtime/src/sd-notify'
 
 function required(name: string): string {

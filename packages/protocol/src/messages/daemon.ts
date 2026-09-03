@@ -45,6 +45,18 @@ import {
 import { InventoryReportMessage, ModelProbeResultMessage } from './inventory'
 import { AgentRelayRequestMessage } from './issues'
 import {
+  RuntimeAnswerResultMessage,
+  RuntimeEventMessage,
+  RuntimeFineEventMessage,
+  RuntimeInteractionAskedMessage,
+  RuntimeConfigureResultMessage,
+  RuntimeLifecycleResultMessage,
+  RuntimeQueueDrainAbandonedMessage,
+  RuntimeStageAttachmentResultMessage,
+  RuntimeSendResultMessage,
+  RuntimeSnapshotResultMessage,
+} from './runtime'
+import {
   AgentObservationMessage,
   AgentObservationRebindMessage,
   AgentObserverLiveConfirmationMessage,
@@ -64,6 +76,7 @@ import {
   AgentFrameMessage,
   AgentModelMessage,
   BindMessage,
+  DriverSelectedMessage,
   DurableSessionCensusMessage,
   ReattachFailedMessage,
   SessionKillResultMessage,
@@ -186,6 +199,7 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   UpdateStatusMessage,
   ModelProbeResultMessage,
   BindMessage,
+  DriverSelectedMessage,
   AgentFrameMessage,
   AgentFrameBatchMessage,
   AgentExitMessage,
@@ -223,6 +237,26 @@ export const DaemonMessage = z.discriminatedUnion('type', [
   ShippingJobResultMessage,
   ShippingEvidenceResultMessage,
   ShippingRepairApplyResultMessage,
+  // The Agent Runtime contract's six request flows and read/receipt path
+  // (POD-1761 W3). Correlated `*Result` frames settle through the one RPC
+  // correlator by `requestId`; interrupt completes through the event stream.
+  // Coarse runtime events are acknowledged entity deliveries; fine deltas are live.
+  RuntimeStageAttachmentResultMessage,
+  RuntimeSendResultMessage,
+  RuntimeQueueDrainAbandonedMessage,
+  RuntimeLifecycleResultMessage,
+  RuntimeAnswerResultMessage,
+  // POD-2023 (W5) gives both of these a producer, which is what W1's rule asked
+  // for before they could join the union: the opencode driver's protocol asks
+  // reach the interactions aggregate through `runtimeInteractionAsked`, and a
+  // server holding a stream gap re-bootstraps through `runtimeSnapshotResult`.
+  RuntimeInteractionAskedMessage,
+  RuntimeSnapshotResultMessage,
+  RuntimeEventMessage,
+  RuntimeFineEventMessage,
+  /** The outcome of a sticky configure (POD-3081), appended at the END so the
+   *  golden corpus's index-sampled arms stay byte-identical. */
+  RuntimeConfigureResultMessage,
   DaemonLogBatchMessage,
 ])
 export type DaemonMessage = z.infer<typeof DaemonMessage>

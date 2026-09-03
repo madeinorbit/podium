@@ -4,6 +4,7 @@ import {
   type AgentStateEvent,
   type AgentStateProvider,
   ClaudeCausalObserver,
+  agentStateProviderFor,
   captureClaudeTranscript,
   carryAcrossRebuild,
   claudePromptHookFingerprint,
@@ -40,6 +41,10 @@ import { countTail, timeTask } from './loop-attribution'
 import type { SessionBinding } from './session-binding'
 import type { SessionCwdTracker } from './worktree-resolve'
 import { createLogger } from '@podium/logger'
+import {
+  createTerminalScreenObserver,
+  type TerminalScreenObserver,
+} from './terminal-screen-observer'
 
 const log = createLogger('daemon:session')
 
@@ -70,6 +75,8 @@ export interface SessionObserversDeps {
   statTick?: StatTick
   /** Discovery homeDir override (tests / isolated HOME). */
   homeDir?: string | undefined
+  /** Product-owned transcript authority root, distinct from the harness account home. */
+  transcriptRoot?: string | undefined
   /** A live transcript tail appended — mark the file dirty for the active index refresh. */
   onTranscriptDirty(path: string): void
   /** The hook payload's live cwd — feeds the session cwd tracker. */
@@ -87,6 +94,8 @@ export interface SessionObserversDeps {
   /** Draft Sync v2 (POD-859): agent-idle transitions, so the composer engine only
    *  scrapes/injects while the composer is the live input. Omitted (tests) = no-op. */
   onIdleState?: (sessionId: SessionId, idle: boolean) => void
+  /** A provider saw an explicit login-success line in its native terminal. */
+  onAuthSignal?: (sessionId: SessionId) => void
 }
 
 /** The reattach message's recorded-path evidence; spawns don't carry one. */
@@ -107,6 +116,7 @@ export const IDLE_TRANSITION_DEBOUNCE_MS = 1000
 
 export const CAUSAL_DELIVERY_RETRY_BASE_MS = 250
 export const CAUSAL_DELIVERY_RETRY_MAX_MS = 4_000
+const MAX_EARLY_SCREEN_BYTES = 256 * 1024
 
 /**
  * All per-session observation state the daemon holds: agent-state trackers
@@ -127,6 +137,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
   // observer lifecycle only adds/removes callbacks. [spec:SP-c29e]
   const statTick = deps.statTick ?? createSharedStatTick()
   const trackers = new Map<string, { provider: AgentStateProvider; state: AgentRuntimeState }>()
+  const screenObservers = new Map<SessionId, TerminalScreenObserver>()
+  const earlyScreenFrames = new Map<SessionId, { frames: Uint8Array[]; bytes: number }>()
   // Per-session pending →idle wire emissions. Cancelled on non-idle transition
   // or session teardown so timers never leak across sessions.
   const pendingIdleEmits = new Map<SessionId, ReturnType<typeof setTimeout>>()
@@ -406,24 +418,36 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
     const p = payload as Record<string, unknown>
     const path = typeof p.transcript_path === 'string' ? p.transcript_path : ''
-    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>>
+    // An unreadable transcript costs this hook its POSITION, not its existence.
+    // Dropping it here cost a session its whole turn: claude posts no
+    // SessionStart at all, so the first hook a fresh session delivers is the
+    // UserPromptSubmit, which becomes the bootstrap AND is replayed as the live
+    // hook — and at that instant claude has not yet created the conversation's
+    // .jsonl, so this capture throws. UserPromptSubmit is the only hook that
+    // opens a turn epoch, so the drop left the epoch closed; the Stop that
+    // arrived minutes later, once the file existed, was refused for having no
+    // open epoch, and the phase sat at the bootstrap's `idle` through 80KB of
+    // output. The hook is claude's own report of a lifecycle event and is
+    // evidence on its own; the transcript only supplies a cursor boundary and
+    // prompt-record evidence, and the observer already has a defined answer for
+    // having neither. [POD-2810]
+    let capture: Awaited<ReturnType<typeof captureClaudeTranscript>> | null = null
     try {
       capture = await captureTranscript(path)
     } catch {
-      // An unreadable transcript costs this hook, not the queue behind it —
-      // returning without draining left buffered hooks parked until the next
-      // one happened to arrive.
-      drainClaudeHooks(causal)
-      return
+      capture = null
     }
-    const baseSegmentId = claudeTranscriptSegmentId(String(p.session_id), capture)
-    const promptFingerprint = claudePromptHookFingerprint(payload)
-    const promptEvidence = promptFingerprint
-      ? capture.prompts.findLast((prompt) => prompt.payloadFingerprint === promptFingerprint)
+    const baseSegmentId = capture
+      ? claudeTranscriptSegmentId(String(p.session_id), capture)
       : undefined
+    const promptFingerprint = claudePromptHookFingerprint(payload)
+    const promptEvidence =
+      capture && promptFingerprint
+        ? capture.prompts.findLast((prompt) => prompt.payloadFingerprint === promptFingerprint)
+        : undefined
     const observation = await causal.observer.observeHook(
       payload,
-      causal.observer.nextHookOffset(capture.boundary),
+      causal.observer.nextHookOffset(capture ? capture.boundary : null),
       undefined,
       baseSegmentId,
       promptEvidence
@@ -1077,6 +1101,22 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           ...(deps.tailSeedGate ? { seedGate: deps.tailSeedGate } : {}),
           initialWindowBytes: TAIL_SEED_WINDOW_BYTES,
           maxInitialItems: TAIL_SEED_MAX_ITEMS,
+          onStatus: (event) => {
+            if (event.kind === 'first-emission') {
+              log.info('transcript tail first emission', {
+                sessionId,
+                path: event.path,
+                items: event.items,
+                reset: event.reset,
+              })
+              return
+            }
+            log.warn('transcript tail read failed', {
+              sessionId,
+              path: event.path,
+              error: event.error,
+            })
+          },
         },
       ),
     )
@@ -1163,9 +1203,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       ) {
         void deps
           .onExactCodexBinding(sessionId, value)
-          .catch((err) =>
-            log.warn('codex identity receipt failed', { err, sessionId }),
-          )
+          .catch((err) => log.warn('codex identity receipt failed', { err, sessionId }))
         return
       }
       send({
@@ -1239,6 +1277,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     try {
       events = await provider.bootEvents({
         cwd,
+        podiumSessionId: sessionId,
+        ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
         ...(resumeValue ? { resumeValue } : {}),
         ...(pathHint ? { pathHint } : {}),
       })
@@ -1248,7 +1288,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     const tracker = trackers.get(sessionId)
     if (!tracker) return
     for (const event of events) {
-      if (tracker.state.phase !== 'unknown') return
+      // Unknown with provenance can be an observed gap; a delayed boot
+      // assumption must not turn that uncertainty into fabricated idle.
+      if (tracker.state.phase !== 'unknown' || tracker.state.stateSource !== undefined) return
       const next = reduceAgentState(tracker.state, event, new Date().toISOString())
       if (next === tracker.state) continue
       tracker.state = next
@@ -1257,9 +1299,11 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     }
   }
 
-  // (Re)build the per-session observers a fresh daemon must stand up right after
-  // wiring the PTY bridge: the agent-state tracker, the adapter's observation
-  // (harness state observer and/or resume transcript tail), and a seeded phase.
+  // (Re)build the per-session observers a fresh daemon must stand up after
+  // wiring the PTY bridge: the agent-state tracker, the terminal screen mirror,
+  // the adapter's observation (harness state observer and/or resume transcript
+  // tail), and a seeded phase. The frame tap replays its bounded pre-init buffer
+  // into the screen mirror before the adapter begins observing.
   // Spawn AND reattach both call this so the two paths can't silently diverge —
   // that drift left idle survivors shown 'working' with an empty chat after a
   // redeploy. 'shell' (and unknown kinds) have no adapter → no observation.
@@ -1287,16 +1331,37 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     // no delivery timer, pending effect, or provider callback may survive it.
     cancelPendingRebind(msg.sessionId)
     cancelSessionObservationDeliveries(msg.sessionId)
+    screenObservers.get(msg.sessionId)?.dispose()
+    screenObservers.delete(msg.sessionId)
     pendingBindingHooks.delete(msg.sessionId)
     claudeStarting.delete(msg.sessionId)
     claudeCausal.get(msg.sessionId)?.stopConfirmationPoll?.()
     claudeCausal.delete(msg.sessionId)
     causalLeases.delete(msg.sessionId)
+    const earlyFrames = earlyScreenFrames.get(msg.sessionId)
+    earlyScreenFrames.delete(msg.sessionId)
+    const screenProvider =
+      provider ??
+      ('loginHarness' in msg && msg.loginHarness
+        ? agentStateProviderFor(msg.loginHarness)
+        : undefined)
     if (provider) {
       trackers.set(msg.sessionId, {
         provider,
         state: initialAgentState(new Date().toISOString()),
       })
+    }
+    if (screenProvider) {
+      const screenObserver = createTerminalScreenObserver(screenProvider, msg.geometry, {
+        onStateEvents: (events) => applyAgentStateEvents(msg.sessionId, events),
+        onLoginSignal: () => deps.onAuthSignal?.(msg.sessionId),
+      })
+      if (screenObserver) {
+        screenObservers.set(msg.sessionId, screenObserver)
+        for (const frame of earlyFrames?.frames ?? []) {
+          screenObserver.onData(Buffer.from(frame))
+        }
+      }
     }
     const adapter = adapterForKind(msg.agentKind)
     const observationProvider = ObservationProvider.safeParse(adapter?.kind)
@@ -1345,6 +1410,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
             ? { resumeValue: init.newSessionId }
             : {}),
         ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+        ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
         ...(init.startedAtMs !== undefined ? { startedAtMs: init.startedAtMs } : {}),
         // Reattach carries the session's original spawn time — the codex
         // lazy-rollout discovery floor (see HarnessObserveInput.createdAtMs).
@@ -1433,8 +1499,10 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     startObservation(sessionId, adapter, {
       cwd,
       statTick,
+      podiumSessionId: sessionId,
       resumeValue,
       ...(deps.homeDir ? { homeDir: deps.homeDir } : {}),
+      ...(deps.transcriptRoot ? { transcriptRoot: deps.transcriptRoot } : {}),
     })
   }
 
@@ -1466,9 +1534,7 @@ export function createSessionObservers(deps: SessionObserversDeps) {
           nativeKind: bound.adapter.resumeKind,
           observedAt: new Date().toISOString(),
         })
-        .catch((error) =>
-          log.warn('hook repin transition failed', { err: error, sessionId }),
-        )
+        .catch((error) => log.warn('hook repin transition failed', { err: error, sessionId }))
     }
     const changedCausalBinding = Boolean(
       harnessSessionId &&
@@ -1564,6 +1630,28 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       .catch((err) => log.warn('hook translate failed', { err, sessionId }))
   }
 
+  /** Feed raw PTY output to the provider's event-driven screen mirror. */
+  const onFrame = (sessionId: SessionId, data: Uint8Array): void => {
+    const observer = screenObservers.get(sessionId)
+    if (observer) {
+      observer.onData(Buffer.from(data))
+      return
+    }
+    const pending = earlyScreenFrames.get(sessionId) ?? { frames: [], bytes: 0 }
+    pending.frames.push(data)
+    pending.bytes += data.byteLength
+    while (pending.bytes > MAX_EARLY_SCREEN_BYTES && pending.frames.length > 1) {
+      const discarded = pending.frames.shift()
+      pending.bytes -= discarded?.byteLength ?? 0
+    }
+    earlyScreenFrames.set(sessionId, pending)
+  }
+
+  /** Keep the provider's VT geometry aligned with the real PTY. */
+  const onResize = (sessionId: SessionId, cols: number, rows: number): void => {
+    screenObservers.get(sessionId)?.onResize(cols, rows)
+  }
+
   /** Current tracked agent state, if the session has a live tracker. */
   const trackedState = (sessionId: SessionId): AgentRuntimeState | undefined =>
     trackers.get(sessionId)?.state
@@ -1573,6 +1661,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     cancelPendingIdleEmit(sessionId)
     gitCapture.clearSession(sessionId)
     trackers.delete(sessionId)
+    screenObservers.get(sessionId)?.dispose()
+    screenObservers.delete(sessionId)
+    earlyScreenFrames.delete(sessionId)
     stopObservation(sessionId)
     causalLeases.delete(sessionId)
     cancelPendingRebind(sessionId)
@@ -1599,6 +1690,9 @@ export function createSessionObservers(deps: SessionObserversDeps) {
       cancelObservationDelivery(pending.observation)
     }
     for (const id of [...observations.keys()]) stopObservation(id)
+    for (const observer of screenObservers.values()) observer.dispose()
+    screenObservers.clear()
+    earlyScreenFrames.clear()
     trackers.clear()
   }
 
@@ -1606,6 +1700,8 @@ export function createSessionObservers(deps: SessionObserversDeps) {
     initSessionObservers,
     bindHeadlessSession,
     onHookPayload,
+    onFrame,
+    onResize,
     trackedState,
     onObservationAck,
     onProviderRebindAck,

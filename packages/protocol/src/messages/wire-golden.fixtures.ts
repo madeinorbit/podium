@@ -149,6 +149,13 @@ const SESSION_META_FULL = {
   snoozedUntil: '2026-07-30T12:00:00.000Z',
   draftUpdatedAt: '2026-07-30T09:58:00.000Z',
   draftSyncEngine: true,
+  driverId: 'generic-pty',
+  requestedDriverId: 'opencode-server',
+  // The degraded pair, and the family that goes with the driver ACTUALLY bound
+  // (POD-2290): a session that asked for `opencode-server` and got `generic-pty`
+  // is a TERMINAL session, and a client reading the family off the request
+  // rather than the binding would hide the terminal it has.
+  driverFamily: 'terminal',
   queuedMessageCount: 2,
   offer: SESSION_OFFER_FULL,
   handoffTarget: 'machine-2',
@@ -393,6 +400,26 @@ const INVENTORY_FULL = {
     { kind: 'cursor', installed: false, login: { state: 'unknown' } },
   ],
   tools: [{ name: 'gh', installed: true, version: '2.0.0', path: '/usr/bin/gh' }],
+}
+
+const INVENTORY_PROBE_TIMEOUT = {
+  os: 'linux',
+  arch: 'x64',
+  agents: [
+    {
+      kind: 'opencode',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+      login: { state: 'in' },
+    },
+  ],
+  tools: [
+    {
+      name: 'gh',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+    },
+  ],
 }
 
 const HOST_MEMORY_FULL = {
@@ -677,6 +704,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
     value: { name: 'gh', installed: true, version: '2.0.0', path: '/usr/bin/gh' },
   },
   { name: 'inventory.full', schema: Inventory, value: INVENTORY_FULL },
+  { name: 'inventory.probeTimeout', schema: Inventory, value: INVENTORY_PROBE_TIMEOUT },
   {
     name: 'inventory.minimal',
     schema: Inventory,

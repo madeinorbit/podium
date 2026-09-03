@@ -72,6 +72,10 @@ export const HOST_EDGE_FRAMES = [
   'hostMetrics',
   'memoryBreakdownRequest',
   'memoryBreakdownResult',
+  // Host pressure giving back client terminals before any session is parked
+  // (POD-2059, spec §5) — a machine-wide command on the same host channel as
+  // the metrics sample that triggers it, carrying no session identity at all.
+  'reclaimAttachments',
   'reclaimDiskEstimateRequest',
   'reclaimDiskEstimateResult',
   // PTY / agent-frame streams.
@@ -80,6 +84,29 @@ export const HOST_EDGE_FRAMES = [
   'agentExit',
   'bind',
   'transcriptDelta',
+  // The Agent Runtime contract (POD-1761 W3). Session verbs and their receipts
+  // on the daemon socket — never the agent relay, whose URL bakes in a session
+  // identity these frames carry explicitly.
+  'runtimeStageAttachmentRequest',
+  'runtimeStageAttachmentResult',
+  'runtimeSendRequest',
+  'runtimeSendResult',
+  'runtimeQueueDrainAbandoned',
+  'runtimeQueueDrainAbandonedAck',
+  'runtimeEventAck',
+  'runtimeInterruptRequest',
+  'runtimeAnswerRequest',
+  'runtimeAnswerResult',
+  'runtimeLifecycleRequest',
+  'runtimeLifecycleResult',
+  'runtimeConfigureRequest',
+  'runtimeConfigureResult',
+  'runtimeSnapshotRequest',
+  'runtimeSnapshotResult',
+  'runtimeInteractionAsked',
+  'runtimeEvent',
+  'runtimeFineEvent',
+  'runtimeWatch',
   // Host-initiated file / transcript bulk.
   'transcriptRead',
   'transcriptReadResult',

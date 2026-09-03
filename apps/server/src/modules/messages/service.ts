@@ -44,11 +44,17 @@ import {
   asSessionId,
   FIRST_ADMIN_USER_ID,
   isAgentComputing,
+  isIssueClosed,
   type IssueScope,
   type SessionId,
   type SessionMeta,
 } from '@podium/model'
 import { asDelegationRef } from '@podium/protocol'
+import {
+  type QueueDrainAbandonedReason,
+  type RefusalReason,
+  type TurnReceipt,
+} from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../command-principal'
 import { selectMailNudgeSession, sessionsForIssue } from '../../issue-util'
 import type {
@@ -70,7 +76,14 @@ import { DeliveryBrakes, SPAWN_BUDGET_PER_DAY } from './brakes'
 import { MessageMailbox } from './mailbox'
 import { INLINE_BODY_MAX, MessageRenderer, principalOfRow } from './render'
 import { type DeliveryRunner, DeliveryScheduler, type MessageDeliveryStats } from './scheduler'
-import type { MessageSender, MessageSendInput, MessageSendResult, SendDisposition } from './types'
+import type {
+  MessageSender,
+  MessageSendInput,
+  MessageSendOptions,
+  MessageSendResult,
+  SendDisposition,
+} from './types'
+import { SUPERAGENT_AGENT_IDENTITY } from './types'
 
 export { INTERRUPT_DELIVERY_CEILING_MS, NEXT_TURN_DELIVERY_BUDGET_MS } from './mailbox'
 
@@ -78,6 +91,7 @@ export type {
   MessageSender,
   MessageSenderIdentity,
   MessageSendInput,
+  MessageSendOptions,
   MessageSendResult,
   SendDisposition,
 } from './types'
@@ -131,6 +145,7 @@ interface DeliveryOutcome {
   ok: boolean
   queued?: boolean
   reason?: string
+  position?: number
   disposition: SendDisposition
 }
 
@@ -183,15 +198,20 @@ export interface MessageDeliveryDeps {
     sessionById?(sessionId: SessionId): SessionMeta | undefined
     listSessionsForIssue?(worktreePath: string | null, issueId: IssueId): SessionMeta[]
     sessionRoutingFacts?(): SessionRoutingFacts[]
+    /** Live position in the SessionInbox FIFO for a ledger row already handed
+     * to it by a receipt/queue delivery. */
+    queuedMessagePosition?(sessionId: SessionId, sourceMessageId: string): number | undefined
     sendText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
       reason?: string
+      position?: number
     }
     queueText(input: InboxDeliveryInput): {
       ok: boolean
       queued?: boolean
       reason?: string
+      position?: number
     }
     cancelQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
     hasQueuedMessage?(sessionId: SessionId, sourceMessageId: string): boolean
@@ -209,8 +229,34 @@ export interface MessageDeliveryDeps {
       ok: boolean
       queued?: boolean
       reason?: string
+      position?: number
     }
+    /**
+     * THE RECEIPT PATH (POD-1761 W4), and the ONLY send port delivery uses when
+     * it is wired.
+     *
+     * It subsumes the three verbs above rather than sitting beside them: `via`
+     * carries the same choice `injectAndMark` already made, so the urgency x
+     * lifecycle table is untouched and the transport it picked is simply named
+     * once instead of switched on twice. What changes is the EVIDENCE — the
+     * synchronous answer is the same shape the verbs return today, and
+     * `onReceipt` arrives afterwards with what the driver actually did, which is
+     * what settles the ledger row instead of a queue-depth guess.
+     *
+     * OPTIONAL, for the same reason `sessionById` above is: a great many fixtures
+     * wire the three verbs and nothing else, and the fallback is the legacy path
+     * they already exercise — so an unwired fixture is flag-off, never wrong.
+     * `ReceiptSender` decides per session whether a receipt is coming at all; a
+     * legacy-driven session gets none, and no reconciliation fires.
+     */
+    receiptSend?(
+      via: 'now' | 'queue' | 'interrupt',
+      input: InboxDeliveryInput,
+      onReceipt?: (receipt: TurnReceipt) => void,
+    ): { ok: boolean; queued?: boolean; reason?: string; position?: number }
   }
+  /** Server-only fact for the live runtime contract. It is not part of the client session projection. */
+  runtimeContractActive?(sessionId: SessionId): boolean
   /** Legacy mailbox mirror (store.issues.addIssueMessage) — issue-addressed
    *  sends dual-write so inbox/claim/pending keep working (drop with the table). */
   mirrorIssueMail?(row: IssueMessageRow): void
@@ -353,6 +399,96 @@ function capUrgency(requested: MessageUrgency, max: MessageUrgency): MessageUrge
   return URGENCY_ORDER.indexOf(requested) > URGENCY_ORDER.indexOf(max) ? max : requested
 }
 
+/** What the sender is told when the daemon reports it never typed their turn
+ *  [POD-2132, POD-2202]. Written for the person holding the receipt, not for the
+ *  driver: neither reason is anybody's fault and neither is a retry instruction. */
+const ABANDONED_REASON_TEXT: Record<QueueDrainAbandonedReason, string> = {
+  'never-live': 'the target session never finished starting within the readiness deadline',
+  teardown: 'the target session was torn down before it could be typed into',
+  'delivery-failed': 'the target session accepted it, then failed to hand it to the agent',
+}
+
+/**
+ * WHAT A REFUSED RECEIPT DOES TO THE ROW IT ANSWERS [POD-2298].
+ *
+ * A send toward a live driver records its ledger state optimistically and hears
+ * the driver's verdict afterwards (see {@link MessageDeliveryService.injectAndMark}).
+ * Before this table a `refused` verdict was RECORDED and nothing else, so a chat
+ * message whose driver threw kept saying `delivered` with nothing delivered —
+ * the exact silent loss the receipt migration exists to end. Every arm of
+ * `RefusalReason` therefore has to answer one question: does the cause clear on
+ * its own?
+ *
+ *  - IT CLEARS → `requeue`. `busy` ends when the turn does, `needs_user` when a
+ *    person answers, `lease_held` when the human lets go. The row goes back to
+ *    `queued` un-pushed and the idle drain / sweep — the retry machinery that
+ *    already exists — carries it. Nothing new retries anything here.
+ *  - IT DOES NOT → `dead-letter`, and the sender is told once. There is no
+ *    process to type into (`not_running`), the session is over (`session_ended`),
+ *    the machine could not persist the bytes (`staging_failed` — a disk that
+ *    failed this turn is not talked round by the next sweep tick),
+ *    or the driver does not implement the verb at all (`unsupported`, which no
+ *    shipped driver answers a send with today — it is here so that if one ever
+ *    does, an unsatisfiable send fails loudly instead of re-queueing forever).
+ *  - `no_resume_ref` IS NOT THIS PATH'S TO CORRECT. It reaches a reconciler only
+ *    from the durable-queue refusal, which answers SYNCHRONOUSLY and is already
+ *    routed to spawn-on-wake by `injectAndMark`'s own `no resume ref` branch.
+ *    Dead-lettering it here would kill the row that path is about to deliver.
+ *
+ * `staging_failed` ARRIVED AFTER THIS TABLE DID — POD-2298 was written against
+ * seven arms and the attachment work added an eighth. Nothing here had to notice:
+ * the `Record<RefusalReason, …>` is exhaustive on purpose, so the compiler asked
+ * for an answer instead of letting an unknown refusal fall through to "leave
+ * `delivered` standing", which is the defect this file exists to fix. Keep it
+ * exhaustive. And when a future arm is genuinely ambiguous, prefer the VISIBLE
+ * correction: a wrong dead-letter is a message its sender can see and send again,
+ * a wrong `none` is one nobody ever hears about.
+ *
+ * The dead-letter arms name a {@link QueueDrainAbandonedReason} rather than
+ * carrying wording of their own. That enum is not widened (a fourth arm is a
+ * rolling-upgrade event, POD-2297) and {@link ABANDONED_REASON_TEXT} stays the one
+ * place a sender-facing undelivered notice is written — a refusal and a drain
+ * abandonment are the same news to the person holding the receipt, and they must
+ * not arrive worded two different ways. The precise refusal reason is not lost:
+ * it rides the `message.receipt` event emitted beside the correction.
+ */
+const REFUSAL_CORRECTION: Record<
+  RefusalReason,
+  | { correct: 'requeue' }
+  | { correct: 'dead-letter'; as: QueueDrainAbandonedReason }
+  | { correct: 'none' }
+> = {
+  busy: { correct: 'requeue' },
+  needs_user: { correct: 'requeue' },
+  lease_held: { correct: 'requeue' },
+  not_running: { correct: 'dead-letter', as: 'delivery-failed' },
+  unsupported: { correct: 'dead-letter', as: 'delivery-failed' },
+  session_ended: { correct: 'dead-letter', as: 'teardown' },
+  staging_failed: { correct: 'dead-letter', as: 'delivery-failed' },
+  no_resume_ref: { correct: 'none' },
+  /** EXPORT-ONLY TODAY (POD-2703): the harness has not written its session store
+   *  yet. No send path can produce it, and it is here for the same reason
+   *  `unsupported` is — so that a driver which ever answers a send with it fails
+   *  LOUDLY instead of falling through to "leave `delivered` standing".
+   *
+   *  Dead-letter rather than requeue even though the condition is transient: it
+   *  clears when the session speaks, and the queued message is the thing that
+   *  would have made it speak, so a requeue waits on itself. The visible
+   *  correction is the one a sender can act on. */
+  no_archive_yet: { correct: 'dead-letter', as: 'delivery-failed' },
+  /** CONFIGURE-ONLY TODAY (POD-3081): a `configure()` given a value the harness
+   *  cannot take. Here for the same reason the two arms above it are — no send
+   *  path produces it, and the exhaustive Record is what makes that a decision
+   *  rather than a fall-through.
+   *
+   *  Dead-letter, and the choice is easy for once: a value the harness rejected
+   *  is rejected identically on every retry, so requeueing would spin the sweep
+   *  forever over a message that can never land. The sender sees it once and can
+   *  send it again with something else — the visible correction this table's
+   *  header asks for. */
+  invalid_value: { correct: 'dead-letter', as: 'delivery-failed' },
+}
+
 export class MessageDeliveryService {
   /** hop of the message that triggered the CURRENT turn per session — set at
    *  delivery, cleared when the session goes idle (turn ended). Messages the
@@ -375,6 +511,8 @@ export class MessageDeliveryService {
   /** needs-attention already emitted per `${messageId}|${reason}` — the sweep
    *  re-attempts every 60s and must not spam the event log / notify path. */
   private readonly attentionEmitted = new Set<string>()
+  /** Direct live sends that were held outside SessionInbox until an exit. */
+  private readonly liveQueuedForExit = new Map<SessionId, Set<string>>()
 
   private readonly notificationArbiter: NotificationArbiter
   /** Envelope/pointer rendering and the confirmation mode that follows from it
@@ -421,7 +559,7 @@ export class MessageDeliveryService {
               deps.mirrorMarkIssueMailRead?.(issueId, ids),
           }
         : {}),
-      send: (from, input) => this.send(from, input),
+      send: (from, input, opts) => this.send(from, input, opts),
       cancelQueuedInput: (message) => {
         const sessionId =
           message.deliveredTo ?? (message.toKind === 'session' ? message.toId : null)
@@ -492,6 +630,48 @@ export class MessageDeliveryService {
         { kind: 'issue', id: nextIssueId },
         this.mayDrainIssueMail(asIssueId(nextIssueId), preferred),
       )
+    }
+  }
+
+  /**
+   * A direct send can be accepted while a live Grok ACP session is busy. Such a
+   * row lives in the message ledger, not in SessionInbox, so ordinary exit
+   * recovery cannot see it. Move only those rows into the same durable FIFO after
+   * the real exit event; parked wait sends never enter this set.
+   */
+  onSessionExited(sessionId: SessionId): void {
+    const messageIds = this.liveQueuedForExit.get(sessionId)
+    if (!messageIds) return
+    this.liveQueuedForExit.delete(sessionId)
+
+    const session = this.targetOf(sessionId)
+    if (
+      !session ||
+      session.status !== 'exited' ||
+      session.archived ||
+      session.resume === undefined ||
+      !this.canTrackGrokExit(sessionId, session)
+    )
+      return
+
+    for (const messageId of messageIds) {
+      const message = this.deps.messages.getMessage(messageId)
+      if (
+        !message ||
+        message.status !== 'queued' ||
+        message.injectedAt != null ||
+        message.deliveredTo != null
+      )
+        continue
+
+      // Re-authorize at the new apply boundary. The send was accepted before the
+      // child exit, but its delegated rights may have changed since then.
+      const auth = this.applyAuth(message)
+      if (!auth.ok) {
+        this.deadLetter(message, auth.reason, { notifySender: true })
+        continue
+      }
+      this.injectAndMark('queue', message, sessionId, 'queued')
     }
   }
 
@@ -659,6 +839,7 @@ export class MessageDeliveryService {
     this.scheduler.dispose()
     this.brakes.dispose()
     this.sessionIssueTargets.clear()
+    this.liveQueuedForExit.clear()
   }
 
   private queueDeliveryTarget(
@@ -679,6 +860,52 @@ export class MessageDeliveryService {
     }
   }
 
+  private canTrackGrokExit(sessionId: SessionId, session: SessionMeta): boolean {
+    return (
+      session.agentKind === 'grok' &&
+      session.driverId === 'grok-acp' &&
+      this.deps.runtimeContractActive?.(sessionId) === true
+    )
+  }
+
+  private rememberLiveQueuedForExit(
+    message: MessageRow,
+    target: SessionMeta | undefined,
+    outcome: DeliveryOutcome,
+  ): void {
+    if (
+      message.toKind !== 'session' ||
+      !target ||
+      target.status !== 'live' ||
+      !outcome.queued ||
+      !this.canTrackGrokExit(target.sessionId, target)
+    )
+      return
+
+    const current = this.deps.messages.getMessage(message.id)
+    if (
+      !current ||
+      current.status !== 'queued' ||
+      current.injectedAt != null ||
+      current.deliveredTo != null
+    )
+      return
+
+    let messageIds = this.liveQueuedForExit.get(target.sessionId)
+    if (!messageIds) {
+      messageIds = new Set<string>()
+      this.liveQueuedForExit.set(target.sessionId, messageIds)
+    }
+    messageIds.add(message.id)
+  }
+
+  private forgetLiveQueuedForExit(sessionId: SessionId, messageId: string): void {
+    const messageIds = this.liveQueuedForExit.get(sessionId)
+    if (!messageIds) return
+    messageIds.delete(messageId)
+    if (messageIds.size === 0) this.liveQueuedForExit.delete(sessionId)
+  }
+
   private deliveryTargetOf(message: MessageRow): DeliveryTarget | null {
     if (message.toKind === 'operator' || !message.toId) return null
     return { kind: message.toKind, id: message.toId }
@@ -691,7 +918,11 @@ export class MessageDeliveryService {
    * Clamps/brakes downgrade the axes BEFORE the row is written, so the row
    * always holds the effective values and `clamped_from` the requested ones.
    */
-  send(from: MessageSender, input: MessageSendInput): MessageSendResult {
+  send(
+    from: MessageSender,
+    input: MessageSendInput,
+    opts?: MessageSendOptions,
+  ): MessageSendResult {
     const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
@@ -816,6 +1047,7 @@ export class MessageDeliveryService {
       urgency,
       lifecycle,
       body: input.body,
+      ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       expiresAt: input.expiresAt ?? null,
       createdAt: this.deps.now(),
       status: 'queued',
@@ -895,9 +1127,26 @@ export class MessageDeliveryService {
       this.deps.mirrorIssueMail?.(legacy)
     }
 
-    const outcome = this.attemptDelivery(message)
+    const outcome = this.attemptDelivery(
+      message,
+      opts?.awaitReceipt ? { awaitReceipt: true } : undefined,
+    )
+    this.rememberLiveQueuedForExit(message, targetSession, outcome)
+    // A busy-turn row can remain in the message ledger without entering the
+    // SessionInbox FIFO. Conversely, a wake/boot push may already be in that
+    // FIFO and have an exact driver-facing position. Fill the common result
+    // boundary from a live read in either case; never freeze the enqueue ordinal
+    // into the message row.
+    const position =
+      outcome.position ??
+      (outcome.queued ? this.queuePositionForMessage(message) : undefined)
     this.scheduleQueuedWakeRetry(message)
-    return { message: this.deps.messages.getMessage(id) ?? message, ...outcome, legacy }
+    return {
+      message: this.deps.messages.getMessage(id) ?? message,
+      ...outcome,
+      ...(position !== undefined ? { position } : {}),
+      legacy,
+    }
   }
 
   // ---- delivery resolution (state × axis table) ----
@@ -923,7 +1172,10 @@ export class MessageDeliveryService {
    * share, and no caller can reintroduce the per-page cost by forgetting to
    * pass one.
    */
-  private attemptDelivery(message: MessageRow, opts?: { viaSweep?: boolean }): DeliveryOutcome {
+  private attemptDelivery(
+    message: MessageRow,
+    opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
+  ): DeliveryOutcome {
     // A dead-letter found at SEND time returns synchronously to a watching sender
     // (no async notice); one found LATER (sweep) must tell the sender once.
     const notifySender = opts?.viaSweep === true
@@ -955,6 +1207,12 @@ export class MessageDeliveryService {
         // again — the 70 POD-279 losses included exactly this [POD-834 §05].
         return this.deadLetter(message, 'session no longer exists', { notifySender })
       }
+      // An archived row remains addressable for history, but is retired for
+      // delivery. Treat it as a terminal target before the wake path can queue
+      // input and revive a hidden process.
+      if (target.archived) {
+        return this.deadLetter(message, 'session is archived', { notifySender })
+      }
     } else {
       const issue = this.deps.issues.get(message.toId ?? '')
       if (!issue) return this.deadLetter(message, 'issue no longer exists', { notifySender })
@@ -963,6 +1221,11 @@ export class MessageDeliveryService {
       // (or done-but-live) issue with no session is HELD, below.
       if (issue.archived)
         return this.deadLetter(message, `issue #${issue.seq} is archived`, { notifySender })
+      // A closed issue is terminal even when it has not reached the archive
+      // lifecycle yet. In particular, a queued wake must not resurrect a
+      // session after the close reaper has stopped it.
+      if (isIssueClosed(issue))
+        return this.deadLetter(message, `issue #${issue.seq} is closed`, { notifySender })
       // The narrow read applies `isIssueMember` BEFORE the reader-scoped
       // projection is built (POD-1639); `sessionsForIssue` applies the SAME
       // predicate after it. Filtering the narrow result again is therefore a
@@ -1061,7 +1324,7 @@ export class MessageDeliveryService {
     const state = this.stateOf(target)
     if (state === 'idle') {
       // idle/live: inject now, every urgency.
-      return this.injectAndMark('now', message, target.sessionId, 'delivered')
+      return this.injectAndMark('now', message, target.sessionId, 'delivered', opts)
     }
     if (state === 'running') {
       if (message.urgency === 'fyi') {
@@ -1071,12 +1334,12 @@ export class MessageDeliveryService {
       if (message.urgency === 'interrupt') {
         // The intended mid-turn path. interruptText sends ESC first, which
         // visibly cancels an open AskUserQuestion menu before the text lands.
-        return this.injectAndMark('interrupt', message, target.sessionId, 'delivered')
+        return this.injectAndMark('interrupt', message, target.sessionId, 'delivered', opts)
       }
       // next-turn. A 'starting' session has no turn in flight and nothing on
       // screen — ride the durable boot queue; it types once the agent binds.
       if (target.status === 'starting') {
-        return this.injectAndMark('queue', message, target.sessionId, 'queued')
+        return this.injectAndMark('queue', message, target.sessionId, 'queued', opts)
       }
       // Busy live agent: HOLD for the turn boundary. queueText's immediate
       // drain types mid-turn (#471), and its submitting CR auto-answers an
@@ -1102,7 +1365,7 @@ export class MessageDeliveryService {
     }
     // record the wake against the cooldown window.
     this.recordWake(message, target)
-    const injected = this.injectAndMark('queue', message, target.sessionId, 'queued')
+    const injected = this.injectAndMark('queue', message, target.sessionId, 'queued', opts)
     if (injected.ok) return injected
     if (injected.reason === 'no resume ref') {
       // Unresumable → spawn-on-wake. The resume attempt was already gated on
@@ -1125,14 +1388,17 @@ export class MessageDeliveryService {
    * `via` picks the transport; `okDisposition` is what a successful dispatch means
    * to the sender. Crucially it marks the row `injected` (bytes dispatched,
    * awaiting the transcript echo), NOT `delivered` — except an unwrapped operator
-   * body, which carries no id to echo and so is confirmed on injection. This is
-   * the fix for the POD-495 defect-B lie: an enqueue is no longer a delivery.
+   * body, which carries no id to echo and so is confirmed on injection. A
+   * contract-backed blocking caller keeps even that row queued until the driver's
+   * receipt accepts it, so a late refusal can correct the optimistic record. This
+   * is the fix for the POD-495 defect-B lie: an enqueue is no longer a delivery.
    */
   private injectAndMark(
     via: 'now' | 'queue' | 'interrupt',
     message: MessageRow,
     sessionId: SessionId,
     okDisposition: SendDisposition,
+    opts?: { awaitReceipt?: boolean },
   ): DeliveryOutcome {
     const sessions = this.deps.sessions
     const principal = this.inboxPrincipal(message)
@@ -1146,12 +1412,44 @@ export class MessageDeliveryService {
     const input = {
       sessionId,
       text,
+      ...(message.attachments?.length ? { attachments: message.attachments } : {}),
       inputOrigin: message.fromKind === 'operator' ? ('controller' as const) : ('mail' as const),
       principal,
       sourceMessageId: message.id,
     }
-    const r =
-      via === 'now'
+    // ONE SEND, WITH THE MODE THE TABLE ABOVE ALREADY PICKED (POD-1761 W4).
+    // `receiptSend` is the migrated path; the three-way switch below it is the
+    // legacy one, kept intact and reached whenever this session has no driver
+    // behind it — which is what makes flag-off byte-identical rather than
+    // merely similar.
+    // WHETHER THIS FUNCTION HAS WRITTEN ANYTHING YET, told to the reconciler so a
+    // refusal corrects the push it answers and never the one before it. The
+    // durable-queue branch of `receiptSend` refuses SYNCHRONOUSLY, from inside the
+    // call below — its receipt is recorded, and the `ok: false` return underneath
+    // is what handles it [POD-2298].
+    const awaitReceipt =
+      opts?.awaitReceipt === true &&
+      sessions.receiptSend !== undefined &&
+      this.deps.runtimeContractActive?.(sessionId) === true
+    const confirmed = this.render.confirmedOnInjection(message)
+    let recorded = false
+    const pendingReceipts: TurnReceipt[] = []
+    const settleReceipt = (receipt: TurnReceipt, afterRecord: boolean): void => {
+      this.reconcileReceipt(
+        message.id,
+        sessionId,
+        receipt,
+        afterRecord,
+        awaitReceipt && confirmed && via !== 'queue',
+      )
+    }
+    const r = sessions.receiptSend
+      ? sessions.receiptSend(via, input, (receipt) => {
+          if (recorded) settleReceipt(receipt, true)
+          else if (awaitReceipt) pendingReceipts.push(receipt)
+          else settleReceipt(receipt, false)
+        })
+      : via === 'now'
         ? sessions.sendText(input)
         : via === 'interrupt'
           ? sessions.interruptText(input)
@@ -1162,7 +1460,19 @@ export class MessageDeliveryService {
     // reports THIS push attempt failed. The one caller whose ok:false carries a
     // recoverable path — a parked 'no resume ref' — is intercepted upstream and
     // routed to trySpawn, so it never surfaces this mixed signal to a sender.
-    if (!r.ok) return { ...r, disposition: 'queued' }
+    if (!r.ok) {
+      for (const receipt of pendingReceipts) settleReceipt(receipt, false)
+      return { ...r, disposition: 'queued' }
+    }
+    // A live session can still be inside the harness's startup window. The
+    // legacy inbox redirects that `now` send into its durable FIFO; preserve
+    // that queued state instead of marking the message delivered on enqueue.
+    if (via !== 'queue' && r.queued === true) {
+      this.markInjected(message, sessionId)
+      recorded = true
+      for (const receipt of pendingReceipts) settleReceipt(receipt, true)
+      return { ...r, disposition: 'queued' }
+    }
     // A boot/busy queue acceptance is not delivery. Keep the ledger row queued
     // until SessionInbox drains this exact sourceMessageId; otherwise the
     // transcript hides a still-pending human message as soon as revival starts,
@@ -1170,10 +1480,11 @@ export class MessageDeliveryService {
     // preserves the existing sweep/retry guard while status remains retractable.
     if (via === 'queue') {
       this.markInjected(message, sessionId)
+      recorded = true
+      for (const receipt of pendingReceipts) settleReceipt(receipt, true)
       return { ...r, disposition: okDisposition }
     }
-    const confirmed = this.render.confirmedOnInjection(message)
-    if (confirmed) {
+    if (confirmed && !awaitReceipt) {
       // No echo will ever come (unwrapped operator body has no id), or chasing one
       // is pure loop risk (a best-effort ack/notification) — the injection IS the
       // delivery [POD-834, POD-853].
@@ -1183,6 +1494,8 @@ export class MessageDeliveryService {
       // for the agent's own signal (transcript echo → delivered, inbox → read).
       this.markInjected(message, sessionId)
     }
+    recorded = true
+    for (const receipt of pendingReceipts) settleReceipt(receipt, true)
     // Honest sync disposition [spec:SP-cb9f] [POD-854]. The optimistic `delivered`
     // disposition is only ever passed for a LIVE-PTY push (via 'now' / 'interrupt',
     // sendText/interruptText) — the bytes are on screen now — so it is honest only
@@ -1193,7 +1506,10 @@ export class MessageDeliveryService {
     // durable boot-queue push ('queue') keeps its `queued`/`spawning` disposition
     // untouched — the message rides the resume queue, delivered when the session binds.
     if (okDisposition === 'delivered') {
-      return { ...r, disposition: confirmed ? 'delivered' : 'queued' }
+      return {
+        ...r,
+        disposition: confirmed && !awaitReceipt ? 'delivered' : 'queued',
+      }
     }
     return { ...r, disposition: okDisposition }
   }
@@ -1221,6 +1537,53 @@ export class MessageDeliveryService {
     const message = this.deps.messages.getMessage(messageId)
     if (!message || message.status !== 'queued') return
     this.markInjected(message, sessionId)
+  }
+
+  /**
+   * THE DAEMON GAVE UP ON THESE TURNS, SO THE RECEIPT STOPS SAYING `queued`
+   * [POD-2132, POD-2202].
+   *
+   * A terminal queue reached its ready deadline with the session never live
+   * (`never-live`); any family's session was torn down still holding them
+   * (`teardown`); or a server-family driver pulled one off its own queue and the
+   * send failed (`delivery-failed`, POD-2297). Either way the turn was never
+   * delivered and nothing on this side will deliver it: the row
+   * goes TERMINAL (`dead_letter`), which is what takes it out of `countPending`,
+   * off the retry sweep, and out of a blocked sender's `waitFor`. The sender is
+   * told once, the way any dead-letter tells them — being told nothing is the
+   * defect this closes.
+   *
+   * REPORTS REPEAT. They are retryable, they survive restarts, and they carry turn
+   * ids a previous report already moved. Dedupe is the repository's guarded write,
+   * not a set kept here: `markDeliveryAbandoned` only fires on a row that is still
+   * `queued`, so a duplicated id — inside one report or across two — produces
+   * exactly one transition and exactly one sender notice.
+   */
+  onQueueDrainAbandoned(
+    sessionId: SessionId,
+    turnIds: readonly string[],
+    reason: QueueDrainAbandonedReason,
+  ): void {
+    const at = this.deps.now()
+    for (const messageId of turnIds) {
+      const message = this.deps.messages.getMessage(messageId)
+      if (!message || message.status !== 'queued') continue
+      if (!this.deps.messages.markDeliveryAbandoned(messageId, sessionId, at, reason)) continue
+      const abandoned: MessageRow = {
+        ...message,
+        status: 'dead_letter',
+        deadLetteredAt: at,
+        deliveredTo: message.deliveredTo ?? sessionId,
+        deliveryDeferredAt: at,
+        deliveryDeferredReason: reason,
+      }
+      this.emitTransition(abandoned, 'message.dead_letter', {
+        reason,
+        retryable: false,
+        deliveryConfirmed: false,
+      })
+      this.notifyDeadLetter(message, ABANDONED_REASON_TEXT[reason])
+    }
   }
 
   /**
@@ -1535,45 +1898,80 @@ export class MessageDeliveryService {
     // (controller); everything else is mail (POD-552 / POD-118).
     const originOf = (m: MessageRow) =>
       m.fromKind === 'operator' ? ('controller' as const) : ('mail' as const)
+    // THE IDLE DRAIN'S SEND, MIGRATED (POD-1761 W4). Same verb the batch always
+    // used — this path already knows the session is idle, so `now` is the mode
+    // and nothing about that choice changes. `reconcile` names which row the
+    // late receipt belongs to, because a batch dispatches several and a receipt
+    // that could not say which one would settle the wrong one.
+    // The same "which push is this receipt about" latch `injectAndMark` keeps, per
+    // row rather than per call: this helper dispatches several and `recordPush`
+    // below is what puts each one's optimistic state on the ledger [POD-2298].
+    const recorded = new Set<string>()
+    const push = (
+      input: InboxDeliveryInput,
+      reconcile: string,
+    ): { ok: boolean; queued?: boolean; reason?: string; position?: number } =>
+      sessions.receiptSend
+        ? sessions.receiptSend('now', input, (receipt) => {
+            this.reconcileReceipt(reconcile, session.sessionId, receipt, recorded.has(reconcile))
+          })
+        : sessions.sendText(input)
     for (const m of inlineRows) {
-      const r = sessions.sendText({
-        sessionId: session.sessionId,
-        text: this.render.renderFor(m, session.sessionId),
-        inputOrigin: originOf(m),
-        principal: this.inboxPrincipal(m),
-        sourceMessageId: m.id,
-      })
+      const r = push(
+        {
+          sessionId: session.sessionId,
+          text: this.render.renderFor(m, session.sessionId),
+          inputOrigin: originOf(m),
+          principal: this.inboxPrincipal(m),
+          sourceMessageId: m.id,
+        },
+        m.id,
+      )
       if (r.ok) this.recordPush(m, session.sessionId)
+      recorded.add(m.id)
     }
     if (pointerRows.length === 1 && pointerRows[0]!.body.length <= INLINE_BODY_MAX) {
       // One short fyi delivers inline with its full envelope (id present) — the
       // echo can still confirm it; record a push and let the echo/read follow.
       const m = pointerRows[0]!
-      const r = sessions.sendText({
-        sessionId: session.sessionId,
-        text: this.render.renderFor(m, session.sessionId),
-        inputOrigin: originOf(m),
-        principal: this.inboxPrincipal(m),
-        sourceMessageId: m.id,
-      })
+      const r = push(
+        {
+          sessionId: session.sessionId,
+          text: this.render.renderFor(m, session.sessionId),
+          inputOrigin: originOf(m),
+          principal: this.inboxPrincipal(m),
+          sourceMessageId: m.id,
+        },
+        m.id,
+      )
       if (r.ok) this.recordPush(m, session.sessionId)
+      recorded.add(m.id)
     } else if (pointerRows.length > 0) {
       // Coalesced nudge: the bodies (and ids) are NOT in the transcript, so these
       // can only be confirmed by an inbox READ. Record the push (injected) and
       // wait — the sweep never re-nudges a pointer row [POD-834].
-      const r = sessions.sendText({
-        sessionId: session.sessionId,
-        text: this.render.pointerText(pointerRows),
-        inputOrigin: 'mail',
-        principal: {
-          kind: 'system',
-          attribution: { actor: actorSystem('message-pointer'), onBehalfOf: null },
-          principalRef: 'message-pointer',
-          delegation: null,
+      const r = push(
+        {
+          sessionId: session.sessionId,
+          text: this.render.pointerText(pointerRows),
+          inputOrigin: 'mail',
+          principal: {
+            kind: 'system',
+            attribution: { actor: actorSystem('message-pointer'), onBehalfOf: null },
+            principalRef: 'message-pointer',
+            delegation: null,
+          },
+          sourceMessageId: pointerRows[0]!.id,
         },
-        sourceMessageId: pointerRows[0]!.id,
-      })
+        // ONE RECEIPT, ONE ROW, and the coalesced nudge only has one id it can
+        // honestly claim: the pointer text carries no message ids, so the other
+        // rows in the batch are confirmed by an inbox read and never by this
+        // send's receipt. Attributing it to all of them would put evidence on
+        // rows the driver said nothing about.
+        pointerRows[0]!.id,
+      )
       if (r.ok) for (const m of pointerRows) this.markInjected(m, session.sessionId)
+      recorded.add(pointerRows[0]!.id)
     }
   }
 
@@ -1645,12 +2043,35 @@ export class MessageDeliveryService {
 
   /** Message lookup for the read surfaces (gate/CLI). */
   message(id: string): MessageRow | null {
-    return this.mailbox.message(id)
+    const message = this.mailbox.message(id)
+    return message ? this.withQueuePosition(message) : null
   }
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
   ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): MessageRow[] {
-    return this.mailbox.ledger(q)
+    return this.mailbox.ledger(q).map((message) => this.withQueuePosition(message))
+  }
+
+  private withQueuePosition(message: MessageRow): MessageRow {
+    const position = this.queuePositionForMessage(message)
+    return position === undefined ? message : { ...message, queuePosition: position }
+  }
+
+  /** Resolve a queued row's current ordinal at the boundary that serves both
+   * send receipts and ledger reloads. Physical queued rows win because they
+   * include boot prompts and other non-ledger work; busy-turn rows fall back to
+   * the message table's session-scoped FIFO.
+   */
+  private queuePositionForMessage(message: MessageRow): number | undefined {
+    if (message.status !== 'queued') return undefined
+    const sessionId =
+      message.deliveredTo ??
+      (message.toKind === 'session' && message.toId ? asSessionId(message.toId) : undefined)
+    if (!sessionId) return undefined
+    const physical = this.deps.sessions.queuedMessagePosition?.(sessionId, message.id)
+    if (physical !== undefined) return physical
+    if (message.injectedAt != null) return undefined
+    return this.deps.messages.queuedPositionForSession(sessionId, message.id)
   }
 
   /** Bounded wait for a message's ack [spec:SP-34d7 read-toolkit tier 4]. */
@@ -1885,6 +2306,7 @@ export class MessageDeliveryService {
   private markInjected(message: MessageRow, sessionId: SessionId): void {
     const at = this.deps.now()
     if (this.deps.messages.markInjected(message.id, sessionId, at)) {
+      this.forgetLiveQueuedForExit(sessionId, message.id)
       // The injected message triggers the receiver's next turn — anything it
       // sends within that turn chains at hop + 1 (cleared when it goes idle).
       this.turnHop.set(sessionId, message.hop)
@@ -1893,6 +2315,183 @@ export class MessageDeliveryService {
         'message.injected',
       )
     }
+  }
+
+  /**
+   * WHAT THE DRIVER ACTUALLY DID, WRITTEN INTO THE LEDGER (POD-1761 W4).
+   *
+   * ---------------------------------------------------------------------------
+   * THIS FUNCTION RECORDS. IT NEVER RESENDS.
+   * ---------------------------------------------------------------------------
+   *
+   * That restraint is the whole `unverified` policy. `unverified` means the
+   * keystrokes were delivered but acceptance could not be PROVEN inside the
+   * driver's verification window — it does not mean they failed. A path that
+   * reacted by resending would turn the one honest outcome in the contract into
+   * duplicate turns, which is precisely the lie the outcome exists to avoid, and
+   * it would fire hardest on a slow agent (the case most likely to have received
+   * the text and be working on it).
+   *
+   * For non-blocking sends and unverified receipts, a receipt moves no row and
+   * triggers no push. It records `message.receipt` beside the transitions the row
+   * already emitted, which is what "ledger-visible delivered-unconfirmed" means
+   * here. The receipt-aware blocking caller is the explicit exception: an
+   * accepted non-queue receipt settles its own injected row so its bounded wait
+   * can return delivered; refusals still use the correction table below. The
+   * other paths that advance a row are unchanged: the transcript echo confirms
+   * it (`markDelivered` via 'echo'), an inbox read confirms a pointer, and the
+   * existing sweep remains the backstop for a row whose echo never came. The
+   * sweep is not a blind retry — it is the same time-based backstop as before the
+   * migration, and this item does not get to change delivery semantics while
+   * moving the evidence.
+   *
+   * What the ledger gains is the ability to tell three things apart that were
+   * indistinguishable while delivery was inferred: a turn that provably opened,
+   * a turn whose acceptance is genuinely unknown, and a push the driver refused.
+   *
+   * ---------------------------------------------------------------------------
+   * ONE OUTCOME IS THE EXCEPTION, AND IT IS NOT A RESEND EITHER [POD-2298]
+   * ---------------------------------------------------------------------------
+   *
+   * A `refused` receipt is not evidence about an unknown; it is the driver saying
+   * IT NEVER TOOK THE TEXT. Leaving the optimistic record standing on that is the
+   * lie the paragraphs above are written against, one path over: the sender's chat
+   * bubble says delivered, `countPending` has dropped the row, the sweep will never
+   * look at it again, and nobody ever finds out. So a refusal — alone among the
+   * four outcomes — CORRECTS the row, per {@link REFUSAL_CORRECTION}: back to
+   * `queued` when the cause clears on its own, terminal and told-once when it does
+   * not. That is still not a resend. Re-queueing hands the row back to the retry
+   * machinery that was already going to carry it; this function pushes nothing.
+   *
+   * `afterRecord` IS WHICH PUSH THE RECEIPT IS ABOUT. Receipts are not all late:
+   * the durable-queue path answers inside `receiptSend` itself, BEFORE its caller
+   * has recorded anything, and a correction there would settle the row against the
+   * PREVIOUS push's stamps while the caller's own `ok: false` return — the branch
+   * that routes a wake to spawn-on-wake and everything else to the sweep — is
+   * still on its way. A synchronous receipt is therefore recorded and not
+   * CORRECTED; the caller owns the row it answers. It is not ignored, though —
+   * see the terminal `unsupported` case at the foot of the function, which is
+   * about a row that never got a stamp rather than one whose stamp was a lie.
+   */
+  private reconcileReceipt(
+    messageId: string,
+    sessionId: SessionId,
+    receipt: TurnReceipt,
+    afterRecord: boolean,
+    confirmAccepted = false,
+  ): void {
+    const message = this.deps.messages.getMessage(messageId)
+    // Already settled by the echo, read or a cancellation while the window was
+    // open — the receipt is late evidence about a question that is closed, and
+    // re-stamping it would move a delivered row backwards.
+    if (!message) return
+    this.emitTransition({ ...message, deliveredTo: sessionId }, 'message.receipt', {
+      outcome: receipt.outcome,
+      ...(receipt.outcome === 'accepted'
+        ? { provenBy: receipt.provenBy, turnEpoch: receipt.turnEpoch }
+        : {}),
+      ...('deliveredAs' in receipt ? { deliveredAs: receipt.deliveredAs } : {}),
+      ...(receipt.outcome === 'queued' ? { position: receipt.position } : {}),
+      ...(receipt.outcome === 'unverified'
+        ? {
+            // THE HONEST NAME, on the row, where the ledger can show it.
+            deliveryConfirmed: false,
+            verificationWindowMs: receipt.verificationWindowMs,
+          }
+        : {}),
+      ...(receipt.outcome === 'refused'
+        ? {
+            refusedFor: receipt.refusal.reason,
+            ...(receipt.refusal.detail ? { refusalDetail: receipt.refusal.detail } : {}),
+          }
+        : {}),
+    })
+    if (receipt.outcome === 'accepted' && confirmAccepted && receipt.deliveredAs !== 'queue') {
+      const current = this.deps.messages.getMessage(messageId)
+      if (current?.status === 'queued' && current.injectedAt && current.deliveredTo === sessionId) {
+        this.markDelivered(current, sessionId, 'injection')
+      }
+    }
+    if (receipt.outcome !== 'refused') return
+    if (afterRecord && this.correctRefusedPush(message, sessionId, receipt.refusal.reason)) return
+    // A SYNCHRONOUS REFUSAL ANSWERS A PUSH THAT NEVER REACHED A STAMP [POD-2574].
+    // `receiptSend` turns attachments away from inside the call `injectAndMark` is
+    // still making, so the row is plainly `queued`, resting on nothing, and the
+    // correction above — guarded on the row resting on THIS push — rightly
+    // declines it. Staying queued is the right answer for the reasons that clear
+    // on their own; the sweep is the retry those rows want. It is the wrong answer
+    // for `unsupported`, which is a CAPABILITY rather than a moment: every sweep
+    // tick would refuse it again, for the same reason, forever. So end it here.
+    // WHO GETS TOLD DEPENDS ON WHO CAN HEAR THE SYNCHRONOUS ANSWER [POD-2574].
+    // An OPERATOR send is a human at the composer: the refusal is the `ok: false`
+    // their own call returns and the chat renders it, so a steward notice on top
+    // would be the same refusal twice. An AGENT mailing another session has no
+    // such surface — nothing renders its return — so without the notice it is
+    // told nothing at all, which is the silent drop this issue exists to end.
+    // The cause is stamped so the row does not read as a vanished target: without
+    // it every reader falls through to "target gone", which is the one thing this
+    // refusal is NOT — the session is fine and the driver said no.
+    if (receipt.refusal.reason === 'unsupported' && message.attachments?.length) {
+      this.deadLetter(message, receipt.refusal.detail ?? 'file attachments are unsupported', {
+        cause: 'delivery-failed',
+        notifySender: message.fromKind !== 'operator',
+      })
+    }
+  }
+
+  /**
+   * UNDO THE OPTIMISM A REFUSAL JUST DISPROVED [POD-2298].
+   *
+   * Split out of {@link reconcileReceipt} because the recording above is about the
+   * ledger's evidence and this is about the row's STATE — the one thing that
+   * function's own header promises it never does, and so the one thing that has to
+   * be visibly the exception rather than buried in it.
+   *
+   * Both writers are guarded on the row still resting on THIS session's optimistic
+   * record, which is what makes a repeated or late receipt a no-op rather than a
+   * second notice: a row the echo confirmed, a cancellation retracted, or another
+   * push re-aimed elsewhere is already past the state a refusal would correct.
+   *
+   * Returns whether this refusal actually moved the row, so the caller can tell a
+   * correction from a decline and let a decline fall through to the terminal case
+   * for refusals that answer a push with no stamps to undo.
+   */
+  private correctRefusedPush(
+    message: MessageRow,
+    sessionId: SessionId,
+    reason: RefusalReason,
+  ): boolean {
+    const correction = REFUSAL_CORRECTION[reason]
+    if (correction.correct === 'none') return false
+    const at = this.deps.now()
+    if (correction.correct === 'requeue') {
+      if (!this.deps.messages.retractOptimisticDelivery(message.id, sessionId)) return false
+      // The turn-hop context stays. `markDelivered`/`markInjected` stamped it for
+      // a turn this text never opened, but some LATER push into the same session
+      // may legitimately own it by now, and clearing another message's hop to tidy
+      // up after this one would under-count a real chain. It expires on idle.
+      this.emitTransition(
+        { ...message, status: 'queued', deliveredAt: null, injectedAt: null },
+        'message.requeued',
+        { refusedFor: reason, retryable: true },
+      )
+      return true
+    }
+    if (!this.deps.messages.markSendRefused(message.id, sessionId, at, correction.as)) return false
+    this.emitTransition(
+      {
+        ...message,
+        status: 'dead_letter',
+        deadLetteredAt: at,
+        deliveredAt: null,
+        deliveryDeferredAt: at,
+        deliveryDeferredReason: correction.as,
+      },
+      'message.dead_letter',
+      { reason: correction.as, refusedFor: reason, retryable: false, deliveryConfirmed: false },
+    )
+    this.notifyDeadLetter(message, ABANDONED_REASON_TEXT[correction.as])
+    return true
   }
 
   /** queued → delivered: the PUSH is confirmed [POD-834]. `via` records HOW it was
@@ -1913,6 +2512,7 @@ export class MessageDeliveryService {
     // re-attempted — but do not read this line as handing back a fresh cap.
     this.requeueCounts.delete(message.id)
     if (this.deps.messages.markDelivered(message.id, sessionId, at)) {
+      this.forgetLiveQueuedForExit(sessionId, message.id)
       // Delivery consumes the legacy issue_messages mirror row too, or
       // mailPending's legacy fallback keeps the stop-hook nagging ("You have
       // mail") until the agent runs `podium issue mail inbox`.
@@ -1994,14 +2594,23 @@ export class MessageDeliveryService {
   private deadLetter(
     message: MessageRow,
     reason: string,
-    opts?: { notifySender?: boolean },
+    opts?: { notifySender?: boolean; cause?: QueueDrainAbandonedReason },
   ): DeliveryOutcome {
     const at = this.deps.now()
-    const first = this.deps.messages.markDeadLetter(message.id, at)
+    const first = this.deps.messages.markDeadLetter(message.id, at, opts?.cause)
     if (first) {
       this.emitTransition(
-        { ...message, status: 'dead_letter', deadLetteredAt: at },
+        {
+          ...message,
+          status: 'dead_letter',
+          deadLetteredAt: at,
+          ...(opts?.cause ? { deliveryDeferredAt: at, deliveryDeferredReason: opts.cause } : {}),
+        },
         'message.dead_letter',
+        // The event names WHY [POD-3226]. The row records only when, and the
+        // sender's notice is best-effort; without this, most dead-letter events
+        // on a live instance said nothing about the cause.
+        { reason },
       )
       if (opts?.notifySender) this.notifyDeadLetter(message, reason)
     }
@@ -2144,10 +2753,10 @@ export class MessageDeliveryService {
       case 'superagent':
         return {
           attribution: {
-            actor: actorAgent(asAgentIdentityId('superagent')),
+            actor: actorAgent(asAgentIdentityId(SUPERAGENT_AGENT_IDENTITY)),
             onBehalfOf: FIRST_ADMIN_USER_ID,
           },
-          delegationRef: 'superagent',
+          delegationRef: SUPERAGENT_AGENT_IDENTITY,
         }
       case 'agent': {
         const actorId = from.sessionId ?? ('unbound-agent' as SessionId)

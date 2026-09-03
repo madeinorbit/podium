@@ -2,8 +2,8 @@ import {
   asMachineId,
   asRepoId,
   asShipOrderId,
-  FIRST_ADMIN_USER_ID,
   type DeliveryReceipt,
+  FIRST_ADMIN_USER_ID,
   type ShipOrder,
 } from '@podium/model'
 import { describe, expect, it } from 'vitest'
@@ -141,8 +141,10 @@ describe('shippingSchedule', () => {
     const second = order('second', '2026-08-14T10:01:00.000Z', {
       destination: 'refs/heads/main',
     })
-    const entries = shippingSchedule([first, second]).entries
-    expect(entries.map((entry) => entry.queueRank)).toEqual([1, 2])
+    const schedule = shippingSchedule([first, second])
+    expect(schedule.entries.map((entry) => entry.queueRank)).toEqual([1, 1])
+    expect(schedule.trains).toHaveLength(1)
+    expect(schedule.trains[0]?.orders.map((item) => item.id)).toEqual(['first', 'second'])
   })
 })
 

@@ -158,6 +158,16 @@ export class SessionClientControl {
           })
           break
         }
+        if (session.attachKinds?.length === 0) {
+          const driver = session.driverId ?? session.selectedDriverId ?? 'bound runtime'
+          client.send({
+            type: 'terminalOutcome',
+            sessionId: message.sessionId,
+            outcome: 'unsupported',
+            detail: `Runtime driver '${driver}' does not support a Native view`,
+          })
+          break
+        }
         client.attached.add(message.sessionId)
         this.ports.mutate(
           message.sessionId,

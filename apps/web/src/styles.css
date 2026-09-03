@@ -6123,7 +6123,8 @@ html[data-density="compact"] .brief-shelf {
 /* NOT EVERYTHING IN THE FOOT IS METADATA, AND THE REST MUST NOT FADE WITH IT.
    Two things ride here that are not "when and take-a-copy":
 
-     the DELIVERY CAPTION — "pending · sends after this turn", "not delivered" —
+     the DELIVERY CAPTION — "pending · sends after this turn", "blocked · …",
+       "not delivered" —
        which is the state of a message that has NOT landed, together with the ✕
        that is the way out of it. A failed send drawn at 40% and legible only
        under the pointer is a failure the operator can miss entirely.

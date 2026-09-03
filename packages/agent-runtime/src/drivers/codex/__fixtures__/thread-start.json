@@ -1,0 +1,101 @@
+{
+  "_recordedFrom": "codex-cli 0.147.0",
+  "threadStartRequest": {
+    "jsonrpc": "2.0",
+    "id": 2,
+    "method": "thread/start",
+    "params": {
+      "cwd": "/tmp/cxprobe3/work",
+      "approvalPolicy": "never",
+      "sandbox": "read-only"
+    }
+  },
+  "threadStartResponse": {
+    "id": 2,
+    "result": {
+      "thread": {
+        "id": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "extra": null,
+        "sessionId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1786700008,
+        "updatedAt": 1786700008,
+        "recencyAt": 1786700008,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/home/mgw/.codex/sessions/2026/08/14/rollout-2026-08-14T11-33-20-019fff9e-6a2f-76a1-bc73-e5673850d80c.jsonl",
+        "cwd": "/tmp/cxprobe3/work",
+        "cliVersion": "0.147.0",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      },
+      "model": "gpt-5.6-sol",
+      "modelProvider": "openai",
+      "serviceTier": null,
+      "cwd": "/tmp/cxprobe3/work",
+      "runtimeWorkspaceRoots": [
+        "/tmp/cxprobe3/work"
+      ],
+      "instructionSources": [],
+      "approvalPolicy": "never",
+      "approvalsReviewer": "auto_review",
+      "sandbox": {
+        "type": "readOnly",
+        "networkAccess": false
+      },
+      "activePermissionProfile": null,
+      "reasoningEffort": "low",
+      "multiAgentMode": "explicitRequestOnly"
+    }
+  },
+  "threadStartedNotification": {
+    "method": "thread/started",
+    "params": {
+      "thread": {
+        "id": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "extra": null,
+        "sessionId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "forkedFromId": null,
+        "parentThreadId": null,
+        "preview": "",
+        "ephemeral": false,
+        "section": null,
+        "sectionEnteredAt": null,
+        "historyMode": "legacy",
+        "modelProvider": "openai",
+        "createdAt": 1786700008,
+        "updatedAt": 1786700008,
+        "recencyAt": 1786700008,
+        "status": {
+          "type": "idle"
+        },
+        "path": "/home/mgw/.codex/sessions/2026/08/14/rollout-2026-08-14T11-33-20-019fff9e-6a2f-76a1-bc73-e5673850d80c.jsonl",
+        "cwd": "/tmp/cxprobe3/work",
+        "cliVersion": "0.147.0",
+        "source": "vscode",
+        "canAcceptDirectInput": true,
+        "threadSource": null,
+        "agentNickname": null,
+        "agentRole": null,
+        "gitInfo": null,
+        "name": null,
+        "turns": []
+      }
+    },
+    "emittedAtMs": 1786700008859
+  }
+}

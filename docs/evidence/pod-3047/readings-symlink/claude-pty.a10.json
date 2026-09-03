@@ -1,0 +1,118 @@
+{
+  "cell": "A10",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3047n/probes/claude-pty-a10",
+  "at": "2026-08-28T16:50:40.976Z",
+  "pin": {
+    "cell": "A10",
+    "at": "2026-08-28T16:50:40.994Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "e4d4ecf097da9191cd6c9a953b36f5acbc40b17d",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "e4d4ecf",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1989048",
+    "daemonPid": "2028082",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19352772 kB",
+      "SwapFree": "41213640 kB"
+    },
+    "rootFreeKiB": 82689432,
+    "load1m": 1.44,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-pty-a10",
+      "exists": false,
+      "files": 0
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-pty-a10",
+      "exists": false,
+      "files": 0
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session reported claude-pty/(none)",
+  "control": {
+    "fired": true,
+    "what": "session reporting a driver identity after spawn",
+    "detail": "driverId=claude-pty; family=(none)"
+  },
+  "evidence": [
+    "STATUS            {\"sessionId\":\"6e445bc3-00a0-409d-899c-530d05a73e41\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "SESSION ROW       {\"sessionId\":\"6e445bc3-00a0-409d-899c-530d05a73e41\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"✳ Claude Code\",\"cwd\":\"/tmp/pod-3047n/probes/claude-pty-a10\",\"status\":\"live\",\"controllerId\":\"c36\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,",
+    "FRAME TYPES       outputFrame=15 hostMetricsChanged=6 machinesChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionTitleChanged=1"
+  ],
+  "data": {
+    "sid": "6e445bc3-00a0-409d-899c-530d05a73e41",
+    "row": {
+      "sessionId": "6e445bc3-00a0-409d-899c-530d05a73e41",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "e80bf37 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    },
+    "expected": "claude-pty"
+  }
+}

@@ -1,8 +1,11 @@
 import {
+  type EnvSource,
   type FleetUpdateChannel,
   inspectConfig,
+  LAYERED_ENV,
   loadConfig,
   type PodiumConfig,
+  resolveSetting,
   saveConfig,
 } from './config'
 import { decodeJoin } from './join'
@@ -73,6 +76,111 @@ export function wssFrom(publicUrl: string): string {
 }
 
 /**
+ * WHERE THE SERVER AT `serverUrl` SAYS ITS UI LIVES — the one network call in
+ * this file.
+ *
+ * A joined machine has to learn this from the server because the server is the
+ * only party that knows it: the operator who split the hosting configured
+ * `appUrl` there, and a person pasting a join token or an API address into a
+ * setup screen has no reason to know a second URL exists (PDM-34).
+ *
+ * `/version` is the right place to ask. It is public — the shell and the setup
+ * screen both read it BEFORE anyone has logged in, which is exactly when this
+ * answer is needed — and it already carries identity-shaped facts.
+ *
+ * NEVER THROWS, and answers `undefined` for every failure: unreachable, slow,
+ * an old server that has no such field, or a value that is not a bare https
+ * origin. A join must not fail because of an optional convenience, and a
+ * caller's `undefined` already means the right thing — "load the server's own
+ * URL", which is every self-hosted install.
+ */
+export async function fetchRemoteAppUrl(
+  serverUrl: string,
+  timeoutMs = 3_000,
+): Promise<string | undefined> {
+  let target: URL
+  try {
+    target = new URL(
+      '/version',
+      serverUrl.trim().replace(/^ws(s?):\/\//, (_m, s: string) => `http${s}://`),
+    )
+  } catch {
+    return undefined
+  }
+  if (target.protocol !== 'https:' && target.protocol !== 'http:') return undefined
+  const abort = AbortSignal.timeout(timeoutMs)
+  try {
+    const response = await fetch(target, { signal: abort, redirect: 'follow' })
+    if (!response.ok) return undefined
+    const body: unknown = await response.json()
+    if (typeof body !== 'object' || body === null) return undefined
+    const advertised = (body as { appUrl?: unknown }).appUrl
+    return typeof advertised === 'string' ? sanitizeUiUrl(advertised) : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * The same question for whatever a user actually pasted — a join TOKEN (which
+ * carries the server URL inside it) or a bare server URL.
+ *
+ * One helper for both because every surface that re-points this box accepts
+ * both: `podium set-server`, `podium join-config`, and the setup screen. No
+ * caller should have to decode a token just to find the address to ask, and a
+ * malformed input stays {@link applyJoin}'s or {@link applyServerUrl}'s error
+ * to report in its own words rather than an opaque failure from a network
+ * helper.
+ */
+export async function fetchTargetAppUrl(input: string): Promise<string | undefined> {
+  const trimmed = input.trim()
+  let serverUrl: string
+  try {
+    serverUrl = decodeJoin(trimmed).serverUrl
+  } catch {
+    serverUrl = trimmed
+  }
+  return fetchRemoteAppUrl(serverUrl)
+}
+
+/**
+ * Accept an advertised UI origin only in the one shape the desktop shell can
+ * actually load: a bare `https:` origin.
+ *
+ * The server validates its own `appUrl` before it advertises it, so this is not
+ * a second opinion on a trusted value — it is the guard for the case where what
+ * answered was NOT the server we think it was: a captive portal, a proxy error
+ * page, an old build. A rejected value leaves `uiUrl` unset, and unset is the
+ * behaviour that already works everywhere.
+ */
+function sanitizeUiUrl(raw: string): string | undefined {
+  let url: URL
+  try {
+    url = new URL(raw.trim())
+  } catch {
+    return undefined
+  }
+  if (url.protocol !== 'https:') return undefined
+  if (url.search !== '' || url.hash !== '' || (url.pathname !== '' && url.pathname !== '/')) {
+    return undefined
+  }
+  return url.origin
+}
+
+/**
+ * Patch `uiUrl` onto a config the caller is about to save.
+ *
+ * ALWAYS decides the key, never merely adds it: every caller here is re-pointing
+ * this box at a server, and a `uiUrl` left over from the previous one would send
+ * the desktop window to a UI that talks to somewhere else entirely. So an
+ * `undefined` answer REMOVES the key rather than preserving what was there.
+ */
+function withUiUrl<T extends PodiumConfig>(config: T, uiUrl: string | undefined): T {
+  const { uiUrl: _previous, ...rest } = config
+  return (uiUrl ? { ...rest, uiUrl } : rest) as T
+}
+
+/**
  * Warn when a server URL is a Cloudflare QUICK tunnel (*.trycloudflare.com): those URLs
  * rotate on every cloudflared restart, so every joined daemon goes dark until it is pointed
  * at the new URL (issue #19). Returned (not thrown) — quick tunnels are legitimate for demos.
@@ -102,7 +210,15 @@ export function ephemeralTunnelWarning(url: string): string | undefined {
  * daemon.json (identity/token), so a re-pair is NOT required after a URL rotation.
  * Accepts ws(s):// or http(s):// (http(s) is ws-ified) or a full join code.
  */
-export function applyServerUrl(input: string): {
+export function applyServerUrl(
+  input: string,
+  /**
+   * Where the NEW server says its UI is ({@link fetchRemoteAppUrl}). Decided
+   * here rather than preserved: a rotated URL can be a different deployment,
+   * and the previous server's UI origin is then simply wrong.
+   */
+  uiUrl?: string,
+): {
   serverUrl: string
   pairCode?: string
   warning?: string
@@ -130,7 +246,7 @@ export function applyServerUrl(input: string): {
     if (!v.ok) throw new Error(`not a server URL or join code: ${v.error}`)
     serverUrl = wssFrom(v.normalized)
   }
-  saveConfig({ ...prev, serverUrl, ...(pairCode ? { pairCode } : {}) })
+  saveConfig(withUiUrl({ ...prev, serverUrl, ...(pairCode ? { pairCode } : {}) }, uiUrl))
   const warning = ephemeralTunnelWarning(serverUrl)
   return { serverUrl, ...(pairCode ? { pairCode } : {}), ...(warning ? { warning } : {}) }
 }
@@ -163,14 +279,65 @@ export function assertConfigWritable(): void {
   }
 }
 
+/**
+ * A key the ENVIRONMENT set is not writable from setup.
+ *
+ * Refusing beats writing a value the environment overrides anyway: a silent
+ * no-op reads as success in the wizard and in the CLI, and leaves the box
+ * running something else entirely. Same shape and same sentence as
+ * `InstanceService.setChannel` has used for PODIUM_UPDATE_CHANNEL since
+ * POD-1882 — this generalizes it to the keys a hosted deployment owns.
+ */
+function assertNotForced(key: 'mode' | 'publicUrl', env: EnvSource, owns: string): void {
+  if (resolveSetting(key, {}, env).source !== 'env') return
+  throw new Error(
+    `${LAYERED_ENV[key]} is set in this deployment's environment; the deployment owns ${owns}.`,
+  )
+}
+
+/** The mode belongs to the deployment when `PODIUM_MODE` is set. */
+export function assertModeWritable(env: EnvSource = process.env): void {
+  assertNotForced('mode', env, 'the mode')
+}
+
+/** The public URL belongs to the deployment when `PODIUM_PUBLIC_URL` is set. */
+export function assertPublicUrlWritable(env: EnvSource = process.env): void {
+  assertNotForced('publicUrl', env, 'the public URL')
+}
+
 export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
   port?: number
   networkOption?: NetworkOption
+  /** Acknowledge that replacing an already-set public URL strands joined machines. */
+  confirmUrlChange?: boolean
 }): PodiumConfig {
   assertConfigWritable()
+  assertModeWritable()
+  assertPublicUrlWritable()
   const prev = loadConfig()
+  /**
+   * ONE PUBLIC URL, AND CHANGING IT IS DELIBERATE.
+   *
+   * The URL is embedded into every join token already issued and into every
+   * paired device's record; replacing it strands all of them with no way back.
+   * The flow that would replace it — re-running setup — is also the flow an
+   * operator runs for entirely unrelated reasons, so the change has to be
+   * asked for rather than fallen into. Writing the SAME URL stays idempotent,
+   * so a re-run that changes nothing is never blocked.
+   */
+  if (
+    prev.publicUrl !== undefined &&
+    prev.publicUrl !== '' &&
+    prev.publicUrl !== input.publicUrl &&
+    input.confirmUrlChange !== true
+  ) {
+    throw new Error(
+      `public URL is already set to ${prev.publicUrl}; changing it strands every joined ` +
+        'machine. Re-run with --confirm-url-change to change it anyway.',
+    )
+  }
   // Explicit mode wins (the web reachability step now runs for BOTH all-in-one and server-only).
   // Else preserve an already-chosen host mode — a relay-only `server` box setting its URL later
   // (e.g. from Settings → Machines) must stay `server`. First run (mode unset) defaults to
@@ -218,8 +385,13 @@ export function applySetup(input: {
  * updateFeed; drops only the host-mode fields a daemon must not keep (publicUrl/networkOption)
  * and any stale pairCode.
  */
-export function applyJoin(token: string): { name: string; warning?: string } {
+export function applyJoin(
+  token: string,
+  /** Where the joined server says its UI is ({@link fetchRemoteAppUrl}). */
+  uiUrl?: string,
+): { name: string; warning?: string } {
   assertConfigWritable()
+  assertModeWritable()
   const p = decodeJoin(token)
   const {
     publicUrl: _hostOnly,
@@ -227,17 +399,22 @@ export function applyJoin(token: string): { name: string; warning?: string } {
     pairCode: _stale,
     ...prev
   } = loadConfig()
-  saveConfig({
-    ...prev,
-    mode: 'daemon',
-    serverUrl: p.serverUrl,
-    pairCode: p.pairCode,
-    ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
-    // See applySetup: web/join-config surfaces can't start the backend themselves,
-    // so they record the CHOICE and the next `podium` invocation brings it up.
-    // CLI setup overwrites it right after with the effective result.
-    ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
-  })
+  saveConfig(
+    withUiUrl(
+      {
+        ...prev,
+        mode: 'daemon',
+        serverUrl: p.serverUrl,
+        pairCode: p.pairCode,
+        ...(p.podiumManaged !== undefined ? { podiumManaged: p.podiumManaged } : {}),
+        // See applySetup: web/join-config surfaces can't start the backend themselves,
+        // so they record the CHOICE and the next `podium` invocation brings it up.
+        // CLI setup overwrites it right after with the effective result.
+        ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
+      },
+      uiUrl,
+    ),
+  )
   const warning = ephemeralTunnelWarning(p.serverUrl)
   return { name: p.name ?? 'this machine', ...(warning ? { warning } : {}) }
 }
@@ -251,17 +428,23 @@ export function applyJoin(token: string): { name: string; warning?: string } {
 export function applyMode(input: {
   mode: 'all-in-one' | 'client' | 'server'
   serverUrl?: string
+  /** Where the connected server says its UI is ({@link fetchRemoteAppUrl}). */
+  uiUrl?: string
 }): PodiumConfig {
   assertConfigWritable()
+  assertModeWritable()
   const serverUrl = input.serverUrl?.trim()
   if (input.mode === 'client' && !serverUrl) {
     throw new Error('client mode needs a server URL')
   }
-  const cfg: PodiumConfig = {
-    ...loadConfig(),
-    mode: input.mode,
-    ...(serverUrl ? { serverUrl } : {}),
-  }
+  const cfg: PodiumConfig = withUiUrl(
+    {
+      ...loadConfig(),
+      mode: input.mode,
+      ...(serverUrl ? { serverUrl } : {}),
+    },
+    input.uiUrl,
+  )
   saveConfig(cfg)
   return cfg
 }
@@ -271,6 +454,11 @@ export function applyMode(input: {
  * Existing choices always win, and an invalid config is left untouched for `setup --repair`.
  */
 export function applyLocalSetupDefault(): 'applied' | 'configured' | 'blocked' {
+  // The environment already answered. Writing `all-in-one` underneath it would
+  // put a contradicting value in the file that readiness then has to ignore —
+  // and `blocked` is already the value a launcher reads as "do not assume a
+  // local default", which is exactly the right instruction here.
+  if (resolveSetting('mode', {}, process.env).source === 'env') return 'blocked'
   const inspection = inspectConfig()
   if (inspection.state === 'corrupt') return 'blocked'
   const config = inspection.config

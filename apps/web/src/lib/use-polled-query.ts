@@ -136,6 +136,31 @@ export interface PolledQueryOptions<T> {
    * `0` (the default) keeps the original behaviour — every mount reads.
    */
   freshForMs?: number
+  /**
+   * A READING THAT WAS TAKEN AND NOT USED (POD-3224 follow-up).
+   *
+   * This hook throws answers away in two places, both correct and both silent,
+   * and between them they are why a surface can sit still for seconds after the
+   * thing it is watching has already changed. On the first live trace an update
+   * mutation was answered in 337 ms and the panel only moved 5.4 s later.
+   *
+   *  - `tick` — property 3: a scheduled reading arrived while a read was already
+   *    running and was dropped rather than queued. The mechanism working as
+   *    designed under a slow read; interesting only in aggregate.
+   *  - `superseded` — a read RESOLVED after its effect had been torn down, so
+   *    its answer was discarded. This is the one that explains the trace, and it
+   *    is the opposite of what it looks like: an explicit `refresh()` cannot be
+   *    dropped by the in-flight guard, because `attempt` is in the effect's
+   *    dependencies and a refresh therefore restarts the effect with a fresh
+   *    guard. What it DOES do is abandon the read already in flight — so a
+   *    refresh issued while a slow read is running does not shorten the wait, it
+   *    restarts it, and the answer that was seconds from arriving is dropped on
+   *    the floor.
+   *
+   * The hook does not log this itself: it is generic, and the namespace worth
+   * spending on the record belongs to whoever is polling.
+   */
+  onDropped?: (reason: 'tick' | 'superseded') => void
 }
 
 /** Subscribe to tab visibility as external state so React re-renders on it. */
@@ -158,6 +183,7 @@ export function usePolledQuery<T>({
   onData,
   enabled = true,
   freshForMs = 0,
+  onDropped,
 }: PolledQueryOptions<T>): PolledQuery<T> {
   const cached = cache.get(key)
   const [answer, setAnswer] = useState<{
@@ -192,6 +218,8 @@ export function usePolledQuery<T>({
   readRef.current = read
   const onDataRef = useRef(onData)
   onDataRef.current = onData
+  const onDroppedRef = useRef(onDropped)
+  onDroppedRef.current = onDropped
 
   // A key change must repaint from that key's cache on the SAME frame, not one
   // effect later — the intervening frame would show the previous machine's
@@ -216,7 +244,11 @@ export function usePolledQuery<T>({
 
     const load = (skipIfFresh: boolean): void => {
       // Property 3: a tick during a slow read is dropped, never queued.
-      if (inFlight) return
+      if (inFlight) {
+        // …and now it says so. See `onDropped`.
+        onDroppedRef.current?.('tick')
+        return
+      }
       const held = cache.get(key)
       if (skipIfFresh && held !== undefined && Date.now() - held.fetchedAt < freshForMs) return
       inFlight = true
@@ -241,7 +273,14 @@ export function usePolledQuery<T>({
           const fetchedAt = Date.now()
           cache.set(key, { value, fetchedAt })
           settle()
-          if (cancelled) return
+          if (cancelled) {
+            // THE ANSWER ARRIVED AND NOBODY IS LISTENING. The cache keeps it, so
+            // a later mount is not slower for it — but `onData` does not run,
+            // which for the update panel means the reading that would have moved
+            // it is discarded and the replacement read starts from zero.
+            onDroppedRef.current?.('superseded')
+            return
+          }
           setAnswer({ key, data: value, fetchedAt, failed: false, error: null })
           onDataRef.current?.(value)
         },

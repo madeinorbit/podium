@@ -37,10 +37,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import type { ChatBlock, PendingItem, QueuedChatMessage } from './chat'
+import type { ChatBlock, DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
+import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
 import { useTranscriptReveal } from './use-transcript-reveal'
 import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
@@ -146,17 +147,25 @@ export interface ChatSurface {
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
+  restoredFailed: readonly DeadLetteredChatMessage[]
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
+  /** Present only while the addressed session can accept or safely resume for
+   *  a retry. Its absence removes the action from durable failed rows. */
+  retryFailedMessage: ((text: string) => void) | undefined
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
+  /** The in-progress half of the open turn (POD-2293): text still being written
+   *  and tools still running, for sessions whose driver publishes fragments.
+   *  Null for everyone else — a PTY chat is untouched. */
+  turnPreview: TurnPreview | null
   /** A turn is running: show the stop control. */
   turnActive: boolean
   /** A stop may be attempted: arm the chord and enable the control. */
@@ -447,6 +456,17 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     setBackendPick((p) => ({ ...p, effort }))
   }, [])
 
+  /**
+   * THE STREAMED TURN (POD-2293), for every session — not only headless ones.
+   *
+   * `useHeadlessTurn` above is the SUPERAGENT thread's overlay and is inert
+   * without one. This is a different plane with a different producer: any
+   * session whose driver publishes fragments, which is every headless RUNTIME
+   * family. A session that publishes none simply never gets a frame, so the
+   * hook costs one idle subscription and renders nothing.
+   */
+  const turnPreview = useTurnPreview(sessionId, hub)
+
   const headlessTurn = useHeadlessTurn({
     sessionId,
     hub,
@@ -510,6 +530,25 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     onInitialPendingSettled,
   })
 
+  const restoredFailed = send.failedMessages
+
+  /**
+   * DEAD-LETTER RETRY MATRIX — an action exists only when this snapshot has a
+   * route that can perform it:
+   *
+   *   live / starting                 Retry → direct session send
+   *   hibernated                      Retry → resume and durably queue
+   *   exited + resumable              Retry → resume and durably queue
+   *   exited + non-resumable          no action; keep the failed row
+   *   gone                            no action; keep the failed row
+   *   archived + resumable            no action; keep the failed row
+   *   archived + non-resumable        no action; keep the failed row
+   *
+   * Archive outranks the retained resume capability in `composerState`.
+   * A transport refusal after one of the three performable routes remains a
+   * distinct failed attempt; it never changes this older row's history.
+   */
+  const canRetryFailedMessage = composer.sendable || composer.canResume
   const queued = useMemo(() => {
     return queuedState({
       session,
@@ -550,15 +589,16 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   const submitDraft = useCallback(
     (draft: string) => {
       const text = draft.trim()
-      const { paths, tags } = attachments.ready()
+      const { paths, legacyPaths, refs, tags } = attachments.ready()
       if (!text && paths.length === 0) return
       if (attachments.uploading) return
       lastSubmittedPromptRef.current = text || null
-      attachments.clear()
+      attachments.clearReady()
       void send.send(
-        paths.length > 0 ? `${paths.join('\n')}\n${text}` : text,
+        legacyPaths.length > 0 ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n') : text,
         tags.length > 0 ? tags : undefined,
         paths.length > 0 ? paths : undefined,
+        refs.length > 0 ? refs : undefined,
       )
     },
     [attachments, send],
@@ -726,15 +766,18 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     submitDraft,
     pending: send.pending,
     restoredQueued: queued.restored,
+    restoredFailed,
     ctxSeq: send.ctxSeq,
     offer,
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
+    retryFailedMessage: canRetryFailedMessage ? (text) => void send.send(text) : undefined,
     answerAsk,
     activity,
 
     headlessTurn,
+    turnPreview,
     turnActive,
     canInterrupt: send.canInterrupt,
     interrupt,

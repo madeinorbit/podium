@@ -38,6 +38,7 @@ import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { driverFamilyForId, isServerFamilyResumeKind } from '../../harness-manifest'
 import type { Session, SessionVolatileField } from './session'
 
 const log = createLogger('server:sessions')
@@ -174,7 +175,13 @@ export class SessionMachineReconciler {
       if (s.machineId !== machineId || s.headless || s.archived) continue
       if (s.status !== 'hibernated') continue
       if (!live.has(s.durableLabel)) continue
-      this.reviveParkedButAlive(s, machineId, 'the durable host is still running')
+      // The census MEASURED a live abduco/tmux host under this row's label —
+      // an identity a server-family session never has — so this caller may
+      // bypass the server-family hold below: the reattach it triggers is the
+      // passive PTY bind, never a spawning adopt.
+      this.reviveParkedButAlive(s, machineId, 'the durable host is still running', {
+        measuredPtyHost: true,
+      })
     }
   }
 
@@ -189,8 +196,85 @@ export class SessionMachineReconciler {
    * `onExit` leaves a hibernated row hibernated — a wrong guess here costs a
    * probe, never a resurrection.
    */
-  reviveParkedButAlive(session: Session, machineId: MachineId, reason: string): void {
+  reviveParkedButAlive(
+    session: Session,
+    machineId: MachineId,
+    reason: string,
+    opts: {
+      /** The CALLER measured a live abduco/tmux host under this row's label —
+       *  an identity no server-family session ever has — so the reattach this
+       *  revive triggers is the passive PTY bind. Only the census can say it. */
+      measuredPtyHost?: boolean
+    } = {},
+  ): void {
     if (session.status !== 'hibernated' && session.status !== 'exited') return
+    /**
+     * A POSSIBLY-SERVER-FAMILY ROW IS NEVER BLIND-REATTACHED FROM A RECEIPT
+     * (POD-2249).
+     *
+     * For the PTY family the reattach below is passive — it binds an existing
+     * master or answers `reattachFailed`; a wrong guess costs a probe. For the
+     * server family the reattach path routes to `adoptFromJournal`, and codex's
+     * `adopt()` STARTS A FRESH APP-SERVER: an unconfirmed reap would spawn a
+     * SECOND credentialed child beside the un-killable first, and every
+     * repeated `killed:false` would spawn another. So the row stays parked —
+     * needs-recovery, loudly logged — rather than converging through a probe
+     * that is not passive for this family. The daemon's reap escalates to
+     * SIGKILL on its own; a process that survives that needs an operator, not
+     * a spawn loop.
+     *
+     * THE DRIVER-ID TEST IS NEGATIVE (POD-2456). Only a manifest-declared
+     * TERMINAL driver PROVES there is a PTY behind this row, so that is the one
+     * answer that unlocks the revive; server, embedded and UNKNOWN all hold.
+     * Asking `driverIdIsServerFamily` instead — the first version — inverted on
+     * exactly the ids nobody can enumerate: a driver id no manifest HERE
+     * declares (a renamed or brand-new server driver bound by a newer daemon,
+     * the embedded driver whose id is already written down) answered false AND
+     * short-circuited the durable fallback below, which made the guard LESS
+     * safe WITH a driver id than without one and walked a version-skewed codex
+     * row straight into the spawn loop this whole comment exists to prevent.
+     * The drain's twin of the same inversion is POD-2327; the safe direction
+     * there is the opposite one, because there the cost of a wrong hold is a
+     * re-drain and here it is a second credentialed child.
+     *
+     * THE TWO WRONG ANSWERS ARE NOT SYMMETRIC, which is what makes folding
+     * "unknown" into the hold safe. Hold a row that did have a PTY and it stays
+     * parked behind the warn — and the census still repairs it, because it
+     * measures the abduco host itself and says so via `opts.measuredPtyHost`.
+     * Revive a row whose reattach is a spawning `adopt()` and there is a second
+     * credentialed child, once per receipt, unbounded. Fail toward the park.
+     *
+     * THE FALLBACK KEYS ON DURABLE DATA, because `driverId` is transient (set
+     * only from the bind frame, absent from `toRow()`, and a hibernated row is
+     * deliberately never reattached): a parked server row that survived a
+     * server redeploy holds none, and keying on it alone failed OPEN on exactly
+     * the rows this guard protects. The persisted `resume.kind` answers for
+     * that row — a per-HARNESS fact, so post-redeploy it also holds PTY-driven
+     * rows of the harnesses that declare a server driver. RECORDED
+     * CONSEQUENCE, not a defect: receipt-driven repair is off for the whole
+     * server family (and, post-redeploy, for those harnesses' PTY rows) — a
+     * genuinely parked-but-alive row there has only the warn. A row that DID
+     * bind a terminal driver needs no fallback: the bind measured which driver
+     * is running it, which is strictly better evidence than the per-harness
+     * kind, and that is the only case where the short-circuit is a proof
+     * rather than a guess.
+     */
+    const mayBeServerDriven = session.driverId
+      ? driverFamilyForId(session.driverId) !== 'terminal'
+      : session.resume?.kind !== undefined && isServerFamilyResumeKind(session.resume.kind)
+    if (!opts.measuredPtyHost && mayBeServerDriven) {
+      log.warn(
+        'a parked possibly-server-driver session still reports a live process — holding the park (needs recovery)',
+        {
+          sessionId: session.sessionId,
+          driverId: session.driverId,
+          resumeKind: session.resume?.kind,
+          status: session.status,
+          reason,
+        },
+      )
+      return
+    }
     log.warn('a parked session is still running — reviving the row', {
       sessionId: session.sessionId,
       durableLabel: session.durableLabel,

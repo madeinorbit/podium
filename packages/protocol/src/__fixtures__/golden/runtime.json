@@ -1,0 +1,4760 @@
+{
+  "family": "runtime",
+  "note": "Golden wire fixtures (POD-360). Generated — regenerate with `bun run fixtures:wire:update`. `wire` is what a peer sends; `parseAdded` is what the schema defaults in; `parseChanged` must stay empty (parse is value-transparent); `encoded` pins the serialized bytes.",
+  "cases": [
+    {
+      "schema": "CausalEnvelope",
+      "variant": "minimal",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1}"
+    },
+    {
+      "schema": "CausalEnvelope",
+      "variant": "full",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1}"
+    },
+    {
+      "schema": "CwdChanged",
+      "variant": "minimal",
+      "wire": {
+        "ev": "cwd-changed",
+        "cwd": "cwd"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"cwd-changed\",\"cwd\":\"cwd\"}"
+    },
+    {
+      "schema": "CwdChanged",
+      "variant": "full",
+      "wire": {
+        "ev": "cwd-changed",
+        "cwd": "cwd"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"cwd-changed\",\"cwd\":\"cwd\"}"
+    },
+    {
+      "schema": "ElicitationAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "elicitation",
+        "action": "accept"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"elicitation\",\"action\":\"accept\"}"
+    },
+    {
+      "schema": "ElicitationAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "elicitation",
+        "action": "accept",
+        "content": {
+          "content.key": {
+            "unknownFixture": "content.content.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"elicitation\",\"action\":\"accept\",\"content\":{\"content.key\":{\"unknownFixture\":\"content.content.key\"}}}"
+    },
+    {
+      "schema": "ElicitationAsk",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "message": "message",
+        "requestedSchema": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"message\":\"message\",\"requestedSchema\":{}}"
+    },
+    {
+      "schema": "ElicitationAsk",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "message": "message",
+        "requestedSchema": {
+          "requestedSchema.key": {
+            "unknownFixture": "requestedSchema.requestedSchema.key"
+          }
+        },
+        "serverName": "serverName"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"message\":\"message\",\"requestedSchema\":{\"requestedSchema.key\":{\"unknownFixture\":\"requestedSchema.requestedSchema.key\"}},\"serverName\":\"serverName\"}"
+    },
+    {
+      "schema": "ExitClassification",
+      "variant": "minimal",
+      "wire": "clean",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"clean\""
+    },
+    {
+      "schema": "ExitClassification",
+      "variant": "full",
+      "wire": "clean",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"clean\""
+    },
+    {
+      "schema": "FailureDisposition",
+      "variant": "minimal",
+      "wire": "retryable",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"retryable\""
+    },
+    {
+      "schema": "FailureDisposition",
+      "variant": "full",
+      "wire": "retryable",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"retryable\""
+    },
+    {
+      "schema": "GitActivity",
+      "variant": "minimal",
+      "wire": {
+        "ev": "git-activity",
+        "commits": [],
+        "touchedFiles": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"git-activity\",\"commits\":[],\"touchedFiles\":[]}"
+    },
+    {
+      "schema": "GitActivity",
+      "variant": "full",
+      "wire": {
+        "ev": "git-activity",
+        "commits": ["commits[0]"],
+        "touchedFiles": ["touchedFiles[0]"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"git-activity\",\"commits\":[\"commits[0]\"],\"touchedFiles\":[\"touchedFiles[0]\"]}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once",
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\",\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "question",
+        "selections": [
+          {
+            "optionIndices": [2],
+            "text": "selections[0].text"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[2],\"text\":\"selections[0].text\"}]}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "plan-approval",
+        "decision": "reject",
+        "autoAcceptEdits": true,
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"plan-approval\",\"decision\":\"reject\",\"autoAcceptEdits\":true,\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm3",
+      "wire": {
+        "kind": "elicitation",
+        "action": "cancel",
+        "content": {
+          "content.key": {
+            "unknownFixture": "content.content.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"elicitation\",\"action\":\"cancel\",\"content\":{\"content.key\":{\"unknownFixture\":\"content.content.key\"}}}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm4",
+      "wire": {
+        "kind": "login",
+        "outcome": "cancelled"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"login\",\"outcome\":\"cancelled\"}"
+    },
+    {
+      "schema": "InteractionAnswer",
+      "variant": "full/arm5",
+      "wire": {
+        "kind": "recovery",
+        "choice": "abandon"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"recovery\",\"choice\":\"abandon\"}"
+    },
+    {
+      "schema": "InteractionAnswerability",
+      "variant": "minimal",
+      "wire": "structured",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"structured\""
+    },
+    {
+      "schema": "InteractionAnswerability",
+      "variant": "full",
+      "wire": "structured",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"structured\""
+    },
+    {
+      "schema": "InteractionAnsweredBy",
+      "variant": "minimal",
+      "wire": "policy",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"policy\""
+    },
+    {
+      "schema": "InteractionAnsweredBy",
+      "variant": "full",
+      "wire": "policy",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"policy\""
+    },
+    {
+      "schema": "InteractionAnswerOutcome",
+      "variant": "minimal",
+      "wire": {
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ok\":true}"
+    },
+    {
+      "schema": "InteractionAnswerOutcome",
+      "variant": "full/arm0",
+      "wire": {
+        "ok": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ok\":true}"
+    },
+    {
+      "schema": "InteractionAnswerOutcome",
+      "variant": "full/arm1",
+      "wire": {
+        "ok": false,
+        "reason": "expired",
+        "detail": "detail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ok\":false,\"reason\":\"expired\",\"detail\":\"detail\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "minimal",
+      "wire": {
+        "ev": "asked",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "permission",
+          "payload": {
+            "v": 1,
+            "toolName": "interaction.payload.toolName",
+            "canAlwaysAllow": true
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "protocol",
+          "answerable": "structured"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"asked\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interaction.payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "ev": "asked",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "permission",
+          "payload": {
+            "v": 1,
+            "toolName": "interaction.payload.toolName",
+            "inputSummary": "interaction.payload.inputSummary",
+            "canAlwaysAllow": true,
+            "suggestions": [
+              {
+                "unknownFixture": "interaction.payload.suggestions[0]"
+              }
+            ]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "protocol",
+          "answerable": "structured",
+          "policyVerdict": "auto-allowed",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"asked\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interaction.payload.toolName\",\"inputSummary\":\"interaction.payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interaction.payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "ev": "answered",
+        "id": "id",
+        "answeredBy": "superagent",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"answered\",\"id\":\"id\",\"answeredBy\":\"superagent\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm2",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm3",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm4",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionEvent",
+      "variant": "full/arm5",
+      "wire": {
+        "ev": "expired",
+        "id": "id",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"expired\",\"id\":\"id\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "InteractionKind",
+      "variant": "minimal",
+      "wire": "permission",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"permission\""
+    },
+    {
+      "schema": "InteractionKind",
+      "variant": "full",
+      "wire": "permission",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"permission\""
+    },
+    {
+      "schema": "InteractionSource",
+      "variant": "minimal",
+      "wire": "protocol",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"protocol\""
+    },
+    {
+      "schema": "InteractionSource",
+      "variant": "full",
+      "wire": "protocol",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"protocol\""
+    },
+    {
+      "schema": "InteractionStatus",
+      "variant": "minimal",
+      "wire": "asked",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"asked\""
+    },
+    {
+      "schema": "InteractionStatus",
+      "variant": "full",
+      "wire": "asked",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"asked\""
+    },
+    {
+      "schema": "LoginAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "login",
+        "outcome": "completed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"login\",\"outcome\":\"completed\"}"
+    },
+    {
+      "schema": "LoginAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "login",
+        "outcome": "completed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"login\",\"outcome\":\"completed\"}"
+    },
+    {
+      "schema": "LoginAsk",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "provider": "provider",
+        "reason": "auth-expired"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"provider\":\"provider\",\"reason\":\"auth-expired\"}"
+    },
+    {
+      "schema": "LoginAsk",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "provider": "provider",
+        "reason": "auth-expired",
+        "url": "url"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"provider\":\"provider\",\"reason\":\"auth-expired\",\"url\":\"url\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "permission",
+        "payload": {
+          "v": 1,
+          "toolName": "payload.toolName",
+          "canAlwaysAllow": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "protocol",
+        "answerable": "structured"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "permission",
+        "payload": {
+          "v": 1,
+          "toolName": "payload.toolName",
+          "inputSummary": "payload.inputSummary",
+          "canAlwaysAllow": true,
+          "suggestions": [
+            {
+              "unknownFixture": "payload.suggestions[0]"
+            }
+          ]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "protocol",
+        "answerable": "structured",
+        "policyVerdict": "auto-allowed",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"payload.toolName\",\"inputSummary\":\"payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "question",
+        "payload": {
+          "v": 1,
+          "questions": [
+            {
+              "question": "payload.questions[0].question",
+              "header": "payload.questions[0].header",
+              "multiSelect": false,
+              "otherIndex": 2,
+              "previewLayout": false,
+              "options": [
+                {
+                  "label": "payload.questions[0].options[0].label",
+                  "description": "payload.questions[0].options[0].description",
+                  "preview": "payload.questions[0].options[0].preview"
+                }
+              ]
+            }
+          ]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "sdk-callback",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "auto-denied",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"payload.questions[0].question\",\"header\":\"payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"payload.questions[0].options[0].label\",\"description\":\"payload.questions[0].options[0].description\",\"preview\":\"payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "plan-approval",
+        "payload": {
+          "v": 1,
+          "plan": "payload.plan",
+          "autoAcceptOffered": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "hook",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "elicitation",
+        "payload": {
+          "v": 1,
+          "message": "payload.message",
+          "requestedSchema": {
+            "payload.requestedSchema.key": {
+              "unknownFixture": "payload.requestedSchema.payload.requestedSchema.key"
+            }
+          },
+          "serverName": "payload.serverName"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"payload.message\",\"requestedSchema\":{\"payload.requestedSchema.key\":{\"unknownFixture\":\"payload.requestedSchema.payload.requestedSchema.key\"}},\"serverName\":\"payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm4",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "login",
+        "payload": {
+          "v": 1,
+          "provider": "payload.provider",
+          "reason": "re-auth",
+          "url": "payload.url"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"payload.provider\",\"reason\":\"re-auth\",\"url\":\"payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteraction",
+      "variant": "full/arm5",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "recovery",
+        "payload": {
+          "v": 1,
+          "reason": "unknown",
+          "prompt": "payload.prompt",
+          "offered": ["abandon"]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "permission",
+        "payload": {
+          "v": 1,
+          "toolName": "payload.toolName",
+          "canAlwaysAllow": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "protocol",
+        "answerable": "structured",
+        "status": "asked",
+        "fingerprint": "fingerprint"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"status\":\"asked\",\"fingerprint\":\"fingerprint\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm0",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "permission",
+        "payload": {
+          "v": 1,
+          "toolName": "payload.toolName",
+          "inputSummary": "payload.inputSummary",
+          "canAlwaysAllow": true,
+          "suggestions": [
+            {
+              "unknownFixture": "payload.suggestions[0]"
+            }
+          ]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "protocol",
+        "answerable": "structured",
+        "policyVerdict": "auto-allowed",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "asked",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "policy",
+        "answer": {
+          "kind": "permission",
+          "decision": "allow-once",
+          "feedback": "answer.feedback"
+        },
+        "deliveredVia": "menu",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"payload.toolName\",\"inputSummary\":\"payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"asked\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"policy\",\"answer\":{\"kind\":\"permission\",\"decision\":\"allow-once\",\"feedback\":\"answer.feedback\"},\"deliveredVia\":\"menu\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm1",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "question",
+        "payload": {
+          "v": 1,
+          "questions": [
+            {
+              "question": "payload.questions[0].question",
+              "header": "payload.questions[0].header",
+              "multiSelect": false,
+              "otherIndex": 2,
+              "previewLayout": false,
+              "options": [
+                {
+                  "label": "payload.questions[0].options[0].label",
+                  "description": "payload.questions[0].options[0].description",
+                  "preview": "payload.questions[0].options[0].preview"
+                }
+              ]
+            }
+          ]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "sdk-callback",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "auto-denied",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "answered",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "superagent",
+        "answer": {
+          "kind": "question",
+          "selections": [
+            {
+              "optionIndices": [2],
+              "text": "answer.selections[0].text"
+            }
+          ]
+        },
+        "deliveredVia": "text",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"payload.questions[0].question\",\"header\":\"payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"payload.questions[0].options[0].label\",\"description\":\"payload.questions[0].options[0].description\",\"preview\":\"payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"answered\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"superagent\",\"answer\":{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[2],\"text\":\"answer.selections[0].text\"}]},\"deliveredVia\":\"text\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm2",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "plan-approval",
+        "payload": {
+          "v": 1,
+          "plan": "payload.plan",
+          "autoAcceptOffered": true
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "hook",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "expired",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "plan-approval",
+          "decision": "reject",
+          "autoAcceptEdits": true,
+          "feedback": "answer.feedback"
+        },
+        "deliveredVia": "structured",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"expired\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"plan-approval\",\"decision\":\"reject\",\"autoAcceptEdits\":true,\"feedback\":\"answer.feedback\"},\"deliveredVia\":\"structured\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm3",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "elicitation",
+        "payload": {
+          "v": 1,
+          "message": "payload.message",
+          "requestedSchema": {
+            "payload.requestedSchema.key": {
+              "unknownFixture": "payload.requestedSchema.payload.requestedSchema.key"
+            }
+          },
+          "serverName": "payload.serverName"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "superseded",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "elicitation",
+          "action": "cancel",
+          "content": {
+            "answer.content.key": {
+              "unknownFixture": "answer.content.answer.content.key"
+            }
+          }
+        },
+        "deliveredVia": "unverified",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"payload.message\",\"requestedSchema\":{\"payload.requestedSchema.key\":{\"unknownFixture\":\"payload.requestedSchema.payload.requestedSchema.key\"}},\"serverName\":\"payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"superseded\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"elicitation\",\"action\":\"cancel\",\"content\":{\"answer.content.key\":{\"unknownFixture\":\"answer.content.answer.content.key\"}}},\"deliveredVia\":\"unverified\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm4",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "login",
+        "payload": {
+          "v": 1,
+          "provider": "payload.provider",
+          "reason": "re-auth",
+          "url": "payload.url"
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "superseded",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "login",
+          "outcome": "cancelled"
+        },
+        "deliveredVia": "unverified",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"payload.provider\",\"reason\":\"re-auth\",\"url\":\"payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"superseded\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"login\",\"outcome\":\"cancelled\"},\"deliveredVia\":\"unverified\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PendingInteractionWire",
+      "variant": "full/arm5",
+      "wire": {
+        "id": "id",
+        "sessionId": "sessionId",
+        "kind": "recovery",
+        "payload": {
+          "v": 1,
+          "reason": "unknown",
+          "prompt": "payload.prompt",
+          "offered": ["abandon"]
+        },
+        "askedAt": "2026-01-02T03:04:05.000Z",
+        "source": "screen-classifier",
+        "answerable": "keystroke-emulated",
+        "policyVerdict": "escalated",
+        "expiresAt": "2026-01-02T03:04:05.000Z",
+        "status": "superseded",
+        "fingerprint": "fingerprint",
+        "answeredAt": "2026-01-02T03:04:05.000Z",
+        "answeredBy": "human",
+        "answer": {
+          "kind": "recovery",
+          "choice": "abandon"
+        },
+        "deliveredVia": "unverified",
+        "expiredAt": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"sessionId\":\"sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\",\"status\":\"superseded\",\"fingerprint\":\"fingerprint\",\"answeredAt\":\"2026-01-02T03:04:05.000Z\",\"answeredBy\":\"human\",\"answer\":{\"kind\":\"recovery\",\"choice\":\"abandon\"},\"deliveredVia\":\"unverified\",\"expiredAt\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "PermissionAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\"}"
+    },
+    {
+      "schema": "PermissionAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "permission",
+        "decision": "allow-once",
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"permission\",\"decision\":\"allow-once\",\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "PermissionAsk",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "toolName": "toolName",
+        "canAlwaysAllow": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"toolName\":\"toolName\",\"canAlwaysAllow\":true}"
+    },
+    {
+      "schema": "PermissionAsk",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "toolName": "toolName",
+        "inputSummary": "inputSummary",
+        "canAlwaysAllow": true,
+        "suggestions": [
+          {
+            "unknownFixture": "suggestions[0]"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"toolName\":\"toolName\",\"inputSummary\":\"inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"suggestions[0]\"}]}"
+    },
+    {
+      "schema": "PlanApprovalAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "plan-approval",
+        "decision": "approve"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"plan-approval\",\"decision\":\"approve\"}"
+    },
+    {
+      "schema": "PlanApprovalAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "plan-approval",
+        "decision": "approve",
+        "autoAcceptEdits": true,
+        "feedback": "feedback"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"plan-approval\",\"decision\":\"approve\",\"autoAcceptEdits\":true,\"feedback\":\"feedback\"}"
+    },
+    {
+      "schema": "PlanApprovalAsk",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "plan": "plan",
+        "autoAcceptOffered": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"plan\":\"plan\",\"autoAcceptOffered\":true}"
+    },
+    {
+      "schema": "PlanApprovalAsk",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "plan": "plan",
+        "autoAcceptOffered": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"plan\":\"plan\",\"autoAcceptOffered\":true}"
+    },
+    {
+      "schema": "ProcessEvent",
+      "variant": "minimal",
+      "wire": {
+        "ev": "exited",
+        "code": null,
+        "signal": null,
+        "classification": "clean"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"exited\",\"code\":null,\"signal\":null,\"classification\":\"clean\"}"
+    },
+    {
+      "schema": "ProcessEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "ev": "exited",
+        "code": 1,
+        "signal": "signal",
+        "classification": "clean"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"exited\",\"code\":1,\"signal\":\"signal\",\"classification\":\"clean\"}"
+    },
+    {
+      "schema": "ProcessEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "ev": "oomKilled",
+        "scopeUnit": "scopeUnit"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"oomKilled\",\"scopeUnit\":\"scopeUnit\"}"
+    },
+    {
+      "schema": "ProcessEvent",
+      "variant": "full/arm2",
+      "wire": {
+        "ev": "adopted",
+        "bindingVersion": 3
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"adopted\",\"bindingVersion\":3}"
+    },
+    {
+      "schema": "QuestionAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "question",
+        "selections": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"selections\":[]}"
+    },
+    {
+      "schema": "QuestionAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "question",
+        "selections": [
+          {
+            "optionIndices": [1],
+            "text": "selections[0].text"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"question\",\"selections\":[{\"optionIndices\":[1],\"text\":\"selections[0].text\"}]}"
+    },
+    {
+      "schema": "QuestionAsk",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "questions": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"questions\":[]}"
+    },
+    {
+      "schema": "QuestionAsk",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "questions": [
+          {
+            "question": "questions[0].question",
+            "header": "questions[0].header",
+            "multiSelect": true,
+            "otherIndex": 1,
+            "previewLayout": true,
+            "options": [
+              {
+                "label": "questions[0].options[0].label",
+                "description": "questions[0].options[0].description",
+                "preview": "questions[0].options[0].preview"
+              }
+            ]
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"questions\":[{\"question\":\"questions[0].question\",\"header\":\"questions[0].header\",\"multiSelect\":true,\"otherIndex\":1,\"previewLayout\":true,\"options\":[{\"label\":\"questions[0].options[0].label\",\"description\":\"questions[0].options[0].description\",\"preview\":\"questions[0].options[0].preview\"}]}]}"
+    },
+    {
+      "schema": "QuestionOption",
+      "variant": "minimal",
+      "wire": {
+        "label": "label"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"label\":\"label\"}"
+    },
+    {
+      "schema": "QuestionOption",
+      "variant": "full",
+      "wire": {
+        "label": "label",
+        "description": "description",
+        "preview": "preview"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"label\":\"label\",\"description\":\"description\",\"preview\":\"preview\"}"
+    },
+    {
+      "schema": "QuestionPrompt",
+      "variant": "minimal",
+      "wire": {
+        "question": "question",
+        "multiSelect": true,
+        "previewLayout": true,
+        "options": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"question\":\"question\",\"multiSelect\":true,\"previewLayout\":true,\"options\":[]}"
+    },
+    {
+      "schema": "QuestionPrompt",
+      "variant": "full",
+      "wire": {
+        "question": "question",
+        "header": "header",
+        "multiSelect": true,
+        "otherIndex": 1,
+        "previewLayout": true,
+        "options": [
+          {
+            "label": "options[0].label",
+            "description": "options[0].description",
+            "preview": "options[0].preview"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"question\":\"question\",\"header\":\"header\",\"multiSelect\":true,\"otherIndex\":1,\"previewLayout\":true,\"options\":[{\"label\":\"options[0].label\",\"description\":\"options[0].description\",\"preview\":\"options[0].preview\"}]}"
+    },
+    {
+      "schema": "QuestionSelection",
+      "variant": "minimal",
+      "wire": {
+        "optionIndices": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"optionIndices\":[]}"
+    },
+    {
+      "schema": "QuestionSelection",
+      "variant": "full",
+      "wire": {
+        "optionIndices": [1],
+        "text": "text"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"optionIndices\":[1],\"text\":\"text\"}"
+    },
+    {
+      "schema": "QueueDrainAbandonedReason",
+      "variant": "minimal",
+      "wire": "never-live",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"never-live\""
+    },
+    {
+      "schema": "QueueDrainAbandonedReason",
+      "variant": "full",
+      "wire": "never-live",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"never-live\""
+    },
+    {
+      "schema": "RecoveryAnswer",
+      "variant": "minimal",
+      "wire": {
+        "kind": "recovery",
+        "choice": "full-resume"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"recovery\",\"choice\":\"full-resume\"}"
+    },
+    {
+      "schema": "RecoveryAnswer",
+      "variant": "full",
+      "wire": {
+        "kind": "recovery",
+        "choice": "full-resume"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"recovery\",\"choice\":\"full-resume\"}"
+    },
+    {
+      "schema": "RecoveryAsk",
+      "variant": "minimal",
+      "wire": {
+        "v": 1,
+        "reason": "cache-miss",
+        "prompt": "prompt",
+        "offered": []
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"reason\":\"cache-miss\",\"prompt\":\"prompt\",\"offered\":[]}"
+    },
+    {
+      "schema": "RecoveryAsk",
+      "variant": "full",
+      "wire": {
+        "v": 1,
+        "reason": "cache-miss",
+        "prompt": "prompt",
+        "offered": ["full-resume"]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"v\":1,\"reason\":\"cache-miss\",\"prompt\":\"prompt\",\"offered\":[\"full-resume\"]}"
+    },
+    {
+      "schema": "RecoveryChoice",
+      "variant": "minimal",
+      "wire": "full-resume",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"full-resume\""
+    },
+    {
+      "schema": "RecoveryChoice",
+      "variant": "full",
+      "wire": "full-resume",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"full-resume\""
+    },
+    {
+      "schema": "Refusal",
+      "variant": "minimal",
+      "wire": {
+        "reason": "needs_user"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"reason\":\"needs_user\"}"
+    },
+    {
+      "schema": "Refusal",
+      "variant": "full",
+      "wire": {
+        "reason": "needs_user",
+        "detail": "detail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"reason\":\"needs_user\",\"detail\":\"detail\"}"
+    },
+    {
+      "schema": "RefusalReason",
+      "variant": "minimal",
+      "wire": "needs_user",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"needs_user\""
+    },
+    {
+      "schema": "RefusalReason",
+      "variant": "full",
+      "wire": "needs_user",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"needs_user\""
+    },
+    {
+      "schema": "RuntimeAnswerRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeAnswerRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "interactionId": "interactionId",
+        "answer": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"answer\":{}}"
+    },
+    {
+      "schema": "RuntimeAnswerRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeAnswerRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "interactionId": "interactionId",
+        "answer": {
+          "answer.key": {
+            "unknownFixture": "answer.answer.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"answer\":{\"answer.key\":{\"unknownFixture\":\"answer.answer.key\"}}}"
+    },
+    {
+      "schema": "RuntimeAnswerResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeAnswerResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "outcome": {
+          "ok": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":true}}"
+    },
+    {
+      "schema": "RuntimeAnswerResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeAnswerResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "outcome": {
+          "ok": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":true}}"
+    },
+    {
+      "schema": "RuntimeAnswerResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeAnswerResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "outcome": {
+          "ok": false,
+          "reason": "expired",
+          "detail": "outcome.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"expired\",\"detail\":\"outcome.detail\"}}"
+    },
+    {
+      "schema": "RuntimeAttachmentRef",
+      "variant": "minimal",
+      "wire": {
+        "id": "id",
+        "path": "path",
+        "filename": "filename",
+        "mediaType": "mediaType",
+        "kind": "image"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"path\":\"path\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+    },
+    {
+      "schema": "RuntimeAttachmentRef",
+      "variant": "full",
+      "wire": {
+        "id": "id",
+        "path": "path",
+        "filename": "filename",
+        "mediaType": "mediaType",
+        "kind": "image"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"id\":\"id\",\"path\":\"path\",\"filename\":\"filename\",\"mediaType\":\"mediaType\",\"kind\":\"image\"}"
+    },
+    {
+      "schema": "RuntimeAttachmentSource",
+      "variant": "minimal",
+      "wire": {
+        "dataBase64": "dataBase64",
+        "filename": "filename",
+        "mediaType": "mediaType"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"dataBase64\":\"dataBase64\",\"filename\":\"filename\",\"mediaType\":\"mediaType\"}"
+    },
+    {
+      "schema": "RuntimeAttachmentSource",
+      "variant": "full",
+      "wire": {
+        "dataBase64": "dataBase64",
+        "filename": "filename",
+        "mediaType": "mediaType"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"dataBase64\":\"dataBase64\",\"filename\":\"filename\",\"mediaType\":\"mediaType\"}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeStageAttachmentRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "source": {
+          "dataBase64": "source.dataBase64",
+          "filename": "source.filename",
+          "mediaType": "source.mediaType"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeStageAttachmentRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "source": {
+          "dataBase64": "source.dataBase64",
+          "filename": "source.filename",
+          "mediaType": "source.mediaType"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeSendRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "controller",
+        "delivery": "queue",
+        "attachments": [
+          {
+            "id": "attachments[0].id",
+            "path": "attachments[0].path",
+            "filename": "attachments[0].filename",
+            "mediaType": "attachments[0].mediaType",
+            "kind": "file"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"controller\",\"delivery\":\"queue\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"file\"}]}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeInterruptRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInterruptRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeAnswerRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "interactionId": "interactionId",
+        "answer": {
+          "answer.key": {
+            "unknownFixture": "answer.answer.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"interactionId\":\"interactionId\",\"answer\":{\"answer.key\":{\"unknownFixture\":\"answer.answer.key\"}}}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeLifecycleRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "verb": "kill"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"verb\":\"kill\"}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeSnapshotRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "runtimeQueueDrainAbandonedAck",
+        "reportId": "reportId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
+    },
+    {
+      "schema": "RuntimeCommandMessage",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "runtimeEventAck",
+        "deliveryId": "deliveryId",
+        "outcome": "rejected",
+        "rejectionReason": "rejectionReason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"rejected\",\"rejectionReason\":\"rejectionReason\"}"
+    },
+    {
+      "schema": "RuntimeConfigureRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeConfigureRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeConfigureRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeConfigureRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "model": "model",
+        "effort": "effort",
+        "permissionMode": "permissionMode"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"model\":\"model\",\"effort\":\"effort\",\"permissionMode\":\"permissionMode\"}"
+    },
+    {
+      "schema": "RuntimeConfigureResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeConfigureResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true,
+          "effective": "immediate"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true,\"effective\":\"immediate\"}}"
+    },
+    {
+      "schema": "RuntimeConfigureResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeConfigureResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true,
+          "effective": "immediate"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true,\"effective\":\"immediate\"}}"
+    },
+    {
+      "schema": "RuntimeConfigureResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeConfigureResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "lease_held",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeConfigureResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeStageAttachmentResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "id": "result.id",
+          "path": "result.path",
+          "filename": "result.filename",
+          "mediaType": "result.mediaType",
+          "kind": "image"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"id\":\"result.id\",\"path\":\"result.path\",\"filename\":\"result.filename\",\"mediaType\":\"result.mediaType\",\"kind\":\"image\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeStageAttachmentResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "id": "result.id",
+          "path": "result.path",
+          "filename": "result.filename",
+          "mediaType": "result.mediaType",
+          "kind": "image"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"id\":\"result.id\",\"path\":\"result.path\",\"filename\":\"result.filename\",\"mediaType\":\"result.mediaType\",\"kind\":\"image\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "queued",
+          "position": 2,
+          "deliveredAs": "queue",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"queued\",\"position\":2,\"deliveredAs\":\"queue\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeQueueDrainAbandoned",
+        "reportId": "reportId",
+        "sessionId": "sessionId",
+        "turnIds": ["turnIds[0]"],
+        "reason": "delivery-failed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"reportId\":\"reportId\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"delivery-failed\"}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeLifecycleResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "no_resume_ref",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeAnswerResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "outcome": {
+          "ok": false,
+          "reason": "delivery-failed",
+          "detail": "outcome.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"delivery-failed\",\"detail\":\"outcome.detail\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "recovery",
+          "payload": {
+            "v": 1,
+            "reason": "unknown",
+            "prompt": "interaction.payload.prompt",
+            "offered": ["abandon"]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interaction.payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "staging_failed",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeDaemonMessage",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 8
+            }
+          },
+          "observerGeneration": 8,
+          "turnEpoch": 8,
+          "t": "open-url",
+          "ev": {
+            "url": "event.ev.url",
+            "intent": "link"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "minimal",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "state",
+        "change": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "state",
+        "change": {
+          "change.key": {
+            "unknownFixture": "change.change.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"change.key\":{\"unknownFixture\":\"change.change.key\"}}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "live",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 2
+          }
+        },
+        "observerGeneration": 2,
+        "turnEpoch": 2,
+        "t": "item",
+        "item": {
+          "kind": "delta",
+          "itemId": "item.itemId",
+          "textDelta": "item.textDelta"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm2",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 3
+          }
+        },
+        "observerGeneration": 3,
+        "turnEpoch": 3,
+        "t": "interaction",
+        "ev": {
+          "ev": "expired",
+          "id": "ev.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm3",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 4
+          }
+        },
+        "observerGeneration": 4,
+        "turnEpoch": 4,
+        "t": "turn",
+        "ev": {
+          "ev": "failed",
+          "turnEpoch": 4,
+          "reason": "provider-error",
+          "disposition": "fatal",
+          "detail": "ev.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":4,\"reason\":\"provider-error\",\"disposition\":\"fatal\",\"detail\":\"ev.detail\"}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm4",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 5
+          }
+        },
+        "observerGeneration": 5,
+        "turnEpoch": 5,
+        "t": "process",
+        "ev": {
+          "ev": "adopted",
+          "bindingVersion": 5
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":5}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm5",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 6
+          }
+        },
+        "observerGeneration": 6,
+        "turnEpoch": 6,
+        "t": "workspace",
+        "ev": {
+          "ev": "git-activity",
+          "commits": ["ev.commits[0]"],
+          "touchedFiles": ["ev.touchedFiles[0]"]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"ev.commits[0]\"],\"touchedFiles\":[\"ev.touchedFiles[0]\"]}}"
+    },
+    {
+      "schema": "RuntimeEvent",
+      "variant": "full/arm6",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "replay",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 7
+          }
+        },
+        "observerGeneration": 7,
+        "turnEpoch": 7,
+        "t": "open-url",
+        "ev": {
+          "url": "ev.url",
+          "intent": "link"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"ev.url\",\"intent\":\"link\"}}"
+    },
+    {
+      "schema": "RuntimeEventAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeEventAck",
+        "deliveryId": "deliveryId",
+        "outcome": "committed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"committed\"}"
+    },
+    {
+      "schema": "RuntimeEventAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeEventAck",
+        "deliveryId": "deliveryId",
+        "outcome": "committed",
+        "rejectionReason": "rejectionReason"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEventAck\",\"deliveryId\":\"deliveryId\",\"outcome\":\"committed\",\"rejectionReason\":\"rejectionReason\"}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "minimal",
+      "wire": {
+        "t": "state",
+        "change": {}
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"state\",\"change\":{}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm0",
+      "wire": {
+        "t": "state",
+        "change": {
+          "change.key": {
+            "unknownFixture": "change.change.key"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"state\",\"change\":{\"change.key\":{\"unknownFixture\":\"change.change.key\"}}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm1",
+      "wire": {
+        "t": "item",
+        "item": {
+          "kind": "delta",
+          "itemId": "item.itemId",
+          "textDelta": "item.textDelta"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm2",
+      "wire": {
+        "t": "interaction",
+        "ev": {
+          "ev": "expired",
+          "id": "ev.id",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm3",
+      "wire": {
+        "t": "turn",
+        "ev": {
+          "ev": "failed",
+          "turnEpoch": 4,
+          "reason": "provider-error",
+          "disposition": "fatal",
+          "detail": "ev.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":4,\"reason\":\"provider-error\",\"disposition\":\"fatal\",\"detail\":\"ev.detail\"}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm4",
+      "wire": {
+        "t": "process",
+        "ev": {
+          "ev": "adopted",
+          "bindingVersion": 5
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":5}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm5",
+      "wire": {
+        "t": "workspace",
+        "ev": {
+          "ev": "git-activity",
+          "commits": ["ev.commits[0]"],
+          "touchedFiles": ["ev.touchedFiles[0]"]
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"ev.commits[0]\"],\"touchedFiles\":[\"ev.touchedFiles[0]\"]}}"
+    },
+    {
+      "schema": "RuntimeEventBody",
+      "variant": "full/arm6",
+      "wire": {
+        "t": "open-url",
+        "ev": {
+          "url": "ev.url",
+          "intent": "link"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"t\":\"open-url\",\"ev\":{\"url\":\"ev.url\",\"intent\":\"link\"}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "components": {}
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "t": "state",
+          "change": {}
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 1
+            }
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "t": "state",
+          "change": {
+            "event.change.key": {
+              "unknownFixture": "event.change.event.change.key"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"state\",\"change\":{\"event.change.key\":{\"unknownFixture\":\"event.change.event.change.key\"}}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "live",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 2
+            }
+          },
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 3
+            }
+          },
+          "observerGeneration": 3,
+          "turnEpoch": 3,
+          "t": "interaction",
+          "ev": {
+            "ev": "expired",
+            "id": "event.ev.id",
+            "at": "2026-01-02T03:04:05.000Z"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"interaction\",\"ev\":{\"ev\":\"expired\",\"id\":\"event.ev.id\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 4
+            }
+          },
+          "observerGeneration": 4,
+          "turnEpoch": 4,
+          "t": "turn",
+          "ev": {
+            "ev": "failed",
+            "turnEpoch": 4,
+            "reason": "provider-error",
+            "disposition": "fatal",
+            "detail": "event.ev.detail"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"turn\",\"ev\":{\"ev\":\"failed\",\"turnEpoch\":4,\"reason\":\"provider-error\",\"disposition\":\"fatal\",\"detail\":\"event.ev.detail\"}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 5
+            }
+          },
+          "observerGeneration": 5,
+          "turnEpoch": 5,
+          "t": "process",
+          "ev": {
+            "ev": "adopted",
+            "bindingVersion": 5
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"process\",\"ev\":{\"ev\":\"adopted\",\"bindingVersion\":5}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 6
+            }
+          },
+          "observerGeneration": 6,
+          "turnEpoch": 6,
+          "t": "workspace",
+          "ev": {
+            "ev": "git-activity",
+            "commits": ["event.ev.commits[0]"],
+            "touchedFiles": ["event.ev.touchedFiles[0]"]
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"workspace\",\"ev\":{\"ev\":\"git-activity\",\"commits\":[\"event.ev.commits[0]\"],\"touchedFiles\":[\"event.ev.touchedFiles[0]\"]}}}"
+    },
+    {
+      "schema": "RuntimeEventMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 7
+            }
+          },
+          "observerGeneration": 7,
+          "turnEpoch": 7,
+          "t": "open-url",
+          "ev": {
+            "url": "event.ev.url",
+            "intent": "link"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":7}},\"observerGeneration\":7,\"turnEpoch\":7,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "minimal",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "item",
+        "item": {
+          "kind": "delta",
+          "itemId": "item.itemId",
+          "textDelta": "item.textDelta"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "bootstrap",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "t": "item",
+        "item": {
+          "kind": "delta",
+          "itemId": "item.itemId",
+          "textDelta": "item.textDelta"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"item.itemId\",\"textDelta\":\"item.textDelta\"}}"
+    },
+    {
+      "schema": "RuntimeFineEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "at": "2026-01-02T03:04:05.000Z",
+        "provenance": "live",
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 2
+          }
+        },
+        "observerGeneration": 2,
+        "turnEpoch": 2,
+        "t": "item",
+        "item": {
+          "kind": "partial",
+          "item": {
+            "id": "item.item.id",
+            "cursor": "item.item.cursor",
+            "role": "assistant",
+            "ts": "item.item.ts",
+            "text": "item.item.text",
+            "toolName": "item.item.toolName",
+            "toolInput": "item.item.toolInput",
+            "toolTitle": "item.item.toolTitle",
+            "toolInputJson": "item.item.toolInputJson",
+            "toolResult": "item.item.toolResult",
+            "toolUseId": "item.item.toolUseId",
+            "tags": [
+              {
+                "kind": "file",
+                "label": "item.item.tags[0].label"
+              }
+            ],
+            "toolPaths": ["item.item.toolPaths[0]"],
+            "event": "interrupt",
+            "answer": false,
+            "systemKind": "duration",
+            "durationMs": 2
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"item.item.id\",\"cursor\":\"item.item.cursor\",\"role\":\"assistant\",\"ts\":\"item.item.ts\",\"text\":\"item.item.text\",\"toolName\":\"item.item.toolName\",\"toolInput\":\"item.item.toolInput\",\"toolTitle\":\"item.item.toolTitle\",\"toolInputJson\":\"item.item.toolInputJson\",\"toolResult\":\"item.item.toolResult\",\"toolUseId\":\"item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.item.tags[0].label\"}],\"toolPaths\":[\"item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "components": {}
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "bootstrap",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 1
+            }
+          },
+          "observerGeneration": 1,
+          "turnEpoch": 1,
+          "t": "item",
+          "item": {
+            "kind": "delta",
+            "itemId": "event.item.itemId",
+            "textDelta": "event.item.textDelta"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"item\",\"item\":{\"kind\":\"delta\",\"itemId\":\"event.item.itemId\",\"textDelta\":\"event.item.textDelta\"}}}"
+    },
+    {
+      "schema": "RuntimeFineEventMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeFineEvent",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "live",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 2
+            }
+          },
+          "observerGeneration": 2,
+          "turnEpoch": 2,
+          "t": "item",
+          "item": {
+            "kind": "partial",
+            "item": {
+              "id": "event.item.item.id",
+              "cursor": "event.item.item.cursor",
+              "role": "assistant",
+              "ts": "event.item.item.ts",
+              "text": "event.item.item.text",
+              "toolName": "event.item.item.toolName",
+              "toolInput": "event.item.item.toolInput",
+              "toolTitle": "event.item.item.toolTitle",
+              "toolInputJson": "event.item.item.toolInputJson",
+              "toolResult": "event.item.item.toolResult",
+              "toolUseId": "event.item.item.toolUseId",
+              "tags": [
+                {
+                  "kind": "file",
+                  "label": "event.item.item.tags[0].label"
+                }
+              ],
+              "toolPaths": ["event.item.item.toolPaths[0]"],
+              "event": "interrupt",
+              "answer": false,
+              "systemKind": "duration",
+              "durationMs": 2
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeFineEvent\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"t\":\"item\",\"item\":{\"kind\":\"partial\",\"item\":{\"id\":\"event.item.item.id\",\"cursor\":\"event.item.item.cursor\",\"role\":\"assistant\",\"ts\":\"event.item.item.ts\",\"text\":\"event.item.item.text\",\"toolName\":\"event.item.item.toolName\",\"toolInput\":\"event.item.item.toolInput\",\"toolTitle\":\"event.item.item.toolTitle\",\"toolInputJson\":\"event.item.item.toolInputJson\",\"toolResult\":\"event.item.item.toolResult\",\"toolUseId\":\"event.item.item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"event.item.item.tags[0].label\"}],\"toolPaths\":[\"event.item.item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":false,\"systemKind\":\"duration\",\"durationMs\":2}}}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "permission",
+          "payload": {
+            "v": 1,
+            "toolName": "interaction.payload.toolName",
+            "canAlwaysAllow": true
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "protocol",
+          "answerable": "structured"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interaction.payload.toolName\",\"canAlwaysAllow\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "permission",
+          "payload": {
+            "v": 1,
+            "toolName": "interaction.payload.toolName",
+            "inputSummary": "interaction.payload.inputSummary",
+            "canAlwaysAllow": true,
+            "suggestions": [
+              {
+                "unknownFixture": "interaction.payload.suggestions[0]"
+              }
+            ]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "protocol",
+          "answerable": "structured",
+          "policyVerdict": "auto-allowed",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interaction.payload.toolName\",\"inputSummary\":\"interaction.payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interaction.payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "question",
+          "payload": {
+            "v": 1,
+            "questions": [
+              {
+                "question": "interaction.payload.questions[0].question",
+                "header": "interaction.payload.questions[0].header",
+                "multiSelect": false,
+                "otherIndex": 2,
+                "previewLayout": false,
+                "options": [
+                  {
+                    "label": "interaction.payload.questions[0].options[0].label",
+                    "description": "interaction.payload.questions[0].options[0].description",
+                    "preview": "interaction.payload.questions[0].options[0].preview"
+                  }
+                ]
+              }
+            ]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "sdk-callback",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "auto-denied",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"interaction.payload.questions[0].question\",\"header\":\"interaction.payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interaction.payload.questions[0].options[0].label\",\"description\":\"interaction.payload.questions[0].options[0].description\",\"preview\":\"interaction.payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "plan-approval",
+          "payload": {
+            "v": 1,
+            "plan": "interaction.payload.plan",
+            "autoAcceptOffered": true
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "hook",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interaction.payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "elicitation",
+          "payload": {
+            "v": 1,
+            "message": "interaction.payload.message",
+            "requestedSchema": {
+              "interaction.payload.requestedSchema.key": {
+                "unknownFixture": "interaction.payload.requestedSchema.interaction.payload.requestedSchema.key"
+              }
+            },
+            "serverName": "interaction.payload.serverName"
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interaction.payload.message\",\"requestedSchema\":{\"interaction.payload.requestedSchema.key\":{\"unknownFixture\":\"interaction.payload.requestedSchema.interaction.payload.requestedSchema.key\"}},\"serverName\":\"interaction.payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "interaction.payload.provider",
+            "reason": "re-auth",
+            "url": "interaction.payload.url"
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interaction.payload.provider\",\"reason\":\"re-auth\",\"url\":\"interaction.payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInteractionAskedMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "recovery",
+          "payload": {
+            "v": 1,
+            "reason": "unknown",
+            "prompt": "interaction.payload.prompt",
+            "offered": ["abandon"]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interaction.payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeInterruptRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeInterruptRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInterruptRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeInterruptRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeInterruptRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInterruptRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeLifecycleRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeLifecycleRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "verb": "stop"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"verb\":\"stop\"}"
+    },
+    {
+      "schema": "RuntimeLifecycleRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeLifecycleRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "verb": "stop"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"verb\":\"stop\"}"
+    },
+    {
+      "schema": "RuntimeLifecycleResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeLifecycleResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true}}"
+    },
+    {
+      "schema": "RuntimeLifecycleResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeLifecycleResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "ok": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"ok\":true}}"
+    },
+    {
+      "schema": "RuntimeLifecycleResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeLifecycleResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "lease_held",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeStageAttachmentRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "source": {
+          "dataBase64": "source.dataBase64",
+          "filename": "source.filename",
+          "mediaType": "source.mediaType"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeStageAttachmentRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "source": {
+          "dataBase64": "source.dataBase64",
+          "filename": "source.filename",
+          "mediaType": "source.mediaType"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "queued",
+          "position": 2,
+          "deliveredAs": "queue",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"queued\",\"position\":2,\"deliveredAs\":\"queue\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeQueueDrainAbandoned",
+        "reportId": "reportId",
+        "sessionId": "sessionId",
+        "turnIds": ["turnIds[0]"],
+        "reason": "delivery-failed"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"reportId\":\"reportId\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"delivery-failed\"}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeLifecycleResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "no_resume_ref",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeLifecycleResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeAnswerResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "outcome": {
+          "ok": false,
+          "reason": "delivery-failed",
+          "detail": "outcome.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeAnswerResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"outcome\":{\"ok\":false,\"reason\":\"delivery-failed\",\"detail\":\"outcome.detail\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeInteractionAsked",
+        "sessionId": "sessionId",
+        "interaction": {
+          "id": "interaction.id",
+          "sessionId": "interaction.sessionId",
+          "kind": "recovery",
+          "payload": {
+            "v": 1,
+            "reason": "unknown",
+            "prompt": "interaction.payload.prompt",
+            "offered": ["abandon"]
+          },
+          "askedAt": "2026-01-02T03:04:05.000Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "policyVerdict": "escalated",
+          "expiresAt": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeInteractionAsked\",\"sessionId\":\"sessionId\",\"interaction\":{\"id\":\"interaction.id\",\"sessionId\":\"interaction.sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interaction.payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm6",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "staging_failed",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"staging_failed\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeMessage",
+      "variant": "full/arm7",
+      "wire": {
+        "type": "runtimeEvent",
+        "deliveryId": "deliveryId",
+        "sessionId": "sessionId",
+        "event": {
+          "at": "2026-01-02T03:04:05.000Z",
+          "provenance": "replay",
+          "cursor": {
+            "segmentId": "event.cursor.segmentId",
+            "predecessorSegmentId": "event.cursor.predecessorSegmentId",
+            "pathHint": "event.cursor.pathHint",
+            "device": "event.cursor.device",
+            "inode": "event.cursor.inode",
+            "integrity": "event.cursor.integrity",
+            "components": {
+              "event.cursor.components.key": 8
+            }
+          },
+          "observerGeneration": 8,
+          "turnEpoch": 8,
+          "t": "open-url",
+          "ev": {
+            "url": "event.ev.url",
+            "intent": "link"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeEvent\",\"deliveryId\":\"deliveryId\",\"sessionId\":\"sessionId\",\"event\":{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"event.cursor.segmentId\",\"predecessorSegmentId\":\"event.cursor.predecessorSegmentId\",\"pathHint\":\"event.cursor.pathHint\",\"device\":\"event.cursor.device\",\"inode\":\"event.cursor.inode\",\"integrity\":\"event.cursor.integrity\",\"components\":{\"event.cursor.components.key\":8}},\"observerGeneration\":8,\"turnEpoch\":8,\"t\":\"open-url\",\"ev\":{\"url\":\"event.ev.url\",\"intent\":\"link\"}}}"
+    },
+    {
+      "schema": "RuntimeQueueDrainAbandonedAckMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeQueueDrainAbandonedAck",
+        "reportId": "reportId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
+    },
+    {
+      "schema": "RuntimeQueueDrainAbandonedAckMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeQueueDrainAbandonedAck",
+        "reportId": "reportId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandonedAck\",\"reportId\":\"reportId\"}"
+    },
+    {
+      "schema": "RuntimeQueueDrainAbandonedMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeQueueDrainAbandoned",
+        "sessionId": "sessionId",
+        "turnIds": ["turnIds[0]"],
+        "reason": "never-live"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"never-live\"}"
+    },
+    {
+      "schema": "RuntimeQueueDrainAbandonedMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeQueueDrainAbandoned",
+        "reportId": "reportId",
+        "sessionId": "sessionId",
+        "turnIds": ["turnIds[0]"],
+        "reason": "never-live"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeQueueDrainAbandoned\",\"reportId\":\"reportId\",\"sessionId\":\"sessionId\",\"turnIds\":[\"turnIds[0]\"],\"reason\":\"never-live\"}"
+    },
+    {
+      "schema": "RuntimeSendRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeSendRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "human",
+        "delivery": "when-ready"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\"}"
+    },
+    {
+      "schema": "RuntimeSendRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeSendRequest",
+        "requestId": "requestId",
+        "turnId": "turnId",
+        "sessionId": "sessionId",
+        "text": "text",
+        "origin": "human",
+        "delivery": "when-ready",
+        "attachments": [
+          {
+            "id": "attachments[0].id",
+            "path": "attachments[0].path",
+            "filename": "attachments[0].filename",
+            "mediaType": "attachments[0].mediaType",
+            "kind": "image"
+          }
+        ]
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendRequest\",\"requestId\":\"requestId\",\"turnId\":\"turnId\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"origin\":\"human\",\"delivery\":\"when-ready\",\"attachments\":[{\"id\":\"attachments[0].id\",\"path\":\"attachments[0].path\",\"filename\":\"attachments[0].filename\",\"mediaType\":\"attachments[0].mediaType\",\"kind\":\"image\"}]}"
+    },
+    {
+      "schema": "RuntimeSendResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "accepted",
+          "turnEpoch": 1,
+          "deliveredAs": "when-ready",
+          "provenBy": "protocol-ack",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeSendResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "accepted",
+          "turnEpoch": 1,
+          "deliveredAs": "when-ready",
+          "provenBy": "protocol-ack",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeSendResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "queued",
+          "position": 2,
+          "deliveredAs": "queue",
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"queued\",\"position\":2,\"deliveredAs\":\"queue\",\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeSendResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "refused",
+          "refusal": {
+            "reason": "unsupported",
+            "detail": "receipt.refusal.detail"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"receipt.refusal.detail\"}}}"
+    },
+    {
+      "schema": "RuntimeSendResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeSendResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "receipt": {
+          "outcome": "unverified",
+          "deliveredAs": "steer",
+          "verificationWindowMs": 4,
+          "at": "2026-01-02T03:04:05.000Z"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSendResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"receipt\":{\"outcome\":\"unverified\",\"deliveredAs\":\"steer\",\"verificationWindowMs\":4,\"at\":\"2026-01-02T03:04:05.000Z\"}}"
+    },
+    {
+      "schema": "RuntimeSnapshotRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeSnapshotRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeSnapshotRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeSnapshotRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\"}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "snapshot": {
+            "binding": {
+              "sessionId": "result.snapshot.binding.sessionId",
+              "driver": "result.snapshot.binding.driver",
+              "family": "server",
+              "harness": "result.snapshot.binding.harness",
+              "workdir": "result.snapshot.binding.workdir",
+              "resume": null,
+              "process": {
+                "key": "result.snapshot.binding.process.key"
+              },
+              "bindingVersion": 1
+            },
+            "state": {},
+            "cursor": {
+              "segmentId": "result.snapshot.cursor.segmentId",
+              "components": {}
+            },
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "interactions": [],
+            "at": "2026-01-02T03:04:05.000Z"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"snapshot\":{\"binding\":{\"sessionId\":\"result.snapshot.binding.sessionId\",\"driver\":\"result.snapshot.binding.driver\",\"family\":\"server\",\"harness\":\"result.snapshot.binding.harness\",\"workdir\":\"result.snapshot.binding.workdir\",\"resume\":null,\"process\":{\"key\":\"result.snapshot.binding.process.key\"},\"bindingVersion\":1},\"state\":{},\"cursor\":{\"segmentId\":\"result.snapshot.cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[],\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "snapshot": {
+            "binding": {
+              "sessionId": "result.snapshot.binding.sessionId",
+              "driver": "result.snapshot.binding.driver",
+              "family": "server",
+              "harness": "result.snapshot.binding.harness",
+              "workdir": "result.snapshot.binding.workdir",
+              "resume": {
+                "kind": "result.snapshot.binding.resume.kind",
+                "value": "result.snapshot.binding.resume.value"
+              },
+              "principal": "result.snapshot.binding.principal",
+              "process": {
+                "key": "result.snapshot.binding.process.key",
+                "scopeUnit": "result.snapshot.binding.process.scopeUnit",
+                "pid": 1
+              },
+              "bindingVersion": 1
+            },
+            "state": {
+              "result.snapshot.state.key": {
+                "unknownFixture": "result.snapshot.state.result.snapshot.state.key"
+              }
+            },
+            "cursor": {
+              "segmentId": "result.snapshot.cursor.segmentId",
+              "predecessorSegmentId": "result.snapshot.cursor.predecessorSegmentId",
+              "pathHint": "result.snapshot.cursor.pathHint",
+              "device": "result.snapshot.cursor.device",
+              "inode": "result.snapshot.cursor.inode",
+              "integrity": "result.snapshot.cursor.integrity",
+              "components": {
+                "result.snapshot.cursor.components.key": 1
+              }
+            },
+            "observerGeneration": 1,
+            "turnEpoch": 1,
+            "interactions": [
+              {
+                "id": "result.snapshot.interactions[0].id",
+                "sessionId": "result.snapshot.interactions[0].sessionId",
+                "kind": "permission",
+                "payload": {
+                  "v": 1,
+                  "toolName": "result.snapshot.interactions[0].payload.toolName",
+                  "inputSummary": "result.snapshot.interactions[0].payload.inputSummary",
+                  "canAlwaysAllow": true,
+                  "suggestions": [
+                    {
+                      "unknownFixture": "result.snapshot.interactions[0].payload.suggestions[0]"
+                    }
+                  ]
+                },
+                "askedAt": "2026-01-02T03:04:05.000Z",
+                "source": "protocol",
+                "answerable": "structured",
+                "policyVerdict": "auto-allowed",
+                "expiresAt": "2026-01-02T03:04:05.000Z"
+              }
+            ],
+            "draft": "result.snapshot.draft",
+            "at": "2026-01-02T03:04:05.000Z"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"snapshot\":{\"binding\":{\"sessionId\":\"result.snapshot.binding.sessionId\",\"driver\":\"result.snapshot.binding.driver\",\"family\":\"server\",\"harness\":\"result.snapshot.binding.harness\",\"workdir\":\"result.snapshot.binding.workdir\",\"resume\":{\"kind\":\"result.snapshot.binding.resume.kind\",\"value\":\"result.snapshot.binding.resume.value\"},\"principal\":\"result.snapshot.binding.principal\",\"process\":{\"key\":\"result.snapshot.binding.process.key\",\"scopeUnit\":\"result.snapshot.binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"result.snapshot.state.key\":{\"unknownFixture\":\"result.snapshot.state.result.snapshot.state.key\"}},\"cursor\":{\"segmentId\":\"result.snapshot.cursor.segmentId\",\"predecessorSegmentId\":\"result.snapshot.cursor.predecessorSegmentId\",\"pathHint\":\"result.snapshot.cursor.pathHint\",\"device\":\"result.snapshot.cursor.device\",\"inode\":\"result.snapshot.cursor.inode\",\"integrity\":\"result.snapshot.cursor.integrity\",\"components\":{\"result.snapshot.cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"result.snapshot.interactions[0].id\",\"sessionId\":\"result.snapshot.interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"result.snapshot.interactions[0].payload.toolName\",\"inputSummary\":\"result.snapshot.interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"result.snapshot.interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"result.snapshot.draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}}}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "lease_held",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "full/arm2",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "unsupported",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"unsupported\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "full/arm3",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "no_resume_ref",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"no_resume_ref\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "full/arm4",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "session_ended",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"session_ended\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeSnapshotResultMessage",
+      "variant": "full/arm5",
+      "wire": {
+        "type": "runtimeSnapshotResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "not_running",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeSnapshotResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"not_running\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeStageAttachmentRequestMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeStageAttachmentRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "source": {
+          "dataBase64": "source.dataBase64",
+          "filename": "source.filename",
+          "mediaType": "source.mediaType"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+    },
+    {
+      "schema": "RuntimeStageAttachmentRequestMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeStageAttachmentRequest",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "source": {
+          "dataBase64": "source.dataBase64",
+          "filename": "source.filename",
+          "mediaType": "source.mediaType"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentRequest\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"source\":{\"dataBase64\":\"source.dataBase64\",\"filename\":\"source.filename\",\"mediaType\":\"source.mediaType\"}}"
+    },
+    {
+      "schema": "RuntimeStageAttachmentResultMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeStageAttachmentResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "id": "result.id",
+          "path": "result.path",
+          "filename": "result.filename",
+          "mediaType": "result.mediaType",
+          "kind": "image"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"id\":\"result.id\",\"path\":\"result.path\",\"filename\":\"result.filename\",\"mediaType\":\"result.mediaType\",\"kind\":\"image\"}}"
+    },
+    {
+      "schema": "RuntimeStageAttachmentResultMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "runtimeStageAttachmentResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "id": "result.id",
+          "path": "result.path",
+          "filename": "result.filename",
+          "mediaType": "result.mediaType",
+          "kind": "image"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"id\":\"result.id\",\"path\":\"result.path\",\"filename\":\"result.filename\",\"mediaType\":\"result.mediaType\",\"kind\":\"image\"}}"
+    },
+    {
+      "schema": "RuntimeStageAttachmentResultMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "runtimeStageAttachmentResult",
+        "requestId": "requestId",
+        "sessionId": "sessionId",
+        "result": {
+          "reason": "lease_held",
+          "detail": "result.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeStageAttachmentResult\",\"requestId\":\"requestId\",\"sessionId\":\"sessionId\",\"result\":{\"reason\":\"lease_held\",\"detail\":\"result.detail\"}}"
+    },
+    {
+      "schema": "RuntimeWatchLevel",
+      "variant": "minimal",
+      "wire": "coarse",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"coarse\""
+    },
+    {
+      "schema": "RuntimeWatchLevel",
+      "variant": "full",
+      "wire": "coarse",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"coarse\""
+    },
+    {
+      "schema": "RuntimeWatchMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "runtimeWatch",
+        "sessionId": "sessionId",
+        "level": "coarse"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeWatch\",\"sessionId\":\"sessionId\",\"level\":\"coarse\"}"
+    },
+    {
+      "schema": "RuntimeWatchMessage",
+      "variant": "full",
+      "wire": {
+        "type": "runtimeWatch",
+        "sessionId": "sessionId",
+        "level": "coarse"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"runtimeWatch\",\"sessionId\":\"sessionId\",\"level\":\"coarse\"}"
+    },
+    {
+      "schema": "SendProof",
+      "variant": "minimal",
+      "wire": "protocol-ack",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"protocol-ack\""
+    },
+    {
+      "schema": "SendProof",
+      "variant": "full",
+      "wire": "protocol-ack",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"protocol-ack\""
+    },
+    {
+      "schema": "SessionBinding",
+      "variant": "minimal",
+      "wire": {
+        "sessionId": "sessionId",
+        "driver": "driver",
+        "family": "server",
+        "harness": "harness",
+        "workdir": "workdir",
+        "resume": null,
+        "process": {
+          "key": "process.key"
+        },
+        "bindingVersion": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"driver\":\"driver\",\"family\":\"server\",\"harness\":\"harness\",\"workdir\":\"workdir\",\"resume\":null,\"process\":{\"key\":\"process.key\"},\"bindingVersion\":1}"
+    },
+    {
+      "schema": "SessionBinding",
+      "variant": "full",
+      "wire": {
+        "sessionId": "sessionId",
+        "driver": "driver",
+        "family": "server",
+        "harness": "harness",
+        "workdir": "workdir",
+        "resume": {
+          "kind": "resume.kind",
+          "value": "resume.value"
+        },
+        "principal": "principal",
+        "process": {
+          "key": "process.key",
+          "scopeUnit": "process.scopeUnit",
+          "pid": 1
+        },
+        "bindingVersion": 1
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"sessionId\":\"sessionId\",\"driver\":\"driver\",\"family\":\"server\",\"harness\":\"harness\",\"workdir\":\"workdir\",\"resume\":{\"kind\":\"resume.kind\",\"value\":\"resume.value\"},\"principal\":\"principal\",\"process\":{\"key\":\"process.key\",\"scopeUnit\":\"process.scopeUnit\",\"pid\":1},\"bindingVersion\":1}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "minimal",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "server",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": null,
+          "process": {
+            "key": "binding.process.key"
+          },
+          "bindingVersion": 1
+        },
+        "state": {},
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "components": {}
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "interactions": [],
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":null,\"process\":{\"key\":\"binding.process.key\"},\"bindingVersion\":1},\"state\":{},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"components\":{}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "full/arm0",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "server",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": {
+            "kind": "binding.resume.kind",
+            "value": "binding.resume.value"
+          },
+          "principal": "binding.principal",
+          "process": {
+            "key": "binding.process.key",
+            "scopeUnit": "binding.process.scopeUnit",
+            "pid": 1
+          },
+          "bindingVersion": 1
+        },
+        "state": {
+          "state.key": {
+            "unknownFixture": "state.state.key"
+          }
+        },
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 1
+          }
+        },
+        "observerGeneration": 1,
+        "turnEpoch": 1,
+        "interactions": [
+          {
+            "id": "interactions[0].id",
+            "sessionId": "interactions[0].sessionId",
+            "kind": "permission",
+            "payload": {
+              "v": 1,
+              "toolName": "interactions[0].payload.toolName",
+              "inputSummary": "interactions[0].payload.inputSummary",
+              "canAlwaysAllow": true,
+              "suggestions": [
+                {
+                  "unknownFixture": "interactions[0].payload.suggestions[0]"
+                }
+              ]
+            },
+            "askedAt": "2026-01-02T03:04:05.000Z",
+            "source": "protocol",
+            "answerable": "structured",
+            "policyVerdict": "auto-allowed",
+            "expiresAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "draft": "draft",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":1},\"bindingVersion\":1},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":1}},\"observerGeneration\":1,\"turnEpoch\":1,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"permission\",\"payload\":{\"v\":1,\"toolName\":\"interactions[0].payload.toolName\",\"inputSummary\":\"interactions[0].payload.inputSummary\",\"canAlwaysAllow\":true,\"suggestions\":[{\"unknownFixture\":\"interactions[0].payload.suggestions[0]\"}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"protocol\",\"answerable\":\"structured\",\"policyVerdict\":\"auto-allowed\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "full/arm1",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "embedded",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": {
+            "kind": "binding.resume.kind",
+            "value": "binding.resume.value"
+          },
+          "principal": "binding.principal",
+          "process": {
+            "key": "binding.process.key",
+            "scopeUnit": "binding.process.scopeUnit",
+            "pid": 2
+          },
+          "bindingVersion": 2
+        },
+        "state": {
+          "state.key": {
+            "unknownFixture": "state.state.key"
+          }
+        },
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 2
+          }
+        },
+        "observerGeneration": 2,
+        "turnEpoch": 2,
+        "interactions": [
+          {
+            "id": "interactions[0].id",
+            "sessionId": "interactions[0].sessionId",
+            "kind": "question",
+            "payload": {
+              "v": 1,
+              "questions": [
+                {
+                  "question": "interactions[0].payload.questions[0].question",
+                  "header": "interactions[0].payload.questions[0].header",
+                  "multiSelect": false,
+                  "otherIndex": 2,
+                  "previewLayout": false,
+                  "options": [
+                    {
+                      "label": "interactions[0].payload.questions[0].options[0].label",
+                      "description": "interactions[0].payload.questions[0].options[0].description",
+                      "preview": "interactions[0].payload.questions[0].options[0].preview"
+                    }
+                  ]
+                }
+              ]
+            },
+            "askedAt": "2026-01-02T03:04:05.000Z",
+            "source": "sdk-callback",
+            "answerable": "keystroke-emulated",
+            "policyVerdict": "auto-denied",
+            "expiresAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "draft": "draft",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"embedded\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":2},\"bindingVersion\":2},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":2}},\"observerGeneration\":2,\"turnEpoch\":2,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"question\",\"payload\":{\"v\":1,\"questions\":[{\"question\":\"interactions[0].payload.questions[0].question\",\"header\":\"interactions[0].payload.questions[0].header\",\"multiSelect\":false,\"otherIndex\":2,\"previewLayout\":false,\"options\":[{\"label\":\"interactions[0].payload.questions[0].options[0].label\",\"description\":\"interactions[0].payload.questions[0].options[0].description\",\"preview\":\"interactions[0].payload.questions[0].options[0].preview\"}]}]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"sdk-callback\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"auto-denied\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "full/arm2",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "terminal",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": {
+            "kind": "binding.resume.kind",
+            "value": "binding.resume.value"
+          },
+          "principal": "binding.principal",
+          "process": {
+            "key": "binding.process.key",
+            "scopeUnit": "binding.process.scopeUnit",
+            "pid": 3
+          },
+          "bindingVersion": 3
+        },
+        "state": {
+          "state.key": {
+            "unknownFixture": "state.state.key"
+          }
+        },
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 3
+          }
+        },
+        "observerGeneration": 3,
+        "turnEpoch": 3,
+        "interactions": [
+          {
+            "id": "interactions[0].id",
+            "sessionId": "interactions[0].sessionId",
+            "kind": "plan-approval",
+            "payload": {
+              "v": 1,
+              "plan": "interactions[0].payload.plan",
+              "autoAcceptOffered": true
+            },
+            "askedAt": "2026-01-02T03:04:05.000Z",
+            "source": "hook",
+            "answerable": "keystroke-emulated",
+            "policyVerdict": "escalated",
+            "expiresAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "draft": "draft",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":3},\"bindingVersion\":3},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interactions[0].payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "full/arm3",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "terminal",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": {
+            "kind": "binding.resume.kind",
+            "value": "binding.resume.value"
+          },
+          "principal": "binding.principal",
+          "process": {
+            "key": "binding.process.key",
+            "scopeUnit": "binding.process.scopeUnit",
+            "pid": 4
+          },
+          "bindingVersion": 4
+        },
+        "state": {
+          "state.key": {
+            "unknownFixture": "state.state.key"
+          }
+        },
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 4
+          }
+        },
+        "observerGeneration": 4,
+        "turnEpoch": 4,
+        "interactions": [
+          {
+            "id": "interactions[0].id",
+            "sessionId": "interactions[0].sessionId",
+            "kind": "elicitation",
+            "payload": {
+              "v": 1,
+              "message": "interactions[0].payload.message",
+              "requestedSchema": {
+                "interactions[0].payload.requestedSchema.key": {
+                  "unknownFixture": "interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key"
+                }
+              },
+              "serverName": "interactions[0].payload.serverName"
+            },
+            "askedAt": "2026-01-02T03:04:05.000Z",
+            "source": "screen-classifier",
+            "answerable": "keystroke-emulated",
+            "policyVerdict": "escalated",
+            "expiresAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "draft": "draft",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "full/arm4",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "terminal",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": {
+            "kind": "binding.resume.kind",
+            "value": "binding.resume.value"
+          },
+          "principal": "binding.principal",
+          "process": {
+            "key": "binding.process.key",
+            "scopeUnit": "binding.process.scopeUnit",
+            "pid": 5
+          },
+          "bindingVersion": 5
+        },
+        "state": {
+          "state.key": {
+            "unknownFixture": "state.state.key"
+          }
+        },
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 5
+          }
+        },
+        "observerGeneration": 5,
+        "turnEpoch": 5,
+        "interactions": [
+          {
+            "id": "interactions[0].id",
+            "sessionId": "interactions[0].sessionId",
+            "kind": "login",
+            "payload": {
+              "v": 1,
+              "provider": "interactions[0].payload.provider",
+              "reason": "re-auth",
+              "url": "interactions[0].payload.url"
+            },
+            "askedAt": "2026-01-02T03:04:05.000Z",
+            "source": "screen-classifier",
+            "answerable": "keystroke-emulated",
+            "policyVerdict": "escalated",
+            "expiresAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "draft": "draft",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":5},\"bindingVersion\":5},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interactions[0].payload.provider\",\"reason\":\"re-auth\",\"url\":\"interactions[0].payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "SessionSnapshot",
+      "variant": "full/arm5",
+      "wire": {
+        "binding": {
+          "sessionId": "binding.sessionId",
+          "driver": "binding.driver",
+          "family": "terminal",
+          "harness": "binding.harness",
+          "workdir": "binding.workdir",
+          "resume": {
+            "kind": "binding.resume.kind",
+            "value": "binding.resume.value"
+          },
+          "principal": "binding.principal",
+          "process": {
+            "key": "binding.process.key",
+            "scopeUnit": "binding.process.scopeUnit",
+            "pid": 6
+          },
+          "bindingVersion": 6
+        },
+        "state": {
+          "state.key": {
+            "unknownFixture": "state.state.key"
+          }
+        },
+        "cursor": {
+          "segmentId": "cursor.segmentId",
+          "predecessorSegmentId": "cursor.predecessorSegmentId",
+          "pathHint": "cursor.pathHint",
+          "device": "cursor.device",
+          "inode": "cursor.inode",
+          "integrity": "cursor.integrity",
+          "components": {
+            "cursor.components.key": 6
+          }
+        },
+        "observerGeneration": 6,
+        "turnEpoch": 6,
+        "interactions": [
+          {
+            "id": "interactions[0].id",
+            "sessionId": "interactions[0].sessionId",
+            "kind": "recovery",
+            "payload": {
+              "v": 1,
+              "reason": "unknown",
+              "prompt": "interactions[0].payload.prompt",
+              "offered": ["abandon"]
+            },
+            "askedAt": "2026-01-02T03:04:05.000Z",
+            "source": "screen-classifier",
+            "answerable": "keystroke-emulated",
+            "policyVerdict": "escalated",
+            "expiresAt": "2026-01-02T03:04:05.000Z"
+          }
+        ],
+        "draft": "draft",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "minimal",
+      "wire": {
+        "kind": "complete",
+        "item": {
+          "id": "item.id",
+          "role": "user",
+          "text": "item.text"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"complete\",\"item\":{\"id\":\"item.id\",\"role\":\"user\",\"text\":\"item.text\"}}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "full/arm0",
+      "wire": {
+        "kind": "complete",
+        "item": {
+          "id": "item.id",
+          "cursor": "item.cursor",
+          "role": "user",
+          "ts": "item.ts",
+          "text": "item.text",
+          "toolName": "item.toolName",
+          "toolInput": "item.toolInput",
+          "toolTitle": "item.toolTitle",
+          "toolInputJson": "item.toolInputJson",
+          "toolResult": "item.toolResult",
+          "toolUseId": "item.toolUseId",
+          "tags": [
+            {
+              "kind": "image",
+              "label": "item.tags[0].label"
+            }
+          ],
+          "toolPaths": ["item.toolPaths[0]"],
+          "event": "interrupt",
+          "answer": true,
+          "systemKind": "recap",
+          "durationMs": 1
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"complete\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"user\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "full/arm1",
+      "wire": {
+        "kind": "delta",
+        "itemId": "itemId",
+        "textDelta": "textDelta"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"delta\",\"itemId\":\"itemId\",\"textDelta\":\"textDelta\"}"
+    },
+    {
+      "schema": "TranscriptItemDelta",
+      "variant": "full/arm2",
+      "wire": {
+        "kind": "partial",
+        "item": {
+          "id": "item.id",
+          "cursor": "item.cursor",
+          "role": "tool",
+          "ts": "item.ts",
+          "text": "item.text",
+          "toolName": "item.toolName",
+          "toolInput": "item.toolInput",
+          "toolTitle": "item.toolTitle",
+          "toolInputJson": "item.toolInputJson",
+          "toolResult": "item.toolResult",
+          "toolUseId": "item.toolUseId",
+          "tags": [
+            {
+              "kind": "file",
+              "label": "item.tags[0].label"
+            }
+          ],
+          "toolPaths": ["item.toolPaths[0]"],
+          "event": "interrupt",
+          "answer": true,
+          "systemKind": "duration",
+          "durationMs": 3
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"kind\":\"partial\",\"item\":{\"id\":\"item.id\",\"cursor\":\"item.cursor\",\"role\":\"tool\",\"ts\":\"item.ts\",\"text\":\"item.text\",\"toolName\":\"item.toolName\",\"toolInput\":\"item.toolInput\",\"toolTitle\":\"item.toolTitle\",\"toolInputJson\":\"item.toolInputJson\",\"toolResult\":\"item.toolResult\",\"toolUseId\":\"item.toolUseId\",\"tags\":[{\"kind\":\"file\",\"label\":\"item.tags[0].label\"}],\"toolPaths\":[\"item.toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"duration\",\"durationMs\":3}}"
+    },
+    {
+      "schema": "TurnDelivery",
+      "variant": "minimal",
+      "wire": "when-ready",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"when-ready\""
+    },
+    {
+      "schema": "TurnDelivery",
+      "variant": "full",
+      "wire": "when-ready",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"when-ready\""
+    },
+    {
+      "schema": "TurnEvent",
+      "variant": "minimal",
+      "wire": {
+        "ev": "started",
+        "turnEpoch": 1,
+        "origin": "human"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"human\"}"
+    },
+    {
+      "schema": "TurnEvent",
+      "variant": "full/arm0",
+      "wire": {
+        "ev": "started",
+        "turnEpoch": 1,
+        "origin": "human"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"human\"}"
+    },
+    {
+      "schema": "TurnEvent",
+      "variant": "full/arm1",
+      "wire": {
+        "ev": "completed",
+        "turnEpoch": 2,
+        "verdict": "question"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"completed\",\"turnEpoch\":2,\"verdict\":\"question\"}"
+    },
+    {
+      "schema": "TurnEvent",
+      "variant": "full/arm2",
+      "wire": {
+        "ev": "failed",
+        "turnEpoch": 3,
+        "reason": "context-overflow",
+        "disposition": "fatal",
+        "detail": "detail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"ev\":\"failed\",\"turnEpoch\":3,\"reason\":\"context-overflow\",\"disposition\":\"fatal\",\"detail\":\"detail\"}"
+    },
+    {
+      "schema": "TurnFailureReason",
+      "variant": "minimal",
+      "wire": "rate-limit",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"rate-limit\""
+    },
+    {
+      "schema": "TurnFailureReason",
+      "variant": "full",
+      "wire": "rate-limit",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"rate-limit\""
+    },
+    {
+      "schema": "TurnReceipt",
+      "variant": "minimal",
+      "wire": {
+        "outcome": "accepted",
+        "turnEpoch": 1,
+        "deliveredAs": "when-ready",
+        "provenBy": "protocol-ack",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "TurnReceipt",
+      "variant": "full/arm0",
+      "wire": {
+        "outcome": "accepted",
+        "turnEpoch": 1,
+        "deliveredAs": "when-ready",
+        "provenBy": "protocol-ack",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"outcome\":\"accepted\",\"turnEpoch\":1,\"deliveredAs\":\"when-ready\",\"provenBy\":\"protocol-ack\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "TurnReceipt",
+      "variant": "full/arm1",
+      "wire": {
+        "outcome": "queued",
+        "position": 2,
+        "deliveredAs": "queue",
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"outcome\":\"queued\",\"position\":2,\"deliveredAs\":\"queue\",\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    },
+    {
+      "schema": "TurnReceipt",
+      "variant": "full/arm2",
+      "wire": {
+        "outcome": "refused",
+        "refusal": {
+          "reason": "unsupported",
+          "detail": "refusal.detail"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"outcome\":\"refused\",\"refusal\":{\"reason\":\"unsupported\",\"detail\":\"refusal.detail\"}}"
+    },
+    {
+      "schema": "TurnReceipt",
+      "variant": "full/arm3",
+      "wire": {
+        "outcome": "unverified",
+        "deliveredAs": "steer",
+        "verificationWindowMs": 4,
+        "at": "2026-01-02T03:04:05.000Z"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"outcome\":\"unverified\",\"deliveredAs\":\"steer\",\"verificationWindowMs\":4,\"at\":\"2026-01-02T03:04:05.000Z\"}"
+    }
+  ]
+}

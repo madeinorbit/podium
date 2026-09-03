@@ -160,7 +160,7 @@ function issueRow(over: Partial<IssueRow>): IssueRow {
 
 interface HarnessOpts {
   /** Override the fake queueText outcome per call (e.g. 'no resume ref'). */
-  queueText?: (i: { sessionId: SessionId; text: string }) => {
+  queueText?: (i: { sessionId: SessionId; text: string; sourceMessageId: string }) => {
     ok: boolean
     queued?: boolean
     reason?: string
@@ -185,6 +185,8 @@ interface HarnessOpts {
   prefix?: string
   /** Source ids still physically waiting in SessionInbox's durable PTY queue. */
   queuedSourceIds?: Set<string>
+  /** Current physical FIFO ordinal for an injected message-ledger row. */
+  queuedMessagePosition?: (sessionId: SessionId, sourceMessageId: string) => number | undefined
   /** Whether a draft is typed into the agent's prompt line here [POD-1204].
    *  Unset = unwired, which the guard reads as "assume it is". */
   draftInjectionActive?: () => boolean
@@ -245,6 +247,9 @@ function harness(sessions: SessionMeta[] = [], opts?: HarnessOpts) {
         queued.push(i)
         return opts?.queueText?.(i) ?? { ok: true, queued: true }
       },
+      ...(opts?.queuedMessagePosition
+        ? { queuedMessagePosition: opts.queuedMessagePosition }
+        : {}),
       hasQueuedMessage: (_sessionId, sourceMessageId) =>
         opts?.queuedSourceIds?.has(sourceMessageId) ?? false,
       interruptText: (i) => {
@@ -300,38 +305,57 @@ function echo(svc: MessageDeliveryService, sessionId: SessionId, ...ids: string[
   )
 }
 
+/** A freshly captured row, straight from `addMessage` — the state every ledger
+ *  walk below starts from. */
+function queuedRow(id: string): MessageRow {
+  return {
+    id: asIssueId(id),
+    threadId: asThreadId(id),
+    inReplyTo: null,
+    fromKind: 'agent',
+    fromSession: asSessionId('sX'),
+    fromIssue: asIssueId('iss_b'),
+    toKind: 'issue',
+    toId: 'iss_a',
+    kind: 'message',
+    urgency: 'fyi',
+    lifecycle: 'wait',
+    body: 'hello',
+    expiresAt: null,
+    createdAt: 't0',
+    status: 'queued',
+    deliveredAt: null,
+    deliveredTo: null,
+    readAt: null,
+    injectedAt: null,
+    deliveryDeferredAt: null,
+    deliveryDeferredReason: null,
+    deadLetteredAt: null,
+    ackedBy: null,
+    hop: 0,
+    clampedFrom: null,
+    remindedAt: null,
+    factKey: null,
+    factTarget: null,
+    expectsResponse: false,
+    delegationRef: null,
+  }
+}
+
 describe('MessagesRepository (store CRUD)', () => {
   it('round-trips a row and walks the ledger', () => {
     const store = new SessionStore(':memory:')
-    const m: MessageRow = {
-      id: asIssueId('msg_1'),
-      threadId: asThreadId('msg_1'),
-      inReplyTo: null,
-      fromKind: 'agent',
-      fromSession: asSessionId('sX'),
-      fromIssue: asIssueId('iss_b'),
-      toKind: 'issue',
-      toId: 'iss_a',
-      kind: 'message',
-      urgency: 'fyi',
-      lifecycle: 'wait',
-      body: 'hello',
-      expiresAt: null,
-      createdAt: 't0',
-      status: 'queued',
-      deliveredAt: null,
-      deliveredTo: null,
-      readAt: null,
-      injectedAt: null,
-      deadLetteredAt: null,
-      ackedBy: null,
-      hop: 0,
-      clampedFrom: null,
-      remindedAt: null,
-      factKey: null,
-      factTarget: null,
-      expectsResponse: false,
-      delegationRef: null,
+    const m = {
+      ...queuedRow('msg_1'),
+      attachments: [
+        {
+          id: 'staged-1',
+          path: '/staged/shot.png',
+          filename: 'shot.png',
+          mediaType: 'image/png',
+          kind: 'image' as const,
+        },
+      ],
     }
     store.messages.addMessage(m)
     expect(store.messages.getMessage('msg_1')).toEqual(m)
@@ -349,6 +373,46 @@ describe('MessagesRepository (store CRUD)', () => {
     expect(store.messages.markAcked('msg_1', 'msg_ack')).toBe(true)
     expect(store.messages.markAcked('msg_1', 'msg_ack2')).toBe(false) // first ack wins
     expect(store.messages.getMessage('msg_1')!.ackedBy).toBe('msg_ack')
+  })
+
+  it('an abandoned drain writes a TERMINAL row, and the second report changes nothing', () => {
+    const store = new SessionStore(':memory:')
+    store.messages.addMessage(queuedRow('msg_abandoned'))
+    expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(1)
+
+    expect(
+      store.messages.markDeliveryAbandoned(
+        'msg_abandoned',
+        asSessionId('s1'),
+        't-abandoned',
+        'never-live',
+      ),
+    ).toBe(true)
+    // Read the row back: `queued` is gone, and the reason sits beside the status.
+    expect(store.messages.getMessage('msg_abandoned')).toMatchObject({
+      status: 'dead_letter',
+      deadLetteredAt: 't-abandoned',
+      deliveryDeferredAt: 't-abandoned',
+      deliveryDeferredReason: 'never-live',
+      deliveredTo: 's1',
+    })
+    // Terminal means the retry machinery lets go of it, which is the half of the
+    // correction the sender cannot see but the scheduler acts on.
+    expect(store.messages.countPending({ kind: 'issue', id: 'iss_a' })).toBe(0)
+
+    // Reports repeat; the status guard is what makes the second one a no-op — the
+    // first stamp is not overwritten by the later one.
+    expect(
+      store.messages.markDeliveryAbandoned('msg_abandoned', asSessionId('s2'), 'later', 'teardown'),
+    ).toBe(false)
+    expect(store.messages.getMessage('msg_abandoned')).toMatchObject({
+      deadLetteredAt: 't-abandoned',
+      deliveryDeferredReason: 'never-live',
+      deliveredTo: 's1',
+    })
+    // And nothing can quietly walk a terminal row back to delivered.
+    expect(store.messages.markInjected('msg_abandoned', asSessionId('s1'), 't-inject')).toBe(false)
+    expect(store.messages.markDelivered('msg_abandoned', 's1', 't-late')).toBe(false)
   })
 })
 
@@ -372,6 +436,71 @@ describe('MessageDeliveryService.send', () => {
       toId: ISSUE.id,
     })
     expect(r.legacy).toMatchObject({ fromAuthor: `issue:#${SENDER_ISSUE.seq}`, status: 'unread' })
+  })
+
+  it('returns and reloads a current queue position for a busy session', () => {
+    let clock = Date.parse('2026-07-13T00:00:00.000Z')
+    const { svc, store } = harness(
+      [session({ sessionId: asSessionId('s1'), agentState: WORKING })],
+      {
+        now: () => new Date(clock++).toISOString(),
+      },
+    )
+    const first = svc.send({ kind: 'operator' }, {
+      to: { kind: 'session', id: asSessionId('s1') },
+      body: 'first queued turn',
+    })
+    const second = svc.send({ kind: 'operator' }, {
+      to: { kind: 'session', id: asSessionId('s1') },
+      body: 'second queued turn',
+    })
+    expect(first).toMatchObject({ queued: true, position: 1, disposition: 'queued' })
+    expect(second).toMatchObject({ queued: true, position: 2, disposition: 'queued' })
+    expect(svc.message(second.message.id)).toMatchObject({ queuePosition: 2 })
+
+    expect(store.messages.markDelivered(first.message.id, asSessionId('s1'), 't-delivered')).toBe(true)
+    expect(svc.message(second.message.id)).toMatchObject({ queuePosition: 1 })
+    expect(
+      svc.ledger({ sessionId: asSessionId('s1') }).find((row) => row.id === second.message.id),
+    ).toMatchObject({ queuePosition: 1 })
+  })
+
+  it('reloads the physical FIFO position after queue delivery stamps injectedAt', () => {
+    const physicalQueue: string[] = []
+    const { svc, store } = harness(
+      [
+        session({
+          sessionId: asSessionId('s1'),
+          status: 'starting',
+          agentState: WORKING,
+        }),
+      ],
+      {
+        queueText: (input) => {
+          physicalQueue.push(input.sourceMessageId)
+          return { ok: true, queued: true }
+        },
+        queuedMessagePosition: (_sessionId, sourceMessageId) => {
+          const index = physicalQueue.indexOf(sourceMessageId)
+          return index < 0 ? undefined : index + 1
+        },
+      },
+    )
+
+    const sent = svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'queued during startup',
+        urgency: 'next-turn',
+      },
+    )
+    expect(sent).toMatchObject({ queued: true, position: 1, disposition: 'queued' })
+    expect(store.messages.getMessage(sent.message.id)?.injectedAt).not.toBeNull()
+    expect(svc.message(sent.message.id)).toMatchObject({ queuePosition: 1 })
+    expect(svc.ledger({ sessionId: asSessionId('s1') })).toContainEqual(
+      expect.objectContaining({ id: sent.message.id, queuePosition: 1 }),
+    )
   })
 
   it('senderFromCapability: subtree → agent principal, all → operator', () => {
@@ -1163,6 +1292,35 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.message).toMatchObject({ status: 'queued' })
   })
 
+  it.each(['wait', 'wake'] as const)(
+    'archived session target dead-letters before lifecycle=%s can revive it',
+    (lifecycle) => {
+      const { svc, queued } = harness([
+        session({
+          sessionId: asSessionId('s1'),
+          status: 'hibernated',
+          resumable: true,
+          archived: true,
+        }),
+      ])
+      const r = svc.send(
+        { kind: 'operator' },
+        {
+          to: { kind: 'session', id: asSessionId('s1') },
+          body: 'stay retired',
+          lifecycle,
+        },
+      )
+
+      expect(r).toMatchObject({
+        ok: false,
+        disposition: 'dead_letter',
+        reason: 'dead-lettered: session is archived',
+      })
+      expect(queued).toHaveLength(0)
+    },
+  )
+
   it('parked target + wake: rides the durable queue (queueText resurrects)', () => {
     const { svc, queued, store } = harness([
       session({ sessionId: asSessionId('s1'), status: 'hibernated' }),
@@ -1256,6 +1414,13 @@ describe('delivery table (state × urgency × lifecycle) [spec:SP-34d7]', () => 
     expect(r.disposition).toBe('dead_letter')
     expect(r.reason).toContain('session no longer exists')
     expect(store.messages.getMessage(r.message.id)!.status).toBe('dead_letter')
+    // The transition names WHY [POD-3226]: 67 of 82 dead-letter events on the
+    // live ledger carried no reason, so the trail stopped exactly where the
+    // question started.
+    const transitions = store.events
+      .listEventsSince(0, { kinds: ['message.dead_letter'] })
+      .filter((e) => e.subject === r.message.id)
+    expect(transitions).toMatchObject([{ payload: { reason: 'session no longer exists' } }])
   })
 
   it('issue-addressed wake with no live member resurrects the most recent parked agent', () => {
@@ -3574,6 +3739,110 @@ describe('best-effort acks/notifications [POD-853]', () => {
     // Injected, but not yet confirmed — a plain message is not delivered on push.
     expect(store.messages.getMessage(r.message.id)!.status).toBe('queued')
     expect(store.messages.getMessage(r.message.id)!.injectedAt).not.toBeNull()
+  })
+
+  it('the ready deadline moves the durable row out of queued, terminally', () => {
+    const { svc, store } = harness([
+      session({ sessionId: asSessionId('s1') }),
+      // The sender has a session of its own, which is where its notice lands.
+      session({ sessionId: asSessionId('sX'), cwd: '/wt/b' }),
+    ])
+    const sent = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'wait for startup',
+        urgency: 'next-turn',
+      },
+    )
+    expect(store.messages.getMessage(sent.message.id)!.status).toBe('queued')
+
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id], 'never-live')
+
+    // READ THE ROW BACK. This is the whole issue: the sender's receipt used to
+    // say `queued` forever, and a receipt that never changes is how a message
+    // that was never typed passes for one that is merely waiting.
+    expect(store.messages.getMessage(sent.message.id)).toMatchObject({
+      status: 'dead_letter',
+      deadLetteredAt: '2026-07-13T00:00:00.000Z',
+      deliveryDeferredAt: '2026-07-13T00:00:00.000Z',
+      deliveryDeferredReason: 'never-live',
+      deliveredTo: 's1',
+    })
+    expect(store.messages.countPending({ kind: 'session', id: asSessionId('s1') })).toBe(0)
+    // And the sender is told, which is the part they can actually see.
+    const notices = store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') })
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('never finished starting within the readiness deadline')
+  })
+
+  it('a teardown report lands the same terminal row as a deadline report', () => {
+    const { svc, store } = harness([
+      session({ sessionId: asSessionId('s1') }),
+      session({ sessionId: asSessionId('sX'), cwd: '/wt/b' }),
+    ])
+    const sent = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'lost to a restart',
+        urgency: 'next-turn',
+      },
+    )
+
+    // POD-2202's teardown reports arrive through THIS consumer, so they have to
+    // reach the same durable outcome — a queue lost at teardown was no more
+    // delivered than one lost at the deadline.
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id], 'teardown')
+
+    expect(store.messages.getMessage(sent.message.id)).toMatchObject({
+      status: 'dead_letter',
+      deadLetteredAt: '2026-07-13T00:00:00.000Z',
+      deliveryDeferredReason: 'teardown',
+    })
+    const notices = store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') })
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
+    expect(notices[0]!.body).toContain('torn down before it could be typed into')
+  })
+
+  it('a DUPLICATED report makes exactly one transition', () => {
+    const { svc, store } = harness([
+      session({ sessionId: asSessionId('s1') }),
+      session({ sessionId: asSessionId('sX'), cwd: '/wt/b' }),
+    ])
+    const sent = svc.send(
+      { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
+      {
+        to: { kind: 'session', id: asSessionId('s1') },
+        body: 'survive the restart',
+        urgency: 'next-turn',
+      },
+    )
+
+    // The same turn id twice inside one report, then the whole report again after
+    // a restart — the two ways the port says a consumer will hear it twice.
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id, sent.message.id], 'teardown')
+    svc.onQueueDrainAbandoned(asSessionId('s1'), [sent.message.id], 'teardown')
+
+    expect(store.messages.getMessage(sent.message.id)).toMatchObject({
+      status: 'dead_letter',
+      deadLetteredAt: '2026-07-13T00:00:00.000Z',
+      deliveryDeferredReason: 'teardown',
+    })
+    const transitions = store.events
+      .listEventsSince(0, { kinds: ['message.dead_letter'] })
+      .filter((e) => e.subject === sent.message.id)
+    expect(transitions).toHaveLength(1)
+    // One transition, one notice — a sender nagged three times about one message
+    // learns nothing extra and stops trusting the notice.
+    const notices = store.messages
+      .listMessagesFor({ kind: 'session', id: asSessionId('sX') })
+      .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
+    expect(notices).toHaveLength(1)
   })
 })
 

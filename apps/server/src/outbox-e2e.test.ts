@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
 
@@ -23,7 +24,7 @@ describe('outbox write path e2e (live server)', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-outbox-e2e-'))
     tmpDirs.push(stateDir)
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ port: 0 })
+    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: `http://127.0.0.1:${server.port}/trpc` })],
     })

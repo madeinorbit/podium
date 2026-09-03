@@ -94,6 +94,21 @@ export interface LogIngestDeps {
   /** Defaults to `<stateDir>/logs/clients`. */
   dir?: string
   crashStore?: CrashStore
+  /**
+   * A stored crash, for a composition root that publishes it on the bus
+   * (podium-cloud's analytics plugin forwards these to error tracking).
+   *
+   * Same contract as the telemetry hop in {@link LogIngestService.crash}:
+   * best-effort, AFTER the durable write, isolated. It is handed the error and
+   * the origin and deliberately NOT `input.snapshot` — the ring buffer is what
+   * makes the durable event useful to support here, and it is not something an
+   * observer should be able to forward anywhere else.
+   */
+  onCrash?: (event: {
+    origin: LogsCrashInput['origin']
+    err: unknown
+    crashId?: string
+  }) => void
   /** Injected by tests. Production uses the chunk-2 rotating file sink. */
   createSink?: (path: string) => FileSink
   maxOriginFiles?: number
@@ -160,6 +175,7 @@ export function taggedRecord(record: Record<string, unknown>, origin: LogOrigin)
 
 export class LogIngestService {
   private readonly crashStore: CrashStore
+  private readonly onCrash: LogIngestDeps['onCrash']
   /**
    * THE SHARED PRIMITIVE, configured with this service's policy. Everything
    * about WHEN and HOW MUCH gets written lives there; everything about WHERE and
@@ -169,6 +185,7 @@ export class LogIngestService {
 
   constructor(deps: LogIngestDeps = {}) {
     this.crashStore = deps.crashStore ?? createCrashStore()
+    this.onCrash = deps.onCrash
     this.writer = new QueuedRecordWriter({
       dir: deps.dir ?? join(logDir(), 'clients'),
       kind: 'client',
@@ -277,6 +294,19 @@ export class LogIngestService {
       telemetry?.recordCrash(input.err)
     } catch (err) {
       log.warn('telemetry crash hop failed', { err })
+    }
+    // THE BUS HOP, for a composition root that publishes crashes (podium-cloud's
+    // analytics plugin). Same shape as the telemetry hop above it and for the
+    // same reasons: best-effort, after the durable write, isolated, and the wire
+    // error passes through unrebuilt. The SNAPSHOT STAYS HERE — see `onCrash`.
+    try {
+      this.onCrash?.({
+        origin: input.origin,
+        err: input.err,
+        ...(stored ? { crashId: stored.id } : {}),
+      })
+    } catch (err) {
+      log.warn('crash observer failed', { err })
     }
     return stored ? { id: stored.id } : {}
   }

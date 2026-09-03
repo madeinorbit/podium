@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import type { AgentKind, HarnessAgent } from '@podium/model'
 import {
   type BuiltinHarnessKind,
@@ -8,16 +9,21 @@ import type { TranscriptRecordMapper, TranscriptRuntimeReader } from '@podium/tr
 import type { AgentStateProvider } from './agent-state/types.js'
 import {
   type AgentManifest,
+  type ClientTerminalSpec,
   declaredValue,
+  type DriverFamily,
   type HarnessCapabilities,
+  type HarnessEnvironment,
   type HarnessLogin,
   type PortableCredential,
+  type DriverId,
 } from './manifest.js'
 import { claudeCodeManifest } from './manifests/claude-code.js'
 import { codexManifest } from './manifests/codex.js'
 import { cursorManifest } from './manifests/cursor.js'
 import { grokManifest } from './manifests/grok.js'
 import { opencodeManifest } from './manifests/opencode.js'
+import { piManifest } from './manifests/pi.js'
 
 /**
  * THE harness registry (#158/POD-303): one manifest per driveable harness kind.
@@ -40,6 +46,7 @@ export const AGENT_MANIFESTS: Record<BuiltinHarnessKind, AgentManifest> = {
   grok: grokManifest,
   opencode: opencodeManifest,
   cursor: cursorManifest,
+  pi: piManifest,
 }
 
 /**
@@ -57,6 +64,45 @@ export function manifestFor(kind: AgentKind | string): AgentManifest | undefined
 export function harnessCapabilitiesFor(kind: AgentKind | string): HarnessCapabilities | undefined {
   return manifestFor(kind)?.capabilities
 }
+
+/**
+ * THE ONE LOOKUP THE ATTACH PATH USES (POD-2823).
+ *
+ * The daemon produces a Native view for a server-family session by running the
+ * harness's own TUI beside the engine. It used to decide WHAT to run by asking
+ * which harness this is; it now asks the harness, through here. Unknown ids, a
+ * harness with no server mode, and a server harness that ships no attachable
+ * client all answer `undefined` — three different reasons, one caller-visible
+ * outcome ("this session has no Native view"), which is the only distinction the
+ * attach path can act on.
+ */
+export function clientTerminalFor(
+  kind: AgentKind | string,
+  driverId?: DriverId,
+): ClientTerminalSpec | undefined {
+  const runtime = manifestFor(kind)?.runtime
+  const primary = runtime?.server && declaredValue(runtime.server)
+  const server =
+    driverId === undefined || primary?.driverId === driverId
+      ? primary
+      : runtime?.serverAlternatives?.find((candidate) => candidate.driverId === driverId)
+  const clientTerminal = server?.clientTerminal
+  return clientTerminal ? declaredValue(clientTerminal) : undefined
+}
+
+/**
+ * Every harness that declares a client terminal, DERIVED from the registry.
+ *
+ * The teardown path needs this: with no attachment record in hand, "is a parked
+ * master still holding a label for this session?" has to be asked of every
+ * label that could exist. A hand-written list of three names there was the same
+ * defect as a branch — a fourth driver would have been silently skipped, and its
+ * abduco master left resident until the machine rebooted. Reading it off the
+ * manifests makes the declaration the only thing that has to be right.
+ */
+export const CLIENT_TERMINAL_HARNESSES: readonly BuiltinHarnessKind[] = (
+  Object.keys(AGENT_MANIFESTS) as BuiltinHarnessKind[]
+).filter((kind) => clientTerminalFor(kind) !== undefined)
 
 /** Portable native-login declaration without exposing process-driving APIs. */
 export function harnessPortableCredential(
@@ -121,6 +167,19 @@ export function harnessNeedsSubmitVerification(kind: AgentKind | string): boolea
 
 export function harnessUsesRawFirstTurn(kind: AgentKind | string): boolean {
   return harnessCapabilitiesFor(kind)?.rawFirstTurn ?? false
+}
+
+/**
+ * When this harness's composer is known to accept typed input (POD-2823).
+ *
+ * `on-bind` for an unknown harness: a build that has never heard of this CLI
+ * cannot claim to know its start-up window, and guessing `confirmed-turn` would
+ * queue every send behind a proof this build has no idea how to obtain.
+ */
+export type HarnessComposerReadiness = HarnessCapabilities['composerReadiness']
+
+export function harnessComposerReadiness(kind: AgentKind | string): HarnessComposerReadiness {
+  return harnessCapabilitiesFor(kind)?.composerReadiness ?? 'on-bind'
 }
 
 /** How to abort a running turn in one harness's TUI: the key, the bytes that key
@@ -203,6 +262,69 @@ export function harnessDisplayName(kind: AgentKind | string): string {
   return manifestFor(kind)?.displayName ?? kind
 }
 
+/**
+ * Is this driver id a SERVER-family one — declared by some harness as its
+ * server driver? Read off the manifests, never a table (POD-2249).
+ *
+ * The daemon has asked this of the manifests since POD-2113
+ * (`runtime/registry.ts`'s `isServerDriverId`); this static twin exists because
+ * the SERVER now needs the same fact — a `killed:false` reap receipt must not
+ * blind-reattach a server-family session, whose reattach path can SPAWN (codex
+ * `adopt()` starts a fresh app-server) — and the row's `driverId` is all it
+ * holds. Pure metadata: names no process, reaches no host.
+ */
+export function driverIdIsServerFamily(driverId: string): boolean {
+  return driverFamilyForId(driverId) === 'server'
+}
+
+/**
+ * WHICH FAMILY does this driver id belong to (POD-2290)? Read off the manifests,
+ * never a table — the same rule {@link driverIdIsServerFamily} follows, and this
+ * is now its implementation.
+ *
+ * `undefined` means NOT THAT THIS BUILD HAS NO FAMILIES but that no manifest
+ * claims the id: the conformance `fake` driver, or an id from a newer daemon.
+ * Every caller must therefore have an answer for "unknown", and the honest one
+ * is whatever it would have done before driver families existed.
+ *
+ * WHY A FAMILY AND NOT A BOOLEAN. The question a client actually asks is "does
+ * this session have a terminal", and `server` is only one of the two answers
+ * that mean no — `embedded` (the SDK loop in a runtime-owned worker) has no PTY
+ * either. A `isServerFamily`-shaped flag would have to be re-derived, or gain a
+ * second flag beside it, the day the first embedded driver binds.
+ */
+export function driverFamilyForId(driverId: string): DriverFamily | undefined {
+  for (const manifest of Object.values(AGENT_MANIFESTS)) {
+    if (declaredValue(manifest.runtime.server)?.driverId === driverId) return 'server'
+    if (manifest.runtime.serverAlternatives?.some((server) => server.driverId === driverId))
+      return 'server'
+    if (declaredValue(manifest.runtime.embedded)?.driverId === driverId) return 'embedded'
+    if (manifest.runtime.terminal.driverId === driverId) return 'terminal'
+  }
+  return undefined
+}
+
+/**
+ * MIGHT a session with this resume-ref kind be server-driven? True exactly when
+ * the harness that owns the kind declares a server driver (POD-2249).
+ *
+ * "MIGHT", deliberately: `resumeKind` is a per-HARNESS fact, so `codex-thread`
+ * names PTY-driven codex sessions too. This is the DURABLE approximation of
+ * {@link driverIdIsServerFamily} for a row whose `driverId` did not survive —
+ * that field is transient by design (re-established on bind), while the resume
+ * kind is in `toRow()`. A caller holding both should prefer the driver id; this
+ * exists for the post-redeploy row that has only the kind, where failing open
+ * is the spawn loop and failing closed is a held park.
+ */
+export function isServerFamilyResumeKind(resumeKind: string): boolean {
+  return Object.values(AGENT_MANIFESTS).some(
+    (manifest) =>
+      manifest.resumeKind === resumeKind &&
+      (declaredValue(manifest.runtime.server) !== undefined ||
+        (manifest.runtime.serverAlternatives?.length ?? 0) > 0),
+  )
+}
+
 export function harnessResumeKind(kind: HarnessAgent): string
 export function harnessResumeKind(kind: AgentKind | string): string | undefined
 export function harnessResumeKind(kind: AgentKind | string): string | undefined {
@@ -274,6 +396,88 @@ export function harnessKindForResumeKind(resumeKind: string): HarnessAgent | und
 export function harnessDetectLogin(
   kind: AgentKind | string,
   homeDir: string,
+  env?: HarnessEnvironment,
 ): HarnessLogin | undefined {
-  return manifestFor(kind)?.inventory.detectLogin(homeDir)
+  return manifestFor(kind)?.inventory.detectLogin(homeDir, env)
+}
+
+/**
+ * The harness-specific home selector this CLI must follow into `homeDir`.
+ *
+ * The declaration ({@link AgentManifest.environment}`.instanceHome`) already
+ * existed and already governed the CHILD a spawn creates; this is that same rule
+ * read from one place so a login PROBE can compose the identical environment.
+ * Empty for a harness that derives its state root from `HOME` alone.
+ */
+export function harnessInstanceHomeEnv(
+  kind: AgentKind | string | undefined,
+  homeDir: string | undefined,
+): Record<string, string> {
+  if (!kind || !homeDir) return {}
+  const selector = manifestFor(kind)?.environment.instanceHome
+  return selector ? { [selector.variable]: join(homeDir, selector.relativeDir) } : {}
+}
+
+/**
+ * THE ENVIRONMENT A LOGIN READ MUST RUN UNDER TO ANSWER FOR `credentialHome`
+ * (POD-2692) — and it is the environment the CHILD gets, deliberately, because
+ * that is the whole point.
+ *
+ * Three things decide how a session starts, and each of them used to pick its own
+ * home: the inventory probe that publishes installed/ready/logged-in, the
+ * synchronous admission gate that decides whether a headless driver may be used,
+ * and the `HOME` the spawned child actually lives in. Measured on a named
+ * instance whose agent-home was logged OUT while the operator's home was logged
+ * IN, the inventory answered `in` — as the operator, naming the operator's email
+ * — while the gate and the child answered `out`. So Podium reported a harness
+ * ready and then handed the session a home with no credential in it. Pair them
+ * the other way round and a signed-in instance is demoted onto the interactive
+ * login path instead. Both failures have already happened on this epic
+ * (POD-2631, POD-2772).
+ *
+ * `HOME` ALONE DOES NOT GET THERE. `CODEX_HOME` and `GROK_HOME` override it, and
+ * the manifest already says so: "an ambient selector can redirect the child back
+ * into the daemon operator's real harness state". That warning was applied to the
+ * child spawn and to nothing else, which is exactly how a readout that ignores
+ * the instance home survived — the child followed the selector, the probe did
+ * not. The strip lists are here for the same reason: a `foreignCredentialEnv`
+ * left in the probe's environment makes it report the account an inherited API
+ * key selects, while the child, which strips that key, runs as the login on disk.
+ *
+ * NOT FOR VERSION PROBES. `<binary> --version` answers "what can this MACHINE
+ * run" and reads no per-user auth; `serverChildEnv` in apps/daemon already draws
+ * that line and it stays drawn. This composition is only for reads that name an
+ * account.
+ */
+export function harnessLoginReadEnv<Value extends string | undefined>(
+  kind: AgentKind | string,
+  credentialHome: string,
+  machineEnv: Readonly<Record<string, Value>>,
+): Record<string, Value | string> {
+  const manifest = manifestFor(kind)
+  const stripped = new Set([
+    ...(manifest?.inventory.foreignCredentialEnv ?? []),
+    ...(manifest?.environment.removeInherited ?? []),
+  ])
+  const env: Record<string, Value | string> = {}
+  for (const [key, value] of Object.entries(machineEnv)) {
+    if (!stripped.has(key)) env[key] = value
+  }
+  return { ...env, HOME: credentialHome, ...harnessInstanceHomeEnv(kind, credentialHome) }
+}
+
+/**
+ * Whether this inventory fact requires the interactive login path before a
+ * server-family session can be admitted. Most harnesses reserve `unknown` for
+ * genuinely inconclusive reads. Codex also uses it for the short replacement
+ * grace after auth.json disappears, where app-server cannot answer yet.
+ *
+ * Keep that harness variance here so generic hosts consume the adapter-owned
+ * answer without branching on a harness identity.
+ */
+export function harnessLoginNeedsInteractive(
+  kind: AgentKind | string,
+  state: HarnessLogin['state'] | undefined,
+): boolean {
+  return state === 'out' || (kind === 'codex' && state === 'unknown')
 }

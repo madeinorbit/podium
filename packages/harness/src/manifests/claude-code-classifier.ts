@@ -423,11 +423,26 @@ function requiredUserAction(text: string): boolean {
   )
 }
 
-function explicitErrorStop(text: string, errors: string[]): boolean {
+function explicitErrorStop(
+  text: string,
+  errors: string[],
+): { errorClass: string; retryable: boolean } | undefined {
   const combined = [text, ...errors].join('\n')
-  return /\b(rate limit|usage limit|overloaded|all providers exhausted|server error|internal server error|\b500\b|\b502\b|\b503\b|auth(?:entication)? failure|billing failure|insufficient credits|context length exceeded)\b/i.test(
-    combined,
-  )
+  if (
+    /\b(login expired|not logged in|logged[- ]out|authentication failed|invalid (?:oauth )?(?:token|credentials?)|run \/login)\b/i.test(
+      combined,
+    )
+  ) {
+    return { errorClass: 'authentication', retryable: false }
+  }
+  if (
+    /\b(rate limit|usage limit|overloaded|all providers exhausted|server error|internal server error|\b500\b|\b502\b|\b503\b|auth(?:entication)? failure|billing failure|insufficient credits|context length exceeded)\b/i.test(
+      combined,
+    )
+  ) {
+    return { errorClass: 'unknown', retryable: true }
+  }
+  return undefined
 }
 
 function shellWaitingText(text: string): boolean {
@@ -487,7 +502,7 @@ function candidateLabels(features: ClaudeTranscriptFeatures): GlobalAgentStateLa
   if (terminalQuestion(text) || requiredUserAction(text))
     labels.add('idle.needs_input.text_question')
   if (features.openTodoCount > 0) labels.add('idle.needs_input.open_todo_list')
-  if (explicitErrorStop(text, features.errors)) labels.add('error')
+  if (explicitErrorStop(text, features.errors) !== undefined) labels.add('error')
   labels.add('idle.finished')
   return [...labels]
 }
@@ -536,10 +551,11 @@ export function classifyClaudeFeatures(
   if (features.terminalEvent === 'tool_result') {
     return resolvedState('working', 'latest current-turn event is a tool result')
   }
-  if (explicitErrorStop(text, features.errors) && !completionLanguage(text)) {
+  const terminalError = explicitErrorStop(text, features.errors)
+  if (terminalError && !completionLanguage(text)) {
     return resolvedState('error', 'explicit terminal provider/runtime error', {
-      errorClass: 'unknown',
-      retryable: true,
+      errorClass: terminalError.errorClass,
+      retryable: terminalError.retryable,
     })
   }
   if (subagentWaitingText(text)) {

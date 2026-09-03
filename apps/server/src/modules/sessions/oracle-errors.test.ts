@@ -18,7 +18,7 @@
  * Messages are pinned with EXACT equality, never a substring (POD-743).
  */
 
-import { asMachineId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { type AgentInventory, asMachineId, asUserId, SOLE_USER_ID } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   disposeOracles,
@@ -194,6 +194,10 @@ describe('oracle: not-found shape, per write', () => {
 describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguishable from "unauthorized")', () => {
   /** A paired machine that reported an inventory and then went away. */
   const OFFLINE = [{ id: asMachineId('gone'), name: 'Gone' }]
+  const INVENTORY_PENDING = provisional(
+    'POD-2631',
+    'the machines service words this state differently, and handoff refuses here where spawn waits',
+  )
 
   it(`${MUST_NOT_CHANGE}: create against an OFFLINE machine throws, naming the machine and the reachability fault`, async () => {
     const o = makeOracle({ offlineMachines: OFFLINE })
@@ -285,5 +289,95 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       status: 'starting',
     })
     expect(o.meta(sessionId).handoffTarget).toBeUndefined()
+  })
+
+  /**
+   * TWO INCONCLUSIVE STATES THAT USED TO LOOK ALIKE, AND WHY THE PIN BELOW DID
+   * NOT MOVE (POD-2830, reading POD-2631).
+   *
+   * Both refusals here are the SAME class and that class is the property worth
+   * guarding: a retryable 412, never a 500, and never a claim that the harness
+   * is absent. Neither half of that moved. What moved is which state the
+   * fixture describes.
+   *
+   * POD-2631 stopped serving a machine's PERSISTED inventory as evidence about
+   * a newly attached daemon (`inventoryPending` in machines/service.ts): a
+   * snapshot describes the connection that produced it, and reading it as
+   * current turns a reconnect into a confident false negative. That is the
+   * same principle this test is named for — do not make a claim the probe has
+   * not earned — applied one level down. So the two are not in tension; the
+   * second is the first, extended.
+   *
+   * The consequence for the fixture is exact. "Attach a daemon and never
+   * report" used to surface the stored timed-out probe, and now means "this
+   * connection has not reported yet" — a different, weaker answer that the
+   * timed-out wording would overstate. The pinned message below is only earned
+   * once THIS connection reports the timeout, so the fixture reports it.
+   *
+   * Re-pointing the pin at the pending-inventory wording would have been the
+   * cheap green, and it would have retired the timed-out guard while leaving
+   * its name on the file. The pending state gets its own characterization
+   * instead, so both branches stay covered.
+   */
+  const TIMED_OUT_PROBE = {
+    kind: 'claude-code',
+    installed: null,
+    probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+    login: { state: 'in' },
+  } satisfies AgentInventory
+
+  /** A session on this host, plus an online `Loaded` target whose stored probe timed out. */
+  async function handoffToLoadedTarget(opts: { targetReports: boolean }): Promise<{
+    handoff: () => Promise<unknown>
+  }> {
+    const target = asMachineId('loaded')
+    const o = makeOracle({
+      offlineMachines: [{ id: target, name: 'Loaded', agents: [TIMED_OUT_PROBE] }],
+    })
+    o.reg.gateway.attachDaemon(target, () => {})
+    if (opts.targetReports)
+      o.reg.gateway.routeDaemonFrame(target, {
+        type: 'inventoryReport',
+        machineId: target,
+        inventory: { os: 'linux', arch: 'x64', agents: [TIMED_OUT_PROBE], tools: [] },
+      })
+    o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'inventoryReport',
+      machineId: o.store.hostMachineId,
+      inventory: {
+        os: 'linux',
+        arch: 'x64',
+        agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
+        tools: [],
+      },
+    })
+    o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
+    const { sessionId } = await o.call.sessions.resume({
+      agentKind: 'claude-code',
+      cwd: '/r/.worktrees/x',
+      resume: { kind: 'claude-session', value: 'n1' },
+      conversationId: 'n1',
+    })
+    return { handoff: () => o.call.sessions.handoff({ sessionId, machineId: target }) }
+  }
+
+  it(`${MUST_NOT_CHANGE}: a timed-out target inventory probe is a retryable 412, not a 500 or an absence claim`, async () => {
+    const { handoff } = await handoffToLoadedTarget({ targetReports: true })
+
+    await expect(handoff()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "could not determine whether claude-code is installed on target machine 'Loaded' (probe timed out after 60s); retry",
+    })
+  })
+
+  it(`${INVENTORY_PENDING}: a target whose live daemon has not reported yet refuses in the same class, with a message that does not borrow the timeout`, async () => {
+    const { handoff } = await handoffToLoadedTarget({ targetReports: false })
+
+    await expect(handoff()).rejects.toMatchObject({
+      code: 'PRECONDITION_FAILED',
+      message:
+        "could not determine whether claude-code is installed on target machine 'Loaded' (inventory not reported yet); retry shortly",
+    })
   })
 })

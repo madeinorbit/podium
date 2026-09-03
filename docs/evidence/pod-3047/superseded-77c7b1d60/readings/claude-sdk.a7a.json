@@ -1,0 +1,88 @@
+{
+  "cell": "A7A",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a7a",
+  "at": "2026-08-28T14:09:57.902Z",
+  "pin": {
+    "cell": "A7A",
+    "at": "2026-08-28T14:09:57.935Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1287371",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17893620 kB",
+      "SwapFree": "40945176 kB"
+    },
+    "rootFreeKiB": 83118816,
+    "load1m": 8.64,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "daemon restart retained the same live conversation and codeword",
+  "control": {
+    "fired": true,
+    "what": "pre-restart Claude codeword send/reply",
+    "detail": "user=true; reply=true"
+  },
+  "evidence": [
+    "BASELINE          user=true reply=true",
+    "RESTART           {\"oldPid\":\"1287371\",\"newPid\":\"1346246\",\"out\":\"OLD_DAEMON_PID=1287371\\nNEW_DAEMON_PID=1346246 sha=77c7b1d604e96162ec6c2b024612001aeeafce69 tos=1\\n\"}",
+    "POST PIN          1346246 77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "RECALL            {\"ok\":true,\"disposition\":\"delivered\"} assistant=true",
+    "STATUS            {\"sessionId\":\"c06a1e8e-6f06-4090-8b02-c5518ffcecab\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null"
+  ],
+  "data": {
+    "sid": "c06a1e8e-6f06-4090-8b02-c5518ffcecab",
+    "secret": "P3047-A7A-MTD13HAV",
+    "restart": {
+      "oldPid": "1287371",
+      "newPid": "1346246",
+      "out": "OLD_DAEMON_PID=1287371\nNEW_DAEMON_PID=1346246 sha=77c7b1d604e96162ec6c2b024612001aeeafce69 tos=1\n"
+    },
+    "got": {
+      "ok": true,
+      "ms": 43,
+      "items": []
+    }
+  }
+}

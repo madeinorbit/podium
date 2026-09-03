@@ -284,9 +284,33 @@
 
 ---
 
+## Verified live (pi 0.84.4, POD-3220)
+
+Run on 2026-09-02 against a fake OpenAI-compatible provider (`models.json` override), so every
+CLI-side fact below is from execution, not docs. Podium's headless driver
+(`packages/harness/src/manifests/pi.ts`, `apps/daemon/src/pi-stream.ts`) is built on these:
+
+- `pi -p --mode json --session-id <uuid>` creates the session under that exact id on the first
+  turn (stderr: "No project session found with id …; creating a new session with that id") and
+  resumes it on later turns; context carries across turns.
+- The first stdout line is the session header even when the provider is never reached.
+- Piped stdin becomes the user message verbatim; with an argv prompt too, they are concatenated.
+- `--no-tools` refuses a model-emitted tool call ("Tool bash not found", `isError: true`).
+- **A provider failure exits 0.** The assistant `message_end` carries `stopReason: "error"` +
+  `errorMessage`; Pi retries three times (`auto_retry_start`) and ends with
+  `auto_retry_end { success: false, finalError }`. Read failure from the stream, never the exit code.
+- Session bucket name: `--${cwd.replace(/^[/\\]/, '').replace(/[/\\:]/g, '-')}--` (from
+  `session-manager.js`); file `<ISO timestamp with ':'→'-'>_<uuid>.jsonl`.
+- Runs cleanly under abduco (stdin must be closed or redirected; an open non-TTY stdin blocks
+  waiting for EOF).
+- `pi --list-models` prints a whitespace table (`provider model context max-out thinking images`)
+  on **stdout** in this version.
+
 ## Open questions / unverified
 
-- **Live-running confirmation:** the `pi` binary was not run on the research host (not installed; no `~/.pi`), so `--help`/`--version` exact output, on-disk file contents, and any flag's runtime behavior are sourced from docs/README/source, not from execution. Confirm against a live install.
+- **Live-running confirmation:** the interactive TUI was still not driven on the research host; the
+  headless (`-p` / `--mode json`) path is verified above. `--help`/`--version` output and the
+  `auth` subcommand (`pi auth print-api-key | print-bearer-token | check`) were confirmed.
 - **Version gating:** no evidence any flag/feature is version-gated; unverified whether any is.
 - **Session-file locking:** unverified whether Pi takes a lock to prevent concurrent-writer corruption — treat "one writer per session id" as a hard invariant regardless.
 - **OAuth internals:** exact `auth.json` OAuth field names and per-provider refresh endpoints/client-ids are undocumented (Pi-internal auto-refresh; orchestrator does not touch them).

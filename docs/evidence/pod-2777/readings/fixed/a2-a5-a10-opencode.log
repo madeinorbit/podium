@@ -1,0 +1,57 @@
+==============================================================================
+A2b / A5 / A10   harness=opencode
+==============================================================================
+
+A2b  status at boot
+------------------------------------------------------------------------------
+  session 4b82164f-3e93-4ab9-a152-864a03031602
+  phase timeline (only changes are printed):
+    t+   179ms  status=starting    phase=(blank)   driver=(none)
+    t+  6410ms  status=live        phase=idle      driver=opencode-server
+  CONTROL          the session bound a driver and is live: true
+
+  A2b PASS
+      settles on idle:                       true
+      ever reported 'working' before any use: false
+      ever blank after a driver was bound:    false
+
+A10  driver identity
+------------------------------------------------------------------------------
+  reports          driverId=opencode-server  driverFamily=server
+  expected here    opencode-server / family 'server'
+  half 1 (reports server family): PASS
+
+  half 2 (PODIUM_RUNTIME_DRIVER=generic-pty demotes it): PARTIAL — measured,
+  but not to the row's full wording, and the reason is POD-2853.
+  On this rig the terminal arm was driven (drive-up.sh with P2777_DRIVER=
+  generic-pty; drive-verify.sh read generic-pty back out of the RUNNING
+  daemon's /proc/<pid>/environ, so the arm is the daemon's, not a script's
+  intention). Under it the session did NOT bind a server driver — it took
+  the abduco path and died there:
+      status=exited  exitCode=-1  driverId=(none)
+      spawnFailure="…/bin/abduco exited 1: create-session: File name too long"
+      label=podium-p2777-2591ded6-bfe5-42d7-965b-80d99fd9916f
+  The escape hatch DID demote — abduco is the terminal path and a server
+  driver would never have touched it. What cannot be read is the demoted
+  session's reported driver identity, because the session does not survive
+  long enough to report one. PASS on "demotes", unread on "and reports it".
+
+A5  transcript — tool calls paired to results, and a reload shows the same history
+------------------------------------------------------------------------------
+  turn completed   true
+  CONTROL          4 transcript item(s), 2 tool item(s), 8 delta frame(s)
+    toolUseId call_QlDrwEyWQ4KpY1IhVqQ3TIl tool=bash     items=2 result=true  "TRANSCRIPT-UAM5AG\\n"
+
+  reload           live had 4 item(s); a fresh socket was served 4
+                   0 live item(s) missing after reload
+                   the turn's nonce is still in the reloaded history: true
+                   tool items after reload: 2 (live: 2)
+
+  A5 PASS
+      tool calls paired to results: true (1 distinct toolUseId(s))
+      reload shows the same history: true
+      control FIRED — the turn produced 2 tool item(s)
+
+==============================================================================
+done
+==============================================================================

@@ -1,0 +1,22 @@
+{
+  "cell": "A1B",
+  "pinnedAt": "2026-08-27T05:17:54.769Z",
+  "instance": "default",
+  "rigState": "/tmp/pod-2921/state",
+  "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2921-main-baseline-for-three-claude-cells",
+  "checkoutSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "serverSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "daemonSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "webSourceSha": "0bd9009",
+  "serverPid": "1208350",
+  "daemonPid": "1208406",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "forbiddenProbeOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "TMUX_TMPDIR": null,
+    "PODIUM_WEB_DIR": null
+  }
+}

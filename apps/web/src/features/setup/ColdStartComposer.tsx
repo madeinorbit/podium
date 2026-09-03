@@ -11,7 +11,7 @@ import {
   usableMachines,
 } from '@podium/client-core/viewmodels'
 import { asIssueId, asMutationId, asSessionId, type GitRepositoryWire } from '@podium/model'
-import { asMachineId } from '@podium/model/browser'
+import { agentLoginCondition, asMachineId } from '@podium/model/browser'
 import { nativeAccountId, resolveRole } from '@podium/runtime'
 import { ChevronDown, LoaderCircle, Monitor, Paperclip, X } from 'lucide-react'
 import type { JSX } from 'react'
@@ -35,6 +35,8 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { PropertyMenu } from '@/lib/PropertyMenu'
+import { headlessRuntimeDrivers, runtimeDriverLabel } from '@/lib/runtime-driver-options'
+import { useFeature } from '@/lib/use-feature'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { activationAgentIsReady, activationAgentReadiness } from './agent-readiness'
 import {
@@ -238,6 +240,8 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    */
   const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
   const [busy, setBusy] = useState(false)
+  const runtimeDriversEnabled = useFeature('runtime-drivers')
+  const [driverChoice, setDriverChoice] = useState('headed')
   // Durable launch failures belong to the draft, not component lifetime. The
   // recovery composer can mount one microtask before the outcome writes its
   // error; reading the subscribed draft lets that late value appear. Local
@@ -392,6 +396,18 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     agent,
   )
   const ready = activationAgentIsReady(readiness)
+  const availableHeadlessDrivers = headlessRuntimeDrivers(selectedMachine, agent).filter(
+    (driver) =>
+      selectedMachine !== undefined &&
+      agentLoginCondition(selectedMachine, driver.harness) !== 'logged-out',
+  )
+  const selectedHeadlessDriver =
+    runtimeDriversEnabled && driverChoice !== 'headed'
+      ? availableHeadlessDrivers.find((driver) => driver.id === driverChoice)
+      : undefined
+  const driverUnavailable =
+    runtimeDriversEnabled && driverChoice !== 'headed' && selectedHeadlessDriver === undefined
+  const runtimeContract = selectedHeadlessDriver?.id
   /**
    * THE SAME REFUSAL VOCABULARY AS EVERY OTHER SPAWN MENU (POD-1201).
    *
@@ -444,12 +460,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * the well starts CLOSED — one clickable line of placeholder over the
    * instrument row — and unfolds when they say they have something to write.
    *
-   * The two modes differ in exactly one more place, and it is the important one:
-   * what Launch does. Closed, it starts the agent with no prompt (`startCli`)
-   * and is always available, because "no prompt" is the whole request. Open, it
-   * creates the mission from what was typed and is refused while that is empty,
-   * because an empty box in prompt mode is an unfinished sentence rather than a
-   * decision.
+   * The prompt's contents decide what Launch does. With nothing written, closed
+   * or open, it starts the agent with no prompt (`startCli`) because "no prompt"
+   * is the whole request. With text, it creates the mission from what was typed.
+   * An attached file still needs prose so it cannot be silently dropped by the
+   * promptless CLI path.
    *
    * EXPANSION IS DERIVED, NOT STORED. A persisted draft with words in it — the
    * operator navigated away mid-sentence — has to come back open, or the text
@@ -638,6 +653,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       agentKind: agent,
       ...(draft.model !== AUTO ? { model: draft.model } : {}),
       ...(draft.effort !== AUTO ? { effort: draft.effort } : {}),
+      ...(runtimeContract !== undefined ? { runtimeContract } : {}),
     })
     // The prompt was never written, so nothing is left to restore — but the
     // instruments were chosen and stay chosen for the next one.
@@ -838,9 +854,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
   }
 
-  const launchable = expanded
-    ? Boolean(draft.pendingIssueId) || draft.title.trim().length > 0
-    : true
+  const hasPrompt = draft.title.trim().length > 0
   const launchBlocked =
     busy ||
     // A launch that outran its uploads would create the mission with a brief
@@ -851,9 +865,13 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     !selectedMachine ||
     machineDenied ||
     !ready ||
-    !launchable
+    driverUnavailable ||
+    // The promptless path has no way to deliver uploaded files to the agent.
+    (!draft.pendingIssueId && !hasPrompt && attachments.attachments.length > 0)
 
-  /** What Launch and ⌘↵ do, which is the one thing the two modes disagree about. */
+  /** What Launch and ⌘↵ do. Text starts the agent on that prompt in a draft
+   *  issue (or resumes a mission a previous Launch already created); no text
+   *  starts a bare session. Neither side is refused. */
   const launch = (): void => {
     if (launchBlocked) return
     // Starting work on a harness is what makes it the operator's harness — see
@@ -861,7 +879,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // actually news: relaunching on the harness that is already the default has
     // nothing to write.
     if (agent !== defaultAgent) void persistDefaultAgent(agent)
-    if (expanded) void start()
+    if (draft.pendingIssueId || hasPrompt) void start()
     else startCli()
   }
 
@@ -1098,6 +1116,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   selectedValue={agent}
                   onSelect={(nextAgent) => {
                     const kind = issueAgentKind(nextAgent) ?? agent
+                    if (kind !== agent) setDriverChoice('headed')
                     setDraft(
                       withoutCreateReservation({
                         ...draft,
@@ -1154,6 +1173,36 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 placeholder="Choose a machine…"
                 onSelect={selectMachine}
               />
+              {runtimeDriversEnabled && availableHeadlessDrivers.length > 0 ? (
+                <PropertyMenu
+                  trigger={
+                    <button
+                      type="button"
+                      data-pressable
+                      aria-label="Driver"
+                      className="inline-flex h-7 max-w-full flex-none items-center gap-[7px] rounded-lg px-2.5 font-mono text-[11px] leading-none text-text-dim shadow-[inset_0_0_0_1px_var(--hairline-bar)] hover:bg-accent hover:text-text-strong focus-visible:outline-2 focus-visible:outline-ring"
+                    >
+                      {driverChoice === 'headed' ? 'Headed' : runtimeDriverLabel(driverChoice)}
+                      <ChevronDown size={13} className="text-text-faint" aria-hidden="true" />
+                    </button>
+                  }
+                  options={[
+                    { value: 'headed', label: 'Headed (default)' },
+                    ...availableHeadlessDrivers.map((driver) => ({
+                      value: driver.id,
+                      label: runtimeDriverLabel(driver.id),
+                      group: 'Headless drivers',
+                    })),
+                  ]}
+                  selectedValue={driverChoice}
+                  placeholder="Choose a driver…"
+                  onSelect={setDriverChoice}
+                />
+              ) : driverUnavailable ? (
+                <span role="status" className="text-[11px] text-danger">
+                  {driverChoice} unavailable
+                </span>
+              ) : null}
               {/* The clip sits with the machine picker rather than beside Launch:
                   both name WHAT the mission is given, and the auto-margined group
                   to its right is reserved for the act of launching it. */}

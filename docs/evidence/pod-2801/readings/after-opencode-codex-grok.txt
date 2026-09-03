@@ -1,0 +1,48 @@
+[opencode] session 2c50e2cd-60d1-4dcd-aa13-85ee2a1ea10a created; 12000ms for the TUI to come up
+[opencode] bound driver generic-pty (family terminal)
+[opencode] TUI priming: nothing to clear
+[codex] session b8e4bb5e-15a6-4e3a-8722-a948ad532a51 created; 12000ms for the TUI to come up
+[codex] bound driver generic-pty (family terminal)
+[codex] TUI priming: nothing to clear
+[grok] session 0b48557f-a8e3-4560-8859-a0facdeb518c created; 12000ms for the TUI to come up
+[grok] bound driver generic-pty (family terminal)
+[grok] TUI priming: nothing to clear
+
+=== phase while producing output ===
+
+| harness | driver | verdict | phases seen | EVER working | output bytes | growing intervals |
+|---|---|---|---|---|---|---|
+| opencode | generic-pty | **PASS** | idle=48 working=12 | true | 159751 | 15/59 |
+| codex | generic-pty | **PASS** | unknown=9 working=38 idle=13 | true | 91041 | 46/59 |
+| grok | generic-pty | **REFUSED** | errored=60 | false | 8702 | 0/59 |
+
+--- opencode (generic-pty) — PASS: reported working while producing 159751 bytes of output
+    +  1136ms  phase=idle       ptyBytes=   7894  transcriptChars=0
+    + 11425ms  phase=working    ptyBytes= 110823  transcriptChars=0
+    + 21655ms  phase=idle       ptyBytes= 156742  transcriptChars=6488
+    + 31922ms  phase=idle       ptyBytes= 159751  transcriptChars=6488
+    + 42044ms  phase=idle       ptyBytes= 159751  transcriptChars=6488
+    + 52215ms  phase=idle       ptyBytes= 159751  transcriptChars=6488
+    + 61378ms  phase=idle       ptyBytes= 159751  transcriptChars=6488
+
+--- codex (generic-pty) — PASS: reported working while producing 91041 bytes of output
+    +  1144ms  phase=unknown    ptyBytes=   3658  transcriptChars=0
+    + 11288ms  phase=working    ptyBytes=  29993  transcriptChars=0
+    + 21431ms  phase=working    ptyBytes=  56829  transcriptChars=0
+    + 31588ms  phase=working    ptyBytes=  69881  transcriptChars=0
+    + 41822ms  phase=working    ptyBytes=  83007  transcriptChars=0
+    + 51958ms  phase=idle       ptyBytes=  91041  transcriptChars=7031
+    + 61127ms  phase=idle       ptyBytes=  91041  transcriptChars=7031
+
+--- grok (generic-pty) — REFUSED: output grew in only 0 of 59 one-second intervals (8702 bytes total) — no turn can be shown to have been in flight, so a phase reading here cannot be told apart from a correct one
+    +  1138ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    + 11231ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    + 21328ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    + 31448ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    + 41579ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    + 51678ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    + 60803ms  phase=errored    ptyBytes=   8702  transcriptChars=0
+    screen tail at the end of the window:
+      | codingdata, e.g., prompts, traces, & metrics, for training anddebugging purposes. Change anytime via settings.                            Read Terms and Privacy Policy.                                                                                                                                              Shift+Tab:mode   sc:cace  Ctrl+x:shortcuts                      11]0; - Waiting for response - grok ]0; - Waiting for response - grok22]0; - Waiting for response - Count from 1 to 150. Put each number on  - grok3344]0; - Waiting for response - Count from 1 to 150. Put each number on  - grok stop_failure  [hooks: 1]                                              Ctrl+x:shortcuts                                                                                                                         You hit your weekly limit.                                                                                                                                                                                                       1 () Upgrade tier      Upgrade to a higher tier for more usage            2 () Buy more credits  Purchase credits to keep using Grok Build                                                                                     / navigate  y copy                                    Enter:submit                                                                               Esc:unselect   Tab:scrollback    Shift+x:dismiss]0;Count from 1 to 150. Put each number on  - grok
+
+every harness measured reported working while it was working

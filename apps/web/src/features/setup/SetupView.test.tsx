@@ -488,3 +488,36 @@ describe('SetupView', () => {
     })
   })
 })
+
+/**
+ * `PODIUM_MODE` (PDM-26). A dead control is worse on this screen than anywhere
+ * else in the product: it is the one screen a first-time operator has no context
+ * to interpret, and a disabled row of mode buttons reads as "something is
+ * broken" rather than "the deployment already answered".
+ */
+describe('SetupView when the deployment set the mode', () => {
+  it('skips the mode step entirely and opens on reachability', async () => {
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} modeForcedByEnv />)
+    expect(screen.queryByText(/how should this install run/i)).toBeNull()
+    expect(screen.queryAllByRole('radio', { name: /run podium on this machine/i })).toHaveLength(0)
+    // …and lands straight on the reachability step, which is the next thing the
+    // deployment has NOT already answered.
+    await act(async () => {
+      await flush()
+    })
+    expect(screen.getByLabelText(/podium url/i)).toBeTruthy()
+  })
+
+  it('offers no way back to a step that does not exist', async () => {
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} modeForcedByEnv />)
+    await act(async () => {
+      await flush()
+    })
+    expect(screen.queryByRole('button', { name: /^back$/i })).toBeNull()
+  })
+
+  it('without the flag the mode step is still the first thing shown', () => {
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />)
+    expect(screen.getByText(/how should this install run/i)).toBeTruthy()
+  })
+})

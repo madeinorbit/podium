@@ -123,6 +123,7 @@ import {
   isTestFile,
   loadHarnessLiterals,
   MANIFEST,
+  PLANE_SPLIT_ENTRIES,
   partitionAllowlist,
   stripComments,
   tagsFor,
@@ -221,9 +222,14 @@ export function loadModelExportNames(repoRoot: string): Set<string> {
  * This closes a hole the other rules could not see. All of them reason about
  * DECLARED edges — layer order, platform tags, leaf purity — so an import whose
  * package.json entry is simply MISSING is invisible to the whole gate: there is no
- * edge to judge. It resolves anyway under Bun's hoisted node_modules, so nothing
- * fails locally, and then a scoped typecheck of some UNRELATED consumer reports
- * TS2307 because no workspace symlink exists. POD-300 produced exactly that:
+ * edge to judge.
+ *
+ * Under isolated linking with `hoist = false` such an import no longer resolves at
+ * all — the workspace symlink is never created, so it fails outright. This rule is
+ * still what you want in front of that: it names the offending file, the specifier
+ * and the workspace whose package.json needs the entry, whereas the raw failure is
+ * a bare module-not-found or a TS2307 that can surface in an UNRELATED consumer's
+ * scoped typecheck long after the edit that caused it. POD-300 produced exactly that:
  * import specifiers moved to `@podium/model`, the dependency lists did not, and
  * `packages/harness` silently imported a package it never declared until an
  * unrelated app's typecheck broke.
@@ -362,6 +368,15 @@ function resolveTsSibling(repoRoot: string, fromFile: string, specifier: string)
  * and for whom".
  */
 const PRINCIPAL_FREE_WORKSPACES: readonly string[] = [
+  // POD-2019 joins `packages/agent-runtime` to the set, for the same reason and
+  // at the same layer as the other three. The contract describes how a session
+  // is DRIVEN, never who may drive it: `SessionSpec`'s account selector names a
+  // harness-native login (which `~/.codex/auth.json` to spawn under), not a
+  // principal, and carries no user id, grant or visibility class. Authorization
+  // belongs at the server projection boundary (POD-1079), which is above this
+  // package — and stating it as a lint keeps a future driver from reaching for
+  // an authz type when what it actually wants is an account.
+  'packages/agent-runtime',
   'packages/harness',
   'packages/pty',
   'packages/transcript',
@@ -831,6 +846,141 @@ export function checkBrowserGraphAll(repoRoot: string): Violation[] {
             message: `${file}: reachable from browser entrypoint '${specifier}' and imports '${spec}' — a browser bundle would inline Node code. The workspace is tagged NEUTRAL on the strength of this closure staying Node-free; move the dependency behind a port the composition root injects.`,
           })
         }
+      }
+    }
+  }
+  return violations
+}
+
+/**
+ * Rule `manifest-plane-leak` — a plane-split package's browser barrel does not
+ * reach the other plane, however the symbols are named (POD-2470).
+ *
+ * The forbidden set is DERIVED at check time from what the restricted entry
+ * re-exports, and the walk is TRANSITIVE. Both properties are load-bearing and
+ * each covers a hole the other leaves:
+ *
+ *   DERIVED, because the leak this rule is named after arrived as a NEW family.
+ *     A list would have needed someone to remember it; reading `daemon.ts`
+ *     protects the next family the moment that file picks it up.
+ *
+ *   ON THE EDGE, because the first version of this guard compared export NAMES
+ *     and a one-line alias walked through it —
+ *     `export { RuntimeEvent as BrowserRuntimeEvent } from './runtime'` rebuilds
+ *     the dependency while exposing no name the namespace check was watching
+ *     for. The edge is the thing that costs bytes, so the edge is the thing to
+ *     assert on.
+ *
+ *   TRANSITIVE, because the original leak was two hops — `index -> sync ->
+ *     runtime`, `sync.ts` parsing one interaction schema out of the daemon-plane
+ *     module. A scan of the barrel alone would have been green through the whole
+ *     incident.
+ *
+ * Type-only edges are exempt, matching {@link checkBrowserGraphAll}: they are
+ * erased at build and put nothing in a bundle.
+ *
+ * VACUOUS-GREEN GUARDS, since a closure rule that finds nothing looks identical
+ * whether it is satisfied or broken. An entry file that does not exist, an
+ * import that resolves to no file (a truncated closure), and a restricted entry
+ * that re-exports NOTHING (an empty forbidden set) are each reported rather than
+ * skipped.
+ */
+export function checkPlaneLeakAll(repoRoot: string): Violation[] {
+  const violations: Violation[] = []
+  for (const [barrel, restricted] of PLANE_SPLIT_ENTRIES) {
+    const read = (file: string, why: string): string | null => {
+      try {
+        return readFileSync(join(repoRoot, file), 'utf8')
+      } catch {
+        violations.push({
+          file,
+          specifier: barrel,
+          rule: 'manifest-plane-leak',
+          message: `${file}: ${why} of the plane split '${barrel}' does not exist, which makes this rule vacuously green. Create it or remove the row from PLANE_SPLIT_ENTRIES (scripts/architecture-manifest.ts).`,
+        })
+        return null
+      }
+    }
+
+    // The other plane is whatever the restricted entry re-exports. Derived,
+    // never listed — see the note above.
+    const restrictedSource = read(restricted, 'the restricted entry')
+    if (restrictedSource === null) continue
+    const otherPlane = new Set<string>()
+    for (const ref of extractImports(restrictedSource)) {
+      if (ref.typeOnly || !ref.specifier.startsWith('.')) continue
+      const target = resolveRelativeModule(repoRoot, restricted, ref.specifier)
+      if (target !== null) otherPlane.add(target)
+    }
+    if (otherPlane.size === 0) {
+      violations.push({
+        file: restricted,
+        specifier: barrel,
+        rule: 'manifest-plane-leak',
+        message: `${restricted}: re-exports no module of its own, so the forbidden set for '${barrel}' is EMPTY and this rule passes without checking anything. If the plane split is gone, remove the row from PLANE_SPLIT_ENTRIES (scripts/architecture-manifest.ts) deliberately rather than leaving a guard that cannot fail.`,
+      })
+      continue
+    }
+
+    // Walk the barrel's closure, remembering how each module was first reached
+    // so a failure can name the whole chain rather than only its endpoint.
+    const selfWorkspace = workspaceOf(barrel)
+    const cameFrom = new Map<string, string>()
+    const seen = new Set<string>()
+    const queue: string[] = [barrel]
+    while (queue.length > 0) {
+      const file = queue.shift() as string
+      if (seen.has(file)) continue
+      seen.add(file)
+      if (otherPlane.has(file)) {
+        const chain = [file]
+        for (let at = file; cameFrom.has(at); ) {
+          at = cameFrom.get(at) as string
+          chain.unshift(at)
+        }
+        violations.push({
+          file: chain[1] ?? barrel,
+          specifier: file,
+          rule: 'manifest-plane-leak',
+          message: `${file} belongs to the plane '${restricted}' owns, and the browser barrel '${barrel}' reaches it: ${chain.join(' -> ')}. Eager schemas are built at module scope, so this edge puts the WHOLE module in every browser bundle and no bundler can shake it out — which is a size regression that names no cause when it lands. Import it from the restricted entry instead, or move the browser-facing part into its own module and re-export that from both. Renaming on the way through (\`export { X as Y } from\`) rebuilds the same edge and is refused for the same reason.`,
+        })
+        continue
+      }
+      const source = read(file, 'a module reachable from the barrel')
+      if (source === null) continue
+      for (const ref of extractImports(source)) {
+        if (ref.typeOnly) continue
+        const spec = ref.specifier
+        if (!spec.startsWith('.')) {
+          // A module in the closure importing its OWN workspace by PACKAGE
+          // specifier steps outside this walk, which follows relative imports —
+          // and the far side of that step is the restricted entry itself. From
+          // inside packages/protocol, `export * from '@podium/protocol/daemon'`
+          // rebuilds the whole leak by a route no relative-import rule can see.
+          // Refused as a class rather than special-cased to the daemon subpath:
+          // the barrel has no reason to reach its own package by name.
+          if (spec.startsWith('@podium/') && podiumWorkspaceOf(spec) === selfWorkspace) {
+            violations.push({
+              file,
+              specifier: spec,
+              rule: 'manifest-plane-leak',
+              message: `${file}: reachable from the browser barrel '${barrel}' and imports '${spec}' — its OWN workspace, by package specifier. That edge leaves the relative-import closure this rule walks, so it can route around the plane split entirely: the package's restricted subpath reached this way puts the other plane back into every browser bundle with no relative edge to find. Import the module relatively.`,
+            })
+          }
+          continue
+        }
+        const target = resolveRelativeModule(repoRoot, file, spec)
+        if (target === null) {
+          violations.push({
+            file,
+            specifier: spec,
+            rule: 'manifest-plane-leak',
+            message: `${file}: reachable from the browser barrel '${barrel}' and imports '${spec}', which resolves to no file here. An unresolvable import TRUNCATES the closure, so the no-leak claim below it would be green for the wrong reason.`,
+          })
+          continue
+        }
+        if (!cameFrom.has(target)) cameFrom.set(target, file)
+        queue.push(target)
       }
     }
   }
@@ -1336,6 +1486,7 @@ export function runCheck(repoRoot: string): {
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
   manifest.push(...checkBrowserGraphAll(repoRoot))
+  manifest.push(...checkPlaneLeakAll(repoRoot))
   manifest.push(...checkOpenEntrypoints(repoRoot))
   return { violations, manifest }
 }

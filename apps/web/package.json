@@ -37,6 +37,7 @@
     "@podium/telemetry": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@podium/terminal-client-react": "workspace:*",
+    "@podium/transcript": "workspace:*",
     "@tanstack/db": "^0.6.16",
     "@tanstack/db-sqlite-persistence-core": "^0.2.8",
     "@tanstack/react-db": "^0.1.94",

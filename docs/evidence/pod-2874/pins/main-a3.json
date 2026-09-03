@@ -1,0 +1,34 @@
+{
+  "cell": "A3",
+  "at": "2026-08-26T13:31:44.234Z",
+  "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2856-run-every-test-rig-as-a-named-instance",
+  "checkoutSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "serverSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "daemonSha": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "web": {
+    "wireSchemaDigest": "833769293edf5a27",
+    "wireVersion": 2,
+    "builtAt": "2026-08-26T13:23:49.204Z",
+    "appVersion": "dev+0bd9009",
+    "sourceSha": "0bd9009",
+    "bundleVersion": "bundle+4at1Mnjp"
+  },
+  "serverPid": "2686551",
+  "daemonPid": "2691736",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2856-run-every-test-rig-as-a-named-instance",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2856-run-every-test-rig-as-a-named-instance",
+  "freeMemory": {
+    "MemTotal": "12242288 kB",
+    "MemAvailable": "4257580 kB",
+    "SwapFree": "36170760 kB"
+  },
+  "forbiddenOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "TMUX_TMPDIR": null,
+    "PODIUM_WEB_DIR": null
+  }
+}
