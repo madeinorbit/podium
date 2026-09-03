@@ -14,7 +14,8 @@
  * `TURSO_SPIKE_TOKEN`); nothing here reads or prints a token.
  */
 
-import type { DriverSession } from '../../executor/driver'
+import type { DriverSession, Statement } from '../../executor/driver'
+import { createScheduler, type WatchdogReport } from '../../executor/scheduler'
 import { startLocalServer } from './backend'
 import { normalizeTursoUrl, remoteBackend } from './client'
 import { openSlice, type Slice, upsertRows } from './fixture'
@@ -560,6 +561,94 @@ async function proofBudgetIsIdleNotTotal(config: Parameters<typeof openSlice>[0]
   }
 }
 
+/**
+ * PROOF 11 — the PORT'S WATCHDOG over proof 9's two arms [POD-3345].
+ *
+ * Proof 9 measures the ENGINE. This measures what the port built on top of it,
+ * against the same two shapes and on the same database, because the watchdog
+ * was written from the spec's prose rather than from this measurement and got
+ * the quantity wrong: it timed from BEGIN, so it would have reported arm A —
+ * which commits — and could not have told arm B's silence from arm A's chatter.
+ *
+ * The budget sits deliberately below the engine's, which is the whole point of
+ * a watchdog: it must speak BEFORE the server reaps the stream. So the result to
+ * read is the pair — silence on the arm that commits, exactly one report on the
+ * arm that dies, raised while the transaction is still alive.
+ */
+async function proofWatchdogSeesTheGap(config: Parameters<typeof openSlice>[0]): Promise<void> {
+  console.log('\nPROOF 11 — does the port’s watchdog report the gap or the duration?')
+  const budgetMs = 5_000
+  const slice = await openSlice(config)
+  const bump: Statement = {
+    sql: "INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ('issue','busy','upsert','{}',1)",
+    params: [],
+    method: 'run',
+    intent: 'write',
+  }
+  const idle = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms)
+    })
+
+  /** Run one arm through the scheduler and report what the watchdog said. */
+  async function arm(
+    label: string,
+    body: (lease: { begin(lane: 'write'): Promise<void>; session: DriverSession }) => Promise<void>,
+  ): Promise<void> {
+    const reports: WatchdogReport[] = []
+    // NOT closed: `scheduler.close()` closes the driver, and the second arm
+    // needs it. The slice's own `close` returns it at the end.
+    const scheduler = createScheduler({
+      driver: slice.driver,
+      watchdog: { budgetMs, report: (report) => reports.push(report) },
+    })
+    const startedAt = performance.now()
+    let outcome: string
+    try {
+      await scheduler.run('write', body)
+      outcome = `COMMITTED after ${((performance.now() - startedAt) / 1000).toFixed(1)} s`
+    } catch (error) {
+      outcome = `FAILED after ${((performance.now() - startedAt) / 1000).toFixed(1)} s: ${
+        error instanceof Error ? error.message.slice(0, 130) : String(error)
+      }`
+    }
+    line(label, outcome)
+    const first = reports[0]
+    line(
+      `  watchdog reports (budget ${budgetMs / 1000} s)`,
+      first
+        ? `${reports.length} — first at idle ${(first.idleMs / 1000).toFixed(1)} s, lease held ${(first.heldMs / 1000).toFixed(1)} s`
+        : '0',
+    )
+  }
+
+  try {
+    // ARM A — 20 s of wall clock, never quiet for more than 2 s. The engine
+    // commits it, so the watchdog must not have a word to say about it.
+    await arm('20 s transaction, statement every 2 s', async (lease) => {
+      await lease.begin('write')
+      for (let i = 0; i < 10; i++) {
+        await lease.session.execute(bump)
+        await idle(2_000)
+      }
+      await lease.session.commit()
+    })
+
+    // ARM B — one statement then a 12 s gap. The engine reaps it, and the
+    // watchdog must say so at its own budget, well before that happens.
+    await arm('12 s transaction, one statement then a gap', async (lease) => {
+      await lease.begin('write')
+      await lease.session.execute(bump)
+      await idle(12_000)
+      await lease.session.commit()
+    })
+
+    line('=> the watchdog follows the engine, not the clock', true)
+  } finally {
+    await slice.close()
+  }
+}
+
 async function runAll(name: string, config: Parameters<typeof openSlice>[0]): Promise<void> {
   console.log(
     `\n${'='.repeat(72)}\nBACKEND: ${name}  (${normalizeTursoUrl(config.url)})\n${'='.repeat(72)}`,
@@ -577,6 +666,7 @@ async function runAll(name: string, config: Parameters<typeof openSlice>[0]): Pr
   await proofWriterContention(config)
   await proofNestedRollbackReusesSeq(config)
   await proofBudgetIsIdleNotTotal(config)
+  await proofWatchdogSeesTheGap(config)
   await proofRoundTrips(config)
 }
 

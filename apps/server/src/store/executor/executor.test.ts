@@ -39,7 +39,7 @@ import {
   openHarness,
   settle,
 } from './harness'
-import { createScheduler } from './scheduler'
+import { createScheduler, type WatchdogReport } from './scheduler'
 
 let harness: Harness | undefined
 
@@ -1731,7 +1731,51 @@ describe('frames per burst', () => {
   })
 })
 
+/**
+ * THE WATCHDOG MEASURES A GAP, NOT A DURATION [POD-3345].
+ *
+ * The engine's write budget bounds how long an open write transaction may go
+ * QUIET, not how long it may live: measured on Turso (POD-3250 proof 9), a
+ * 21.6 s transaction issuing a statement every 2 s committed, while a 12.2 s one
+ * with a single idle gap was reaped with "the stream was idle for too long".
+ *
+ * A watchdog timed from `begin` is therefore wrong in both directions, and these
+ * tests name both: it REPORTS the chatty body the engine is happy with, and it
+ * CANNOT SEE where the silence that kills actually starts. Every test below
+ * fails against a clock started at open — the first and third by reporting when
+ * nothing is wrong, the fourth by finding only one report where the lease fell
+ * silent twice.
+ *
+ * The timings are deliberately loose: a gap is asserted against a budget an
+ * order of magnitude smaller than the silence that must trip it, and the chatty
+ * arm's gaps are an order of magnitude smaller than the budget they must not.
+ */
 describe('the watchdog', () => {
+  const remoteLimits = { writeBudgetMs: 9_000, busyRetry: NO_BUSY_RETRY }
+  const statement: Statement = {
+    sql: 'INSERT INTO notes (body) VALUES (?)',
+    params: ['chatty'],
+    method: 'run',
+    intent: 'write',
+  }
+  const delay = (ms: number): Promise<void> =>
+    new Promise((resolve) => {
+      setTimeout(resolve, ms)
+    })
+
+  /** A scheduler over the async fake, with its reports collected. */
+  function watched(
+    budgetMs: number,
+    hooks?: NonNullable<Parameters<typeof asyncFakeDriver>[0]>['hooks'],
+  ): { scheduler: ReturnType<typeof createScheduler>; reports: WatchdogReport[] } {
+    const reports: WatchdogReport[] = []
+    const scheduler = createScheduler({
+      driver: asyncFakeDriver({ limits: remoteLimits, ...(hooks ? { hooks } : {}) }),
+      watchdog: { budgetMs, report: (report) => reports.push(report) },
+    })
+    return { scheduler, reports }
+  }
+
   it('reports a body holding its connection past the budget, through the injected sink', async () => {
     const reports: { lane: string; budgetMs: number }[] = []
     let announce: () => void = () => undefined
@@ -1756,6 +1800,105 @@ describe('the watchdog', () => {
     })
 
     expect(reports).toEqual([{ lane: 'write', budgetMs: 1 }])
+  })
+
+  it('says nothing about a chatty body that holds the lease far past the budget', async () => {
+    // WOULD CATCH: the clock started at BEGIN. This body holds its lease for
+    // well over the budget and is never quiet for a fraction of it — the shape
+    // of POD-3250's 250-row append, which ran 27.8 s of continuous statements
+    // and committed. A duration watchdog reports it every time.
+    const { scheduler, reports } = watched(250)
+
+    await scheduler.run('write', async (lease) => {
+      for (let i = 0; i < 15; i++) {
+        await delay(20)
+        await lease.session.execute(statement)
+      }
+      expect(lease.heldMs()).toBeGreaterThan(250)
+    })
+
+    expect(reports).toEqual([])
+    await scheduler.close()
+  })
+
+  it('reports the silence itself, once, and dates it from the last statement', async () => {
+    const { scheduler, reports } = watched(60)
+
+    await scheduler.run('write', async (lease) => {
+      await lease.session.execute(statement)
+      // ONE silence, several budgets long. One event, not one per budget.
+      await delay(400)
+    })
+
+    expect(reports).toHaveLength(1)
+    const [report] = reports as [WatchdogReport]
+    expect(report.lane).toBe('write')
+    expect(report.budgetMs).toBe(60)
+    // The gap is what tripped it, and the lease had been open longer than the
+    // gap — which is exactly the pair a duration clock cannot tell apart.
+    expect(report.idleMs).toBeGreaterThanOrEqual(60)
+    expect(report.heldMs).toBeGreaterThanOrEqual(report.idleMs)
+    await scheduler.close()
+  })
+
+  it('does not call a statement that is still in flight a silence', async () => {
+    // WOULD CATCH: a clock stamped only when a call is ISSUED. The stream is not
+    // quiet while the driver has not answered, so a slow statement is not a
+    // stall — and reporting it is the false positive that makes the watchdog
+    // noise rather than a signal.
+    const parked = barrier()
+    const { scheduler, reports } = watched(60, { execute: () => parked.wait() })
+
+    const running = scheduler.run('write', (lease) => lease.session.execute(statement))
+    await parked.reached()
+    await delay(400)
+    expect(reports).toEqual([])
+
+    parked.release()
+    await running
+    await scheduler.close()
+  })
+
+  it('re-arms on activity, so a second silence is a second report', async () => {
+    // WOULD CATCH: a clock that fires once per lease. A transaction can recover
+    // from one stall and fall into another, and the second is as fatal as the
+    // first — a one-shot timer set at BEGIN cannot see it at all.
+    const { scheduler, reports } = watched(60)
+
+    await scheduler.run('write', async (lease) => {
+      await delay(300)
+      await lease.session.execute(statement)
+      await delay(300)
+    })
+
+    expect(reports).toHaveLength(2)
+    await scheduler.close()
+  })
+
+  it('exposes the gap clock on the lease, and holds it at zero mid-statement', async () => {
+    const parked = barrier()
+    const driver = asyncFakeDriver({
+      limits: remoteLimits,
+      hooks: { execute: () => parked.wait() },
+    })
+    const scheduler = createScheduler({ driver })
+
+    const clocks = await scheduler.run('write', async (lease) => {
+      const issued = lease.session.execute(statement)
+      await parked.reached()
+      await delay(50)
+      // Fifty ms into a statement the driver has not answered: the stream is
+      // busy, not quiet, so the gap clock has not started.
+      const duringStatement = lease.idleMs()
+      parked.release()
+      await issued
+      await delay(50)
+      return { duringStatement, afterStatement: lease.idleMs() }
+    })
+
+    expect(clocks.duringStatement).toBe(0)
+    expect(clocks.afterStatement).toBeGreaterThanOrEqual(50)
+    await scheduler.close()
   })
 })
 

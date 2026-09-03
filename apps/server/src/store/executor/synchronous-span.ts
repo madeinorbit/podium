@@ -73,6 +73,7 @@ const SYNCHRONOUS_LEASE: Lease = {
     throw new Error('the synchronous span bridge does not run atomic writes (POD-3260).')
   },
   heldMs: () => 0,
+  idleMs: () => 0,
 }
 
 /** Where a mechanism's failure is reported. Replaceable for tests. */

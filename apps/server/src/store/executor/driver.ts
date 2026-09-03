@@ -132,11 +132,20 @@ export interface BusyRetryPolicy {
 /**
  * What the driver's ENGINE imposes, declared instead of assumed by the caller.
  *
- * `writeBudgetMs` is the wall-clock a write transaction may be held before the
- * server ends it. Measured at about 9 s on Turso (POD-3251, alive at an 8 s gap
- * and dead at 10), which is why the watchdog budget has to sit below it rather
- * than being an independently chosen number: a watchdog above the hard limit
- * reports a transaction the server has already killed.
+ * `writeBudgetMs` bounds THE GAP BETWEEN STATEMENTS on an open write
+ * transaction — how long the stream may go quiet before the server reaps it —
+ * and NOT the transaction's total duration. The distinction is measured, not
+ * stylistic (POD-3250 proof 9, POD-3345): on Turso a 21.6 s transaction issuing
+ * a statement every 2 s COMMITTED, a 12.2 s one with a single idle gap was
+ * reaped with `SQLITE_BUSY: … the stream was idle for too long`, and a 27.8 s
+ * append of continuous statements committed. Measured at about 9 s (POD-3251,
+ * alive at an 8 s gap and dead at 10).
+ *
+ * A watchdog budget therefore has to sit below it rather than being an
+ * independently chosen number, and has to measure the SAME quantity — time
+ * since the lease's last statement, never time since `begin`. One measuring
+ * duration would report the chatty transactions the server is happy with and
+ * miss the silences that kill them.
  */
 export interface DriverLimits {
   readonly writeBudgetMs: number

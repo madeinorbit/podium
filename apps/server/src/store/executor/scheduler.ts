@@ -56,13 +56,34 @@ export interface Lease {
    * failure — is fatal and is never retried.
    */
   atomicWrite<T>(attempt: () => Promise<T>): Promise<T>
-  /** Wall time this lease has held its connection, ms. */
+  /**
+   * Wall time this lease has held its connection, ms.
+   *
+   * DIAGNOSTIC ONLY. No engine budget bounds it, so nothing may be compared
+   * against one — the quantity that is bounded is {@link Lease.idleMs}.
+   */
   heldMs(): number
+  /**
+   * Ms since the last driver call on this lease settled; 0 while one is in
+   * flight. THIS is the quantity the driver's declared `writeBudgetMs` bounds —
+   * see {@link leaseActivity} for the measurement behind that (POD-3345).
+   */
+  idleMs(): number
 }
 
 export interface WatchdogReport {
   readonly leaseId: number
   readonly lane: Lane
+  /**
+   * The gap that tripped the budget: ms since the lease's last driver call
+   * settled. This is the number to read — it is the one the engine acts on.
+   */
+  readonly idleMs: number
+  /**
+   * How long the lease has been open, for context. A LARGE VALUE HERE IS NOT A
+   * PROBLEM on its own: a chatty transaction may outlive the write budget many
+   * times over and still commit (POD-3250 proof 9).
+   */
   readonly heldMs: number
   readonly budgetMs: number
 }
@@ -70,13 +91,16 @@ export interface WatchdogReport {
 export interface SchedulerOptions {
   driver: StoreDriver<unknown>
   /**
-   * Reports a body that has held its connection past its budget. Injectable
-   * because the useful sink differs by caller: the server logs it, the tests
-   * collect it, and on Turso the budget has to sit below the platform's own
-   * interactive-transaction timeout — the driver's own declared
-   * `limits.writeBudgetMs`, measured at about 9 s (POD-3251, spec §6 rule 7),
-   * which the constructor below checks against rather than any number written
-   * here.
+   * Reports a lease that has gone QUIET past its budget — `budgetMs` with no
+   * driver call settling and none in flight. It is a gap, not a duration: see
+   * {@link leaseActivity} for why, and {@link Lease.idleMs} for the clock.
+   *
+   * Injectable because the useful sink differs by caller: the server logs it,
+   * the tests collect it, and on Turso the budget has to sit below the
+   * platform's own idle-stream timeout — the driver's own declared
+   * `limits.writeBudgetMs`, measured at about 9 s (POD-3250/POD-3251, spec §6
+   * rule 7), which the constructor below checks against rather than any number
+   * written here.
    */
   watchdog?: { budgetMs: number; report: (report: WatchdogReport) => void }
   now?: () => number
@@ -127,29 +151,138 @@ const defaultSleep = (ms: number): Promise<void> =>
     timer.unref?.()
   })
 
+/**
+ * A lease's ACTIVITY CLOCK, and the watchdog timer that reads it [POD-3345].
+ *
+ * THE ENGINE'S WRITE BUDGET BOUNDS THE GAP BETWEEN STATEMENTS, NOT THE
+ * TRANSACTION'S DURATION. Measured on Turso (POD-3250 proof 9, kept in
+ * `store/spike/turso-append/run-proofs.ts`): a 21.6 s transaction issuing a
+ * statement every 2 s COMMITTED, while a 12.2 s one with a single idle gap was
+ * reaped with `SQLITE_BUSY: … the stream was idle for too long`; the proof's own
+ * 250-row append ran 27.8 s of continuous statements and committed.
+ *
+ * A clock started at BEGIN is therefore wrong in both directions: it reports the
+ * chatty append the engine is perfectly happy with, and it cannot see the gap
+ * that actually kills — it only ever fires at one moment, whenever that gap
+ * happens to start. So the clock restarts at every driver call, which means the
+ * lease has to OBSERVE the session rather than merely hand it out.
+ *
+ * A CALL IN FLIGHT IS NOT IDLE. The stream is busy for as long as the driver has
+ * not answered, so the timer is disarmed for the duration of every call and
+ * `idleMs` reads 0. Without that, one slow statement would look exactly like the
+ * silence that kills.
+ *
+ * ONE REPORT PER GAP. Firing does not re-arm; the next call's completion does.
+ * A stall that lasts a minute is one event, not sixty.
+ */
+function leaseActivity(
+  session: DriverSession,
+  now: () => number,
+): {
+  /** The session to give the lease: every call through it stamps the clock. */
+  readonly session: DriverSession
+  idleMs(): number
+  /** Arm the gap timer. Returns the stop the lease's `finally` owes it. */
+  watch(budgetMs: number, onGap: () => void): () => void
+} {
+  let inFlight = 0
+  let lastSettledAt = now()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let budgetMs: number | undefined
+  let onGap: (() => void) | undefined
+  let stopped = false
+
+  function disarm(): void {
+    if (!timer) return
+    clearTimeout(timer)
+    timer = undefined
+  }
+
+  function arm(): void {
+    if (stopped || budgetMs === undefined || timer) return
+    // `unref` so a forgotten timer can never hold a process open — the watchdog
+    // is a report, never a deadline.
+    timer = setTimeout(() => {
+      timer = undefined
+      onGap?.()
+    }, budgetMs)
+    timer.unref?.()
+  }
+
+  async function track<T>(call: () => Promise<T>): Promise<T> {
+    inFlight++
+    disarm()
+    try {
+      return await call()
+    } finally {
+      inFlight--
+      lastSettledAt = now()
+      // A REJECTION IS ACTIVITY TOO: the statement reached the engine, so the
+      // stream was not quiet, and the next gap is measured from here.
+      if (inFlight === 0) arm()
+    }
+  }
+
+  return {
+    session: {
+      execute: (statement) => track(() => session.execute(statement)),
+      executeBatch: (statements) => track(() => session.executeBatch(statements)),
+      begin: (lane) => track(() => session.begin(lane)),
+      commit: () => track(() => session.commit()),
+      rollback: () => track(() => session.rollback()),
+      enterSavepoint: (name) => track(() => session.enterSavepoint(name)),
+      releaseSavepoint: (name) => track(() => session.releaseSavepoint(name)),
+      rollbackToSavepoint: (name) => track(() => session.rollbackToSavepoint(name)),
+      // NOT TRACKED, deliberately: the scheduler closes the connection after the
+      // body has ended and the watch is already stopped, so stamping the clock
+      // here could only arm a timer nobody will ever read.
+      close: () => session.close(),
+    },
+    idleMs: () => (inFlight > 0 ? 0 : now() - lastSettledAt),
+    watch(budget, gap) {
+      budgetMs = budget
+      onGap = gap
+      // Armed from the moment the connection is open: a lease that opens and
+      // then issues nothing is exactly the silence the engine reaps.
+      arm()
+      return () => {
+        stopped = true
+        disarm()
+      }
+    },
+  }
+}
+
 export function createScheduler(options: SchedulerOptions): Scheduler {
   const { driver } = options
   const now = options.now ?? (() => Date.now())
   const sleep = options.sleep ?? defaultSleep
   const limits = driver.limits
   /**
-   * The watchdog reports a body that has held its connection too long, so a
-   * budget at or above the engine's own hard limit reports a transaction the
-   * server has already killed — it can never fire first. This is a
-   * misconfiguration, and the constructor is where it is cheap to find.
+   * BOTH NUMBERS BOUND THE SAME QUANTITY — the gap between statements — which
+   * is what makes comparing them meaningful (POD-3345; before that the guard
+   * compared a duration against a gap and so gave false confidence). A watchdog
+   * whose gap budget is at or above the engine's can only fire after the engine
+   * has already reaped the stream, so it reports a transaction that is already
+   * dead. That is a misconfiguration, and the constructor is where it is cheap
+   * to find.
    */
   if (options.watchdog && options.watchdog.budgetMs >= limits.writeBudgetMs) {
     throw new Error(
       `watchdog budget ${options.watchdog.budgetMs}ms is not below driver ${driver.kind}'s ` +
-        `write budget of ${limits.writeBudgetMs}ms: the engine would end the transaction ` +
-        'before the watchdog could report it',
+        `write budget of ${limits.writeBudgetMs}ms: both bound the gap between statements, so ` +
+        'the engine would reap the stream before the watchdog could report it',
     )
   }
 
   /**
    * A bounded retry for an ACQUISITION only. It stops on the attempt count, on
-   * a non-busy failure, and on the driver's own write budget: waiting longer
-   * than the transaction could have lived buys nothing.
+   * a non-busy failure, and on the driver's own write budget, which is the cap
+   * this policy is declared against: a caller kept waiting for longer than the
+   * engine tolerates a quiet stream is no longer retrying contention, it is
+   * hanging. (The budget is a GAP, not a transaction's lifetime — POD-3345 —
+   * so it is a declared ceiling here, never a claim about how long the holder
+   * can live.)
    */
   async function withBusyRetry<T>(attempt: () => Promise<T>): Promise<T> {
     const policy: BusyRetryPolicy = limits.busyRetry
@@ -265,34 +398,36 @@ export function createScheduler(options: SchedulerOptions): Scheduler {
     const acquireAndRun = async (): Promise<LeaseOutcome<T>> => {
       try {
         session = await withBusyRetry(() => driver.open(lane))
-        const held = session
         const startedAt = now()
+        // OBSERVED, not merely held: the gap clock the watchdog reads only
+        // exists because every call the body makes goes through this wrapper.
+        const activity = leaseActivity(session, now)
+        const observed = activity.session
         const lease: Lease = {
           id: nextLeaseId++,
           lane,
-          session,
-          begin: (beginLane: Lane) => withBusyRetry(() => held.begin(beginLane)),
+          session: observed,
+          begin: (beginLane: Lane) => withBusyRetry(() => observed.begin(beginLane)),
           atomicWrite: (attempt) => withBusyRetry(attempt),
           heldMs: () => now() - startedAt,
+          idleMs: () => activity.idleMs(),
         }
         const watchdog = options.watchdog
-        // `unref` so a forgotten timer can never hold a process open — the
-        // watchdog is a report, never a deadline.
-        const timer = watchdog
-          ? setTimeout(() => {
+        const stopWatch = watchdog
+          ? activity.watch(watchdog.budgetMs, () => {
               watchdog.report({
                 leaseId: lease.id,
                 lane,
+                idleMs: lease.idleMs(),
                 heldMs: lease.heldMs(),
                 budgetMs: watchdog.budgetMs,
               })
-            }, watchdog.budgetMs)
+            })
           : undefined
-        timer?.unref?.()
         try {
           return { ok: true, value: await body(lease) }
         } finally {
-          if (timer) clearTimeout(timer)
+          stopWatch?.()
         }
       } catch (error) {
         return { ok: false, error }

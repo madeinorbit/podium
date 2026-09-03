@@ -405,7 +405,11 @@ export function createStoreExecutor<TClient>(
       // Nothing to acquire and nothing to serialise against: a read on the
       // reader connection has no write lock to be busy for.
       atomicWrite: (attempt) => attempt(),
+      // No scheduler slot means no watchdog watches this lease, so both clocks
+      // are reported as the constant they are rather than as a measurement
+      // nothing reads.
       heldMs: () => 0,
+      idleMs: () => 0,
     }
   }
 
