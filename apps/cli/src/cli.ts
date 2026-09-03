@@ -211,6 +211,9 @@ export type LaunchPlan =
       takeover: boolean
     }
   | { kind: 'repair-config' }
+  /** `podium install-finish`: everything install.sh hands off after the verified binary is
+   *  on disk. Not in `podium help` — install.sh is the only caller [POD-3274]. */
+  | { kind: 'install-finish'; argv: string[] }
   | {
       kind: 'join-setup'
       token: string
@@ -682,6 +685,9 @@ export function resolvePlan(
       config.mode !== 'daemon' && config.mode !== 'supervisor' && config.mode !== 'client'
     return { kind: 'parent', port, includeDaemon, includeServer, takeover }
   }
+  // `podium install-finish`: the post-handoff installer flow [POD-3274]. Parsed here so a
+  // malformed handoff is a usage error rather than a half-configured box.
+  if (argv[0] === 'install-finish') return { kind: 'install-finish', argv: argv.slice(1) }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
   if (argv[0] === 'setup' && argv.includes('--repair')) return { kind: 'repair-config' }
   // `podium setup --join <token> [--persist systemd|detached]`: NON-interactive join
@@ -1872,6 +1878,23 @@ export async function main(
         console.log(`Backed up the invalid config to ${r.backupPath}`)
         if (r.error) console.log(`(it failed to parse: ${r.error})`)
         console.log('Run `podium setup` to configure this box fresh.')
+      }
+      return
+    }
+    case 'install-finish': {
+      const { parseInstallFinishArgs, runInstallFinish } = await import('./install-finish')
+      const parsed = parseInstallFinishArgs(plan.argv, process.env)
+      if ('error' in parsed) {
+        console.error(parsed.error)
+        process.exit(2)
+      }
+      const { clackIO } = await import('./setup-ui')
+      try {
+        await runInstallFinish(clackIO(), parsed)
+      } catch (e) {
+        // install.sh reports a non-zero exit as a failed install, which is what this is.
+        console.error(`podium install-finish failed: ${(e as Error).message}`)
+        process.exit(1)
       }
       return
     }

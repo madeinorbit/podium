@@ -100,6 +100,21 @@ function plan(
   return resolvePlan(config, argv, env, tty)
 }
 
+describe('podium install-finish (the installer handoff) [POD-3274]', () => {
+  it('routes to its own plan, carrying the flags through untouched', () => {
+    const argv = ['install-finish', '--dest', '/d', '--bin', '/b', '--command', 'podium']
+    expect(plan({}, argv)).toEqual({ kind: 'install-finish', argv: argv.slice(1) })
+  })
+
+  it('routes even on a fresh box with no config, where setup would otherwise claim it', () => {
+    // A fresh install IS the case this runs in, so a first-run setup branch must not win.
+    expect(
+      plan({}, ['install-finish', '--dest', '/d', '--bin', '/b', '--command', 'podium'], {}, true)
+        .kind,
+    ).toBe('install-finish')
+  })
+})
+
 describe('ordinary local setup inference', () => {
   it('accepts source and desktop launchers only on a loopback bind', () => {
     expect(shouldInferLocalSetupDefault({ localSetupDefault: true }, {})).toBe(true)

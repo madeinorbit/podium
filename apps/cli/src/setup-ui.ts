@@ -145,6 +145,10 @@ export interface ScriptedIO {
   prompts: string[]
   /** Both, interleaved in the order they happened, for assertions about ordering. */
   transcript: string[]
+  /** ONLY what went through `command()`, one entry per command line. R9 is the rule that
+   *  every command an operator is expected to copy arrives this way, and this is how a test
+   *  tells a boxed command apart from one merely mentioned in prose. */
+  commands: string[]
 }
 
 export function scriptedIO(answers: unknown[]): ScriptedIO {
@@ -152,6 +156,7 @@ export function scriptedIO(answers: unknown[]): ScriptedIO {
   const output: string[] = []
   const prompts: string[] = []
   const transcript: string[] = []
+  const commands: string[] = []
   const ask = (message: string, labels: string[] = []) => {
     for (const line of [message, ...labels]) {
       prompts.push(line)
@@ -181,7 +186,10 @@ export function scriptedIO(answers: unknown[]): ScriptedIO {
       intro: say,
       outro: say,
       note: (body, title) => say(title ? `${title}\n${body}` : body),
-      command: (command, caption) => say(caption ? `${caption}\n${command}` : command),
+      command: (command, caption) => {
+        commands.push(...command.split('\n').filter((l) => l.trim() !== ''))
+        say(caption ? `${caption}\n${command}` : command)
+      },
       step: say,
       success: say,
       warn: say,
@@ -222,5 +230,6 @@ export function scriptedIO(answers: unknown[]): ScriptedIO {
     output,
     prompts,
     transcript,
+    commands,
   }
 }
