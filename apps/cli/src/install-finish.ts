@@ -19,6 +19,7 @@ import {
   runVpsSetup as realRunVpsSetup,
   type StartBackendResult,
 } from './cli-setup'
+import { installAgents as realInstallAgents } from './install-agents'
 import { pathHint as realPathHint, persistPath as realPersistPath } from './install-path'
 import {
   probeSupervision as realProbeSupervision,
@@ -187,10 +188,6 @@ export async function runInstallFinish(
     if (supervision.fix) io.step(supervision.fix)
   }
 
-  if (opts.agents.length > 0) {
-    await (deps.installAgents ?? (async () => []))(io, opts.agents, opts.bin)
-  }
-
   const persistence = supervision.systemd ? 'systemd' : 'detached'
   let joined: string | undefined
   if (opts.joinToken) {
@@ -214,6 +211,13 @@ export async function runInstallFinish(
     // gets a configured Podium instead of an install followed by a second command.
     if (opts.vps) await runVpsSetup(io, port)
     else await runCliSetup(io, port)
+  }
+
+  // AFTER pairing, deliberately (install.sh:430-441). A one-use join code is short-lived, and
+  // downloading three vendor CLIs onto a bare machine is slow enough to expire one. Pairing
+  // first also lets the daemon copy credentials and publish inventory while these install.
+  if (opts.agents.length > 0) {
+    await (deps.installAgents ?? realInstallAgents)(io, opts.agents, opts.bin)
   }
 
   report(io, opts, { joined, persisted, supervision, pathOf: deps.pathOf })

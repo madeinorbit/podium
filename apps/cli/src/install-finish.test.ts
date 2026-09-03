@@ -235,6 +235,43 @@ describe('runInstallFinish', () => {
     expect(d2.installAgents).toHaveBeenCalledWith(io2, ['codex'], join(dir, 'bin'))
   })
 
+  it('pairs BEFORE installing agents, so a slow download cannot expire the code', async () => {
+    // install.sh:430-441 ordered these deliberately: a one-use join code is short-lived, and
+    // fetching three vendor CLIs onto a bare machine is slow enough to outlast one.
+    const order: string[] = []
+    const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1' })
+    const d = deps({
+      runJoinSetup: vi.fn(async () => {
+        order.push('join')
+        return {
+          name: 'box',
+          result: { effectivePersistence: 'systemd' as const, message: '' },
+        }
+      }),
+      installAgents: vi.fn(async () => {
+        order.push('agents')
+        return []
+      }),
+    })
+    const { io } = scriptedIO([])
+    await runInstallFinish(io, opts({ joinToken: token, agents: ['codex'] }), d)
+    expect(order).toEqual(['join', 'agents'])
+  })
+
+  it('does not install agents when the join failed — there is nothing to install them for', async () => {
+    const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'P1' })
+    const d = deps({
+      runJoinSetup: vi.fn(async () => {
+        throw new Error('pairing code already used')
+      }),
+    })
+    const { io } = scriptedIO([])
+    await expect(
+      runInstallFinish(io, opts({ joinToken: token, agents: ['codex'] }), d),
+    ).rejects.toThrow()
+    expect(d.installAgents).not.toHaveBeenCalled()
+  })
+
   it('says what supervision the host will actually get, when it is not systemd', async () => {
     const d = deps({
       probeSupervision: vi.fn(() => ({
