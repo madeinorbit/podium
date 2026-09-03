@@ -36,13 +36,13 @@ import { stateDir } from '@podium/runtime/config'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
-  headlessChildEnv,
   type HeadlessEmit,
-  headlessSpawnEnv,
   HeadlessTurnError,
   type HeadlessTurnHandle,
   type HeadlessTurnOutcome,
   type HeadlessTurnSpec,
+  headlessChildEnv,
+  headlessSpawnEnv,
 } from './headless-drivers.js'
 import { createPiStreamReducer } from './pi-stream.js'
 
@@ -722,7 +722,10 @@ export function runDurableHeadlessTurn(
       collect()
       if (settled || disposed) return
       if (await abducoHasSession(label)) {
-        attachment = attachAbducoAgent({ label, cols: 120, rows: 40 })
+        // Reattaching to a harness that is already running: 120x40 is this
+        // path's spawn default, not a measurement of anything, so it must not be
+        // pushed onto the live process [spec:SP-6144].
+        attachment = attachAbducoAgent({ label, cols: 120, rows: 40, sizeNeutral: true })
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
         // first collect() and the socket check.

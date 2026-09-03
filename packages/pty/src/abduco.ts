@@ -1233,7 +1233,11 @@ export function attachAbducoAgent(opts: {
     session.redraw()
   })
   session = withHardRepaint(
-    wrapPty(filtered, { cols: opts.cols, rows: opts.rows }),
+    wrapPty(filtered, {
+      cols: opts.cols,
+      rows: opts.rows,
+      sizeNeutral: attach.sizeNeutral,
+    }),
     opts.hardRepaint ?? false,
   )
   if (opts.repaintOnAttach ?? true) session.redraw()

@@ -1,8 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-runtime'
 import type { RefusalReason, SessionSpec } from '@podium/agent-runtime'
+import { attachKindsForDriver, configureFieldsForDriver } from '@podium/agent-runtime'
 import {
   agentStateProviderFor,
   bindHarnessLaunch,
@@ -13,7 +13,6 @@ import {
   manifestFor,
 } from '@podium/harness'
 import { createLogger } from '@podium/logger'
-import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   type AgentKind,
   type AgentRuntimeState,
@@ -21,6 +20,7 @@ import {
   type Geometry,
   type SessionId,
 } from '@podium/model'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   type AgentSession,
   abducoHasSession,
@@ -1909,7 +1909,8 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
     // A reattached shell sits idle at its prompt and ignores the SIGWINCH repaint
     // nudge, so without a Ctrl-L it shows blank until the user types. TUIs repaint
-    // on resize, so only shells take the hard path.
+    // on resize, so only shells take the hard path (the abduco attach below is
+    // size-neutral and repaints every kind with Ctrl-L; tmux still needs this).
     const attach = {
       label: msg.durableLabel,
       cols: msg.geometry.cols,
@@ -1934,7 +1935,12 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     if (socketPath) {
       found = {
-        session: attachAbducoAgent({ ...attach, socketPath }),
+        // The agent has been running all along at a size of its own, and
+        // `msg.geometry` is only what the server last KNEW — after a daemon
+        // restart it can be stale. A reattach is not a viewer asking for a size,
+        // so it neither resizes nor signals the agent; the first viewport request
+        // after reconnect is what moves it [spec:SP-6144].
+        session: attachAbducoAgent({ ...attach, socketPath, sizeNeutral: true }),
         cmd: `abduco -a ${socketPath}`,
       }
     } else if (ctx.backend !== 'none' && (await tmuxHasSession(msg.durableLabel))) {

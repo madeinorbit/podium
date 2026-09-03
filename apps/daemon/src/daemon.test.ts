@@ -24,8 +24,8 @@ import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@pod
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import {
   type DaemonMessage,
-  encodeDaemonMessage as protocolEncode,
   parseDaemonMessage,
+  encodeDaemonMessage as protocolEncode,
 } from '@podium/protocol/daemon'
 import {
   abducoHasSession,
@@ -40,6 +40,8 @@ import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
+import type { DaemonContext } from './control/context'
+import { launchServerDriverSession, sessionHandlers } from './control/session'
 import {
   controlFrameByteLength,
   createLimiter,
@@ -50,18 +52,16 @@ import {
   resolveDurableBackend,
   startDaemon,
 } from './daemon'
-import type { DaemonContext } from './control/context'
-import { launchServerDriverSession, sessionHandlers } from './control/session'
-import { runtimeHandlers } from './runtime/handlers'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
 import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
 } from './runtime/codex-app-server'
 import { createDaemonCodexRuntime } from './runtime/codex-driver'
-import { createDaemonMachineRuntime } from './runtime/machine-runtime'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
 import { createDaemonGrokRuntime } from './runtime/grok-driver'
+import { runtimeHandlers } from './runtime/handlers'
+import { createDaemonMachineRuntime } from './runtime/machine-runtime'
 import { createVersionProbeCache } from './runtime/version-probe'
 import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
@@ -1895,6 +1895,113 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
+
+  it('a FRESH daemon reattaching at a stale geometry leaves the running agent where it is', async () => {
+    // A daemon that restarts comes back believing whatever the server last
+    // recorded. That belief is not an observation of the agent, and abduco's
+    // attach used to make it one: the client announced its size on connect and
+    // the master signalled the program on every packet, so a reconnect resized a
+    // running agent to a number nobody asked for [spec:SP-6144]. The attach is
+    // size-neutral now — and the resize control, a viewer actually asking, still
+    // moves it.
+    //
+    // The daemon MUST be a new one: a reattach while the old daemon still holds
+    // the bridge returns early and never attaches at all.
+    const sessionId = asSessionId(`ab-reattach-size-${process.pid}`)
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const nextConnection = (): Promise<void> =>
+      new Promise<void>((r) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          handshakeAndCollect(ws, received)
+          r()
+        })
+      })
+
+    const daemonOpts = {
+      serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
+      agentRelay: { port: 0 },
+      backend: 'abduco' as const,
+      discovery: { background: false, cachePath: ':memory:' },
+      launch: (_kind: unknown, opts: { cwd: string }) => ({
+        cmd: process.execPath,
+        args: [FIXTURE],
+        cwd: opts.cwd,
+      }),
+    }
+
+    const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+    const painted = (): string =>
+      received
+        .filter(
+          (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+            m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+        )
+        .flatMap((m) => m.frames.map((f) => decode(f)))
+        .join('')
+
+    // The SAME hooks settings dir for both daemons: a restart in production keeps
+    // its state, and the abduco socket lookup is scoped by it.
+    const settingsDir = trackTmp('podium-hooks-')
+    let connected = nextConnection()
+    const first = await startDaemon({ ...daemonOpts, hooks: { port: 0, settingsDir } })
+    await connected
+    let second: Awaited<ReturnType<typeof startDaemon>> | undefined
+    try {
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+
+      // The daemon dies; the agent keeps running in its own abduco master.
+      await first.close()
+      expect(await abducoHasSession(label)).toBe(true)
+
+      received.length = 0
+      connected = nextConnection()
+      second = await startDaemon({ ...daemonOpts, hooks: { port: 0, settingsDir } })
+      await connected
+
+      // A stale belief: nothing ever set this session to 120x45.
+      send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        geometry: { cols: 120, rows: 45 },
+      })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      // The repaint path is retained, so the agent DOES paint again...
+      await waitFor(() => painted().includes('PODIUM-FIXTURE'))
+      await new Promise((r) => setTimeout(r, 400))
+      // ...at the size it was already running at, never the reattach's number.
+      expect(painted()).toContain(`cols=${G.cols} rows=${G.rows}`)
+      expect(painted()).not.toContain('cols=120')
+
+      // A viewer asking still moves it — that is the only thing that may.
+      received.length = 0
+      send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+      await waitFor(() => painted().includes('cols=120 rows=45'))
+    } finally {
+      await (second ?? first).close()
+      await killAbducoSession(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 40000)
 
   it('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
     // Regression: a backend restart (disposeAll), a user detach, or a client crash
