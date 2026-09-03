@@ -71,6 +71,20 @@ jobs:
       # whole boundary lint blocks, which is the end state POD-296 was aiming at.
       - name: dependency boundaries + architecture manifest (error level, no allowlist)
         run: bun run lint:boundaries
+      # BLOCKING, its own step, same reason (POD-3332, epic POD-3221). It is the
+      # one B-prep category with no compiler check: spec §6 rule 19 says a
+      # diagnostic log inside a transaction stays and anything a caller can
+      # OBSERVE does not, and POD-3260's ledger §F says plainly that its own
+      # acceptance sentence is not checkable by reading. This resolves every
+      # callee through the TYPE CHECKER rather than by name, because the
+      # execution method records POD-3257's proof that a name-matching scan both
+      # loses a call made through a closure and floods on `Map.get`.
+      #
+      # It builds a TypeScript program over apps/server, so it costs ~35 s and
+      # is deliberately NOT folded into `lint:boundaries`, which is a text scan
+      # that runs in a second. Same split, same reason, as `lint:architecture`.
+      - name: span effects (nothing observable inside a transaction body)
+        run: bun run lint:span-effects
       # BLOCKING, its own step, same reason as every ratchet above — and this one
       # is the POD-1369 class twice over. It catches the merge defect nothing else
       # reports: both branches ADD the same declaration, git auto-merges them as
