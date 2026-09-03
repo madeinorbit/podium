@@ -20,6 +20,16 @@ import { describe, expect, it } from 'vitest'
  * fails unless that method invalidates BEFORE the write. A new write path is
  * caught the moment it is written, whatever it is called.
  *
+ * TWO WRITE FORMS, because the repository is mid-conversion to drizzle
+ * (POD-3221 step 5d). A hand-written statement is found in the SQL text of a
+ * string or template literal; a builder write is found as a call —
+ * `.insert(issues)` / `.update(issues)` / `.delete(issues)` — on the schema's
+ * table object. A scan that knew only the SQL text would go quiet the moment
+ * `issues.ts` converted, which is the same class of silent failure POD-1360
+ * nearly shipped, one conversion instead of one rename. The builder arm asks
+ * what a reference RESOLVES to, so `import { issues as issuesTable }` and
+ * `schema.issues` are both the table, and `issueLabels` is not.
+ *
  * WHY NOT WRAP THE HANDLE. Wrapping `SqlDatabase` so a write invalidates
  * automatically is the obvious design, and it is unsafe here: `transaction()`
  * (packages/runtime/src/sqlite/transaction.ts) tracks nesting depth in a
@@ -58,20 +68,48 @@ const SOURCE_RELATIVE = 'apps/server/src/store/issues.ts'
 
 const SOURCE_PATH = join(fileURLToPath(new URL('../../../', import.meta.url)), SOURCE_RELATIVE)
 
+/** The table this guard is about, as the schema file exports it. */
+const TABLE = 'issues'
+
 /**
  * The three ways SQLite writes a table, tolerant of the whitespace and newlines
- * a multi-line template literal puts between the keywords, and of the `OR
- * IGNORE` / `OR REPLACE` conflict clauses. `\bissues\b` keeps the child tables
- * (`issue_labels`, `issue_deps`, `issue_ref_letters`, …) out.
+ * a multi-line template literal puts between the keywords, of the `OR IGNORE` /
+ * `OR REPLACE` conflict clauses, and of a quoted table name — the last because
+ * a `sql\`UPDATE "issues" …\`` fragment inside a builder query is a write like
+ * any other and must not be able to hide behind its quotes. `issues\b` keeps the
+ * child tables (`issue_labels`, `issue_deps`, `issue_ref_letters`, …) out.
  */
+const QUOTED = String.raw`["'\`\[]?`
 const WRITE_PATTERNS: { kind: 'INSERT' | 'UPDATE' | 'DELETE'; pattern: RegExp }[] = [
-  { kind: 'INSERT', pattern: /\b(?:INSERT|REPLACE)\s+(?:OR\s+\w+\s+)?INTO\s+issues\b/i },
-  { kind: 'UPDATE', pattern: /\bUPDATE\s+(?:OR\s+\w+\s+)?issues\b/i },
-  { kind: 'DELETE', pattern: /\bDELETE\s+FROM\s+issues\b/i },
+  {
+    kind: 'INSERT',
+    pattern: new RegExp(
+      String.raw`\b(?:INSERT|REPLACE)\s+(?:OR\s+\w+\s+)?INTO\s+${QUOTED}issues\b`,
+      'i',
+    ),
+  },
+  {
+    kind: 'UPDATE',
+    pattern: new RegExp(String.raw`\bUPDATE\s+(?:OR\s+\w+\s+)?${QUOTED}issues\b`, 'i'),
+  },
+  { kind: 'DELETE', pattern: new RegExp(String.raw`\bDELETE\s+FROM\s+${QUOTED}issues\b`, 'i') },
 ]
+
+/**
+ * drizzle's three write builders. Each takes the table object as its only
+ * argument, which is what makes this scannable at all: the table is named at
+ * the call, not buried in a string.
+ */
+const BUILDER_WRITES = new Map<string, 'INSERT' | 'UPDATE' | 'DELETE'>([
+  ['insert', 'INSERT'],
+  ['update', 'UPDATE'],
+  ['delete', 'DELETE'],
+])
 
 interface Write {
   kind: 'INSERT' | 'UPDATE' | 'DELETE'
+  /** Which detector saw it: hand-written SQL text, or a drizzle write builder. */
+  form: 'sql-text' | 'builder'
   line: number
   /** Enclosing method, or null for a write that is not inside one at all. */
   method: string | null
@@ -83,6 +121,7 @@ interface Violation {
   method: string | null
   line: number
   kind: string
+  form: Write['form']
 }
 
 interface Scan {
@@ -103,6 +142,37 @@ const enclosingMethod = (node: ts.Node): ts.MethodDeclaration | undefined => {
 
 const methodName = (m: ts.MethodDeclaration): string => m.name.getText()
 
+/**
+ * Local name → exported name for every named import in the file, so a reference
+ * is judged by what it resolves to. `import { issues as issuesTable }` makes
+ * `issuesTable` the table; nothing else in the file can become it by being
+ * spelled `issues`.
+ */
+const importAliases = (sf: ts.SourceFile): Map<string, string> => {
+  const aliases = new Map<string, string>()
+  for (const statement of sf.statements) {
+    if (!ts.isImportDeclaration(statement)) continue
+    const bindings = statement.importClause?.namedBindings
+    if (!bindings || !ts.isNamedImports(bindings)) continue
+    for (const element of bindings.elements) {
+      aliases.set(element.name.text, (element.propertyName ?? element.name).text)
+    }
+  }
+  return aliases
+}
+
+/**
+ * Does this argument name the `issues` TABLE? Either a reference resolving to
+ * the schema's `issues` export — under any import alias — or a namespaced
+ * `schema.issues`. `issueLabels`, `issueDeps` and the rest resolve to their own
+ * names and are not it.
+ */
+const namesIssuesTable = (node: ts.Expression, aliases: Map<string, string>): boolean => {
+  if (ts.isIdentifier(node)) return (aliases.get(node.text) ?? node.text) === TABLE
+  if (ts.isPropertyAccessExpression(node)) return node.name.text === TABLE
+  return false
+}
+
 /** `this.foo(...)` → `foo`, for any other call shape → undefined. */
 const selfCallName = (node: ts.Node): string | undefined => {
   if (!ts.isCallExpression(node)) return undefined
@@ -120,11 +190,29 @@ const selfCallName = (node: ts.Node): string | undefined => {
 const scanRowCacheWriters = (source: string, fileName = 'issues.ts'): Scan => {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
   const lineOf = (pos: number): number => sf.getLineAndCharacterOfPosition(pos).line + 1
+  const aliases = importAliases(sf)
 
   /** Every `this.x()` call per method, in source order. */
   const callsByMethod = new Map<string, { name: string; pos: number }[]>()
   const writes: Write[] = []
   const seen = new Set<string>()
+
+  const record = (kind: Write['kind'], form: Write['form'], node: ts.Node): void => {
+    const line = lineOf(node.getStart())
+    // A template expression and a string literal nested inside it would both
+    // match; one statement is one write.
+    const key = `${form}:${kind}:${line}`
+    if (seen.has(key)) return
+    seen.add(key)
+    const method = enclosingMethod(node)
+    writes.push({
+      kind,
+      form,
+      line,
+      method: method ? methodName(method) : null,
+      pos: node.getStart(),
+    })
+  }
 
   const visit = (node: ts.Node): void => {
     const called = selfCallName(node)
@@ -144,20 +232,20 @@ const scanRowCacheWriters = (source: string, fileName = 'issues.ts'): Scan => {
     ) {
       const text = node.getText()
       for (const { kind, pattern } of WRITE_PATTERNS) {
-        if (!pattern.test(text)) continue
-        const line = lineOf(node.getStart())
-        // A template expression and a string literal nested inside it would both
-        // match; one statement is one write.
-        const key = `${kind}:${line}`
-        if (seen.has(key)) continue
-        seen.add(key)
-        const method = enclosingMethod(node)
-        writes.push({
-          kind,
-          line,
-          method: method ? methodName(method) : null,
-          pos: node.getStart(),
-        })
+        if (pattern.test(text)) record(kind, 'sql-text', node)
+      }
+    }
+    // A drizzle write builder: `<anything>.insert(issues)`, `.update(issues)`,
+    // `.delete(issues)`. The receiver is deliberately not constrained — the
+    // executor's handle may be reached as `this.db`, `tx`, or through any field
+    // a later refactor introduces, and a guard that pinned the receiver's name
+    // would go quiet on the rename it exists to catch. What is constrained is
+    // the argument: it must resolve to the `issues` table.
+    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
+      const kind = BUILDER_WRITES.get(node.expression.name.text)
+      const [arg] = node.arguments
+      if (kind && node.arguments.length === 1 && arg && namesIssuesTable(arg, aliases)) {
+        record(kind, 'builder', node)
       }
     }
     ts.forEachChild(node, visit)
@@ -186,6 +274,7 @@ const scanRowCacheWriters = (source: string, fileName = 'issues.ts'): Scan => {
     method: write.method,
     line: write.line,
     kind: write.kind,
+    form: write.form,
   })
   for (const write of writes) {
     if (!write.method) {
@@ -203,7 +292,7 @@ const explain = (violations: Violation[]): string =>
   violations
     .map(
       (v) =>
-        `${SOURCE_RELATIVE}:${v.line} — ${v.kind} on \`issues\`${v.method ? ` in ${v.method}()` : ''}: ` +
+        `${SOURCE_RELATIVE}:${v.line} — ${v.kind} on \`issues\` (${v.form})${v.method ? ` in ${v.method}()` : ''}: ` +
         (v.reason === 'no-invalidation'
           ? `the method never calls this.${INVALIDATOR}()`
           : v.reason === 'invalidation-after-write'
@@ -303,6 +392,128 @@ describe('issues row cache: every writer invalidates', () => {
       }
     `)
     expect(scan.writes.map((w) => [w.kind, w.method])).toEqual([['INSERT', 'bulk']])
+    expect(scan.violations).toEqual([])
+  })
+
+  // ---- the builder forms, which the repository converts to (POD-3221 step 5d) ----
+  //
+  // Same rule, same reporting, a different way of naming the table. Each of
+  // these has a hand-written twin above; the pair is the point, because the
+  // conversion must not be able to lower the guard.
+
+  it('fails a builder write path whose method does not invalidate', () => {
+    const { writes, violations } = scanRowCacheWriters(`
+      import { issues } from '../migrations/schema'
+      class IssuesRepository {
+        archiveIssue(id: string): void {
+          this.db.update(issues).set({ archived: 1 }).where(eq(issues.id, id)).run()
+        }
+      }
+    `)
+    expect(writes.map((w) => [w.kind, w.form])).toEqual([['UPDATE', 'builder']])
+    expect(violations.map((v) => [v.method, v.reason])).toEqual([
+      ['archiveIssue', 'no-invalidation'],
+    ])
+  })
+
+  it('fails a builder insert and delete that invalidate only after the write', () => {
+    const { violations } = scanRowCacheWriters(`
+      import { issues } from '../migrations/schema'
+      class IssuesRepository {
+        replaceIssue(row: Row): void {
+          this.db.insert(issues).values(row).run()
+          this.invalidateRowCache()
+        }
+        purge(id: string): void {
+          this.db.delete(issues).where(eq(issues.id, id)).run()
+          this.invalidateRowCache()
+        }
+      }
+    `)
+    expect(violations.map((v) => [v.method, v.kind, v.reason])).toEqual([
+      ['replaceIssue', 'INSERT', 'invalidation-after-write'],
+      ['purge', 'DELETE', 'invalidation-after-write'],
+    ])
+  })
+
+  it('fails a builder write that is not inside a method at all', () => {
+    const { violations } = scanRowCacheWriters(`
+      import { issues } from '../migrations/schema'
+      function heal(db: Db): void {
+        db.delete(issues).where(isNotNull(issues.deletedAt)).run()
+      }
+    `)
+    expect(violations.map((v) => [v.reason, v.form])).toEqual([['write-outside-method', 'builder']])
+  })
+
+  it('follows the table through an import alias and a namespace import', () => {
+    const { writes, violations } = scanRowCacheWriters(`
+      import { issues as issuesTable } from '../migrations/schema'
+      import * as schema from '../migrations/schema'
+      class IssuesRepository {
+        renamed(id: string): void {
+          this.db.update(issuesTable).set({ archived: 1 }).run()
+        }
+        namespaced(id: string): void {
+          this.db.delete(schema.issues).run()
+        }
+      }
+    `)
+    expect(writes.map((w) => [w.kind, w.method])).toEqual([
+      ['UPDATE', 'renamed'],
+      ['DELETE', 'namespaced'],
+    ])
+    expect(violations.map((v) => v.reason)).toEqual(['no-invalidation', 'no-invalidation'])
+  })
+
+  it('accepts a builder write invalidated first, inside a transaction body', () => {
+    const scan = scanRowCacheWriters(`
+      import { issues } from '../migrations/schema'
+      class IssuesRepository {
+        bulk(rows: Row[]): void {
+          this.invalidateRowCache()
+          this.transact((tx) => {
+            tx.insert(issues).values(rows).onConflictDoNothing().run()
+          })
+        }
+      }
+    `)
+    expect(scan.writes.map((w) => [w.kind, w.method])).toEqual([['INSERT', 'bulk']])
+    expect(scan.violations).toEqual([])
+  })
+
+  it('sees a raw `sql` template write next to a builder write', () => {
+    const scan = scanRowCacheWriters(`
+      import { issues } from '../migrations/schema'
+      class IssuesRepository {
+        touch(id: string): void {
+          this.db.run(sql\`UPDATE issues SET updated_at = \${Date.now()} WHERE id = \${id}\`)
+        }
+        quoted(id: string): void {
+          this.db.run(sql\`DELETE FROM "issues" WHERE id = \${id}\`)
+        }
+      }
+    `)
+    expect(scan.writes.map((w) => [w.kind, w.form, w.method])).toEqual([
+      ['UPDATE', 'sql-text', 'touch'],
+      ['DELETE', 'sql-text', 'quoted'],
+    ])
+    expect(scan.violations.map((v) => v.reason)).toEqual(['no-invalidation', 'no-invalidation'])
+  })
+
+  it('does not mistake the child tables for the issues table in builder form', () => {
+    const scan = scanRowCacheWriters(`
+      import { issueLabels, issueDeps, issues } from '../migrations/schema'
+      class IssuesRepository {
+        setIssueLabels(issueId: string, labels: string[]): void {
+          this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
+          this.db.insert(issueDeps).values({ fromId: issueId }).run()
+          this.db.select().from(issues).where(eq(issues.id, issueId)).all()
+          this.pending.delete(issueId)
+        }
+      }
+    `)
+    expect(scan.writes).toEqual([])
     expect(scan.violations).toEqual([])
   })
 
