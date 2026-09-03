@@ -3,10 +3,11 @@
  *
  * SessionStore is the store's COMPOSITION ROOT, nothing more: it opens the
  * database, runs the versioned migration chain (src/migrations/), sequences the
- * per-boot idempotent heals, and constructs the per-aggregate repositories in
- * `./store/` — including the two cross-aggregate late-bound lambdas (issues
- * resolve their stable repo_id via the repos aggregate; a repo-identity upgrade
- * dual-writes onto issues). Callers hold the aggregate repository they need
+ * per-boot identity refusals and idempotent heals, and constructs the
+ * per-aggregate repositories in `./store/` — including the two cross-aggregate
+ * late-bound lambdas (issues resolve their stable repo_id via the repos
+ * aggregate; re-identifying a repo dual-writes onto its issues). Callers hold
+ * the aggregate repository they need
  * (`store.issues`, `store.sync`, …) — there are no forwarding methods here.
  *
  * Aggregate map:
@@ -48,7 +49,7 @@ import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
-import { runDrizzleMigrations } from './migrations/index'
+import { latestAppliedMigration, runDrizzleMigrations } from './migrations/index'
 import {
   type SnapshotVerification,
   SnapshotVerifier,
@@ -65,7 +66,7 @@ import { GrantsRepository } from './store/grants'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
-import { MachinesRepository } from './store/machines'
+import { MachinesRepository, RETIRED_MACHINE_SENTINELS } from './store/machines'
 import { MaintenanceRepository } from './store/maintenance'
 import { MessagesRepository } from './store/messages'
 import { MessagingTopicsRepository } from './store/messaging-topics'
@@ -281,18 +282,17 @@ export class SessionStore {
     this.operations = new OperationStore(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
 
-    // Per-boot runtime steps (environment-conditional FTS objects, one-time
-    // upgrades and the two remaining data heals) — never schema DDL.
+    // Per-boot runtime steps (environment-conditional FTS objects, the identity
+    // refusals and the remaining data heals) — never schema DDL.
     //
-    // THE MACHINE-IDENTITY UPGRADE RUNS FIRST, ahead of every reader in the process
-    // (POD-318). It is not just that nothing may WRITE a pre-upgrade row: nothing may
-    // READ one either. `SessionRegistry` loads the sessions map in its constructor,
-    // and the composition root constructs it before it can call `ensureHostMachine`
-    // — so an upgrade that ran there would leave live Session objects remembering a
-    // sentinel while the rows underneath them had moved. Sequencing it here makes
-    // "no reader ever sees a legacy machine id" true by construction instead of by
-    // call-order discipline.
-    this.migrateLegacyMachineIdentity(this.hostMachineId)
+    // THE IDENTITY REFUSALS RUN FIRST, ahead of every reader in the process. The
+    // one-time rewrites they replaced ran here for a reason that outlived them
+    // (POD-318): it is not just that nothing may WRITE a pre-upgrade row, nothing
+    // may READ one either. `SessionRegistry` loads the sessions map in its
+    // constructor, before the composition root can call `ensureHostMachine`. A
+    // check that ran there would let live Session objects be built on rows the
+    // process is about to declare unservable.
+    this.refuseLegacyIdentities()
     // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
     // also decides whether this boot carries a full-text index at all. Read ONCE,
     // here — flipping the toggle takes effect at the next boot, so nothing has to
@@ -301,17 +301,6 @@ export class SessionStore {
     this.searchIndexEnabled = isFeatureEnabled('command-palette', this.settings.getSettings())
     this.conversations.ensureFts(this.searchIndexEnabled)
     this.superagent.seedGlobalThread()
-    // The legacy repos.json import is the ONE writer left that can still hand the
-    // repo-identity upgrade work — its rows land with a NULL repo_id and no prefix —
-    // so the upgrade is told what it imported rather than trusting boot order to put
-    // the import first forever (POD-1360).
-    const importedRepos = this.repos.importReposJson(this.path, this.hostMachineId)
-    this.upgradeLegacyRepoIdentityOnce(importedRepos > 0)
-    // Worktree attribution consumes the complete local repo registry. In
-    // particular, a legacy repos.json import must exist before NULL pins are
-    // classified, while the machine-identity rewrite above must normalize its
-    // machine ids first.
-    this.migrateLegacyIssueWorktreeMachineIdentity(this.hostMachineId)
     // #140 defense in depth (ported from main's boot migrate): renumber any
     // (repo_id, seq) collisions left by a pre-UNIQUE-index database. Idempotent --
     // no-ops once the DB is clean; runs AFTER the backfill so rows have repo_ids.
@@ -320,9 +309,9 @@ export class SessionStore {
     // `sessions.issue_id` nor `issue_ref_letters.issue_id` declares a foreign key,
     // so before the purge learned to scrub them a deleted draft left a session row
     // (and a letter counter) naming an issue that no longer exists. Runs HERE, in
-    // the facade constructor, for the same reason the machine-identity upgrade
-    // does: ahead of every reader, so no in-memory `Session` can be holding the
-    // stale pointer when it is cleared.
+    // the facade constructor, for the same reason the identity refusals do:
+    // ahead of every reader, so no in-memory `Session` can be holding the stale
+    // pointer when it is cleared.
     this.healDanglingIssueReferences()
   }
 
@@ -339,109 +328,57 @@ export class SessionStore {
     }
   }
 
-  /** `meta` key marking the repo-identity upgrade as spent for this database. */
-  private static readonly REPO_IDENTITY_UPGRADE_KEY = 'repo-identity-upgrade'
-
   /**
-   * Spend {@link migrateLegacyRepoIdentity} at most ONCE per database.
+   * THE TWO IDENTITY REFUSALS THIS DATABASE MUST PASS BEFORE ANYTHING READS IT.
    *
-   * THE BOUND IS A PERSISTED MARKER RATHER THAN IDEMPOTENCE-BY-CONSTRUCTION, and the
-   * difference from the machine-identity upgrade above is worth stating. That one can
-   * prove its own completion: after it runs, `WHERE machine_id IN ('local','__local__')`
-   * matches nothing and no writer can produce either value again. One third of THIS
-   * upgrade cannot make the same claim — a repo with no git remote, or one belonging to
-   * another machine, is legitimately `origin_url IS NULL` forever, so the predicate that
-   * selected its work never empties. That is precisely how it survived as a standing
-   * heal: a step whose search never finishes looks, from the inside, exactly like a step
-   * that still has work to do. The marker says what the row shape cannot — this database
-   * has been past this code — and the fact that the marker is written in the SAME
-   * transaction as the rewrite is what keeps a crash mid-upgrade from spending it.
+   * Both are the residue halves of one-time boot upgrades that were retired once
+   * their deletion horizon passed (POD-3246). The rewrites are gone; the reads
+   * that told them whether they had worked are not, because what they answer is
+   * not "did the rewrite run" but "is this database servable at all".
    *
-   * `legacyRowsJustImported` IS THE ONE OVERRIDE, and it exists so the bound is a
-   * property of the code rather than of boot order. A spent marker means "no row here
-   * needs this" — true for every writer in the process except `importReposJson`, which
-   * inserts NULL-repo_id rows from a file. Today it runs on the line above, before the
-   * marker can be consulted, so the override never fires; the day someone moves it, or
-   * calls it a second time on a database that has emptied its repos table, the upgrade
-   * still covers those rows instead of leaving them permanently unidentified.
+   *   - A RETIRED MACHINE SENTINEL (POD-318) means rows naming a machine that
+   *     does not exist while the fleet answers to a minted UUID. Serving that is
+   *     how the placeholder era stranded people's sessions.
+   *   - A MISSING repo_id (POD-1360) means issues that belong to no repo, since
+   *     `repo_id` is what they are bucketed and numbered by.
+   *
+   * Both refuse the boot rather than warning, and both name what they found, so
+   * an operator gets a database to restore instead of a week of wrong answers.
+   * A MISSING PREFIX only warns, on the same grading as before: it costs a repo
+   * its human-facing refs until the next `addRepo` repairs it, and refusing to
+   * boot over it would trade a cosmetic defect for an outage.
    */
-  private upgradeLegacyRepoIdentityOnce(legacyRowsJustImported = false): void {
-    const marker = this.db
-      .prepare('SELECT value FROM meta WHERE key = ?')
-      .get(SessionStore.REPO_IDENTITY_UPGRADE_KEY) as { value?: unknown } | undefined
-    const spent = typeof marker?.value === 'string' && marker.value.length > 0
-    if (spent && !legacyRowsJustImported) return
-    this.transact(() => {
-      this.migrateLegacyRepoIdentity()
-      this.db
-        .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-        .run(SessionStore.REPO_IDENTITY_UPGRADE_KEY, new Date().toISOString())
-    })
-  }
-
-  /**
-   * ONE-TIME REPO-IDENTITY UPGRADE (POD-1360) — pre-v8 repo and issue rows brought up
-   * to the identity every reader in this process assumes: a repo_id on every repo and
-   * every issue, an origin recorded for repos this host can actually read, and a
-   * human-facing prefix per logical repo (#474, #74).
-   *
-   * IT REPLACES FOUR STANDING BOOT HEALS — `repos.backfillRepoIds`,
-   * `issues.backfillNullRepoIds`, `repos.healLocalOrigins`, `repos.backfillPrefixes` —
-   * and the change is the WORD, not just the schedule. "Heal" says the damage recurs;
-   * nothing here recurs. `addRepo` derives an id, reads the origin and ensures a prefix
-   * before it inserts, and `upsertIssue` resolves a repo_id, so the only writer that can
-   * still hand this work is `importReposJson` — the legacy repos.json import that runs
-   * immediately before it, once. An upgrade with a deletion horizon, on the same terms
-   * as {@link migrateLegacyMachineIdentity}: nothing here should still be finding work
-   * a year from now, and `upgradeLegacyRepoIdentityOnce` makes that structural.
-   *
-   * THE RESIDUE CHECK IS A SECOND READ of the database, not a restatement of what was
-   * just written, and the two halves of it are graded differently ON PURPOSE:
-   *
-   *   - A MISSING repo_id FAILS THE BOOT. It is not a cosmetic gap — `repo_id` is what
-   *     issues are bucketed and numbered by, so serving a NULL one means serving rows
-   *     that belong to no repo, and the derivation cannot fail, so a survivor means the
-   *     rewrite did not run at all. Loud here beats silent for a week.
-   *   - A MISSING PREFIX ONLY WARNS. It costs a repo its human-facing refs until the
-   *     next `addRepo`, which repairs it — real, but not identity corruption, and
-   *     refusing to boot over it would trade a cosmetic defect for an outage.
-   *
-   * ORIGINS ARE DELIBERATELY UNCHECKED: originless is a legitimate resting state (see
-   * `migrateLegacyRepoRows`), so an origin residue check could never reach zero.
-   *
-   * Public rather than private because it is the unit the tests drive directly — the
-   * once-gate is a separate decision and is tested as one.
-   */
-  migrateLegacyRepoIdentity(): void {
-    this.transact(() => {
-      this.repos.migrateLegacyRepoRows()
-      this.issues.migrateLegacyIssueRepoIds()
-      const { repoIdsMissing, prefixesMissing } = this.repos.legacyRepoResidue()
-      const issuesMissing = this.issues.issuesMissingRepoId()
-      if (repoIdsMissing > 0 || issuesMissing > 0) {
-        throw new Error(
-          `legacy repo identity survived the boot upgrade (repos: ${repoIdsMissing}, ` +
-            `issues: ${issuesMissing}) — refusing to serve rows that belong to no repo`,
-        )
-      }
-      if (prefixesMissing > 0) {
-        console.warn(
-          `[podium:store] repo-identity upgrade left ${prefixesMissing} repo(s) without a ` +
-            'human-facing prefix; refs for them resolve once the repo is re-registered',
-        )
-      }
-    })
+  private refuseLegacyIdentities(): void {
+    const sentinels = this.machines.legacyMachineSentinelSites()
+    if (sentinels.length > 0) {
+      throw new Error(
+        `retired machine sentinels (${RETIRED_MACHINE_SENTINELS.join(', ')}) are still stored ` +
+          `in ${sentinels.join(', ')} — this database predates POD-318 and no shipped ` +
+          'Podium can serve it; restore a backup taken after the upgrade',
+      )
+    }
+    const { repoIdsMissing, prefixesMissing } = this.repos.legacyRepoResidue()
+    const issuesMissing = this.issues.issuesMissingRepoId()
+    if (repoIdsMissing > 0 || issuesMissing > 0) {
+      throw new Error(
+        `legacy repo identity is unfilled (repos: ${repoIdsMissing}, issues: ${issuesMissing}) — ` +
+          'this database predates POD-1360 and no shipped Podium can serve it; refusing to ' +
+          'serve rows that belong to no repo',
+      )
+    }
+    if (prefixesMissing > 0) {
+      console.warn(
+        `[podium:store] ${prefixesMissing} repo(s) have no human-facing prefix; refs for them ` +
+          'resolve once the repo is re-registered',
+      )
+    }
   }
 
   /** The exact newest migration identity the transfer target will verify. */
   schemaVersionForTransfer(): string {
-    const row = this.db
-      .prepare('SELECT name FROM __drizzle_migrations ORDER BY name DESC LIMIT 1')
-      .get() as { name?: unknown } | undefined
-    if (!row || typeof row.name !== 'string' || row.name.length === 0) {
-      throw new Error('database migration identity is unavailable')
-    }
-    return row.name
+    const name = latestAppliedMigration(this.db)
+    if (name === undefined) throw new Error('database migration identity is unavailable')
+    return name
   }
 
   /** Force SQLite WAL contents into the portable database before a transfer snapshot. */
@@ -559,191 +496,5 @@ export class SessionStore {
   close(): void {
     this.snapshotVerifier.close()
     this.db.close()
-  }
-
-  /**
-   * ONE-TIME BOOT UPGRADE — the only place the retired sentinels are still spelled.
-   *
-   * Installs that predate POD-318 carry a `machines` row literally called `'local'`
-   * and rows all over the schema pointing at it, or at the `'__local__'` column
-   * default three tables used to have. A static SQL migration cannot fix them,
-   * because the value they must become — this host's minted UUID — does not exist
-   * until the state dir has a `machine.id` file. So the rewrite is code, run once at
-   * boot, in one transaction, and it is an UPGRADE WITH A DELETION HORIZON rather
-   * than a standing heal: the name says migrate, not heal or adopt, because nothing
-   * here is supposed to still be finding work a year from now.
-   *
-   * THE TABLE LIST IS READ FROM THE DATABASE, not written out here, and that is
-   * load-bearing. A hand-written list of "sessions, repos, conversations" is what
-   * the placeholder era actually shipped, and it was already wrong: `issues`,
-   * `conversation_segments`, `approval_requests` and `execution_profiles` all carry
-   * a `machine_id` too — an issue pinned to the machine the UI called `local` is
-   * ordinary user data. Asking sqlite which tables have the column means a table
-   * that grows one tomorrow is covered by construction instead of being remembered.
-   *
-   * IDEMPOTENCE IS BY CONSTRUCTION, not by a flag: every statement is
-   * `WHERE … IN ('local','__local__')`, and after the first run nothing matches —
-   * there is no writer left in the codebase that can produce either value, which is
-   * what the `local-placeholders` audit counter and the brand refusal on `MachineId`
-   * together guarantee. A second boot updates zero rows, and so does the millionth.
-   *
-   * THE RESIDUE CHECK IS THE POINT, and it is deliberately a SECOND READ of the
-   * database rather than a restatement of what was just written: it re-discovers the
-   * columns and counts what is left. Non-zero means this boot is about to serve
-   * MIXED IDENTITIES — the fleet answering to a UUID while rows still name a
-   * sentinel — which is precisely how the placeholder era stranded people's
-   * sessions. It fails loudly here instead of quietly.
-   *
-   * The `machines` row is RENAMED rather than re-inserted so its credential, owner
-   * and grant edges survive the change of id; a fresh insert would have left a
-   * second row and split the fleet in half.
-   */
-  migrateLegacyMachineIdentity(hostMachineId: MachineId): void {
-    const LEGACY = ["'local'", "'__local__'"].join(', ')
-    /** Every `(table, column)` in THIS database that holds a machine id. */
-    const machineColumns = (): { table: string; column: string }[] => {
-      const tables = this.db
-        .prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")
-        .all() as { name: string }[]
-      const found: { table: string; column: string }[] = []
-      for (const { name } of tables) {
-        const columns = this.db.prepare(`PRAGMA table_info("${name}")`).all() as { name: string }[]
-        if (name === 'machines') {
-          if (columns.some((c) => c.name === 'id')) found.push({ table: name, column: 'id' })
-          continue
-        }
-        if (columns.some((c) => c.name === 'machine_id'))
-          found.push({ table: name, column: 'machine_id' })
-      }
-      return found
-    }
-    this.transact(() => {
-      for (const { table, column } of machineColumns()) {
-        // OR REPLACE: a row already carrying the host id on the same primary key
-        // wins, rather than aborting the whole upgrade on a unique constraint.
-        this.db
-          .prepare(
-            `UPDATE OR REPLACE "${table}" SET "${column}" = ? WHERE "${column}" IN (${LEGACY})`,
-          )
-          .run(hostMachineId)
-      }
-      const residue = machineColumns()
-        .map(({ table, column }) => ({
-          table,
-          count: (
-            this.db
-              .prepare(`SELECT COUNT(*) AS c FROM "${table}" WHERE "${column}" IN (${LEGACY})`)
-              .get() as { c: number }
-          ).c,
-        }))
-        .filter(({ count }) => count > 0)
-      if (residue.length > 0) {
-        throw new Error(
-          `legacy machine identity survived the boot upgrade (${residue
-            .map(({ table, count }) => `${table}: ${count}`)
-            .join(', ')}) — refusing to serve mixed machine identities`,
-        )
-      }
-    })
-    // This rewrote `repos.machine_id` on the raw handle, with SQL built from
-    // sqlite_master — so the repos aggregate's held read cannot have seen it
-    // (POD-1638). Tell it directly, or the next `listRepos()` answers with the
-    // pre-upgrade machine id.
-    this.repos.invalidate()
-  }
-
-  /**
-   * ONE-TIME BOOT BACKFILL for worktrees created before ordinary issue starts
-   * recorded their machine. A worktree path may name either the hub's disk or a
-   * remote machine's: old placement and session-CWD adoption could both leave the
-   * pin NULL.
-   *
-   * The repos table is the durable placement map: an exact or path-prefix match
-   * to exactly one distinct machine attributes the worktree to that machine. No
-   * repo match falls back to the host, preserving known host-local temporary
-   * worktrees, while matches to multiple machines remain unresolved.
-   *
-   * Session rows are a veto on either attribution. The adopting session was
-   * already linked to the issue and authenticated as its real machine. Both its
-   * current issue_id and its sticky birth ref_issue_id count, so rehoming cannot
-   * erase the evidence. Any linked session on a different machine leaves the row
-   * NULL rather than routing a reclaim to the wrong disk. The legacy-machine
-   * rewrite runs earlier in this boot, so old local sentinels have already
-   * become hostMachineId and do not look remote here.
-   *
-   * Existing pins always win, worktree-less issues remain genuinely unplaced,
-   * and reruns update nothing. Ambiguous and contradictory rows remain countable
-   * on every boot so the operator can see that the migration left work behind.
-   */
-  migrateLegacyIssueWorktreeMachineIdentity(hostMachineId: MachineId): {
-    backfilledByMachine: Record<string, number>
-    unresolved: number
-  } {
-    const result = this.transact(() => {
-      const candidates = this.db
-        .prepare(
-          `WITH repo_matches AS (
-             SELECT issues.id,
-                    COUNT(DISTINCT repos.machine_id) AS repo_machine_count,
-                    MIN(repos.machine_id) AS repo_machine_id
-               FROM issues
-               LEFT JOIN repos
-                 ON issues.worktree_path = repos.path
-                 OR issues.worktree_path LIKE repos.path || '/%'
-              WHERE issues.worktree_path IS NOT NULL
-                AND issues.machine_id IS NULL
-              GROUP BY issues.id
-           ), attributed AS (
-             SELECT id,
-                    CASE
-                      WHEN repo_machine_count = 0 THEN ?
-                      WHEN repo_machine_count = 1 THEN repo_machine_id
-                      ELSE NULL
-                    END AS target_machine_id
-               FROM repo_matches
-           )
-           SELECT attributed.id,
-                  attributed.target_machine_id,
-                  EXISTS (
-                    SELECT 1
-                      FROM sessions
-                     WHERE (sessions.issue_id = attributed.id
-                            OR sessions.ref_issue_id = attributed.id)
-                       AND sessions.machine_id <> attributed.target_machine_id
-                  ) AS contradictory_session
-             FROM attributed
-            ORDER BY attributed.id`,
-        )
-        .all(hostMachineId) as {
-        id: string
-        target_machine_id: string | null
-        contradictory_session: number
-      }[]
-
-      const update = this.db.prepare(
-        'UPDATE issues SET machine_id = ? WHERE id = ? AND machine_id IS NULL',
-      )
-      const backfilledByMachine: Record<string, number> = {}
-      let unresolved = 0
-      for (const candidate of candidates) {
-        if (candidate.target_machine_id === null || candidate.contradictory_session !== 0) {
-          unresolved += 1
-          continue
-        }
-        const changed = Number(update.run(candidate.target_machine_id, candidate.id).changes)
-        if (changed > 0) {
-          backfilledByMachine[candidate.target_machine_id] =
-            (backfilledByMachine[candidate.target_machine_id] ?? 0) + changed
-        }
-      }
-      return { backfilledByMachine, unresolved }
-    })
-    const counts =
-      Object.entries(result.backfilledByMachine)
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([machineId, count]) => `${machineId}=${count}`)
-        .join(', ') || 'none'
-    log.info(`backfilled worktree rows by machine: ${counts}; left ${result.unresolved} unresolved`)
-    return result
   }
 }

@@ -4,7 +4,6 @@
  * deletion preserves them; explicit internal purge removes them.
  */
 
-import { createLogger } from '@podium/logger'
 import {
   type AccountId,
   type ActorKind,
@@ -29,8 +28,6 @@ import type {
   SessionStatusPersisted,
   SnoozeMap,
 } from './types'
-
-const log = createLogger('server:store')
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
@@ -958,42 +955,24 @@ export class SessionsRepository {
   // legacy `loadDrafts`/`setDraft` above stay byte-for-byte for the flag-off path.
   // `updatedAt` doubles as the doc's `editedAt`.
   //
-  // COLUMN-GUARDED as defense-in-depth: the drizzle migration adds these columns,
-  // and drizzle applies by NAME so a fresh unique migration always runs (unlike the
-  // old skip-by-version runner). But loadDraftDocs() runs UNCONDITIONALLY at boot
-  // (flag-independent), so if the columns are somehow absent — a DB opened before
-  // its migration applied, a schema-ahead lineage — degrade to the legacy shape
-  // instead of a `no such column: rev` crash-loop with the flag OFF.
-  private hasVersionedDraftCols: boolean | undefined
+  // THESE COLUMNS ARE ASSUMED PRESENT, and until POD-3246 they were not: a
+  // `PRAGMA table_info` probe degraded to the legacy shape if `rev` was missing,
+  // guarding `loadDraftDocs()` (which runs at boot regardless of the flag)
+  // against a `no such column` crash-loop on a DB whose migration had not
+  // applied. There is no such DB. `SessionStore` runs the whole migration chain
+  // on this connection before it constructs a repository, drizzle applies by
+  // NAME so `20260718093018_session-drafts-versioned` cannot be skipped, and a
+  // database that claims it applied while lacking the columns is corruption —
+  // which is worth a loud failure, not a silent fallback to a shape that drops
+  // every rev and history on write.
 
-  private versionedDraftColumns(): boolean {
-    if (this.hasVersionedDraftCols === undefined) {
-      const cols = new Set(
-        (this.db.prepare('PRAGMA table_info(session_drafts)').all() as { name: string }[]).map(
-          (c) => c.name,
-        ),
-      )
-      this.hasVersionedDraftCols = cols.has('rev') && cols.has('origin') && cols.has('history')
-      if (!this.hasVersionedDraftCols) {
-        // Surface the silent degradation once: the versioned-draft columns are
-        // missing, so Draft Sync v2's versioned persistence is inert on this DB.
-        log.warn(
-          'session_drafts is missing the versioned-draft columns (rev/origin/history) — the session-drafts-versioned migration has not applied; Draft Sync v2 falls back to legacy drafts',
-        )
-      }
-    }
-    return this.hasVersionedDraftCols
-  }
-
-  /** All persisted draft docs, keyed by session. Legacy rows (or a DB where the
-   *  versioning migration has not applied) read back with `rev: 0`, `origin: null`,
-   *  and an empty history. */
+  /** All persisted draft docs, keyed by session. A row written before the
+   *  versioning columns existed reads back with `rev: 0`, `origin: null`, and an
+   *  empty history. */
   loadDraftDocs(): Record<SessionId, StoredDraftDoc> {
-    const versioned = this.versionedDraftColumns()
-    const sql = versioned
-      ? 'SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts'
-      : 'SELECT session_id, text, updated_at FROM session_drafts'
-    const rows = this.db.prepare(sql).all() as {
+    const rows = this.db
+      .prepare('SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts')
+      .all() as {
       session_id: SessionId
       text: string
       updated_at: string
@@ -1015,8 +994,7 @@ export class SessionsRepository {
   }
 
   /** Upsert (non-empty) or delete (empty text) a versioned draft doc. Empty text
-   *  removes the row just like {@link setDraft}, so a cleared draft never lingers.
-   *  On a DB without the versioning columns, degrades to a legacy text-only write. */
+   *  removes the row just like {@link setDraft}, so a cleared draft never lingers. */
   setDraftDoc(sessionId: SessionId, doc: StoredDraftDoc): void {
     // `.trim()` returns a plain `string` — a normalizing method STRIPS the brand.
     // Re-applied because trimming an id yields the same id, not a different one.
@@ -1024,12 +1002,6 @@ export class SessionsRepository {
     if (!id) return
     if (!doc.text) {
       this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
-      return
-    }
-    if (!this.versionedDraftColumns()) {
-      // Columns absent: persist text only. rev/history won't survive a restart on
-      // this DB, but nothing crashes and no data is lost.
-      this.setDraft(id, doc.text)
       return
     }
     this.db

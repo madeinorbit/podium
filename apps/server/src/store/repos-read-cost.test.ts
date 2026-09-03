@@ -24,8 +24,6 @@
 import { asMachineId } from '@podium/model'
 import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
-import { deriveRepoId } from '../repo-id'
-import { SessionStore } from '../store'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
 import { ReposRepository } from './repos'
 
@@ -135,38 +133,26 @@ describe('repo reads under a projection pass', () => {
 })
 
 /**
- * THE WRITERS THAT DO NOT GO THROUGH THIS CLASS (POD-1638 regression).
+ * THE WRITERS THAT DO NOT GO THROUGH THIS CLASS (POD-1638) — AND THERE ARE NONE
+ * LEFT.
  *
  * The first version of the cache justified itself with "this class is the only
  * writer of both tables", proved by grepping `UPDATE repos`. That proof could not
- * see `SessionStore.migrateLegacyMachineIdentity`, which builds
+ * see `SessionStore.migrateLegacyMachineIdentity`, which built
  * `UPDATE OR REPLACE "${table}" SET "${column}" = ?` from `sqlite_master` on the
  * store's RAW handle — no literal table name in the source, and no trip through
  * the invalidating `prepare` wrapper. The result was `listRepos()` answering with
- * the PRE-upgrade machine id, which is a correctness bug on a live instance.
+ * the PRE-upgrade machine id, which is a correctness bug on a live instance. The
+ * regression test that pinned that seam lived here.
  *
- * `store.repo-id.test.ts` caught it, but that test is about POD-318 identity
- * stability and would keep passing if this cache were replaced by something else
- * with the same hole. This pins the SEAM: the bypassing writer invalidates.
+ * IT WENT WITH ITS WRITER at POD-3246: the upgrade is deleted, and no production
+ * code writes `repos` outside this class any more. What the test asserted was
+ * that ONE caller remembered to call `invalidate()`, so re-pointing it at a
+ * bypassing write authored by the test itself would only have pinned the test's
+ * own `invalidate()` call — a green that says nothing.
+ *
+ * The seam is still real, and POD-3247 owns it: the invalidation moves from a
+ * proxy that inspects SQL text to something the store owns, and the fixture that
+ * proves a bypassing writer cannot serve a stale registry belongs to that
+ * mechanism, not to a boot upgrade that no longer exists.
  */
-describe('registry cache vs writers that bypass the repository', () => {
-  it('serves the upgraded machine id after the raw-handle identity migration', () => {
-    const store = new SessionStore(':memory:')
-    store.repos.addRepo('/legacy', asMachineId('__local__'))
-
-    // Warm the cache BEFORE the migration — without this read the test passes
-    // against a stale cache too, because there would be nothing cached to go
-    // stale. The bug only exists for a reader that looked first.
-    expect(store.repos.listRepos()[0]?.machineId).toBe('__local__')
-
-    store.migrateLegacyMachineIdentity(store.hostMachineId)
-
-    expect(store.repos.listRepos()[0]?.machineId).toBe(store.hostMachineId)
-    expect(store.repos.listRepoPaths()).toEqual(['/legacy'])
-    // The machine moved; the opaque stored id did NOT (POD-318).
-    expect(store.repos.listRepos()[0]?.repoId).toBe(
-      deriveRepoId({ machineId: asMachineId('__local__'), path: '/legacy' }),
-    )
-    store.close()
-  })
-})

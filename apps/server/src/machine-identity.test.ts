@@ -3,11 +3,12 @@
  *
  * Three properties, and each one is a thing that used to be untrue:
  *
- *  1. THE UPGRADE. Installs that predate this issue carry a `machines` row called
- *     `'local'` and sessions/repos/conversations rows on `'local'` or the
- *     `'__local__'` column default. `ensureHostMachine` folds them onto this
- *     host's minted id in ONE transaction, keeping the machine row's credential
- *     and owner, and refuses to boot if anything survives.
+ *  1. THE SENTINELS ARE GONE. Installs that predate this issue carried a
+ *     `machines` row called `'local'` and sessions/repos/conversations rows on
+ *     `'local'` or the `'__local__'` column default. The one-time rewrite that
+ *     folded them onto this host's minted id was retired at POD-3246, once no
+ *     release could still be carrying one; what stayed is the refusal, which
+ *     stops the boot rather than serving rows the fleet cannot see.
  *  2. THE SPLIT-MODE DAEMON. It reads the SAME `<stateDir>/machine.id` the server
  *     read and presents that id in an ordinary `hello`, credentialed by the
  *     loopback bootstrap secret — the same path a remote takes.
@@ -20,14 +21,13 @@ import { createHash } from 'node:crypto'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type RepoId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
+import { deriveRepoId } from './repo-id'
 import { SessionStore } from './store'
-import { captureLogs } from './test-support/capture-logs'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -72,230 +72,122 @@ function seedLegacyDb(path: string): void {
   db.close()
 }
 
-describe('the one-time boot upgrade (migrateLegacyMachineIdentity)', () => {
-  it('folds every legacy row onto the minted host id, and keeps the machine row', () => {
+describe('the boot refusal that replaced the one-time upgrade', () => {
+  it('refuses to open a pre-POD-318 database, naming every place a sentinel is stored', () => {
+    // The rewrite that used to fold these rows onto the host id was deleted at
+    // POD-3246: the sentinels stopped being written on 2026-08-02 and the first
+    // release of any kind is v0.1.0-edge.1 on 2026-08-17, so no database a
+    // shipped Podium has ever written can contain one. A database that does is
+    // one the fleet cannot see, and the boot says so instead of serving it.
     const path = tmpDb()
     seedLegacyDb(path)
 
-    const store = new SessionStore(path, HOST)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
-    registry.modules.machines.ensureHostMachine('new-host', 'boot-secret')
-
-    // Sessions, repos and conversations all moved — the cross-aggregate write is
-    // why this is one transaction rather than three heals.
-    expect(store.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
-    expect(store.repos.listRepos().map((r) => r.machineId)).toEqual([HOST])
-    expect(store.conversations.index.search({ query: '' }).map((c) => c.machineId)).toEqual([HOST])
-    // ONE machine row, RENAMED rather than replaced: a duplicate would have split
-    // the fleet in half, and a fresh insert would have dropped the owner the
-    // legacy row carried.
-    const machines = store.machines.listMachines()
-    expect(machines).toHaveLength(1)
-    expect(machines[0]?.id).toBe(HOST)
-    expect(machines[0]?.ownerUserId).toBe('user:sole')
-    store.close()
+    expect(() => new SessionStore(path, HOST)).toThrow(
+      /retired machine sentinels.*machines\.id.*repos\.machine_id.*sessions\.machine_id/s,
+    )
   })
 
-  it('is a no-op on the second boot, and on a database that never had sentinels', () => {
+  it('finds a sentinel in a table no hand-written list would have named', () => {
+    // `issues.machine_id` is an issue's machine pin — ordinary user data that
+    // could name the machine the UI called `local`, and the placeholder era did
+    // ship a rewrite whose list was "sessions, repos, conversations". The scan
+    // covers every machine column in the schema, which is what
+    // `store/machines-sentinel-scan.test.ts` pins.
     const path = tmpDb()
-    seedLegacyDb(path)
-
-    const first = new SessionStore(path, HOST)
-    new SessionRegistry(first, undefined, { instanceId: 'default' }).modules.machines.ensureHostMachine('new-host', 'boot-secret')
-    first.close()
-
-    // Second boot over the same file: matches nothing, throws nothing.
-    const second = new SessionStore(path, HOST)
-    expect(() =>
-      new SessionRegistry(second, undefined, { instanceId: 'default' }).modules.machines.ensureHostMachine('new-host', 'boot-secret'),
-    ).not.toThrow()
-    expect(second.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
-    second.close()
-
-    // And a fresh install, which is the case that runs it forever after.
-    const fresh = new SessionStore(':memory:', HOST)
-    expect(() => fresh.migrateLegacyMachineIdentity(HOST)).not.toThrow()
-    fresh.close()
-  })
-
-  it('a session live ACROSS the upgrade keeps its identity and stays routable', () => {
-    // The in-memory Session objects are loaded before `ensureHostMachine` runs, so
-    // the upgrade must not leave the map and the rows disagreeing about where the
-    // work is — that disagreement is what stranded sessions in the placeholder era.
-    const path = tmpDb()
-    seedLegacyDb(path)
-
-    const store = new SessionStore(path, HOST)
-    const registry = new SessionRegistry(store, undefined, { instanceId: 'default' })
-    registry.modules.machines.ensureHostMachine('new-host', 'boot-secret')
-
-    const live = registry.modules.sessions
-      .listSessions()
-      .find((s) => s.sessionId === asSessionId('s-placeholder'))
-    expect(live?.machineId).toBe(HOST)
-    expect(live?.machineName).toBe('new-host')
-
-    // Routable: a control message for it reaches the host daemon when it attaches.
-    const delivered: ControlMessage[] = []
-    registry.modules.machines.toMachine(HOST, {
-      type: 'input',
-      sessionId: asSessionId('s-placeholder'),
-      data: 'x',
-    })
-    registry.gateway.attachDaemon(HOST, (m) => delivered.push(m))
-    expect(delivered).toContainEqual({
-      type: 'input',
-      sessionId: asSessionId('s-placeholder'),
-      data: 'x',
-    })
-    store.close()
-  })
-
-  it('covers EVERY table with a machine column, not the three that had a default', () => {
-    // `issues.machine_id` is an issue's machine pin — ordinary user data that could
-    // name the machine the UI called `local`. `conversation_segments`,
-    // `approval_requests` and `execution_profiles` carry one too. A hand-written
-    // list of "sessions, repos, conversations" would leave all four behind.
-    const path = tmpDb()
-    seedLegacyDb(path)
+    new SessionStore(path, HOST).close()
     const db = openDatabase(path)
     db.exec(`
       INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
                           created_at, updated_at, machine_id)
         VALUES ('iss_1', '/r', 1, 'pinned', 'backlog', 'main', 'claude-code', 't', 't', 'local');
-      INSERT INTO conversation_segments
-        (machine_id, native_id, provider_id, podium_id, seq_in_conv, linked_by, created_at)
-        VALUES ('__local__', 'n1', 'claude-jsonl', 'c-legacy', 0, 'test', 't');
     `)
     db.close()
 
-    const store = new SessionStore(path, HOST)
-    store.migrateLegacyMachineIdentity(HOST)
-
-    expect(store.issues.getIssue('iss_1')?.machineId).toBe(HOST)
-    store.close()
+    expect(() => new SessionStore(path, HOST)).toThrow(
+      /retired machine sentinels.*issues\.machine_id/s,
+    )
   })
 
-  it('refuses to boot when a sentinel survives — mixed identities fail loudly', () => {
-    // The residue check, exercised for real. It re-DISCOVERS the machine columns
-    // rather than restating the rewrite's list, so a table the rewrite cannot reach
-    // is exactly what it is there to catch — and the boot stops instead of serving
-    // rows the fleet can no longer see.
-    const path = tmpDb()
-    seedLegacyDb(path)
-    const store = new SessionStore(path, HOST)
-    expect(() => store.migrateLegacyMachineIdentity(HOST)).not.toThrow()
+  it('says nothing on a database no sentinel was ever written to', () => {
+    const store = new SessionStore(':memory:', HOST)
+    expect(store.machines.legacyMachineSentinelSites()).toEqual([])
+    store.repos.addRepo('/w', HOST)
+    expect(store.machines.legacyMachineSentinelSites()).toEqual([])
     store.close()
-
-    // A table with a machine column and a VIEW in front of it: the discovery reads
-    // `sqlite_master` tables, the rewrite writes through the same name, and a
-    // read-only table is one the UPDATE silently cannot move.
-    const db = openDatabase(path)
-    db.exec(`
-      CREATE TABLE legacy_pins (id TEXT PRIMARY KEY, machine_id TEXT NOT NULL);
-      INSERT INTO legacy_pins VALUES ('p1', '__local__');
-      CREATE TRIGGER legacy_pins_frozen BEFORE UPDATE ON legacy_pins
-        BEGIN SELECT RAISE(IGNORE); END;
-    `)
-    db.close()
-
-    // The store runs the upgrade when it OPENS, so this is the boot failing.
-    expect(() => new SessionStore(path, HOST)).toThrow(
-      /legacy machine identity survived the boot upgrade.*legacy_pins: 1/s,
-    )
   })
 })
 
-describe('the legacy issue worktree machine backfill', () => {
-  it('uses unambiguous repo placement with session evidence as a veto, and is idempotent', () => {
-    const path = tmpDb()
-    new SessionStore(path, HOST).close()
-
-    const other = asMachineId('11112222-3333-4444-5555-666677778888')
+/**
+ * THE CASE THAT CAN ACTUALLY HURT SOMEBODY.
+ *
+ * Retiring an upgrade makes two databases easy to test — a fresh one and a
+ * deliberately legacy one — and leaves the third untested: the one a person is
+ * running RIGHT NOW, which went through those upgrades on some earlier boot and
+ * must keep opening in silence. A refusal that fired on it would take a live
+ * install down at the exact moment the code that used to repair it was deleted.
+ *
+ * So this seeds the pre-POD-318 shape, replays byte for byte what the two
+ * retired upgrades wrote, and asserts the boot says nothing at all.
+ */
+describe('a database that already ran the retired upgrades', () => {
+  /** Exactly what `migrateLegacyMachineIdentity` and `migrateLegacyRepoIdentity`
+   *  left behind: sentinels folded onto the host id (the `machines` row RENAMED,
+   *  not re-inserted), an identity and a prefix on the repo, and the spent-once
+   *  marker in `meta`. */
+  function replayRetiredUpgrades(path: string): RepoId {
     const db = openDatabase(path)
+    const repoId = deriveRepoId({ machineId: HOST, path: '/legacy/repo' })
     db.exec(`
-      INSERT INTO repos (machine_id, path, repo_name, added_at)
-      VALUES
-        ('${HOST}', '/repos/host', 'host', 't'),
-        ('${other}', '/repos/remote', 'remote', 't'),
-        ('${HOST}', '/repos/shared', 'shared-host', 't'),
-        ('${other}', '/repos/shared', 'shared-remote', 't');
-
-      INSERT INTO issues
-        (id, repo_path, seq, title, stage, worktree_path, parent_branch, default_agent,
-         created_at, updated_at, machine_id)
-      VALUES
-        ('iss_host-repo', '/r', 101, 'host repo', 'done', '/repos/host/.worktrees/legacy',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_remote-repo', '/r', 102, 'remote repo', 'done', '/repos/remote',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_host-fallback', '/r', 103, 'host fallback', 'done', '/tmp/podium-legacy',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_ambiguous-repo', '/r', 104, 'ambiguous repo', 'done', '/repos/shared/worktree',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_remote-evidence', '/r', 105, 'remote evidence', 'done', '/unknown/adopted',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_repo-conflict', '/r', 106, 'repo conflict', 'done', '/repos/host/conflict',
-         'main', 'claude-code', 't', 't', NULL),
-        ('iss_remote-worktree', '/r', 107, 'remote worktree', 'done', '/repos/host/pinned',
-         'main', 'claude-code', 't', 't', '${other}'),
-        ('iss_no-worktree', '/r', 108, 'no worktree', 'done', NULL,
-         'main', 'claude-code', 't', 't', NULL);
-
-      INSERT INTO sessions
-        (id, owner_user_id, agent_kind, cwd, title, origin_kind, status, durable_label,
-         created_at, last_active_at, machine_id, issue_id, ref_issue_id)
-      VALUES
-        ('s_remote-adopter', 'user:sole', 'shell', '/unknown/adopted', 'remote adopter',
-         'spawn', 'exited', 'podium-s_remote-adopter', 't', 't', '${other}',
-         'iss_remote-evidence', 'iss_remote-evidence'),
-        ('s_repo-conflict', 'user:sole', 'shell', '/repos/host/conflict', 'repo conflict',
-         'spawn', 'exited', 'podium-s_repo-conflict', 't', 't', '${other}',
-         'iss_repo-conflict', 'iss_repo-conflict');
+      UPDATE OR REPLACE machines SET id = '${HOST}' WHERE id IN ('local', '__local__');
+      UPDATE OR REPLACE sessions SET machine_id = '${HOST}'
+        WHERE machine_id IN ('local', '__local__');
+      UPDATE OR REPLACE repos SET machine_id = '${HOST}'
+        WHERE machine_id IN ('local', '__local__');
+      UPDATE OR REPLACE conversations SET machine_id = '${HOST}'
+        WHERE machine_id IN ('local', '__local__');
+      UPDATE repos SET repo_id = '${repoId}' WHERE repo_id IS NULL;
+      INSERT INTO repo_prefixes (repo_id, prefix) VALUES ('${repoId}', 'LEG');
+      INSERT INTO meta (key, value) VALUES ('repo-identity-upgrade', 't');
     `)
     db.close()
+    return repoId
+  }
 
-    const logs = captureLogs()
+  it('opens in silence, and keeps every row the upgrades moved', () => {
+    const path = tmpDb()
+    seedLegacyDb(path)
+    const repoId = replayRetiredUpgrades(path)
+
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
       const store = new SessionStore(path, HOST)
 
-      expect(store.issues.getIssue('iss_host-repo')?.machineId).toBe(HOST)
-      expect(store.issues.getIssue('iss_remote-repo')?.machineId).toBe(other)
-      expect(store.issues.getIssue('iss_host-fallback')?.machineId).toBe(HOST)
-      expect(store.issues.getIssue('iss_ambiguous-repo')?.machineId).toBeNull()
-      expect(store.issues.getIssue('iss_remote-worktree')?.machineId).toBe(other)
-      expect(store.issues.getIssue('iss_remote-evidence')?.machineId).toBeNull()
-      expect(store.issues.getIssue('iss_repo-conflict')?.machineId).toBeNull()
-      expect(store.issues.getIssue('iss_no-worktree')?.machineId).toBeNull()
-      expect(logs.at('info')).toContainEqual(
-        expect.objectContaining({
-          ns: 'server:store',
-          msg:
-            `backfilled worktree rows by machine: ${other}=1, ${HOST}=2; ` +
-            'left 3 unresolved',
-        }),
-      )
+      // Nothing refused, and nothing warned either — a live install's boot log
+      // does not gain a line because an upgrade was deleted underneath it.
+      expect(warn).not.toHaveBeenCalled()
+      expect(store.machines.legacyMachineSentinelSites()).toEqual([])
 
-      expect(store.migrateLegacyIssueWorktreeMachineIdentity(HOST)).toEqual({
-        backfilledByMachine: {},
-        unresolved: 3,
-      })
-      const raw = openDatabase(path)
-      raw.prepare('UPDATE sessions SET issue_id = NULL WHERE id = ?').run('s_remote-adopter')
-      raw.close()
-      expect(store.migrateLegacyIssueWorktreeMachineIdentity(HOST)).toEqual({
-        backfilledByMachine: {},
-        unresolved: 3,
-      })
-      expect(store.issues.getIssue('iss_remote-worktree')?.machineId).toBe(other)
-      expect(store.issues.getIssue('iss_remote-evidence')?.machineId).toBeNull()
-      expect(store.issues.getIssue('iss_repo-conflict')?.machineId).toBeNull()
-      expect(store.issues.getIssue('iss_ambiguous-repo')?.machineId).toBeNull()
-      expect(store.issues.getIssue('iss_no-worktree')?.machineId).toBeNull()
+      // And the rows are exactly where the upgrades put them.
+      expect(store.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
+      expect(store.repos.listRepos().map((r) => r.machineId)).toEqual([HOST])
+      expect(store.repos.listRepos()[0]?.repoId).toBe(repoId)
+      expect(store.repos.prefixForRepoId(repoId)).toBe('LEG')
+      const machines = store.machines.listMachines()
+      expect(machines).toHaveLength(1)
+      expect(machines[0]?.id).toBe(HOST)
+      // The RENAME is why this survived: a fresh insert would have dropped the
+      // owner the legacy row carried, and split the fleet in half.
+      expect(machines[0]?.ownerUserId).toBe('user:sole')
       store.close()
     } finally {
-      logs.restore()
+      warn.mockRestore()
     }
+  })
+
+  it('and the seed itself would have been refused — the assertion above is not vacuous', () => {
+    const path = tmpDb()
+    seedLegacyDb(path)
+    expect(() => new SessionStore(path, HOST)).toThrow(/retired machine sentinels/)
   })
 })
 

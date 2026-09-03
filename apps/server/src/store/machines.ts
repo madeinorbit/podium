@@ -95,8 +95,80 @@ function toRecord(r: Record<string, unknown>): MachineRecord {
   }
 }
 
+/**
+ * EVERY `(table, column)` IN THE SCHEMA THAT STORES A MACHINE ID, written out
+ * rather than discovered.
+ *
+ * The one-time upgrade this replaces (POD-318) asked `sqlite_master` and
+ * `PRAGMA table_info` which tables carried a machine column, because a
+ * hand-written list of "sessions, repos, conversations" had already shipped
+ * once and had already been wrong. The list is safe to write down HERE only
+ * because it is no longer a memory: `machines-sentinel-scan.test.ts` derives
+ * the same set from `migrations/schema.ts` and fails if a table grows a
+ * machine column without appearing below.
+ */
+/**
+ * THE RETIRED MACHINE SENTINELS, SPELLED ONCE IN LIVE CODE (POD-318).
+ *
+ * `'local'` was a `machines` row's literal id and `'__local__'` was the column
+ * default three tables carried; the `MachineId` validator in `@podium/model`
+ * refuses both, so no writer can produce either. This is the only other place
+ * they are named, and the `local-placeholders` audit counter is what keeps that
+ * true — the boot refusal's message reads them from here rather than repeating
+ * them.
+ */
+export const RETIRED_MACHINE_SENTINELS = ['local', '__local__'] as const
+
+export const MACHINE_ID_SITES: readonly string[] = [
+  'approval_requests.machine_id',
+  'conversation_segment_incarnations.machine_id',
+  'conversation_segments.machine_id',
+  'conversations.machine_id',
+  'execution_profiles.machine_id',
+  'issues.machine_id',
+  'machines.id',
+  'repos.machine_id',
+  'sessions.machine_id',
+  'ship_attempts.machine_id',
+  'ship_orders.machine_id',
+  'ship_train_manifests.machine_id',
+  'ship_train_members.machine_id',
+  'transcript_costs.machine_id',
+]
+
 export class MachinesRepository {
   constructor(private readonly db: SqlDatabase) {}
+
+  /**
+   * WHERE A RETIRED MACHINE SENTINEL IS STILL STORED — empty on every database
+   * a supported install can be holding.
+   *
+   * This is the residue half of POD-318's one-time boot upgrade, kept after the
+   * rewrite itself was retired (POD-3246). The rewrite folded `'local'` and
+   * `'__local__'` rows onto the host's minted id; it could go because no
+   * released binary ever wrote either value — the sentinels died on 2026-08-02
+   * and the first release of any kind is v0.1.0-edge.1 on 2026-08-17 — so a
+   * database that has ever been opened by a shipped Podium cannot contain one.
+   *
+   * The CHECK stays because the alternative to finding out is not finding out.
+   * A database that somehow still carries a sentinel is one where the fleet
+   * answers to a UUID while rows name a machine that does not exist, and that
+   * is precisely how the placeholder era stranded people's sessions. The facade
+   * refuses to boot on a non-empty answer rather than serving mixed identities.
+   *
+   * ONE STATEMENT, not one per table: each arm is an `EXISTS` that stops at the
+   * first offending row, and a remote driver pays one round trip for the whole
+   * scan instead of fourteen.
+   */
+  legacyMachineSentinelSites(): string[] {
+    const sentinels = RETIRED_MACHINE_SENTINELS.map((v) => `'${v}'`).join(', ')
+    const arms = MACHINE_ID_SITES.map((site) => {
+      const [table, column] = site.split('.')
+      return `SELECT '${site}' AS site WHERE EXISTS (SELECT 1 FROM "${table}" WHERE "${column}" IN (${sentinels}))`
+    })
+    const rows = this.db.prepare(arms.join('\nUNION ALL\n')).all() as { site: string }[]
+    return rows.map((r) => r.site)
+  }
 
   /**
    * Register or refresh a machine row.

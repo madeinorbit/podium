@@ -646,12 +646,12 @@ export const REGISTERED_RESIDUE: readonly RegisteredResidue[] = [
     auditItem: 'local-placeholders',
     owner: 'POD-318',
     expiry:
-      'deleted when no supported install can still be carrying pre-POD-318 rows — i.e. when an upgrade path that skips this boot is no longer offered',
-    note: "All three counted spellings are required: the ONE-TIME rewrite's WHERE IN list lets a database written before POD-318 be read at all, and the two `MachineId` validator lines make both sentinels unwritable. This is an UPGRADE WITH A DELETION HORIZON, not a standing heal: after the first boot on any install the rewrite matches nothing, and the validator prevents any writer from giving it new work.",
+      'deleted when the sentinels may stop being refused — i.e. when no payload, fixture or hand-written row can plausibly still carry one',
+    note: "THE REWRITE IS GONE (POD-3246): no released binary ever wrote either sentinel — they died on 2026-08-02 and the first release of any kind is v0.1.0-edge.1 on 2026-08-17 — so a database a shipped Podium has opened cannot carry one, and the upgrade that folded them onto the host's minted id reached its deletion horizon. All three remaining spellings are required: `RETIRED_MACHINE_SENTINELS` is the one place live code names them and is read by the store's boot refusal, which stops a boot rather than serving mixed identities, and the two `MachineId` validator lines make both sentinels unwritable at the boundary.",
     sites: [
       {
-        file: 'apps/server/src/store.ts',
-        needle: `const LEGACY = ["'local'", "'__local__'"].join(', ')`,
+        file: 'apps/server/src/store/machines.ts',
+        needle: `export const RETIRED_MACHINE_SENTINELS = ['local', '__local__'] as const`,
       },
       {
         file: 'packages/model/src/ids/brands.ts',
@@ -1076,7 +1076,9 @@ export const CHECKS: AuditCheck[] = [
     //
     // POD-1360 retired all four — `backfillRepoIds`, `backfillNullRepoIds`,
     // `healLocalOrigins`, `backfillPrefixes` — into one bounded, marker-gated
-    // upgrade (`SessionStore.migrateLegacyRepoIdentity`), leaving only the
+    // upgrade (`SessionStore.migrateLegacyRepoIdentity`), which POD-3246 in turn
+    // retired down to a boot refusal once no release could still be carrying an
+    // unidentified row. What is left under this pattern is only the
     // declared transcript-indexer false positive. THE FOUR NAMES STAY IN THE
     // PATTERN, matching nothing: a detector narrowed to what still exists reads
     // a relapse as a pass, and the point of these names is that no per-boot heal

@@ -1,13 +1,12 @@
-import { asUserId, FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { rmSync } from 'node:fs'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 // Fixture-only: hand-build a pre-multi-machine ("v3-shape") db. The store under
 // test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
-import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
 
@@ -37,43 +36,6 @@ describe('machines store', () => {
     expect(s.machines.listMachines()[0]?.name).toBe('laptop')
     s.machines.deleteMachine('m1')
     expect(s.machines.listMachines()).toEqual([])
-    s.close()
-  })
-
-  it('the boot upgrade folds legacy sentinel rows onto this host, and re-running is a no-op', () => {
-    const s = new SessionStore(':memory:')
-    s.sessions.upsertSession({
-      id: asSessionId('sess'),
-      ownerUserId: FIRST_ADMIN_USER_ID,
-      agentKind: 'shell',
-      cwd: '/x',
-      title: 't',
-      name: null,
-      originKind: 'spawn',
-      conversationId: null,
-      resumeKind: null,
-      resumeValue: null,
-      status: 'live',
-      exitCode: null,
-      durableLabel: 'podium-sess',
-      createdAt: 'a',
-      lastActiveAt: 'a',
-      lastOutputAt: null,
-      lastInputAt: null,
-      lastResumedAt: null,
-      archived: false,
-      workState: null,
-      // A row from before POD-318. Nothing in the codebase can write this value any
-      // more — the column default that manufactured it is gone — so it is spelled out
-      // here, which is exactly the shape a legacy database hands the upgrade.
-      machineId: asMachineId('__local__'),
-    })
-    s.migrateLegacyMachineIdentity(s.hostMachineId)
-    expect(s.sessions.loadSessions()[0]?.machineId).toBe(s.hostMachineId)
-    // Idempotent BY CONSTRUCTION: the second run matches nothing, and its residue
-    // check still passes — which is what makes it safe on every subsequent boot.
-    s.migrateLegacyMachineIdentity(s.hostMachineId)
-    expect(s.sessions.loadSessions()[0]?.machineId).toBe(s.hostMachineId)
     s.close()
   })
 
