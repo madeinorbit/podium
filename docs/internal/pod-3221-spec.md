@@ -596,6 +596,19 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
 9. **Builder only; no relational API, no generic base repository.** Aggregate assembly keeps
    its multi-query shape, batched with `IN` lists where a loop is an obvious N+1.
 
+   READ THE GEOGRAPHY BEFORE THE NUMBERS. The measurements below were taken from a box in GERMANY
+   against Turso databases in AWS us-east-1. That distance is deliberate and correct: the databases
+   sit next to CI and next to where the server will run (Fly IAD), not next to the developer. So
+   the ~95 ms round trip is a measuring artefact of where the measurement was taken, and the honest
+   same-metro figure is roughly 3-5 ms per statement, which makes an unbatched issue frame about
+   1.5 s rather than 37 s. Do not quote the German numbers as production latency.
+
+   WHAT SURVIVES THE CORRECTION, and it is the whole point: ROUND TRIPS PER REQUEST is a property
+   of the CODE, not of geography. 371 of them is 371 wherever the server stands. At same-metro
+   latency an unbatched issue frame is still ~1.5 s against 5 ms for the IN-list rewrite — a 300x
+   difference that no amount of co-location fixes. Geography changes the constant; batching changes
+   the exponent.
+
    PRICED 2026-09-03 (POD-3251), and the price changes what this rule is. Replayed against an
    imported production dataset on a real Turso database: the issue frame's 371 statements run
    sequentially cost **37.6 s**; the same 371 as one batch cost **0.22 s**; the same fan-out
