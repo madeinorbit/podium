@@ -89,6 +89,12 @@ export interface StoreExecutorOptions<TClient> {
   effectSink?: (error: unknown, label: string) => void
   /** Called when mechanism 1 fails and the store becomes unhealthy. */
   onUnhealthy?: (error: unknown, label: string) => void
+  /**
+   * A report sink (`effectSink`, `onUnhealthy`) threw. Sinks are called through
+   * a guard so an adapter that throws cannot turn an isolated post-commit
+   * failure into an unmarked rejection of a committed write.
+   */
+  onReportFailure?: (error: unknown, label: string) => void
 }
 
 /**
@@ -142,7 +148,11 @@ export function createStoreExecutor<TClient>(
   }
 
   function newRunner(): PostCommitRunner {
-    const runner = new PostCommitRunner({ markUnhealthy, effectSink })
+    const runner = new PostCommitRunner({
+      markUnhealthy,
+      effectSink,
+      ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
+    })
     runners.add(runner)
     return runner
   }

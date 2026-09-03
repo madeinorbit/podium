@@ -64,11 +64,21 @@ export class PostCommitError extends StoreExecutorError {
  * restart; the store refuses further work until then.
  */
 export class StoreUnhealthyError extends StoreExecutorError {
+  /**
+   * True when the failure happened AFTER the commit — the mechanism-1 case. The
+   * write is durable and the caller must never read the rejection as a
+   * rollback, which is the same guarantee {@link PostCommitError} carries
+   * (spec §3.3, rule 7). False when the store was already unhealthy and refused
+   * the work before it ran: nothing was written, so nothing committed.
+   */
+  readonly committed: boolean
   constructor(
     message: string,
     override readonly cause: unknown,
+    options: { readonly committed?: boolean } = {},
   ) {
     super(message)
+    this.committed = options.committed ?? false
   }
 }
 

@@ -176,6 +176,7 @@ export function openHarness(options: HarnessOptions = {}): Harness {
     ...(options.now ? { now: options.now } : {}),
     ...(options.effectSink ? { effectSink: options.effectSink } : {}),
     ...(options.onUnhealthy ? { onUnhealthy: options.onUnhealthy } : {}),
+    ...(options.onReportFailure ? { onReportFailure: options.onReportFailure } : {}),
   })
   const log: StatementLog = {
     entries,

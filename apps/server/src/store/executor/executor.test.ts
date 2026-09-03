@@ -479,6 +479,102 @@ describe('post-commit', () => {
     await expect(h.executor.read(async () => undefined)).rejects.toBeInstanceOf(StoreUnhealthyError)
   })
 
+  it('marks a mechanism-1 failure committed, and a later refusal not committed', async () => {
+    // WOULD CATCH the committed-error contract being wrong at exactly the point
+    // it matters: a caller handling the rejection of a mechanism-1 failure can
+    // otherwise not tell it from a rollback, and retrying it duplicates a
+    // durable write (spec §3.3, rule 7).
+    const h = open()
+    const failure = await h.executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed')
+        postCommit().applyCommit(() => {
+          throw new Error('baseline fold failed')
+        }, 'baseline')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    expect(failure).toBeInstanceOf(StoreUnhealthyError)
+    expect((failure as StoreUnhealthyError).committed).toBe(true)
+    expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
+
+    // The REFUSAL afterwards is the opposite case and must say so: the store is
+    // unhealthy, the work never ran, and nothing committed.
+    const refusal = await h.executor.read(async () => undefined).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(refusal).toBeInstanceOf(StoreUnhealthyError)
+    expect((refusal as StoreUnhealthyError).committed).toBe(false)
+  })
+
+  it('keeps a throwing effect sink out of the caller’s promise', async () => {
+    // WOULD CATCH a logging or telemetry adapter turning an ISOLATED effect
+    // failure into the transaction's rejection — and an unmarked one, so the
+    // caller reads a committed write as a failed one.
+    const lastResort: string[] = []
+    const h = open({
+      effectSink: () => {
+        throw new Error('sink failed')
+      },
+      onReportFailure: (_error, label) => lastResort.push(label),
+    })
+    const ran: string[] = []
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'committed')
+      postCommit().effect(() => {
+        throw new Error('socket gone')
+      }, 'sync-effect')
+      postCommit().effect(async () => {
+        throw new Error('notify gone')
+      }, 'async-effect')
+      postCommit().effect(() => {
+        ran.push('later')
+      }, 'later')
+    })
+
+    await h.executor.effectsSettled()
+    expect(lastResort, 'both the sync throw and the rejected promise').toEqual([
+      'sync-effect',
+      'async-effect',
+    ])
+    expect(ran, 'the effect after the failing ones still ran').toEqual(['later'])
+    expect(await noteBodies(h.db)).toEqual(['committed'])
+  })
+
+  it('keeps a throwing unhealthy reporter from replacing the committed error', async () => {
+    const lastResort: string[] = []
+    const h = open({
+      onUnhealthy: () => {
+        throw new Error('logger failed')
+      },
+      onReportFailure: (_error, label) => lastResort.push(label),
+    })
+
+    const failure = await h.executor
+      .transact(async (tx) => {
+        await tx.drizzle.run(insert, 'committed')
+        postCommit().applyCommit(() => {
+          throw new Error('baseline fold failed')
+        }, 'baseline')
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      )
+
+    // The reporter's own failure must not become the caller's error: that would
+    // lose both the mechanism and the committed marker.
+    expect(failure).toBeInstanceOf(StoreUnhealthyError)
+    expect((failure as StoreUnhealthyError).committed).toBe(true)
+    expect(lastResort).toEqual(['baseline'])
+    expect(h.executor.health.healthy).toBe(false)
+  })
+
   it('reports a durable follow-up failure as a committed failure and still drains the rest', async () => {
     const h = open()
     const ran: string[] = []

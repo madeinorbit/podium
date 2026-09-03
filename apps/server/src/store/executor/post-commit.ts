@@ -101,6 +101,14 @@ export interface PostCommitRunnerOptions {
   markUnhealthy: (error: unknown, label: string) => void
   /** Mechanism 3 failed: reported, never rethrown. */
   effectSink: (error: unknown, label: string) => void
+  /**
+   * A REPORT SINK ITSELF threw. A logger or telemetry adapter that throws must
+   * not become the transaction's error: an isolated effect failure would then
+   * reach the caller as an unmarked rejection of an already-committed write.
+   * So every sink call is made through {@link report} and a sink's own failure
+   * lands here instead of propagating.
+   */
+  onReportFailure?: (error: unknown, label: string) => void
 }
 
 /**
@@ -137,13 +145,16 @@ export class PostCommitRunner {
           try {
             await entry.step()
           } catch (error) {
-            this.options.markUnhealthy(error, entry.label)
+            this.report(this.options.markUnhealthy, error, entry.label)
             // Not skippable and not recoverable: stop the drain rather than
             // fold further batches into a projection already known to be wrong.
             throw new StoreUnhealthyError(
               `commit application "${entry.label}" failed; the store is unhealthy and needs a ` +
                 'reseed or a restart. The transaction itself committed.',
               error,
+              // The COMMIT already happened. This rejection is not a rollback and
+              // a caller that retries it would duplicate a durable write.
+              { committed: true },
             )
           }
         }
@@ -180,16 +191,37 @@ export class PostCommitRunner {
     try {
       result = entry.step()
     } catch (error) {
-      this.options.effectSink(error, entry.label)
+      this.report(this.options.effectSink, error, entry.label)
       return
     }
     if (!isThenable(result)) return
     const tracked = result.then(
       () => undefined,
-      (error: unknown) => this.options.effectSink(error, entry.label),
+      (error: unknown) => this.report(this.options.effectSink, error, entry.label),
     )
     this.inFlightEffects.add(tracked)
     void tracked.finally(() => this.inFlightEffects.delete(tracked))
+  }
+
+  /**
+   * Call a report sink without letting it become the failure it was reporting.
+   * The last-resort sink is given the same courtesy, because there is nowhere
+   * left to send its failure.
+   */
+  private report(
+    sink: (error: unknown, label: string) => void,
+    error: unknown,
+    label: string,
+  ): void {
+    try {
+      sink(error, label)
+    } catch (sinkError) {
+      try {
+        this.options.onReportFailure?.(sinkError, label)
+      } catch {
+        /* the last-resort sink threw; there is nowhere further to report it */
+      }
+    }
   }
 }
 
