@@ -50,6 +50,20 @@ export interface SetupDeps {
    * terminal; the flag exists so a scripted re-run does not hang on the prompt.
    */
   confirmUrlChange?: boolean
+  /**
+   * This machine is being configured AS PART OF INSTALLING IT (`podium install-finish`), so
+   * the backend's first boot must already see the persistence choice.
+   *
+   * Without it the freshly installed hub starts before `persistence` is written, and
+   * `/readiness` correctly answers `activation_pending / restart_required` with the data
+   * plane BLOCKED — a one-paste install that silently needs a restart before anything works.
+   * Found by the two-container end-to-end run: minting a join code on the new hub answered
+   * `server_not_ready`, `stale: ["persistence"]`.
+   *
+   * `runVpsSetup` has always passed it. The CLI flow could not have wanted it before, because
+   * until POD-3274 nothing ran it on a machine that had just been installed.
+   */
+  activateImmediately?: boolean
 }
 
 const JOIN_CONNECT_TIMEOUT_MS = 30_000
@@ -651,7 +665,10 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     })),
   })
 
-  const hostOptions = deps.confirmUrlChange ? { confirmUrlChange: true } : {}
+  const hostOptions = {
+    ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
+    ...(deps.activateImmediately ? { activateImmediately: true } : {}),
+  }
   if (choice === 'all-in-one') {
     await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
   } else if (choice === 'server') {

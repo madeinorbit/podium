@@ -131,6 +131,41 @@ describe('runCliSetup', () => {
       expect(loadConfig().persistence).toBe('detached')
     })
 
+    it('under activateImmediately the backend FIRST BOOTS against a config that already names the persistence', async () => {
+      // The defect this pins, found end-to-end on two containers: `podium install-finish`
+      // configured a hub, started it, and printed "Installed." — while /readiness answered
+      // `activation_pending / restart_required` with the data plane BLOCKED and
+      // `stale: ["persistence"]`, because the value was written after the process it
+      // configures had already booted. Minting a join code on the new hub returned
+      // `server_not_ready`. A one-paste install must not need a restart to work.
+      //
+      // Asserted at the MOMENT OF THE CALL, not afterwards: the end state is identical either
+      // way, so a test that read the config after the flow would pass on the broken code.
+      let persistenceAtBoot: string | undefined
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => {
+        persistenceAtBoot = loadConfig().persistence
+        return { effectivePersistence: o.persistence, message: 'started' }
+      })
+      const { io } = scriptedIO(['all-in-one', net(3), 'https://hub.example', 's3cret', true])
+      await runCliSetup(io, 18787, {
+        setPassword: vi.fn(async () => {}),
+        startBackend,
+        activateImmediately: true,
+      })
+      expect(persistenceAtBoot).toBe('systemd')
+    })
+
+    it('a plain `podium setup` does NOT pre-write it — that box is already running', async () => {
+      let persistenceAtBoot: string | undefined
+      const startBackend = vi.fn(async (o: { persistence: 'systemd' | 'detached' }) => {
+        persistenceAtBoot = loadConfig().persistence
+        return { effectivePersistence: o.persistence, message: 'started' }
+      })
+      const { io } = scriptedIO(['all-in-one', net(3), 'https://hub.example', 's3cret', true])
+      await runCliSetup(io, 18787, { setPassword: vi.fn(async () => {}), startBackend })
+      expect(persistenceAtBoot).toBeUndefined()
+    })
+
     it('host a server here (all-in-one) → set URL then password', async () => {
       const setPw = vi.fn(async () => {})
       await run(['all-in-one', net(0), 'https://box.ts.net', 's3cret', false], setPw)

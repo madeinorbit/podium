@@ -122,6 +122,10 @@ describe('runInstallFinish', () => {
     })),
     runCliSetup: vi.fn(async () => {}),
     runVpsSetup: vi.fn(async () => {}),
+    // Pinned, and never left to the default: without it the report would read the REAL
+    // ~/.podium/config.json, so these tests would say different things on a developer's
+    // machine than on a bare one.
+    readConfig: vi.fn(() => ({}) as { mode?: string; publicUrl?: string }),
     isTTY: () => true,
     home: dir,
     port: 18787,
@@ -173,6 +177,18 @@ describe('runInstallFinish', () => {
     expect(d.runVpsSetup).not.toHaveBeenCalled()
   })
 
+  it('asks the setup flow to ACTIVATE IMMEDIATELY, because this box is being installed', async () => {
+    // Found end-to-end on two containers: without it the freshly installed hub starts before
+    // `persistence` is written, so /readiness answers `activation_pending / restart_required`
+    // with the data plane BLOCKED — minting a join code on the brand-new hub returned
+    // `server_not_ready`, `stale: ["persistence"]`. A one-paste install must not need a
+    // restart before it works.
+    const d = deps()
+    const { io } = scriptedIO([])
+    await runInstallFinish(io, opts(), d)
+    expect(d.runCliSetup).toHaveBeenCalledWith(io, 18787, { activateImmediately: true })
+  })
+
   it('selects the VPS flow under --vps [R7]', async () => {
     const d = deps()
     const { io } = scriptedIO([])
@@ -211,6 +227,48 @@ describe('runInstallFinish', () => {
     await runInstallFinish(io, opts({ joinToken: token, command: 'podium-work' }), d)
     expect(commands).toContain('podium-work status')
     expect(commands).toContain('podium-work stop')
+  })
+
+  it('does not tell an operator to configure a box the setup just configured', async () => {
+    // The first version of the report said "Run this to configure this machine" to anything
+    // that had not JOINED. The two-container run printed exactly that one line under a setup
+    // flow that had configured and started a hub.
+    const d = deps({
+      readConfig: vi.fn(() => ({ mode: 'server', publicUrl: 'https://hub.example' })),
+    })
+    const { io, output, commands } = scriptedIO([])
+    await runInstallFinish(io, opts(), d)
+    const all = output.join('\n')
+    expect(all).not.toContain('configure this machine')
+    expect(all).toContain('set up and running')
+    // The URL is what the operator came for, and it is a thing to COPY.
+    expect(commands).toContain('https://hub.example')
+    expect(commands).toContain('podium status')
+    expect(all).toContain('Ready.')
+  })
+
+  it('still points an UNCONFIGURED box at `podium`', async () => {
+    const d = deps({ isTTY: () => false })
+    const { io, output, commands } = scriptedIO([])
+    await runInstallFinish(io, opts(), d)
+    expect(commands).toContain('podium')
+    expect(output.join('\n')).toContain('Installed.')
+  })
+
+  it('does not claim to have STARTED a box it only re-installed over', async () => {
+    // No TTY, no join token, but a config was already there: nothing in this run started
+    // anything, so the report must not say it is running.
+    const d = deps({
+      isTTY: () => false,
+      readConfig: vi.fn(() => ({ mode: 'all-in-one', publicUrl: 'https://old.example' })),
+    })
+    const { io, output, commands } = scriptedIO([])
+    await runInstallFinish(io, opts(), d)
+    const all = output.join('\n')
+    expect(all).toContain('already configured')
+    expect(all).not.toContain('set up and running')
+    expect(all).not.toContain('configure this machine')
+    expect(commands).toContain('podium status')
   })
 
   it('boxes the PATH export when this shell cannot yet see the command [R9]', async () => {

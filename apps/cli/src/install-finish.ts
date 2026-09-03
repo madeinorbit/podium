@@ -12,11 +12,13 @@
  *
  * Not in `podium help`: install.sh is the only caller.
  */
+import { loadConfig } from '@podium/runtime/config'
 import { applyChannel as realApplyChannel } from './cli-channel'
 import {
   runCliSetup as realRunCliSetup,
   runJoinSetup as realRunJoinSetup,
   runVpsSetup as realRunVpsSetup,
+  type SetupDeps,
   type StartBackendResult,
 } from './cli-setup'
 import { installAgents as realInstallAgents } from './install-agents'
@@ -57,9 +59,13 @@ export interface InstallFinishDeps {
     persistence: 'systemd' | 'detached',
     port: number,
   ) => Promise<{ name: string; warning?: string; result: StartBackendResult }>
-  runCliSetup?: (io: SetupIO, port: number) => Promise<void>
+  /** Takes the setup options too, so what this flow ASKS FOR is observable rather than
+   *  buried in a default that a test can only reach by mocking the module. */
+  runCliSetup?: (io: SetupIO, port: number, setupDeps: SetupDeps) => Promise<void>
   runVpsSetup?: (io: SetupIO, port: number) => Promise<void>
   isTTY?: () => boolean
+  /** What this box ended up configured as, read AFTER setup so the report can say so. */
+  readConfig?: () => { mode?: string; publicUrl?: string }
   home?: string
   port?: number
   /** The PATH to test the bin dir against; injected so a test need not mutate process.env. */
@@ -163,7 +169,7 @@ export async function runInstallFinish(
   const persistPath = deps.persistPath ?? realPersistPath
   const probeSupervision = deps.probeSupervision ?? realProbeSupervision
   const runJoinSetup = deps.runJoinSetup ?? realRunJoinSetup
-  const runCliSetup = deps.runCliSetup ?? ((i: SetupIO, p: number) => realRunCliSetup(i, p))
+  const runCliSetup = deps.runCliSetup ?? realRunCliSetup
   const runVpsSetup = deps.runVpsSetup ?? ((i: SetupIO, p: number) => realRunVpsSetup(i, p))
   const isTTY = deps.isTTY ?? (() => process.stdin.isTTY === true)
   const port = deps.port ?? DEFAULT_PORT
@@ -190,6 +196,8 @@ export async function runInstallFinish(
 
   const persistence = supervision.systemd ? 'systemd' : 'detached'
   let joined: string | undefined
+  /** Whether THIS run configured the box — a pre-existing config is a different sentence. */
+  let setupRan = false
   if (opts.joinToken) {
     // Non-interactive by construction: the hub already decided this machine's role, so there
     // is nothing to ask. A failure here must PROPAGATE — install.sh exits non-zero on it,
@@ -209,8 +217,13 @@ export async function runInstallFinish(
   } else if (opts.interactive && isTTY()) {
     // The `< /dev/tty` handoff is what makes this reachable from `curl … | sh`: one paste
     // gets a configured Podium instead of an install followed by a second command.
+    // `activateImmediately` because this machine is being configured as part of being
+    // INSTALLED: the backend's first boot has to already see the persistence choice, or the
+    // box comes up `activation_pending / restart_required` with its data plane blocked. See
+    // SetupDeps. (`runVpsSetup` asks for it on its own — every VPS is a fresh install.)
     if (opts.vps) await runVpsSetup(io, port)
-    else await runCliSetup(io, port)
+    else await runCliSetup(io, port, { activateImmediately: true })
+    setupRan = true
   }
 
   // AFTER pairing, deliberately (install.sh:430-441). A one-use join code is short-lived, and
@@ -220,21 +233,41 @@ export async function runInstallFinish(
     await (deps.installAgents ?? realInstallAgents)(io, opts.agents, opts.bin)
   }
 
-  report(io, opts, { joined, persisted, supervision, pathOf: deps.pathOf })
+  report(io, opts, {
+    joined,
+    setupRan,
+    persisted,
+    supervision,
+    config: (deps.readConfig ?? (() => loadConfig()))(),
+    pathOf: deps.pathOf,
+  })
 }
 
-/** The closing report. Everything an operator has to COPY goes through `command()` (R9). */
+/**
+ * The closing report. Everything an operator has to COPY goes through `command()` (R9).
+ *
+ * FOUR END STATES, not two. The first version of this told anything that had not JOINED to
+ * "run `podium` to configure this machine" — which the two-container end-to-end run showed
+ * being printed to an operator whose hub had just been configured and started, one line under
+ * the setup flow that did it. Two questions separate the rest: does this box still need
+ * configuring (a written `mode` answers it), and did THIS run start something (only a join or
+ * a setup did). A pre-existing config with neither is installed, not started.
+ */
 function report(
   io: SetupIO,
   opts: InstallFinishOptions,
   state: {
     joined: string | undefined
+    setupRan: boolean
     persisted: boolean
     supervision: SupervisionProbe
+    config: { mode?: string; publicUrl?: string }
     pathOf?: () => string
   },
 ): void {
   const hint = realPathHint(opts.bin, state.persisted, opts.command, state.pathOf?.())
+  const running = `${opts.command} status\n${opts.command} stop`
+  const runningCaption = 'What is running here, and how to stop it:'
   if (state.joined) {
     io.success('This machine has joined your Podium.')
     io.step(
@@ -242,10 +275,22 @@ function report(
         ? 'The daemon runs as a systemd user service, so it survives reboots.'
         : 'The daemon is running detached.',
     )
-    io.command(
-      `${opts.command} status\n${opts.command} stop`,
-      'What is running here, and how to stop it:',
+    io.command(running, runningCaption)
+  } else if (state.setupRan && state.config.mode) {
+    io.success('Podium is set up and running on this machine.')
+    io.step(
+      state.supervision.systemd
+        ? 'It runs as a systemd user service, so it survives reboots.'
+        : 'It is running detached.',
     )
+    // The URL first: on a host it is the one thing the operator came here for, and it is a
+    // thing to COPY, so it gets the same box a command does.
+    if (state.config.publicUrl) io.command(state.config.publicUrl, 'Open your Podium at:')
+    io.command(running, runningCaption)
+  } else if (state.config.mode) {
+    // Re-installed over a box that was already configured and nothing here started it.
+    io.success('Podium is installed. This machine was already configured.')
+    io.command(running, runningCaption)
   } else {
     io.success('Podium is installed.')
     io.command(opts.command, 'Run this to configure this machine and open the web UI:')
@@ -256,5 +301,5 @@ function report(
     if (exportIdx >= 0) io.command(hint.slice(exportIdx), hint.slice(0, exportIdx).trim())
     else io.warn(hint)
   }
-  io.outro(state.joined ? 'Ready.' : 'Installed.')
+  io.outro(state.joined || (state.setupRan && state.config.mode) ? 'Ready.' : 'Installed.')
 }
