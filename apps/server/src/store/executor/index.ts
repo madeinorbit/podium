@@ -19,6 +19,7 @@ export {
 export {
   assertAddressable,
   currentScope,
+  type InFlight,
   type StoreScope,
   type TransactionFrame,
   type TransactionToken,
@@ -38,6 +39,7 @@ export {
   type SqlParam,
   type SqlRunResult,
   type Statement,
+  type StatementIntent,
   type StatementMethod,
   type StatementResult,
   type StatementRouter,

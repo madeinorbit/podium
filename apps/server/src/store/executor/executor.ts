@@ -32,9 +32,11 @@ import {
   assertAddressable,
   closeFrame,
   createFrame,
+  createInFlight,
   currentScope,
   poisonUnit,
   runInScope,
+  settleInFlight,
   type TransactionFrame,
 } from './context'
 import type {
@@ -134,6 +136,16 @@ export function postCommit(): PostCommitRegistrar {
       'postCommit() needs an open transaction scope: there is nothing for the work to follow',
     )
   }
+  if (scope.frame.lane === 'read') {
+    // A read scope never commits, so `runTopLevel` is given no runner and its
+    // registry is dropped on the floor. Registering here USED to succeed and
+    // then silently do nothing, which is the worst of the three outcomes: a
+    // refusal is visible and a drain is correct.
+    throw new NoPostCommitScopeError(
+      'postCommit() inside a read scope: a read commits nothing, so there is nothing for the ' +
+        'work to follow. Open the write scope at the top of the operation instead.',
+    )
+  }
   assertAddressable(scope.frame)
   return scope.frame.postCommit
 }
@@ -142,16 +154,36 @@ export function createStoreExecutor<TClient>(
   options: StoreExecutorOptions<TClient>,
 ): RootStoreExecutor<TClient> {
   const { driver } = options
-  const scheduler = createScheduler({
-    driver: driver as StoreDriver<unknown>,
-    watchdog: options.watchdog,
-    now: options.now,
-  })
   const effectSink =
     options.effectSink ??
     (() => {
       /* dropped by default; the server injects a logger */
     })
+  /**
+   * Call a report sink without letting it become the failure it was reporting.
+   * The same guard `PostCommitRunner` uses, for the same reason: an adapter
+   * that throws must not turn an isolated failure into a rejection of an
+   * already-committed write.
+   */
+  function report(error: unknown, label: string): void {
+    try {
+      effectSink(error, label)
+    } catch (sinkError) {
+      try {
+        options.onReportFailure?.(sinkError, label)
+      } catch {
+        /* the last-resort sink threw; there is nowhere further to report it */
+      }
+    }
+  }
+  const scheduler = createScheduler({
+    driver: driver as StoreDriver<unknown>,
+    watchdog: options.watchdog,
+    now: options.now,
+    // Publication is flushed on idle, and idle is raised from inside the
+    // release of the operation that just committed. Reported, never rethrown.
+    onIdleFailure: (error) => report(error, 'scheduler-idle'),
+  })
   const runners = new Set<PostCommitRunner>()
   let healthy = true
   let healthError: unknown
@@ -209,15 +241,16 @@ export function createStoreExecutor<TClient>(
     const scope = currentScope()
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
-      return scope.frame.lease.session.execute(statement)
+      assertWritable(scope.frame, [statement])
+      return scope.frame.unit.inFlight.track(() => scope.frame.lease.session.execute(statement))
     }
     if (scope.kind === 'post-commit') {
       // The transaction is closed, so this is a root statement — but it stays
       // on the held lease, inside the scheduler's ordered operation.
       assertDraining(scope)
-      return scope.lease.session.execute(statement)
+      return scope.inFlight.track(() => scope.lease.session.execute(statement))
     }
-    const lane: Lane = statement.method === 'run' ? 'write' : 'read'
+    const lane: Lane = laneFor([statement])
     return scheduler.run(lane, async (lease) => {
       // AGAIN, on the far side of admission. The check above ran when the call
       // was made; a write can sit in the queue behind the very transaction
@@ -254,13 +287,16 @@ export function createStoreExecutor<TClient>(
     const scope = currentScope()
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
-      return scope.frame.lease.session.executeBatch(statements)
+      assertWritable(scope.frame, statements)
+      return scope.frame.unit.inFlight.track(() =>
+        scope.frame.lease.session.executeBatch(statements),
+      )
     }
     if (scope.kind === 'post-commit') {
       assertDraining(scope)
-      return scope.lease.session.executeBatch(statements)
+      return scope.inFlight.track(() => scope.lease.session.executeBatch(statements))
     }
-    const lane = batchLane(statements)
+    const lane = laneFor(statements)
     return scheduler.run(lane, async (lease) => {
       assertHealthy()
       return lane === 'write'
@@ -269,16 +305,44 @@ export function createStoreExecutor<TClient>(
     })
   }
 
-  /** A batch that writes anything takes the write lane: it is one transaction. */
-  function batchLane(statements: readonly Statement[]): Lane {
-    return statements.some((statement) => statement.method === 'run') ? 'write' : 'read'
+  /**
+   * The lane a root statement or batch takes, from DECLARED intent.
+   *
+   * NEVER FROM `method` (spec §6 rule 2, POD-3318): drizzle emits `all` for an
+   * `INSERT ... RETURNING`, so a lane chosen from the method sends a write past
+   * the single write slot and, on a driver with `openReader`, onto a read-only
+   * connection. Anything that writes takes the write lane; a batch is one
+   * transaction, so one writing statement in it is enough.
+   */
+  function laneFor(statements: readonly Statement[]): Lane {
+    return statements.some((statement) => statement.intent === 'write') ? 'write' : 'read'
+  }
+
+  /**
+   * A read scope may not be written on.
+   *
+   * The lane was chosen when the scope opened: a read lease opens no
+   * transaction, so a write issued on it AUTOCOMMITS — outside the unit of
+   * work, unrollbackable, and on a driver whose read lane is a separate
+   * connection, on the wrong one. `read()` is a promise about what the body
+   * does, and this is what keeps it one.
+   */
+  function assertWritable(frame: TransactionFrame, statements: readonly Statement[]): void {
+    if (frame.lane !== 'read') return
+    if (!statements.some((statement) => statement.intent === 'write')) return
+    throw new WriteInsideReadLeaseError(
+      `a write was issued inside read scope ${frame.id}: a read lease opens no transaction, so ` +
+        'the statement would autocommit outside any unit of work. Open the write scope at the ' +
+        'top of the operation instead.',
+    )
   }
 
   function frameRouter(frame: TransactionFrame): StatementRouter {
     return async (statement) => {
       assertHealthy()
       assertAddressable(frame)
-      return frame.lease.session.execute(statement)
+      assertWritable(frame, [statement])
+      return frame.unit.inFlight.track(() => frame.lease.session.execute(statement))
     }
   }
 
@@ -286,7 +350,8 @@ export function createStoreExecutor<TClient>(
     return async (statements) => {
       assertHealthy()
       assertAddressable(frame)
-      return frame.lease.session.executeBatch(statements)
+      assertWritable(frame, statements)
+      return frame.unit.inFlight.track(() => frame.lease.session.executeBatch(statements))
     }
   }
 
@@ -369,11 +434,21 @@ export function createStoreExecutor<TClient>(
     try {
       result = await runInScope({ kind: 'transaction', frame }, () => fn(executorForFrame(frame)))
     } catch (error) {
+      // BEFORE the rollback, for the same reason the success arm waits before
+      // the commit: a statement the body dropped is still running on this
+      // session, and a ROLLBACK issued underneath it is a second operation on a
+      // connection that is already busy.
+      await settleInFlight(frame.unit.inFlight)
       closeFrame(frame)
       registry.discard()
       if (alive()) await lease.session.rollback()
       throw error
     }
+    // A statement the body ADMITTED and did not await. The token cannot help
+    // here — it was let through while the scope was open — so the scope waits
+    // for it rather than committing and handing the connection back with a
+    // round trip still on it (POD-3317).
+    await settleInFlight(frame.unit.inFlight)
     // A nested scope the body opened and never awaited. Read BEFORE the close,
     // which cascades through exactly this chain.
     const abandoned = frame.child
@@ -412,10 +487,16 @@ export function createStoreExecutor<TClient>(
       // The scope dies when the drain does, for the same reason the frame's
       // token dies before the commit: the lease goes back to the scheduler.
       let draining = true
+      const inFlight = createInFlight()
       try {
-        await runInScope({ kind: 'post-commit', lease, runner, active: () => draining }, () =>
-          runner.drain(registry),
+        await runInScope(
+          { kind: 'post-commit', lease, runner, inFlight, active: () => draining },
+          () => runner.drain(registry),
         )
+        // The drain waits for what its steps RETURN; a step that issued a
+        // statement and dropped the promise leaves a round trip in flight on
+        // the lease the scheduler is about to take back.
+        await settleInFlight(inFlight)
       } finally {
         draining = false
       }
@@ -481,6 +562,7 @@ export function createStoreExecutor<TClient>(
     try {
       result = await runInScope({ kind: 'transaction', frame }, () => fn(executorForFrame(frame)))
     } catch (error) {
+      await settleInFlight(frame.unit.inFlight)
       closeFrame(frame)
       registry.discard()
       if (!unitUsable(parent)) throw error
@@ -495,6 +577,10 @@ export function createStoreExecutor<TClient>(
       }
       throw error
     }
+    // The unit's, not this frame's: a savepoint's statements run on the SAME
+    // session as its parent's, so the boundary below cannot be issued while any
+    // of them is still in flight.
+    await settleInFlight(frame.unit.inFlight)
     const abandoned = frame.child
     closeFrame(frame)
     if (!unitUsable(parent)) {
@@ -636,12 +722,20 @@ export function createStoreExecutor<TClient>(
       // with it, so without this it would resume after the commit and read the
       // committed view successfully — the token rule with a hole in it.
       assertAddressable(scope.frame)
+      const caller = scope.frame
       return scheduler.detachedRead(async (session) => {
         const frame = createFrame({
           lane: 'read',
           lease: detachedLease(session),
           parent: undefined,
           postCommit: new PostCommitRegistry(),
+          // BOUND TO THE CALLER'S SCOPE, not just checked on the way in. The
+          // reader frame is a fresh top-level frame, so its own token stays
+          // open for as long as `fn` runs — and a `fn` whose promise the body
+          // dropped goes on reading the committed view after the transaction it
+          // was permission to look outside of has committed and gone home
+          // (POD-3317).
+          alive: () => unitUsable(caller),
         })
         try {
           // The scope is REPLACED, not nested: an ambient call inside `fn` must
