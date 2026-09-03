@@ -10,8 +10,8 @@ import { openTestStore } from './test-support/open-test-store'
 // are minted once, native ids map to them forever, and a live-roll attaches a new
 // native file as the next SEGMENT of the same identity — never a new conversation.
 describe('conversation registry store', () => {
-  it('mints once and resolves the same podium id forever', () => {
-    const store = openTestStore(':memory:')
+  it('mints once and resolves the same podium id forever', async () => {
+    const store = await openTestStore(':memory:')
     const a = store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'native-a',
@@ -35,8 +35,8 @@ describe('conversation registry store', () => {
     expect(other).not.toBe(a)
   })
 
-  it('live-roll links the new native id as segment 2 of the same identity', () => {
-    const store = openTestStore(':memory:')
+  it('live-roll links the new native id as segment 2 of the same identity', async () => {
+    const store = await openTestStore(':memory:')
     const podium = store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'old-file',
@@ -69,8 +69,8 @@ describe('conversation registry store', () => {
     ).toBe(podium)
   })
 
-  it('live-roll with an unseen prior mints the identity on the spot', () => {
-    const store = openTestStore(':memory:')
+  it('live-roll with an unseen prior mints the identity on the spot', async () => {
+    const store = await openTestStore(':memory:')
     const podium = store.conversations.registry.linkSegment({
       machineId: asMachineId('m1'),
       newNativeId: 'roll-b',
@@ -81,8 +81,8 @@ describe('conversation registry store', () => {
     expect(store.conversations.registry.podiumId(asMachineId('m1'), 'roll-b')).toBe(podium)
   })
 
-  it('records and refreshes transcript-path evidence on the segment', () => {
-    const store = openTestStore(':memory:')
+  it('records and refreshes transcript-path evidence on the segment', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'n1',
@@ -105,8 +105,8 @@ describe('conversation registry store', () => {
     expect(store.conversations.registry.segmentPath(asMachineId('m1'), 'unseen')).toBeUndefined()
   })
 
-  it('fills a null parent later but never overwrites a set one', () => {
-    const store = openTestStore(':memory:')
+  it('fills a null parent later but never overwrites a set one', async () => {
+    const store = await openTestStore(':memory:')
     const child = store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'child',
@@ -148,7 +148,7 @@ describe('conversation registry store', () => {
   it('boot repair nulls subagent paths poisoned onto other identities, keeps legitimate ones', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-conv-registry-'))
     const file = join(dir, 'store.db')
-    const first = openTestStore(file)
+    const first = await openTestStore(file)
     // Poisoned by the pre-#94 discovery bug: a subagent transcript summarized
     // under the PARENT's native id clobbered the parent's segment path.
     first.conversations.registry.ensure({
@@ -172,7 +172,7 @@ describe('conversation registry store', () => {
       path: '/home/u/.claude/projects/-repo/parent-2.jsonl',
     })
     first.close()
-    const second = openTestStore(file)
+    const second = await openTestStore(file)
     const registry = SessionRegistry.create(second, undefined, { instanceId: 'default' })
     expect(second.conversations.registry.segmentPath(asMachineId('m1'), 'parent-1')).toBeUndefined()
     expect(second.conversations.registry.segmentPath(asMachineId('m1'), 'agent-x')).toBe(

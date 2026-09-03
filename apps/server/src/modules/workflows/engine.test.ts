@@ -232,8 +232,8 @@ interface Harness {
   clock: { value: string }
 }
 
-function makeHarness(path = ':memory:'): Harness {
-  const store = openTestStore(path)
+async function makeHarness(path = ':memory:'): Promise<Harness> {
+  const store = await openTestStore(path)
   const notices: Array<{ sessionId: string; text: string }> = []
   const clock = { value: NOW }
   // The idempotency ledger, in memory. The server backs this with
@@ -364,8 +364,8 @@ function thrown(fn: () => unknown): string {
 describe('POD-730 workflow mutation characterization', () => {
   let h: Harness
 
-  beforeEach(() => {
-    h = makeHarness()
+  beforeEach(async () => {
+    h = await makeHarness()
   })
 
   afterEach(() => h.store.close())
@@ -407,7 +407,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('revise appends a new version and never edits a prior revision in place', () => {
+    it('revise appends a new version and never edits a prior revision in place', async () => {
       const created = h.service.create(
         {
           name: 'Immutable',
@@ -429,18 +429,18 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       expect([v2.version, v3.version]).toEqual([2, 3])
       // The v1 row is byte-identical after two revisions: revisions are immutable.
-      const v1 = h.store.workflows.getRevision(created.revision.id)
+      const v1 = await h.store.workflows.getRevision(created.revision.id)
       expect(v1?.instructions).toBe('v1 body')
       expect(v1?.steps).toHaveLength(1)
       expect(v1?.version).toBe(1)
       // listRevisions returns newest first.
-      expect(h.store.workflows.listRevisions(created.workflow.id).map((r) => r.version)).toEqual([
-        3, 2, 1,
-      ])
+      expect(
+        (await h.store.workflows.listRevisions(created.workflow.id)).map((r) => r.version),
+      ).toEqual([3, 2, 1])
       expect(kinds(h.store)).toEqual(['workflow.created', 'workflow.revised', 'workflow.revised'])
     })
 
-    it('revise on a PUBLISHED revision still only appends — publication is not a lock', () => {
+    it('revise on a PUBLISHED revision still only appends — publication is not a lock', async () => {
       const created = h.service.create(
         {
           name: 'Published',
@@ -460,7 +460,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(v2.version).toBe(2)
       expect(v2.publishedAt).toBeNull()
       // The published v1 is untouched, and stays published.
-      const v1 = h.store.workflows.getRevision(created.revision.id)
+      const v1 = await h.store.workflows.getRevision(created.revision.id)
       expect(v1?.instructions).toBe('v1')
       expect(v1?.publishedAt).toBe(NOW)
     })
@@ -1138,7 +1138,7 @@ describe('POD-730 workflow mutation characterization', () => {
       return created
     }
 
-    it('assign records a binding and workflow.assigned, and is last-write-wins under duplicate delivery', () => {
+    it('assign records a binding and workflow.assigned, and is last-write-wins under duplicate delivery', async () => {
       const first = publishedRevision('First', 'global')
       const second = publishedRevision('Second', 'global')
       h.service.assign(
@@ -1150,13 +1150,15 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
       expect(binding.revisionId).toBe(second.revision.id)
-      expect(h.store.workflows.listBindings()).toHaveLength(1)
+      expect(await h.store.workflows.listBindings()).toHaveLength(1)
       // Duplicate delivery of the identical assign is value-idempotent...
       h.service.assign(
         { targetKind: 'global', targetId: '', revisionId: second.revision.id },
         operator,
       )
-      expect(h.store.workflows.getBinding('global', '')?.revisionId).toBe(second.revision.id)
+      expect((await h.store.workflows.getBinding('global', ''))?.revisionId).toBe(
+        second.revision.id,
+      )
       // ...but appends another workflow.assigned event.
       expect(kinds(h.store).filter((k) => k === 'workflow.assigned')).toHaveLength(3)
     })
@@ -1829,7 +1831,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('run advances', () => {
-    it('startRun persists run + step rows and emits workflow.run_started attributed to the session', () => {
+    it('startRun persists run + step rows and emits workflow.run_started attributed to the session', async () => {
       const { created, run } = twoStepRun(h)
       expect(run.status).toBe('active')
       expect(run.subjectKind).toBe('issue')
@@ -1841,8 +1843,8 @@ describe('POD-730 workflow mutation characterization', () => {
         ['review', 'pending', 1, 1],
       ])
       // Everything is persisted: a fresh read of the store returns the same run.
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('active')
-      expect(h.store.workflows.getRunSteps(run.id)).toHaveLength(2)
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('active')
+      expect(await h.store.workflows.getRunSteps(run.id)).toHaveLength(2)
       const started = readEvents(h.store).at(-1)
       expect(started).toMatchObject({
         kind: 'workflow.run_started',
@@ -1861,7 +1863,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('checkpoint advances one step at a time and drives the run status machine', () => {
+    it('checkpoint advances one step at a time and drives the run status machine', async () => {
       const { run } = twoStepRun(h)
       const first = h.service.checkpoint(
         {
@@ -1879,7 +1881,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // no notion of "the step I just finished".
       expect(first.nextStep?.stepId).toBe('review')
       expect(first.run.status).toBe('active')
-      const step = h.store.workflows.getRunSteps(run.id)[0]
+      const step = (await h.store.workflows.getRunSteps(run.id))[0]
       expect(step).toMatchObject({
         status: 'complete',
         summary: 'built',
@@ -1906,7 +1908,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(second.message).toBe('Workflow complete.')
       expect(second.run.status).toBe('complete')
       expect(second.currentStep).toBeNull()
-      expect(h.store.workflows.getRun(run.id)?.completedAt).toBe(NOW)
+      expect((await h.store.workflows.getRun(run.id))?.completedAt).toBe(NOW)
       expect(kinds(h.store)).toEqual([
         'workflow.created',
         'workflow.run_started',
@@ -1947,7 +1949,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).slice(-2)).toEqual(['workflow.step_blocked', 'workflow.step_active'])
     })
 
-    it('completing a step leaves completedAt null unless the status is complete', () => {
+    it('completing a step leaves completedAt null unless the status is complete', async () => {
       const { run } = twoStepRun(h)
       h.service.checkpoint(
         {
@@ -1959,8 +1961,8 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         agent('s1'),
       )
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.completedAt).toBeNull()
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.startedAt).toBe(NOW)
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.completedAt).toBeNull()
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.startedAt).toBe(NOW)
       // startedAt is sticky across later checkpoints.
       h.clock.value = '2026-07-30T05:00:00.000Z'
       h.service.checkpoint(
@@ -1973,7 +1975,7 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         agent('s1'),
       )
-      expect(h.store.workflows.getRunSteps(run.id)[0]).toMatchObject({
+      expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         startedAt: NOW,
         completedAt: '2026-07-30T05:00:00.000Z',
       })
@@ -2027,14 +2029,14 @@ describe('POD-730 workflow mutation characterization', () => {
       ])
     })
 
-    it('assignStep sets the assignee, keeps it across a checkpoint, and notifies the coordinator on worker progress', () => {
+    it('assignStep sets the assignee, keeps it across a checkpoint, and notifies the coordinator on worker progress', async () => {
       const { run } = twoStepRun(h)
       const packet = h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
       )
       expect(packet.message).toBe('Step assigned to s2.')
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       const worker = h.service.checkpoint(
         {
           runId: run.id,
@@ -2046,7 +2048,7 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s2'),
       )
       expect(worker.run.status).toBe('active')
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       expect(h.notices).toEqual([
         { sessionId: asSessionId('s1'), text: 'Workflow step "Implement" complete: worker did it' },
       ])
@@ -2084,7 +2086,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('a COORDINATOR checkpoint on a step assigned to someone else does not reassign it to the coordinator', () => {
+    it('a COORDINATOR checkpoint on a step assigned to someone else does not reassign it to the coordinator', async () => {
       // The sharp form of "the assignee survives a checkpoint". Asserting it
       // after the ASSIGNEE checkpoints would pass for the wrong reason: there
       // the assignee and the caller are the same session, so the
@@ -2105,7 +2107,7 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         agent('s1'),
       )
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       // ...and the fallback still applies when there was no assignee at all.
       h.service.checkpoint(
         {
@@ -2117,10 +2119,10 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         agent('s1'),
       )
-      expect(h.store.workflows.getRunSteps(run.id)[1]?.assignedSessionId).toBe('s1')
+      expect((await h.store.workflows.getRunSteps(run.id))[1]?.assignedSessionId).toBe('s1')
     })
 
-    it('assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', () => {
+    it('assignStep with sessionId null unassigns, and duplicate delivery is fully idempotent', async () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -2130,13 +2132,13 @@ describe('POD-730 workflow mutation characterization', () => {
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         agent('s1'),
       )
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       const packet = h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: null },
         agent('s1'),
       )
       expect(packet.message).toBe('Step unassigned.')
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBeNull()
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBeNull()
       // assignStep does NOT validate that the session exists.
       expect(
         h.service.assignStep(
@@ -2146,22 +2148,22 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Step assigned to does-not-exist.')
     })
 
-    it('skip marks the current step skipped with the reason as its summary', () => {
+    it('skip marks the current step skipped with the reason as its summary', async () => {
       const { run } = twoStepRun(h)
       const packet = h.service.skip(
         { runId: run.id, stepId: 'implement', reason: 'not needed' },
         agent('s1'),
       )
       expect(packet.message).toBe('Skipped. Next: Review')
-      expect(h.store.workflows.getRunSteps(run.id)[0]).toMatchObject({
+      expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'skipped',
         summary: 'not needed',
         completedAt: NOW,
       })
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('active')
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('active')
       const last = h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
       expect(last.message).toBe('Workflow complete.')
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('complete')
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
       expect(kinds(h.store).slice(-2)).toEqual(['workflow.step_skipped', 'workflow.step_skipped'])
       const skipEvent = readEvents(h.store).at(-2)
       expect(JSON.parse(skipEvent?.payload_json ?? '{}')).toEqual({
@@ -2170,7 +2172,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
     })
 
-    it('retry resets the step, bumps attempt, KEEPS the assignee, and reactivates a complete run', () => {
+    it('retry resets the step, bumps attempt, KEEPS the assignee, and reactivates a complete run', async () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -2196,14 +2198,14 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         agent('s1'),
       )
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('complete')
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
       const packet = h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
       expect(packet.message).toBe('Retry ready: Review')
       // retry always sets the run back to active, even from complete, and
       // clears the run's completedAt stamp along with it.
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('active')
-      expect(h.store.workflows.getRun(run.id)?.completedAt).toBeNull()
-      const review = h.store.workflows.getRunSteps(run.id)[1]
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('active')
+      expect((await h.store.workflows.getRun(run.id))?.completedAt).toBeNull()
+      const review = (await h.store.workflows.getRunSteps(run.id))[1]
       expect(review).toMatchObject({
         status: 'pending',
         attempt: 2,
@@ -2219,11 +2221,11 @@ describe('POD-730 workflow mutation characterization', () => {
       const earlier = h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))
       expect(earlier.message).toBe('Retry ready: Implement')
       // The assignee SURVIVES a retry.
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.attempt).toBe(2)
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.attempt).toBe(2)
     })
 
-    it('git observation is persisted verbatim and drives the dirty / worktree warnings', () => {
+    it('git observation is persisted verbatim and drives the dirty / worktree warnings', async () => {
       const { run } = twoStepRun(h)
       const observation = {
         cwd: '/repo-a/wt',
@@ -2250,7 +2252,7 @@ describe('POD-730 workflow mutation characterization', () => {
         'step completed with uncommitted worktree changes',
         'expected issue worktree /repo-a/wt, observed /repo-a/other-wt',
       ])
-      const step = h.store.workflows.getRunSteps(run.id)[0]
+      const step = (await h.store.workflows.getRunSteps(run.id))[0]
       expect(step?.observation).toEqual(observation)
       expect(step?.warnings).toEqual(packet.warnings)
       // A dirty worktree is only a warning on `complete` — not on active.
@@ -2377,7 +2379,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * test that passes if the framework simply broke checkpointing: the run
      * must still be advanceable, once, by a caller that names its delivery.
      */
-    it('POD-731 an UNNAMED duplicate checkpoint cannot double-advance — it is refused', () => {
+    it('POD-731 an UNNAMED duplicate checkpoint cannot double-advance — it is refused', async () => {
       const { run } = threeStepRun(h)
       const payload = {
         runId: run.id,
@@ -2390,7 +2392,9 @@ describe('POD-730 workflow mutation characterization', () => {
       )
       // NOTHING HAPPENED. The refusal is not a half-apply: the run is exactly
       // where it was, which is what "before any state is read" buys.
-      expect(h.store.workflows.getRunSteps(run.id).map((x) => [x.stepId, x.status])).toEqual([
+      expect(
+        (await h.store.workflows.getRunSteps(run.id)).map((x) => [x.stepId, x.status]),
+      ).toEqual([
         ['a', 'pending'],
         ['b', 'pending'],
         ['c', 'pending'],
@@ -2405,7 +2409,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * result WITHOUT invoking the handler — which is the only reason it cannot
      * double-advance, since an invoked handler could not tell the two apart.
      */
-    it('POD-731 a duplicate checkpoint carrying a MUTATION ID replays its first result', () => {
+    it('POD-731 a duplicate checkpoint carrying a MUTATION ID replays its first result', async () => {
       const { run } = threeStepRun(h)
       const payload = {
         runId: run.id,
@@ -2424,12 +2428,14 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(third.message).toBe('Step complete. Next: B')
 
       // ONE advance, and B still carries nothing of A's.
-      expect(h.store.workflows.getRunSteps(run.id).map((x) => [x.stepId, x.status])).toEqual([
+      expect(
+        (await h.store.workflows.getRunSteps(run.id)).map((x) => [x.stepId, x.status]),
+      ).toEqual([
         ['a', 'complete'],
         ['b', 'pending'],
         ['c', 'pending'],
       ])
-      expect(h.store.workflows.getRunSteps(run.id)[1]?.summary).toBe('')
+      expect((await h.store.workflows.getRunSteps(run.id))[1]?.summary).toBe('')
       // ONE event, too: the handler was never invoked a second time, so the
       // append-only log did not grow either.
       expect(kinds(h.store).filter((k) => k === 'workflow.step_complete')).toHaveLength(1)
@@ -2447,7 +2453,7 @@ describe('POD-730 workflow mutation characterization', () => {
      * not be handed the first run's recorded result — that would look like
      * success and would leave the second run un-advanced.
      */
-    it('POD-731 a mutation id replayed against a DIFFERENT run is a different delivery', () => {
+    it('POD-731 a mutation id replayed against a DIFFERENT run is a different delivery', async () => {
       const one = threeStepRun(h, 'Run one')
       const two = threeStepRun(h, 'Run two', 's4')
       const payload = {
@@ -2458,11 +2464,11 @@ describe('POD-730 workflow mutation characterization', () => {
       }
       h.service.checkpoint({ ...payload, runId: one.run.id }, agent('s1'))
       h.service.checkpoint({ ...payload, runId: two.run.id }, agent('s4'))
-      expect(h.store.workflows.getRunSteps(one.run.id)[0]?.status).toBe('complete')
-      expect(h.store.workflows.getRunSteps(two.run.id)[0]?.status).toBe('complete')
+      expect((await h.store.workflows.getRunSteps(one.run.id))[0]?.status).toBe('complete')
+      expect((await h.store.workflows.getRunSteps(two.run.id))[0]?.status).toBe('complete')
     })
 
-    it('duplicate checkpoint WITH an explicit stepId is refused by the linear-step guard', () => {
+    it('duplicate checkpoint WITH an explicit stepId is refused by the linear-step guard', async () => {
       const { run } = twoStepRun(h)
       const payload = {
         runId: run.id,
@@ -2477,13 +2483,13 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(thrown(() => h.service.checkpoint(payload, agent('s1')))).toBe(
         'Error: step implement is not the current linear step | code=undefined',
       )
-      expect(h.store.workflows.getRunSteps(run.id).map((s) => s.status)).toEqual([
+      expect((await h.store.workflows.getRunSteps(run.id)).map((s) => s.status)).toEqual([
         'complete',
         'pending',
       ])
     })
 
-    it('duplicate non-terminal checkpoints on the SAME step are idempotent-in-effect', () => {
+    it('duplicate non-terminal checkpoints on the SAME step are idempotent-in-effect', async () => {
       const { run } = twoStepRun(h)
       const payload = {
         runId: run.id,
@@ -2495,7 +2501,7 @@ describe('POD-730 workflow mutation characterization', () => {
       h.service.checkpoint(payload, agent('s1'))
       h.service.checkpoint(payload, agent('s1'))
       h.service.checkpoint(payload, agent('s1'))
-      expect(h.store.workflows.getRunSteps(run.id)[0]).toMatchObject({
+      expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'active',
         summary: 'working',
         attempt: 1,
@@ -2533,7 +2539,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).filter((k) => k === 'workflow.run_complete')).toHaveLength(2)
     })
 
-    it('duplicate skip is refused; duplicate retry bumps attempt again', () => {
+    it('duplicate skip is refused; duplicate retry bumps attempt again', async () => {
       const { run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1'))
       expect(
@@ -2544,16 +2550,16 @@ describe('POD-730 workflow mutation characterization', () => {
       // Duplicate retry is NOT refused — each delivery bumps attempt.
       h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
       h.service.retry({ runId: run.id, stepId: 'review' }, agent('s1'))
-      expect(h.store.workflows.getRunSteps(run.id)[1]?.attempt).toBe(3)
+      expect((await h.store.workflows.getRunSteps(run.id))[1]?.attempt).toBe(3)
     })
 
-    it('KNOWN-DEFECT: retry RESURRECTS a skipped step, so a duplicate skip is reachable again', () => {
+    it('KNOWN-DEFECT: retry RESURRECTS a skipped step, so a duplicate skip is reachable again', async () => {
       const { run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1'))
       // retry has no status precondition — a SKIPPED step goes back to
       // pending, which un-skips it. Nothing records that it was ever skipped.
       h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))
-      expect(h.store.workflows.getRunSteps(run.id)[0]).toMatchObject({
+      expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'pending',
         summary: '',
         attempt: 2,
@@ -2570,7 +2576,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('out-of-order step attempts', () => {
-    it('only the current linear step may be checkpointed', () => {
+    it('only the current linear step may be checkpointed', async () => {
       const { run } = twoStepRun(h)
       expect(
         thrown(() =>
@@ -2600,7 +2606,7 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: workflow has no step nope | code=undefined')
-      expect(h.store.workflows.getRunSteps(run.id).map((s) => s.status)).toEqual([
+      expect((await h.store.workflows.getRunSteps(run.id)).map((s) => s.status)).toEqual([
         'pending',
         'pending',
       ])
@@ -2722,7 +2728,7 @@ describe('POD-730 workflow mutation characterization', () => {
   // -------------------------------------------------------------------------
 
   describe('adopt', () => {
-    it('adopt supersedes the live run, writes the supersedes edge, and emits workflow.run_adopted', () => {
+    it('adopt supersedes the live run, writes the supersedes edge, and emits workflow.run_adopted', async () => {
       const { created, run } = twoStepRun(h)
       const v2 = h.service.revise(
         {
@@ -2747,9 +2753,9 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(adopted.status).toBe('active')
       expect(adopted.coordinatorSessionId).toBe('s1')
       // The old run is superseded, not deleted — its step history survives.
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('superseded')
-      expect(h.store.workflows.getRun(run.id)?.completedAt).toBe(NOW)
-      expect(h.store.workflows.getRunSteps(run.id)).toHaveLength(2)
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('superseded')
+      expect((await h.store.workflows.getRun(run.id))?.completedAt).toBe(NOW)
+      expect(await h.store.workflows.getRunSteps(run.id)).toHaveLength(2)
       // The skipped-step record written by the adopt path.
       expect(adopted.steps.map((s) => [s.stepId, s.status])).toEqual([
         ['implement', 'skipped'],
@@ -2775,7 +2781,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(kinds(h.store).filter((k) => k === 'workflow.step_skipped')).toHaveLength(0)
     })
 
-    it('adopt mid-run preserves the work already recorded on the superseded run', () => {
+    it('adopt mid-run preserves the work already recorded on the superseded run', async () => {
       const { created, run } = twoStepRun(h)
       h.service.checkpoint(
         {
@@ -2792,7 +2798,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       )
       const adopted = h.service.adopt({ revisionId: v2.id }, agent('s1'))
-      expect(h.store.workflows.getRunSteps(run.id)[0]).toMatchObject({
+      expect((await h.store.workflows.getRunSteps(run.id))[0]).toMatchObject({
         status: 'complete',
         summary: 'real work',
       })
@@ -2801,7 +2807,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(adopted.steps).toEqual([])
     })
 
-    it('adopt validates EVERYTHING before superseding — no partial state on any failure', () => {
+    it('adopt validates EVERYTHING before superseding — no partial state on any failure', async () => {
       const { created, run } = twoStepRun(h)
       const foreign = h.service.create(
         {
@@ -2829,21 +2835,21 @@ describe('POD-730 workflow mutation characterization', () => {
         `Error: unknown workflow revision: ${foreign.revision.id} | code=undefined`,
       )
       // Every one of those left the live run untouched...
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('active')
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('active')
       expect(kinds(h.store).filter((k) => k === 'workflow.run_adopted')).toHaveLength(0)
       // ...and, the other half of "no partial state": no SUCCESSOR run was
       // created either. Checking only the old run's status would still pass if
       // adopt superseded first and then failed, or created a replacement before
       // validating — which is precisely the partial state this name claims does
       // not happen.
-      expect(h.store.workflows.listRuns(true)).toHaveLength(1)
+      expect(await h.store.workflows.listRuns(true)).toHaveLength(1)
     })
 
-    it('only an active or blocked run may adopt', () => {
+    it('only an active or blocked run may adopt', async () => {
       const { created, run } = twoStepRun(h)
       h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1'))
       h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))
-      expect(h.store.workflows.getRun(run.id)?.status).toBe('complete')
+      expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
       expect(
         thrown(() =>
           h.service.adopt({ revisionId: created.revision.id, runId: run.id }, agent('s1')),
@@ -3199,7 +3205,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Workflow complete.')
     })
 
-    it("SINGLE-OPERATOR: checkpoint's allowed check accepts the operator for ANY step, assigned or not", () => {
+    it("SINGLE-OPERATOR: checkpoint's allowed check accepts the operator for ANY step, assigned or not", async () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -3234,7 +3240,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(packet.run.status).toBe('active')
       // an operator checkpoint does NOT overwrite the assignee, and it does
       // NOT notify the coordinator (the notify arm needs caller.actor.id).
-      expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe('s2')
+      expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe('s2')
       expect(h.notices).toEqual([])
     })
 
@@ -3672,7 +3678,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toEqual(['user:single'])
     })
 
-    it('POD-731 every advance records the PAIR — the actor AND the human it acted for', () => {
+    it('POD-731 every advance records the PAIR — the actor AND the human it acted for', async () => {
       const { run } = twoStepRun(h)
       h.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -3722,7 +3728,7 @@ describe('POD-730 workflow mutation characterization', () => {
         'workflow.step_complete:session:user:single',
         'workflow.step_skipped:operator:user:single',
       ])
-      const step = h.store.workflows.getRunSteps(run.id)[0]
+      const step = (await h.store.workflows.getRunSteps(run.id))[0]
       expect(step?.assignedSessionId).toBe('s2')
       expect(Object.keys(step ?? {})).not.toContain('completedBy')
     })
@@ -3832,9 +3838,9 @@ describe('POD-730 workflow mutation characterization', () => {
 
     afterEach(() => rmSync(dir, { recursive: true, force: true }))
 
-    it('a run survives a full store close/reopen, including step state and the profile snapshot', () => {
+    it('a run survives a full store close/reopen, including step state and the profile snapshot', async () => {
       const path = join(dir, 'restart.sqlite')
-      const before = makeHarness(path)
+      const before = await makeHarness(path)
       const profile = before.service.profileSave(
         {
           name: 'Snapshot',
@@ -3863,7 +3869,7 @@ describe('POD-730 workflow mutation characterization', () => {
       before.store.close()
 
       // Restart: a brand-new store and service over the same file.
-      const after = makeHarness(path)
+      const after = await makeHarness(path)
       try {
         const recovered = after.service.status({ runId: run.id }, operator)
         expect(recovered.status).toBe('active')
@@ -3924,9 +3930,9 @@ describe('POD-730 workflow mutation characterization', () => {
       }
     })
 
-    it('nothing about a run is volatile: notifyCoordinator is the ONLY out-of-band effect and it is fire-and-forget', () => {
+    it('nothing about a run is volatile: notifyCoordinator is the ONLY out-of-band effect and it is fire-and-forget', async () => {
       const path = join(dir, 'volatile.sqlite')
-      const before = makeHarness(path)
+      const before = await makeHarness(path)
       const { run } = twoStepRun(before)
       before.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
@@ -3945,7 +3951,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(before.notices).toHaveLength(1)
       before.store.close()
 
-      const after = makeHarness(path)
+      const after = await makeHarness(path)
       try {
         // the coordinator notice is NOT persisted and NOT replayed. A
         // restart between the checkpoint and the coordinator reading its inbox

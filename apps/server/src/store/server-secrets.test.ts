@@ -11,19 +11,25 @@ describe('native login transfer secrets', () => {
     store = undefined
   })
 
-  it('is retrievable only by its principal and is absent from presence projections', () => {
-    store = openTestStore(':memory:')
+  it('is retrievable only by its principal and is absent from presence projections', async () => {
+    store = await openTestStore(':memory:')
     const bundle = {
       kind: 'codex' as const,
       contentBase64: Buffer.from('credential-bytes').toString('base64'),
     }
 
-    const transferId = store.secrets.putNativeLoginTransfer(asUserId('user:one'), bundle)
-    expect(store.secrets.getNativeLoginTransfer(asUserId('user:one'), transferId)).toEqual(bundle)
-    expect(store.secrets.getNativeLoginTransfer(asUserId('user:two'), transferId)).toBeUndefined()
-    expect(JSON.stringify(store.secrets.presence())).not.toContain('credential-bytes')
+    const transferId = await store.secrets.putNativeLoginTransfer(asUserId('user:one'), bundle)
+    expect(await store.secrets.getNativeLoginTransfer(asUserId('user:one'), transferId)).toEqual(
+      bundle,
+    )
+    expect(
+      await store.secrets.getNativeLoginTransfer(asUserId('user:two'), transferId),
+    ).toBeUndefined()
+    expect(JSON.stringify(await store.secrets.presence())).not.toContain('credential-bytes')
 
-    store.secrets.clearNativeLoginTransfer(asUserId('user:one'), transferId)
-    expect(store.secrets.getNativeLoginTransfer(asUserId('user:one'), transferId)).toBeUndefined()
+    await store.secrets.clearNativeLoginTransfer(asUserId('user:one'), transferId)
+    expect(
+      await store.secrets.getNativeLoginTransfer(asUserId('user:one'), transferId),
+    ).toBeUndefined()
   })
 })

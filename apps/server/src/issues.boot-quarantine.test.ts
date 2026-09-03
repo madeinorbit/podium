@@ -38,8 +38,8 @@ function rawDb(s: SessionStore): { prepare(q: string): { run(...a: unknown[]): u
 }
 
 describe('IssueService boot quarantine', () => {
-  it('constructs without touching the DB; hydration is explicit (init) or lazy', () => {
-    const store = openTestStore(':memory:')
+  it('constructs without touching the DB; hydration is explicit (init) or lazy', async () => {
+    const store = await openTestStore(':memory:')
     const listSpy = vi.spyOn(store.issues, 'listIssueRows')
     const svc = IssueService.compose(deps(store))
     expect(listSpy).not.toHaveBeenCalled() // constructor no longer hydrates
@@ -47,8 +47,8 @@ describe('IssueService boot quarantine', () => {
     expect(listSpy).toHaveBeenCalledTimes(1)
   })
 
-  it('a structurally corrupt row (NULL id) is skipped; the other rows load and boot proceeds', () => {
-    const store = openTestStore(':memory:')
+  it('a structurally corrupt row (NULL id) is skipped; the other rows load and boot proceeds', async () => {
+    const store = await openTestStore(':memory:')
     const svc = IssueService.create(deps(store))
     const good1 = svc.create({ repoPath: '/r', title: 'healthy one', startNow: false })
     const good2 = svc.create({ repoPath: '/r', title: 'healthy two', startNow: false })
@@ -79,8 +79,8 @@ describe('IssueService boot quarantine', () => {
     }
   })
 
-  it('bad JSON in a column quarantines the VALUE but keeps the row', () => {
-    const store = openTestStore(':memory:')
+  it('bad JSON in a column quarantines the VALUE but keeps the row', async () => {
+    const store = await openTestStore(':memory:')
     const svc = IssueService.create(deps(store))
     const w = svc.create({ repoPath: '/r', title: 'keep me', startNow: false })
     rawDb(store).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', w.id)
@@ -89,6 +89,6 @@ describe('IssueService boot quarantine', () => {
     expect(() => rebooted.init()).not.toThrow()
     const row = rebooted.get(w.id)
     expect(row?.id).toBe(w.id)
-    expect(store.issues.getIssue(w.id)?.blockedBy).toEqual([])
+    expect((await store.issues.getIssue(w.id))?.blockedBy).toEqual([])
   })
 })

@@ -111,10 +111,10 @@ describe('bounded shipwright patch contract', () => {
     expect(ShipwrightEvidenceRef.safeParse('artifact://validation/../secret').success).toBe(false)
   })
 
-  it('persists immutable custody-bound bytes across a fresh server store and caps reads', () => {
+  it('persists immutable custody-bound bytes across a fresh server store and caps reads', async () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-shipwright-evidence-'))
     const dbPath = join(root, 'podium.db')
-    const firstStore = openTestStore(dbPath)
+    const firstStore = await openTestStore(dbPath)
     const registry = new ShippingEvidenceRegistry(
       firstStore.shipping,
       () => '2026-08-14T05:10:00.000Z',
@@ -151,7 +151,7 @@ describe('bounded shipwright patch contract', () => {
     ).toBe(ref)
     firstStore.close()
 
-    const restartedStore = openTestStore(dbPath)
+    const restartedStore = await openTestStore(dbPath)
     const restarted = new ShippingEvidenceRegistry(restartedStore.shipping)
     expect(
       restarted.resolve({

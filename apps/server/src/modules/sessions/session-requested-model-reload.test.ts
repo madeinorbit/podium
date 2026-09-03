@@ -81,19 +81,19 @@ const hydrator = (): SessionRepository =>
   } as never)
 
 describe('a runtime model change survives a server restart', () => {
-  it('round-trips through the sessions table and comes back on the rehydrated session', () => {
+  it('round-trips through the sessions table and comes back on the rehydrated session', async () => {
     const db = openMigratedTestDatabase()
     try {
       const store = new SessionsRepository(createBunStoreExecutor({ database: db }))
       const session = launched()
       expect(session.setRequestedModel({ model: 'gpt-5.1-codex-max', effort: 'high' })).toBe(true)
 
-      store.upsertSession(session.toRow())
+      await store.upsertSession(session.toRow())
 
       // (1) IT REACHED THE DISK. A missing column or a mis-counted placeholder in
       // the 55-wide upsert fails here, against real SQLite and the real migration
       // chain rather than an object that remembered itself.
-      const stored = store.getSession(SID)
+      const stored = await store.getSession(SID)
       expect(stored).toMatchObject({
         requestedModel: 'gpt-5.1-codex-max',
         requestedEffort: 'high',
@@ -117,13 +117,13 @@ describe('a runtime model change survives a server restart', () => {
     }
   })
 
-  it('leaves a never-configured session with no runtime request at all', () => {
+  it('leaves a never-configured session with no runtime request at all', async () => {
     const db = openMigratedTestDatabase()
     try {
       const store = new SessionsRepository(createBunStoreExecutor({ database: db }))
-      store.upsertSession(launched().toRow())
+      await store.upsertSession(launched().toRow())
 
-      const stored = store.getSession(SID)
+      const stored = await store.getSession(SID)
       const rehydrated = hydrator().sessionFromStoredRow(storedRow(stored), 'boot')
 
       /**
@@ -142,20 +142,23 @@ describe('a runtime model change survives a server restart', () => {
     }
   })
 
-  it('carries a LATER change over the earlier one, one field at a time', () => {
+  it('carries a LATER change over the earlier one, one field at a time', async () => {
     const db = openMigratedTestDatabase()
     try {
       const store = new SessionsRepository(createBunStoreExecutor({ database: db }))
       const session = launched()
       session.setRequestedModel({ model: 'gpt-5.1-codex-max' })
-      store.upsertSession(session.toRow())
+      await store.upsertSession(session.toRow())
       session.setRequestedModel({ effort: 'high' })
-      store.upsertSession(session.toRow())
+      await store.upsertSession(session.toRow())
 
       // The upsert's ON CONFLICT arm has to carry BOTH columns; a set-list that
       // named only one would leave the second at whatever the first INSERT wrote
       // and the drift would only show on the second change to a live session.
-      const rehydrated = hydrator().sessionFromStoredRow(storedRow(store.getSession(SID)), 'boot')
+      const rehydrated = hydrator().sessionFromStoredRow(
+        storedRow(await store.getSession(SID)),
+        'boot',
+      )
       expect(rehydrated?.requestedModel).toBe('gpt-5.1-codex-max')
       expect(rehydrated?.requestedEffort).toBe('high')
     } finally {

@@ -54,8 +54,8 @@ const commit = (p: ReturnType<typeof feedTestPlumbing>, id: string) =>
 
 /** A populated server, and a peer already admitted the ordinary way — the state
  *  every one of these cases reconnects INTO. */
-function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
-  const p = feedTestPlumbing(opts)
+async function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
+  const p = await feedTestPlumbing(opts)
   commit(p, 's1')
   commit(p, 's2')
   const cold = new Peer('cold')
@@ -73,7 +73,7 @@ function servedOnce(opts: Parameters<typeof feedTestPlumbing>[0] = {}) {
  *  therefore a new peer id; reusing the old one would take the idempotent
  *  re-attach path and prove nothing. */
 function reconnect(
-  ctx: ReturnType<typeof servedOnce>,
+  ctx: Awaited<ReturnType<typeof servedOnce>>,
   cursor: FeedCursorField | undefined,
   wireVersion: number = WIRE_VERSION,
 ): Peer {
@@ -83,8 +83,8 @@ function reconnect(
 }
 
 describe('a cursor the log can serve is answered with a resume, not a world', () => {
-  it('sends one feedResume and not one row of the world', () => {
-    const ctx = servedOnce()
+  it('sends one feedResume and not one row of the world', async () => {
+    const ctx = await servedOnce()
     // The counterfactual, in the same test: the cold peer that was admitted
     // WITHOUT a cursor received the world, so "no bootstrap" below is a property
     // of the cursor and not of an empty server.
@@ -101,8 +101,8 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     })
   })
 
-  it('frames the next delta from the position it granted', () => {
-    const ctx = servedOnce()
+  it('frames the next delta from the position it granted', async () => {
+    const ctx = await servedOnce()
     const peer = reconnect(ctx, ctx.held)
 
     commit(ctx.p, 's3')
@@ -120,8 +120,8 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
     expect(delta[0]?.changes.map((c) => c.entityId)).toEqual(['s3'])
   })
 
-  it('leaves the gap to the client heal rather than streaming it', () => {
-    const ctx = servedOnce()
+  it('leaves the gap to the client heal rather than streaming it', async () => {
+    const ctx = await servedOnce()
     // The head moves BEFORE the reconnect: the replica's cursor is now behind.
     commit(ctx.p, 's3')
     const peer = reconnect(ctx, ctx.held)
@@ -136,35 +136,35 @@ describe('a cursor the log can serve is answered with a resume, not a world', ()
 })
 
 describe('a cursor the log cannot serve is refused, and the refusal is the world', () => {
-  it('refuses a cursor from a foreign feed', () => {
-    const ctx = servedOnce()
+  it('refuses a cursor from a foreign feed', async () => {
+    const ctx = await servedOnce()
     const peer = reconnect(ctx, { ...ctx.held, feedId: 'someone-elses-feed' })
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap').flatMap((f) => f.changes)).toHaveLength(2)
   })
 
-  it('refuses a cursor presented against a rolled epoch', () => {
-    const ctx = servedOnce()
+  it('refuses a cursor presented against a rolled epoch', async () => {
+    const ctx = await servedOnce()
     const peer = reconnect(ctx, { ...ctx.held, epoch: 'epoch-from-before-the-reset' })
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap')).not.toHaveLength(0)
   })
 
-  it('refuses a cursor from the future — the database was restored behind it', () => {
-    const ctx = servedOnce()
+  it('refuses a cursor from the future — the database was restored behind it', async () => {
+    const ctx = await servedOnce()
     const peer = reconnect(ctx, { ...ctx.held, seq: ctx.held.seq + 1 })
 
     expect(peer.types()).not.toContain('feedResume')
     expect(peer.of('feedBootstrap')).not.toHaveLength(0)
   })
 
-  it('refuses a cursor below the retained floor, and serves it at the exact boundary', () => {
+  it('refuses a cursor below the retained floor, and serves it at the exact boundary', async () => {
     // `cursor + 1 >= minAvailableSeq` — change-log.ts's own spelling. At
     // `cursor === floor - 1` every row the client needs is still retained, so it
     // resumes; one lower and `(cursor, head]` has a hole no read can fill.
-    const compacted = servedOnce({ retention: { minAvailableSeq: () => 5 } })
+    const compacted = await servedOnce({ retention: { minAvailableSeq: () => 5 } })
     // Head above the floor, so the boundary being tested is the FLOOR and not
     // the "cursor from the future" refusal sitting in front of it.
     for (let i = 3; i <= 6; i += 1) commit(compacted.p, `s${i}`)
@@ -174,8 +174,8 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     expect(reconnect(compacted, { ...compacted.held, seq: 4 }).types()).toEqual(['feedResume'])
   })
 
-  it('refuses a cursor from a wire that cannot be told it was accepted', () => {
-    const ctx = servedOnce()
+  it('refuses a cursor from a wire that cannot be told it was accepted', async () => {
+    const ctx = await servedOnce()
     const peer = reconnect(ctx, ctx.held, 1)
 
     // A v1 peer cannot send a cursor and its adapter has nothing to translate a
@@ -185,8 +185,8 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
     expect(peer.types()).toContain('sessionsChanged')
   })
 
-  it('serves the world to a hello that presents nothing — the pre-POD-2061 client', () => {
-    const ctx = servedOnce()
+  it('serves the world to a hello that presents nothing — the pre-POD-2061 client', async () => {
+    const ctx = await servedOnce()
     const peer = reconnect(ctx, undefined)
 
     expect(peer.types()).not.toContain('feedResume')
@@ -195,8 +195,8 @@ describe('a cursor the log cannot serve is refused, and the refusal is the world
 })
 
 describe('the transfer a reconnect actually costs', () => {
-  it('is O(delta) at an unchanged head, where it was O(world)', () => {
-    const p = feedTestPlumbing()
+  it('is O(delta) at an unchanged head, where it was O(world)', async () => {
+    const p = await feedTestPlumbing()
     for (let i = 0; i < 50; i += 1) commit(p, `s${i}`)
 
     const cold = new Peer('cold')

@@ -10,8 +10,8 @@ import { issueTestPlumbing } from './service/test-plumbing'
 // POD-98: the git-state service wiring end-to-end at the service layer —
 // turn-end trigger → coalesced probe (via repoOp) → targeted gitState update,
 // with shared-checkout commits attributed from issue markers in history.
-function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) {
-  const store = openTestStore(':memory:')
+async function harness(sessions: SessionMeta[], repoOpScript: Record<string, string>) {
+  const store = await openTestStore(':memory:')
   const broadcast = vi.fn()
   const repoOp = vi.fn(async (op: string, _cwd: string, args?: Record<string, string>) => {
     const key =
@@ -68,7 +68,7 @@ const member = (sessionId: SessionId, issueId: string): SessionMeta =>
 describe('POD-98 git-state service wiring', () => {
   it('keeps stateful workflow methods bound when passed across a port', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main',
       logHead: 'sha-bound\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-bound',
@@ -90,7 +90,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('turn end probes a shared checkout and lands attributed gitState on the wire', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
@@ -122,7 +122,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('recording a commit triggers a probe via the turn-end path', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main',
       logHead: 'sha9\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha9',
@@ -143,7 +143,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('shared checkout excludes another session commit from the HEAD-delta ledger', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main',
       logHead: 'sha-foreign\t2026-07-20T11:30:00Z',
       logIssueCommits: 'sha-owned',
@@ -163,7 +163,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('without any attribution the shared probe discloses fallback', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main\n M x.ts',
     })
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
@@ -177,7 +177,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('first registration after a restart repopulates the stamp without a turn end', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
@@ -197,7 +197,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('coalesces rapid turn ends and publishes one targeted final update', async () => {
     const sessions: SessionMeta[] = []
-    const { svc, repoOp, broadcast } = harness(sessions, {
+    const { svc, repoOp, broadcast } = await harness(sessions, {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
@@ -222,7 +222,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('a targeted git-state publish never journals removes for other issues [POD-210]', async () => {
     const sessions: SessionMeta[] = []
-    const { svc, ledger } = harness(sessions, {
+    const { svc, ledger } = await harness(sessions, {
       statusProbe: '## main',
       logHead: 'abc\t2026-07-20T11:00:00Z',
     })
@@ -245,7 +245,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('runs one trailing probe for attribution recorded during an active refresh', async () => {
     const sessions: SessionMeta[] = []
-    const { svc, repoOp, broadcast } = harness(sessions, {})
+    const { svc, repoOp, broadcast } = await harness(sessions, {})
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     sessions.push(member(asSessionId('sess-1'), id))
     let releaseStatus!: () => void
@@ -285,7 +285,7 @@ describe('POD-98 git-state service wiring', () => {
 
   it('drops archived sessions from file attribution but retains marked commits', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions, {
+    const { svc } = await harness(sessions, {
       statusProbe: '## main\n M apps/a.ts\n M apps/b.ts',
       logIssueCommits: 'sha-1\nsha-2',
     })
@@ -316,11 +316,11 @@ describe('POD-98 git-state service wiring', () => {
     expect(svc.get(id)?.gitState?.dirtyOwn).toBeUndefined()
   })
 
-  it('sessions without an issue are a no-op on turn end', () => {
+  it('sessions without an issue are a no-op on turn end', async () => {
     const sessions: SessionMeta[] = [
       { ...member(asSessionId('sess-x'), 'nope'), issueId: undefined } as unknown as SessionMeta,
     ]
-    const { svc, repoOp } = harness(sessions, {})
+    const { svc, repoOp } = await harness(sessions, {})
     svc.onSessionTurnEnd(asSessionId('sess-x'))
     expect(repoOp).not.toHaveBeenCalled()
   })
@@ -367,7 +367,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
   it('records a parent tip on first sight instead of fanning out at boot', async () => {
     const script = unlandedScript()
-    const { svc, repoOp } = harness([], script)
+    const { svc, repoOp } = await harness([], script)
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     giveWorktree(svc, id)
 
@@ -379,7 +379,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
   it('re-probes a branch merged from another checkout when the parent tip moves', async () => {
     const script = unlandedScript()
-    const { svc } = harness([], script)
+    const { svc } = await harness([], script)
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     giveWorktree(svc, id)
     await svc.sweepParentBranchMovement()
@@ -401,7 +401,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
   it('answers a whole repo group with one rev-parse and refreshes all of it', async () => {
     const script = unlandedScript()
-    const { svc, repoOp } = harness([], script)
+    const { svc, repoOp } = await harness([], script)
     const a = svc.create({ repoPath: '/repo', title: 'a', startNow: false }).id
     const b = svc.create({ repoPath: '/repo', title: 'b', startNow: false }).id
     giveWorktree(svc, a)
@@ -420,7 +420,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
   it('costs one rev-parse and nothing else while the parent tip holds still', async () => {
     const script = unlandedScript()
-    const { svc, repoOp } = harness([], script)
+    const { svc, repoOp } = await harness([], script)
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     giveWorktree(svc, id)
     await svc.sweepParentBranchMovement()
@@ -433,7 +433,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
   it('keeps the last known tip when the parent branch is unreadable', async () => {
     const script = unlandedScript()
-    const { svc, repoOp } = harness([], script)
+    const { svc, repoOp } = await harness([], script)
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     giveWorktree(svc, id)
     await svc.sweepParentBranchMovement()
@@ -451,7 +451,7 @@ describe('POD-384 parent-branch movement watch', () => {
 
   it('watches neither a shared checkout nor an issue without a branch', async () => {
     const script = unlandedScript()
-    const { svc, repoOp } = harness([], script)
+    const { svc, repoOp } = await harness([], script)
     // Shared: no worktree of its own, so no merge axis to keep fresh.
     svc.create({ repoPath: '/repo', title: 'shared', startNow: false })
     const branchless = svc.create({ repoPath: '/repo', title: 'branchless', startNow: false }).id
@@ -481,7 +481,7 @@ describe('POD-384 parent-branch movement watch', () => {
       isMergedInto: '',
       branchReflog: 'sha-tip\nsha-created',
     }
-    const { svc, repoOp } = harness([], script)
+    const { svc, repoOp } = await harness([], script)
     const id = svc.create({ repoPath: '/repo', title: 'stacked', startNow: false }).id
     giveWorktree(svc, id, 'issue/520-parent')
 
@@ -531,7 +531,7 @@ describe('POD-384 parent-branch movement watch', () => {
     script['revListCount:issue/520-parent..HEAD'] = '9'
     // Drop main's rev-list so the first probe only has the cut-parent count.
     delete script['revListCount:main..HEAD']
-    const { svc } = harness([], script)
+    const { svc } = await harness([], script)
     const id = svc.create({ repoPath: '/repo', title: 'stacked', startNow: false }).id
     giveWorktree(svc, id, 'issue/520-parent')
 

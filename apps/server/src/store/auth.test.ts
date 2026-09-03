@@ -13,44 +13,44 @@ beforeEach(() => {
 
 const FUTURE = '2999-01-01T00:00:00.000Z'
 
-it('round-trips a login session', () => {
-  repo.createClientSession('hash-a', FIRST_ADMIN_USER_ID, FUTURE)
-  expect(repo.isClientSessionValid('hash-a', '2026-01-01T00:00:00.000Z')).toBe(true)
+it('round-trips a login session', async () => {
+  await repo.createClientSession('hash-a', FIRST_ADMIN_USER_ID, FUTURE)
+  expect(await repo.isClientSessionValid('hash-a', '2026-01-01T00:00:00.000Z')).toBe(true)
 })
 
 // POD-1376/POD-801: a break-glass session minted from local filesystem access and a
 // node⇄hub provisioning token are both client_sessions rows. Without a label they are
 // indistinguishable, so revoking one class means revoking the operator's browser logins
 // too. The label is what makes them separately greppable and revocable.
-it('defaults an unlabelled session to the browser-login label', () => {
-  repo.createClientSession('hash-a', FIRST_ADMIN_USER_ID, FUTURE)
-  expect(repo.listClientSessions()[0]?.label).toBe('login')
+it('defaults an unlabelled session to the browser-login label', async () => {
+  await repo.createClientSession('hash-a', FIRST_ADMIN_USER_ID, FUTURE)
+  expect((await repo.listClientSessions())[0]?.label).toBe('login')
 })
 
-it('records the label a session was minted under', () => {
-  repo.createClientSession('hash-a', FIRST_ADMIN_USER_ID, FUTURE, 'break-glass')
-  repo.createClientSession('hash-b', FIRST_ADMIN_USER_ID, FUTURE, 'upstream')
-  const byHash = new Map(repo.listClientSessions().map((s) => [s.tokenHash, s.label]))
+it('records the label a session was minted under', async () => {
+  await repo.createClientSession('hash-a', FIRST_ADMIN_USER_ID, FUTURE, 'break-glass')
+  await repo.createClientSession('hash-b', FIRST_ADMIN_USER_ID, FUTURE, 'upstream')
+  const byHash = new Map((await repo.listClientSessions()).map((s) => [s.tokenHash, s.label]))
   expect(byHash.get('hash-a')).toBe('break-glass')
   expect(byHash.get('hash-b')).toBe('upstream')
 })
 
-it('round-trips mobile device metadata, activity, and owner-scoped row revocation', () => {
+it('round-trips mobile device metadata, activity, and owner-scoped row revocation', async () => {
   const other = asUserId('user:other')
-  repo.createClientSession('mobile-a', FIRST_ADMIN_USER_ID, FUTURE, 'mobile', {
+  await repo.createClientSession('mobile-a', FIRST_ADMIN_USER_ID, FUTURE, 'mobile', {
     sessionId: 'session-aaaaaaaaaaaa',
     deviceId: 'device-a',
     deviceName: "Sam's iPhone",
     platform: 'ios',
     lastSeenAt: '2026-01-01T00:00:00.000Z',
   })
-  repo.createClientSession('mobile-b', other, FUTURE, 'mobile', {
+  await repo.createClientSession('mobile-b', other, FUTURE, 'mobile', {
     sessionId: 'session-bbbbbbbbbbbb',
     deviceId: 'device-b',
     deviceName: 'Other phone',
     platform: 'android',
   })
-  expect(repo.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toMatchObject([
+  expect(await repo.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toMatchObject([
     {
       tokenHash: 'mobile-a',
       sessionId: 'session-aaaaaaaaaaaa',
@@ -60,14 +60,14 @@ it('round-trips mobile device metadata, activity, and owner-scoped row revocatio
       lastSeenAt: '2026-01-01T00:00:00.000Z',
     },
   ])
-  repo.touchClientSession('mobile-a', '2026-01-02T00:00:00.000Z')
-  expect(repo.getClientSession('mobile-a')?.lastSeenAt).toBe('2026-01-02T00:00:00.000Z')
+  await repo.touchClientSession('mobile-a', '2026-01-02T00:00:00.000Z')
+  expect((await repo.getClientSession('mobile-a'))?.lastSeenAt).toBe('2026-01-02T00:00:00.000Z')
   expect(
-    repo.deleteOwnedMobileClientSession('session-bbbbbbbbbbbb', FIRST_ADMIN_USER_ID),
+    await repo.deleteOwnedMobileClientSession('session-bbbbbbbbbbbb', FIRST_ADMIN_USER_ID),
   ).toBeUndefined()
-  expect(repo.deleteOwnedMobileClientSession('session-aaaaaaaaaaaa', FIRST_ADMIN_USER_ID)).toBe(
-    'mobile-a',
-  )
+  expect(
+    await repo.deleteOwnedMobileClientSession('session-aaaaaaaaaaaa', FIRST_ADMIN_USER_ID),
+  ).toBe('mobile-a')
 })
 
 // REMOVED, not ported: 'labels an upstream provisioning token as upstream'.
@@ -79,15 +79,15 @@ it('round-trips mobile device metadata, activity, and owner-scoped row revocatio
 // class separately revocable — is still under test in the two cases either side
 // of this comment, which exercise the 'upstream' label directly.
 
-it('revokes only the sessions carrying the named label', () => {
-  repo.createClientSession('login-hash', FIRST_ADMIN_USER_ID, FUTURE)
-  repo.createClientSession('glass-hash', FIRST_ADMIN_USER_ID, FUTURE, 'break-glass')
-  repo.createClientSession('upstream-hash', FIRST_ADMIN_USER_ID, FUTURE, 'upstream')
+it('revokes only the sessions carrying the named label', async () => {
+  await repo.createClientSession('login-hash', FIRST_ADMIN_USER_ID, FUTURE)
+  await repo.createClientSession('glass-hash', FIRST_ADMIN_USER_ID, FUTURE, 'break-glass')
+  await repo.createClientSession('upstream-hash', FIRST_ADMIN_USER_ID, FUTURE, 'upstream')
 
-  expect(repo.deleteClientSessionsByLabel('break-glass')).toBe(1)
+  expect(await repo.deleteClientSessionsByLabel('break-glass')).toBe(1)
 
   const now = '2026-01-01T00:00:00.000Z'
-  expect(repo.isClientSessionValid('glass-hash', now)).toBe(false)
-  expect(repo.isClientSessionValid('login-hash', now)).toBe(true)
-  expect(repo.isClientSessionValid('upstream-hash', now)).toBe(true)
+  expect(await repo.isClientSessionValid('glass-hash', now)).toBe(false)
+  expect(await repo.isClientSessionValid('login-hash', now)).toBe(true)
+  expect(await repo.isClientSessionValid('upstream-hash', now)).toBe(true)
 })

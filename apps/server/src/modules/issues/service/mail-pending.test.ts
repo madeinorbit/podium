@@ -73,8 +73,8 @@ function message(input: {
 }
 
 describe('countContextAwarePendingMail', () => {
-  it('uses one grouped messages read while preserving reader visibility', () => {
-    const store = openTestStore(':memory:')
+  it('uses one grouped messages read while preserving reader visibility', async () => {
+    const store = await openTestStore(':memory:')
     try {
       const db = (store as unknown as { db: SqlDatabase }).db
       const counts = new Map<string, number>()
@@ -82,19 +82,19 @@ describe('countContextAwarePendingMail', () => {
         createBunStoreExecutor({ database: counting(db, counts) }),
       )
 
-      store.messages.addMessage(
+      await store.messages.addMessage(
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      store.messages.addMessage(
+      await store.messages.addMessage(
         message({ id: 'msg-peer-2', fromIssue: 'iss_peer', fromSession: 'peer-session' }),
       )
-      store.messages.addMessage(
+      await store.messages.addMessage(
         message({ id: 'msg-session', fromIssue: null, fromSession: 'peer-session-2' }),
       )
-      store.messages.addMessage(
+      await store.messages.addMessage(
         message({ id: 'msg-own', fromIssue: 'iss_reader', fromSession: 'reader-session' }),
       )
-      store.messages.addMessage(
+      await store.messages.addMessage(
         message({
           id: 'msg-seen',
           fromIssue: 'iss_peer',
@@ -102,14 +102,14 @@ describe('countContextAwarePendingMail', () => {
           status: 'delivered',
         }),
       )
-      store.messages.recordRead('msg-seen', asSessionId('reader-session'), 't1')
+      await store.messages.recordRead('msg-seen', asSessionId('reader-session'), 't1')
       counts.clear()
 
-      const baselineSenders = messages.listPendingSendersForSession(
+      const baselineSenders = await messages.listPendingSendersForSession(
         asIssueId('iss_target'),
         asSessionId('reader-session'),
       )
-      const baselineCount = messages.countPendingForSession(
+      const baselineCount = await messages.countPendingForSession(
         asIssueId('iss_target'),
         asSessionId('reader-session'),
       )
@@ -147,10 +147,10 @@ describe('countContextAwarePendingMail', () => {
     }
   })
 
-  it('trusts a durable delivery stamp when the reader receipt is missing', () => {
-    const store = openTestStore(':memory:')
+  it('trusts a durable delivery stamp when the reader receipt is missing', async () => {
+    const store = await openTestStore(':memory:')
     try {
-      store.messages.addMessage({
+      await store.messages.addMessage({
         ...message({
           id: 'msg-delivered-without-receipt',
           fromIssue: 'iss_peer',

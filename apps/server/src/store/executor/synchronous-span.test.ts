@@ -336,15 +336,15 @@ describe('afterCommit outside a span', () => {
 })
 
 describe('the store seam', () => {
-  it('opens a post-commit scope for every SessionStore.transact body', () => {
+  it('opens a post-commit scope for every SessionStore.transact body', async () => {
     // THE SEAM TEST, and the reason it drives `store.transact` rather than
     // wrapping `transaction` itself: every other test in this file would pass
     // with the production store never wired to the bridge at all. This one is
     // the only thing that says the scope reaches a real span body.
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     try {
       const order: string[] = []
-      store.transact(() => {
+      await store.transact(() => {
         postCommit().effect(() => void order.push('effect'), 'e')
         order.push('body')
       })
@@ -354,8 +354,8 @@ describe('the store seam', () => {
     }
   })
 
-  it('drops the registered work when the transact body throws', () => {
-    const store = openTestStore(':memory:')
+  it('drops the registered work when the transact body throws', async () => {
+    const store = await openTestStore(':memory:')
     try {
       const ran: string[] = []
       expect(() =>

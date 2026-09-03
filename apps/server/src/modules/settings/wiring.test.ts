@@ -48,8 +48,8 @@ import { SECRET_SURFACE_ABSENT } from './authz'
 
 const SECRET = 'sk-ant-real-material-do-not-log'
 
-function harness(role: UserRole | undefined) {
-  const store = openTestStore(':memory:')
+async function harness(role: UserRole | undefined) {
+  const store = await openTestStore(':memory:')
   const registry = SessionRegistry.create(store, undefined, {
     instanceId: 'default',
     pairing: new PairingManager(),
@@ -72,7 +72,7 @@ function harness(role: UserRole | undefined) {
       capability: OPERATOR,
       principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     }),
-    audit: () => store.settingsAudit.list(),
+    audit: async () => await store.settingsAudit.list(),
   }
 }
 
@@ -80,14 +80,14 @@ describe('the derived settings router CALLS the gate', () => {
   it('an admin may read the secret presence surface', async () => {
     // THE POSITIVE ARM FIRST. Every refusal below is worthless without it: a
     // gate that refused everything satisfies them all.
-    const { call } = harness('admin')
+    const { call } = await harness('admin')
     const presence = await call.settings.secretPresence({})
     expect(Array.isArray(presence)).toBe(true)
     expect(presence.length).toBeGreaterThan(0)
   })
 
   it('a member reading the secret surface is refused AS ABSENT, not as forbidden', async () => {
-    const { call } = harness('member')
+    const { call } = await harness('member')
     await expect(call.settings.secretPresence({})).rejects.toMatchObject({
       code: 'NOT_FOUND',
       message: SECRET_SURFACE_ABSENT,
@@ -95,7 +95,7 @@ describe('the derived settings router CALLS the gate', () => {
   })
 
   it('a member is refused a secret WRITE', async () => {
-    const { call } = harness('member')
+    const { call } = await harness('member')
     await expect(
       call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
@@ -105,16 +105,16 @@ describe('the derived settings router CALLS the gate', () => {
     // A gate that refused after the side effect would pass the test above and
     // be worthless. Read back through the admin surface, which is the only
     // reader that can see it.
-    const { call, store } = harness('member')
+    const { call, store } = await harness('member')
     await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
-    expect(store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
+    expect(await store.secrets.getOrEmpty('apiKeys.openai')).toBe('')
   })
 
   it('a member MAY still write their own preferences — the member floor is real', async () => {
     // The control that stops "members are refused" from being the whole gate.
     // If this failed, the settings screen would be unusable for everyone but an
     // admin and the split would be a pretence.
-    const { call } = harness('member')
+    const { call } = await harness('member')
     const saved = await call.settings.updatePersonal({
       values: { 'notifications.telegramChatId': '4242' },
     })
@@ -126,7 +126,7 @@ describe('the derived settings router CALLS the gate', () => {
     // SCHEMA before the procedure body runs, so using one here would have
     // asserted zod's refusal and read as the gate's. The two are different
     // mechanisms and the test must name which one it is exercising.
-    const { call } = harness(undefined)
+    const { call } = await harness(undefined)
     await expect(
       call.settings.updatePersonal({ values: { 'notifications.telegramChatId': '4242' } }),
     ).rejects.toMatchObject({ code: 'FORBIDDEN' })
@@ -135,9 +135,9 @@ describe('the derived settings router CALLS the gate', () => {
 
 describe('the derived settings router WRITES the trail', () => {
   it('records an applied secret write, with the key and without the material', async () => {
-    const { call, audit } = harness('admin')
+    const { call, audit } = await harness('admin')
     await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET })
-    const rows = audit().filter((r) => r.command === 'settings.setSecret')
+    const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('applied')
     expect(rows[0]?.redactedPaths).toEqual(['value'])
@@ -150,9 +150,9 @@ describe('the derived settings router WRITES the trail', () => {
   it('records a REFUSED write, and the refusal still carries no material', async () => {
     // The error path through the real transport. A member's refused `setSecret`
     // arrives with the material in its input; the trail must not keep it.
-    const { call, audit } = harness('member')
+    const { call, audit } = await harness('member')
     await call.settings.setSecret({ key: 'apiKeys.openai', value: SECRET }).catch(() => {})
-    const rows = audit().filter((r) => r.command === 'settings.setSecret')
+    const rows = (await audit()).filter((r) => r.command === 'settings.setSecret')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')
     expect(JSON.stringify(rows[0])).not.toContain(SECRET)
@@ -163,11 +163,11 @@ describe('the derived settings router WRITES the trail', () => {
     // `normalizeSettings` refuses a value the model's schema rejects, INSIDE the
     // handler. A trail wired only to the gate would miss every validation
     // refusal — which is most of them.
-    const { call, audit } = harness('admin')
+    const { call, audit } = await harness('admin')
     await call.settings
       .updateInstance({ values: { 'hibernation.memoryPct': 'not-a-number' } })
       .catch(() => {})
-    const rows = audit().filter((r) => r.command === 'settings.updateInstance')
+    const rows = (await audit()).filter((r) => r.command === 'settings.updateInstance')
     expect(rows).toHaveLength(1)
     expect(rows[0]?.outcome).toBe('refused')
     expect(rows[0]?.detail).toHaveProperty('error')
@@ -177,14 +177,14 @@ describe('the derived settings router WRITES the trail', () => {
     // Non-vacuity: every count above would also hold if the table were
     // pre-populated by something else, and an "is not empty" claim proves
     // nothing about what wrote the rows.
-    const { audit } = harness('admin')
-    expect(audit()).toEqual([])
+    const { audit } = await harness('admin')
+    expect(await audit()).toEqual([])
   })
 
   it('every row carries the attribution pair, and a person is on both halves', async () => {
-    const { call, audit } = harness('admin')
+    const { call, audit } = await harness('admin')
     await call.settings.clearSecret({ key: 'apiKeys.openai' })
-    const row = audit().at(-1)
+    const row = (await audit()).at(-1)
     expect(row?.actorKind).toBe('user')
     expect(row?.actorId).toBe(FIRST_ADMIN_USER_ID)
     expect(row?.onBehalfOf).toBe(FIRST_ADMIN_USER_ID)
@@ -198,8 +198,8 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
     // the product — this asserts the table would refuse it even if that code
     // were wrong, which is the only version of the claim that survives a future
     // edit to the writer.
-    const { store } = harness('admin')
-    store.settingsAudit.append({
+    const { store } = await harness('admin')
+    await store.settingsAudit.append({
       command: 'settings.updateInstance',
       outcome: 'applied',
       actorKind: 'system',
@@ -209,7 +209,7 @@ describe('the STORE refuses a system row that names a human (ADR 9 D8 S5)', () =
       redactedPaths: [],
       createdAt: '2026-07-31T00:00:00.000Z',
     })
-    expect(store.settingsAudit.list().at(-1)?.actorKind).toBe('system')
+    expect((await store.settingsAudit.list()).at(-1)?.actorKind).toBe('system')
 
     expect(() =>
       store.settingsAudit.append({

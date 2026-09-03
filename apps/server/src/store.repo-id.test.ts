@@ -64,8 +64,8 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 }
 
 describe('repo_id schema (v8, #74)', () => {
-  it('fresh DB has repo_id columns on repos and issues', () => {
-    const s = openTestStore(':memory:')
+  it('fresh DB has repo_id columns on repos and issues', async () => {
+    const s = await openTestStore(':memory:')
     for (const table of ['repos', 'issues']) {
       const cols = new Set(
         (db(s).prepare(`PRAGMA table_info(${table})`).all() as { name: string }[]).map(
@@ -81,11 +81,11 @@ describe('repo_id schema (v8, #74)', () => {
     s.close()
   })
 
-  it('addRepo derives repo_id (origin-based when given, path-fallback otherwise)', () => {
-    const s = openTestStore(':memory:')
-    s.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/o/r')
-    s.repos.addRepo('/b', asMachineId('m1'))
-    const rows = s.repos.listRepos()
+  it('addRepo derives repo_id (origin-based when given, path-fallback otherwise)', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/o/r')
+    await s.repos.addRepo('/b', asMachineId('m1'))
+    const rows = await s.repos.listRepos()
     expect(rows.find((r) => r.path === '/a')?.repoId).toBe(
       deriveRepoId({
         originUrl: 'https://github.com/o/r',
@@ -99,52 +99,52 @@ describe('repo_id schema (v8, #74)', () => {
     s.close()
   })
 
-  it('two paths with the same origin share one repo_id', () => {
-    const s = openTestStore(':memory:')
-    s.repos.addRepo('/clone/one', asMachineId('m1'), 'git@github.com:o/r.git')
-    s.repos.addRepo('/clone/two', asMachineId('m2'), 'https://github.com/o/r')
-    const rows = s.repos.listRepos()
+  it('two paths with the same origin share one repo_id', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/clone/one', asMachineId('m1'), 'git@github.com:o/r.git')
+    await s.repos.addRepo('/clone/two', asMachineId('m2'), 'https://github.com/o/r')
+    const rows = await s.repos.listRepos()
     expect(rows[0]?.repoId).toBe(rows[1]?.repoId)
     s.close()
   })
 
-  it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', () => {
-    const s = openTestStore(':memory:')
-    s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3 }))
+  it('updateRepoOrigin upgrades a path-fallback id (and its issues) but not an origin-derived id', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/r', asMachineId('m1')) // no origin → path fallback
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/r' }))
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_2'), repoPath: '/r/nested', seq: 2 }))
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_3'), repoPath: '/other', seq: 3 }))
     const fallback = deriveRepoId({ machineId: asMachineId('m1'), path: '/r' })
-    expect(s.repos.listRepos()[0]?.repoId).toBe(fallback)
-    expect(s.issues.getIssue('iss_1')?.repoId).toBe(fallback)
+    expect((await s.repos.listRepos())[0]?.repoId).toBe(fallback)
+    expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(fallback)
 
-    s.repos.updateRepoOrigin(asMachineId('m1'), '/r', 'git@github.com:o/r.git')
+    await s.repos.updateRepoOrigin(asMachineId('m1'), '/r', 'git@github.com:o/r.git')
     const originId = deriveRepoId({
       originUrl: 'git@github.com:o/r.git',
       machineId: asMachineId('m1'),
       path: '/r',
     })
-    expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
-    expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
-    expect(s.issues.getIssue('iss_2')?.repoId).toBe(originId)
+    expect((await s.repos.listRepos())[0]?.repoId).toBe(originId)
+    expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(originId)
+    expect((await s.issues.getIssue('iss_2'))?.repoId).toBe(originId)
     // untouched: issue outside the repo (path-fallback under THIS host — see above)
-    expect(s.issues.getIssue('iss_3')?.repoId).toBe(
+    expect((await s.issues.getIssue('iss_3'))?.repoId).toBe(
       deriveRepoId({ machineId: s.hostMachineId, path: '/other' }),
     )
 
     // A later, different origin must NOT rewrite the established identity.
-    s.repos.updateRepoOrigin(asMachineId('m1'), '/r', 'git@github.com:fork/r.git')
-    expect(s.repos.listRepos()[0]?.repoId).toBe(originId)
-    expect(s.repos.listRepos()[0]?.originUrl).toBe('git@github.com:fork/r.git')
-    expect(s.issues.getIssue('iss_1')?.repoId).toBe(originId)
+    await s.repos.updateRepoOrigin(asMachineId('m1'), '/r', 'git@github.com:fork/r.git')
+    expect((await s.repos.listRepos())[0]?.repoId).toBe(originId)
+    expect((await s.repos.listRepos())[0]?.originUrl).toBe('git@github.com:fork/r.git')
+    expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(originId)
     s.close()
   })
 
-  it('upsertIssue dual-writes repo_id from the registered repo prefix match', () => {
-    const s = openTestStore(':memory:')
-    s.repos.addRepo('/repo', asMachineId('m1'), 'https://github.com/o/repo')
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
-    expect(s.issues.getIssue('iss_1')?.repoId).toBe(
+  it('upsertIssue dual-writes repo_id from the registered repo prefix match', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/repo', asMachineId('m1'), 'https://github.com/o/repo')
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/repo' }))
+    expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(
       deriveRepoId({
         originUrl: 'https://github.com/o/repo',
         machineId: asMachineId('m1'),
@@ -168,13 +168,13 @@ describe('repo_id schema (v8, #74)', () => {
  * means serving rows that belong to no repo. The boot refuses instead.
  */
 describe('the repo-identity boot refusal (POD-1360)', () => {
-  it('refuses to open a database whose repo rows carry no repo_id', () => {
+  it('refuses to open a database whose repo rows carry no repo_id', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-repo-refusal-'))
     try {
       const file = join(dir, 'podium.db')
       // Plant the legacy row behind the repository, which is the only way to make
       // one: `addRepo` derives an id before it inserts.
-      const first = openTestStore(file)
+      const first = await openTestStore(file)
       db(first)
         .prepare(
           `INSERT INTO repos (machine_id, path, origin_url, added_at)
@@ -189,11 +189,11 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
     }
   })
 
-  it('refuses when the unfilled row is an issue rather than a repo', () => {
+  it('refuses when the unfilled row is an issue rather than a repo', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-issue-refusal-'))
     try {
       const file = join(dir, 'podium.db')
-      const first = openTestStore(file)
+      const first = await openTestStore(file)
       db(first)
         .prepare(
           `INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
@@ -209,19 +209,19 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
     }
   })
 
-  it('opens a database whose rows all carry one — the refusal is not always-on', () => {
+  it('opens a database whose rows all carry one — the refusal is not always-on', async () => {
     // The counterfactual for both tests above: the same boot path, on the ordinary
     // state, does not throw. Without it they would pass against a store that
     // refused every database.
     const dir = mkdtempSync(join(tmpdir(), 'podium-repo-refusal-ok-'))
     try {
       const file = join(dir, 'podium.db')
-      const first = openTestStore(file)
-      first.repos.addRepo('/ordinary', first.hostMachineId)
+      const first = await openTestStore(file)
+      await first.repos.addRepo('/ordinary', first.hostMachineId)
       first.close()
 
-      const second = openTestStore(file)
-      expect(second.repos.listRepoPaths()).toEqual(['/ordinary'])
+      const second = await openTestStore(file)
+      expect(await second.repos.listRepoPaths()).toEqual(['/ordinary'])
       second.close()
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -243,26 +243,26 @@ describe('the repo-identity boot refusal (POD-1360)', () => {
  * find it, and a repo minted under another machine keeps its id here.
  */
 describe('stored repo ids are read, never re-derived', () => {
-  it('a registered path resolves to the STORED id, never to a fresh derivation', () => {
+  it('a registered path resolves to the STORED id, never to a fresh derivation', async () => {
     // The property the design asked to be PROVEN, at the one function every reader
     // goes through: `resolveRepoIdForPath` returns `match?.repoId` for anything a
     // repo row claims, so the derivation below is unreachable for it — and the
     // counterfactual is right there, since deriving the same path under this host
     // gives a DIFFERENT id.
-    const s = openTestStore(':memory:')
-    s.repos.addRepo('/legacy', asMachineId('11112222-3333-4444-5555-666677778888'))
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/legacy', asMachineId('11112222-3333-4444-5555-666677778888'))
 
-    const stored = s.repos.listRepos()[0]?.repoId
-    expect(s.repos.resolveRepoIdForPath('/legacy')).toBe(stored)
-    expect(s.repos.resolveRepoIdForPath('/legacy/deep/inside')).toBe(stored)
+    const stored = (await s.repos.listRepos())[0]?.repoId
+    expect(await s.repos.resolveRepoIdForPath('/legacy')).toBe(stored)
+    expect(await s.repos.resolveRepoIdForPath('/legacy/deep/inside')).toBe(stored)
     expect(deriveRepoId({ machineId: s.hostMachineId, path: '/legacy' })).not.toBe(stored)
     // And its issues keep pointing at it.
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
-    expect(s.issues.getIssue('iss_1')?.repoId).toBe(stored)
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_1'), repoPath: '/legacy' }))
+    expect((await s.issues.getIssue('iss_1'))?.repoId).toBe(stored)
     s.close()
   })
 
-  it('an UNREGISTERED path is the one re-derive lookup, and it derives under this host', () => {
+  it('an UNREGISTERED path is the one re-derive lookup, and it derives under this host', async () => {
     // KNOWN LIMIT, pinned rather than hidden. `resolveRepoIdForPath` is used as a
     // lookup key (`store/issues.ts` issue-by-repo queries, `prefixForPath`), and for
     // a path no repo row claims it DERIVES rather than reads. That derivation used
@@ -270,8 +270,8 @@ describe('stored repo ids are read, never re-derived', () => {
     // issue whose repo was never registered was stored under the old namespace and
     // is looked up under the new one. Registering the repo — the ordinary state —
     // returns the stored id and makes the question moot; see the test above.
-    const s = openTestStore(':memory:')
-    expect(s.repos.resolveRepoIdForPath('/nowhere')).toBe(
+    const s = await openTestStore(':memory:')
+    expect(await s.repos.resolveRepoIdForPath('/nowhere')).toBe(
       deriveRepoId({ machineId: s.hostMachineId, path: '/nowhere' }),
     )
     s.close()

@@ -44,8 +44,8 @@ describe('pre-migrated store fixture wiring [POD-523]', () => {
     expect(storeDatabaseOpenerInstalled()).toBe(!disabled)
   })
 
-  it('hands an ordinary store a database already at the head of the chain', () => {
-    const store = openTestStore(':memory:')
+  it('hands an ordinary store a database already at the head of the chain', async () => {
+    const store = await openTestStore(':memory:')
     // @ts-expect-error private db — this test's subject is how the db was built
     const ledger = appliedDrizzleNames(store.db)
     expect(ledger.size).toBe(DRIZZLE_MIGRATIONS.length)

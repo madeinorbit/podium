@@ -37,7 +37,7 @@ async function start(
     clearInterval(handle: unknown): void
   },
 ) {
-  store = openTestStore(':memory:')
+  store = await openTestStore(':memory:')
   registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(
     registry,
@@ -71,7 +71,7 @@ async function start(
 }
 
 async function startNotReady() {
-  store = openTestStore(':memory:')
+  store = await openTestStore(':memory:')
   registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     readinessForClient: () => ({

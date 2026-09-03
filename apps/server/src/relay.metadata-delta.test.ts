@@ -21,8 +21,8 @@ describe('SessionRegistry metadata deltas', () => {
     return registry
   }
 
-  function makeLegacyRegistry(): SessionRegistry {
-    const registry = SessionRegistry.create(openTestStore(':memory:'), undefined, { instanceId: 'default' })
+  async function makeLegacyRegistry(): Promise<SessionRegistry> {
+    const registry = SessionRegistry.create(await openTestStore(':memory:'), undefined, { instanceId: 'default' })
     registries.push(registry)
     return registry
   }
@@ -53,8 +53,8 @@ describe('SessionRegistry metadata deltas', () => {
    *  flush deterministically before reading a delta client's inbox. */
   const flush = (registry: SessionRegistry): void => registry.modules.funnel.flushDeltas()
 
-  it('sends canonical per-entity deltas regardless of the retired metadataDelta cap', () => {
-    const registry = makeLegacyRegistry()
+  it('sends canonical per-entity deltas regardless of the retired metadataDelta cap', async () => {
+    const registry = await makeLegacyRegistry()
     const legacy = client(registry)
     const delta = client(registry, ['metadataDelta'])
     const legacyBefore = legacy.inbox.length

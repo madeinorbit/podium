@@ -132,7 +132,7 @@ describe('the CSWSH guard on the real upgrade path', () => {
   })
 
   async function start(deps: WsTransportDeps = {}): Promise<string> {
-    store = openTestStore(':memory:')
+    store = await openTestStore(':memory:')
     registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     handle = attachWebSockets(
       registry,

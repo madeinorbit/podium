@@ -160,7 +160,7 @@ describe('starting an operation', () => {
     const result = await run(engine, 'test')
     expect(result).toMatchObject({ started: true })
     expect(order).toEqual(['first', 'second'])
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('done')
     expect(row?.finishedAt).not.toBeNull()
     expect(row?.operation?.steps?.map((s) => s.state)).toEqual(['done', 'done'])
@@ -172,8 +172,8 @@ describe('starting an operation', () => {
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(second) } }))
 
     await run(engine, 'test')
-    expect(store.get('op_1')?.state).toBe('running')
-    expect(step(store.get('op_1')?.operation, 'first')?.state).toBe('running')
+    expect((await store.get('op_1'))?.state).toBe('running')
+    expect(step((await store.get('op_1'))?.operation, 'first')?.state).toBe('running')
     expect(second).not.toHaveBeenCalled()
   })
 
@@ -194,7 +194,7 @@ describe('starting an operation', () => {
       }),
     )
     await run(engine, 'test')
-    expect(step(store.get('op_1')?.operation, 'first')?.startedAt).toBe(0)
+    expect(step((await store.get('op_1'))?.operation, 'first')?.startedAt).toBe(0)
   })
 
   it('refuses a kind it does not know, rather than throwing', async () => {
@@ -206,7 +206,7 @@ describe('starting an operation', () => {
     const { registry, engine, store } = harness()
     registry.register(testKind())
     await run(engine, 'test', undefined, { createdBy: 'user' })
-    expect(store.get('op_1')?.operation?.createdBy).toBe('user')
+    expect((await store.get('op_1'))?.operation?.createdBy).toBe('user')
   })
 
   it('hands the kind the context it was started with, unread', async () => {
@@ -257,7 +257,7 @@ describe('single-flight (P6)', () => {
     const outcomes = [a, b]
     expect(outcomes.filter((r) => r.started)).toHaveLength(1)
     expect(outcomes.find((r) => !r.started)).toMatchObject({ alreadyRunning: 'op_1' })
-    expect(store.history('test')).toHaveLength(1)
+    expect(await store.history('test')).toHaveLength(1)
   })
 
   it('releases the group the moment the operation reaches an outcome', async () => {
@@ -292,7 +292,7 @@ describe('progress and liveness (P4)', () => {
     clock.advance(4000)
     await engine.recordProgress('op_1', 'first', { progress: { done: 1, total: 3 } })
 
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(step(row?.operation, 'first')?.lastProgressAt).toBe(4000)
     expect(step(row?.operation, 'first')?.progress).toEqual({ done: 1, total: 3 })
     expect(row?.updatedAt).toBe(4000)
@@ -304,7 +304,7 @@ describe('progress and liveness (P4)', () => {
     await run(engine, 'test')
 
     await engine.recordProgress('op_1', 'first', { state: 'done' })
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('ignores a report for a step that has already finished', async () => {
@@ -314,7 +314,7 @@ describe('progress and liveness (P4)', () => {
     await engine.recordProgress('op_1', 'first', { state: 'done' })
 
     await engine.recordProgress('op_1', 'first', { detail: 'late' })
-    expect(step(store.get('op_1')?.operation, 'first')?.detail).toBeUndefined()
+    expect(step((await store.get('op_1'))?.operation, 'first')?.detail).toBeUndefined()
   })
 })
 
@@ -330,7 +330,7 @@ describe('a failure REPORTED is a failure (POD-2136 review)', () => {
       error: { code: 'machine-unreachable', places: ['vmi'] },
     })
 
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error).toMatchObject({ code: 'machine-unreachable' })
     // The plan must not walk past it: `isStepFinished` counts a failed step as
@@ -344,7 +344,7 @@ describe('a failure REPORTED is a failure (POD-2136 review)', () => {
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
     await run(engine, 'test')
     await engine.recordProgress('op_1', 'first', { state: 'done' })
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('frees the exclusion group when a report fails the operation', async () => {
@@ -377,16 +377,16 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
     // allowed to be hostage to it.
     await startOnly(engine)
     expect(ensure).toHaveBeenCalledTimes(1)
-    expect(store.get('op_1')?.state).toBe('running')
+    expect((await store.get('op_1'))?.state).toBe('running')
 
     clock.advance(1000)
     await drainMicrotasks()
-    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBe(1)
+    expect(step((await store.get('op_1'))?.operation, 'first')?.stalls).toBe(1)
     expect(ensure).toHaveBeenCalledTimes(2)
 
     clock.advance(1000)
     await drainMicrotasks()
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
   })
@@ -404,7 +404,7 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
 
     clock.advance(400)
     await drainMicrotasks()
-    expect(store.get('op_1')?.state).toBe('failed')
+    expect((await store.get('op_1'))?.state).toBe('failed')
     expect(ensure).toHaveBeenCalledTimes(1)
   })
 
@@ -415,7 +415,7 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
     await startOnly(engine)
     clock.advance(10_000)
     await drainMicrotasks()
-    expect(store.get('op_1')?.state).toBe('running')
+    expect((await store.get('op_1'))?.state).toBe('running')
   })
 
   it('accepts the answer of a runner that returns inside its budget', async () => {
@@ -438,7 +438,7 @@ describe('a runner that never returns is still bound by its budget (POD-2136 rev
     clock.advance(500)
     release({ state: 'done' })
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 })
 
@@ -461,8 +461,8 @@ describe('stopping the engine (POD-2136 review)', () => {
     clock.advance(10_000)
     await engine.whenSettled('op_1')
     // Untouched: the successor adopts it and re-derives from reality instead.
-    expect(store.get('op_1')?.state).toBe('running')
-    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBeUndefined()
+    expect((await store.get('op_1'))?.state).toBe('running')
+    expect(step((await store.get('op_1'))?.operation, 'first')?.stalls).toBeUndefined()
   })
 })
 
@@ -484,15 +484,15 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
 
     clock.advance(1000)
     await engine.whenSettled('op_1')
-    const retried = step(store.get('op_1')?.operation, 'first')
+    const retried = step((await store.get('op_1'))?.operation, 'first')
     expect(retried?.stalls).toBe(1)
     expect(retried?.attempts).toBe(2)
     expect(ensure).toHaveBeenCalledTimes(2)
-    expect(store.get('op_1')?.state).toBe('running')
+    expect((await store.get('op_1'))?.state).toBe('running')
 
     clock.advance(1000)
     await engine.whenSettled('op_1')
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
     expect(step(row?.operation, 'first')?.state).toBe('failed')
@@ -508,11 +508,11 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
     await engine.recordProgress('op_1', 'first', { detail: 'still going' })
     clock.advance(600)
     await engine.whenSettled('op_1')
-    expect(step(store.get('op_1')?.operation, 'first')?.state).toBe('running')
+    expect(step((await store.get('op_1'))?.operation, 'first')?.state).toBe('running')
 
     clock.advance(500)
     await engine.whenSettled('op_1')
-    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBe(1)
+    expect(step((await store.get('op_1'))?.operation, 'first')?.stalls).toBe(1)
   })
 
   it('records a stall that recovered instead of erasing it', async () => {
@@ -524,10 +524,10 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
     await engine.whenSettled('op_1')
     await engine.recordProgress('op_1', 'first', { state: 'done' })
 
-    const finished = step(store.get('op_1')?.operation, 'first')
+    const finished = step((await store.get('op_1'))?.operation, 'first')
     expect(finished?.state).toBe('done')
     expect(finished?.stalls).toBe(1)
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('fails a step that overruns its total budget, with no retry', async () => {
@@ -540,9 +540,9 @@ describe('deadlines fire on a timer, not on a poll (§3.3)', () => {
 
     clock.advance(500)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('failed')
+    expect((await store.get('op_1'))?.state).toBe('failed')
     expect(ensure).toHaveBeenCalledTimes(1)
-    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBeUndefined()
+    expect(step((await store.get('op_1'))?.operation, 'first')?.stalls).toBeUndefined()
   })
 
   it('arms nothing for a step whose kind declares no budget', async () => {
@@ -577,7 +577,7 @@ describe('failure', () => {
       }),
     )
     await run(engine, 'test')
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error).toMatchObject({ code: 'machine-dirty-checkout' })
     expect(step(row?.operation, 'second')?.state).toBe('pending')
@@ -596,7 +596,7 @@ describe('failure', () => {
       }),
     )
     await run(engine, 'test')
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error?.code).toBe('step-threw')
     expect(row?.operation?.error?.detail).toContain('connection refused')
@@ -606,7 +606,7 @@ describe('failure', () => {
     const { registry, engine, store } = harness()
     registry.register(testKind({ plan: () => ({ steps: [{ id: 'ghost' }] }) }))
     await run(engine, 'test')
-    expect(store.get('op_1')?.operation?.error?.code).toBe('no-runner')
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe('no-runner')
   })
 })
 
@@ -617,8 +617,8 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     await run(engine, 'test')
 
     expect(engine.cancel('op_1')).toMatchObject({ canceled: true })
-    expect(store.get('op_1')?.state).toBe('canceled')
-    expect(store.get('op_1')?.finishedAt).not.toBeNull()
+    expect((await store.get('op_1'))?.state).toBe('canceled')
+    expect((await store.get('op_1'))?.finishedAt).not.toBeNull()
   })
 
   it('refuses once an irreversible step is in flight, and names it', async () => {
@@ -631,7 +631,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
       refused: 'irreversible',
       step: 'first',
     })
-    expect(store.get('op_1')?.state).toBe('running')
+    expect((await store.get('op_1'))?.state).toBe('running')
   })
 
   it('treats an unmarked runner as irreversible', async () => {
@@ -682,7 +682,7 @@ describe('adoption after a restart (P3, §3.4)', () => {
 
   it('reconciles against reality, then resumes from where reality says it is', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
 
     const first = vi.fn(done)
     const reconcile = vi.fn((operation: Operation, reality: unknown) => ({
@@ -704,24 +704,24 @@ describe('adoption after a restart (P3, §3.4)', () => {
     // The step reality says is finished is NOT redone.
     expect(first).not.toHaveBeenCalled()
     expect(adopted[0]?.state).toBe('done')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('re-runs the step reality says is still outstanding', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
     const first = vi.fn(done)
     registry.register(testKind({ runners: { first: runner(first), second: runner(done) } }))
 
     await successor(store, registry).adoptOnBoot(() => ({}))
     // ensure() is idempotent by contract, so re-running it is the safe answer.
     expect(first).toHaveBeenCalledOnce()
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('hands the kind the reality and the context the caller assembled', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
     const seen: unknown[] = []
     registry.register(
       testKind({
@@ -748,25 +748,25 @@ describe('adoption after a restart (P3, §3.4)', () => {
 
   it('leaves nothing to adopt once everything has an outcome', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight({ state: 'done', finishedAt: 20 }))
+    await store.insert(midFlight({ state: 'done', finishedAt: 20 }))
     registry.register(testKind())
     expect(await successor(store, registry).adoptOnBoot(() => ({}))).toEqual([])
   })
 
   it('fails an operation of a kind this binary no longer registers, freeing the group', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight({ kind: 'from-the-future' }))
+    await store.insert(midFlight({ kind: 'from-the-future' }))
     registry.register(testKind())
 
     const adopted = await successor(store, registry).adoptOnBoot(() => ({}))
     expect(adopted[0]?.state).toBe('failed')
-    expect(store.get('op_1')?.operation?.error?.code).toBe(UNKNOWN_KIND_ERROR_CODE)
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe(UNKNOWN_KIND_ERROR_CODE)
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('frees the group without rewriting a payload it cannot read', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
     const opaque = '{"id":"op_1","kind":"test","state":"quiescing"}'
     ;(store as unknown as { db: { prepare(s: string): { run(...a: unknown[]): void } } }).db
       .prepare('UPDATE operations SET payload = ? WHERE id = ?')
@@ -774,23 +774,23 @@ describe('adoption after a restart (P3, §3.4)', () => {
     registry.register(testKind())
 
     await successor(store, registry).adoptOnBoot(() => ({}))
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     // The successor's own record of what happened survives the downgrade.
     expect(row?.payload).toBe(opaque)
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('keeps a field only a newer server understands across its own writes', async () => {
     const { store, registry } = harness()
-    store.insert({ ...midFlight(), aFieldAddedNextYear: 'keep me' } as PersistedOperation)
+    await store.insert({ ...midFlight(), aFieldAddedNextYear: 'keep me' } as PersistedOperation)
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
 
     const engine = successor(store, registry)
     await engine.adoptOnBoot(() => ({}))
     await engine.recordProgress('op_1', 'first', { progress: { done: 2, total: 3 } })
 
-    const read = store.get('op_1')?.operation as Record<string, unknown>
+    const read = (await store.get('op_1'))?.operation as Record<string, unknown>
     expect(read.aFieldAddedNextYear).toBe('keep me')
   })
 })
@@ -809,15 +809,15 @@ describe('surface-scoped asks hold the operation open only when they must (§3.5
     const { registry, engine, store } = harness()
     registry.register(withAsk(true))
     await run(engine, 'test')
-    expect(store.get('op_1')?.state).toBe('waiting')
-    expect(store.get('op_1')?.finishedAt).toBeNull()
+    expect((await store.get('op_1'))?.state).toBe('waiting')
+    expect((await store.get('op_1'))?.finishedAt).toBeNull()
   })
 
   it('completes despite a voluntary ask — stragglers self-serve', async () => {
     const { registry, engine, store } = harness()
     registry.register(withAsk(false))
     await run(engine, 'test')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('finishes once the ask that held it is settled', async () => {
@@ -825,8 +825,8 @@ describe('surface-scoped asks hold the operation open only when they must (§3.5
     registry.register(withAsk(true))
     await run(engine, 'test')
     await engine.settleAsk('op_1', 'desktop-install')
-    expect(store.get('op_1')?.state).toBe('done')
-    expect(store.get('op_1')?.operation?.awaiting).toEqual([])
+    expect((await store.get('op_1'))?.state).toBe('done')
+    expect((await store.get('op_1'))?.operation?.awaiting).toEqual([])
   })
 
   it('still holds the group while it waits', async () => {
@@ -886,7 +886,7 @@ describe('a step left stalled by a dead process (POD-2145)', () => {
 
   it('is resumed by adoption, rather than holding its group forever', async () => {
     const { store, registry } = harness()
-    store.insert(stalledMidFlight())
+    await store.insert(stalledMidFlight())
     const first = vi.fn(done)
     registry.register(testKind({ runners: { first: runner(first), second: runner(done) } }))
 
@@ -895,18 +895,18 @@ describe('a step left stalled by a dead process (POD-2145)', () => {
     // ensure() is idempotent by contract, so re-running it is the safe answer —
     // and the only one, since nothing else will ever touch this step again.
     expect(first).toHaveBeenCalledOnce()
-    expect(store.get('op_1')?.state).toBe('done')
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect((await store.get('op_1'))?.state).toBe('done')
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('keeps the stall the dead process recorded, and counts the new attempt', async () => {
     const { store, registry } = harness()
-    store.insert(stalledMidFlight())
+    await store.insert(stalledMidFlight())
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
 
     await boot(store, registry).engine.adoptOnBoot(() => ({}))
 
-    const resumed = step(store.get('op_1')?.operation, 'first')
+    const resumed = step((await store.get('op_1'))?.operation, 'first')
     expect(resumed?.state).toBe('running')
     // "It hung and then recovered" is a fact about the update the user lived
     // through: the restart does not buy the step a fresh stall budget.
@@ -916,7 +916,7 @@ describe('a step left stalled by a dead process (POD-2145)', () => {
 
   it('arms the deadline the dead process never left behind', async () => {
     const { store, registry } = harness()
-    store.insert(stalledMidFlight())
+    await store.insert(stalledMidFlight())
     registry.register(
       testKind({
         runners: { first: runner(blocks), second: runner(done) },
@@ -933,23 +933,23 @@ describe('a step left stalled by a dead process (POD-2145)', () => {
     // answerable to a budget.
     clock.advance(1000)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('failed')
-    expect(store.get('op_1')?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
+    expect((await store.get('op_1'))?.state).toBe('failed')
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe(STALLED_ERROR_CODE)
   })
 
   it('is failed, not parked, when this binary has no runner for it', async () => {
     const { store, registry } = harness()
-    store.insert(stalledMidFlight())
+    await store.insert(stalledMidFlight())
     registry.register(testKind({ runners: { second: runner(done) } }))
 
     await boot(store, registry).engine.adoptOnBoot(() => ({}))
-    expect(store.get('op_1')?.operation?.error?.code).toBe('no-runner')
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe('no-runner')
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('does not resume a step the kind reconciled to finished', async () => {
     const { store, registry } = harness()
-    store.insert(stalledMidFlight())
+    await store.insert(stalledMidFlight())
     const first = vi.fn(done)
     registry.register(
       testKind({
@@ -966,7 +966,7 @@ describe('a step left stalled by a dead process (POD-2145)', () => {
 
     await boot(store, registry).engine.adoptOnBoot(() => ({}))
     expect(first).not.toHaveBeenCalled()
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('fails a stalled step whose runner went away, rather than leaving it stalled', async () => {
@@ -986,8 +986,8 @@ describe('a step left stalled by a dead process (POD-2145)', () => {
     clock.advance(1000)
     await engine.whenSettled('op_1')
 
-    expect(store.get('op_1')?.state).toBe('failed')
-    expect(store.get('op_1')?.operation?.error?.code).toBe('no-runner')
+    expect((await store.get('op_1'))?.state).toBe('failed')
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe('no-runner')
   })
 })
 
@@ -1015,7 +1015,7 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
 
   it('resolves, and abandons the operation, when the reality lookup throws', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
     registry.register(testKind({ plan: () => ({ steps: [{ id: 'first' }] }) }))
 
     const adopted = await boot(store, registry).adoptOnBoot(() => {
@@ -1023,17 +1023,17 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
     })
 
     expect(adopted[0]?.state).toBe('failed')
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error?.code).toBe(ADOPTION_FAILED_ERROR_CODE)
     // The whole point: the group is released rather than wedged behind an
     // operation this binary has just proved it cannot drive.
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('resolves, and abandons the operation, when reconcile throws', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight())
+    await store.insert(midFlight())
     registry.register(
       testKind({
         plan: () => ({ steps: [{ id: 'first' }] }),
@@ -1044,13 +1044,13 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
     )
 
     await boot(store, registry).adoptOnBoot(() => ({}))
-    expect(store.get('op_1')?.operation?.error?.code).toBe(ADOPTION_FAILED_ERROR_CODE)
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe(ADOPTION_FAILED_ERROR_CODE)
   })
 
   it('adopts the operations behind the one that threw', async () => {
     const { store, registry } = harness()
-    store.insert(midFlight({ id: 'op_a', createdAt: 10, updatedAt: 10 }))
-    store.insert(
+    await store.insert(midFlight({ id: 'op_a', createdAt: 10, updatedAt: 10 }))
+    await store.insert(
       midFlight({
         id: 'op_b',
         kind: 'reindex',
@@ -1075,8 +1075,8 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
 
     // `active()` is newest first, so the thrower is reached before op_a.
     await boot(store, registry).adoptOnBoot(() => ({}))
-    expect(store.get('op_b')?.state).toBe('failed')
-    expect(store.get('op_a')?.state).toBe('done')
+    expect((await store.get('op_b'))?.state).toBe('failed')
+    expect((await store.get('op_a'))?.state).toBe('done')
   })
 
   it('resolves even when the store cannot list its live rows', async () => {
@@ -1096,21 +1096,21 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
     // Twenty newer finished operations, so this one falls outside its kind's
     // retention the moment its own completion sweeps.
     for (let i = 0; i < 20; i++) {
-      store.insert({
+      await store.insert({
         ...midFlight({ id: `op_old_${i}`, state: 'done' }),
         createdAt: 100 + i,
         updatedAt: 100 + i,
         finishedAt: 100 + i,
       })
     }
-    store.insert(midFlight())
+    await store.insert(midFlight())
     registry.register(
       testKind({ plan: () => ({ steps: [{ id: 'first' }] }), runners: { first: runner(done) } }),
     )
 
     const adopted = await boot(store, registry).adoptOnBoot(() => ({}))
     expect(adopted.map((o) => o.id)).toContain('op_1')
-    expect(store.get('op_1')).toBeUndefined()
+    expect(await store.get('op_1')).toBeUndefined()
   })
 })
 
@@ -1143,8 +1143,8 @@ describe('stopping the engine is a fence, not a timer sweep (POD-2148)', () => {
     // the shutdown path has already closed.
     clock.advance(10_000)
     await drainMicrotasks()
-    expect(store.get('op_1')?.state).toBe('running')
-    expect(step(store.get('op_1')?.operation, 'first')?.stalls).toBeUndefined()
+    expect((await store.get('op_1'))?.state).toBe('running')
+    expect(step((await store.get('op_1'))?.operation, 'first')?.stalls).toBeUndefined()
   })
 
   it('writes nothing once stopped, even when the runner finally answers', async () => {
@@ -1165,7 +1165,7 @@ describe('stopping the engine is a fence, not a timer sweep (POD-2148)', () => {
       }),
     )
     await engine.start('test')
-    const before = store.get('op_1')?.updatedAt
+    const before = (await store.get('op_1'))?.updatedAt
 
     engine.stop()
     clock.advance(500)
@@ -1173,7 +1173,7 @@ describe('stopping the engine is a fence, not a timer sweep (POD-2148)', () => {
     await drainMicrotasks()
 
     // A write here lands in a database the shutdown path has already closed.
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('running')
     expect(row?.updatedAt).toBe(before)
   })
@@ -1182,12 +1182,12 @@ describe('stopping the engine is a fence, not a timer sweep (POD-2148)', () => {
     const { registry, engine, store, clock } = harness()
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
     await run(engine, 'test')
-    const before = store.get('op_1')?.updatedAt
+    const before = (await store.get('op_1'))?.updatedAt
 
     engine.stop()
     clock.advance(500)
     await engine.recordProgress('op_1', 'first', { progress: { done: 1, total: 3 } })
-    expect(store.get('op_1')?.updatedAt).toBe(before)
+    expect((await store.get('op_1'))?.updatedAt).toBe(before)
   })
 })
 
@@ -1214,12 +1214,12 @@ describe('waiting expires after a grace (POD-2149)', () => {
     const { registry, engine, store, clock } = harness()
     registry.register(withRequiredAsk())
     await run(engine, 'test')
-    expect(store.get('op_1')?.state).toBe('waiting')
+    expect((await store.get('op_1'))?.state).toBe('waiting')
 
     clock.advance(DEFAULT_WAITING_GRACE_MS)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('done')
-    expect(store.get('op_1')?.finishedAt).not.toBeNull()
+    expect((await store.get('op_1'))?.state).toBe('done')
+    expect((await store.get('op_1'))?.finishedAt).not.toBeNull()
   })
 
   it('holds the operation open for the whole grace', async () => {
@@ -1229,7 +1229,7 @@ describe('waiting expires after a grace (POD-2149)', () => {
 
     clock.advance(DEFAULT_WAITING_GRACE_MS - 1)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('waiting')
+    expect((await store.get('op_1'))?.state).toBe('waiting')
   })
 
   it('honours the grace the kind names', async () => {
@@ -1239,7 +1239,7 @@ describe('waiting expires after a grace (POD-2149)', () => {
 
     clock.advance(5000)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('leaves the unanswered ask in the record', async () => {
@@ -1250,7 +1250,7 @@ describe('waiting expires after a grace (POD-2149)', () => {
     await engine.whenSettled('op_1')
 
     // Completing is not the same as pretending it was answered.
-    expect(store.get('op_1')?.operation?.awaiting).toEqual([
+    expect((await store.get('op_1'))?.operation?.awaiting).toEqual([
       { id: 'desktop-install', surface: 'desktop', required: true },
     ])
   })
@@ -1277,18 +1277,18 @@ describe('waiting expires after a grace (POD-2149)', () => {
       }),
     )
     await run(engine, 'test')
-    expect(store.get('op_1')?.state).toBe('waiting')
+    expect((await store.get('op_1'))?.state).toBe('waiting')
 
     clock.advance(DEFAULT_WAITING_GRACE_MS)
     await engine.whenSettled('op_1')
 
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error).toEqual({ code: 'nobody-did-it', message: 'Nobody did it.' })
     // Still ended, and still let go of the group: a wedge is not fixed by a
     // wrong outcome, and it is not re-opened by a right one either.
     expect(row?.finishedAt).not.toBeNull()
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   /** A kind that returns nothing keeps the framework's answer, which is what
@@ -1300,18 +1300,18 @@ describe('waiting expires after a grace (POD-2149)', () => {
 
     clock.advance(DEFAULT_WAITING_GRACE_MS)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 
   it('frees the exclusion group when the grace runs out', async () => {
     const { registry, engine, store, clock } = harness()
     registry.register(withRequiredAsk())
     await run(engine, 'test')
-    expect(store.activeByGroup('lifecycle')).toBeDefined()
+    expect(await store.activeByGroup('lifecycle')).toBeDefined()
 
     clock.advance(DEFAULT_WAITING_GRACE_MS)
     await engine.whenSettled('op_1')
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('still settles the moment the ask is answered', async () => {
@@ -1319,14 +1319,14 @@ describe('waiting expires after a grace (POD-2149)', () => {
     registry.register(withRequiredAsk())
     await run(engine, 'test')
     await engine.settleAsk('op_1', 'desktop-install')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
     // …and the grace timer went with it.
     expect(clock.armed()).toBe(0)
   })
 
   it('re-arms the grace when a successor adopts a waiting operation', async () => {
     const { store, registry } = harness()
-    store.insert({
+    await store.insert({
       id: 'op_1',
       kind: 'test',
       exclusionGroup: 'lifecycle',
@@ -1341,11 +1341,11 @@ describe('waiting expires after a grace (POD-2149)', () => {
     const clock = fakeClock()
     const engine = new OperationEngine({ store, registry, clock: clock.clock })
     await engine.adoptOnBoot(() => ({}))
-    expect(store.get('op_1')?.state).toBe('waiting')
+    expect((await store.get('op_1'))?.state).toBe('waiting')
 
     clock.advance(DEFAULT_WAITING_GRACE_MS)
     await engine.whenSettled('op_1')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 })
 
@@ -1367,11 +1367,11 @@ describe('a background drive that throws is contained (POD-2151)', () => {
     expect(await engine.start('test')).toMatchObject({ started: true })
     await drainMicrotasks()
 
-    const row = store.get('op_1')
+    const row = await store.get('op_1')
     expect(row?.state).toBe('failed')
     expect(row?.operation?.error?.code).toBe(DRIVE_FAILED_ERROR_CODE)
     expect(row?.operation?.error?.detail).toContain('database is locked')
-    expect(store.activeByGroup('lifecycle')).toBeUndefined()
+    expect(await store.activeByGroup('lifecycle')).toBeUndefined()
   })
 
   it('fails the operation when a deadline wakes into a broken store', async () => {
@@ -1391,8 +1391,8 @@ describe('a background drive that throws is contained (POD-2151)', () => {
     clock.advance(1000)
     await drainMicrotasks()
 
-    expect(store.get('op_1')?.state).toBe('failed')
-    expect(store.get('op_1')?.operation?.error?.code).toBe(DRIVE_FAILED_ERROR_CODE)
+    expect((await store.get('op_1'))?.state).toBe('failed')
+    expect((await store.get('op_1'))?.operation?.error?.code).toBe(DRIVE_FAILED_ERROR_CODE)
   })
 
   it('raises nothing further when the store itself is the broken thing', async () => {
@@ -1420,7 +1420,7 @@ describe('a background drive that throws is contained (POD-2151)', () => {
     // cannot record anything — and must not turn a contained failure into an
     // uncontained one on the way out.
     expect(unhandled).toEqual([])
-    expect(store.get('op_1')?.state).toBe('running')
+    expect((await store.get('op_1'))?.state).toBe('running')
   })
 })
 
@@ -1451,14 +1451,14 @@ describe('restating a deferred promise (POD-3040)', () => {
     if (!started.started) throw new Error('expected the operation to start')
     const id = started.operation.id
 
-    const finished = h.store.get(id)?.operation
+    const finished = (await h.store.get(id))?.operation
     expect(finished?.state).toBe('done')
     expect(finished?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     h.clock.advance(5_000)
     await h.engine.recordDeferred(id, [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
 
-    const after = h.store.get(id)?.operation
+    const after = (await h.store.get(id))?.operation
     expect(after?.deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
@@ -1620,7 +1620,7 @@ describe('what the engine writes down', () => {
   it('records both sides of an adoption — what it inherited and what it concluded', async () => {
     const { store, registry } = harness()
     // A row the dead process left mid-flight, exactly as `adoption` builds one.
-    store.insert({
+    await store.insert({
       id: 'op_1',
       kind: 'test',
       exclusionGroup: 'lifecycle',
@@ -1650,6 +1650,6 @@ describe('what the engine writes down', () => {
 
     expect(field('operation adopted on boot', 'wasSteps')).toBe('first=running second=pending')
     expect(String(field('operation adopted on boot', 'nowSteps'))).toContain('first=done')
-    expect(store.get('op_1')?.state).toBe('done')
+    expect((await store.get('op_1'))?.state).toBe('done')
   })
 })

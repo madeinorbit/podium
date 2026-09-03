@@ -94,7 +94,7 @@ function classifyRelay(
 
 /** An oracle with two issues and one agent session living inside issue A. */
 async function twoIssueOracle() {
-  const o = makeOracle()
+  const o = await makeOracle()
   const a = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
   o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
   const b = o.reg.issues.create({ repoPath: '/r', title: 'issue B', startNow: false })
@@ -106,7 +106,7 @@ async function twoIssueOracle() {
 
 describe('oracle: the authenticated admin seam', () => {
   it(`${MUST_NOT_CHANGE}: an authenticated admin capability carries explicit user attribution`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     // The context capability the router is constructed with IS the constant.
     expect(OPERATOR).toEqual({
       role: 'admin',

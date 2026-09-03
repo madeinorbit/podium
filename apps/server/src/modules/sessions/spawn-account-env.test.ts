@@ -25,14 +25,14 @@ afterEach(() => {
 })
 
 /** A store whose coding role points at `accountId`, with the managed rows seeded. */
-function storeWith(
+async function storeWith(
   accountId: string,
   ...accounts: Array<Parameters<SessionStore['accounts']['upsert']>[0]>
-): SessionStore {
-  const store = openTestStore(':memory:')
-  for (const a of accounts) store.accounts.upsert(a)
-  const settings = store.settings.getSettings()
-  store.settings.setSettings({
+): Promise<SessionStore> {
+  const store = await openTestStore(':memory:')
+  for (const a of accounts) await store.accounts.upsert(a)
+  const settings = await store.settings.getSettings()
+  await store.settings.setSettings({
     ...settings,
     roles: {
       ...settings.roles,
@@ -101,23 +101,23 @@ async function resurrectFrame(store: SessionStore) {
   return frame as Extract<ControlMessage, { type: 'spawn' }>
 }
 
-it('createSession injects the managed credential into the spawn frame (#216)', () => {
-  const frame = createFrame(storeWith('managed:anthropic', MANAGED_ANTHROPIC))
+it('createSession injects the managed credential into the spawn frame (#216)', async () => {
+  const frame = createFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC))
   expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-managed' })
 })
 
 it('resurrectSession injects the managed credential into the spawn frame (#216)', async () => {
-  const frame = await resurrectFrame(storeWith('managed:anthropic', MANAGED_ANTHROPIC))
+  const frame = await resurrectFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC))
   expect(frame.env).toEqual({ ANTHROPIC_API_KEY: 'sk-ant-managed' })
 })
 
-it('createSession on a NATIVE account leaves env absent — not an empty object', () => {
-  const frame = createFrame(storeWith('native:claude-code'))
+it('createSession on a NATIVE account leaves env absent — not an empty object', async () => {
+  const frame = createFrame(await storeWith('native:claude-code'))
   expect(Object.hasOwn(frame, 'env')).toBe(false)
 })
 
 it('resurrectSession on a NATIVE account leaves env absent — not an empty object', async () => {
-  const frame = await resurrectFrame(storeWith('native:claude-code'))
+  const frame = await resurrectFrame(await storeWith('native:claude-code'))
   expect(Object.hasOwn(frame, 'env')).toBe(false)
 })
 
@@ -127,8 +127,8 @@ it('resurrectSession on a NATIVE account leaves env absent — not an empty obje
  * `env` away from the browser — and into persisted scrollback. The credential is
  * for the harness; a shell never gets it.
  */
-it('never injects the managed credential into a SHELL pane (#216)', () => {
-  const frame = createFrame(storeWith('managed:anthropic', MANAGED_ANTHROPIC), 'shell')
+it('never injects the managed credential into a SHELL pane (#216)', async () => {
+  const frame = createFrame(await storeWith('managed:anthropic', MANAGED_ANTHROPIC), 'shell')
   expect(frame.agentKind).toBe('shell')
   expect(Object.hasOwn(frame, 'env')).toBe(false)
   expect(JSON.stringify(frame)).not.toContain('sk-ant-managed')

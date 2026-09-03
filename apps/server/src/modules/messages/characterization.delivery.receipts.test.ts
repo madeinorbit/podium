@@ -42,7 +42,7 @@ const receipts = (h: ReturnType<typeof mailHarness>): Record<string, unknown>[] 
 
 describe('flag-on delivery: the table still chooses, the receipt reports (R1)', () => {
   it('sends an idle target through the same push, and settles it with an accepted receipt', async () => {
-    const h = mailHarness({ receipts: {} })
+    const h = await mailHarness({ receipts: {} })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
@@ -66,7 +66,7 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
   })
 
   it('routes an interrupt through interruptText and reports the interrupt delivery', async () => {
-    const h = mailHarness({ receipts: {} })
+    const h = await mailHarness({ receipts: {} })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
 
@@ -83,7 +83,7 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
   })
 
   it('leaves a busy live target holding for its turn boundary, with no push and no receipt', async () => {
-    const h = mailHarness({ receipts: {} })
+    const h = await mailHarness({ receipts: {} })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
 
@@ -110,7 +110,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
   }
 
   it('records the unconfirmed delivery on the ledger and pushes exactly once', async () => {
-    const h = mailHarness({ receipts: { answer: () => unverified } })
+    const h = await mailHarness({ receipts: { answer: () => unverified } })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
@@ -140,7 +140,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
   })
 
   it('does not resend when the sweep runs after an unverified receipt', async () => {
-    const h = mailHarness({ receipts: { answer: () => unverified } })
+    const h = await mailHarness({ receipts: { answer: () => unverified } })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
@@ -156,7 +156,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
   })
 
   it('still confirms on the transcript echo — the receipt did not close the question', async () => {
-    const h = mailHarness({ receipts: { answer: () => unverified } })
+    const h = await mailHarness({ receipts: { answer: () => unverified } })
     const iss = h.createIssue({ title: 'target' })
     const target = asSessionId('sTarget')
     h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
@@ -180,7 +180,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
 
 describe('flag-on delivery: the window is open until the driver answers (R3)', () => {
   it('reports nothing while the receipt is outstanding, then records it on settle', async () => {
-    const h = mailHarness({ receipts: { defer: true } })
+    const h = await mailHarness({ receipts: { defer: true } })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
@@ -202,7 +202,7 @@ describe('flag-on delivery: the window is open until the driver answers (R3)', (
   })
 
   it('does not move a row the echo already settled while the window was open', async () => {
-    const h = mailHarness({ receipts: { defer: true, answer: () => unverifiedLate } })
+    const h = await mailHarness({ receipts: { defer: true, answer: () => unverifiedLate } })
     const iss = h.createIssue({ title: 'target' })
     const target = asSessionId('sTarget')
     h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
@@ -236,7 +236,7 @@ describe('flag-on delivery: a legacy-driven session is untouched (R4)', () => {
   it('produces no receipts for a session the daemon reports no driver for', async () => {
     // The mixed fleet, which is the reason the flag is per-session at all: one
     // daemon, one server, two sessions, only one of them driven.
-    const h = mailHarness({ receipts: { onContract: [asSessionId('sDriven')] } })
+    const h = await mailHarness({ receipts: { onContract: [asSessionId('sDriven')] } })
     const legacy = h.createIssue({ title: 'legacy' })
     h.put({ sessionId: asSessionId('sLegacy'), issueId: legacy.id, phase: 'idle' })
 
@@ -248,10 +248,10 @@ describe('flag-on delivery: a legacy-driven session is untouched (R4)', () => {
 })
 
 describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
-  it('dead-letters the attachment mail and sends its typed refusal back once', () => {
+  it('dead-letters the attachment mail and sends its typed refusal back once', async () => {
     const target = asSessionId('sAttachmentTarget')
     const sender = asSessionId('sAttachmentSender')
-    const h = mailHarness({
+    const h = await mailHarness({
       receipts: {
         onContract: [target],
         answer: () => ({

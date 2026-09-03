@@ -274,11 +274,11 @@ describe('AC1 · the session surface is derived, in both directions', () => {
 // ---------------------------------------------------------------------------
 
 describe('AC2 · framework idempotency is the single implementation', () => {
-  it('SessionLifecycle has no withMutation, on the instance OR its prototype', () => {
+  it('SessionLifecycle has no withMutation, on the instance OR its prototype', async () => {
     // Protection by ABSENCE plus a prototype-shape assertion: a `withMutation`
     // re-added as a delegating method would be one edit from a second per-proc
     // wrapper, and an `in` check alone would miss a prototype method.
-    const o = makeOracle()
+    const o = await makeOracle()
     const svc = o.reg.modules.sessions as unknown as Record<string, unknown>
     expect('withMutation' in svc).toBe(false)
     expect(Object.getOwnPropertyNames(Object.getPrototypeOf(svc))).not.toContain('withMutation')
@@ -288,7 +288,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
   })
 
   it('DUPLICATE DELIVERY: one mutationId delivered twice applies once, across both envelopes', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     // PRESENCE class. The second delivery must not re-apply, so a value written
@@ -315,12 +315,12 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     expect(o.reg.modules.sessions.listSessions().length).toBe(before + 1)
 
     // The receipt is durable, under the command's dotted name, for both.
-    expect(o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
-    expect(o.store.sync.getAppliedMutation(asMutationId('dup-2'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('dup-2'))).toBeDefined()
   })
 
   it('carries the chat mutation id onto the durable message ledger row', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const mutationId = 'msg_chat-correlation'
     await o.call.sessions.sendText({ sessionId, text: 'same visible turn', mutationId })
@@ -336,7 +336,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
     // The strongest available statement that the router's dedup and the framework's
     // are the same mechanism rather than two that agree: write the receipt through
     // `modules.mutations` and watch the tRPC call decline to apply.
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.rename({ sessionId, name: 'original' })
 
@@ -349,7 +349,7 @@ describe('AC2 · framework idempotency is the single implementation', () => {
   it('authorization precedes dedup: a replay is not served out of the cache', async () => {
     // ADR 3 D8 / §3.1.3 A1. The session-state envelope authorizes first, so a REVOKED
     // principal replaying a recorded id gets nothing — not the cached result.
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const presence = new SessionStateRegistry({
       sessions: o.reg.modules.sessions,
@@ -515,23 +515,23 @@ describe('AC3 · classification is total, and forgetting fails toward privacy AN
 // ---------------------------------------------------------------------------
 
 describe('AC4 · the per-user split actually happened', () => {
-  it('pins, snoozes and tab order are keyed by user: one user’s write is invisible to another', () => {
+  it('pins, snoozes and tab order are keyed by user: one user’s write is invisible to another', async () => {
     // A BEHAVIOURAL assertion with two DIFFERENT actors, not an arity check: a
     // `userId` parameter that the store ignored would pass any signature test.
-    const o = makeOracle()
+    const o = await makeOracle()
     const store = o.store.sessions
-    store.setPin(asUserId('user:alice'), 'panel', 's-1', true)
-    store.setSnooze(asUserId('user:alice'), asSessionId('s-1'), null)
-    store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
+    await store.setPin(asUserId('user:alice'), 'panel', 's-1', true)
+    await store.setSnooze(asUserId('user:alice'), asSessionId('s-1'), null)
+    await store.setTabOrder(asUserId('user:alice'), '/w', ['s-1'])
 
     // Alice's rows exist; Bob's are EMPTY — asserted on the values, because a
     // `userId` parameter the store ignored would satisfy any signature check.
-    expect(store.listPins(asUserId('user:alice')).panels).toEqual(['s-1'])
-    expect(store.listPins(asUserId('user:bob')).panels).toEqual([])
-    expect(store.listSnoozes(asUserId('user:alice'))).not.toEqual({})
-    expect(store.listSnoozes(asUserId('user:bob'))).toEqual({})
-    expect(store.listTabOrders(asUserId('user:alice'))).toEqual({ '/w': ['s-1'] })
-    expect(store.listTabOrders(asUserId('user:bob'))).toEqual({})
+    expect((await store.listPins(asUserId('user:alice'))).panels).toEqual(['s-1'])
+    expect((await store.listPins(asUserId('user:bob'))).panels).toEqual([])
+    expect(await store.listSnoozes(asUserId('user:alice'))).not.toEqual({})
+    expect(await store.listSnoozes(asUserId('user:bob'))).toEqual({})
+    expect(await store.listTabOrders(asUserId('user:alice'))).toEqual({ '/w': ['s-1'] })
+    expect(await store.listTabOrders(asUserId('user:bob'))).toEqual({})
   })
 
   it('every per-user COMMAND is self-scoped, so another user’s row is not addressable', () => {
@@ -569,7 +569,7 @@ describe('AC4 · the per-user split actually happened', () => {
     // What remains is not a temporary pin and is not being retired: a per-principal
     // read marker, measured against STORAGE rather than the wire, plus the property
     // a column could never express — a different principal has no marker at all.
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     await o.call.sessions.markRead({ sessionId })
 
@@ -578,9 +578,9 @@ describe('AC4 · the per-user split actually happened', () => {
     // honestly. The column is gone; the marker is one user's `(userId, sessionId)`
     // row. Measured the same way — against STORAGE, not the wire — so this stays
     // a statement about the shape rather than about the projection.
-    expect(o.store.sessions.getReadAt(asUserId(SOLE_USER_ID), sessionId)).not.toBeNull()
+    expect(await o.store.sessions.getReadAt(asUserId(SOLE_USER_ID), sessionId)).not.toBeNull()
     // The property a column could not express: a different principal has no marker.
-    expect(o.store.sessions.getReadAt(asUserId('user:somebody-else'), sessionId)).toBeNull()
+    expect(await o.store.sessions.getReadAt(asUserId('user:somebody-else'), sessionId)).toBeNull()
 
     // And the part POD-382 closed, unchanged: the COMMAND was already self-scoped
     // and per-user-classified, which is why POD-1076's move needed no contract
@@ -596,7 +596,7 @@ describe('AC4 · the per-user split actually happened', () => {
 
 describe('AC5 · attribution is a pair and comes from the transport', () => {
   it('PRESENCE: the pair decides nameSource, and a payload-supplied identity is ignored', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const presence = new SessionStateRegistry({
       sessions: o.reg.modules.sessions,
@@ -644,7 +644,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
   })
 
   it('COMMAND PLANE: spawnedBy is stamped from the principal, and a payload spawnedBy is stripped', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     // The schema does not carry the field at all, so there is nothing to trust.
     const parsed = sessionCommandPlane.defs.create.input.parse({
@@ -678,7 +678,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // The pair, on the one command whose contract declares
     // `wirePlacement: 'not-on-the-wire'` — so the assertion has to be against the
     // durable event, which is where it decided to put it.
-    const o = makeOracle({ machineId: asMachineId('local') })
+    const o = await makeOracle({ machineId: asMachineId('local') })
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'handoff', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/h' })
     const { sessionId } = await o.call.sessions.create({
@@ -692,9 +692,9 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
     // written from the principal either way, and if it is not, nothing here passes.
     await messageOf(() => o.call.sessions.handoff({ sessionId, machineId: 'nowhere' }))
 
-    const handoffEvents = o.store.events
-      .listEventsSince(0)
-      .filter((event) => event.kind.includes('handoff'))
+    const handoffEvents = (await o.store.events.listEventsSince(0)).filter((event) =>
+      event.kind.includes('handoff'),
+    )
     for (const event of handoffEvents) {
       const payload =
         typeof event.payload === 'string'
@@ -746,7 +746,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
   it.each(
     GATED.map((g) => [g.key, g] as const),
   )('%s refuses a principal who may see the machine but not use it', async (_key, gated) => {
-    const o = makeOracle({
+    const o = await makeOracle({
       machineId: asMachineId('box'),
       offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
@@ -786,7 +786,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
     // The DEFAULT fixture: the instance's own host, owned by the installer. Not the
     // 'box' fixture above — that machine has a daemon but no machines-table row, so
     // it is `absent` for everyone and would have made this pass for the wrong reason.
-    const o = makeOracle()
+    const o = await makeOracle()
     const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
     const created = await dispatchSessionCommand(ctx, 'create', {
       agentKind: 'shell',
@@ -799,7 +799,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
   it('THE ALL-IN-ONE CASE: a non-owner may not execute on the host daemon', async () => {
     // §3.1.4 M4, the sharpest case: the server runs on someone's Mac, so anyone who
     // can authenticate would otherwise inherit execute on that Mac.
-    const o = makeOracle()
+    const o = await makeOracle()
     // A session on the host this server runs on, exactly as a single-machine
     // install produces it (no explicit placement).
     const target = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
@@ -863,7 +863,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
   it.each(
     TARGETED.map((row) => [row.key, row] as const),
   )('%s answers an INVISIBLE session exactly as it answers a nonexistent one', async (_key, row) => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const live = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
 
     // Nonexistent: an id nothing ever created.
@@ -884,7 +884,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
   it('the sweep can say YES: a VISIBLE target answers differently from an invisible one', async () => {
     // Without this, every case above would pass if `dispatchSessionCommand` threw
     // the same thing for all inputs, or if `settle` swallowed everything.
-    const o = makeOracle()
+    const o = await makeOracle()
     const live = o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const visible = await settle(() =>
       dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'hibernate', {
@@ -904,7 +904,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
   })
 
   it('an INVISIBLE machine answers exactly as a never-paired one', async () => {
-    const o = makeOracle({
+    const o = await makeOracle({
       machineId: asMachineId('box'),
       offlineMachines: [{ id: asMachineId('box'), name: 'The Box' }],
     })
@@ -942,7 +942,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // substrate is asked directly for its ghost answer and the two are compared. If
     // the substrate ever rewords its dead letter, this goes red instead of the two
     // silently diverging.
-    const o = makeOracle()
+    const o = await makeOracle()
     const direct = o.reg.modules.messages.send(
       { kind: 'operator' },
       {
@@ -973,7 +973,7 @@ describe('AC7 · the command surface is not an existence oracle', () => {
     // Same property, different pinned shape (POD-379). A denial must be
     // indistinguishable from a write to a session that does not exist — for this
     // class that means no throw, no reason, no row.
-    const o = makeOracle()
+    const o = await makeOracle()
     const presence = new SessionStateRegistry({
       sessions: o.reg.modules.sessions,
       state: o.reg.modules.sessions.state,

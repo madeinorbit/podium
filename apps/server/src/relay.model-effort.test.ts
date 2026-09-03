@@ -9,20 +9,20 @@ import { openTestStore } from './test-support/open-test-store'
  * message to the daemon (which maps it to the CLI flags — see agent-bridge launch).
  * 'auto' is the sentinel for "no flag", and cursor never gets an effort flag.
  */
-function captureSpawn(over: {
+async function captureSpawn(over: {
   agentKind: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'shell'
   model?: string
   effort?: string
 }) {
-  const store = openTestStore(':memory:')
-  store.machines.upsertMachine({
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.setMachineInventory(
+  await store.machines.setMachineInventory(
     'm1',
     JSON.stringify({
       os: 'linux',
@@ -41,20 +41,20 @@ function captureSpawn(over: {
 }
 
 describe('relay threads per-session model + effort onto the spawn message', () => {
-  it('forwards an explicit model + effort override', () => {
-    const spawn = captureSpawn({ agentKind: 'claude-code', model: 'opus', effort: 'high' })
+  it('forwards an explicit model + effort override', async () => {
+    const spawn = await captureSpawn({ agentKind: 'claude-code', model: 'opus', effort: 'high' })
     expect(spawn).toMatchObject({ agentKind: 'claude-code', model: 'opus', effort: 'high' })
   })
 
-  it("'auto' means no flag — neither model nor effort is set", () => {
-    const spawn = captureSpawn({ agentKind: 'claude-code', model: 'auto', effort: 'auto' })
+  it("'auto' means no flag — neither model nor effort is set", async () => {
+    const spawn = await captureSpawn({ agentKind: 'claude-code', model: 'auto', effort: 'auto' })
     expect(spawn).toBeDefined()
     expect(spawn).not.toHaveProperty('model')
     expect(spawn).not.toHaveProperty('effort')
   })
 
-  it('cursor carries a model but never an effort flag', () => {
-    const spawn = captureSpawn({ agentKind: 'cursor', model: 'gpt-5.2', effort: 'high' })
+  it('cursor carries a model but never an effort flag', async () => {
+    const spawn = await captureSpawn({ agentKind: 'cursor', model: 'gpt-5.2', effort: 'high' })
     expect(spawn?.model).toBe('gpt-5.2')
     expect(spawn).not.toHaveProperty('effort')
   })

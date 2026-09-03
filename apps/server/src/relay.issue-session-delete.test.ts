@@ -11,7 +11,7 @@ function registryWithDaemon(store = openTestStore(':memory:')) {
 }
 
 describe('issue/session deletion lifecycle', () => {
-  it('tombstones and restores the issue with all member session records', () => {
+  it('tombstones and restores the issue with all member session records', async () => {
     const { registry, store, messages } = registryWithDaemon()
     const issue = registry.issues.create({
       repoPath: '/repo',
@@ -45,10 +45,10 @@ describe('issue/session deletion lifecycle', () => {
     expect(result.issue.deletedAt).toBeTruthy()
     expect(result.issue).not.toHaveProperty('sessions')
     expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
-    expect(store.issues.getIssue(issue.id)?.deletedAt).toBeTruthy()
+    expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
     expect(registry.modules.sessions.listSessions().map((s) => s.sessionId)).toEqual([unrelated])
-    expect(store.sessions.loadSessions().map((s) => s.id)).toEqual([unrelated])
-    const tombstones = store.sessions.loadDeletedSessionsForIssue(issue.id)
+    expect((await store.sessions.loadSessions()).map((s) => s.id)).toEqual([unrelated])
+    const tombstones = await store.sessions.loadDeletedSessionsForIssue(issue.id)
     expect(new Set(tombstones.map((s) => s.id))).toEqual(new Set([attached, inWorktree]))
     expect(tombstones.every((s) => !!s.deletedAt)).toBe(true)
     expect(tombstones.every((s) => s.deletionSource === 'issue')).toBe(true)
@@ -70,9 +70,9 @@ describe('issue/session deletion lifecycle', () => {
     const restored = registry.modules.issueSessionLifecycle.restoreIssue(issue.id)
     expect(restored.issue.deletedAt).toBeUndefined()
     expect(new Set(restored.restoredSessionIds)).toEqual(new Set([attached, inWorktree]))
-    expect(store.issues.getIssue(issue.id)?.deletedAt).toBeNull()
-    expect(store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
-    expect(new Set(store.sessions.loadSessions().map((s) => s.id))).toEqual(
+    expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
+    expect(await store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
+    expect(new Set((await store.sessions.loadSessions()).map((s) => s.id))).toEqual(
       new Set([attached, inWorktree, unrelated]),
     )
     const restoredMetas = registry.modules.sessions
@@ -89,7 +89,7 @@ describe('issue/session deletion lifecycle', () => {
     registry.dispose()
   })
 
-  it('rolls back both aggregates and leaves runtime sessions alive when the ledger append fails', () => {
+  it('rolls back both aggregates and leaves runtime sessions alive when the ledger append fails', async () => {
     const { registry, store, messages } = registryWithDaemon()
     const issue = registry.issues.create({ repoPath: '/repo', title: 'Atomic', startNow: false })
     const sessionId = registry.modules.sessions.createSession({
@@ -107,17 +107,17 @@ describe('issue/session deletion lifecycle', () => {
     spy.mockRestore()
 
     expect(registry.issues.get(issue.id)?.deletedAt).toBeUndefined()
-    expect(store.issues.getIssue(issue.id)?.deletedAt).toBeNull()
+    expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeNull()
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
       true,
     )
-    expect(store.sessions.loadSessions().some((s) => s.id === sessionId)).toBe(true)
-    expect(store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
+    expect((await store.sessions.loadSessions()).some((s) => s.id === sessionId)).toBe(true)
+    expect(await store.sessions.loadDeletedSessionsForIssue(issue.id)).toEqual([])
     expect(messages).not.toContainEqual({ type: 'kill', sessionId })
     registry.dispose()
   })
 
-  it('rolls back both tombstone restores when the ledger append fails', () => {
+  it('rolls back both tombstone restores when the ledger append fails', async () => {
     const { registry, store } = registryWithDaemon()
     const issue = registry.issues.create({
       repoPath: '/repo',
@@ -140,12 +140,12 @@ describe('issue/session deletion lifecycle', () => {
     spy.mockRestore()
 
     expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
-    expect(store.issues.getIssue(issue.id)?.deletedAt).toBeTruthy()
+    expect((await store.issues.getIssue(issue.id))?.deletedAt).toBeTruthy()
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
-    expect(store.sessions.loadSessions().some((s) => s.id === sessionId)).toBe(false)
-    expect(store.sessions.loadDeletedSessionsForIssue(issue.id).map((s) => s.id)).toEqual([
+    expect((await store.sessions.loadSessions()).some((s) => s.id === sessionId)).toBe(false)
+    expect((await store.sessions.loadDeletedSessionsForIssue(issue.id)).map((s) => s.id)).toEqual([
       sessionId,
     ])
     registry.dispose()

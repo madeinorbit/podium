@@ -45,8 +45,8 @@ interface Harness {
   failNextWrite(): void
 }
 
-const open = (): Harness => {
-  const store = openTestStore(':memory:')
+const open = async (): Promise<Harness> => {
+  const store = await openTestStore(':memory:')
   let during: { fn: () => void; when: 'before' | 'after' } | null = null
   let fail = false
   const transact: LedgerDeps['transact'] = (fn) => {
@@ -96,12 +96,12 @@ afterEach(() => {
 })
 
 describe('draft-then-install: two updates to the same issue', () => {
-  it('refuses the second install when the row moved while its write was open', () => {
+  it('refuses the second install when the row moved while its write was open', async () => {
     // THE SITE: `crud.ts` update() — two callers read the same row, both mutate
     // it, one commits. Under the old model the loser's rollback-by-assignment
     // wrote the WINNER's row back to a stale value, silently, with both callers
     // told they succeeded.
-    harness = open()
+    harness = await open()
     const { svc } = harness
     const id = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
 
@@ -117,12 +117,12 @@ describe('draft-then-install: two updates to the same issue', () => {
     expect(svc.get(id)?.title).toBe('from the inner write')
   })
 
-  it('leaves the map row untouched while a write is open, and after it fails', () => {
+  it('leaves the map row untouched while a write is open, and after it fails', async () => {
     // The rollback case, with nothing to roll back. Asserted DURING the span as
     // well as after it: a draft installed eagerly would be observable here and
     // restored by the time the throw arrives, which is indistinguishable from
     // correct if you only look at the end state.
-    harness = open()
+    harness = await open()
     const { svc } = harness
     const id = svc.create({ repoPath: '/repo', title: 'settled', startNow: false }).id
     const before = svc.get(id)
@@ -139,11 +139,11 @@ describe('draft-then-install: two updates to the same issue', () => {
     expect(svc.get(id)?.revision).toBe(before?.revision)
   })
 
-  it('refuses the map-owned row outright rather than persisting it', () => {
+  it('refuses the map-owned row outright rather than persisting it', async () => {
     // The mechanism assertion. Every mutation path was converted to take a
     // draft; this is what makes a path that forgets fail loudly instead of
     // working by accident for as long as the store stays synchronous.
-    harness = open()
+    harness = await open()
     const { svc } = harness
     const id = svc.create({ repoPath: '/repo', title: 'shared', startNow: false }).id
     // The facade forwards `rows` and `persistRow` to the registry itself.
@@ -156,10 +156,10 @@ describe('draft-then-install: two updates to the same issue', () => {
 })
 
 describe('draft-then-install: a rollback racing a successful update', () => {
-  it('does not let the failing write undo the one that committed', () => {
+  it('does not let the failing write undo the one that committed', async () => {
     // spec §2.5 item 9's exact failure: the loser's restore-by-assignment used
     // to put the pre-write field set back over the winner's committed row.
-    harness = open()
+    harness = await open()
     const { svc } = harness
     const id = svc.create({ repoPath: '/repo', title: 'base', startNow: false }).id
 
@@ -173,8 +173,8 @@ describe('draft-then-install: a rollback racing a successful update', () => {
 })
 
 describe('draft-then-install: an in-memory read while a write is open', () => {
-  it('serves the committed row, never the draft', () => {
-    harness = open()
+  it('serves the committed row, never the draft', async () => {
+    harness = await open()
     const { svc } = harness
     const id = svc.create({ repoPath: '/repo', title: 'committed', startNow: false }).id
 

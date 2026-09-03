@@ -61,8 +61,8 @@ describe('TranscriptIndexer', () => {
     for (const fn of cleanups.splice(0)) fn()
   })
 
-  function setup() {
-    const store = openTestStore(':memory:')
+  async function setup() {
+    const store = await openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-index-'))
     const fs = new FakeDaemonFs()
     const indexer = new TranscriptIndexer({
@@ -103,7 +103,7 @@ describe('TranscriptIndexer', () => {
   }
 
   it('indexes user/assistant text once, skipping non-message records', async () => {
-    const { store, fs, mirror, indexer } = setup()
+    const { store, fs, mirror, indexer } = await setup()
     const path = seed(store, 'conv')
     const content =
       userLine('u1', 'find the flux capacitor') +
@@ -130,7 +130,7 @@ describe('TranscriptIndexer', () => {
   })
 
   it('indexes a record split across two mirror chunks exactly once', async () => {
-    const { store, fs, mirror, indexer } = setup()
+    const { store, fs, mirror, indexer } = await setup()
     const path = seed(store, 'split')
     const first = userLine('u1', 'part one message')
     const second = assistantLine('a1', 'the split record answer')
@@ -162,7 +162,7 @@ describe('TranscriptIndexer', () => {
   })
 
   it('truncate (source rewrite) drops the index and reindexes the new content', async () => {
-    const { store, fs, mirror, indexer } = setup()
+    const { store, fs, mirror, indexer } = await setup()
     const path = seed(store, 'rewrite')
     const original =
       userLine('u1', 'original long conversation') + assistantLine('a1', 'old answer')
@@ -189,7 +189,7 @@ describe('TranscriptIndexer', () => {
   })
 
   it('degrades to a no-op without throwing when FTS5 is unavailable', async () => {
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     cleanups.push(() => store.close())
     // Simulate the no-FTS runtime: the availability flag is what gates every path.
     Object.assign(store, { transcriptFtsAvailable: false })
@@ -219,11 +219,11 @@ describe('TranscriptIndexer', () => {
 
   /** A store + on-disk lake dir seeded with pre-P5 segments: lake file present,
    *  mirrored_bytes set, indexed_bytes 0 — exactly what a deploy inherits. */
-  function backfillSetup(
+  async function backfillSetup(
     segments: { nativeId: string; content: string }[],
     options?: ConstructorParameters<typeof TranscriptIndexer>[1],
   ) {
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-backfill-'))
     cleanups.push(() => {
       store.close()
@@ -249,7 +249,7 @@ describe('TranscriptIndexer', () => {
   }
 
   it('backfills pre-existing fully-mirrored segments into the FTS index', async () => {
-    const { store, indexer, lakePathFor } = backfillSetup([
+    const { store, indexer, lakePathFor } = await backfillSetup([
       { nativeId: 'old-a', content: userLine('u1', 'ancient history one') },
       {
         nativeId: 'old-b',
@@ -271,7 +271,7 @@ describe('TranscriptIndexer', () => {
   it('stops a backfill pass at the byte budget and resumes on the next trigger', async () => {
     const segA = userLine('u1', 'first pre-existing conversation body')
     const segB = userLine('u2', 'second pre-existing conversation body')
-    const { store, indexer, lakePathFor } = backfillSetup(
+    const { store, indexer, lakePathFor } = await backfillSetup(
       [
         { nativeId: 'pace-a', content: segA },
         { nativeId: 'pace-b', content: segB },
@@ -307,7 +307,7 @@ describe('TranscriptIndexer', () => {
   it('splits a large segment across budget-bounded windows without re-indexing', async () => {
     const lines = Array.from({ length: 20 }, (_, i) => userLine(`u${i}`, `message number ${i}`))
     const content = lines.join('')
-    const { store, indexer, lakePathFor } = backfillSetup(
+    const { store, indexer, lakePathFor } = await backfillSetup(
       [{ nativeId: 'big', content }],
       // Tiny window: many windows per pass; tiny budget: several passes needed.
       { windowBytes: 256, passBudgetBytes: 1024 },
@@ -329,7 +329,7 @@ describe('TranscriptIndexer', () => {
   })
 
   it('leaves already-indexed segments untouched (no duplicate rows)', async () => {
-    const { store, indexer, lakePathFor } = backfillSetup([
+    const { store, indexer, lakePathFor } = await backfillSetup([
       { nativeId: 'done', content: userLine('u1', 'index me exactly once') },
     ])
     indexer.backfillMachine(asMachineId('m1'), lakePathFor)
@@ -347,7 +347,7 @@ describe('TranscriptIndexer', () => {
     try {
       const first = userLine('u1', 'stale indexed message')
       const content = first + assistantLine('a1', 'missing unindexed answer')
-      const { store, indexer, lakePathFor } = backfillSetup([{ nativeId: 'orphan', content }])
+      const { store, indexer, lakePathFor } = await backfillSetup([{ nativeId: 'orphan', content }])
       store.conversations.transcriptIndex.append(
         asMachineId('m1'),
         'orphan',
@@ -388,7 +388,7 @@ describe('TranscriptIndexer', () => {
     // hasn't moved since the last attempt, and retry as soon as either moves.
     const complete = userLine('u1', 'a finished thought')
     const partial = '{"type":"user","uuid":"u2","message":{"role":"user"' // torn mid-record, no \n
-    const { store, indexer, lakePathFor } = backfillSetup([
+    const { store, indexer, lakePathFor } = await backfillSetup([
       { nativeId: 'tail', content: complete + partial },
     ])
     // indexedCursor is the first call of every index attempt — its call count is
@@ -440,7 +440,7 @@ describe('TranscriptIndexer', () => {
   it('backs off cleanly when the lake file is unreadable (cursor untouched)', async () => {
     const logs = captureLogs()
     try {
-      const { store, indexer } = setup()
+      const { store, indexer } = await setup()
       seed(store, 'gone')
       store.conversations.mirror.setMirrorCursor(
         asMachineId('m1'),

@@ -45,9 +45,9 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
     for (const fn of cleanups.splice(0)) fn()
   })
 
-  function setup() {
+  async function setup() {
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-read-'))
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       mirrorLakeDir: lakeDir,
@@ -90,7 +90,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   }
 
   it('serves the window from the lake when the machine is detached', async () => {
-    const { lakeDir, store, registry } = setup()
+    const { lakeDir, store, registry } = await setup()
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-lake', LAKE_LINES)
     registry.gateway.detachDaemon('m1')
 
@@ -106,7 +106,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('serves the lake when the daemon answers empty (native file pruned)', async () => {
-    const { lakeDir, store, registry } = setup()
+    const { lakeDir, store, registry } = await setup()
     const sessionId = seedMirroredSession(registry, store, lakeDir, 'native-pruned', LAKE_LINES)
     // Re-attach a daemon that answers every transcriptRead with zero items — the
     // native file is gone from its disk.
@@ -133,7 +133,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('prefers a normally-answering daemon: the lake is not consulted', async () => {
-    const { lakeDir, store, registry } = setup()
+    const { lakeDir, store, registry } = await setup()
     // Lake content DIFFERS from the daemon answer, so serving it would be visible.
     const lakeOnly = JSON.stringify({
       type: 'user',
@@ -163,7 +163,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('reads retired and current file incarnations as one transcript chain', async () => {
-    const { lakeDir, store, registry } = setup()
+    const { lakeDir, store, registry } = await setup()
     const nativeId = 'native-reused'
     const predecessor = `${JSON.stringify({
       type: 'user',
@@ -228,7 +228,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('carries daemon file identity through the server mirror boundary', async () => {
-    const { lakeDir, store, registry } = setup()
+    const { lakeDir, store, registry } = await setup()
     const nativeId = 'native-boundary'
     const sourcePath = '/home/u/.claude/projects/-proj/native-boundary.jsonl'
     let source = Buffer.from(
@@ -301,7 +301,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('daemon attach backfills the FTS index for segments mirrored before this deploy', async () => {
-    const { lakeDir, store, registry } = setup()
+    const { lakeDir, store, registry } = await setup()
     // Pre-P5 state: lake file + mirrored_bytes > 0, indexed_bytes 0, and NO
     // onBytes hook will ever fire for it (the mirror is already caught up).
     seedMirroredSession(registry, store, lakeDir, 'native-old', LAKE_LINES)
@@ -321,7 +321,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('resolves empty when detached and nothing was mirrored (cursor at 0)', async () => {
-    const { registry } = setup()
+    const { registry } = await setup()
     registry.gateway.attachDaemon('m1', () => {})
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -342,7 +342,7 @@ describe('SessionRegistry lake-fallback transcript reads', () => {
   })
 
   it('fails closed before daemon or lake access for another user', async () => {
-    const { registry } = setup()
+    const { registry } = await setup()
     const sent: unknown[] = []
     registry.gateway.attachDaemon('m1', (message) => sent.push(message))
     const { sessionId } = registry.modules.sessions.createSession({

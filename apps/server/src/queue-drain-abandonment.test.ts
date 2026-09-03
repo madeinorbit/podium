@@ -42,17 +42,17 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
   let registry: SessionRegistry
   let toDaemon: ControlMessage[]
 
-  beforeEach(() => {
-    store = openTestStore(':memory:')
+  beforeEach(async () => {
+    store = await openTestStore(':memory:')
     for (const id of [MACHINE, OTHER_MACHINE]) {
-      store.machines.upsertMachine({
+      await store.machines.upsertMachine({
         id,
         name: id,
         hostname: id,
         tokenHash: `token-${id}`,
         ownerUserId: asUserId('user:sole'),
       })
-      store.machines.setMachineInventory(id, INVENTORY)
+      await store.machines.setMachineInventory(id, INVENTORY)
     }
     registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     toDaemon = []
@@ -65,7 +65,9 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     toDaemon.filter((m) => m.type === 'runtimeQueueDrainAbandonedAck' && m.reportId === reportId)
 
   /** A session this machine owns, plus one message durably queued for it. */
-  function queuedMessageFor(body: string): { sessionId: SessionId; messageId: string } {
+  async function queuedMessageFor(
+    body: string,
+  ): Promise<{ sessionId: SessionId; messageId: string }> {
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/w',
@@ -75,7 +77,7 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
       { kind: 'operator' },
       { to: { kind: 'session', id: sessionId }, body, urgency: 'next-turn' },
     )
-    expect(store.messages.getMessage(sent.message.id)?.status).toBe('queued')
+    expect((await store.messages.getMessage(sent.message.id))?.status).toBe('queued')
     return { sessionId, messageId: sent.message.id }
   }
 
@@ -87,8 +89,8 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     // family has always used, which is the whole point of not inventing a second
     // one for the server drivers.
     'delivery-failed',
-  ] as const)('a %s frame from the owning machine ends the queued receipt', (reason) => {
-    const { sessionId, messageId } = queuedMessageFor(`abandoned by ${reason}`)
+  ] as const)('a %s frame from the owning machine ends the queued receipt', async (reason) => {
+    const { sessionId, messageId } = await queuedMessageFor(`abandoned by ${reason}`)
 
     registry.gateway.routeDaemonFrame(MACHINE, {
       type: 'runtimeQueueDrainAbandoned',
@@ -98,16 +100,16 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     })
 
     // Read straight from the store, not from the service that wrote it.
-    expect(store.messages.getMessage(messageId)).toMatchObject({
+    expect(await store.messages.getMessage(messageId)).toMatchObject({
       status: 'dead_letter',
       deliveryDeferredReason: reason,
       deliveredTo: sessionId,
     })
-    expect(store.messages.getMessage(messageId)?.deadLetteredAt).not.toBeNull()
+    expect((await store.messages.getMessage(messageId))?.deadLetteredAt).not.toBeNull()
   })
 
-  it('an at-least-once replay corrects the same receipt once, and is re-acked', () => {
-    const { sessionId, messageId } = queuedMessageFor('reported twice')
+  it('an at-least-once replay corrects the same receipt once, and is re-acked', async () => {
+    const { sessionId, messageId } = await queuedMessageFor('reported twice')
     // The daemon's outbox replays a report until the server acks it, so the
     // SAME reportId arrives again — and the duplicated turn id inside one report
     // is the other way the port says a consumer will hear a turn twice.
@@ -120,28 +122,28 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     })
 
     registry.gateway.routeDaemonFrame(MACHINE, report())
-    const firstStamp = store.messages.getMessage(messageId)?.deadLetteredAt
+    const firstStamp = (await store.messages.getMessage(messageId))?.deadLetteredAt
     registry.gateway.routeDaemonFrame(MACHINE, report())
 
     // The first report is the one that stands: no second stamp, no rewritten
     // reason, and exactly one terminal transition on the ledger.
-    expect(store.messages.getMessage(messageId)).toMatchObject({
+    expect(await store.messages.getMessage(messageId)).toMatchObject({
       status: 'dead_letter',
       deadLetteredAt: firstStamp,
       deliveryDeferredReason: 'never-live',
     })
     expect(
-      store.events
-        .listEventsSince(0, { kinds: ['message.dead_letter'] })
-        .filter((e) => e.subject === messageId),
+      (await store.events.listEventsSince(0, { kinds: ['message.dead_letter'] })).filter(
+        (e) => e.subject === messageId,
+      ),
     ).toHaveLength(1)
     // Deduping must not swallow the ACK: a replay the server quietly ignores is
     // a report the daemon replays forever.
     expect(acksFor('report-replayed')).toHaveLength(2)
   })
 
-  it('a frame from a machine that does not own the session moves nothing', () => {
-    const { sessionId, messageId } = queuedMessageFor('not yours to abandon')
+  it('a frame from a machine that does not own the session moves nothing', async () => {
+    const { sessionId, messageId } = await queuedMessageFor('not yours to abandon')
 
     registry.gateway.routeDaemonFrame(OTHER_MACHINE, {
       type: 'runtimeQueueDrainAbandoned',
@@ -157,18 +159,18 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
     // READ THIS ONE HONESTLY: it is a negative, so unlike its neighbours it
     // still passes with the consumer wiring cut out entirely. It pins the
     // refusal, not the path. The cases above are what prove the path.
-    expect(store.messages.getMessage(messageId)?.status).toBe('queued')
+    expect((await store.messages.getMessage(messageId))?.status).toBe('queued')
   })
 
-  it('tells the sender what happened, in words about their message', () => {
+  it('tells the sender what happened, in words about their message', async () => {
     /**
      * A dead-letter row nobody is told about is the original defect wearing a
      * durable status. `delivery-failed` gets its own sentence because the other
      * two would misdescribe it: nothing failed to START here, and nothing was
      * torn down — the session took the turn and then could not hand it on.
      */
-    const { sessionId, messageId } = queuedMessageFor('tell me why')
-    const sentBy = store.messages.getMessage(messageId)?.fromKind
+    const { sessionId, messageId } = await queuedMessageFor('tell me why')
+    const sentBy = (await store.messages.getMessage(messageId))?.fromKind
 
     registry.gateway.routeDaemonFrame(MACHINE, {
       type: 'runtimeQueueDrainAbandoned',
@@ -177,9 +179,9 @@ describe('a queue-drain abandonment crosses the wire into the durable row', () =
       reason: 'delivery-failed',
     })
 
-    const notice = store.messages
-      .listQueued()
-      .find((m) => m.kind === 'notification' && m.body.includes(messageId))
+    const notice = (await store.messages.listQueued()).find(
+      (m) => m.kind === 'notification' && m.body.includes(messageId),
+    )
     expect(notice?.body).toContain('could not be delivered')
     expect(notice?.body).toContain('then failed to hand it to the agent')
     // Sent back to whoever sent the original, not broadcast at the session.

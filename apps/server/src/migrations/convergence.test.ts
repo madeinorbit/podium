@@ -53,9 +53,9 @@ function tmpDbFile(name: string): string {
 }
 
 describe('fresh drizzle-built database', () => {
-  it('has the expected data tables and the baseline recorded as applied', () => {
+  it('has the expected data tables and the baseline recorded as applied', async () => {
     const file = tmpDbFile('fresh.db')
-    openTestStore(file).close()
+    ;(await openTestStore(file)).close()
 
     const tableNames = new Set(
       schemaOf(file)
@@ -72,12 +72,12 @@ describe('fresh drizzle-built database', () => {
     db.close()
   })
 
-  it('reopening the same file changes no schema object (idempotent)', () => {
+  it('reopening the same file changes no schema object (idempotent)', async () => {
     const file = tmpDbFile('reopen.db')
-    openTestStore(file).close()
+    ;(await openTestStore(file)).close()
     const before = schemaOf(file)
 
-    openTestStore(file).close()
+    ;(await openTestStore(file)).close()
 
     expect(schemaOf(file)).toEqual(before)
   })

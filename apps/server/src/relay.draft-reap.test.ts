@@ -38,14 +38,14 @@ function draftWithSession(reg: SessionRegistry, repo = '/repo') {
 }
 
 describe('draft retention on session death', () => {
-  it('kill of the last attached session keeps the draft', () => {
+  it('kill of the last attached session keeps the draft', async () => {
     const reg = regWithDaemon()
     const { draft, sessionId } = draftWithSession(reg)
     expect(reg.issues.get(draft.id)).not.toBeNull()
     reg.modules.sessions.killSession({ sessionId })
     expect(reg.issues.get(draft.id)).not.toBeNull()
     expect(reg.modules.sessions.listSessions()).toHaveLength(0)
-    expect(reg.sessionStore.sessions.getSession(sessionId)?.issueId).toBe(draft.id)
+    expect((await reg.sessionStore.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
 
   it('archiving the last attached session keeps its draft attachment', () => {
@@ -56,9 +56,9 @@ describe('draft retention on session death', () => {
     expect(reg.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
-  it('keeps a fresh Codex draft attached after an updater exit, including across boot', () => {
+  it('keeps a fresh Codex draft attached after an updater exit, including across boot', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-updater-exit-')), 'state.sqlite')
-    const reg = regWithDaemon(openTestStore(file))
+    const reg = regWithDaemon(await openTestStore(file))
     const { draft, sessionId } = draftWithSession(reg)
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
 
@@ -76,7 +76,7 @@ describe('draft retention on session death', () => {
       expect.objectContaining({ sessionId, status: 'exited', issueId: draft.id }),
     )
 
-    const restarted = SessionRegistry.create(openTestStore(file), undefined, {
+    const restarted = SessionRegistry.create(await openTestStore(file), undefined, {
       instanceId: 'default',
     })
     expect(restarted.issues.get(draft.id)).not.toBeNull()
@@ -200,24 +200,24 @@ describe('boot-time draft retention', () => {
     expect(reg2.issues.get(draft.id)).not.toBeNull()
   })
 
-  it('keeps a draft whose only attached session is exited', () => {
+  it('keeps a draft whose only attached session is exited', async () => {
     const file = freshFile()
-    const store = openTestStore(file)
+    const store = await openTestStore(file)
     const reg1 = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Force-persist the row as exited behind the reaper's back (leaked state).
-    const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
+    const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('session row missing')
-    store.sessions.upsertSession({ ...row, status: 'exited' })
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    await store.sessions.upsertSession({ ...row, status: 'exited' })
+    const reg2 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(reg2.issues.get(draft.id)).not.toBeNull()
     expect(reg2.modules.sessions.getSessionIssueId(sessionId)).toBe(draft.id)
   })
 
-  it('keeps drafts with live (reconnecting) or hibernated sessions across boot', () => {
+  it('keeps drafts with live (reconnecting) or hibernated sessions across boot', async () => {
     const file = freshFile()
-    const reg1 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg1 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     // Live session draft: comes back 'reconnecting' at boot — must survive.
     const live = draftWithSession(reg1, '/repo-a')
@@ -231,7 +231,7 @@ describe('boot-time draft retention', () => {
       resume: { kind: 'claude', value: 'conv-h' },
     })
     expect(reg1.modules.sessions.hibernateSession({ sessionId: hib.sessionId }).ok).toBe(true)
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg2 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(reg2.issues.get(live.draft.id)).not.toBeNull()
     expect(reg2.issues.get(hib.draft.id)).not.toBeNull()
   })
@@ -253,9 +253,9 @@ describe('boot-time draft retention', () => {
 describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () => {
   const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-dangle-')), 'state.sqlite')
 
-  it('a session tombstoned before explicit rehome does not outlive its draft pointer', () => {
+  it('a session tombstoned before explicit rehome does not outlive its draft pointer', async () => {
     const file = freshFile()
-    const reg1 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg1 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     const activeSessionId = reg1.modules.sessions.createSession({
@@ -267,20 +267,20 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     // Tombstone it the way a standalone delete does. The row keeps a RUNNABLE
     // status. Explicit rehome cleanup cannot see this row because
     // `loadSessions()` is `deleted_at IS NULL`.
-    const store = openTestStore(file)
-    store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
-    const tombstone = store.sessions.getSession(sessionId)
+    const store = await openTestStore(file)
+    await store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
+    const tombstone = await store.sessions.getSession(sessionId)
     expect(tombstone?.archived).toBe(false)
     expect(tombstone?.status).not.toBe('exited')
-    expect(store.sessions.loadSessions().map((r) => r.id)).not.toContain(sessionId)
+    expect((await store.sessions.loadSessions()).map((r) => r.id)).not.toContain(sessionId)
 
     // Rehoming the remaining live session is the explicit cleanup point.
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg2 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     const target = reg2.issues.create({ repoPath: '/repo', title: 'Real work', startNow: false })
     reg2.issues.attachSession({ sessionId: activeSessionId, targetId: target.id })
     expect(reg2.issues.get(draft.id)).toBeNull()
 
-    const after = openTestStore(file).sessions.getSession(sessionId)
+    const after = await (await openTestStore(file)).sessions.getSession(sessionId)
     expect(after).toBeDefined()
     expect(after?.deletedAt).not.toBeNull() // still a tombstone, not resurrected
     expect(after?.issueId).toBeNull()
@@ -288,9 +288,9 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(after?.refLetter).toBeNull()
   })
 
-  it('boot heals references a purge before this fix already left behind', () => {
+  it('boot heals references a purge before this fix already left behind', async () => {
     const file = freshFile()
-    const reg1 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg1 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
 
@@ -298,19 +298,19 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     // the table (what `purgeEmptyDraft` used to amount to) while the session row
     // keeps naming it. `deleteIssue` deliberately does not touch sessions — only
     // the purge path does — so this leaves the exact damage found in the field.
-    const store = openTestStore(file)
-    store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
-    store.issues.deleteIssue(draft.id)
-    expect(store.sessions.getSession(sessionId)?.issueId).toBe(draft.id)
+    const store = await openTestStore(file)
+    await store.sessions.softDeleteSessions([sessionId], new Date().toISOString(), 'standalone')
+    await store.issues.deleteIssue(draft.id)
+    expect((await store.sessions.getSession(sessionId))?.issueId).toBe(draft.id)
 
     // Reopening the store runs the boot heal ahead of every reader.
-    const healed = openTestStore(file)
-    expect(healed.sessions.getSession(sessionId)?.issueId).toBeNull()
-    expect(healed.sessions.getSession(sessionId)?.refIssueId).toBeNull()
+    const healed = await openTestStore(file)
+    expect((await healed.sessions.getSession(sessionId))?.issueId).toBeNull()
+    expect((await healed.sessions.getSession(sessionId))?.refIssueId).toBeNull()
 
     // Idempotent: a clean database heals nothing.
-    expect(healed.sessions.detachDanglingIssueReferences()).toBe(0)
-    expect(healed.issues.pruneOrphanRefLetters()).toBe(0)
+    expect(await healed.sessions.detachDanglingIssueReferences()).toBe(0)
+    expect(await healed.issues.pruneOrphanRefLetters()).toBe(0)
   })
 
   it('a LIVE session keeps its pointers — explicit rehome owns those, not the SQL scrub', () => {
@@ -325,16 +325,16 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(openTestStore(file).sessions.getSession(sessionId)?.issueId).toBe(draft.id)
   })
 
-  it('the deleted issue takes its ref-letter counter with it', () => {
+  it('the deleted issue takes its ref-letter counter with it', async () => {
     const file = freshFile()
-    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { draft } = draftWithSession(reg)
 
-    const store = openTestStore(file)
-    store.issues.allocateSessionLetter(draft.id)
-    store.issues.deleteIssue(draft.id)
+    const store = await openTestStore(file)
+    await store.issues.allocateSessionLetter(draft.id)
+    await store.issues.deleteIssue(draft.id)
     // Nothing left to prune: the delete already took the counter.
-    expect(store.issues.pruneOrphanRefLetters()).toBe(0)
+    expect(await store.issues.pruneOrphanRefLetters()).toBe(0)
   })
 })

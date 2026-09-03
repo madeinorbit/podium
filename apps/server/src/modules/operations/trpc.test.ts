@@ -126,9 +126,9 @@ describe('operations.active', () => {
     // endpoint must hand it back rather than re-shaping the operation on the
     // way out — the two ends are guaranteed to be different builds here,
     // because the web bundle is swapped during the operation it renders.
-    const row = registry.sessionStore.operations.active()[0]
+    const row = (await registry.sessionStore.operations.active())[0]
     if (!row) throw new Error('expected a live operation')
-    registry.sessionStore.operations.update({
+    await registry.sessionStore.operations.update({
       ...(JSON.parse(row.payload) as Operation),
       exclusionGroup: row.exclusionGroup,
       createdAt: row.createdAt,

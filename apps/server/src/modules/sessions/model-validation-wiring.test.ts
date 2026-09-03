@@ -19,9 +19,9 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function storeWithCatalog(): SessionStore {
-  const store = openTestStore(':memory:')
-  store.settings.setModelCatalog({
+async function storeWithCatalog(): Promise<SessionStore> {
+  const store = await openTestStore(':memory:')
+  await store.settings.setModelCatalog({
     machineId: store.hostMachineId,
     version: MODEL_CATALOG_VERSION,
     fetchedAt: 1_000_000,
@@ -42,8 +42,8 @@ function makeRegistry(store: SessionStore): { reg: SessionRegistry; daemon: Cont
 
 const spawnFrames = (daemon: ControlMessage[]) => daemon.filter((m) => m.type === 'spawn')
 
-it('rejects an unlisted model before spawning — no frame, no session', () => {
-  const store = storeWithCatalog()
+it('rejects an unlisted model before spawning — no frame, no session', async () => {
+  const store = await storeWithCatalog()
   const { reg, daemon } = makeRegistry(store)
   let err: unknown
   try {
@@ -57,8 +57,8 @@ it('rejects an unlisted model before spawning — no frame, no session', () => {
   expect(reg.modules.sessions.listSessions()).toHaveLength(0)
 })
 
-it('rejects an unlisted effort with a suggestion', () => {
-  const store = storeWithCatalog()
+it('rejects an unlisted effort with a suggestion', async () => {
+  const store = await storeWithCatalog()
   const { reg } = makeRegistry(store)
   expect(() =>
     reg.modules.sessions.createSession({
@@ -70,8 +70,8 @@ it('rejects an unlisted effort with a suggestion', () => {
   ).toThrow(/unknown effort "highh".*Did you mean "high"/s)
 })
 
-it('force spawns the unlisted model AND records agent.model_forced', () => {
-  const store = storeWithCatalog()
+it('force spawns the unlisted model AND records agent.model_forced', async () => {
+  const store = await storeWithCatalog()
   const { reg, daemon } = makeRegistry(store)
   const { sessionId } = reg.modules.sessions.createSession({
     agentKind: 'codex',
@@ -80,17 +80,17 @@ it('force spawns the unlisted model AND records agent.model_forced', () => {
     forceUnknownModel: true,
   })
   expect(spawnFrames(daemon)).toHaveLength(1)
-  const forced = store.events
-    .listEventsSince(0, { kinds: ['agent.model_forced'] })
-    .filter((e) => e.subject === sessionId)
+  const forced = (await store.events.listEventsSince(0, { kinds: ['agent.model_forced'] })).filter(
+    (e) => e.subject === sessionId,
+  )
   expect(forced).toHaveLength(1)
   expect(forced[0]?.payload).toMatchObject({ harness: 'codex', model: 'gpt-6-experimental' })
 })
 
-it('a known model spawns with no forced event', () => {
-  const store = storeWithCatalog()
+it('a known model spawns with no forced event', async () => {
+  const store = await storeWithCatalog()
   const { reg, daemon } = makeRegistry(store)
   reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/tmp/x', model: 'gpt-5.6' })
   expect(spawnFrames(daemon)).toHaveLength(1)
-  expect(store.events.listEventsSince(0, { kinds: ['agent.model_forced'] })).toHaveLength(0)
+  expect(await store.events.listEventsSince(0, { kinds: ['agent.model_forced'] })).toHaveLength(0)
 })

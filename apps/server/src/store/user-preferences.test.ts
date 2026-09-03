@@ -48,31 +48,33 @@ beforeEach(() => {
 })
 
 describe('a preference row belongs to one person', () => {
-  it('two people hold DIFFERENT values at the same path, and each reads their own', () => {
+  it('two people hold DIFFERENT values at the same path, and each reads their own', async () => {
     settings.userPreferences.set(ALICE, 'roles.coding.model', 'alice-model', AT)
     settings.userPreferences.set(BOB, 'roles.coding.model', 'bob-model', AT)
 
     // The load-bearing pair. Removing the `user_id` filter from either read
     // makes these two assertions read one row and disagree with one of them.
-    expect(settings.getSettingsFor(ALICE).roles.coding.model).toBe('alice-model')
-    expect(settings.getSettingsFor(BOB).roles.coding.model).toBe('bob-model')
+    expect((await settings.getSettingsFor(ALICE)).roles.coding.model).toBe('alice-model')
+    expect((await settings.getSettingsFor(BOB)).roles.coding.model).toBe('bob-model')
   })
 
-  it("a person who has set NOTHING does not inherit the other person's choice", () => {
+  it("a person who has set NOTHING does not inherit the other person's choice", async () => {
     // The leak, stated directly: Alice configures her notification routing, and Bob —
     // who has never opened the settings screen — must not be served it.
     settings.userPreferences.set(ALICE, 'notifications.ntfyTopic', 'alice-secret-topic', AT)
     settings.userPreferences.set(ALICE, 'notifications.telegramChatId', '-100alice', AT)
 
-    const bob = settings.getSettingsFor(BOB)
+    const bob = await settings.getSettingsFor(BOB)
     expect(bob.notifications.ntfyTopic).toBe('')
     expect(bob.notifications.telegramChatId).toBe('')
     // …and Alice still has hers, so this is not passing because nothing was
     // stored at all.
-    expect(settings.getSettingsFor(ALICE).notifications.ntfyTopic).toBe('alice-secret-topic')
+    expect((await settings.getSettingsFor(ALICE)).notifications.ntfyTopic).toBe(
+      'alice-secret-topic',
+    )
   })
 
-  it('the SINGLE-KEY read is scoped too, not just the bulk one', () => {
+  it('the SINGLE-KEY read is scoped too, not just the bulk one', async () => {
     // Found by mutation: dropping `user_id` from `get(userId, key)` alone left
     // every other case in this file green, because they all resolve through the
     // bulk read. `preferenceFor` goes through THIS method, so an unscoped
@@ -87,8 +89,8 @@ describe('a preference row belongs to one person', () => {
     // row is the only one in the table.
     settings.userPreferences.set(ALICE, 'roles.superagent.model', 'alice-superagent', AT)
     expect(settings.userPreferences.get(BOB, 'roles.superagent.model')).toBeUndefined()
-    expect(settings.preferenceFor(BOB, 'roles.superagent.model')).toBe('auto')
-    expect(settings.preferenceFor(ALICE, 'roles.superagent.model')).toBe('alice-superagent')
+    expect(await settings.preferenceFor(BOB, 'roles.superagent.model')).toBe('auto')
+    expect(await settings.preferenceFor(ALICE, 'roles.superagent.model')).toBe('alice-superagent')
   })
 
   it('a write for one person creates no row for the other', () => {
@@ -97,12 +99,12 @@ describe('a preference row belongs to one person', () => {
     expect(settings.userPreferences.keysFor(BOB)).toEqual([])
   })
 
-  it('a whole-blob save by one person does not write the other person’s view', () => {
+  it('a whole-blob save by one person does not write the other person’s view', async () => {
     // `settings.set` is the legacy write every shipped client still uses: it
     // posts the WHOLE object back. Before this issue that object landed on the
     // shared row, which is how one person's save became everybody's settings.
-    const alice = settings.getSettingsFor(ALICE)
-    settings.setSettingsFor(
+    const alice = await settings.getSettingsFor(ALICE)
+    await settings.setSettingsFor(
       ALICE,
       normalizeSettings({
         ...alice,
@@ -112,18 +114,18 @@ describe('a preference row belongs to one person', () => {
       AT,
     )
 
-    const bob = settings.getSettingsFor(BOB)
+    const bob = await settings.getSettingsFor(BOB)
     expect(bob.sidebar.repoSort).toBe('lastUsed')
     expect(bob.sidebar.groupByRepo).toBe(false)
     expect(bob.autoContinue.enabled).toBe(false)
-    expect(settings.getSettingsFor(ALICE).sidebar.repoSort).toBe('alphabetical')
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('alphabetical')
   })
 })
 
 describe('the instance tier stays shared — this moved 24 leaves, not the blob', () => {
-  it("one person's instance-tier write IS the deployment's answer for everybody", () => {
-    const alice = settings.getSettingsFor(ALICE)
-    settings.setSettingsFor(
+  it("one person's instance-tier write IS the deployment's answer for everybody", async () => {
+    const alice = await settings.getSettingsFor(ALICE)
+    await settings.setSettingsFor(
       ALICE,
       normalizeSettings({
         ...alice,
@@ -137,15 +139,15 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
     // made ALL settings per-user would pass this file's first describe block and
     // give one repo two merge styles, which is the thing `preferences-instance`
     // exists to prevent.
-    expect(settings.getSettingsFor(BOB).gitWorkflow.mergeStyle).toBe('pr')
-    expect(settings.getSettingsFor(BOB).hibernation.memoryPct).toBe(61)
-    expect(settings.getSettings().gitWorkflow.mergeStyle).toBe('pr')
+    expect((await settings.getSettingsFor(BOB)).gitWorkflow.mergeStyle).toBe('pr')
+    expect((await settings.getSettingsFor(BOB)).hibernation.memoryPct).toBe(61)
+    expect((await settings.getSettings()).gitWorkflow.mergeStyle).toBe('pr')
   })
 
-  it('an instance-tier leaf never becomes a per-user row', () => {
-    settings.applyPreferencePatch(ALICE, { 'gitWorkflow.mergeStyle': 'ask' }, AT)
+  it('an instance-tier leaf never becomes a per-user row', async () => {
+    await settings.applyPreferencePatch(ALICE, { 'gitWorkflow.mergeStyle': 'ask' }, AT)
     expect(settings.userPreferences.keysFor(ALICE)).toEqual([])
-    expect(settings.getSettings().gitWorkflow.mergeStyle).toBe('ask')
+    expect((await settings.getSettings()).gitWorkflow.mergeStyle).toBe('ask')
   })
 
   it('the repository REFUSES a per-user row for a key that is not personal', () => {
@@ -166,22 +168,22 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
 })
 
 describe('absence is the row being absent', () => {
-  it('an unset preference resolves to the blob’s value, and a set one overrides it', () => {
+  it('an unset preference resolves to the blob’s value, and a set one overrides it', async () => {
     // The fallback direction. `getSettingsFor` must not zero out what nobody has
     // chosen — that would be a different way to lose every preference.
-    expect(settings.getSettingsFor(ALICE).sidebar.repoSort).toBe('lastUsed')
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('lastUsed')
     settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)
-    expect(settings.getSettingsFor(ALICE).sidebar.repoSort).toBe('custom')
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('custom')
   })
 
-  it('clearing a preference restores the fallback rather than storing a default', () => {
+  it('clearing a preference restores the fallback rather than storing a default', async () => {
     settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'custom', AT)
     settings.userPreferences.clear(ALICE, 'sidebar.repoSort')
     expect(settings.userPreferences.keysFor(ALICE)).toEqual([])
-    expect(settings.getSettingsFor(ALICE).sidebar.repoSort).toBe('lastUsed')
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('lastUsed')
   })
 
-  it('a value JSON cannot parse reads as absent, not as a crash', () => {
+  it('a value JSON cannot parse reads as absent, not as a crash', async () => {
     // A corrupt row must not make one person's whole settings screen fail to
     // load — the posture `getSettings` already takes for a corrupt blob. Written
     // through the raw database because the repository cannot produce one, which
@@ -193,15 +195,15 @@ describe('absence is the row being absent', () => {
 
     // The unparseable leaf falls back; the person's OTHER preferences still
     // resolve, so one bad row does not cost them the rest.
-    expect(settings.getSettingsFor(ALICE).sidebar.repoSort).toBe('lastUsed')
-    expect(settings.getSettingsFor(ALICE).notifications.ntfyTopic).toBe('still-mine')
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoSort).toBe('lastUsed')
+    expect((await settings.getSettingsFor(ALICE)).notifications.ntfyTopic).toBe('still-mine')
     expect(settings.userPreferences.get(ALICE, 'sidebar.repoSort')).toBeUndefined()
   })
 
-  it('JSON types survive the round trip — a boolean is not a 1', () => {
+  it('JSON types survive the round trip — a boolean is not a 1', async () => {
     settings.userPreferences.set(ALICE, 'autoContinue.enabled', true, AT)
     settings.userPreferences.set(ALICE, 'sidebar.repoOrder', ['/a', '/b'], AT)
     expect(settings.userPreferences.get(ALICE, 'autoContinue.enabled')).toBe(true)
-    expect(settings.getSettingsFor(ALICE).sidebar.repoOrder).toEqual(['/a', '/b'])
+    expect((await settings.getSettingsFor(ALICE)).sidebar.repoOrder).toEqual(['/a', '/b'])
   })
 })

@@ -42,7 +42,7 @@ const kinds = (h: ReturnType<typeof mailHarness>): string[] => h.events().map((e
 
 describe('characterization: delivery ledger fields on the success axis (D1)', () => {
   it('records threadId/inReplyTo/hop/expiresAt/deliveredTo and leaves an enveloped push awaiting its echo', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
     const expires = '2026-07-21T12:00:00.000Z'
@@ -85,7 +85,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
   })
 
   it('reports `held` when the issue is live but has no session at all', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'nobody home' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
       to: iss.id,
@@ -99,7 +99,7 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
   })
 
   it('dead-letters a session-addressed row whose session is gone, and an archived issue', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'archived' })
     h.put({ sessionId: asSessionId('sGone'), issueId: iss.id, phase: 'idle' })
     // The target session vanishes between the send surface's resolution and
@@ -128,8 +128,8 @@ describe('characterization: delivery ledger fields on the success axis (D1)', ()
 // ---------------------------------------------------------------------------
 
 describe('characterization: envelope byte-fidelity (D2)', () => {
-  it('renders the non-operator envelope byte-for-byte around a control-stripped body', () => {
-    const h = mailHarness()
+  it('renders the non-operator envelope byte-for-byte around a control-stripped body', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'sender' })
     const to = h.createIssue({ title: 'receiver' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
@@ -159,8 +159,8 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     expect(h.svc.message(id)!.body).toBe(body)
   })
 
-  it('delivers an operator body unwrapped AND unsanitized — exact bytes, no frame', () => {
-    const h = mailHarness()
+  it('delivers an operator body unwrapped AND unsanitized — exact bytes, no frame', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // SINGLE-OPERATOR ARTEFACT: "unwrapped = the human" is an invariant the
@@ -173,8 +173,8 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     expect(h.pushes.map((p) => p.text)).toEqual([body])
   })
 
-  it('renders the reply frame for an operator QUESTION around a still byte-faithful body', () => {
-    const h = mailHarness()
+  it('renders the reply frame for an operator QUESTION around a still byte-faithful body', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'why \u001b[201~ this?'
@@ -195,8 +195,8 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     )
   })
 
-  it('adds the --expect-response directive, question-exempt, byte-for-byte', () => {
-    const h = mailHarness()
+  it('adds the --expect-response directive, question-exempt, byte-for-byte', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'sender' })
     const to = h.createIssue({ title: 'receiver' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
@@ -223,8 +223,8 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
     )
   })
 
-  it('renders an oversized issue-addressed body as a pointer, never inline', () => {
-    const h = mailHarness()
+  it('renders an oversized issue-addressed body as a pointer, never inline', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const body = 'x'.repeat(INLINE_BODY_MAX + 1)
@@ -243,8 +243,8 @@ describe('characterization: envelope byte-fidelity (D2)', () => {
 // ---------------------------------------------------------------------------
 
 describe('characterization: urgency x target state (D3)', () => {
-  it('interrupt lands MID-TURN on a busy session while next-turn and fyi are held', () => {
-    const h = mailHarness()
+  it('interrupt lands MID-TURN on a busy session while next-turn and fyi are held', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'busy' })
     h.put({ sessionId: asSessionId('sBusy'), issueId: iss.id, phase: 'working' })
 
@@ -289,8 +289,8 @@ describe('characterization: urgency x target state (D3)', () => {
     expect(int.disposition).toBe('delivered')
   })
 
-  it('an idle session takes every urgency immediately via sendText', () => {
-    const h = mailHarness()
+  it('an idle session takes every urgency immediately via sendText', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'idle' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     for (const urgency of ['fyi', 'next-turn', 'interrupt'] as const) {
@@ -302,8 +302,8 @@ describe('characterization: urgency x target state (D3)', () => {
     expect(h.pushes.map((p) => p.fn)).toEqual(['sendText', 'sendText', 'sendText'])
   })
 
-  it('a composer draft holds EVERY urgency including interrupt (POD-865)', () => {
-    const h = mailHarness()
+  it('a composer draft holds EVERY urgency including interrupt (POD-865)', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'drafting' })
     h.put({
       sessionId: asSessionId('s1'),
@@ -321,8 +321,8 @@ describe('characterization: urgency x target state (D3)', () => {
     expect(h.pushes).toEqual([])
   })
 
-  it('a parked session holds a `wait` and resurrects on a `wake`', () => {
-    const h = mailHarness()
+  it('a parked session holds a `wait` and resurrects on a `wake`', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'parked' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
 
@@ -356,8 +356,8 @@ describe('characterization: urgency x target state (D3)', () => {
     ])
   })
 
-  it('an unresumable wake falls through to the spawn seam and reports `spawning`', () => {
-    const h = mailHarness()
+  it('an unresumable wake falls through to the spawn seam and reports `spawning`', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'unresumable' })
     h.setWorktree(iss.id, '/wt/unresumable')
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'exited' })
@@ -387,8 +387,8 @@ describe('characterization: urgency x target state (D3)', () => {
 // ---------------------------------------------------------------------------
 
 describe('characterization: clamp matrix records clampedFrom instead of failing (D4)', () => {
-  it('clamps a peer agent from interrupt to next-turn and records the REQUESTED axes', () => {
-    const h = mailHarness()
+  it('clamps a peer agent from interrupt to next-turn and records the REQUESTED axes', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'peer sender' })
     const to = h.createIssue({ title: 'peer target' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
@@ -410,8 +410,8 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     expect(kinds(h)).toContain('message.clamped')
   })
 
-  it('lets a PARENT interrupt + wake, unclamped', () => {
-    const h = mailHarness()
+  it('lets a PARENT interrupt + wake, unclamped', async () => {
+    const h = await mailHarness()
     const parentIssue = h.createIssue({ title: 'parent' })
     const childIssue = h.createIssue({ title: 'child' })
     h.put({
@@ -428,8 +428,8 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
     expect(h.pushes[0]!.fn).toBe('interruptText')
   })
 
-  it('caps a system sender at next-turn/wait', () => {
-    const h = mailHarness()
+  it('caps a system sender at next-turn/wait', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const r = h.svc.send(
@@ -449,8 +449,8 @@ describe('characterization: clamp matrix records clampedFrom instead of failing 
 // ---------------------------------------------------------------------------
 
 describe('characterization: wake cooldown and hop brake (D5)', () => {
-  it('clamps a second wake within the window to wait, and allows it again after', () => {
-    const h = mailHarness()
+  it('clamps a second wake within the window to wait, and allows it again after', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'waker' })
     const to = h.createIssue({ title: 'sleeper' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, status: 'hibernated' })
@@ -482,8 +482,8 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
     expect(third.message.lifecycle).toBe('wake')
   })
 
-  it('inherits hop+1 within a message-triggered turn and clamps a wake past the depth limit', () => {
-    const h = mailHarness()
+  it('inherits hop+1 within a message-triggered turn and clamps a wake past the depth limit', async () => {
+    const h = await mailHarness()
     const a = h.createIssue({ title: 'a' })
     const b = h.createIssue({ title: 'b' })
     h.put({ sessionId: asSessionId('sA'), issueId: a.id, phase: 'idle' })
@@ -532,8 +532,8 @@ describe('characterization: wake cooldown and hop brake (D5)', () => {
 // ---------------------------------------------------------------------------
 
 describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
-  it('flips queued → delivered only on a USER-role transcript echo from the session we pushed to', () => {
-    const h = mailHarness()
+  it('flips queued → delivered only on a USER-role transcript echo from the session we pushed to', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sOther'), issueId: iss.id, phase: 'idle' })
@@ -568,8 +568,8 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     ).toEqual(['echo'])
   })
 
-  it('an inbox READ is a different state from a pushed delivery, and marks readAt', () => {
-    const h = mailHarness()
+  it('an inbox READ is a different state from a pushed delivery, and marks readAt', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     const r = h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: iss.id }, body: 'x' })
     const id = r.message.id
@@ -583,12 +583,12 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     expect(read).toMatchObject({ status: 'read', readAt: h.now(), deliveredTo: 'sReader' })
     // The legacy issue_messages mirror is consumed in step, or the stop-hook's
     // legacy fallback keeps nagging "You have mail".
-    expect(h.store.issues.countUnreadIssueMessages(iss.id)).toBe(0)
+    expect(await h.store.issues.countUnreadIssueMessages(iss.id)).toBe(0)
     expect(kinds(h)).toContain('message.read')
   })
 
-  it('a turn boundary confirms an already-pushed row, but an ERRORED turn does not', () => {
-    const h = mailHarness()
+  it('a turn boundary confirms an already-pushed row, but an ERRORED turn does not', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     // next-turn to a busy session: held, nothing pushed yet.
@@ -626,8 +626,8 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
 // ---------------------------------------------------------------------------
 
 describe('characterization: duplicate delivery is braked, then capped (D7)', () => {
-  it('does not re-push inside the echo window, requeues past it, and caps the loop', () => {
-    const h = mailHarness()
+  it('does not re-push inside the echo window, requeues past it, and caps the loop', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
@@ -654,8 +654,8 @@ describe('characterization: duplicate delivery is braked, then capped (D7)', () 
     expect(h.svc.message(id)!.status).toBe('delivered')
   })
 
-  it('never re-nudges a coalesced pointer row (no re-nudge storm)', () => {
-    const h = mailHarness()
+  it('never re-nudges a coalesced pointer row (no re-nudge storm)', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     const [s1] = h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     for (const body of ['one', 'two']) {
@@ -684,7 +684,7 @@ describe('characterization: duplicate delivery is braked, then capped (D7)', () 
 
 describe('characterization: reply threading and thread termination (D8)', () => {
   it('inherits the thread, stamps acked_by, and confirms the original as delivered-by-ack', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'asker' })
     const to = h.createIssue({ title: 'answerer' })
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
@@ -730,8 +730,8 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     expect(kinds(h)).toContain('message.acked')
   })
 
-  it('a SUBSTANTIVE reply from the party that was asked satisfies the request; a steward notification never does', () => {
-    const h = mailHarness()
+  it('a SUBSTANTIVE reply from the party that was asked satisfies the request; a steward notification never does', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'asker' })
     const to = h.createIssue({ title: 'answerer' })
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
@@ -796,8 +796,8 @@ describe('characterization: reply threading and thread termination (D8)', () => 
 // ---------------------------------------------------------------------------
 
 describe('characterization: who owes a reply, and the single redelivery (D9)', () => {
-  it('sets expectsResponse for --expect-response and for a question, never for ack/notification', () => {
-    const h = mailHarness()
+  it('sets expectsResponse for --expect-response and for a question, never for ack/notification', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const to = { kind: 'session' as const, id: 's1' }
@@ -828,8 +828,8 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     ).toBe(false)
   })
 
-  it('reminds about an unreplied --expect-response message exactly ONCE, and never about a plain one', () => {
-    const h = mailHarness()
+  it('reminds about an unreplied --expect-response message exactly ONCE, and never about a plain one', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const to = { kind: 'session' as const, id: 's1' }
@@ -858,8 +858,8 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     expect(h.svc.settleNotifiable(asSessionId('s1'))).toEqual([])
   })
 
-  it('emits one steward settle notice per unanswered message, routed like a reply', () => {
-    const h = mailHarness()
+  it('emits one steward settle notice per unanswered message, routed like a reply', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'asker' })
     const to = h.createIssue({ title: 'answerer' })
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
@@ -909,8 +909,8 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
 // ---------------------------------------------------------------------------
 
 describe('characterization: self-delivery suppression (D10)', () => {
-  it('consumes a session self-send straight to the ledger — delivered to nobody, never pushed', () => {
-    const h = mailHarness()
+  it('consumes a session self-send straight to the ledger — delivered to nobody, never pushed', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'solo' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
@@ -927,8 +927,8 @@ describe('characterization: self-delivery suppression (D10)', () => {
     expect(kinds(h)).toContain('message.self_suppressed')
   })
 
-  it('suppresses an issue-addressed note when the sender is the issue’s only member', () => {
-    const h = mailHarness()
+  it('suppresses an issue-addressed note when the sender is the issue’s only member', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'solo issue' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
@@ -942,8 +942,8 @@ describe('characterization: self-delivery suppression (D10)', () => {
     expect(h.wakeSpawns).toEqual([])
   })
 
-  it('excludes the sender from issue-recipient resolution but still reaches a sibling', () => {
-    const h = mailHarness()
+  it('excludes the sender from issue-recipient resolution but still reaches a sibling', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'two members' })
     h.put({ sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sPeer'), issueId: iss.id, phase: 'idle' })
@@ -954,8 +954,8 @@ describe('characterization: self-delivery suppression (D10)', () => {
     expect(h.pushes.map((p) => p.sessionId)).toEqual(['sPeer'])
   })
 
-  it('never delivers a sender’s own issue row back to it during the idle drain', () => {
-    const h = mailHarness()
+  it('never delivers a sender’s own issue row back to it during the idle drain', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'drain' })
     const [sender, peer] = h.put(
       { sessionId: asSessionId('sSender'), issueId: iss.id, phase: 'working' },
@@ -988,7 +988,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
     // afterwards: drive it from the FIRST poll of the block. No wall-clock wait,
     // and the confirmation travels the real transcript-echo path.
     let echoOnce: (() => void) | null = null
-    const h = mailHarness({
+    const h = await mailHarness({
       awaitPollMs: 500,
       onPoll: () => {
         const fire = echoOnce
@@ -1016,7 +1016,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
   })
 
   it('returns the honest `accepted` when the budget expires with the row still queued', async () => {
-    const h = mailHarness({ awaitPollMs: 500 })
+    const h = await mailHarness({ awaitPollMs: 500 })
     const iss = h.createIssue({ title: 'busy' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const r = (await h.gate.dispatch(h.agentCap(iss.id, asSessionId('sFrom')), undefined, 'send', {
@@ -1030,7 +1030,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
   })
 
   it('never blocks an fyi', async () => {
-    const h = mailHarness({ awaitPollMs: 500 })
+    const h = await mailHarness({ awaitPollMs: 500 })
     const iss = h.createIssue({ title: 'busy' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'working' })
     const before = h.now()
@@ -1052,7 +1052,7 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
 
 describe('characterization: sender-queryable status (D12)', () => {
   it('lets the SENDER pull the full ledger row of the message it sent', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     const from = h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sTo'), issueId: iss.id, phase: 'idle' })
@@ -1092,8 +1092,8 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
   // an agent that has just finished and reported. The rule is what keeps the
   // human's two artefacts — the summary they read and the offer they click —
   // from being buried by the mail-handling turn.
-  it('appends the rule to agent mail, naming the summary AND the standing offer', () => {
-    const h = mailHarness()
+  it('appends the rule to agent mail, naming the summary AND the standing offer', async () => {
+    const h = await mailHarness()
     const from = h.createIssue({ title: 'sender' })
     const to = h.createIssue({ title: 'receiver' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
@@ -1113,8 +1113,8 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
     )
   })
 
-  it('omits the rule from an operator-ADDRESSED escalation — its reader is the human', () => {
-    const h = mailHarness()
+  it('omits the rule from an operator-ADDRESSED escalation — its reader is the human', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'escalating' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = h.svc.send(
@@ -1126,8 +1126,8 @@ describe('characterization: the mail turn-closing rule (D13) [POD-604]', () => {
     expect(h.svc.renderFor(r.message)).not.toContain('before you go idle')
   })
 
-  it('omits the rule for an operator question — that human is still reading the session', () => {
-    const h = mailHarness()
+  it('omits the rule for an operator question — that human is still reading the session', async () => {
+    const h = await mailHarness()
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     h.svc.send(

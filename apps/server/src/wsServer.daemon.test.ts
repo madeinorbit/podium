@@ -41,9 +41,9 @@ function fakeWs() {
 const frame = (value: unknown): string => JSON.stringify(value)
 
 describe('daemon socket auth', () => {
-  it('ignores a pre-auth non-handshake frame, then attaches on a valid hello', () => {
-    const store = openTestStore(':memory:')
-    store.machines.upsertMachine({
+  it('ignores a pre-auth non-handshake frame, then attaches on a valid hello', async () => {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box',
@@ -71,12 +71,12 @@ describe('daemon socket auth', () => {
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
   })
 
-  it('the pre-registered local machine authenticates via the normal hello + routes control', () => {
-    const store = openTestStore(':memory:')
+  it('the pre-registered local machine authenticates via the normal hello + routes control', async () => {
+    const store = await openTestStore(':memory:')
     // The local machine is a normal registered machine: the server provisioned it at
     // startup (ensureHostMachine) with a server-owned credential. Its same-host daemon
     // then authenticates through the same hello path as any remote — no special case.
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: 'local',
       name: 'thishost',
       hostname: 'thishost',
@@ -148,8 +148,8 @@ describe('daemon socket auth', () => {
     expect(onMsg.mock.calls[0]?.[0]).not.toBe('attacker')
   })
 
-  it('rejects an unknown hello with helloRejected and does not attach', () => {
-    const store = openTestStore(':memory:')
+  it('rejects an unknown hello with helloRejected and does not attach', async () => {
+    const store = await openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
@@ -160,8 +160,8 @@ describe('daemon socket auth', () => {
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
 
-  it('a pair frame redeems a code, replies once with paired, then attaches', () => {
-    const store = openTestStore(':memory:')
+  it('a pair frame redeems a code, replies once with paired, then attaches', async () => {
+    const store = await openTestStore(':memory:')
     // Pairing is a hub-role capability, injected the way server assembly does it.
     const reg = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
@@ -196,9 +196,9 @@ describe('daemon socket auth', () => {
     )
   })
 
-  it('detaches the machine on close', () => {
-    const store = openTestStore(':memory:')
-    store.machines.upsertMachine({
+  it('detaches the machine on close', async () => {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'h',
       hostname: 'h',
@@ -216,9 +216,9 @@ describe('daemon socket auth', () => {
     expect(detach).toHaveBeenCalledWith(machinePrincipal('m1'), expect.any(Function))
   })
 
-  it('does not detach when the socket closes before it ever attached', () => {
-    const store = openTestStore(':memory:')
-    store.machines.upsertMachine({
+  it('does not detach when the socket closes before it ever attached', async () => {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'h',
       hostname: 'h',

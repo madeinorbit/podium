@@ -86,7 +86,7 @@ function goLive(
 
 describe('oracle: create', () => {
   it(`${MUST_NOT_CHANGE}: create spawns on the daemon, persists the row, and returns the id the client may have chosen`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const clientId = '11111111-1111-4111-8111-111111111111'
 
     const { sessionId } = await o.call.sessions.create({
@@ -99,11 +99,11 @@ describe('oracle: create', () => {
     expect(o.daemon).toContainEqual(
       expect.objectContaining({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/p' }),
     )
-    expect(o.store.sessions.loadSessions().map((r) => r.id)).toEqual([clientId])
+    expect((await o.store.sessions.loadSessions()).map((r) => r.id)).toEqual([clientId])
   })
 
   it(`${MUST_NOT_CHANGE}: a non-uuid client sessionId is refused before it can reach the durable-label / scope path`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     await expect(
       o.call.sessions.create({
@@ -112,13 +112,13 @@ describe('oracle: create', () => {
         sessionId: asSessionId('../../evil'),
       }),
     ).rejects.toThrow()
-    expect(o.store.sessions.loadSessions()).toEqual([])
+    expect(await o.store.sessions.loadSessions()).toEqual([])
   })
 
   it(`${willChange('POD-1079', "machines become owned compute; 'use' defaults to the owner only")}: placement is ambient — any authenticated caller may spawn on any paired machine`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     // A second paired machine nobody "owns": there is no owner column today.
-    o.store.machines.upsertMachine({
+    await o.store.machines.upsertMachine({
       id: 'other',
       name: 'other',
       hostname: 'o',
@@ -142,7 +142,7 @@ describe('oracle: create', () => {
 
 describe('oracle: resume', () => {
   it(`${MUST_NOT_CHANGE}: a resume with no matching row spawns a fresh session carrying the resume ref`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
@@ -158,7 +158,7 @@ describe('oracle: resume', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: resuming an EXISTING row reuses it instead of minting a second session`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const first = await o.call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -180,7 +180,7 @@ describe('oracle: resume', () => {
 
 describe('oracle: hibernate', () => {
   it(`${MUST_NOT_CHANGE}: hibernate parks a live session — status flips and the daemon is told to kill the process`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
 
@@ -188,13 +188,13 @@ describe('oracle: hibernate', () => {
 
     expect(o.meta(sessionId).status).toBe('hibernated')
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
-    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)?.status).toBe(
+    expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.status).toBe(
       'hibernated',
     )
   })
 
   it(`${MUST_NOT_CHANGE}: hibernate REFUSES with a reason (never a throw) when the session is not running`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -209,7 +209,7 @@ describe('oracle: hibernate', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: hibernate refuses a live session with no resume ref — parking it would lose the conversation`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -228,7 +228,7 @@ describe('oracle: hibernate', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: hibernate refuses a WORKING agent so an in-flight turn is never killed`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId, 'working')
 
@@ -242,7 +242,7 @@ describe('oracle: hibernate', () => {
 
 describe('oracle: resurrect', () => {
   it(`${MUST_NOT_CHANGE}: resurrect respawns a parked session with its resume ref and moves it to 'starting'`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
@@ -257,7 +257,7 @@ describe('oracle: resurrect', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: resurrect is idempotent for a still-running session, so a stale banner cannot turn a successful wake into an error`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     const daemonFrames = o.daemon.length
@@ -267,7 +267,7 @@ describe('oracle: resurrect', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: Grok resurrection stays non-live until a ready bind and persists failure, retry, and pointer truth [POD-2942]`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const machineId = o.reg.sessionStore.hostMachineId
     const resume = { kind: 'grok-session', value: 'native-grok-pod-2942' } as const
     const { sessionId } = await o.call.sessions.create({
@@ -299,7 +299,7 @@ describe('oracle: resurrect', () => {
 
     await expect(o.call.sessions.hibernate({ sessionId })).resolves.toEqual({ ok: true })
     expect(o.meta(sessionId)).toMatchObject({ status: 'hibernated', resume })
-    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.status).toBe(
+    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
       'hibernated',
     )
 
@@ -317,7 +317,7 @@ describe('oracle: resurrect', () => {
     // `starting`; neither is painted live because resurrect accepted the wake.
     await Promise.resolve()
     expect(o.meta(sessionId).status).toBe('starting')
-    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.status).toBe(
+    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
       'starting',
     )
 
@@ -327,7 +327,7 @@ describe('oracle: resurrect', () => {
       message: 'session/load timed out',
     })
     expect(o.meta(sessionId).status).toBe('exited')
-    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.status).toBe(
+    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.status).toBe(
       'exited',
     )
 
@@ -343,10 +343,10 @@ describe('oracle: resurrect', () => {
     expect(secondSpawn?.observationGeneration).toBeGreaterThan(
       firstSpawn?.observationGeneration as number,
     )
-    expect(o.store.observationCheckpoints.get(sessionId)?.observationGeneration).toBe(
+    expect((await o.store.observationCheckpoints.get(sessionId))?.observationGeneration).toBe(
       secondSpawn?.observationGeneration,
     )
-    expect(o.store.sessions.loadSessions().map((row) => row.id)).toEqual([sessionId])
+    expect((await o.store.sessions.loadSessions()).map((row) => row.id)).toEqual([sessionId])
     expect(o.meta(sessionId)).toMatchObject({ status: 'starting', resume })
 
     o.reg.gateway.routeDaemonFrame(machineId, {
@@ -364,14 +364,14 @@ describe('oracle: resurrect', () => {
       resume,
       driverId: 'grok-acp',
     })
-    expect(o.store.sessions.loadSessions().find((row) => row.id === sessionId)).toMatchObject({
+    expect((await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)).toMatchObject({
       status: 'live',
       selectedDriverId: 'grok-acp',
     })
   })
 
   it(`${MUST_NOT_CHANGE}: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const agent = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -395,15 +395,15 @@ describe('oracle: resurrect', () => {
 
 describe('oracle: kill', () => {
   it(`${MUST_NOT_CHANGE}: kill tombstones the row with deletion_source 'standalone' and removes it from the live list`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     goLive(o, sessionId)
 
     await o.call.sessions.kill({ sessionId })
 
     expect(o.reg.modules.sessions.listSessions()).toEqual([])
-    expect(o.store.sessions.loadSessions()).toEqual([])
-    const tombstone = o.store.sessions.loadDeletedSessions().find((r) => r.id === sessionId)
+    expect(await o.store.sessions.loadSessions()).toEqual([])
+    const tombstone = (await o.store.sessions.loadDeletedSessions()).find((r) => r.id === sessionId)
     expect(tombstone?.deletionSource).toBe('standalone')
     expect(typeof tombstone?.deletedAt).toBe('string')
     expect(tombstone?.deletedByIssueId).toBeNull()
@@ -413,7 +413,7 @@ describe('oracle: kill', () => {
     // "Owning" is only assertable when a NON-owning machine exists to stay
     // silent. On a one-machine fixture the same assertion passes for a kill
     // broadcast to everyone, which is a different behaviour.
-    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
+    const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen: ControlMessage[] = []
     o.reg.gateway.attachDaemon('other', (m) => otherSeen.push(m))
     const { sessionId } = await o.call.sessions.create({
@@ -437,7 +437,7 @@ describe('oracle: kill', () => {
   })
 })
   it('coalesces resurrection while asynchronous worktree preparation is pending', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
@@ -481,7 +481,7 @@ describe('oracle: sendText / resumeAndSend', () => {
    * red test rather than a silent return to a stop that could not be checked.
    */
   it(`${MUST_NOT_CHANGE}: interrupt sends one bare Esc to the PTY and no replacement text`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId, 'working')
     o.daemon.length = 0
@@ -591,7 +591,7 @@ describe('oracle: sendText / resumeAndSend', () => {
    * nothing here writes down a window POD-2836 is about to move.
    */
   it(`${MUST_NOT_CHANGE}: sendText to a live session reports a disposition and reaches the PTY stamped 'controller' (operator via substrate), not 'human'`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -617,7 +617,7 @@ describe('oracle: sendText / resumeAndSend', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: sendText bypasses controller gating — a chat send is an explicit user act, not a competing keyboard`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     // The claim is "bypasses CONTROLLER gating", so there has to BE a controller
@@ -645,7 +645,7 @@ describe('oracle: sendText / resumeAndSend', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: resumeAndSend wakes a PARKED session (the send is not dropped)`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
@@ -665,7 +665,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     vi.useFakeTimers()
     try {
       vi.setSystemTime(new Date('2026-08-31T00:00:00.000Z'))
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       goLive(o, sessionId)
       o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
@@ -690,7 +690,7 @@ describe('oracle: sendText / resumeAndSend', () => {
         mutationId: 'm-dead-1',
       })
       expect(o.daemon.filter((message) => message.type === 'spawn')).toHaveLength(1)
-      expect(o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
+      expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(2)
 
       o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'bind',
@@ -731,17 +731,17 @@ describe('oracle: sendText / resumeAndSend', () => {
       expect(ptyFrames(o.daemon).filter((frame) => frame.data.includes('two'))).toHaveLength(1)
 
       confirmUserTurn(o, sessionId, 'two')
-      for (let i = 0; i < 50 && o.store.sync.listQueuedMessages(sessionId).length > 0; i += 1) {
+      for (let i = 0; i < 50 && (await o.store.sync.listQueuedMessages(sessionId)).length > 0; i += 1) {
         await vi.advanceTimersByTimeAsync(200)
       }
-      expect(o.store.sync.listQueuedMessages(sessionId)).toEqual([])
+      expect(await o.store.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
       vi.useRealTimers()
     }
   })
 
   it('refuses archived and unresumable dead targets before durable acceptance', async () => {
-    const archived = makeOracle()
+    const archived = await makeOracle()
     const { sessionId: archivedId } = await archived.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -760,10 +760,10 @@ describe('oracle: sendText / resumeAndSend', () => {
       reason: 'session archived',
       disposition: 'dead_letter',
     })
-    expect(archived.store.sync.listQueuedMessages(archivedId)).toEqual([])
+    expect(await archived.store.sync.listQueuedMessages(archivedId)).toEqual([])
     expect(archived.daemon.filter((message) => message.type === 'spawn')).toEqual([])
 
-    const unsupported = makeOracle()
+    const unsupported = await makeOracle()
     const { sessionId: unsupportedId } = await unsupported.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/p',
@@ -785,13 +785,13 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(
       await unsupported.call.sessions.sendText({ sessionId: unsupportedId, text: 'cannot resume' }),
     ).toEqual({ ok: false, reason: 'no resume ref', disposition: 'dead_letter' })
-    expect(unsupported.store.sync.listQueuedMessages(unsupportedId)).toEqual([])
+    expect(await unsupported.store.sync.listQueuedMessages(unsupportedId)).toEqual([])
   })
 
   it.each(['errored', 'idle'] as const)(
     'does not resurrect an already-live %s target',
     async (phase) => {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       goLive(o, sessionId, phase)
       o.daemon.length = 0
@@ -808,7 +808,7 @@ describe('oracle: answerAskUserQuestion', () => {
   // the one shape the native menu submits on the digit itself, so a closing CR
   // here would arrive after the dialog closed and land in the composer.
   it(`${MUST_NOT_CHANGE}: a single-select answer types the bare option digit (no Enter)`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -822,7 +822,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: two single-select questions each advance on their digit, and the pair ends on the confirm CR`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -848,7 +848,7 @@ describe('oracle: answerAskUserQuestion', () => {
   // verified against a live Claude Code 2.1.226 TUI — one keystroke per write,
   // Tab off a multi-select, one closing CR on the confirm step.
   it(`${MUST_NOT_CHANGE}: a multi-select answer types one digit per keystroke, then Tab off the question and CR to confirm`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -869,7 +869,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: a multi-question payload is typed in order, one keystroke per write, and ends with the confirm CR`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -890,7 +890,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: several picks alone mark a multi-select, so a client that cannot say so still lands`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -907,7 +907,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: a lone multi-select still gets its Tab and CR when only one option is picked`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -926,7 +926,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: answering a session that is not live is refused with ok:false and types nothing`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     await o.call.sessions.hibernate({ sessionId })
@@ -941,7 +941,7 @@ describe('oracle: answerAskUserQuestion', () => {
   it(`${MUST_NOT_CHANGE}: free-text via Other types otherIndex, then text, then CR (after settle)`, async () => {
     vi.useFakeTimers()
     try {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       goLive(o, sessionId)
       o.daemon.length = 0
@@ -986,7 +986,7 @@ describe('oracle: answerAskUserQuestion', () => {
   it(`${MUST_NOT_CHANGE}: an option on a PREVIEW question types the digit then a CR — the digit alone only moves the cursor`, async () => {
     vi.useFakeTimers()
     try {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       goLive(o, sessionId)
       o.daemon.length = 0
@@ -1014,7 +1014,7 @@ describe('oracle: answerAskUserQuestion', () => {
   it(`${MUST_NOT_CHANGE}: free text on a PREVIEW question types 'n', then the text, then CR — never the Other digit`, async () => {
     vi.useFakeTimers()
     try {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       goLive(o, sessionId)
       o.daemon.length = 0
@@ -1043,7 +1043,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: an undeliverable choice refuses with a reason and types NOTHING — not even the choices it could have typed`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -1063,7 +1063,7 @@ describe('oracle: answerAskUserQuestion', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: skip types a bare Esc and nothing else`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     o.daemon.length = 0
@@ -1078,7 +1078,7 @@ describe('oracle: answerAskUserQuestion', () => {
 
 describe('oracle: continue (the errored-agent retry)', () => {
   it(`${MUST_NOT_CHANGE}: continue types 'continue' + CR stamped 'auto_continue', and ONLY when the agent phase is errored`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId, 'idle')
     o.daemon.length = 0
@@ -1098,7 +1098,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: continue refuses a PARKED session even while its last known phase is errored — a dead PTY would swallow it`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId, 'errored')
     await o.call.sessions.hibernate({ sessionId })
@@ -1111,7 +1111,7 @@ describe('oracle: continue (the errored-agent retry)', () => {
 
 describe('oracle: stop (clean end, keep the branch)', () => {
   it(`${MUST_NOT_CHANGE}: stop parks the process, stamps stopReason 'parent', and CLEARS readAt (unlike archive, which keeps it)`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     await o.call.sessions.markRead({ sessionId })
@@ -1123,30 +1123,30 @@ describe('oracle: stop (clean end, keep the branch)', () => {
       deferredKill: false,
     })
 
-    const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
+    const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row).toMatchObject({ status: 'hibernated', stopReason: 'parent' })
     // A terminal transition is new unread information [spec:SP-6144]: stop
     // resurfaces the session, where archive deliberately does not.
     // Per-user (POD-1076): the terminal transition clears EVERY reader's marker,
     // which is what nulling the one column used to mean.
-    expect(o.store.sessions.listReadAt(asUserId(SOLE_USER_ID))[sessionId]).toBeUndefined()
+    expect((await o.store.sessions.listReadAt(asUserId(SOLE_USER_ID)))[sessionId]).toBeUndefined()
     expect(o.daemon).toContainEqual(expect.objectContaining({ type: 'kill', sessionId }))
   })
 
   it(`${MUST_NOT_CHANGE}: --force re-labels the park 'forced' (work may have been discarded)`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
 
     expect((await o.call.sessions.stop({ sessionId, force: true })).ok).toBe(true)
 
-    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)?.stopReason).toBe(
+    expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.stopReason).toBe(
       'forced',
     )
   })
 
   it(`${MUST_NOT_CHANGE}: stopping an already-parked session is accepted and does not re-kill it`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goLive(o, sessionId)
     await o.call.sessions.stop({ sessionId })

@@ -75,9 +75,13 @@ const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
  * intentionally cannot produce one, so restart-order tests use a disposable
  * file-backed store and keep the production gate armed.
  */
-function fileBackedStore(runChild?: SnapshotChildRunner): SessionStore {
+async function fileBackedStore(runChild?: SnapshotChildRunner): Promise<SessionStore> {
   const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
-  const store = openTestStore(join(directory, 'podium.db'), undefined, runChild ? { runChild } : {})
+  const store = await openTestStore(
+    join(directory, 'podium.db'),
+    undefined,
+    runChild ? { runChild } : {},
+  )
   temporaryStores.push({ store, directory })
   return store
 }
@@ -141,8 +145,8 @@ afterEach(() => {
  * wire is therefore the RESOLVED answer; `updateChannelOverride` is the pin.
  */
 describe('fleet default update channel', () => {
-  function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
-    registry.sessionStore.machines.upsertMachine({
+  async function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+    await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
       hostname: id,
@@ -151,10 +155,10 @@ describe('fleet default update channel', () => {
     })
   }
 
-  it('resolves an unpinned machine onto the fleet default', () => {
+  it('resolves an unpinned machine onto the fleet default', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry } = harness()
-    addMachine(registry, 'unpinned')
+    await addMachine(registry, 'unpinned')
 
     const machine = registry.modules.machines
       .listMachines()
@@ -165,10 +169,10 @@ describe('fleet default update channel', () => {
     registry.dispose()
   })
 
-  it('lets a pin win over the fleet default, and survives it changing', () => {
+  it('lets a pin win over the fleet default, and survives it changing', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry } = harness()
-    addMachine(registry, 'pinned')
+    await addMachine(registry, 'pinned')
     registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
 
     expect(registry.modules.machines.updateChannel(asMachineId('pinned'))).toBe('stable')
@@ -183,11 +187,11 @@ describe('fleet default update channel', () => {
     registry.dispose()
   })
 
-  it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", () => {
+  it("moves an unpinned machine's resolved channel and target the moment the fleet default changes, and leaves a pinned one alone", async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'stable'
     const { registry } = harness()
-    addMachine(registry, 'follower')
-    addMachine(registry, 'pinned')
+    await addMachine(registry, 'follower')
+    await addMachine(registry, 'pinned')
     registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
     registry.modules.updates.setTarget(target())
 
@@ -213,10 +217,10 @@ describe('fleet default update channel', () => {
     registry.dispose()
   })
 
-  it('hands a machine back to the fleet default when its pin is cleared', () => {
+  it('hands a machine back to the fleet default when its pin is cleared', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry } = harness()
-    addMachine(registry, 'released')
+    await addMachine(registry, 'released')
     registry.modules.machines.setUpdateChannel(asMachineId('released'), 'dev')
     expect(registry.modules.machines.updateChannel(asMachineId('released'))).toBe('dev')
 
@@ -242,8 +246,8 @@ describe('fleet default update channel', () => {
  * three paths, one channel.
  */
 describe('one default channel', () => {
-  function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
-    registry.sessionStore.machines.upsertMachine({
+  async function addMachine(registry: ReturnType<typeof harness>['registry'], id: string) {
+    await registry.sessionStore.machines.upsertMachine({
       id,
       name: id,
       hostname: id,
@@ -255,7 +259,7 @@ describe('one default channel', () => {
   it('resolves an unpinned machine identically through channelOf and both fleet handlers', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry, caller } = harness()
-    addMachine(registry, 'unpinned')
+    await addMachine(registry, 'unpinned')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
@@ -276,7 +280,7 @@ describe('one default channel', () => {
   it('follows the fleet default onto dev as readily as onto stable', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'dev'
     const { registry, caller } = harness()
-    addMachine(registry, 'unpinned')
+    await addMachine(registry, 'unpinned')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
       .mockResolvedValue(true)
@@ -292,7 +296,7 @@ describe('one default channel', () => {
 
   it('updates Podium on a machine whose agent software is not Podium-managed', async () => {
     const { registry, caller } = harness()
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'shared',
       name: 'Shared machine',
       hostname: 'shared',
@@ -325,7 +329,7 @@ describe('one default channel', () => {
   it('lets a pin win over the fleet default on every path', async () => {
     process.env.PODIUM_UPDATE_CHANNEL = 'edge'
     const { registry, caller } = harness()
-    addMachine(registry, 'pinned')
+    await addMachine(registry, 'pinned')
     registry.modules.machines.setUpdateChannel(asMachineId('pinned'), 'stable')
     const refreshTarget = vi
       .spyOn(registry.modules.updates, 'refreshTarget')
@@ -487,7 +491,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
       ['podium.shipping-train'],
       '2026-08-22T00:00:00.000Z',
     )
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'packaged',
       name: 'Packaged',
       hostname: 'packaged',
@@ -541,7 +545,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   it('counts a behind stable machine when the coordinator itself is current', async () => {
     const { registry, caller } = harness()
     hostAt(registry, 'stable', '0.1.3')
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'stable-vps',
       name: 'VPS',
       hostname: 'vps',
@@ -574,7 +578,7 @@ describe('the fleet counted is the fleet the global action would grant', () => {
   it('still leaves an off-channel machine out of the wave the dialog counts', async () => {
     const { registry, caller } = harness()
     hostAt(registry, 'dev', 'dev+47a01e3')
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'stable-vps',
       name: 'VPS',
       hostname: 'vps',
@@ -732,7 +736,7 @@ describe('updates tRPC', () => {
    * dev channel actually has now — a machine that CAN take a feed — and the
    * guarantee is that the ordinary published feed target reaches it.
    */
-  function devFleet(requestDestBundle: () => Promise<unknown>) {
+  async function devFleet(requestDestBundle: () => Promise<unknown>) {
     const { registry, caller } = harness({ servedWebDigest: '47a01e3', requestDestBundle })
     const grants: unknown[] = []
     registry.modules.machines.setMachineBuild(
@@ -741,7 +745,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'source-machine',
       name: 'Source',
       hostname: 'source',
@@ -784,7 +788,7 @@ describe('updates tRPC', () => {
   it('grants a published dev release without asking for another build', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
     const requestDestBundle = vi.fn().mockResolvedValue(undefined)
-    const { registry, caller, grants } = devFleet(requestDestBundle)
+    const { registry, caller, grants } = await devFleet(requestDestBundle)
 
     const result = await caller.updates.converge()
     expect(result).toMatchObject({
@@ -805,7 +809,7 @@ describe('updates tRPC', () => {
    */
   it('counts a dev machine mid-grant as converging', async () => {
     process.env.PODIUM_APP_VERSION = 'dev+47a01e3'
-    const { registry, caller } = devFleet(vi.fn().mockResolvedValue(undefined))
+    const { registry, caller } = await devFleet(vi.fn().mockResolvedValue(undefined))
 
     await caller.updates.converge()
     await expect(caller.updates.fleet()).resolves.toMatchObject({ converging: 1 })
@@ -826,7 +830,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'installed-edge',
       name: 'Installed',
       hostname: 'installed',
@@ -879,7 +883,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'installed-edge',
       name: 'Installed',
       hostname: 'installed',
@@ -940,7 +944,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-13T00:00:00.000Z',
     )
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'installed-edge',
       name: 'Installed',
       hostname: 'installed',
@@ -1064,7 +1068,7 @@ describe('updates tRPC', () => {
           finish = resolve
         }),
     )
-    const store = fileBackedStore()
+    const store = await fileBackedStore()
     const grants: unknown[] = []
     // A coordinator with no update receiver of its own: no host daemon, no
     // local participant. Nothing in the fleet will swap this machine, so the
@@ -1076,7 +1080,7 @@ describe('updates tRPC', () => {
       requestDestBundle,
       servedWebDigest: '47a01e3',
     })
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'installed-edge',
       name: 'Installed',
       hostname: 'installed',
@@ -1101,7 +1105,7 @@ describe('updates tRPC', () => {
     // (POD-2198). A bundle-only remote is the place this test says is waiting on
     // packaging; without it there is correctly no prepare step anymore.
     const bundleMachine = asMachineId('bundle-machine')
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: bundleMachine,
       name: 'Bundle machine',
       hostname: 'bundle-machine',
@@ -1184,7 +1188,7 @@ describe('updates tRPC', () => {
           finish = resolve
         }),
     )
-    const store = fileBackedStore()
+    const store = await fileBackedStore()
     const hostControl: unknown[] = []
     // The all-in-one / server-only shape after POD-2668: this machine has an
     // update receiver, so it is a rollout target like any other.
@@ -1406,7 +1410,7 @@ describe('updates tRPC', () => {
       [],
       '2026-08-10T00:00:00.000Z',
     )
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'flatblock',
       name: 'Flatblock',
       hostname: 'flatblock',
@@ -1437,7 +1441,7 @@ describe('updates tRPC', () => {
   it('returns an in-progress wave after the human authorizes convergence', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.1'
     const requestCoordinatorRestart = vi.fn()
-    const store = fileBackedStore()
+    const store = await fileBackedStore()
     const { registry, caller } = harness({ store, requestCoordinatorRestart })
     registry.modules.machines.setMachineBuild(
       registry.sessionStore.hostMachineId,
@@ -1463,7 +1467,7 @@ describe('updates tRPC', () => {
   it('does not count or grant a machine selected onto another channel', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const { registry, caller } = harness()
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'stable-machine',
       name: 'Stable machine',
       hostname: 'stable-machine',
@@ -1558,7 +1562,7 @@ describe('the update operation', () => {
   it('start: a machine-only plan never invokes the snapshot verifier', async () => {
     process.env.PODIUM_APP_VERSION = '0.4.2'
     const verifierRuns: string[] = []
-    const store = fileBackedStore(async (request) => {
+    const store = await fileBackedStore(async (request) => {
       verifierRuns.push(request.path)
       return { failure: { code: 'crashed', detail: 'no verifier should run here' } }
     })
@@ -1574,7 +1578,7 @@ describe('the update operation', () => {
       '2026-08-13T00:00:00.000Z',
     )
     const behind = asMachineId('behind-machine')
-    registry.sessionStore.machines.upsertMachine({
+    await registry.sessionStore.machines.upsertMachine({
       id: 'behind-machine',
       name: 'Behind',
       hostname: 'behind',

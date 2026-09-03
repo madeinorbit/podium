@@ -48,8 +48,8 @@ describe('WorkflowService', () => {
     ],
   ])
 
-  beforeEach(() => {
-    store = openTestStore(':memory:')
+  beforeEach(async () => {
+    store = await openTestStore(':memory:')
     notices = []
     service = driveWorkflows(
       new WorkflowService({
@@ -68,7 +68,7 @@ describe('WorkflowService', () => {
 
   afterEach(() => store.close())
 
-  it('stores immutable revisions and resolves one exact binding by task → repo → global', () => {
+  it('stores immutable revisions and resolves one exact binding by task → repo → global', async () => {
     const global = service.create(
       { name: 'Global', description: '', scope: 'global', instructions: 'global rules', steps: [] },
       operator,
@@ -120,7 +120,7 @@ describe('WorkflowService', () => {
       agent('s1'),
     )
     expect(revised.version).toBe(2)
-    expect(store.workflows.getRevision(task.revision.id)?.instructions).toBe('task rules')
+    expect((await store.workflows.getRevision(task.revision.id))?.instructions).toBe('task rules')
     // The binding points at an exact revision; editing never changes unstarted tasks silently.
     expect(
       service.resolveRevision({
@@ -445,7 +445,7 @@ describe('WorkflowService', () => {
     ).toThrow('adopt a new revision explicitly')
   })
 
-  it('validates adoption completely before superseding the live run', () => {
+  it('validates adoption completely before superseding the live run', async () => {
     const created = service.create(
       {
         name: 'Safe adoption',
@@ -466,11 +466,11 @@ describe('WorkflowService', () => {
     expect(() => service.adopt({ revisionId: 'missing' }, agent('s1'))).toThrow(
       'unknown workflow revision',
     )
-    expect(store.workflows.getRun(run.id)?.status).toBe('active')
+    expect((await store.workflows.getRun(run.id))?.status).toBe('active')
     expect(() =>
       service.adopt({ revisionId: created.revision.id, startStepId: 'missing' }, agent('s1')),
     ).toThrow('workflow has no step missing')
-    expect(store.workflows.getRun(run.id)?.status).toBe('active')
+    expect((await store.workflows.getRun(run.id))?.status).toBe('active')
   })
 
   it('rejects duplicate step ids and keeps execution profiles operator-managed', () => {
@@ -501,7 +501,7 @@ describe('WorkflowService', () => {
     ).toThrow()
   })
 
-  it('adopts a new revision explicitly and preserves the superseded run', () => {
+  it('adopts a new revision explicitly and preserves the superseded run', async () => {
     const created = service.create(
       {
         name: 'Adoptable',
@@ -541,6 +541,6 @@ describe('WorkflowService', () => {
     expect(adopted.revision.id).toBe(secondRevision.id)
     expect(adopted.steps[0]?.status).toBe('skipped')
     expect(adopted.steps[1]?.status).toBe('pending')
-    expect(store.workflows.getRun(first.id)?.status).toBe('superseded')
+    expect((await store.workflows.getRun(first.id))?.status).toBe('superseded')
   })
 })

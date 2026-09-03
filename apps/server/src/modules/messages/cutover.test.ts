@@ -374,7 +374,7 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       const hidden: string[] = []
       const ceiling = ceilingHiding(() => hidden)
       const policy = mailPolicy({ ceiling })
-      const h = mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
+      const h = await mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
       const mine = h.createIssue({ title: 'mine' })
       const theirs = h.createIssue({ title: 'theirs' })
       const cap = h.agentCap(mine.id, asSessionId('sMine'))
@@ -406,7 +406,7 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       const hidden: string[] = []
       const ceiling = ceilingHiding(() => hidden)
       const policy = mailPolicy({ ceiling })
-      const h = mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
+      const h = await mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
       const mine = h.createIssue({ title: 'mine' })
       const theirs = h.createIssue({ title: 'theirs' })
       hidden.push(theirs.id)
@@ -425,8 +425,8 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
     }
   })
 
-  it('refuses a proc the contract does not expose on that transport — default-closed', () => {
-    const h = mailHarness()
+  it('refuses a proc the contract does not expose on that transport — default-closed', async () => {
+    const h = await mailHarness()
     // `pendingReminders` is relay-only (the stop hook). The relay serves it; the
     // tRPC arm must answer "no such proc", which is what an unexposed command
     // is indistinguishable from.
@@ -496,7 +496,7 @@ describe('the two halves of the ceiling are one object', () => {
    * port field. Multi-user composition installs the port from the policy object
    * the same way relay installs mail.placementAtWake.
    */
-  it('multi-user construction wires placementAtWake — protect by absence, not behaviour', () => {
+  it('multi-user construction wires placementAtWake — protect by absence, not behaviour', async () => {
     const policy = mailPolicy({
       machines: { mayUse: () => false, isReachable: () => true },
     })
@@ -505,17 +505,17 @@ describe('the two halves of the ceiling are one object', () => {
     // …and multi-user service construction must install it. Identity of the
     // wire, not the outcome of a wake denial. No `machines:` here — that would
     // auto-wire and hide a missing placementAtWake field.
-    const h = mailHarness({
+    const h = await mailHarness({
       authorizeAtApply: policy.authorizeAtApply,
       placementAtWake: policy.placementAtWake,
     })
     expect(h.svc.placementAtWakeWired).toBe(true)
   })
 
-  it('single-user default leaves placementAtWake unwired — the deliberate allow is observable', () => {
+  it('single-user default leaves placementAtWake unwired — the deliberate allow is observable', async () => {
     // THE INSTRUMENT CAN SAY YES for the omit: bare mailHarness is single-user,
     // no machines, no port. Multi-user wiring must not share this shape.
-    const h = mailHarness()
+    const h = await mailHarness()
     expect(h.svc.placementAtWakeWired).toBe(false)
   })
 })
@@ -532,10 +532,10 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
    * the send is a CONTRACT DISPATCH rather than a direct `svc.send`. That pair
    * is what relay.ts now wires, so this exercises the shipped shape.
    */
-  function composed(hidden: string[]) {
+  async function composed(hidden: string[]) {
     const ceiling = ceilingHiding(() => hidden)
     const policy = mailPolicy({ ceiling })
-    return mailHarness({
+    return await mailHarness({
       ceiling: policy.gateOptions.ceiling,
       authorizeAtApply: policy.authorizeAtApply,
     })
@@ -543,7 +543,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
 
   it('rejects at the drain and tells the sender, once the target leaves the ceiling', async () => {
     const hidden: string[] = []
-    const h = composed(hidden)
+    const h = await composed(hidden)
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
@@ -582,7 +582,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
   })
 
   it('delivers the identical send when nothing was revoked — the instrument can say yes', async () => {
-    const h = composed([])
+    const h = await composed([])
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
@@ -622,7 +622,7 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
    * gate.
    */
   it('delivers an issue-addressed send to the live agent and threads its reply back', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'Target', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/t' })
     const { sessionId } = await o.call.sessions.create({

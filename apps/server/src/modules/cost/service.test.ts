@@ -31,8 +31,8 @@ afterAll(() => {
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
 
-beforeEach(() => {
-  store = openTestStore(':memory:')
+beforeEach(async () => {
+  store = await openTestStore(':memory:')
   service = new CostService(store)
   machineId = store.hostMachineId
   const home = mkdtempSync(join(tmpdir(), 'podium-cost-'))
@@ -45,7 +45,7 @@ beforeEach(() => {
 
 let seq = 0
 
-function issue(over: Partial<IssueRow> = {}): IssueRow {
+async function issue(over: Partial<IssueRow> = {}): Promise<IssueRow> {
   seq += 1
   const row: IssueRow = {
     id: `iss_${seq}` as IssueId,
@@ -71,11 +71,11 @@ function issue(over: Partial<IssueRow> = {}): IssueRow {
     updatedAt: '2026-08-01T00:00:00.000Z',
     ...over,
   } as IssueRow
-  store.issues.upsertIssue(row)
+  await store.issues.upsertIssue(row)
   return row
 }
 
-function session(over: Partial<SessionRow> = {}): SessionRow {
+async function session(over: Partial<SessionRow> = {}): Promise<SessionRow> {
   seq += 1
   const row: SessionRow = {
     id: `ses_${seq}` as SessionId,
@@ -101,7 +101,7 @@ function session(over: Partial<SessionRow> = {}): SessionRow {
     machineId,
     ...over,
   }
-  store.sessions.upsertSession(row)
+  await store.sessions.upsertSession(row)
   return row
 }
 
@@ -171,9 +171,9 @@ const tokensOf = (models: { inputTokens: number; outputTokens: number }[]) =>
 // ── attribution ─────────────────────────────────────────────────────────────
 
 describe('attribution', () => {
-  it('resolves a transcript to its session and issue in one pass', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('resolves a transcript to its session and issue in one pass', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     const path = transcript(ses.resumeValue as string)
 
     expect(ingest([source(path)])).toBe(1)
@@ -187,9 +187,9 @@ describe('attribution', () => {
 
   // The subagent hop. On the real machine these files carried $85 of Claude
   // spend in one 7-day window, and none of it has a session row of its own.
-  it('attributes a delegate transcript to the session that spawned it', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('attributes a delegate transcript to the session that spawned it', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     const parentNativeId = ses.resumeValue as string
     transcript(parentNativeId)
     const child = transcript('agent-abc123', { parentNativeId })
@@ -201,29 +201,29 @@ describe('attribution', () => {
     expect(cost.own.sessionCount).toBe(1)
   })
 
-  it('drops a transcript that maps to no conversation at all', () => {
-    const task = issue()
-    session({ issueId: task.id })
+  it('drops a transcript that maps to no conversation at all', async () => {
+    const task = await issue()
+    await session({ issueId: task.id })
     expect(ingest([source(join(CLAUDE_DIR, 'nobody-indexed-this.jsonl'))])).toBe(0)
-    expect(store.transcriptCosts.countAll()).toBe(0)
+    expect(await store.transcriptCosts.countAll()).toBe(0)
   })
 
-  it('re-ingesting the same walk overwrites rather than accumulating', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('re-ingesting the same walk overwrites rather than accumulating', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     const path = transcript(ses.resumeValue as string)
 
     ingest([source(path)])
     ingest([source(path)])
     ingest([source(path)])
 
-    expect(store.transcriptCosts.countAll()).toBe(1)
+    expect(await store.transcriptCosts.countAll()).toBe(1)
     expect(service.task(task.id).own.messages).toBe(10)
   })
 
-  it('keeps a session whose transcript is not linked to any issue out of every task', () => {
-    const task = issue()
-    const orphan = session({ issueId: null })
+  it('keeps a session whose transcript is not linked to any issue out of every task', async () => {
+    const task = await issue()
+    const orphan = await session({ issueId: null })
     const path = transcript(orphan.resumeValue as string)
     ingest([source(path)])
     expect(service.task(task.id).state).toBe('no-sessions')
@@ -235,8 +235,8 @@ describe('attribution', () => {
 
 describe('rollup', () => {
   /** Give `task` one costed session worth `messages` replies. */
-  const cost = (taskId: IssueId, messages: number): void => {
-    const ses = session({ issueId: taskId })
+  const cost = async (taskId: IssueId, messages: number): Promise<void> => {
+    const ses = await session({ issueId: taskId })
     const path = transcript(ses.resumeValue as string)
     ingest([
       source(path, {
@@ -256,10 +256,10 @@ describe('rollup', () => {
   }
 
   // POD-1402's shape: the epic lead outspent all 32 children put together.
-  it('returns own and rollup separately when the parent spent most of it', () => {
-    const epic = issue()
-    cost(epic.id, 100)
-    for (let i = 0; i < 3; i += 1) cost(issue({ parentId: epic.id }).id, 10)
+  it('returns own and rollup separately when the parent spent most of it', async () => {
+    const epic = await issue()
+    await cost(epic.id, 100)
+    for (let i = 0; i < 3; i += 1) await cost((await issue({ parentId: epic.id })).id, 10)
 
     const result = service.task(epic.id)
     expect(result.own.messages).toBe(100)
@@ -268,10 +268,10 @@ describe('rollup', () => {
   })
 
   // POD-1484's shape: no sessions of its own. Showing own cost renders it free.
-  it('rolls up a parent that has no sessions of its own', () => {
-    const epic = issue()
-    const child = issue({ parentId: epic.id })
-    cost(child.id, 40)
+  it('rolls up a parent that has no sessions of its own', async () => {
+    const epic = await issue()
+    const child = await issue({ parentId: epic.id })
+    await cost(child.id, 40)
 
     const result = service.task(epic.id)
     expect(result.own).toMatchObject({ messages: 0, sessionCount: 0, models: [] })
@@ -280,21 +280,21 @@ describe('rollup', () => {
   })
 
   // POD-1574's shape: no children, so own === rollup and no split is drawn.
-  it('leaves own equal to rollup for a task with no children', () => {
-    const solo = issue()
-    cost(solo.id, 25)
+  it('leaves own equal to rollup for a task with no children', async () => {
+    const solo = await issue()
+    await cost(solo.id, 25)
     const result = service.task(solo.id)
     expect(result.own.messages).toBe(25)
     expect(result.rollup.messages).toBe(25)
     expect(result.descendantCount).toBe(0)
   })
 
-  it('reaches grandchildren, and counts every descendant whether it cost anything or not', () => {
-    const epic = issue()
-    const mid = issue({ parentId: epic.id })
-    const leaf = issue({ parentId: mid.id })
-    issue({ parentId: mid.id }) // a descendant with no sessions at all
-    cost(leaf.id, 7)
+  it('reaches grandchildren, and counts every descendant whether it cost anything or not', async () => {
+    const epic = await issue()
+    const mid = await issue({ parentId: epic.id })
+    const leaf = await issue({ parentId: mid.id })
+    await issue({ parentId: mid.id }) // a descendant with no sessions at all
+    await cost(leaf.id, 7)
 
     const result = service.task(epic.id)
     expect(result.rollup.messages).toBe(7)
@@ -305,16 +305,16 @@ describe('rollup', () => {
 // ── the cold states and the marks ───────────────────────────────────────────
 
 describe('states', () => {
-  it('reads a task with no sessions as no-sessions, never a zero figure', () => {
-    const task = issue()
+  it('reads a task with no sessions as no-sessions, never a zero figure', async () => {
+    const task = await issue()
     const result = service.task(task.id)
     expect(result.state).toBe('no-sessions')
     expect(result.rollup).toMatchObject({ models: [], messages: 0, sessionCount: 0 })
   })
 
-  it('reads a session with no transcript row at all as not-recorded', () => {
-    const task = issue()
-    session({ issueId: task.id }) // no registry row: nothing to read
+  it('reads a session with no transcript row at all as not-recorded', async () => {
+    const task = await issue()
+    await session({ issueId: task.id }) // no registry row: nothing to read
     expect(service.task(task.id).state).toBe('not-recorded')
   })
 
@@ -322,50 +322,50 @@ describe('states', () => {
   // transcripts behind sampled tasks on this machine are already pruned, and
   // every one of them read as pending — a slot that will never fill, drawn as
   // one that is about to.
-  it('reads a PRUNED transcript as not-recorded, not as pending', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('reads a PRUNED transcript as not-recorded, not as pending', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     transcript(ses.resumeValue as string, { onDisk: false })
     expect(service.task(task.id).state).toBe('not-recorded')
   })
 
-  it('reads an unread transcript that IS on disk as pending', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('reads an unread transcript that IS on disk as pending', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     transcript(ses.resumeValue as string) // indexed, on disk, never ingested
     expect(service.task(task.id).state).toBe('pending')
   })
 
-  it('marks a running task provisional', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id, status: 'live' })
+  it('marks a running task provisional', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id, status: 'live' })
     ingest([source(transcript(ses.resumeValue as string))])
     expect(service.task(task.id).provisional).toBe(true)
   })
 
-  it('marks a Codex task a floor and an all-Claude task not', () => {
-    const claudeTask = issue()
-    const claudeSes = session({ issueId: claudeTask.id })
+  it('marks a Codex task a floor and an all-Claude task not', async () => {
+    const claudeTask = await issue()
+    const claudeSes = await session({ issueId: claudeTask.id })
     ingest([source(transcript(claudeSes.resumeValue as string))])
     expect(service.task(claudeTask.id)).toMatchObject({
       floor: 'none',
       harnesses: ['claude-code'],
     })
 
-    const codexTask = issue()
-    const codexSes = session({ issueId: codexTask.id, agentKind: 'codex' })
+    const codexTask = await issue()
+    const codexSes = await session({ issueId: codexTask.id, agentKind: 'codex' })
     ingest([source(transcript(codexSes.resumeValue as string), { harness: 'codex' })])
     expect(service.task(codexTask.id)).toMatchObject({ floor: 'partial', harnesses: ['codex'] })
   })
 
   // The read path's half of the same correction: an unharvested session in scope
   // must raise the floor even when every harness is Claude.
-  it('marks an all-Claude task whose second session was never harvested', () => {
-    const task = issue()
-    const harvested = session({ issueId: task.id })
+  it('marks an all-Claude task whose second session was never harvested', async () => {
+    const task = await issue()
+    const harvested = await session({ issueId: task.id })
     ingest([source(transcript(harvested.resumeValue as string))])
     // A second session exists, its transcript is on disk, nothing read it.
-    const unread = session({ issueId: task.id })
+    const unread = await session({ issueId: task.id })
     transcript(unread.resumeValue as string)
 
     const cost = service.task(task.id)
@@ -374,21 +374,21 @@ describe('states', () => {
     expect(cost.floor).toBe('partial')
   })
 
-  it('leaves a fully harvested all-Claude task unmarked', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('leaves a fully harvested all-Claude task unmarked', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     ingest([source(transcript(ses.resumeValue as string))])
     const cost = service.task(task.id)
     expect(cost.uncostedSessionCount).toBe(0)
     expect(cost.floor).toBe('none')
   })
 
-  it('counts an unharvested DESCENDANT session against the rollup floor', () => {
-    const epic = issue()
-    const epicSes = session({ issueId: epic.id })
+  it('counts an unharvested DESCENDANT session against the rollup floor', async () => {
+    const epic = await issue()
+    const epicSes = await session({ issueId: epic.id })
     ingest([source(transcript(epicSes.resumeValue as string))])
-    const child = issue({ parentId: epic.id })
-    const childSes = session({ issueId: child.id })
+    const child = await issue({ parentId: epic.id })
+    const childSes = await session({ issueId: child.id })
     transcript(childSes.resumeValue as string) // never ingested
 
     const cost = service.task(epic.id)
@@ -396,10 +396,10 @@ describe('states', () => {
     expect(cost.floor).toBe('partial')
   })
 
-  it('marks a mixed task a floor and names both harnesses', () => {
-    const task = issue()
-    const a = session({ issueId: task.id })
-    const b = session({ issueId: task.id, agentKind: 'codex' })
+  it('marks a mixed task a floor and names both harnesses', async () => {
+    const task = await issue()
+    const a = await session({ issueId: task.id })
+    const b = await session({ issueId: task.id, agentKind: 'codex' })
     ingest([
       source(transcript(a.resumeValue as string)),
       source(transcript(b.resumeValue as string), { harness: 'codex' }),
@@ -414,9 +414,9 @@ describe('states', () => {
 // ── when the figure was read ────────────────────────────────────────────────
 
 describe('the read-time stamp', () => {
-  it('stamps a costed task with the newest harvest behind it', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('stamps a costed task with the newest harvest behind it', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     const before = new Date().toISOString()
     ingest([source(transcript(ses.resumeValue as string))])
 
@@ -426,16 +426,16 @@ describe('the read-time stamp', () => {
     expect(service.tasks()[0]?.sampledAt).toBe(cost.sampledAt)
   })
 
-  it('takes the newest of the rows under a rollup, not the task own row', () => {
-    const epic = issue()
-    const epicSes = session({ issueId: epic.id })
+  it('takes the newest of the rows under a rollup, not the task own row', async () => {
+    const epic = await issue()
+    const epicSes = await session({ issueId: epic.id })
     ingest([source(transcript(epicSes.resumeValue as string))])
     const ownStamp = service.task(epic.id).sampledAt as string
 
-    const child = issue({ parentId: epic.id })
-    const childSes = session({ issueId: child.id })
+    const child = await issue({ parentId: epic.id })
+    const childSes = await session({ issueId: child.id })
     // A later harvest, explicitly after the first.
-    store.transcriptCosts.record(
+    await store.transcriptCosts.record(
       [
         {
           machineId,
@@ -460,9 +460,9 @@ describe('the read-time stamp', () => {
 
   // Stamping `now` on a task nothing has been read for would claim we checked
   // something we never looked at — the same class of lie as a confident zero.
-  it('leaves a task with nothing behind it unstamped, rather than stamping now', () => {
-    const task = issue()
-    session({ issueId: task.id })
+  it('leaves a task with nothing behind it unstamped, rather than stamping now', async () => {
+    const task = await issue()
+    await session({ issueId: task.id })
     const cost = service.task(task.id)
     expect(cost.state).toBe('not-recorded')
     expect(cost.sampledAt).toBeUndefined()
@@ -475,12 +475,12 @@ describe('a resume value two sessions share', () => {
   // Five such pairs on this machine, and in the live case one row carries an
   // issue and the other does not — so row order decided whether the transcript
   // was attributed at all.
-  it('attributes to the session that names an issue, whatever order rows arrive in', () => {
-    const task = issue()
+  it('attributes to the session that names an issue, whatever order rows arrive in', async () => {
+    const task = await issue()
     const shared = 'native-shared-1'
     // The unattached row is written FIRST, so a first-row-wins rule picks it.
-    session({ issueId: null, resumeValue: shared, createdAt: '2026-08-01T00:00:00.000Z' })
-    const attached = session({
+    await session({ issueId: null, resumeValue: shared, createdAt: '2026-08-01T00:00:00.000Z' })
+    const attached = await session({
       issueId: task.id,
       resumeValue: shared,
       createdAt: '2026-08-02T00:00:00.000Z',
@@ -493,11 +493,11 @@ describe('a resume value two sessions share', () => {
     expect(cost.sessions[0]?.sessionId).toBe(attached.id)
   })
 
-  it('prefers the newest row when both name an issue, and counts the cost once', () => {
-    const task = issue()
+  it('prefers the newest row when both name an issue, and counts the cost once', async () => {
+    const task = await issue()
     const shared = 'native-shared-2'
-    session({ issueId: task.id, resumeValue: shared, createdAt: '2026-08-01T00:00:00.000Z' })
-    const newer = session({
+    await session({ issueId: task.id, resumeValue: shared, createdAt: '2026-08-01T00:00:00.000Z' })
+    const newer = await session({
       issueId: task.id,
       resumeValue: shared,
       createdAt: '2026-08-05T00:00:00.000Z',
@@ -516,11 +516,11 @@ describe('a resume value two sessions share', () => {
 describe('tasks()', () => {
   // The rate is one property of a task and must read the same in the sheet as
   // in the panel, so the row carries the rollup the panel divides.
-  it('carries each task rollup so the sheet can print the panel rate', () => {
-    const epic = issue()
-    const child = issue({ parentId: epic.id })
+  it('carries each task rollup so the sheet can print the panel rate', async () => {
+    const epic = await issue()
+    const child = await issue({ parentId: epic.id })
     for (const target of [epic, child]) {
-      const ses = session({ issueId: target.id })
+      const ses = await session({ issueId: target.id })
       ingest([source(transcript(ses.resumeValue as string))])
     }
     const rows = service.tasks()
@@ -536,9 +536,9 @@ describe('tasks()', () => {
 
   // Attributing an ALL-TIME per-task figure against the host's 7-DAY total is
   // how a sheet ends up claiming 123% attributed — measured, on this machine.
-  it('reports the window and all-time folds separately', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('reports the window and all-time folds separately', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     ingest([
       source(transcript(ses.resumeValue as string), {
         windowModels: [
@@ -559,13 +559,13 @@ describe('tasks()', () => {
     expect(row?.windowMessages).toBe(2)
   })
 
-  it('reads a row from an older harvest as nothing in the current window', () => {
-    const stale = issue()
-    const staleSes = session({ issueId: stale.id })
+  it('reads a row from an older harvest as nothing in the current window', async () => {
+    const stale = await issue()
+    const staleSes = await session({ issueId: stale.id })
     ingest([source(transcript(staleSes.resumeValue as string))], SINCE - 7 * 24 * 3_600_000)
 
-    const fresh = issue()
-    const freshSes = session({ issueId: fresh.id })
+    const fresh = await issue()
+    const freshSes = await session({ issueId: fresh.id })
     ingest([source(transcript(freshSes.resumeValue as string))])
 
     const rows = service.tasks()
@@ -577,11 +577,11 @@ describe('tasks()', () => {
     expect(freshRow?.windowMessages).toBe(10)
   })
 
-  it('lists own cost per task, so a parent does not double-count its children', () => {
-    const epic = issue()
-    const child = issue({ parentId: epic.id })
+  it('lists own cost per task, so a parent does not double-count its children', async () => {
+    const epic = await issue()
+    const child = await issue({ parentId: epic.id })
     for (const target of [epic, child]) {
-      const ses = session({ issueId: target.id })
+      const ses = await session({ issueId: target.id })
       ingest([source(transcript(ses.resumeValue as string))])
     }
     const rows = service.tasks()
@@ -601,9 +601,9 @@ describe('the task-detail path never walks the disk', () => {
    * back in full anyway. A read that consulted a transcript would return the
    * cold state instead — or throw.
    */
-  it('answers in full from stored rows when the transcript is gone', () => {
-    const task = issue()
-    const ses = session({ issueId: task.id })
+  it('answers in full from stored rows when the transcript is gone', async () => {
+    const task = await issue()
+    const ses = await session({ issueId: task.id })
     const path = transcript(ses.resumeValue as string, { onDisk: false })
     ingest([source(path)])
 
@@ -615,12 +615,12 @@ describe('the task-detail path never walks the disk', () => {
     expect(tokensOf(result.own.models)).toBe(1_500)
   })
 
-  it('stays flat as the corpus grows — 400 transcripts across 200 tasks', () => {
-    const epic = issue()
+  it('stays flat as the corpus grows — 400 transcripts across 200 tasks', async () => {
+    const epic = await issue()
     for (let i = 0; i < 200; i += 1) {
-      const child = issue({ parentId: epic.id })
+      const child = await issue({ parentId: epic.id })
       for (let t = 0; t < 2; t += 1) {
-        const ses = session({ issueId: child.id })
+        const ses = await session({ issueId: child.id })
         ingest([source(transcript(ses.resumeValue as string))])
       }
     }

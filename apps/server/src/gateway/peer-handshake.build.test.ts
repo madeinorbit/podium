@@ -35,9 +35,9 @@ function fakeWs() {
 const frame = (value: unknown): string => JSON.stringify(value)
 
 describe('build report on hello accept', () => {
-  it('persists a report carried by the hello', () => {
-    const store = openTestStore()
-    store.machines.upsertMachine({
+  it('persists a report carried by the hello', async () => {
+    const store = await openTestStore()
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box.local',
@@ -49,12 +49,12 @@ describe('build report on hello accept', () => {
       caps: ['update.delivery.feed'],
       at: '2026-08-04T00:00:00.000Z',
     })
-    expect(store.machines.getMachine('m1')?.appVersion).toBe('0.4.2')
+    expect((await store.machines.getMachine('m1'))?.appVersion).toBe('0.4.2')
   })
 
-  it('leaves an existing report untouched when a hello carries none', () => {
-    const store = openTestStore()
-    store.machines.upsertMachine({
+  it('leaves an existing report untouched when a hello carries none', async () => {
+    const store = await openTestStore()
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box.local',
@@ -71,12 +71,12 @@ describe('build report on hello accept', () => {
       caps: [],
       at: '2026-08-04T01:00:00.000Z',
     })
-    expect(store.machines.getMachine('m1')?.appVersion).toBe('0.4.2')
+    expect((await store.machines.getMachine('m1'))?.appVersion).toBe('0.4.2')
   })
 
-  it('records the build only after the envelope hello authenticates', () => {
-    const store = openTestStore()
-    store.machines.upsertMachine({
+  it('records the build only after the envelope hello authenticates', async () => {
+    const store = await openTestStore()
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box.local',
@@ -98,7 +98,7 @@ describe('build report on hello accept', () => {
       }),
     )
 
-    expect(store.machines.getMachine('m1')).toMatchObject({
+    expect(await store.machines.getMachine('m1')).toMatchObject({
       appVersion: '0.4.2',
       wireSchemaDigest: 'abc',
       installKind: 'installed',

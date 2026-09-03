@@ -10,10 +10,10 @@ import { appRouter } from './router'
 import { OPERATOR } from './test-support/capabilities'
 import { openTestStore } from './test-support/open-test-store'
 
-function machineCaller() {
-  const store = openTestStore(':memory:')
+async function machineCaller() {
+  const store = await openTestStore(':memory:')
   // Pre-register a machine so listMachines returns it
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'machine-one',
     hostname: 'host-one',
@@ -43,7 +43,7 @@ function machineCaller() {
 
 describe('machines router', () => {
   it('machines.list returns registered machines', async () => {
-    const { call } = machineCaller()
+    const { call } = await machineCaller()
     const machines = await call.machines.list()
     const m1 = machines.find((m) => m.id === 'm1')
     expect(m1).toBeDefined()
@@ -54,20 +54,20 @@ describe('machines router', () => {
   })
 
   it('machines.rename changes the name and returns the updated list', async () => {
-    const { call } = machineCaller()
+    const { call } = await machineCaller()
     const result = await call.machines.rename({ id: 'm1', name: 'renamed-machine' })
     const m1 = result.find((m) => m.id === 'm1')
     expect(m1?.name).toBe('renamed-machine')
   })
 
   it('machines.rename enforces min=1 max=80 on name', async () => {
-    const { call } = machineCaller()
+    const { call } = await machineCaller()
     await expect(call.machines.rename({ id: 'm1', name: '' })).rejects.toThrow()
     await expect(call.machines.rename({ id: 'm1', name: 'x'.repeat(81) })).rejects.toThrow()
   })
 
   it('machines.revoke removes the machine from the list', async () => {
-    const { call } = machineCaller()
+    const { call } = await machineCaller()
     const before = await call.machines.list()
     expect(before.find((m) => m.id === 'm1')).toBeDefined()
     const after = await call.machines.revoke({ id: 'm1' })
@@ -75,7 +75,7 @@ describe('machines router', () => {
   })
 
   it('machines.pairingCode returns a non-empty code string', async () => {
-    const { call } = machineCaller()
+    const { call } = await machineCaller()
     const result = await call.machines.pairingCode()
     expect(result).toHaveProperty('code')
     expect(typeof result.code).toBe('string')
@@ -85,15 +85,15 @@ describe('machines router', () => {
 
 describe('sessions.create with machineId', () => {
   it('sessions.create accepts and forwards machineId', async () => {
-    const store = openTestStore(':memory:')
-    store.machines.upsertMachine({
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm2',
       name: 'machine-two',
       hostname: 'host-two',
       tokenHash: 'h2',
       ownerUserId: asUserId('user:sole'),
     })
-    store.machines.setMachineInventory(
+    await store.machines.setMachineInventory(
       'm2',
       JSON.stringify({
         os: 'linux',
@@ -126,7 +126,7 @@ describe('sessions.create with machineId', () => {
   })
 
   it('sessions.create works without machineId (falls back to local)', async () => {
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('machine-under-test')
     registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})

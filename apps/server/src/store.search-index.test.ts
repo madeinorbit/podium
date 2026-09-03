@@ -24,8 +24,8 @@ afterEach(() => {
   for (const s of stores.splice(0)) s.close()
 })
 
-function open(path: string): SessionStore {
-  const store = openTestStore(path)
+async function open(path: string): Promise<SessionStore> {
+  const store = await openTestStore(path)
   stores.push(store)
   return store
 }
@@ -64,8 +64,8 @@ const conversation = (store: SessionStore, over: Record<string, unknown> = {}) =
 })
 
 describe('search index gate', () => {
-  it('builds nothing at boot when the flag is off, and writes stop paying for it', () => {
-    const store = open(dbFile())
+  it('builds nothing at boot when the flag is off, and writes stop paying for it', async () => {
+    const store = await open(dbFile())
 
     expect(store.searchIndexEnabled).toBe(false)
     expect(hasTable(store, 'conversations_fts')).toBe(false)
@@ -86,9 +86,9 @@ describe('search index gate', () => {
     expect(store.conversations.transcriptIndex.searchCandidates('renamed')).toEqual([])
   })
 
-  it('builds the tables, the triggers and the index when the flag is on', () => {
+  it('builds the tables, the triggers and the index when the flag is on', async () => {
     forceFeature('command-palette', true)
-    const store = open(dbFile())
+    const store = await open(dbFile())
 
     expect(store.searchIndexEnabled).toBe(true)
     expect(hasTable(store, 'conversations_fts')).toBe(true)
@@ -105,18 +105,18 @@ describe('search index gate', () => {
     ).toEqual(['native-a'])
   })
 
-  it('turns off and back on across boots: triggers go, tables stay, the index rebuilds', () => {
+  it('turns off and back on across boots: triggers go, tables stay, the index rebuilds', async () => {
     const path = dbFile()
 
     forceFeature('command-palette', true)
-    const first = open(path)
+    const first = await open(path)
     first.conversations.index.upsert([conversation(first)])
     const machineId = first.hostMachineId
     first.close()
     stores.pop()
 
     forceFeature('command-palette', false)
-    const off = open(path)
+    const off = await open(path)
     expect(off.searchIndexEnabled).toBe(false)
     expect(triggerNames(off)).toEqual([])
     // Never dropped: a stale table costs nothing, and keeping `transcript_fts`
@@ -131,7 +131,7 @@ describe('search index gate', () => {
     stores.pop()
 
     forceFeature('command-palette', true)
-    const back = open(path)
+    const back = await open(path)
     expect(triggerNames(back)).toEqual(['conversations_ad', 'conversations_ai', 'conversations_au'])
     // The row that arrived during the dark boot is searchable anyway: enabling
     // runs a full 'rebuild' from `conversations`, so the index cannot lag it.
@@ -140,12 +140,12 @@ describe('search index gate', () => {
     ).toEqual(['native-b'])
   })
 
-  it('keeps indexed transcript rows across an off boot instead of reindexing them', () => {
+  it('keeps indexed transcript rows across an off boot instead of reindexing them', async () => {
     const path = dbFile()
     const machineId = asMachineId('11111111-1111-4111-8111-111111111111')
 
     forceFeature('command-palette', true)
-    const first = open(path)
+    const first = await open(path)
     first.conversations.transcriptIndex.append(
       machineId,
       'native-a',
@@ -157,7 +157,7 @@ describe('search index gate', () => {
     stores.pop()
 
     forceFeature('command-palette', false)
-    const off = open(path)
+    const off = await open(path)
     // Closed for this boot: no hits, no appends, and the durable byte cursor is
     // left exactly where it was so the next enabled boot resumes from it.
     expect(off.conversations.transcriptIndex.searchCandidates('capacitor')).toEqual([])
@@ -171,7 +171,7 @@ describe('search index gate', () => {
     stores.pop()
 
     forceFeature('command-palette', true)
-    const back = open(path)
+    const back = await open(path)
     const hits = back.conversations.transcriptIndex.searchCandidates('capacitor')
     expect(hits).toHaveLength(1)
     expect(hits[0]?.nativeId).toBe('native-a')

@@ -79,7 +79,7 @@ const PARENT: Capability = {
   onBehalfOf: FIRST_ADMIN_USER_ID,
 }
 
-function harness(opts?: {
+async function harness(opts?: {
   sessions?: SessionMeta[]
   spawnSession?: MessageGateDeps['spawnSession']
   awaitMachineInventory?: MessageGateDeps['awaitMachineInventory']
@@ -99,7 +99,7 @@ function harness(opts?: {
    *  cross-machine spawn refusal (POD-1386). */
   issueOverrides?: Record<string, unknown>
 }) {
-  const store = opts?.store ?? openTestStore(':memory:')
+  const store = opts?.store ?? await openTestStore(':memory:')
   const sessions = opts?.sessions ?? []
   const spawns: Record<string, unknown>[] = []
   const created: Record<string, unknown>[] = []
@@ -169,7 +169,7 @@ describe('agent spawn (gate)', () => {
       release = resolve
     })
     const waited: string[] = []
-    const { gate, spawns } = harness({
+    const { gate, spawns } = await harness({
       issueOverrides: { machineId: 'machine-home' },
       awaitMachineInventory: async (machineId) => {
         waited.push(machineId)
@@ -192,7 +192,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('spawns a full session on the issue with parent provenance + #285 metadata pass-through', async () => {
-    const { gate, spawns, created, store } = harness()
+    const { gate, spawns, created, store } = await harness()
     const r = (await gate.dispatch(PARENT, true, 'spawnAgent', {
       issue: `#${ISSUE.seq}`,
       harness: 'codex',
@@ -219,7 +219,7 @@ describe('agent spawn (gate)', () => {
     // No issue auto-created when one was supplied.
     expect(created).toHaveLength(0)
     // Ledgered.
-    const evs = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(evs).toHaveLength(1)
     expect(evs[0]!.payload).toMatchObject({
       sessionId: asSessionId('child1'),
@@ -228,7 +228,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('uses a resolved execution profile as the authoritative launch preset and audits it', async () => {
-    const { gate, spawns, store } = harness({
+    const { gate, spawns, store } = await harness({
       resolveExecutionProfile: (input) => {
         expect(input).toMatchObject({
           profileId: 'prof_review',
@@ -264,7 +264,7 @@ describe('agent spawn (gate)', () => {
       workflowStepId: 'review',
       executionProfileId: 'prof_review',
     })
-    const events = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    const events = await store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(events[0]?.payload).toMatchObject({
       harness: 'codex',
       model: 'gpt-5.6',
@@ -293,7 +293,7 @@ describe('agent spawn (gate)', () => {
       })
 
     it('refuses to spawn a delegate on a machine other than the issue’s home', async () => {
-      const { gate, spawns } = harness({
+      const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
@@ -311,7 +311,7 @@ describe('agent spawn (gate)', () => {
     })
 
     it('names handoff, because that is the operation that would make it legal', async () => {
-      const { gate } = harness({
+      const { gate } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
@@ -325,7 +325,7 @@ describe('agent spawn (gate)', () => {
     })
 
     it('allows a profile that names the issue’s OWN machine', async () => {
-      const { gate, spawns } = harness({
+      const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
         resolveExecutionProfile: profileOn('machine-home'),
       })
@@ -341,7 +341,7 @@ describe('agent spawn (gate)', () => {
     it('allows a machine-pinned profile on an issue with no worktree yet', async () => {
       // Nothing to diverge from: starting on a pinned machine is a legitimate way
       // to HOME an issue, so the guard keys on the worktree, not on the pin.
-      const { gate, spawns } = harness({
+      const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: null },
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
@@ -357,7 +357,7 @@ describe('agent spawn (gate)', () => {
       // The counterfactual for the refusals above: an execution profile is the ONLY
       // input that can name a machine independently of the issue, so every other
       // caller is already correct and must not be caught by the guard.
-      const { gate, spawns } = harness({
+      const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
       })
       await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'inherit' })
@@ -367,7 +367,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('returns and audits the placement actually produced by the spawn seam', async () => {
-    const { gate, store } = harness({
+    const { gate, store } = await harness({
       spawnSession: () => ({
         sessionId: asSessionId('child-actual'),
         agentId: 'child-actual',
@@ -393,7 +393,7 @@ describe('agent spawn (gate)', () => {
       effort: 'medium',
       machine: 'fallback-box',
     })
-    const events = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    const events = await store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(events[0]?.payload).toMatchObject({
       harness: 'codex',
       model: 'fallback-model',
@@ -404,14 +404,14 @@ describe('agent spawn (gate)', () => {
   })
 
   it('authz: a subtree caller spawning onto ANOTHER issue needs --outside-scope', async () => {
-    const { gate } = harness()
+    const { gate } = await harness()
     await expect(
       gate.dispatch(PARENT, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/outside your subtree/)
   })
 
   it('--new is the DELIBERATE issue-create path (parented under the caller scope)', async () => {
-    const { gate, created, spawns } = harness()
+    const { gate, created, spawns } = await harness()
     const r = (await gate.dispatch(PARENT, undefined, 'spawnAgent', {
       newTitle: 'follow-up work',
       prompt: 'go',
@@ -428,7 +428,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('rejects --issue AND --new together, and neither', async () => {
-    const { gate } = harness()
+    const { gate } = await harness()
     await expect(
       gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
         issue: ISSUE.id,
@@ -442,7 +442,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('brake 2: agent spawns share the per-issue daily budget; the Nth is refused + ledgered', async () => {
-    const { gate, store, spawns } = harness()
+    const { gate, store, spawns } = await harness()
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
       await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' })
     }
@@ -452,7 +452,7 @@ describe('agent spawn (gate)', () => {
     ).rejects.toThrow(/spawn budget exhausted/)
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY) // the refused spawn never ran
     // Durably ledgered for the audit trail.
-    const evs = store.events.listEventsSince(0, { kinds: ['agent.spawn_budget_exhausted'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['agent.spawn_budget_exhausted'] })
     expect(evs).toHaveLength(1)
     // Operator spawns are never budgeted.
     await expect(
@@ -461,12 +461,12 @@ describe('agent spawn (gate)', () => {
   })
 
   it('brake 2 survives a server restart (agent.spawned budgetIssue rides the event ledger)', async () => {
-    const first = harness()
+    const first = await harness()
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) {
       await first.gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' })
     }
     // Fresh service + gate over the SAME store: the budget is still spent.
-    const second = harness({ store: first.store })
+    const second = await harness({ store: first.store })
     await expect(
       second.gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/spawn budget exhausted/)
@@ -482,7 +482,7 @@ describe('agent spawn (gate)', () => {
    * could change without any of the assertions above moving.
    */
   it('takes the budget BEFORE the spawn, so a failed spawn is still charged (in memory only)', async () => {
-    const { gate, svc, store } = harness({
+    const { gate, svc, store } = await harness({
       spawnSession: () => {
         throw new Error("machine 'Builder' is offline")
       },
@@ -498,18 +498,18 @@ describe('agent spawn (gate)', () => {
     // …but the charge is IN-MEMORY: no `agent.spawned` event was written, so a
     // restart forgives it. That asymmetry is the thing to notice if this ever
     // needs changing — the durable half and the live half disagree on purpose.
-    expect(store.events.listEventsSince(0, { kinds: ['agent.spawned'] })).toEqual([])
+    expect(await store.events.listEventsSince(0, { kinds: ['agent.spawned'] })).toEqual([])
   })
 
   it('records NO budgetIssue on an operator spawn, and does not spend an agent’s budget', async () => {
-    const { gate, svc, store } = harness()
+    const { gate, svc, store } = await harness()
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY + 3; i++) {
       await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: `p${i}` })
     }
     // The exemption is visible in the LEDGER, not just in the absence of a
     // refusal: an operator spawn carries no `budgetIssue`, so the durable
     // reconstruction after a restart does not count it either.
-    const spawned = store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
+    const spawned = await store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(spawned).toHaveLength(SPAWN_BUDGET_PER_DAY + 3)
     expect(spawned.some((e) => 'budgetIssue' in (e.payload as object))).toBe(false)
     // And an agent's budget on the same issue is untouched — the operator's
@@ -521,7 +521,7 @@ describe('agent spawn (gate)', () => {
     // The complement of the `--new` case above, which inherits the parent's repo
     // from a subtree scope. An operator has scope `all` and therefore no issue to
     // inherit from, so the repo has to be named or the child has nowhere to live.
-    const { gate, created } = harness()
+    const { gate, created } = await harness()
     await expect(
       gate.dispatch(OPERATOR, undefined, 'spawnAgent', { newTitle: 'orphan', prompt: 'p' }),
     ).rejects.toThrow('--new needs --repo (no issue scope to inherit a repo from)')
@@ -546,7 +546,7 @@ describe('agent spawn (gate)', () => {
     // nothing about the gate — the real registration is the session service's.
     // Transferred by running it rather than by reading it, which is how the
     // difference showed up.
-    const { gate } = harness()
+    const { gate } = await harness()
     const r = (await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
       issue: ISSUE.id,
       prompt: 'p',
@@ -554,11 +554,11 @@ describe('agent spawn (gate)', () => {
     expect(r.agentId).toBe(r.sessionId)
   })
 
-  it('rolls the budget over per UTC DAY, not per elapsed 24h', () => {
+  it('rolls the budget over per UTC DAY, not per elapsed 24h', async () => {
     // Keyed on `now().slice(0, 10)`, so the reset is a calendar boundary. One
     // minute either side of midnight UTC is the whole difference.
     let clock = '2026-07-20T23:59:00.000Z'
-    const { svc } = harness({ now: () => clock })
+    const { svc } = await harness({ now: () => clock })
     for (let i = 0; i < SPAWN_BUDGET_PER_DAY; i++) svc.takeSpawnBudget(asIssueId(ISSUE.id))
     expect(svc.takeSpawnBudget(asIssueId(ISSUE.id)).ok).toBe(false)
     clock = '2026-07-21T00:01:00.000Z'
@@ -566,7 +566,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('--worktree on an unstarted issue refuses (issue start stays deliberate)', async () => {
-    const { gate } = harness()
+    const { gate } = await harness()
     await gate.dispatch(PARENT, undefined, 'spawnAgent', { newTitle: 'w', prompt: 'x' }) // iss_new: no worktree
     await expect(
       gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
@@ -578,7 +578,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('maps input.title to spawnSession.name (curated slot, not derived title)', async () => {
-    const { gate, spawns } = harness()
+    const { gate, spawns } = await harness()
     await gate.dispatch(PARENT, true, 'spawnAgent', {
       issue: ISSUE.id,
       prompt: 'implement placement',
@@ -593,7 +593,7 @@ describe('agent spawn (gate)', () => {
   })
 
   it('omits name on spawnSession when no title is passed (child self-titles)', async () => {
-    const { gate, spawns } = harness()
+    const { gate, spawns } = await harness()
     await gate.dispatch(PARENT, true, 'spawnAgent', {
       issue: ISSUE.id,
       prompt: 'x',
@@ -618,7 +618,7 @@ describe('agent await (bounded, never hangs)', () => {
     }) as SessionMeta
 
   it('returns "still working" + a status snapshot at the deadline instead of hanging', async () => {
-    const { gate } = harness({ sessions: [child({})] })
+    const { gate } = await harness({ sessions: [child({})] })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 0,
@@ -635,7 +635,7 @@ describe('agent await (bounded, never hangs)', () => {
   // Actionable result split (docs/agent-comms-target.html §09-D/§09-E): parent
   // must never get a false "working" when the child is blocked/done/gone.
   it('phase needs_user → blocked (overnight-stall: child waiting on a question)', async () => {
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [
         child({
           agentState: {
@@ -662,7 +662,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('phase errored → blocked (needs escalation)', async () => {
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [
         child({
           agentState: {
@@ -689,7 +689,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('phase idle → done', async () => {
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
     })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
@@ -700,7 +700,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('phase ended → done', async () => {
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [child({ agentState: { phase: 'ended', since: 't', nativeSubagentCount: 0 } })],
     })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
@@ -711,7 +711,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('status hibernated → done (parked cleanly)', async () => {
-    const { gate } = harness({ sessions: [child({ status: 'hibernated' })] })
+    const { gate } = await harness({ sessions: [child({ status: 'hibernated' })] })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 300,
@@ -720,7 +720,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('status exited with NO ack since waitStart → gone (exit-without-report)', async () => {
-    const { gate } = harness({ sessions: [child({ status: 'exited' })] })
+    const { gate } = await harness({ sessions: [child({ status: 'exited' })] })
     const r = (await gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 300,
@@ -732,7 +732,7 @@ describe('agent await (bounded, never hangs)', () => {
     // Authz sees the child (parent provenance); the row vanishes before the
     // next poll — the documented "session missing → gone" path inside the loop.
     const sessions = [child({})]
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions,
       awaitPollMs: 1,
       sleep: async () => {
@@ -750,7 +750,7 @@ describe('agent await (bounded, never hangs)', () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
     const sessions = [child({})] // live + working: the await actually waits
-    const { gate, svc } = harness({ sessions, now })
+    const { gate, svc } = await harness({ sessions, now })
     // Parent messages the child; the child acks back to the parent session.
     const sent = svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
@@ -780,7 +780,7 @@ describe('agent await (bounded, never hangs)', () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
     const sessions = [child({ status: 'exited' })]
-    const { gate, svc } = harness({ sessions, now })
+    const { gate, svc } = await harness({ sessions, now })
     const sent = svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
       { to: { kind: 'session', id: 'child1' }, body: 'report in' },
@@ -807,7 +807,7 @@ describe('agent await (bounded, never hangs)', () => {
     let t = 1_000
     const now = () => new Date(t).toISOString()
     const sessions = [child({ status: 'exited' })]
-    const { gate, svc } = harness({ sessions, now })
+    const { gate, svc } = await harness({ sessions, now })
     // Round 1: parent asked, child acked, parent awaited — all in the past.
     const sent = svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId(SENDER_ISSUE.id) },
@@ -831,7 +831,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('the parent relationship alone authorizes await; strangers hit the scope gate', async () => {
-    const { gate } = harness({ sessions: [child({})] })
+    const { gate } = await harness({ sessions: [child({})] })
     const stranger: Capability = {
       role: 'worker',
       scope: { kind: 'subtree', rootId: asIssueId(SENDER_ISSUE.id) },
@@ -856,13 +856,13 @@ describe('agent await (bounded, never hangs)', () => {
   // wake sticky so a later genuine re-completion can re-fire once.
   it('parent await on settled child retires sessionparentnudge:phase-reported (consume-on-ack)', async () => {
     const now = () => '2026-01-01T00:00:00.000Z'
-    const { gate, store, retired } = harness({
+    const { gate, store, retired } = await harness({
       sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
       now,
     })
     // Pre-claim as the steward would after the first parent wake.
     expect(
-      store.notificationFacts.claim({
+      await store.notificationFacts.claim({
         factKey: 'sessionparentnudge:phase-reported:child1',
         target: 'sParent',
         source: 'steward.session-parent-nudge:done',
@@ -882,7 +882,7 @@ describe('agent await (bounded, never hangs)', () => {
     ])
     // Fact is re-claimable after consume (genuine later re-completion path).
     expect(
-      store.notificationFacts.claim({
+      await store.notificationFacts.claim({
         factKey: 'sessionparentnudge:phase-reported:child1',
         target: 'sParent',
         source: 'steward.session-parent-nudge:done',
@@ -894,7 +894,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('parent await on working child does NOT retire the sticky', async () => {
-    const h = harness({ sessions: [child({})] })
+    const h = await harness({ sessions: [child({})] })
     const r = (await h.gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 0,
@@ -904,7 +904,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('parent await gone/exited also consumes the sticky', async () => {
-    const h = harness({ sessions: [child({ status: 'exited' })] })
+    const h = await harness({ sessions: [child({ status: 'exited' })] })
     await h.gate.dispatch(PARENT, undefined, 'awaitAgent', {
       sessionId: asSessionId('child1'),
       timeoutSeconds: 300,
@@ -915,7 +915,7 @@ describe('agent await (bounded, never hangs)', () => {
   })
 
   it('missing retireNotificationFact dep is optional-safe (await still returns)', async () => {
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [child({ agentState: { phase: 'idle', since: 't', nativeSubagentCount: 0 } })],
       omitRetireNotificationFact: true,
     })
@@ -946,7 +946,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     // The confirmation fires during the first poll sleep (turn boundary). The hook
     // is late-bound because `svc` is created inside the harness.
     let confirm: () => void = () => {}
-    const { gate, svc } = harness({
+    const { gate, svc } = await harness({
       sessions,
       awaitPollMs: 5,
       now: () => new Date(0).toISOString(), // constant clock: deadline never reached
@@ -963,7 +963,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
 
   it('a next-turn send to a BUSY target returns accepted at the budget (never spins)', async () => {
     let t = 1_000
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
       now: () => new Date(t).toISOString(),
       awaitPollMs: 1_000_000, // one sleep jumps past the 25s budget
@@ -986,7 +986,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     // boundary. The sync send returned queued:true (busy-held) — the delivered
     // result must NOT still carry it.
     let confirm: () => void = () => {}
-    const { gate, svc } = harness({
+    const { gate, svc } = await harness({
       sessions,
       awaitPollMs: 5,
       now: () => new Date(0).toISOString(),
@@ -1008,7 +1008,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
   })
 
   it('an fyi send returns at queued without blocking', async () => {
-    const { gate } = harness({
+    const { gate } = await harness({
       sessions: [target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } })],
     })
     const r = (await gate.dispatch(PARENT, undefined, 'send', {
@@ -1036,7 +1036,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
     }) as SessionMeta
 
   it('round-trips: question → delivery with the answer-then-resume envelope → ack carries the answer back', async () => {
-    const { gate, svc, sent } = harness({ sessions: [child({})] })
+    const { gate, svc, sent } = await harness({ sessions: [child({})] })
     const p = gate.dispatch(PARENT, true, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'which port does the relay use?',
@@ -1062,7 +1062,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
   })
 
   it('an OPERATOR ask against a live idle target round-trips: the question frame carries the reply pointer', async () => {
-    const { gate, svc, sent } = harness({ sessions: [child({ spawnedBy: 'user' })] })
+    const { gate, svc, sent } = await harness({ sessions: [child({ spawnedBy: 'user' })] })
     const p = gate.dispatch(OPERATOR, undefined, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'which port does the relay use?',
@@ -1088,7 +1088,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
   })
 
   it('ask on a parked session resumes it (wake → queueText, harness-native resume path)', async () => {
-    const { gate, sent } = harness({ sessions: [child({ status: 'hibernated' })] })
+    const { gate, sent } = await harness({ sessions: [child({ status: 'hibernated' })] })
     const r = (await gate.dispatch(OPERATOR, undefined, 'ask', {
       sessionId: asSessionId('child1'),
       question: 'status?',
@@ -1113,7 +1113,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
    * that reached the transport directly would pass every other test here.
    */
   it('is clamped like any other send — a peer asking twice is NOT exempt from the wake cooldown', async () => {
-    const { gate, svc } = harness({ sessions: [child({ status: 'hibernated' })] })
+    const { gate, svc } = await harness({ sessions: [child({ status: 'hibernated' })] })
     // First ask from a peer: keeps `wake`, which is what resumes the session.
     await gate.dispatch(PARENT, true, 'ask', {
       sessionId: asSessionId('child1'),
@@ -1132,7 +1132,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
   })
 
   it('is subject to the session-target scope gate: denied outside the subtree without --outside-scope', async () => {
-    const { gate } = harness({ sessions: [child({ spawnedBy: 'user' })] })
+    const { gate } = await harness({ sessions: [child({ spawnedBy: 'user' })] })
     await expect(
       gate.dispatch(PARENT, undefined, 'ask', {
         sessionId: asSessionId('child1'),
@@ -1155,7 +1155,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
 describe('message ledger (gate)', () => {
   it('operator reads an issue ledger with delivery fields; reads never consume', async () => {
     let t = 1_000 // fake clock: 'second' must strictly postdate 'first'
-    const { gate, svc } = harness({ now: () => new Date(t).toISOString() })
+    const { gate, svc } = await harness({ now: () => new Date(t).toISOString() })
     svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sX') },
       {
@@ -1194,7 +1194,7 @@ describe('message ledger (gate)', () => {
         issueId: ISSUE.id,
       } as unknown as SessionMeta,
     ]
-    const { gate, svc } = harness({ sessions })
+    const { gate, svc } = await harness({ sessions })
     svc.send({ kind: 'operator' }, { to: { kind: 'session', id: 's1' }, body: 'to the session' })
     svc.send(
       { kind: 'agent', issueId: asIssueId(ISSUE.id), sessionId: asSessionId('s1') },
@@ -1211,7 +1211,7 @@ describe('message ledger (gate)', () => {
   // "operator surface" because `operator` stops being one person (readiness
   // §3.2): a member reads their own traffic, admin grade reads across users.
   it('gives an agent only its OWN traffic — never another principal’s', async () => {
-    const { gate, svc } = harness()
+    const { gate, svc } = await harness()
     // A row PARENT is a party to (it sent it) and a row it is not.
     svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sParent') },
@@ -1235,7 +1235,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
   it('the SENDER (an agent) can pull the lifecycle of a message it sent', async () => {
     // Unlike the operator-only ledger, an agent may query its OWN send — this is
     // how a sender learns delivered/read/dead_letter after a sync send at queued.
-    const { gate, svc } = harness()
+    const { gate, svc } = await harness()
     const r = svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sParent') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'status me' },
@@ -1251,7 +1251,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
   })
 
   it('refuses a message the caller neither sent nor received', async () => {
-    const { gate, svc } = harness()
+    const { gate, svc } = await harness()
     // A message between two OTHER principals (operator → a foreign issue box).
     const r = svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
     await expect(gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
@@ -1262,7 +1262,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
 
 describe('mail dismiss — recipient-only clear', () => {
   it('marks recipient mail read and removes it from the unread queue', async () => {
-    const { gate, svc, store } = harness()
+    const { gate, svc, store } = await harness()
     const sent = svc.send(
       { kind: 'agent', issueId: asIssueId(SENDER_ISSUE.id), sessionId: asSessionId('sParent') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'dismiss me' },
@@ -1277,7 +1277,7 @@ describe('mail dismiss — recipient-only clear', () => {
       id: sent.message.id,
     })) as Record<string, unknown>
     expect(wire).toMatchObject({ id: sent.message.id, status: 'read' })
-    expect(store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
+    expect(await store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     await expect(
       gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
     ).rejects.toThrow(/only the recipient/)

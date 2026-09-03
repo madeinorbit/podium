@@ -29,8 +29,8 @@ import { issueTestPlumbing } from './test-plumbing'
  * a directive deleted, it reports TS2554 "Expected 4 arguments, but got 3".
  */
 
-function harness() {
-  const store = openTestStore(':memory:')
+async function harness() {
+  const store = await openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,
@@ -109,32 +109,32 @@ function _gitWorkflowRefusesAnUnnamedCaller(svc: IssueService, id: string): void
 void _gitWorkflowRefusesAnUnnamedCaller
 
 describe('addComment requires an explicit principal', () => {
-  it('attributes the comment to the named human, never to the first admin', () => {
-    const { store, svc, issue } = harness()
+  it('attributes the comment to the named human, never to the first admin', async () => {
+    const { store, svc, issue } = await harness()
     const alice = asUserId('user:alice')
     expect(alice).not.toBe(FIRST_ADMIN_USER_ID)
 
     svc.addComment(issue.id, 'alice', 'my note', userCommandPrincipal(alice, 'member'))
 
-    const [comment] = store.issues.listIssueComments(issue.id)
+    const [comment] = await store.issues.listIssueComments(issue.id)
     expect(comment?.actor).toBe(alice)
     expect(comment?.onBehalfOf).toBe(alice)
   })
 
-  it('stamps a system job as a system actor with no human behind it', () => {
-    const { store, svc, issue } = harness()
+  it('stamps a system job as a system actor with no human behind it', async () => {
+    const { store, svc, issue } = await harness()
 
     svc.addComment(issue.id, 'system:cleanup', 'freed the worktree', systemPrincipal('cleanup'))
 
-    const [comment] = store.issues.listIssueComments(issue.id)
+    const [comment] = await store.issues.listIssueComments(issue.id)
     // Visibly a job, not a person — and `onBehalfOf` stays null rather than
     // being filled in with an operator (ADR 3 Amendment 1 D21.2).
     expect(comment?.actor).toBe('system:cleanup')
     expect(comment?.onBehalfOf).toBeNull()
   })
 
-  it('always records attribution — a comment can no longer land anonymously', () => {
-    const { store, svc, issue } = harness()
+  it('always records attribution — a comment can no longer land anonymously', async () => {
+    const { store, svc, issue } = await harness()
 
     svc.addComment(
       issue.id,
@@ -143,7 +143,7 @@ describe('addComment requires an explicit principal', () => {
       userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin'),
     )
 
-    const [comment] = store.issues.listIssueComments(issue.id)
+    const [comment] = await store.issues.listIssueComments(issue.id)
     expect(comment?.actor).not.toBeNull()
   })
 })

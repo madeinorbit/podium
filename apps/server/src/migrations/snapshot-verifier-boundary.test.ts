@@ -31,11 +31,11 @@ const tempDirs: string[] = []
  * READ path's cost, and a store that could spawn a real scanner mid-assertion
  * would be measuring the harness rather than the boundary.
  */
-function tmpStore(runChild?: SnapshotVerifierDeps['runChild']): {
+async function tmpStore(runChild?: SnapshotVerifierDeps['runChild']): Promise<{
   store: SessionStore
   dbPath: string
   dir: string
-} {
+}> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-snapshot-boundary-'))
   tempDirs.push(dir)
   const dbPath = join(dir, 'podium.db')
@@ -43,7 +43,7 @@ function tmpStore(runChild?: SnapshotVerifierDeps['runChild']): {
     runChild:
       runChild ?? (async () => ({ failure: { code: 'crashed', detail: 'no child in this test' } })),
   }
-  return { store: openTestStore(dbPath, undefined, deps), dbPath, dir }
+  return { store: await openTestStore(dbPath, undefined, deps), dbPath, dir }
 }
 
 afterEach(() => {
@@ -51,8 +51,8 @@ afterEach(() => {
 })
 
 describe('planning reads never scan the retained backups', () => {
-  it('answers latestDatabaseSnapshot in bounded time with a staged snapshot present', () => {
-    const { store, dbPath } = tmpStore()
+  it('answers latestDatabaseSnapshot in bounded time with a staged snapshot present', async () => {
+    const { store, dbPath } = await tmpStore()
     // A real staged snapshot of a real database — the exact shape whose
     // quick_check used to cost ~27 seconds each on the production files.
     const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string
@@ -79,7 +79,7 @@ describe('planning reads never scan the retained backups', () => {
     // every one of them; after it, nothing must discover them at request time
     // and boot must still find them.
     const runs: string[] = []
-    const { store, dbPath } = tmpStore(async (request) => {
+    const { store, dbPath } = await tmpStore(async (request) => {
       runs.push(request.path)
       return {
         result: { ok: true, correlationId: request.correlationId, bytes: 1, durationMs: 1 },
@@ -103,8 +103,8 @@ describe('planning reads never scan the retained backups', () => {
     store.close()
   })
 
-  it('serves the cached verified path without touching the file contents', () => {
-    const { store, dbPath } = tmpStore()
+  it('serves the cached verified path without touching the file contents', async () => {
+    const { store, dbPath } = await tmpStore()
     const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string
     writeSnapshotCatalogue(dbPath, [
       {
@@ -120,7 +120,7 @@ describe('planning reads never scan the retained backups', () => {
   })
 
   it('keeps serving planning reads while a deliberately slow verification runs', async () => {
-    const { store, dbPath } = tmpStore()
+    const { store, dbPath } = await tmpStore()
     const staged = store.snapshotBeforeUpdate('0.4.1', '0.4.2') as string
 
     // A verifier whose child takes as long as the outage did. It is a promise,

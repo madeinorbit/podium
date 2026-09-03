@@ -11,9 +11,9 @@ const source = (relative: string): string =>
   readFileSync(new URL(relative, import.meta.url), 'utf8')
 
 describe('issue tracker capability composition', () => {
-  it('exposes all capability interfaces over the same live store', () => {
+  it('exposes all capability interfaces over the same live store', async () => {
     const deps: IssueDeps = {
-      store: openTestStore(':memory:'),
+      store: await openTestStore(':memory:'),
       listSessions: () => [],
       getSettings: () =>
         normalizeSettings({

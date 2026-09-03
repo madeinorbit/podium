@@ -3,8 +3,8 @@ import { describe, expect, it } from 'vitest'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
 
-function seedMachine(store: SessionStore): void {
-  store.machines.upsertMachine({
+async function seedMachine(store: SessionStore): Promise<void> {
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'box',
     hostname: 'box.local',
@@ -14,26 +14,26 @@ function seedMachine(store: SessionStore): void {
 }
 
 describe('machine build report', () => {
-  it('reads as unreported for a machine that never sent one', () => {
-    const store = openTestStore()
-    seedMachine(store)
-    const m = store.machines.getMachine('m1')
+  it('reads as unreported for a machine that never sent one', async () => {
+    const store = await openTestStore()
+    await seedMachine(store)
+    const m = await store.machines.getMachine('m1')
     expect(m?.appVersion).toBeNull()
     expect(m?.installKind).toBeNull()
     expect(m?.deliveryCaps).toEqual([])
     store.close()
   })
 
-  it('records a reported build', () => {
-    const store = openTestStore()
-    seedMachine(store)
-    store.machines.setMachineBuild(
+  it('records a reported build', async () => {
+    const store = await openTestStore()
+    await seedMachine(store)
+    await store.machines.setMachineBuild(
       'm1',
       { appVersion: '0.4.2', wireSchemaDigest: 'abc', installKind: 'installed' },
       ['update.delivery.feed', 'podium.shipping-train'],
       '2026-08-04T00:00:00.000Z',
     )
-    const m = store.machines.getMachine('m1')
+    const m = await store.machines.getMachine('m1')
     expect(m?.appVersion).toBe('0.4.2')
     expect(m?.wireSchemaDigest).toBe('abc')
     expect(m?.installKind).toBe('installed')
@@ -41,20 +41,35 @@ describe('machine build report', () => {
     store.close()
   })
 
-  it('overwrites a previous report on reconnect', () => {
-    const store = openTestStore()
-    seedMachine(store)
-    store.machines.setMachineBuild('m1', { appVersion: '0.4.1' }, [], '2026-08-04T00:00:00.000Z')
-    store.machines.setMachineBuild('m1', { appVersion: '0.4.2' }, [], '2026-08-04T01:00:00.000Z')
-    expect(store.machines.getMachine('m1')?.appVersion).toBe('0.4.2')
+  it('overwrites a previous report on reconnect', async () => {
+    const store = await openTestStore()
+    await seedMachine(store)
+    await store.machines.setMachineBuild(
+      'm1',
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-04T00:00:00.000Z',
+    )
+    await store.machines.setMachineBuild(
+      'm1',
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-04T01:00:00.000Z',
+    )
+    expect((await store.machines.getMachine('m1'))?.appVersion).toBe('0.4.2')
     store.close()
   })
 
-  it('records a partial report from an older daemon', () => {
-    const store = openTestStore()
-    seedMachine(store)
-    store.machines.setMachineBuild('m1', { appVersion: '0.4.2' }, [], '2026-08-04T00:00:00.000Z')
-    const m = store.machines.getMachine('m1')
+  it('records a partial report from an older daemon', async () => {
+    const store = await openTestStore()
+    await seedMachine(store)
+    await store.machines.setMachineBuild(
+      'm1',
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-04T00:00:00.000Z',
+    )
+    const m = await store.machines.getMachine('m1')
     expect(m?.appVersion).toBe('0.4.2')
     expect(m?.installKind).toBeNull()
     store.close()
@@ -62,52 +77,52 @@ describe('machine build report', () => {
 
   /** POD-2099: the flag the wave planner refuses on has to survive the row. */
   describe('desktop supervision', () => {
-    it('is false for a machine that never reported and for one that reported without it', () => {
-      const store = openTestStore()
-      seedMachine(store)
-      expect(store.machines.getMachine('m1')?.supervised).toBe(false)
-      store.machines.setMachineBuild(
+    it('is false for a machine that never reported and for one that reported without it', async () => {
+      const store = await openTestStore()
+      await seedMachine(store)
+      expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
+      await store.machines.setMachineBuild(
         'm1',
         { appVersion: '0.4.2', installKind: 'installed' },
         ['update.delivery.feed'],
         '2026-08-04T00:00:00.000Z',
       )
-      expect(store.machines.getMachine('m1')?.supervised).toBe(false)
+      expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
       store.close()
     })
 
-    it('records a daemon that reports a desktop shell owns it', () => {
-      const store = openTestStore()
-      seedMachine(store)
-      store.machines.setMachineBuild(
+    it('records a daemon that reports a desktop shell owns it', async () => {
+      const store = await openTestStore()
+      await seedMachine(store)
+      await store.machines.setMachineBuild(
         'm1',
         { appVersion: '0.4.2', installKind: 'installed', supervised: true },
         [],
         '2026-08-04T00:00:00.000Z',
       )
-      expect(store.machines.getMachine('m1')?.supervised).toBe(true)
+      expect((await store.machines.getMachine('m1'))?.supervised).toBe(true)
       store.close()
     })
 
-    it('clears when a standalone daemon takes the machine over', () => {
+    it('clears when a standalone daemon takes the machine over', async () => {
       // The desktop app is uninstalled and a standalone daemon paired in its
       // place: the row must stop excluding it, or that machine never updates
       // again and nothing says why.
-      const store = openTestStore()
-      seedMachine(store)
-      store.machines.setMachineBuild(
+      const store = await openTestStore()
+      await seedMachine(store)
+      await store.machines.setMachineBuild(
         'm1',
         { appVersion: '0.4.2', supervised: true },
         [],
         '2026-08-04T00:00:00.000Z',
       )
-      store.machines.setMachineBuild(
+      await store.machines.setMachineBuild(
         'm1',
         { appVersion: '0.4.2', installKind: 'installed' },
         ['update.delivery.feed'],
         '2026-08-04T01:00:00.000Z',
       )
-      expect(store.machines.getMachine('m1')?.supervised).toBe(false)
+      expect((await store.machines.getMachine('m1'))?.supervised).toBe(false)
       store.close()
     })
   })

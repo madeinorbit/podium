@@ -18,7 +18,7 @@ function singleMachineRepos(store: SessionStore): RepoRegistry {
 
 describe('RepoRegistry', () => {
   it('starts empty, adds, dedupes, lists, removes', async () => {
-    const reg = singleMachineRepos(openTestStore(':memory:'))
+    const reg = singleMachineRepos(await openTestStore(':memory:'))
     expect(reg.list()).toEqual([])
     await reg.add('/home/u/src/app')
     await reg.add('/home/u/src/app') // dedupe
@@ -28,7 +28,7 @@ describe('RepoRegistry', () => {
   })
 
   it('rejects non-absolute and empty paths', async () => {
-    const reg = singleMachineRepos(openTestStore(':memory:'))
+    const reg = singleMachineRepos(await openTestStore(':memory:'))
     await expect(reg.add('')).rejects.toThrow()
     await expect(reg.add('relative/path')).rejects.toThrow()
   })
@@ -36,14 +36,14 @@ describe('RepoRegistry', () => {
   it('persists across instances on the same db file', async () => {
     const dir = await mkdtemp(join(tmpdir(), 'podium-reporeg-'))
     const file = join(dir, 'podium.db')
-    const a = singleMachineRepos(openTestStore(file))
+    const a = singleMachineRepos(await openTestStore(file))
     await a.add('/abs/one')
-    const b = singleMachineRepos(openTestStore(file))
+    const b = singleMachineRepos(await openTestStore(file))
     expect(b.list()).toEqual(['/abs/one'])
   })
 
   it('inferFromPath returns the longest matching registered root', async () => {
-    const repos = singleMachineRepos(openTestStore(':memory:'))
+    const repos = singleMachineRepos(await openTestStore(':memory:'))
     await repos.add('/a')
     await repos.add('/a/b')
     expect(repos.inferFromPath('/a/b/x/y')).toBe('/a/b')

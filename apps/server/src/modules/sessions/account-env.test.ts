@@ -5,15 +5,15 @@ import { createBunStoreExecutor } from '../../store/executor'
 import { openMigratedTestDatabase } from '../../test-support/migrated-database'
 import { resolveAccountEnv } from './account-env'
 
-function repoWith(...rows: Array<Parameters<AccountsRepository['upsert']>[0]>) {
+async function repoWith(...rows: Array<Parameters<AccountsRepository['upsert']>[0]>) {
   const db = openMigratedTestDatabase()
   const repo = new AccountsRepository(createBunStoreExecutor({ database: db }))
-  for (const r of rows) repo.upsert(r)
+  for (const r of rows) await repo.upsert(r)
   return repo
 }
 
-it('resolves a managed api-key account into env', () => {
-  const repo = repoWith({
+it('resolves a managed api-key account into env', async () => {
+  const repo = await repoWith({
     id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
     kind: 'api-key',
@@ -27,8 +27,8 @@ it('resolves a managed api-key account into env', () => {
   })
 })
 
-it('resolves a managed oauth account into CLAUDE_CODE_OAUTH_TOKEN', () => {
-  const repo = repoWith({
+it('resolves a managed oauth account into CLAUDE_CODE_OAUTH_TOKEN', async () => {
+  const repo = await repoWith({
     id: asAccountId('managed:claude-oauth'),
     provider: 'anthropic',
     kind: 'oauth',
@@ -42,10 +42,10 @@ it('resolves a managed oauth account into CLAUDE_CODE_OAUTH_TOKEN', () => {
   })
 })
 
-it('yields NO env key for a native account — the frame stays as it is today', () => {
-  expect(resolveAccountEnv(repoWith(), asAccountId('native:claude-code'))).toEqual({})
+it('yields NO env key for a native account — the frame stays as it is today', async () => {
+  expect(resolveAccountEnv(await repoWith(), asAccountId('native:claude-code'))).toEqual({})
 })
 
-it('yields no env key when the account id has no stored credential', () => {
-  expect(resolveAccountEnv(repoWith(), asAccountId('managed:anthropic'))).toEqual({})
+it('yields no env key when the account id has no stored credential', async () => {
+  expect(resolveAccountEnv(await repoWith(), asAccountId('managed:anthropic'))).toEqual({})
 })

@@ -86,17 +86,17 @@ const row = (
 })
 
 /** The expression this method replaced, kept as the oracle. */
-const byScan = (resumeValue: string) =>
-  sessions.loadSessions().find((candidate) => candidate.resumeValue === resumeValue)
+const byScan = async (resumeValue: string) =>
+  (await sessions.loadSessions()).find((candidate) => candidate.resumeValue === resumeValue)
 
 describe('POD-1614 — findSessionByResumeValue answers exactly what the scan did', () => {
-  it('picks the SAME row as the scan when two live sessions share a resume value', () => {
+  it('picks the SAME row as the scan when two live sessions share a resume value', async () => {
     // Inserted newest-first so a query that just took "whatever sqlite returned"
     // would have a real chance of picking the wrong one.
-    sessions.upsertSession(row('sess-new', BOB, '2026-08-03T10:00:00.000Z', SHARED))
-    sessions.upsertSession(row('sess-old', ALICE, '2026-08-01T10:00:00.000Z', SHARED))
+    await sessions.upsertSession(row('sess-new', BOB, '2026-08-03T10:00:00.000Z', SHARED))
+    await sessions.upsertSession(row('sess-old', ALICE, '2026-08-01T10:00:00.000Z', SHARED))
 
-    const scanned = byScan(SHARED)
+    const scanned = await byScan(SHARED)
     // CONTROL: the fixture really is ambiguous and the oracle really resolves it.
     // Without this, the agreement below could hold because both answered nothing.
     expect(scanned?.id).toBe(asSessionId('sess-old'))
@@ -104,28 +104,30 @@ describe('POD-1614 — findSessionByResumeValue answers exactly what the scan di
 
     // THE ASSERTION. Same row, therefore same owner, therefore same visibility
     // decision — which is the only property the policy actually consumes.
-    expect(sessions.findSessionByResumeValue(SHARED)?.id).toBe(scanned?.id)
-    expect(sessions.findSessionByResumeValue(SHARED)?.ownerUserId).toBe(ALICE)
+    expect((await sessions.findSessionByResumeValue(SHARED))?.id).toBe(scanned?.id)
+    expect((await sessions.findSessionByResumeValue(SHARED))?.ownerUserId).toBe(ALICE)
   })
 
-  it('agrees with the scan on a unique value, and on a value nobody holds', () => {
-    sessions.upsertSession(row('sess-1', ALICE, '2026-08-01T10:00:00.000Z', 'resume-unique'))
+  it('agrees with the scan on a unique value, and on a value nobody holds', async () => {
+    await sessions.upsertSession(row('sess-1', ALICE, '2026-08-01T10:00:00.000Z', 'resume-unique'))
 
-    expect(sessions.findSessionByResumeValue('resume-unique')?.id).toBe(byScan('resume-unique')?.id)
+    expect((await sessions.findSessionByResumeValue('resume-unique'))?.id).toBe(
+      (await byScan('resume-unique'))?.id,
+    )
     // The refusing arm: an unknown value yields nothing from both. Without this
     // the suite would pass against a method that returned a row for everything.
-    expect(sessions.findSessionByResumeValue('resume-absent')).toBeUndefined()
-    expect(byScan('resume-absent')).toBeUndefined()
+    expect(await sessions.findSessionByResumeValue('resume-absent')).toBeUndefined()
+    expect(await byScan('resume-absent')).toBeUndefined()
   })
 
-  it('ignores a deleted session, exactly as loadSessions does', () => {
+  it('ignores a deleted session, exactly as loadSessions does', async () => {
     // `loadSessions()` filters `deleted_at IS NULL`, so the scan could never
     // resolve a conversation onto a tombstone. A query that dropped that filter
     // would re-admit deleted sessions as a visibility input.
-    sessions.upsertSession(row('sess-gone', ALICE, '2026-08-01T10:00:00.000Z', 'resume-gone'))
-    sessions.softDeleteSessions(['sess-gone'], '2026-08-03T12:00:00.000Z', 'standalone')
+    await sessions.upsertSession(row('sess-gone', ALICE, '2026-08-01T10:00:00.000Z', 'resume-gone'))
+    await sessions.softDeleteSessions(['sess-gone'], '2026-08-03T12:00:00.000Z', 'standalone')
 
-    expect(byScan('resume-gone')).toBeUndefined()
-    expect(sessions.findSessionByResumeValue('resume-gone')).toBeUndefined()
+    expect(await byScan('resume-gone')).toBeUndefined()
+    expect(await sessions.findSessionByResumeValue('resume-gone')).toBeUndefined()
   })
 })

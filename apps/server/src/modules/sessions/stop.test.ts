@@ -42,12 +42,12 @@ const gitWorktreeList = (entries: Array<{ path: string; branch?: string }>): str
     )
     .join('\0')
 
-function makeRegistry(statusOutput = '## issue/x\n'): {
+async function makeRegistry(statusOutput = '## issue/x\n'): Promise<{
   reg: SessionRegistry
   daemon: ControlMessage[]
   repoOps: { op: string; cwd: string; args?: Record<string, string> }[]
   setRepoOp: (fn: RepoOpStub) => void
-} {
+}> {
   const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
   registries.push(reg)
   const daemon: ControlMessage[] = []
@@ -56,7 +56,7 @@ function makeRegistry(statusOutput = '## issue/x\n'): {
   // goes through `requireMachineForRepo` — an issue's machine must actually
   // host the repo. The fixture states that once rather than each test carrying
   // its own registration.
-  reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
+  await reg.sessionStore.repos.addRepo('/r', reg.sessionStore.hostMachineId, 'git@github.com:example/r.git')
   const repoOps: { op: string; cwd: string; args?: Record<string, string> }[] = []
   // Both sessions.rpc.repoOp and issues.deps.repoOp close over the same DaemonRpc
   // instance — stubbing rpc.repoOp covers free/ensure/status for stop.
@@ -123,7 +123,7 @@ function bindLive(reg: SessionRegistry, sessionId: string, cwd: string): void {
 
 describe('stopSession [spec:SP-9904]', () => {
   it('parks a live session, frees the issue worktree, keeps the branch', async () => {
-    const { reg, daemon, repoOps } = makeRegistry()
+    const { reg, daemon, repoOps } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Stop target',
@@ -169,7 +169,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('refuses stop when the working tree is dirty without --force', async () => {
-    const { reg, setRepoOp } = makeRegistry()
+    const { reg, setRepoOp } = await makeRegistry()
     setRepoOp(async (op) => {
       if (op === 'status') return { ok: true, output: '## issue/2-dirty\n M dirty.ts\n' }
       return { ok: true, output: '' }
@@ -202,7 +202,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('--force stops and frees even with dirty tree', async () => {
-    const { reg, setRepoOp } = makeRegistry()
+    const { reg, setRepoOp } = await makeRegistry()
     setRepoOp(async (op, _cwd, args) => {
       if (op === 'status') return { ok: true, output: '## issue/3-force\n M dirty.ts\n' }
       if (op === 'worktreeRemove') {
@@ -239,7 +239,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('self-stop holds the kill until finalizeDeferredStopKill (after-reply)', async () => {
-    const { reg, daemon } = makeRegistry()
+    const { reg, daemon } = await makeRegistry()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/w',
@@ -259,7 +259,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('does not free the worktree while a sibling session is still live', async () => {
-    const { reg, repoOps } = makeRegistry()
+    const { reg, repoOps } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Shared wt',
@@ -288,7 +288,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('does not free when a live session of ANOTHER issue shares the cwd', async () => {
-    const { reg, repoOps } = makeRegistry()
+    const { reg, repoOps } = await makeRegistry()
     const a = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Owner issue',
@@ -323,7 +323,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('freeWorktreeKeepBranch passes issue.machineId on status and remove', async () => {
-    const { reg, setRepoOp } = makeRegistry()
+    const { reg, setRepoOp } = await makeRegistry()
     const seen: { op: string; machineId?: string }[] = []
     setRepoOp(async (op, _cwd, _args, machineId) => {
       seen.push({ op, machineId })
@@ -335,14 +335,14 @@ describe('stopSession [spec:SP-9904]', () => {
     // lives, so a row that runs no Podium daemon can never be one. Registering it
     // is also what this test always meant — it is about routing git ops to
     // another machine, and a machine id nothing has ever paired is not that.
-    reg.sessionStore.machines.upsertMachine({
+    await reg.sessionStore.machines.upsertMachine({
       id: 'machine-remote',
       name: 'machine-remote',
       hostname: 'machine-remote',
       tokenHash: 'h',
       ownerUserId: null,
     })
-    reg.sessionStore.machines.addMachineComponent('machine-remote', 'daemon')
+    await reg.sessionStore.machines.addMachineComponent('machine-remote', 'daemon')
     reg.modules.machines.invalidateMachineCache()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
@@ -361,7 +361,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('freeWorktreeKeepBranch stamps the caller principal on the audit comment (POD-1344)', async () => {
-    const { reg, setRepoOp } = makeRegistry()
+    const { reg, setRepoOp } = await makeRegistry()
     setRepoOp(async (op) => {
       if (op === 'status') return { ok: true, output: '## issue/x\n' }
       return { ok: true, output: '' }
@@ -382,8 +382,8 @@ describe('stopSession [spec:SP-9904]', () => {
     )
     expect(freed.ok).toBe(true)
     // Actor lives on the store row (public comments() wire omits attribution fields).
-    const audit = reg.sessionStore.issues
-      .listIssueComments(issue.id)
+    const audit = (await reg.sessionStore.issues
+      .listIssueComments(issue.id))
       .find((c) => c.author === 'system:stop')
     expect(audit?.actor).toBe(alice)
     expect(audit?.onBehalfOf).toBe(alice)
@@ -394,7 +394,7 @@ describe('stopSession [spec:SP-9904]', () => {
     // the lifecycle stop path. Mutant that always stamps systemPrincipal('stop')
     // in lifecycle stayed green against the direct-call test — this one pins the
     // stopSession → freeWorktreeKeepBranch thread.
-    const { reg, setRepoOp } = makeRegistry()
+    const { reg, setRepoOp } = await makeRegistry()
     setRepoOp(async (op) => {
       if (op === 'status') return { ok: true, output: '## issue/x\n' }
       return { ok: true, output: '' }
@@ -419,15 +419,15 @@ describe('stopSession [spec:SP-9904]', () => {
     })
     expect(r.ok).toBe(true)
     expect(r.worktreeFreed).toBe(true)
-    const audit = reg.sessionStore.issues
-      .listIssueComments(issue.id)
+    const audit = (await reg.sessionStore.issues
+      .listIssueComments(issue.id))
       .find((c) => c.author === 'system:stop')
     expect(audit?.actor).toBe(alice)
     expect(audit?.onBehalfOf).toBe(alice)
   })
 
   it('resurrect recreates a freed worktree from the preserved branch', async () => {
-    const { reg, daemon } = makeRegistry()
+    const { reg, daemon } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Resume recreate',
@@ -459,7 +459,7 @@ describe('stopSession [spec:SP-9904]', () => {
   })
 
   it('resurrects an issue session that never owned a dedicated worktree', async () => {
-    const { reg, daemon, repoOps } = makeRegistry()
+    const { reg, daemon, repoOps } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Repository root session',
@@ -492,7 +492,7 @@ describe('stopSession [spec:SP-9904]', () => {
 
 describe('stopIssue [spec:SP-9904]', () => {
   it('closing an issue dispatches the same no-force stop and frees its clean worktree', async () => {
-    const { reg, daemon, repoOps } = makeRegistry()
+    const { reg, daemon, repoOps } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Close target',
@@ -521,7 +521,7 @@ describe('stopIssue [spec:SP-9904]', () => {
   })
 
   it('closing an issue re-sends reap for a session parked by an earlier stop', async () => {
-    const { reg, daemon } = makeRegistry()
+    const { reg, daemon } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Parked close target',
@@ -546,7 +546,7 @@ describe('stopIssue [spec:SP-9904]', () => {
   })
 
   it('stops every member session then frees the worktree', async () => {
-    const { reg } = makeRegistry()
+    const { reg } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Issue stop',
@@ -581,7 +581,7 @@ describe('stopIssue [spec:SP-9904]', () => {
   })
 
   it('resolves a human ref/seq before matching members (POD-985 regression)', async () => {
-    const { reg } = makeRegistry()
+    const { reg } = await makeRegistry()
     const issue = reg.modules.issues.create({
       repoPath: '/r',
       title: 'Issue stop by ref',

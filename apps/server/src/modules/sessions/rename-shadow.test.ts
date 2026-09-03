@@ -61,8 +61,8 @@ afterEach(() => {
 })
 
 /** One real stack. Two of these, seeded identically, are the shadow pair. */
-function stack() {
-  const store = openTestStore(':memory:')
+async function stack() {
+  const store = await openTestStore(':memory:')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
@@ -106,8 +106,8 @@ const humanPrincipal: CommandPrincipal = {
 type Actor = 'human' | 'agent'
 
 /** Run one rename on the LEGACY path and report the verdict + resulting row. */
-function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
-  const { store, sessions, mutations } = stack()
+async function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
+  const { store, sessions, mutations } = await stack()
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
   const capability = actor === 'agent' ? agentCapability : OPERATOR
@@ -133,8 +133,8 @@ function runLegacy(input: { sessionId: string; name: string }, actor: Actor) {
 }
 
 /** Run the SAME rename on the TARGET path, on its own identically-seeded stack. */
-function runTarget(input: { sessionId: string; name: string }, actor: Actor) {
-  const { sessions, mutations } = stack()
+async function runTarget(input: { sessionId: string; name: string }, actor: Actor) {
+  const { sessions, mutations } = await stack()
   const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
   const deps = { sessions: sessions as RenameServices, mutations }
 
@@ -178,9 +178,9 @@ const CASES: ReadonlyArray<{ name: string; actor: Actor; why: string }> = [
 
 describe('shadow comparison: the legacy and target paths agree on every case', () => {
   for (const { name, actor, why } of CASES) {
-    it(`agrees for [${actor}] ${why}`, () => {
-      const legacy = runLegacy({ sessionId: asSessionId('x'), name }, actor)
-      const target = runTarget({ sessionId: asSessionId('x'), name }, actor)
+    it(`agrees for [${actor}] ${why}`, async () => {
+      const legacy = await runLegacy({ sessionId: asSessionId('x'), name }, actor)
+      const target = await runTarget({ sessionId: asSessionId('x'), name }, actor)
 
       // ONE assertion over BOTH paths. A divergence in the written row or in the
       // verdict fails HERE — there is no second green test to hide behind.
@@ -191,11 +191,11 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     })
   }
 
-  it('agrees on the SP-eb60 arbitration: an agent rename over a human-set name', () => {
+  it('agrees on the SP-eb60 arbitration: an agent rename over a human-set name', async () => {
     // The branch with two possible answers, and the reason string is compared
     // verbatim — a migration that quietly reworded a user-visible refusal would
     // fail here rather than ship.
-    const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
+    const legacy = await runLegacy({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
     const legacyAgent = new SessionStateRegistry({
       sessions: legacy.sessions,
       state: legacy.sessions.state,
@@ -207,7 +207,7 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
       'trpc',
     )
 
-    const target = runTarget({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
+    const target = await runTarget({ sessionId: asSessionId('x'), name: 'human choice' }, 'human')
     const targetAgent = renameOnTargetPath(
       target.deps,
       { sessionId: target.created.sessionId, name: 'agent guess' },
@@ -231,11 +231,11 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
     expect(observe(target.sessions, target.created.sessionId).nameSource).toBe('user')
   })
 
-  it('agrees that an unknown session is a silent no-op on both paths', () => {
+  it('agrees that an unknown session is a silent no-op on both paths', async () => {
     // The consistent-error rule (§3.1.5): invisible and nonexistent must be
     // indistinguishable, and both paths must produce the SAME indistinguishable
     // answer or the migration itself becomes the oracle.
-    const { store, sessions, mutations } = stack()
+    const { store, sessions, mutations } = await stack()
     const presence = new SessionStateRegistry({ sessions, state: sessions.state, mutations })
     const legacy = presence.execute(
       'sessions.rename',
@@ -269,9 +269,9 @@ describe('shadow comparison: the legacy and target paths agree on every case', (
  * green above is a measurement rather than a coincidence.
  */
 describe('the shadow comparison is able to FAIL', () => {
-  it('reds when one path writes a different name', () => {
-    const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'agreed' }, 'human')
-    const target = runTarget({ sessionId: asSessionId('x'), name: 'agreed' }, 'human')
+  it('reds when one path writes a different name', async () => {
+    const legacy = await runLegacy({ sessionId: asSessionId('x'), name: 'agreed' }, 'human')
+    const target = await runTarget({ sessionId: asSessionId('x'), name: 'agreed' }, 'human')
 
     // Divergence injected into the TARGET stack only, through the real service —
     // the same method the path calls, so this is the divergence a real regression
@@ -285,22 +285,22 @@ describe('the shadow comparison is able to FAIL', () => {
     ).toThrow()
   })
 
-  it('reds when one path writes a different nameSource', () => {
+  it('reds when one path writes a different nameSource', async () => {
     // The subtler divergence, and the one a name-only comparison would MISS: same
     // string, different provenance. If the comparison did not read `nameSource`,
     // an agent write laundered as a human write would pass the shadow and take
     // SP-eb60's sovereignty with it.
-    const legacy = runLegacy({ sessionId: asSessionId('x'), name: 'same string' }, 'human')
-    const target = runTarget({ sessionId: asSessionId('x'), name: 'same string' }, 'agent')
+    const legacy = await runLegacy({ sessionId: asSessionId('x'), name: 'same string' }, 'human')
+    const target = await runTarget({ sessionId: asSessionId('x'), name: 'same string' }, 'agent')
 
     expect(legacy.row.name).toBe(target.row.name)
     expect(legacy.row.nameSource).not.toBe(target.row.nameSource)
     expect(() => expect(target.row).toEqual(legacy.row)).toThrow()
   })
 
-  it('reds when the two paths disagree about accept versus reject', () => {
-    const legacy = runLegacy({ sessionId: asSessionId('x'), name: '   ' }, 'agent') // refused
-    const target = runTarget({ sessionId: asSessionId('x'), name: 'fine' }, 'agent') // applied
+  it('reds when the two paths disagree about accept versus reject', async () => {
+    const legacy = await runLegacy({ sessionId: asSessionId('x'), name: '   ' }, 'agent') // refused
+    const target = await runTarget({ sessionId: asSessionId('x'), name: 'fine' }, 'agent') // applied
 
     expect(legacy.verdict.kind).toBe('rejected')
     expect(target.verdict.kind).toBe('applied')
@@ -392,12 +392,12 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     expect(FIRST_ADMIN_USER_ID as string).toBe('user:sole')
   })
 
-  it('an agent whose human IS the sole human may write — the ceiling can say YES', () => {
+  it('an agent whose human IS the sole human may write — the ceiling can say YES', async () => {
     // The positive control, and the test the old bridge existed to make pass.
     // Without it, the denial below could be produced by a ceiling that refuses
     // everything — which is exactly what the unreconciled constants DID, and
     // what nothing in the suite would have distinguished from correctness.
-    const { sessions, mutations } = stack()
+    const { sessions, mutations } = await stack()
     const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const ownAgent: CommandPrincipal = {
       kind: 'agent',
@@ -418,11 +418,11 @@ describe('the sole-human identity fork this skeleton surfaced, now reconciled', 
     expect(observe(sessions, created.sessionId).name).toBe('mine to rename')
   })
 
-  it('an agent whose human does NOT hold the session is denied at apply', () => {
+  it('an agent whose human does NOT hold the session is denied at apply', async () => {
     // The ceiling doing its job, and the counterfactual for the YES above: the
     // two together are what make the ceiling an instrument rather than a
     // constant answer.
-    const { sessions, mutations } = stack()
+    const { sessions, mutations } = await stack()
     const created = sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const strangersAgent: CommandPrincipal = {
       kind: 'agent',

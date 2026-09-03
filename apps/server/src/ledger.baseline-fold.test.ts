@@ -44,8 +44,8 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
   const baselineIds = (ledger: Ledger): string[] =>
     ledger.authority.snapshot('conversation').map((v) => (v as { id: string }).id)
 
-  it('drops a nested write the enclosing span rolled back', () => {
-    const store = openTestStore(':memory:')
+  it('drops a nested write the enclosing span rolled back', async () => {
+    const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
     const cursorBefore = ledger.cursor()
 
@@ -80,8 +80,8 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     expect(baselineIds(ledger)).not.toContain('c-rolled-back')
   })
 
-  it('leaves a baseline that still dedups correctly after the rollback', () => {
-    const store = openTestStore(':memory:')
+  it('leaves a baseline that still dedups correctly after the rollback', async () => {
+    const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
 
     expect(() =>
@@ -121,12 +121,12 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     expect(baselineIds(ledger)).toContain('c-rolled-back')
   })
 
-  it('still folds when the enclosing span commits', () => {
-    const store = openTestStore(':memory:')
+  it('still folds when the enclosing span commits', async () => {
+    const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
     const cursorBefore = ledger.cursor()
 
-    store.transact(() => {
+    await store.transact(() => {
       ledger.commit({
         write: () => {
           store.conversations.index.upsert([
@@ -151,7 +151,7 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     expect(changes).toEqual([])
   })
 
-  it('a second nested write in the same span still sees the first one (the in-window reader)', () => {
+  it('a second nested write in the same span still sees the first one (the in-window reader)', async () => {
     // WHY THIS TEST EXISTS. Deferring the fold is only free if nothing reads the
     // baseline between the savepoint release and the outermost commit. Something
     // does: `Authority.stage` dedups every later write against it, and it DROPS a
@@ -159,11 +159,11 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // turn create-then-delete inside one enclosing span into a durable upsert
     // with no remove after it — a phantom row in the log for an entity the
     // transaction deleted. The pending overlay is what keeps that reader honest.
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
     const cursorBefore = ledger.cursor()
 
-    store.transact(() => {
+    await store.transact(() => {
       ledger.commit({
         write: () => {},
         changes: () => [

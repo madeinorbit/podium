@@ -18,16 +18,16 @@ afterEach(() => {
   for (const registry of registries.splice(0)) registry.dispose()
 })
 
-function setup() {
-  const store = openTestStore(':memory:')
-  store.machines.upsertMachine({
+async function setup() {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
@@ -40,8 +40,8 @@ function setup() {
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
     tools: [],
   })
-  store.machines.setMachineInventory('m1', inventory)
-  store.machines.setMachineInventory('m2', inventory)
+  await store.machines.setMachineInventory('m1', inventory)
+  await store.machines.setMachineInventory('m2', inventory)
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const m1: ControlMessage[] = []
@@ -79,8 +79,8 @@ const SPOOFED_RESOLVER = {
 } satisfies Attribution
 
 describe('remote browser-open routing', () => {
-  it('routes the open/result family only through session-room subscriptions', () => {
-    const { registry, sessionId } = setup()
+  it('routes the open/result family only through session-room subscriptions', async () => {
+    const { registry, sessionId } = await setup()
     const first: ServerMessage[] = []
     const second: ServerMessage[] = []
     const c0 = attachTestClient(registry.clientGateway, (message) => first.push(message))
@@ -137,9 +137,9 @@ describe('remote browser-open routing', () => {
     )
   })
 
-  it('delivers only to clients whose scoped world may see the session', () => {
-    const { registry, store, sessionId } = setup()
-    store.grants.upsert({
+  it('delivers only to clients whose scoped world may see the session', async () => {
+    const { registry, store, sessionId } = await setup()
+    await store.grants.upsert({
       resourceKind: 'session',
       resourceId: sessionId,
       grantee: 'user:grantee',
@@ -196,8 +196,8 @@ describe('remote browser-open routing', () => {
     )
   })
 
-  it('parks an intent until the next successful session-room join', () => {
-    const { registry, sessionId } = setup()
+  it('parks an intent until the next successful session-room join', async () => {
+    const { registry, sessionId } = await setup()
     registry.gateway.routeDaemonFrame('m1', request(sessionId, 'open-parked'))
 
     const messages: ServerMessage[] = []
@@ -213,8 +213,8 @@ describe('remote browser-open routing', () => {
     )
   })
 
-  it('routes to the owning daemon and stamps resolver identity from the transport', () => {
-    const { registry, sessionId, m1, m2 } = setup()
+  it('routes to the owning daemon and stamps resolver identity from the transport', async () => {
+    const { registry, sessionId, m1, m2 } = await setup()
     const messages: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
     registry.clientGateway.routeClientFrame(clientId, {
@@ -277,8 +277,8 @@ describe('remote browser-open routing', () => {
     })
   })
 
-  it('drops open intents forged by a daemon that does not own the session', () => {
-    const { registry, sessionId } = setup()
+  it('drops open intents forged by a daemon that does not own the session', async () => {
+    const { registry, sessionId } = await setup()
     const messages: ServerMessage[] = []
     const clientId = attachTestClient(registry.clientGateway, (message) => messages.push(message))
     registry.clientGateway.routeClientFrame(clientId, {

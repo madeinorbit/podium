@@ -111,7 +111,7 @@ function columnNames(db: SqlDatabase, table: string): string[] {
 }
 
 describe('the migration creates the feed-identity table', () => {
-  it('feed_identity exists on a freshly migrated database and the Ledger mints into it', () => {
+  it('feed_identity exists on a freshly migrated database and the Ledger mints into it', async () => {
     // If the migration did not ship the table, the Ledger's mint would throw on
     // first boot — so this pins the migration and the mint together.
     //
@@ -123,7 +123,7 @@ describe('the migration creates the feed-identity table', () => {
     const identity = ledger.feedIdentity()
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
-    expect(new SyncRepository(syncStoreExecutorOver(db), syncServerTables).readFeedIdentity()).toEqual(identity)
+    expect(await new SyncRepository(syncStoreExecutorOver(db), syncServerTables).readFeedIdentity()).toEqual(identity)
   })
 
   it('preserves the existing identity while adding the singleton constraint', () => {
@@ -164,11 +164,11 @@ describe('the migration creates the feed-identity table', () => {
     db.close()
   })
 
-  it('one database is one feed — a bump REPLACES the identity rather than appending', () => {
+  it('one database is one feed — a bump REPLACES the identity rather than appending', async () => {
     const { db } = authority()
     const repo = new SyncRepository(syncStoreExecutorOver(db), syncServerTables)
-    repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
-    repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
+    await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
+    await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
 
     expect(() =>
       db
@@ -180,7 +180,7 @@ describe('the migration creates the feed-identity table', () => {
 
     const rows = db.prepare('SELECT feed_id, epoch FROM feed_identity').all()
     expect(rows).toEqual([{ feed_id: 'feed_a', epoch: 'epoch_2' }])
-    expect(repo.readFeedIdentity()).toEqual({ feedId: 'feed_a', epoch: 'epoch_2' })
+    expect(await repo.readFeedIdentity()).toEqual({ feedId: 'feed_a', epoch: 'epoch_2' })
   })
 })
 
@@ -264,7 +264,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     expect(second.feedId).toBe(first.feedId)
   })
 
-  it('the re-mint is durable in the file that lands in place, not just in the report', () => {
+  it('the re-mint is durable in the file that lands in place, not just in the report', async () => {
     // The report is not evidence: what matters is the epoch a NEXT boot reads.
     const { db, dbPath, ledger } = authority()
     write(ledger, ['iss_1'])
@@ -274,14 +274,14 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     const r = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
-    expect(new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity()).toEqual({
+    expect(await new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity()).toEqual({
       feedId: r.feedId,
       epoch: r.epoch,
     })
     db2.close()
   })
 
-  it('the backup file itself is left untouched — it stays restorable', () => {
+  it('the backup file itself is left untouched — it stays restorable', async () => {
     const { db, dbPath, ledger } = authority()
     write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
@@ -294,7 +294,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // The re-mint happens on the COPY. A backup mutated in place would be
     // single-use, and the second rollback attempt would find a lie.
     const backupDb = openDatabase(backupPath)
-    expect(new SyncRepository(syncStoreExecutorOver(backupDb), syncServerTables).readFeedIdentity()?.epoch).toBe(
+    expect((await new SyncRepository(syncStoreExecutorOver(backupDb), syncServerTables).readFeedIdentity())?.epoch).toBe(
       backupEpoch,
     )
     backupDb.close()
@@ -318,7 +318,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     saved.close()
   })
 
-  it('leaves the target untouched when the copy cannot proceed', () => {
+  it('leaves the target untouched when the copy cannot proceed', async () => {
     const { db, dbPath, ledger } = authority()
     const cursorBefore = write(ledger, ['iss_1', 'iss_2'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
@@ -335,7 +335,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     const db2 = openDatabase(dbPath)
     expect(ledgerOver(db2).cursor()).toBe(cursorBefore)
-    expect(new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity()?.epoch).toBe(epochBefore)
+    expect((await new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity())?.epoch).toBe(epochBefore)
     db2.close()
   })
 
@@ -397,7 +397,7 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     return { code, out: lines.join('\n') }
   }
 
-  it('restores, re-mints, and reports both epochs to the operator', () => {
+  it('restores, re-mints, and reports both epochs to the operator', async () => {
     const { db, dbPath, ledger } = authority()
     write(ledger, ['iss_1'])
     const backupPath = backupDatabase(db, dbPath, 'test', PLENTY)
@@ -411,7 +411,7 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     // the only feedback that the guarantee actually fired.
     expect(out).toContain(before)
     const db2 = openDatabase(dbPath)
-    const after = new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity()?.epoch as string
+    const after = (await new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity())?.epoch as string
     db2.close()
     expect(after).not.toBe(before)
     expect(out).toContain(after)

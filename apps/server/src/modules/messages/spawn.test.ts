@@ -126,8 +126,8 @@ describe('makeSpawnOnWake', () => {
 })
 
 describe('wake → spawn → first prompt (service integration)', () => {
-  function harness() {
-    const store = openTestStore(':memory:')
+  async function harness() {
+    const store = await openTestStore(':memory:')
     const sessions: SessionMeta[] = []
     const queued: { sessionId: SessionId; text: string }[] = []
     const interrupted: { sessionId: SessionId; text: string }[] = []
@@ -171,8 +171,8 @@ describe('wake → spawn → first prompt (service integration)', () => {
     return { svc: new MessageDeliveryService(deps), queued, interrupted, sessions }
   }
 
-  it('a wake to an empty issue spawns a fresh agent and the message is its first prompt', () => {
-    const { svc, queued } = harness()
+  it('a wake to an empty issue spawns a fresh agent and the message is its first prompt', async () => {
+    const { svc, queued } = await harness()
     const r = svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'get going', lifecycle: 'wake' },
@@ -186,8 +186,8 @@ describe('wake → spawn → first prompt (service integration)', () => {
     expect(queued[0]!.text).toContain('get going')
   })
 
-  it('the spawn unlocks parent-grade clamps: the waker may interrupt its child', () => {
-    const { svc, interrupted } = harness()
+  it('the spawn unlocks parent-grade clamps: the waker may interrupt its child', async () => {
+    const { svc, interrupted } = await harness()
     svc.send(
       { kind: 'agent', sessionId: asSessionId('sParent'), issueId: asIssueId('iss_b') },
       { to: { kind: 'issue', id: ISSUE.id }, body: 'go', lifecycle: 'wake' },

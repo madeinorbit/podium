@@ -12,7 +12,7 @@ import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
 describe('session upsert rebase seam', () => {
-  it('persists driver, login, and creator columns in one current-schema row', () => {
+  it('persists driver, login, and creator columns in one current-schema row', async () => {
     const db = openMigratedTestDatabase()
     const sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
     const row: SessionRow = {
@@ -63,8 +63,8 @@ describe('session upsert rebase seam', () => {
     }
 
     try {
-      sessions.upsertSession(row)
-      expect(sessions.getSession(row.id)).toMatchObject({
+      await sessions.upsertSession(row)
+      expect(await sessions.getSession(row.id)).toMatchObject({
         loginHarness: 'codex',
         selectedDriverId: 'codex-app-server',
         createdBy: row.createdBy,

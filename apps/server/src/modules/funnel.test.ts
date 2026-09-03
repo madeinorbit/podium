@@ -24,8 +24,8 @@ function recordingServing() {
   }
 }
 
-function makeFunnel() {
-  const store = openTestStore(':memory:')
+async function makeFunnel() {
+  const store = await openTestStore(':memory:')
   const bus = new EventBus()
   const serving = recordingServing()
   const onPublished = vi.fn()
@@ -106,8 +106,8 @@ function fakeAuthority() {
 }
 
 describe('WriteFunnel.run ordering', () => {
-  it('runs authorize → write and returns the write result', () => {
-    const { funnel } = makeFunnel()
+  it('runs authorize → write and returns the write result', async () => {
+    const { funnel } = await makeFunnel()
     const order: string[] = []
     const result = funnel.run({
       authorize: () => order.push('authorize'),
@@ -120,8 +120,8 @@ describe('WriteFunnel.run ordering', () => {
     expect(order).toEqual(['authorize', 'write'])
   })
 
-  it('authorize rejecting stops the write', () => {
-    const { funnel } = makeFunnel()
+  it('authorize rejecting stops the write', async () => {
+    const { funnel } = await makeFunnel()
     const write = vi.fn()
     expect(() =>
       funnel.run({
@@ -136,8 +136,8 @@ describe('WriteFunnel.run ordering', () => {
 })
 
 describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
-  it('serves ledger-appended changes from a cursor (one shared durable log)', () => {
-    const { funnel, ledger } = makeFunnel()
+  it('serves ledger-appended changes from a cursor (one shared durable log)', async () => {
+    const { funnel, ledger } = await makeFunnel()
     ledger.commit({
       write: () => {},
       changes: () => [{ entity: 'conversation', id: 'c1', op: 'upsert', value: { a: 1 } }],
@@ -165,8 +165,8 @@ describe('WriteFunnel.changesSince / cursor (ledger passthrough)', () => {
  * the half that would fail if the tail came back under another name.
  */
 describe('the funnel has ONE output, and it is the feed', () => {
-  it('exposes no way to publish a message beside the feed', () => {
-    const { funnel, serving } = makeFunnel()
+  it('exposes no way to publish a message beside the feed', async () => {
+    const { funnel, serving } = await makeFunnel()
     expect(funnel).not.toHaveProperty('publishComputed')
     expect(funnel).not.toHaveProperty('fanOutSnapshot')
     // And nothing reaches the edge without an append behind it.
@@ -306,13 +306,13 @@ describe('the ordered, coalesced delivery pipe (#256)', () => {
     expect(onPublished.mock.calls).toEqual([[2]])
   })
 
-  it('queues the batch into the pipe BEFORE the bus emit — a reentrant commit cannot reorder it (#247)', () => {
+  it('queues the batch into the pipe BEFORE the bus emit — a reentrant commit cannot reorder it (#247)', async () => {
     // Real Ledger + real bus: a bus listener that commits AGAIN during
     // 'oplog.appended' gets a later seq. If the bridge emitted the bus event
     // first, the inner commit's batch would enter the pipe before the outer
     // one — [N+1, N] — and a delta client's cursor would jump past N without
     // healing. Pipe-first makes arrival order equal append order.
-    const { funnel, bus, serving, ledger } = makeFunnel()
+    const { funnel, bus, serving, ledger } = await makeFunnel()
     let reentered = false
     bus.on('oplog.appended', () => {
       if (reentered) return

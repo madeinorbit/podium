@@ -7,9 +7,9 @@ import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
 import { openTestStore } from './test-support/open-test-store'
 
-function harness() {
-  const store = openTestStore(':memory:')
-  store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
+async function harness() {
+  const store = await openTestStore(':memory:')
+  await store.repos.addRepo('/r/podium', store.hostMachineId) // prefix POD
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const issue = reg.modules.issues.create({ repoPath: '/r/podium', title: 'T', startNow: false })
   const meta = (id: string) =>
@@ -18,8 +18,8 @@ function harness() {
 }
 
 describe('session birth naming (#474)', () => {
-  it('spawn with a resolved issueId gets the issue letter immediately', () => {
-    const { reg, issue, meta } = harness()
+  it('spawn with a resolved issueId gets the issue letter immediately', async () => {
+    const { reg, issue, meta } = await harness()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/r/podium',
@@ -28,32 +28,32 @@ describe('session birth naming (#474)', () => {
     expect(meta(sessionId)?.displayRef).toBe(`${issue.displayRef}-A`)
   })
 
-  it('issueless spawn gets a DRAFT ordinal, not an issue letter', () => {
-    const { reg, meta } = harness()
+  it('issueless spawn gets a DRAFT ordinal, not an issue letter', async () => {
+    const { reg, meta } = await harness()
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' })
     expect(meta(sessionId)?.displayRef).toBe('POD-DRAFT-1')
   })
 
-  it('a broadcast/listSessions read NEVER allocates: unnamed stays unnamed', () => {
-    const { store, reg } = harness()
+  it('a broadcast/listSessions read NEVER allocates: unnamed stays unnamed', async () => {
+    const { store, reg } = await harness()
     // A session in an unregistered cwd has no prefix — no DRAFT allocation either.
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
     reg.modules.sessions.listSessions()
     reg.modules.sessions.listSessions()
-    const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
+    const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row?.refIssueId).toBeNull()
     expect(row?.refDraft).toBeNull()
   })
 
-  it('first attach names an unnamed session with the issue letter (no DRAFT brand)', () => {
-    const { reg, issue, meta } = harness()
+  it('first attach names an unnamed session with the issue letter (no DRAFT brand)', async () => {
+    const { reg, issue, meta } = await harness()
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
     reg.modules.sessions.setSessionIssueId(sessionId, issue.id)
     expect(meta(sessionId)?.displayRef).toBe(`${issue.displayRef}-A`)
   })
 
-  it('does not consume the first issue letter when the attachment append fails', () => {
-    const { store, reg, issue, meta } = harness()
+  it('does not consume the first issue letter when the attachment append fails', async () => {
+    const { store, reg, issue, meta } = await harness()
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/elsewhere' })
     const cursor = reg.modules.sessions.syncChangesSince(null).cursor
     const events: unknown[] = []
@@ -68,7 +68,7 @@ describe('session birth naming (#474)', () => {
     append.mockRestore()
     expect(meta(sessionId)?.issueId).toBeUndefined()
     expect(meta(sessionId)?.displayRef).toBeUndefined()
-    expect(store.sessions.loadSessions().find((row) => row.id === sessionId)).toMatchObject({
+    expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)).toMatchObject({
       issueId: null,
       refIssueId: null,
       refLetter: null,
@@ -84,8 +84,8 @@ describe('session birth naming (#474)', () => {
     expect(meta(sessionId)?.displayRef).toBe(issue.displayRef + '-A')
   })
 
-  it('does not consume DRAFT-1 when the first spawn append fails', () => {
-    const { store, reg, meta } = harness()
+  it('does not consume DRAFT-1 when the first spawn append fails', async () => {
+    const { store, reg, meta } = await harness()
     const cursor = reg.modules.sessions.syncChangesSince(null).cursor
     const events: unknown[] = []
     reg.modules.sessions.onSessionProjection((event) => events.push(event))
@@ -108,8 +108,8 @@ describe('session birth naming (#474)', () => {
     expect(meta(sessionId)?.displayRef).toBe('POD-DRAFT-1')
   })
 
-  it('re-attach keeps the permanent birth name', () => {
-    const { reg, issue, meta } = harness()
+  it('re-attach keeps the permanent birth name', async () => {
+    const { reg, issue, meta } = await harness()
     const other = reg.modules.issues.create({ repoPath: '/r/podium', title: 'U', startNow: false })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'shell',
@@ -121,19 +121,19 @@ describe('session birth naming (#474)', () => {
     expect(meta(sessionId)?.issueId).toBe(other.id)
   })
 
-  it('boot backfill names historical unnamed sessions once, deterministically', () => {
-    const store = openTestStore(':memory:')
-    store.repos.addRepo('/r/podium', store.hostMachineId)
+  it('boot backfill names historical unnamed sessions once, deterministically', async () => {
+    const store = await openTestStore(':memory:')
+    await store.repos.addRepo('/r/podium', store.hostMachineId)
     const reg1 = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const a = reg1.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r/podium' }).sessionId
     // Simulate a pre-#474 row: rewrite it with its ref wiped (COALESCE in the
     // upsert keeps non-null refs, so write via a fresh row literal).
-    const seeded = store.sessions.loadSessions().find((r) => r.id === a)!
-    store.sessions.purgeSession(a)
-    store.sessions.upsertSession({ ...seeded, refIssueId: null, refLetter: null, refDraft: null })
+    const seeded = (await store.sessions.loadSessions()).find((r) => r.id === a)!
+    await store.sessions.purgeSession(a)
+    await store.sessions.upsertSession({ ...seeded, refIssueId: null, refLetter: null, refDraft: null })
     const reg2 = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg2.modules.sessions.loadFromStore()
-    const row = store.sessions.loadSessions().find((r) => r.id === a)
+    const row = (await store.sessions.loadSessions()).find((r) => r.id === a)
     expect(row?.refDraft).not.toBeNull()
   })
 })

@@ -54,30 +54,28 @@ const rawInsert = (cols: Record<string, string | null>): void => {
 }
 
 describe('the table round-trips a binding', () => {
-  it('stores and reads back the user, the timestamp and the attribution pair', () => {
-    bindings.upsert(binding(ALICE, '-1001'))
-    const [row] = bindings.list()
+  it('stores and reads back the user, the timestamp and the attribution pair', async () => {
+    await bindings.upsert(binding(ALICE, '-1001'))
+    const [row] = await bindings.list()
     expect(row).toEqual(binding(ALICE, '-1001'))
   })
 
-  it('lets one person hold many chats — the direction that is safe', () => {
-    bindings.upsert(binding(ALICE, '-1001'))
-    bindings.upsert(binding(ALICE, '-2002', '2026-07-31T00:01:00.000Z'))
-    bindings.upsert(binding(BOB, '-3003', '2026-07-31T00:02:00.000Z'))
-    expect(
-      bindings
-        .listForUser(ALICE)
-        .map((b) => b.chatId)
-        .sort(),
-    ).toEqual(['-1001', '-2002'])
-    expect(bindings.listForUser(BOB).map((b) => b.chatId)).toEqual(['-3003'])
+  it('lets one person hold many chats — the direction that is safe', async () => {
+    await bindings.upsert(binding(ALICE, '-1001'))
+    await bindings.upsert(binding(ALICE, '-2002', '2026-07-31T00:01:00.000Z'))
+    await bindings.upsert(binding(BOB, '-3003', '2026-07-31T00:02:00.000Z'))
+    expect((await bindings.listForUser(ALICE)).map((b) => b.chatId).sort()).toEqual([
+      '-1001',
+      '-2002',
+    ])
+    expect((await bindings.listForUser(BOB)).map((b) => b.chatId)).toEqual(['-3003'])
   })
 
-  it('removing a binding stops the chat resolving, with no cache to invalidate', () => {
-    bindings.upsert(binding(ALICE, '-1001'))
-    expect(resolveTelegramPrincipal(bindings.list(), '-1001').ok).toBe(true)
-    bindings.remove('-1001')
-    expect(resolveTelegramPrincipal(bindings.list(), '-1001')).toEqual({
+  it('removing a binding stops the chat resolving, with no cache to invalidate', async () => {
+    await bindings.upsert(binding(ALICE, '-1001'))
+    expect(resolveTelegramPrincipal(await bindings.list(), '-1001').ok).toBe(true)
+    await bindings.remove('-1001')
+    expect(resolveTelegramPrincipal(await bindings.list(), '-1001')).toEqual({
       ok: false,
       reason: 'unbound',
     })
@@ -85,14 +83,14 @@ describe('the table round-trips a binding', () => {
 })
 
 describe('ONE ROW PER CHAT is enforced by the database, not by convention', () => {
-  it('a second binding for the same chat REPLACES the first rather than joining it', () => {
+  it('a second binding for the same chat REPLACES the first rather than joining it', async () => {
     // The property the resolver's `ambiguous` arm exists to survive: with two
     // rows possible, resolution would have to elect a winner, and whoever can
     // cause the second row would be the one electing.
-    bindings.upsert(binding(ALICE, '-1001'))
-    bindings.upsert(binding(BOB, '-1001', '2026-07-31T00:05:00.000Z'))
+    await bindings.upsert(binding(ALICE, '-1001'))
+    await bindings.upsert(binding(BOB, '-1001', '2026-07-31T00:05:00.000Z'))
 
-    const rows = bindings.list()
+    const rows = await bindings.list()
     expect(rows).toHaveLength(1)
     expect(rows[0]?.userId).toBe(BOB)
     // Rebinding re-stamps WHO took the chat — after a rebind this row is the
@@ -100,11 +98,11 @@ describe('ONE ROW PER CHAT is enforced by the database, not by convention', () =
     expect(rows[0]?.boundBy.onBehalfOf).toBe(BOB)
   })
 
-  it('a raw INSERT cannot create a second row for one chat either', () => {
+  it('a raw INSERT cannot create a second row for one chat either', async () => {
     // Asserted against SQLite rather than against the repository, because the
     // repository's `OR REPLACE` would satisfy the test above even with no
     // constraint at all.
-    bindings.upsert(binding(ALICE, '-1001'))
+    await bindings.upsert(binding(ALICE, '-1001'))
     expect(() =>
       db
         .prepare(
@@ -113,17 +111,17 @@ describe('ONE ROW PER CHAT is enforced by the database, not by convention', () =
         .run('-1001', BOB, '2026-07-31T00:05:00.000Z', 'user', BOB, BOB),
     ).toThrow()
     // …and the incumbent is untouched.
-    expect(bindings.list()[0]?.userId).toBe(ALICE)
+    expect((await bindings.list())[0]?.userId).toBe(ALICE)
   })
 })
 
 describe('an unreadable row DENIES rather than resolving to a guess', () => {
   // Each case plants ONE bad row beside a good one, so "the reader returned
   // nothing" cannot be what makes the assertion pass.
-  const good = () => bindings.upsert(binding(ALICE, '-1001'))
+  const good = async () => await bindings.upsert(binding(ALICE, '-1001'))
 
-  it('drops a row whose actor kind this build has never heard of', () => {
-    good()
+  it('drops a row whose actor kind this build has never heard of', async () => {
+    await good()
     rawInsert({
       chat_id: '-2002',
       user_id: BOB,
@@ -132,15 +130,15 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
       actor_id: BOB,
       on_behalf_of: BOB,
     })
-    expect(bindings.list().map((b) => b.chatId)).toEqual(['-1001'])
-    expect(resolveTelegramPrincipal(bindings.list(), '-2002')).toEqual({
+    expect((await bindings.list()).map((b) => b.chatId)).toEqual(['-1001'])
+    expect(resolveTelegramPrincipal(await bindings.list(), '-2002')).toEqual({
       ok: false,
       reason: 'unbound',
     })
   })
 
-  it('drops a row with an empty user id', () => {
-    good()
+  it('drops a row with an empty user id', async () => {
+    await good()
     rawInsert({
       chat_id: '-2002',
       user_id: '',
@@ -149,11 +147,11 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
       actor_id: BOB,
       on_behalf_of: BOB,
     })
-    expect(bindings.list().map((b) => b.chatId)).toEqual(['-1001'])
+    expect((await bindings.list()).map((b) => b.chatId)).toEqual(['-1001'])
   })
 
-  it('drops a `user` row with no actor id, rather than inventing one', () => {
-    good()
+  it('drops a `user` row with no actor id, rather than inventing one', async () => {
+    await good()
     rawInsert({
       chat_id: '-2002',
       user_id: BOB,
@@ -162,13 +160,13 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
       actor_id: null,
       on_behalf_of: BOB,
     })
-    expect(bindings.list().map((b) => b.chatId)).toEqual(['-1001'])
+    expect((await bindings.list()).map((b) => b.chatId)).toEqual(['-1001'])
   })
 
-  it('ADMITS a system-attributed row — the reader is not refusing everything', () => {
+  it('ADMITS a system-attributed row — the reader is not refusing everything', async () => {
     // The positive control for the three refusals above. Without it, a reader
     // that dropped every row it did not itself write would pass all of them.
-    good()
+    await good()
     rawInsert({
       chat_id: '-2002',
       user_id: BOB,
@@ -177,7 +175,7 @@ describe('an unreadable row DENIES rather than resolving to a guess', () => {
       actor_id: 'binding-ceremony',
       on_behalf_of: BOB,
     })
-    const rows = bindings.list()
+    const rows = await bindings.list()
     expect(rows.map((b) => b.chatId).sort()).toEqual(['-1001', '-2002'])
     expect(resolveTelegramPrincipal(rows, '-2002')).toEqual({ ok: true, userId: BOB })
   })

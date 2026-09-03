@@ -5,8 +5,8 @@ import { openTestStore } from '../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
 
-function harness() {
-  const store = openTestStore(':memory:')
+async function harness() {
+  const store = await openTestStore(':memory:')
   const listSessions = vi.fn(() => [])
   const deps: IssueDeps = {
     store,
@@ -30,8 +30,8 @@ function harness() {
 }
 
 describe('POD-826 lightweight issue lookups', () => {
-  it('returns raw metadata and checks existence without enumerating sessions', () => {
-    const { listSessions, svc } = harness()
+  it('returns raw metadata and checks existence without enumerating sessions', async () => {
+    const { listSessions, svc } = await harness()
     const created = svc.create({ repoPath: '/repo', title: 'metadata', startNow: false })
     listSessions.mockClear()
 
@@ -49,8 +49,8 @@ describe('POD-826 lightweight issue lookups', () => {
     expect(listSessions).not.toHaveBeenCalled()
   })
 
-  it('keeps get as a session-free wire lookup', () => {
-    const { listSessions, svc } = harness()
+  it('keeps get as a session-free wire lookup', async () => {
+    const { listSessions, svc } = await harness()
     const created = svc.create({ repoPath: '/repo', title: 'wire', startNow: false })
     listSessions.mockClear()
 

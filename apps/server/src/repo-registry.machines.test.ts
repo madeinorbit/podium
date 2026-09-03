@@ -12,16 +12,16 @@ import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { openTestStore } from './test-support/open-test-store'
 
-function regWithTwoDaemons() {
-  const store = openTestStore(':memory:')
-  store.machines.upsertMachine({
+async function regWithTwoDaemons() {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
@@ -39,7 +39,7 @@ function regWithTwoDaemons() {
 
 describe('RepoRegistry.list(machineId)', () => {
   it('filters repos by machine', async () => {
-    const { repos } = regWithTwoDaemons()
+    const { repos } = await regWithTwoDaemons()
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/b', asMachineId('m2'))
     const m1Repos = repos.list(asMachineId('m1'))
@@ -51,7 +51,7 @@ describe('RepoRegistry.list(machineId)', () => {
   })
 
   it('list() with no machineId returns all repos', async () => {
-    const { repos } = regWithTwoDaemons()
+    const { repos } = await regWithTwoDaemons()
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/b', asMachineId('m2'))
     const all = repos.list()
@@ -60,7 +60,7 @@ describe('RepoRegistry.list(machineId)', () => {
   })
 
   it('remove(path, machineId) removes the right machine repo', async () => {
-    const { repos } = regWithTwoDaemons()
+    const { repos } = await regWithTwoDaemons()
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/a', asMachineId('m2')) // same path, different machine
     await repos.remove('/a', asMachineId('m1'))
@@ -71,7 +71,7 @@ describe('RepoRegistry.list(machineId)', () => {
 
 describe('RepoRegistry.scanReposAll()', () => {
   it('stamps each repo with its originating machineId', async () => {
-    const { reg, repos, m1Out, m2Out } = regWithTwoDaemons()
+    const { reg, repos, m1Out, m2Out } = await regWithTwoDaemons()
     await repos.add('/a', asMachineId('m1'))
     await repos.add('/b', asMachineId('m2'))
 
@@ -110,9 +110,9 @@ describe('RepoRegistry.scanReposAll()', () => {
   })
 
   it('keeps a registered machine repo visible when that machine scan times out', async () => {
-    const { reg, repos, store, m1Out, m2Out } = regWithTwoDaemons()
-    store.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/acme/a.git')
-    store.repos.addRepo('/b', asMachineId('m2'), 'https://github.com/acme/b.git')
+    const { reg, repos, store, m1Out, m2Out } = await regWithTwoDaemons()
+    await store.repos.addRepo('/a', asMachineId('m1'), 'https://github.com/acme/a.git')
+    await store.repos.addRepo('/b', asMachineId('m2'), 'https://github.com/acme/b.git')
 
     const scanPromise = repos.scanReposAll()
     const m1Req = m1Out.find((m) => m.type === 'scanReposRequest')
@@ -135,7 +135,7 @@ describe('RepoRegistry.scanReposAll()', () => {
 
     const result = await scanPromise
     const byMachine = new Map(result.repositories.map((r) => [r.machineId, r]))
-    const stored = store.repos.listRepos(asMachineId('m2'))[0]
+    const stored = (await store.repos.listRepos(asMachineId('m2')))[0]
 
     expect(byMachine.get(asMachineId('m2'))).toMatchObject({
       path: '/b',
@@ -148,10 +148,10 @@ describe('RepoRegistry.scanReposAll()', () => {
   })
 
   it('keeps the registered workspace across daemon disconnect, rebind, and a fresh reload scan', async () => {
-    const { reg, repos, store, m1Out } = regWithTwoDaemons()
+    const { reg, repos, store, m1Out } = await regWithTwoDaemons()
     const machineId = asMachineId('m1')
-    store.repos.addRepo('/dummy-repo', machineId, 'https://github.com/acme/dummy-repo.git')
-    const registered = store.repos.listRepos(machineId)[0]
+    await store.repos.addRepo('/dummy-repo', machineId, 'https://github.com/acme/dummy-repo.git')
+    const registered = (await store.repos.listRepos(machineId))[0]
 
     reg.gateway.detachDaemon(machineId)
     reg.gateway.detachDaemon(asMachineId('m2'))
@@ -198,10 +198,10 @@ describe('RepoRegistry.scanReposAll()', () => {
   })
 
   it('projects visible machine roots without granting filesystem scans', async () => {
-    const { repos, store, m1Out, m2Out } = regWithTwoDaemons()
+    const { repos, store, m1Out, m2Out } = await regWithTwoDaemons()
     const visible = asMachineId('m1')
-    store.repos.addRepo('/visible-repo', visible, 'https://github.com/acme/visible.git')
-    store.repos.addRepo('/hidden-repo', asMachineId('m2'))
+    await store.repos.addRepo('/visible-repo', visible, 'https://github.com/acme/visible.git')
+    await store.repos.addRepo('/hidden-repo', asMachineId('m2'))
 
     const result = await repos.scanReposAll(
       () => false,
@@ -212,7 +212,7 @@ describe('RepoRegistry.scanReposAll()', () => {
       expect.objectContaining({
         path: '/visible-repo',
         machineId: visible,
-        repoId: store.repos.listRepos(visible)[0]?.repoId,
+        repoId: (await store.repos.listRepos(visible))[0]?.repoId,
       }),
     ])
     expect(m1Out.some((message) => message.type === 'scanReposRequest')).toBe(false)
@@ -221,8 +221,8 @@ describe('RepoRegistry.scanReposAll()', () => {
 
   it('single-machine invariant: with one daemon scanReposAll equals scanRepos for that machine', async () => {
     // Single machine setup
-    const store = openTestStore(':memory:')
-    store.machines.upsertMachine({
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'one',
       hostname: 'one',

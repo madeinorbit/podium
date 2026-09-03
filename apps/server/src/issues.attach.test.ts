@@ -20,8 +20,8 @@ import { openTestStore } from './test-support/open-test-store'
 // issue-as-workspace: attachSession / drafts / origin persistence (spec
 // docs/internal/superpowers/specs/2026-07-06-issue-as-workspace-design.md).
 
-function harness(sessions: SessionMeta[] = []) {
-  const store = openTestStore(':memory:')
+async function harness(sessions: SessionMeta[] = []) {
+  const store = await openTestStore(':memory:')
   const issueBySession = new Map<SessionId, IssueId | null>()
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -72,8 +72,8 @@ const sess = (sessionId: SessionId, cwd = '/x'): SessionMeta =>
   }) as unknown as SessionMeta
 
 describe('origin/draft on create + wire', () => {
-  it('defaults origin=human draft=false; honors explicit values', () => {
-    const { svc } = harness()
+  it('defaults origin=human draft=false; honors explicit values', async () => {
+    const { svc } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(a.origin).toBe('human')
     expect(a.draft).toBe(false)
@@ -89,8 +89,8 @@ describe('origin/draft on create + wire', () => {
     expect(b.draft).toBe(true)
   })
 
-  it('round-trips origin/draft through the store', () => {
-    const { svc, store } = harness()
+  it('round-trips origin/draft through the store', async () => {
+    const { svc, store } = await harness()
     const b = svc.create({
       repoPath: '/r',
       title: 'Draft',
@@ -99,7 +99,7 @@ describe('origin/draft on create + wire', () => {
       audience: 'agent',
       draft: true,
     })
-    const row = store.issues.getIssue(b.id)!
+    const row = (await store.issues.getIssue(b.id))!
     expect(row.origin).toBe('agent')
     expect(row.draft).toBe(true)
     // Re-hydrate a fresh service from the same store.
@@ -108,8 +108,8 @@ describe('origin/draft on create + wire', () => {
     expect(svc.get(b.id)!.origin).toBe('agent')
   })
 
-  it('retitling a draft clears draft; other updates do not', () => {
-    const { svc } = harness()
+  it('retitling a draft clears draft; other updates do not', async () => {
+    const { svc } = await harness()
     const d = svc.createDraftFor('/r')
     expect(d.draft).toBe(true)
     expect(d.stage).toBe('backlog')
@@ -119,8 +119,8 @@ describe('origin/draft on create + wire', () => {
 })
 
 describe('attachSession', () => {
-  it('moves the session to the target issue and cleans up the empty draft', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+  it('moves the session to the target issue and cleans up the empty draft', async () => {
+    const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const draft = svc.createDraftFor('/r')
     issueBySession.set(asSessionId('s1'), draft.id)
     const target = svc.create({ repoPath: '/r', title: 'Real', startNow: false })
@@ -131,8 +131,8 @@ describe('attachSession', () => {
     expect(w.coordinatorSessionId).toBe('s1')
   })
 
-  it('self-attach is a no-op', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+  it('self-attach is a no-op', async () => {
+    const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     issueBySession.set(asSessionId('s1'), a.id)
     const w = svc.attachSession({ sessionId: asSessionId('s1'), targetId: a.id })
@@ -140,8 +140,11 @@ describe('attachSession', () => {
     expect(svc.get(a.id)).not.toBeNull()
   })
 
-  it('keeps a draft that still has sessions', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1')), sess(asSessionId('s2'))])
+  it('keeps a draft that still has sessions', async () => {
+    const { svc, issueBySession } = await harness([
+      sess(asSessionId('s1')),
+      sess(asSessionId('s2')),
+    ])
     const draft = svc.createDraftFor('/r')
     issueBySession.set(asSessionId('s1'), draft.id)
     issueBySession.set(asSessionId('s2'), draft.id) // second session keeps the draft alive
@@ -152,8 +155,8 @@ describe('attachSession', () => {
 
   // Cross-issue reattach is blocked [spec:SP-8744]: moving off a real issue
   // strands it session-less and it falls out of the sidebar.
-  it('blocks unconfirmed re-home off a real issue; confirmed --subissue works', () => {
-    const { svc, issueBySession } = harness([
+  it('blocks unconfirmed re-home off a real issue; confirmed --subissue works', async () => {
+    const { svc, issueBySession } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/real'),
       sess(asSessionId('s2'), '/r/.worktrees/real'),
     ])
@@ -192,8 +195,8 @@ describe('attachSession', () => {
     expect(issueBySession.get(asSessionId('s1'))).toBe(child.id)
   })
 
-  it('keeps a draft that owns a worktree or has children', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+  it('keeps a draft that owns a worktree or has children', async () => {
+    const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const draft = svc.createDraftFor('/r')
     svc.update(draft.id, { worktreePath: '/r/.worktrees/x' })
     issueBySession.set(asSessionId('s1'), draft.id)
@@ -202,8 +205,8 @@ describe('attachSession', () => {
     expect(svc.get(draft.id)).not.toBeNull()
   })
 
-  it('newSubissue creates a child of the current issue and moves there', () => {
-    const { svc, issueBySession } = harness([
+  it('newSubissue creates a child of the current issue and moves there', async () => {
+    const { svc, issueBySession } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/epic'),
       sess(asSessionId('s2'), '/r/.worktrees/epic'),
     ])
@@ -225,8 +228,8 @@ describe('attachSession', () => {
     expect(svc.get(parent.id)).not.toBeNull()
   })
 
-  it('newSubissue with no current issue requires targetId as parent', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+  it('newSubissue with no current issue requires targetId as parent', async () => {
+    const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     expect(() =>
       svc.attachSession({
         sessionId: asSessionId('s1'),
@@ -243,8 +246,8 @@ describe('attachSession', () => {
     expect(issueBySession.get(asSessionId('s1'))).toBe(w.id)
   })
 
-  it('newSpinoff creates a TOP-LEVEL issue with a discovered-from edge and moves there (POD-85)', () => {
-    const { svc, issueBySession } = harness([
+  it('newSpinoff creates a TOP-LEVEL issue with a discovered-from edge and moves there (POD-85)', async () => {
+    const { svc, issueBySession } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/origin'),
       sess(asSessionId('s2'), '/r/.worktrees/origin'),
     ])
@@ -269,8 +272,8 @@ describe('attachSession', () => {
     expect(svc.get(origin.id)?.childCount ?? 0).toBe(0)
   })
 
-  it('requires an explicit active replacement coordinator in the unfinished source worktree', () => {
-    const { svc, issueBySession } = harness([
+  it('requires an explicit active replacement coordinator in the unfinished source worktree', async () => {
+    const { svc, issueBySession } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/parent'),
       // Explicitly attached but working from a child checkout: not an integration coordinator.
       sess(asSessionId('s2'), '/r/.worktrees/child'),
@@ -296,8 +299,8 @@ describe('attachSession', () => {
     expect(move().parentId).toBe(parent.id)
   })
 
-  it('reuses accepted discovered work instead of minting a duplicate successor', () => {
-    const { svc, issueBySession } = harness([
+  it('reuses accepted discovered work instead of minting a duplicate successor', async () => {
+    const { svc, issueBySession } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/origin'),
       sess(asSessionId('s2'), '/r/.worktrees/origin'),
     ])
@@ -322,8 +325,8 @@ describe('attachSession', () => {
     expect(svc.list('/r').filter((issue) => issue.title === 'Accepted successor')).toHaveLength(1)
   })
 
-  it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', () => {
-    const { svc, issueBySession } = harness([sess(asSessionId('s1'))])
+  it('newSpinoff demands the same rehome confirmation and rejects --subissue combos', async () => {
+    const { svc, issueBySession } = await harness([sess(asSessionId('s1'))])
     const origin = svc.create({ repoPath: '/r', title: 'Origin', startNow: false })
     issueBySession.set(asSessionId('s1'), origin.id)
     expect(() =>
@@ -356,7 +359,9 @@ describe('attachSession', () => {
       if (op === 'isMergedInto') return { ok: false, output: '' }
       return { ok: true, output: '' }
     })
-    const { svc, issueBySession, deps } = harness([sess(asSessionId('s1'), '/r/.worktrees/o')])
+    const { svc, issueBySession, deps } = await harness([
+      sess(asSessionId('s1'), '/r/.worktrees/o'),
+    ])
     deps.repoOp = repoOp
     const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
     svc.update(origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
@@ -381,7 +386,9 @@ describe('attachSession', () => {
       if (op === 'isMergedInto') return { ok: true, output: '' }
       return { ok: true, output: '' }
     })
-    const { svc, issueBySession, deps } = harness([sess(asSessionId('s1'), '/r/.worktrees/o')])
+    const { svc, issueBySession, deps } = await harness([
+      sess(asSessionId('s1'), '/r/.worktrees/o'),
+    ])
     deps.repoOp = repoOp
     const origin = svc.create({ repoPath: '/r', title: 'Origin work', startNow: false })
     svc.update(origin.id, { worktreePath: '/r/.worktrees/o', branch: 'issue/1-origin' })
@@ -402,7 +409,7 @@ describe('attachSession', () => {
       if (op === 'status') return { ok: true, output: '## issue/1-origin\n M file.ts\n' }
       return { ok: true, output: '' }
     })
-    const { svc, issueBySession, deps } = harness([
+    const { svc, issueBySession, deps } = await harness([
       sess(asSessionId('s1'), '/r/.worktrees/o'),
       sess(asSessionId('s2'), '/r/.worktrees/o'),
     ])
@@ -425,8 +432,8 @@ describe('attachSession', () => {
     expect(svc.get(origin.id)?.worktreePath).toBe('/r/.worktrees/o')
   })
 
-  it('throws without --id/--subissue and on unknown target', () => {
-    const { svc } = harness([sess(asSessionId('s1'))])
+  it('throws without --id/--subissue and on unknown target', async () => {
+    const { svc } = await harness([sess(asSessionId('s1'))])
     expect(() => svc.attachSession({ sessionId: asSessionId('s1') })).toThrow(/attach needs/)
     expect(() =>
       svc.attachSession({ sessionId: asSessionId('s1'), targetId: 'iss_nope' }),
@@ -435,8 +442,8 @@ describe('attachSession', () => {
 })
 
 describe('soleOwnerForCwd', () => {
-  it('resolves only when exactly one non-archived issue owns the cwd', () => {
-    const { svc } = harness()
+  it('resolves only when exactly one non-archived issue owns the cwd', async () => {
+    const { svc } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.update(a.id, { worktreePath: '/r/.worktrees/a' })
     expect(svc.soleOwnerForCwd('/r/.worktrees/a/sub')).toBe(a.id)
@@ -457,9 +464,9 @@ describe('soleOwnerForCwd', () => {
     expect(svc.soleOwnerForCwd('/r/.worktrees/a')).toBeNull()
   })
 
-  it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', () => {
-    const { svc, store } = harness()
-    store.repos.addRepo('/r', store.hostMachineId)
+  it('a registered repo main checkout never owns spawns ([spec:SP-595b] #582)', async () => {
+    const { svc, store } = await harness()
+    await store.repos.addRepo('/r', store.hostMachineId)
     const squatter = svc.create({ repoPath: '/other', title: 'Squatter', startNow: false })
     svc.update(squatter.id, { worktreePath: '/r' })
     expect(svc.soleOwnerForCwd('/r')).toBeNull()
@@ -472,8 +479,8 @@ describe('soleOwnerForCwd', () => {
 })
 
 describe('prime draft/attach variants', () => {
-  it('bound draft issue gets the retitle-or-attach instruction', () => {
-    const { svc } = harness()
+  it('bound draft issue gets the retitle-or-attach instruction', async () => {
+    const { svc } = await harness()
     const d = svc.createDraftFor('/r')
     const text = svc.prime({ boundIssueId: d.id })
     expect(text).toContain('draft work item')
@@ -482,8 +489,8 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('--description')
   })
 
-  it('bound draft issue names its direct attachments for the agent', () => {
-    const { svc } = harness()
+  it('bound draft issue names its direct attachments for the agent', async () => {
+    const { svc } = await harness()
     const d = svc.createDraftFor('/r')
     svc.panelApply(d.id, {
       op: 'artifact-add',
@@ -497,8 +504,8 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain(`podium issue artifact ${d.seq} --get <number>`)
   })
 
-  it('bound real issue gets the spinoff-vs-subissue litmus re-home line (POD-85)', () => {
-    const { svc } = harness()
+  it('bound real issue gets the spinoff-vs-subissue litmus re-home line (POD-85)', async () => {
+    const { svc } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const text = svc.prime({ boundIssueId: a.id })
     expect(text).toContain('You are working on this issue — `#1` (A)')
@@ -512,8 +519,8 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain('native subagent must not self-attach')
   })
 
-  it('bound real issue with a prompt-derived title is told to retitle it now', () => {
-    const { svc } = harness()
+  it('bound real issue with a prompt-derived title is told to retitle it now', async () => {
+    const { svc } = await harness()
     const issue = svc.create({
       repoPath: '/r',
       title: 'Please investigate why task naming stopped working correctly',
@@ -525,8 +532,8 @@ describe('prime draft/attach variants', () => {
     expect(text).toContain(`podium issue update --id ${issue.seq} --title "…"`)
   })
 
-  it('bound real issue with a compliant title gets no retitle nudge', () => {
-    const { svc } = harness()
+  it('bound real issue with a compliant title gets no retitle nudge', async () => {
+    const { svc } = await harness()
     const issue = svc.create({
       repoPath: '/r',
       title: 'Prompt-derived title correction',
@@ -539,7 +546,7 @@ describe('prime draft/attach variants', () => {
   })
 
   it('SessionStart injects the real-issue retitle nudge as additional context', async () => {
-    const { svc } = harness()
+    const { svc } = await harness()
     const issue = svc.create({
       repoPath: '/r',
       title: 'Please investigate why task naming stopped working correctly',
@@ -577,23 +584,23 @@ describe('prime draft/attach variants', () => {
   // Agents attached to their own freshly-retitled issue left it in `backlog`
   // forever: retitling names an issue but never advances its stage, and only
   // `claim` sets in_progress. Prime has to say so, in both places.
-  it('draft prime tells the agent retitling leaves it in backlog', () => {
-    const { svc } = harness()
+  it('draft prime tells the agent retitling leaves it in backlog', async () => {
+    const { svc } = await harness()
     const d = svc.createDraftFor('/r')
     const text = svc.prime({ boundIssueId: d.id })
     expect(text).toContain('--stage planning')
     expect(text).toContain('--stage in_progress')
   })
 
-  it('bound issue still in backlog is told to advance the stage', () => {
-    const { svc } = harness()
+  it('bound issue still in backlog is told to advance the stage', async () => {
+    const { svc } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     expect(svc.get(a.id)?.stage).toBe('backlog')
     expect(svc.prime({ boundIssueId: a.id })).toContain('still in `backlog` but you are working it')
   })
 
-  it('bound issue past backlog is not nagged about its stage', () => {
-    const { svc } = harness()
+  it('bound issue past backlog is not nagged about its stage', async () => {
+    const { svc } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.claim(a.id, asUserId('agent'))
     expect(svc.prime({ boundIssueId: a.id })).not.toContain('still in `backlog`')
@@ -601,9 +608,9 @@ describe('prime draft/attach variants', () => {
 })
 
 describe('store: sessions.issue_id round-trip', () => {
-  it('persists and reloads issueId on session rows', () => {
-    const store = openTestStore(':memory:')
-    store.sessions.upsertSession({
+  it('persists and reloads issueId on session rows', async () => {
+    const store = await openTestStore(':memory:')
+    await store.sessions.upsertSession({
       id: asSessionId('sx'),
       ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'claude-code',
@@ -627,10 +634,10 @@ describe('store: sessions.issue_id round-trip', () => {
       workState: null,
       issueId: asIssueId('iss_1'),
     })
-    const rows = store.sessions.loadSessions()
+    const rows = await store.sessions.loadSessions()
     expect(rows.find((r) => r.id === 'sx')?.issueId).toBe('iss_1')
     // clearing round-trips too
-    store.sessions.upsertSession({ ...rows.find((r) => r.id === 'sx')!, issueId: null })
-    expect(store.sessions.loadSessions().find((r) => r.id === 'sx')?.issueId).toBeNull()
+    await store.sessions.upsertSession({ ...rows.find((r) => r.id === 'sx')!, issueId: null })
+    expect((await store.sessions.loadSessions()).find((r) => r.id === 'sx')?.issueId).toBeNull()
   })
 })

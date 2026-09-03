@@ -21,16 +21,16 @@ const TEST_PRINCIPAL = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 const TEST_CAPABILITY = TEST_PRINCIPAL.capability
 const TEST_CALLER = { capability: TEST_CAPABILITY, principal: TEST_PRINCIPAL }
 
-function regWithTwoDaemons() {
-  const store = openTestStore(':memory:')
-  store.machines.upsertMachine({
+async function regWithTwoDaemons() {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'one',
     hostname: 'one',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm2',
     name: 'two',
     hostname: 'two',
@@ -43,8 +43,8 @@ function regWithTwoDaemons() {
     agents: [{ kind: 'codex', installed: true, login: { state: 'in' } }],
     tools: [],
   })
-  store.machines.setMachineInventory('m1', inventory)
-  store.machines.setMachineInventory('m2', inventory)
+  await store.machines.setMachineInventory('m1', inventory)
+  await store.machines.setMachineInventory('m2', inventory)
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const m1: ControlMessage[] = []
   const m2: ControlMessage[] = []
@@ -54,8 +54,8 @@ function regWithTwoDaemons() {
 }
 
 describe('multi-daemon routing', () => {
-  it('routes a spawn to the chosen machine only', () => {
-    const { reg, m1, m2 } = regWithTwoDaemons()
+  it('routes a spawn to the chosen machine only', async () => {
+    const { reg, m1, m2 } = await regWithTwoDaemons()
     reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/x',
@@ -65,8 +65,8 @@ describe('multi-daemon routing', () => {
     expect(m2.filter((m) => m.type === 'spawn')).toHaveLength(1)
   })
 
-  it('a session carries its machineId in meta', () => {
-    const { reg } = regWithTwoDaemons()
+  it('a session carries its machineId in meta', async () => {
+    const { reg } = await regWithTwoDaemons()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/x',
@@ -78,8 +78,8 @@ describe('multi-daemon routing', () => {
     expect(meta?.machineName).toBe('two')
   })
 
-  it('stamps the reporting machine when a remote session adopts its worktree', () => {
-    const { reg } = regWithTwoDaemons()
+  it('stamps the reporting machine when a remote session adopts its worktree', async () => {
+    const { reg } = await regWithTwoDaemons()
     try {
       const issue = reg.modules.issues.create({
         repoPath: '/repo',
@@ -112,8 +112,8 @@ describe('multi-daemon routing', () => {
     }
   })
 
-  it('acknowledges an exact native binding back to its owner after storing it', () => {
-    const { reg, m1, m2 } = regWithTwoDaemons()
+  it('acknowledges an exact native binding back to its owner after storing it', async () => {
+    const { reg, m1, m2 } = await regWithTwoDaemons()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
@@ -142,8 +142,8 @@ describe('multi-daemon routing', () => {
     expect(m2).not.toContainEqual(expect.objectContaining({ type: 'sessionResumeRefAck' }))
   })
 
-  it('rejects a native binding and acknowledgement from a non-owner daemon', () => {
-    const { reg, m1, m2 } = regWithTwoDaemons()
+  it('rejects a native binding and acknowledgement from a non-owner daemon', async () => {
+    const { reg, m1, m2 } = await regWithTwoDaemons()
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/x',
@@ -173,7 +173,7 @@ describe('multi-daemon routing', () => {
     // keyed by requestId ALONE, so this listing — m2's disk, answered under m1's
     // correlation id — settled the browse the operator asked m1 for. The whole
     // path is exercised: real gateway, real mux principal, real correlator.
-    const { reg, m1, m2 } = regWithTwoDaemons()
+    const { reg, m1, m2 } = await regWithTwoDaemons()
     const logs = captureLogs()
 
     const browse = reg.modules.rpc.browseDirs('/home/one', {}, asMachineId('m1'))
@@ -222,8 +222,8 @@ describe('multi-daemon routing', () => {
     logs.restore()
   })
 
-  it('detaching m1 only marks m1 sessions reconnecting', () => {
-    const { reg } = regWithTwoDaemons()
+  it('detaching m1 only marks m1 sessions reconnecting', async () => {
+    const { reg } = await regWithTwoDaemons()
     const a = reg.modules.sessions.createSession({
       agentKind: 'shell',
       cwd: '/a',
@@ -257,8 +257,8 @@ describe('multi-daemon routing', () => {
     expect(meta(b)?.status).toBe('live')
   })
 
-  it('lists machines with their online status from the registry', () => {
-    const { reg } = regWithTwoDaemons()
+  it('lists machines with their online status from the registry', async () => {
+    const { reg } = await regWithTwoDaemons()
     const machines = reg.modules.machines.listMachines()
     expect(machines.find((m) => m.id === 'm1')?.online).toBe(true)
     expect(machines.find((m) => m.id === 'm2')?.online).toBe(true)
@@ -268,8 +268,8 @@ describe('multi-daemon routing', () => {
     expect(after.find((m) => m.id === 'm2')?.online).toBe(true)
   })
 
-  it('routes an unresolved spawn (no machineId, unregistered cwd) to an online machine, not __local__', () => {
-    const { reg, m1, m2 } = regWithTwoDaemons()
+  it('routes an unresolved spawn (no machineId, unregistered cwd) to an online machine, not __local__', async () => {
+    const { reg, m1, m2 } = await regWithTwoDaemons()
     // No machineId provided, cwd matches no registered repo — must NOT dead-queue under __local__.
     reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/no/repo/here' })
     const spawns = [...m1, ...m2].filter((m) => m.type === 'spawn')
@@ -281,8 +281,8 @@ describe('multi-daemon routing', () => {
     expect(['m1', 'm2']).toContain(sessions[0]?.machineId)
   })
 
-  it('host metrics are scoped per machine', () => {
-    const { reg } = regWithTwoDaemons()
+  it('host metrics are scoped per machine', async () => {
+    const { reg } = await regWithTwoDaemons()
     const sent: import('@podium/protocol').ServerMessage[] = []
     attachTestClient(reg.clientGateway, (m) => sent.push(m))
     reg.gateway.routeDaemonFrame('m1', {
@@ -330,15 +330,15 @@ async function handoffRegistry(
     withIssue?: boolean
   } = {},
 ) {
-  const store = openTestStore(':memory:')
-  store.machines.upsertMachine({
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm2',
     name: 'target',
     hostname: 'target',
@@ -351,12 +351,12 @@ async function handoffRegistry(
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
     tools: [],
   })
-  store.machines.setMachineInventory('m1', inventory)
-  store.machines.setMachineInventory('m2', inventory)
-  store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
+  await store.machines.setMachineInventory('m1', inventory)
+  await store.machines.setMachineInventory('m2', inventory)
+  await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
   let targetRepoPath = '/target/repo'
   if (opts.targetHasRepo !== false)
-    store.repos.addRepo(targetRepoPath, asMachineId('m2'), 'git@github.com:example/repo.git')
+    await store.repos.addRepo(targetRepoPath, asMachineId('m2'), 'git@github.com:example/repo.git')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const source: ControlMessage[] = []
   const target: ControlMessage[] = []
@@ -580,7 +580,7 @@ describe('session handoff orchestration', () => {
       { sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
-    const targetRepo = store.repos.listRepos(asMachineId('m2'))[0]
+    const targetRepo = (await store.repos.listRepos(asMachineId('m2')))[0]
     expect(targetRepo).toMatchObject({
       machineId: 'm2',
       originUrl: 'git@github.com:example/repo.git',
@@ -614,7 +614,7 @@ describe('session handoff orchestration', () => {
       cwd: '/source/repo',
       machineId: asMachineId('m2'),
     })
-    const targetRepo = store.repos.listRepos(asMachineId('m2'))[0]
+    const targetRepo = (await store.repos.listRepos(asMachineId('m2')))[0]
     expect(prepared).toEqual({ cwd: targetRepo?.path, machineId: 'm2' })
     const { sessionId } = reg.modules.sessions.createSession({
       agentKind: 'claude-code',

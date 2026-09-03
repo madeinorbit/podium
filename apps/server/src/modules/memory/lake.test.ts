@@ -18,7 +18,7 @@ describe('TranscriptLake mirror fence', () => {
   })
 
   it('exposes pause/drain/resume without losing dirty mirror work', async () => {
-    const store = openTestStore(':memory:')
+    const store = await openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-fence-'))
     const sent: { machineId: string; message: ControlMessage }[] = []
     const daemonRequest = new DaemonRequestBroker({
@@ -119,8 +119,8 @@ describe('TranscriptLake mirror fence', () => {
  * simply never constructed.
  */
 describe('a lake the deployment turned off', () => {
-  it('constructs no mirror and no indexer', () => {
-    const store = openTestStore(':memory:')
+  it('constructs no mirror and no indexer', async () => {
+    const store = await openTestStore(':memory:')
     const daemonRequest = new DaemonRequestBroker({
       toMachine: () => {},
       defaultMachine: () => asMachineId('m1'),
@@ -137,8 +137,8 @@ describe('a lake the deployment turned off', () => {
     }
   })
 
-  it('a lake with a dir does mirror — the flag is the only difference', () => {
-    const store = openTestStore(':memory:')
+  it('a lake with a dir does mirror — the flag is the only difference', async () => {
+    const store = await openTestStore(':memory:')
     const lakeDir = mkdtempSync(join(tmpdir(), 'podium-lake-on-'))
     const daemonRequest = new DaemonRequestBroker({
       toMachine: () => {},
@@ -184,7 +184,7 @@ describe('the transcript indexer follows the search flag', () => {
     const dbPath = join(dir, 'podium.db')
 
     forceFeature('command-palette', false)
-    const off = openTestStore(dbPath)
+    const off = await openTestStore(dbPath)
     off.conversations.registry.ensure({
       machineId,
       nativeId: 'native-a',
@@ -211,7 +211,7 @@ describe('the transcript indexer follows the search flag', () => {
     off.close()
 
     forceFeature('command-palette', true)
-    const on = openTestStore(dbPath)
+    const on = await openTestStore(dbPath)
     const indexer = new TranscriptIndexer({
       mirror: on.conversations.mirror,
       index: on.conversations.transcriptIndex,

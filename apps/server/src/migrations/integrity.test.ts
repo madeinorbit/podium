@@ -78,21 +78,21 @@ function issueRow(over: Partial<IssueRow> = {}): IssueRow {
 }
 
 describe('issue schema: FK behavior at runtime', () => {
-  it('deleting an issue cascades onto labels/deps/comments/messages', () => {
-    const s = openTestStore(':memory:')
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
-    s.issues.setIssueLabels(asIssueId('iss_a'), ['ui'])
-    s.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'), 'blocks')
-    s.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'related')
-    s.issues.addIssueComment({
+  it('deleting an issue cascades onto labels/deps/comments/messages', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
+    await s.issues.setIssueLabels(asIssueId('iss_a'), ['ui'])
+    await s.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'), 'blocks')
+    await s.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'related')
+    await s.issues.addIssueComment({
       id: 'cmt_1',
       issueId: asIssueId('iss_a'),
       author: 'me',
       body: 'hi',
       createdAt: 't',
     })
-    s.issues.addIssueMessage({
+    await s.issues.addIssueMessage({
       id: 'msg_1',
       issueId: asIssueId('iss_a'),
       fromAuthor: 'me',
@@ -103,23 +103,23 @@ describe('issue schema: FK behavior at runtime', () => {
       claimedAt: null,
     })
 
-    s.issues.deleteIssue('iss_a')
+    await s.issues.deleteIssue('iss_a')
 
-    expect(s.issues.getIssueLabels(asIssueId('iss_a'))).toEqual([])
-    expect(s.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([])
-    expect(s.issues.listIssueDeps(asIssueId('iss_b'))).toEqual([]) // edge pointing AT the deleted issue too
-    expect(s.issues.listIssueComments(asIssueId('iss_a'))).toEqual([])
-    expect(s.issues.listIssueMessages(asIssueId('iss_a'))).toEqual([])
+    expect(await s.issues.getIssueLabels(asIssueId('iss_a'))).toEqual([])
+    expect(await s.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([])
+    expect(await s.issues.listIssueDeps(asIssueId('iss_b'))).toEqual([]) // edge pointing AT the deleted issue too
+    expect(await s.issues.listIssueComments(asIssueId('iss_a'))).toEqual([])
+    expect(await s.issues.listIssueMessages(asIssueId('iss_a'))).toEqual([])
     s.close()
   })
 
-  it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", () => {
-    const s = openTestStore(':memory:')
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
-    s.issues.upsertIssue(
+  it("deleting a parent nulls children's parent_id (and supersede/duplicate back-refs)", async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_parent'), seq: 1 }))
+    await s.issues.upsertIssue(
       issueRow({ id: asIssueId('iss_child'), seq: 2, parentId: asIssueId('iss_parent') }),
     )
-    s.issues.upsertIssue(
+    await s.issues.upsertIssue(
       issueRow({
         id: asIssueId('iss_dup'),
         seq: 3,
@@ -128,16 +128,16 @@ describe('issue schema: FK behavior at runtime', () => {
       }),
     )
 
-    s.issues.deleteIssue('iss_parent')
+    await s.issues.deleteIssue('iss_parent')
 
-    expect(s.issues.getIssue('iss_child')?.parentId).toBeNull()
-    expect(s.issues.getIssue('iss_dup')?.duplicateOf).toBeNull()
-    expect(s.issues.getIssue('iss_dup')?.supersededBy).toBeNull()
+    expect((await s.issues.getIssue('iss_child'))?.parentId).toBeNull()
+    expect((await s.issues.getIssue('iss_dup'))?.duplicateOf).toBeNull()
+    expect((await s.issues.getIssue('iss_dup'))?.supersededBy).toBeNull()
     s.close()
   })
 
-  it('rejects a child row for an issue that does not exist', () => {
-    const s = openTestStore(':memory:')
+  it('rejects a child row for an issue that does not exist', async () => {
+    const s = await openTestStore(':memory:')
     expect(() =>
       rawDb(s)
         .prepare(
@@ -148,9 +148,9 @@ describe('issue schema: FK behavior at runtime', () => {
     s.close()
   })
 
-  it('CHECK rejects a garbage stage/type/priority at the SQL layer', () => {
-    const s = openTestStore(':memory:')
-    s.issues.upsertIssue(issueRow({ id: asIssueId('iss_ok') }))
+  it('CHECK rejects a garbage stage/type/priority at the SQL layer', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_ok') }))
     const upd = (col: string, v: unknown) =>
       rawDb(s).prepare(`UPDATE issues SET ${col} = ? WHERE id = 'iss_ok'`).run(v)
     expect(() => upd('stage', 'bogus')).toThrow(/check/i)

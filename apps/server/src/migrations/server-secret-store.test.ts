@@ -285,7 +285,7 @@ describe('the edges an upgrade actually meets', () => {
 })
 
 describe('the repository reads what the migration wrote', () => {
-  it('serves each lifted value under its own key, and nothing for an absent one', () => {
+  it('serves each lifted value under its own key, and nothing for an absent one', async () => {
     const db = preMigrationDb({
       ...PREFERENCES,
       apiKeys: { openai: SEEDED['apiKeys.openai'], anthropic: '', openrouter: '' },
@@ -295,16 +295,16 @@ describe('the repository reads what the migration wrote', () => {
 
     // The POSITIVE control beside the negative: a repository that returned
     // `undefined` for everything would satisfy the absence assertion alone.
-    expect(secrets.get('apiKeys.openai')).toBe(SEEDED['apiKeys.openai'])
-    expect(secrets.get('apiKeys.anthropic')).toBeUndefined()
-    expect(secrets.getOrEmpty('apiKeys.anthropic')).toBe('')
+    expect(await secrets.get('apiKeys.openai')).toBe(SEEDED['apiKeys.openai'])
+    expect(await secrets.get('apiKeys.anthropic')).toBeUndefined()
+    expect(await secrets.getOrEmpty('apiKeys.anthropic')).toBe('')
   })
 
-  it('reports presence for every key in the vocabulary, values for none', () => {
+  it('reports presence for every key in the vocabulary, values for none', async () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
 
-    const presence = new ServerSecretsRepository(
+    const presence = await new ServerSecretsRepository(
       createBunStoreExecutor({ database: db }),
     ).presence()
     expect(presence.map((p) => p.key).sort()).toEqual([...SERVER_SECRET_KEYS].sort())
@@ -315,23 +315,23 @@ describe('the repository reads what the migration wrote', () => {
     for (const value of Object.values(SEEDED)) expect(serialized).not.toContain(value)
   })
 
-  it('a cleared secret leaves no row, and a blank write is a clear', () => {
+  it('a cleared secret leaves no row, and a blank write is a clear', async () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
     const secrets = new ServerSecretsRepository(createBunStoreExecutor({ database: db }))
 
-    secrets.clear('apiKeys.openai')
-    expect(secrets.get('apiKeys.openai')).toBeUndefined()
-    expect(secrets.presence().find((p) => p.key === 'apiKeys.openai')?.present).toBe(false)
+    await secrets.clear('apiKeys.openai')
+    expect(await secrets.get('apiKeys.openai')).toBeUndefined()
+    expect((await secrets.presence()).find((p) => p.key === 'apiKeys.openai')?.present).toBe(false)
 
     // A blank must not create a row that reads as configured.
-    secrets.set('apiKeys.openai', '', '2026-07-31T00:00:00.000Z')
-    expect(secrets.presence().find((p) => p.key === 'apiKeys.openai')?.present).toBe(false)
+    await secrets.set('apiKeys.openai', '', '2026-07-31T00:00:00.000Z')
+    expect((await secrets.presence()).find((p) => p.key === 'apiKeys.openai')?.present).toBe(false)
 
     // …and the positive control: a real write DOES land, so the two assertions
     // above are not satisfied by a store that never writes anything.
-    secrets.set('apiKeys.openai', 'sk-rotated', '2026-07-31T00:00:00.000Z')
-    expect(secrets.get('apiKeys.openai')).toBe('sk-rotated')
-    expect(secrets.updatedAt('apiKeys.openai')).toBe('2026-07-31T00:00:00.000Z')
+    await secrets.set('apiKeys.openai', 'sk-rotated', '2026-07-31T00:00:00.000Z')
+    expect(await secrets.get('apiKeys.openai')).toBe('sk-rotated')
+    expect(await secrets.updatedAt('apiKeys.openai')).toBe('2026-07-31T00:00:00.000Z')
   })
 })

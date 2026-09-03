@@ -33,7 +33,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
   it('lets an agent address OUTSIDE its subtree but INSIDE its human’s visibility, through the confirmation path', async () => {
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
-    const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
+    const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
@@ -60,7 +60,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
   it('denies the SAME send once the target is beyond the human ceiling', async () => {
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
-    const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
+    const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
@@ -80,13 +80,13 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     // And nothing landed in the invisible issue's mailbox: the apply-time gate
     // runs before the legacy mirror write, so a caller supplying the literal
     // internal id cannot inject a row into a workspace it cannot see.
-    expect(h.store.issues.listIssueMessages(theirs.id)).toEqual([])
+    expect(await h.store.issues.listIssueMessages(theirs.id)).toEqual([])
   })
 
   it('the beyond-ceiling denial is INDISTINGUISHABLE from the unknown-id error', async () => {
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
-    const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
+    const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     hidden.push(theirs.id)
@@ -129,7 +129,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
   it('a peek at an invisible issue’s inbox is EMPTY — the same answer a nonexistent issue gives', async () => {
     const hidden: string[] = []
     const ceiling = ceilingHiding(() => hidden)
-    const h = mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
+    const h = await mailHarness({ ceiling, authorizeAtApply: applyAuthFromCeiling(ceiling) })
     const mine = h.createIssue({ title: 'mine' })
     const theirs = h.createIssue({ title: 'theirs' })
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
@@ -164,9 +164,9 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
 // ---------------------------------------------------------------------------
 
 describe('a queued send is re-authorized at the drain, not at accept', () => {
-  it('rejects and SURFACES a send whose principal lost access while it sat queued', () => {
+  it('rejects and SURFACES a send whose principal lost access while it sat queued', async () => {
     let revoked = false
-    const h = mailHarness({
+    const h = await mailHarness({
       authorizeAtApply: () =>
         revoked
           ? // A sender who HAD access and lost it may be told so: they already
@@ -205,7 +205,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     expect(notices.at(-1)?.body).toContain('sender no longer has access to the target')
   })
 
-  it('refuses the LEGACY MIRROR write too, for a sender that never passed the gate', () => {
+  it('refuses the LEGACY MIRROR write too, for a sender that never passed the gate', async () => {
     // Defence in depth, and it is not redundant: the gate's address resolution
     // protects callers that COME THROUGH the gate, but the substrate has
     // internal senders that call `send()` directly with a real issue id — the
@@ -214,7 +214,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     // and a row in the target's legacy mailbox, and a mirror row is visible
     // there whether or not delivery ever succeeds.
     let allowed = true
-    const h = mailHarness({
+    const h = await mailHarness({
       authorizeAtApply: () =>
         allowed ? { ok: true } : { ok: false, reason: 'issue no longer exists' },
     })
@@ -226,19 +226,21 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'legitimate' },
     )
-    expect(h.store.issues.getIssueMessage(ok.message.id)).not.toBeNull()
+    expect(await h.store.issues.getIssueMessage(ok.message.id)).not.toBeNull()
 
     allowed = false
     const denied = h.svc.send(
       { kind: 'agent', issueId: sender.id, sessionId: asSessionId('sSender') },
       { to: { kind: 'issue', id: target.id }, body: 'injected' },
     )
-    expect(h.store.issues.getIssueMessage(denied.message.id)).toBeNull()
-    expect(h.store.issues.listIssueMessages(target.id).map((m) => m.body)).toEqual(['legitimate'])
+    expect(await h.store.issues.getIssueMessage(denied.message.id)).toBeNull()
+    expect((await h.store.issues.listIssueMessages(target.id)).map((m) => m.body)).toEqual([
+      'legitimate',
+    ])
   })
 
-  it('delivers the same message when access was NOT revoked — the instrument can say yes', () => {
-    const h = mailHarness({ authorizeAtApply: () => ({ ok: true }) })
+  it('delivers the same message when access was NOT revoked — the instrument can say yes', async () => {
+    const h = await mailHarness({ authorizeAtApply: () => ({ ok: true }) })
     const target = h.createIssue({ title: 'target' })
     const sender = h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
@@ -270,7 +272,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   }
 
   it('denies a spawn onto a machine the effective principal may not USE', async () => {
-    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = withMachine(h)
     await expect(
       h.gate.dispatch(
@@ -288,8 +290,8 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   })
 
   it('keeps UNAUTHORIZED distinguishable from UNREACHABLE — the deliberate opposite of the address rule', async () => {
-    const denied = mailHarness({ machines: machines({ use: false, reachable: true }) })
-    const offline = mailHarness({ machines: machines({ use: true, reachable: false }) })
+    const denied = await mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const offline = await mailHarness({ machines: machines({ use: true, reachable: false }) })
     const a = withMachine(denied)
     const b = withMachine(offline)
     const message = async (h: ReturnType<typeof mailHarness>, id: string): Promise<string> => {
@@ -316,7 +318,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
   })
 
   it('spawns when the principal holds `use` — the instrument can say yes', async () => {
-    const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
+    const h = await mailHarness({ machines: machines({ use: true, reachable: true }) })
     const issue = withMachine(h)
     const r = (await h.gate.dispatch(
       h.agentCap(asIssueId(issue.id), asSessionId('sMe')),
@@ -373,7 +375,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
   }
 
   it('dead-letters a wake to a parked session when the sender may not USE its machine', async () => {
-    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = parkedOnAlice(h)
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
       to: 'sParked',
@@ -390,7 +392,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
   })
 
   it('mail.ask on a parked session is the same denial — seance is a wake', async () => {
-    const h = mailHarness({
+    const h = await mailHarness({
       machines: machines({ use: false, reachable: true }),
       awaitPollMs: 1,
     })
@@ -410,8 +412,8 @@ describe('a wake refuses to start a process without `use` on the target machine 
   })
 
   it('UNAUTHORIZED and UNREACHABLE collapse — the deliberate opposite of spawnAgent', async () => {
-    const denied = mailHarness({ machines: machines({ use: false, reachable: true }) })
-    const offline = mailHarness({ machines: machines({ use: true, reachable: false }) })
+    const denied = await mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const offline = await mailHarness({ machines: machines({ use: true, reachable: false }) })
     const a = parkedOnAlice(denied)
     const b = parkedOnAlice(offline)
 
@@ -445,7 +447,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
   })
 
   it('wakes when the principal holds `use` — the instrument can say yes', async () => {
-    const h = mailHarness({ machines: machines({ use: true, reachable: true }) })
+    const h = await mailHarness({ machines: machines({ use: true, reachable: true }) })
     const issue = parkedOnAlice(h)
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
       to: 'sParked',
@@ -459,7 +461,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
   })
 
   it('a wait-lifecycle message to a parked session does NOT need use — no process starts', async () => {
-    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = parkedOnAlice(h)
     const r = (await h.gate.dispatch(h.agentCap(issue.id, asSessionId('sMe')), undefined, 'send', {
       to: 'sParked',
@@ -474,7 +476,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
   })
 
   it('issue-addressed bare spawn-on-wake is gated on the ISSUE machine', async () => {
-    const h = mailHarness({ machines: machines({ use: false, reachable: true }) })
+    const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = h.createIssue({ title: 'empty' })
     h.issues.update(issue.id, { machineId: asMachineId('mac_alices_laptop') })
     // No sessions on the issue → wake tries trySpawn on the issue machine.
@@ -496,7 +498,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     // Multi-actor: the principal may USE only Alice's laptop. Waking a parked
     // session on Bob must dead-letter; waking one on Alice must resume.
     const usable = new Set(['mac_alices_laptop'])
-    const h = mailHarness({ machines: machinesFor(usable) })
+    const h = await mailHarness({ machines: machinesFor(usable) })
     const issue = h.createIssue({ title: 'shared work' })
     h.put(
       {
@@ -541,7 +543,7 @@ describe('a wake refuses to start a process without `use` on the target machine 
     // (not usable). Resume fails with 'no resume ref' → trySpawn would place
     // on Bob. Without the issue-machine re-check the spawn would fire.
     const usable = new Set(['mac_alices_laptop'])
-    const h = mailHarness({ machines: machinesFor(usable) })
+    const h = await mailHarness({ machines: machinesFor(usable) })
     const issue = h.createIssue({ title: 'cross-machine' })
     h.issues.update(issue.id, { machineId: asMachineId('mac_bobs_workstation') })
     h.put({
@@ -591,7 +593,7 @@ describe('sender identity is stamped from the capability and cannot be influence
   }
 
   it('ignores every impersonation field on `send`', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     const cap: Capability = h.agentCap(mine.id, asSessionId('sMine'))
     const r = (await h.gate.dispatch(cap, undefined, 'send', {
@@ -607,7 +609,7 @@ describe('sender identity is stamped from the capability and cannot be influence
   })
 
   it('ignores them on `reply` too — the second write surface', async () => {
-    const h = mailHarness()
+    const h = await mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const original = h.svc.send(
@@ -633,7 +635,7 @@ describe('sender identity is stamped from the capability and cannot be influence
   it('the CAPABILITY still decides — the counterfactual that proves the assertion is not vacuous', async () => {
     // Same payload, a different capability: the stamped sender MOVES. Without
     // this, "fromKind is agent" would pass against a surface that hard-coded it.
-    const h = mailHarness()
+    const h = await mailHarness()
     const mine = h.createIssue({ title: 'mine' })
     h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
