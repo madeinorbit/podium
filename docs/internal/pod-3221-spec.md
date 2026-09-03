@@ -945,7 +945,26 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
     any other; its measurement harness drives raw transactions deliberately and is exempted the same
     way. It lands with a deletion issue, per the method's §7.
 
-23. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
+23. **`@libsql/client` is a devDependency of `@podium/server`.** Decided 2026-09-03 on POD-3250's
+    explicit recommendation. Version 0.18.0. It is what makes the Turso proof's 17 integration
+    assertions runnable rather than a document; the coordinator ran them against the hosted database
+    before accepting. It is NOT a runtime dependency — E.5 adding one is a separate decision.
+
+    CARRY FORWARD: the install tree pulls `libsql@0.5.29` with two `.node` binaries. That costs
+    install size and CI time and does NOT reach the bundle, because the slice imports
+    `@libsql/client/web`. E.5's driver inherits the fact and the constraint.
+
+24. **Quote ROUND-TRIP COUNTS first and latency second.** Corrected 2026-09-03 by POD-3250, against
+    the coordinator's own instruction to prefer same-metro milliseconds.
+
+    Counts are the durable finding: they are a property of the code and do not improve with
+    distance. 254 round trips for a literal 250-row append is 254 in IAD as much as in Germany —
+    about 0.8-1.3 s at same-metro 3-5 ms, better than the 27.5 s measured here and still the wrong
+    shape for a hot path. Latency is the multiplier and moves with deployment; the count is the
+    defect. Every conclusion in this epic about whether work is a precondition or an optimisation
+    rests on the count, and survives the move to production.
+
+25. **Do not put backticks in a `podium mail --body` or `session send --text`.** A backticked
     identifier is shell command substitution and vanishes silently, taking part of the message with
     it. Quote the body from a heredoc file, or write without backticks. Costs a round trip every
     time; it has already cost two.
