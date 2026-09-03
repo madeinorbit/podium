@@ -1128,6 +1128,42 @@ const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
   'apps/server/src/store/executor/harness.ts',
 ])
 
+/**
+ * THE FILES ALLOWED TO OPEN A TRANSACTION — rule 16's exemption, spec §6 rule 22.
+ *
+ * A driver IS the transaction port's implementation, so
+ * `client.transaction("write")` inside a `DriverSession.begin` is the rule being
+ * OBEYED, not broken. Without this list rule 16 flags the one site that must
+ * make the call, which is what POD-3342 spotted.
+ *
+ * BY NAME, NEVER BY DIRECTORY, and that is the whole design. `store/executor/`
+ * also holds the scheduler and the executor itself, and neither may ever open a
+ * raw transaction — a directory exemption would stop the rule watching the two
+ * files it most needs to watch. Same shape as {@link RAW_HANDLE_OWNERS} above,
+ * and for the same reason: a list is honest about being a list. Exempting by
+ * SYMBOL — "only inside a `DriverSession.begin`" — is the theoretically right
+ * answer and is refused on checkability, because it needs the callee's declaring
+ * type and a name-matching scan cannot carry that (POD-3257).
+ *
+ * `bun-driver.ts` IS LISTED THOUGH IT DOES NOT TRIP THE RULE TODAY, and that is
+ * deliberate rather than padding. It escapes only because bun:sqlite's
+ * `BEGIN IMMEDIATE` is a raw statement rather than a `client.transaction()`
+ * call — luck, not design. Listing it now means E.5's real libsql driver adds
+ * itself to a list that already says what the list is for, instead of
+ * discovering the rule on its first day.
+ *
+ * THE SPIKE GETS NO BLANKET EXEMPTION (spec §6 rule 22). Its driver is named
+ * here like any other driver; `run-proofs.ts` is named because it drives raw
+ * transactions DELIBERATELY — the probes measuring the server's idle budget and
+ * whether a raw batch is atomic have to go around the port, since going through
+ * it would answer their own question. The directory around them stays covered.
+ */
+const TRANSACTION_OPENERS: ReadonlySet<string> = new Set([
+  'apps/server/src/store/executor/bun-driver.ts',
+  'apps/server/src/store/spike/turso-append/libsql-driver.ts',
+  'apps/server/src/store/spike/turso-append/run-proofs.ts',
+])
+
 /** The runtime's SQLite shim: the raw handle, by any subpath spelling. */
 const RUNTIME_SQLITE_SPECIFIER = /^@podium\/runtime\/sqlite(?:\/|$)/
 
@@ -1455,6 +1491,10 @@ export function checkStoreRawHandles(file: string, source: string): Violation[] 
  * IDBDatabase API and has nothing to do with this rule. It is excluded because
  * it cannot hold a drizzle handle, not because its name was recognised.
  *
+ * THE DRIVERS ARE EXEMPT BY NAME — see {@link TRANSACTION_OPENERS}. A driver is
+ * the port's implementation, so the call this rule flags is the call it exists
+ * to require of exactly those files (spec §6 rule 22, answering POD-3342).
+ *
  * `scripts/` is out, for rules 14, 15 and 16 alike and for the same two
  * reasons: it is the build tier every other rule in this file already excludes
  * (see the console-ownership block), and this lint's own fixtures live in
@@ -1466,6 +1506,7 @@ export function checkStoreRawHandles(file: string, source: string): Violation[] 
  */
 export function checkDrizzleTransaction(file: string, source: string): Violation[] {
   if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  if (TRANSACTION_OPENERS.has(file)) return []
   // Cheap first, because this rule's scope is derived from the import list and
   // {@link extractImports} over every file in apps/ and packages/ is the most
   // expensive thing in this script. The pre-filter runs on the RAW source, so
@@ -1734,6 +1775,10 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // Test-fixture BUILD output. Named as well as covered by the `test-support`
   // segment above, because it is the file the plan called out by path.
   'apps/server/src/test-support/pre-migrated-store.build.ts',
+  // The Turso append proof's measurement harness (POD-3250): the round-trip and
+  // latency table it prints IS its product, same category as the perf harnesses
+  // above. It is a spike, not wired into the server, and nothing imports it.
+  'apps/server/src/store/spike/turso-append/run-proofs.ts',
 ])
 
 /**

@@ -1238,6 +1238,38 @@ describe('store-transaction-port (POD-3252 rule 14)', () => {
     ).toEqual([])
   })
 
+  it('does NOT flag a DRIVER, which is the port’s implementation (spec §6 rule 22)', () => {
+    // POD-3342: the rule was flagging the one site that must make the call.
+    for (const driver of [
+      'apps/server/src/store/executor/bun-driver.ts',
+      'apps/server/src/store/spike/turso-append/libsql-driver.ts',
+      'apps/server/src/store/spike/turso-append/run-proofs.ts',
+    ]) {
+      expect(
+        checkDrizzleTransaction(driver, `${DRIZZLE_IMPORT}await client.transaction('write')\n`),
+      ).toEqual([])
+    }
+  })
+
+  it('STILL flags the scheduler and the executor beside the driver it exempts', () => {
+    // The other edge of the same class, and the reason the exemption is a NAMED
+    // LIST rather than a directory: `store/executor/` also holds the scheduler
+    // and the executor, neither of which may ever open a raw transaction. A
+    // directory exemption would blind the rule to the two files it most needs to
+    // watch, so a widening to one has to fail here.
+    for (const neighbour of [
+      'apps/server/src/store/executor/scheduler.ts',
+      'apps/server/src/store/executor/executor.ts',
+      'apps/server/src/store/spike/turso-append/sync-append.ts',
+    ]) {
+      const vs = checkDrizzleTransaction(
+        neighbour,
+        `${DRIZZLE_IMPORT}await client.transaction('write')\n`,
+      )
+      expect(vs.map((v) => v.rule)).toEqual(['store-transaction-port'])
+    }
+  })
+
   it('is quiet on the REAL repository — the control', () => {
     // A rule this broad is only usable if it is silent on the tree it ships
     // with; a red baseline is how a guard gets switched off.
