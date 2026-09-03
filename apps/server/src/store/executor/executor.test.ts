@@ -871,6 +871,59 @@ describe('the token during an asynchronous commit', () => {
   })
 })
 
+describe('post-commit runner retention', () => {
+  it('holds no runner after writes whose post-commit work is done', async () => {
+    // WOULD CATCH the leak: the executor owned a strong `Set` a runner was only
+    // ever added to. One runner, queue, effect set and option closure per root
+    // write — including writes with no post-commit work at all — kept for the
+    // life of the process, with `effectsSettled()` scanning all of them.
+    const h = open()
+    for (let i = 0; i < 12; i++) {
+      await h.executor.transact(async (tx) => {
+        await tx.drizzle.run(insert, `sequential-${i}`)
+      })
+    }
+    await Promise.all(
+      Array.from({ length: 12 }, (_, i) =>
+        h.executor.transact(async (tx) => {
+          await tx.drizzle.run(insert, `burst-${i}`)
+          // A settled effect must not keep its runner either.
+          postCommit().effect(() => undefined, 'done')
+        }),
+      ),
+    )
+    await h.executor.effectsSettled()
+    await settle()
+
+    expect(h.executor.diagnostics.retainedRunners).toBe(0)
+  })
+
+  it('keeps a runner exactly until its delayed effect settles', async () => {
+    // The other half: removal must not race `effectsSettled()`, which would
+    // make the executor stop waiting for effects still in flight.
+    const parked = barrier()
+    const h = open()
+    const ran: string[] = []
+
+    await h.executor.transact(async (tx) => {
+      await tx.drizzle.run(insert, 'committed')
+      postCommit().effect(async () => {
+        await parked.wait()
+        ran.push('late')
+      }, 'late')
+    })
+    await settle()
+    expect(h.executor.diagnostics.retainedRunners, 'still owed an effect').toBe(1)
+
+    const settled = h.executor.effectsSettled()
+    parked.release()
+    await settled
+    expect(ran, 'effectsSettled waited for the effect it still owned').toEqual(['late'])
+    await settle()
+    expect(h.executor.diagnostics.retainedRunners).toBe(0)
+  })
+})
+
 describe('frames per burst', () => {
   it('publishes one frame for the boot-reconcile burst and one for a bind storm', async () => {
     // WOULD CATCH the flip's most likely publication regression: with every

@@ -53,6 +53,7 @@ export {
   postCommit,
   type RootStoreExecutor,
   type StoreContext,
+  type StoreDiagnostics,
   type StoreExecutor,
   type StoreExecutorOptions,
   type StoreHealth,

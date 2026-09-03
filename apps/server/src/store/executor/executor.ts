@@ -57,6 +57,11 @@ export interface StoreExecutor<TClient = QueryClient> {
   read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
 }
 
+export interface StoreDiagnostics {
+  /** Post-commit runners still owned: those still draining or still settling effects. */
+  readonly retainedRunners: number
+}
+
 export interface StoreHealth {
   readonly healthy: boolean
   readonly error: unknown
@@ -75,6 +80,12 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
   outsideTransaction<T>(fn: (view: StoreExecutor<TClient>) => Promise<T>): Promise<T>
   readonly scheduler: Scheduler
   readonly health: StoreHealth
+  /**
+   * What the executor is still holding. `retainedRunners` is the one that grows
+   * with lifetime write volume if a runner is ever kept past its work, so it is
+   * the number a leak test can pin (spec §3.3).
+   */
+  readonly diagnostics: StoreDiagnostics
   /** Every external effect started on any lease so far has settled. */
   effectsSettled(): Promise<void>
   close(): Promise<void>
@@ -145,6 +156,24 @@ export function createStoreExecutor<TClient>(
       'the store is unhealthy: a commit application failed, so the in-memory projection no ' +
         'longer matches the database. A reseed or a restart is required.',
       healthError,
+    )
+  }
+
+  /**
+   * A runner belongs to ONE root operation, so the executor may only own it
+   * while it still has work. Held past that it is a leak with two costs: a
+   * queue, an effect set and an option closure retained per committed or
+   * rolled-back write for the lifetime of the process, and an `effectsSettled()`
+   * that scans every runner the store has ever created.
+   *
+   * Retirement waits for the effects, because they outlive the drain by design:
+   * dropping the runner at the end of the drain would make `effectsSettled()`
+   * blind to exactly the work it exists to wait for.
+   */
+  function retire(runner: PostCommitRunner): void {
+    void runner.effectsSettled().then(
+      () => runners.delete(runner),
+      () => runners.delete(runner),
     )
   }
 
@@ -340,7 +369,14 @@ export function createStoreExecutor<TClient>(
       assertDraining(scope)
       return runTopLevel(scope.lease, 'write', fn, scope.runner)
     }
-    return scheduler.run('write', (lease) => runTopLevel(lease, 'write', fn, newRunner()))
+    return scheduler.run('write', async (lease) => {
+      const runner = newRunner()
+      try {
+        return await runTopLevel(lease, 'write', fn, runner)
+      } finally {
+        retire(runner)
+      }
+    })
   }
 
   async function read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T> {
@@ -395,6 +431,9 @@ export function createStoreExecutor<TClient>(
     scheduler,
     get health() {
       return { healthy, error: healthError }
+    },
+    get diagnostics() {
+      return { retainedRunners: runners.size }
     },
     async effectsSettled() {
       await Promise.all([...runners].map((runner) => runner.effectsSettled()))
