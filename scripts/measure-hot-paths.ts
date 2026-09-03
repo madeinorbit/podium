@@ -24,14 +24,18 @@
  * THE PROBE IS ONE INJECTABLE FUNCTION
  * ---------------------------------------------------------------------------
  *
- * Today the persistence seam is the synchronous `SqlDatabase` wrapper, and both
- * existing probes in the tree reach it the same way: `store-issues-frame-cache.test.ts`
- * patches `store.db.prepare`, `store/repos-read-cost.test.ts` wraps the handle in
- * a counting `SqlDatabase`. {@link sqlDatabaseQueryProbe} is that seam and
- * NOTHING ELSE IN THIS FILE KNOWS ABOUT IT — every measurement takes a
- * {@link QueryProbeFactory}. POD-3255 [0.13] moves the probe onto the client
- * drizzle runs on and re-captures the baseline there by passing a different
- * factory, with the drivers below unchanged.
+ * {@link executionSeamQueryProbe} is that seam and NOTHING ELSE IN THIS FILE
+ * KNOWS ABOUT IT — every measurement takes a {@link QueryProbeFactory}.
+ *
+ * IT MOVED IN POD-3281, and the reason is worth keeping. It used to patch
+ * `store.db.prepare` in place. The executor's driver keeps ONE PREPARED
+ * STATEMENT PER SQL TEXT, so a patch installed after boot never sees the texts
+ * the boot heals already cached, and every later execution of one of them counts
+ * as zero — a SILENT UNDERCOUNT, which reads as a free win at exactly the moment
+ * the gate matters. The probe now attaches at the executor's statement seam
+ * (`store/executor/statement-probe.ts`), downstream of any cache and neutral
+ * about which driver ran the statement, so E.5's libsql backend measures with
+ * the same call.
  *
  * ---------------------------------------------------------------------------
  * IT COUNTS EXECUTIONS, NOT PREPARATIONS
@@ -40,9 +44,21 @@
  * `prepare()` is where the statement text is visible, but the round trip is
  * `run`/`get`/`all`. There is no prepared-statement cache in the repositories
  * (spec §2.2: every site is `this.db.prepare(sql).get(...)`), so today the two
- * counts coincide — and after the conversion they will not, because a cache is
- * one of the things being considered. Counting executions keeps the baseline
+ * counts coincide — and after the conversion they do not, because the driver
+ * caches one statement per SQL text. Counting executions keeps the baseline
  * meaningful across that change.
+ *
+ * ---------------------------------------------------------------------------
+ * AND IT RECORDS WHAT THAT CACHE COSTS
+ * ---------------------------------------------------------------------------
+ *
+ * `observations` carries two numbers that are RECORDED, NOT GATED:
+ * `distinctStatementTexts` — one cached prepared statement per distinct SQL
+ * text, including one per `IN (...)` ARITY, which is the case that defeats the
+ * cache and the case the Stage A checklist asks about — and `rssBytesAfterBootstrap`.
+ * They are not gate criteria because RSS moves with the machine and the text
+ * count moves with any honest rewrite; they are here so that whoever reads two
+ * baselines can see the cache growing rather than infer it.
  *
  * ---------------------------------------------------------------------------
  * THE GATE REFUSES RATHER THAN GUESSES
@@ -79,12 +95,12 @@ import {
   type SessionId,
 } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
-import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
 // TYPE-ONLY, and erased at runtime — the values are imported dynamically inside
-// {@link buildFixture} so `--baseline` can read a report on a checkout whose
-// server does not construct.
+// {@link buildFixture} and {@link executionSeamQueryProbe} so `--baseline` can
+// read a report on a checkout whose server does not construct.
 import type { SessionRegistry } from '../apps/server/src/relay'
 import type { SessionStore } from '../apps/server/src/store'
+import type { LegacyHandleHolder } from '../apps/server/src/store/executor'
 
 const SESSION_COUNT = Number(process.env.HOTPATH_SESSIONS ?? 50)
 const ISSUE_COUNT = Number(process.env.HOTPATH_ISSUES ?? 30)
@@ -100,55 +116,49 @@ export interface QueryProbe {
   count(): number
   /** Executions per statement text, for the report's breakdown. */
   byStatement(): Record<string, number>
+  /**
+   * Distinct SQL texts seen since the probe was installed, NOT since the last
+   * {@link reset}: it is the size of the driver's prepared-statement cache, one
+   * entry per text and therefore one per `IN (...)` arity. Recorded, not gated.
+   */
+  distinctStatementTexts(): number
   reset(): void
   stop(): void
 }
 
-/** THE ONE SEAM [0.13] REPLACES. Everything else in this file is driver code. */
-export type QueryProbeFactory = (store: unknown) => QueryProbe
+/**
+ * THE ONE SEAM. Everything else in this file is driver code.
+ *
+ * Async because installing it imports the server's executor, which is a value
+ * import and therefore has to stay dynamic — see the import block above.
+ */
+export type QueryProbeFactory = (store: unknown) => Promise<QueryProbe>
 
 /**
- * Today's seam: the synchronous `SqlDatabase` handle the store holds, patched in
- * place. In place rather than wrapped-at-construction because every repository
- * captured `this.db` when `SessionStore` was built, and they all captured the
- * SAME object — which is precisely what `store-issues-frame-cache.test.ts`
- * relies on.
+ * The executor's statement seam. Two feeds, one probe: the driver session for a
+ * converted repository, and the raw handle for one that is not converted yet
+ * (`legacy-handle-probe.ts`, deleted with the executor's `legacy` field by
+ * POD-3326). Today every repository is on the second feed, which is why this
+ * measures the same thing the old `prepare` patch did while being immune to the
+ * cache that will defeat that patch.
  */
-export const sqlDatabaseQueryProbe: QueryProbeFactory = (store) => {
-  const handle = (store as { db: SqlDatabase }).db
-  const original = handle.prepare.bind(handle)
+export const executionSeamQueryProbe: QueryProbeFactory = async (store) => {
+  const { probeLegacyStatements } = await import('../apps/server/src/store/executor')
   let counts = new Map<string, number>()
-  const bump = (sql: string): void => {
-    counts.set(sql, (counts.get(sql) ?? 0) + 1)
-  }
-  const patched = (sql: string): ReturnType<SqlDatabase['prepare']> => {
-    const statement = original(sql)
-    return {
-      run: (...p: SqlParam[]) => {
-        bump(sql)
-        return statement.run(...p)
-      },
-      get: (...p: SqlParam[]) => {
-        bump(sql)
-        return statement.get(...p)
-      },
-      all: (...p: SqlParam[]) => {
-        bump(sql)
-        return statement.all(...p)
-      },
-    }
-  }
-  ;(handle as { prepare: SqlDatabase['prepare'] }).prepare =
-    patched as unknown as SqlDatabase['prepare']
+  /** Never reset: the cache is a property of the CONNECTION, not of a window. */
+  const everSeen = new Set<string>()
+  const detach = probeLegacyStatements(store as LegacyHandleHolder, (observation) => {
+    counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
+    everSeen.add(observation.sql)
+  })
   return {
     count: () => [...counts.values()].reduce((total, n) => total + n, 0),
     byStatement: () => Object.fromEntries(counts),
+    distinctStatementTexts: () => everSeen.size,
     reset: () => {
       counts = new Map()
     },
-    stop: () => {
-      ;(handle as { prepare: SqlDatabase['prepare'] }).prepare = original
-    },
+    stop: detach,
   }
 }
 
@@ -178,6 +188,13 @@ interface Report {
   /** Executions per statement text for the query suite — not gated, but it is
    *  what tells the reader WHICH query multiplied when the gate fires. */
   breakdown?: Record<string, Record<string, number>>
+  /** RECORDED, NOT GATED. See the header: the statement-cache consequence. */
+  observations?: {
+    /** One cached prepared statement per entry, `IN (...)` arities included. */
+    distinctStatementTexts: number
+    /** Resident set size right after the feed bootstrap window. */
+    rssBytesAfterBootstrap: number
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -314,7 +331,7 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
   const fixture = await buildFixture()
   const breakdown: Record<string, Record<string, number>> = {}
   try {
-    const probe = probeFactory(fixture.store)
+    const probe = await probeFactory(fixture.store)
     try {
       // (1) FEED BOOTSTRAP. The window is the whole request a fresh connection
       // makes — attach plus `hello` — because that is what one client costs the
@@ -326,6 +343,10 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
       attachClient(fixture, (message) => bootstrapInbox.push(message))
       const bootstrapQueries = probe.count()
       breakdown['feedBootstrap.queriesPerRequest'] = probe.byStatement()
+      // Right here, before anything else runs: the question the statement cache
+      // raises is what ONE bootstrap costs in cached statements and resident
+      // memory, not what the whole script does.
+      const rssBytesAfterBootstrap = process.memoryUsage().rss
       await settle(fixture)
 
       // (2) ISSUE FRAME READS. The publish fan-out resolves the owning issue of
@@ -374,6 +395,10 @@ async function measureQueries(probeFactory: QueryProbeFactory): Promise<Report> 
           },
         },
         breakdown,
+        observations: {
+          distinctStatementTexts: probe.distinctStatementTexts(),
+          rssBytesAfterBootstrap,
+        },
       }
     } finally {
       probe.stop()
@@ -521,7 +546,7 @@ async function main(): Promise<void> {
     throw new Error(`--suite must be 'queries' or 'frames', got '${suite}'`)
   }
   const report =
-    suite === 'queries' ? await measureQueries(sqlDatabaseQueryProbe) : await measureFrames()
+    suite === 'queries' ? await measureQueries(executionSeamQueryProbe) : await measureFrames()
   const out = flag('out')
   if (out) writeFileSync(out, `${JSON.stringify(report, null, 2)}\n`)
   process.stdout.write(`${JSON.stringify(report, null, 2)}\n`)

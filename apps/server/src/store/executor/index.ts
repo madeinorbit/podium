@@ -70,6 +70,11 @@ export {
 } from './executor'
 export { createFrameFlusher, type FrameFlusher, type FrameFlusherOptions } from './frame-flusher'
 export {
+  type LegacyHandleHolder,
+  observeLegacyHandle,
+  probeLegacyStatements,
+} from './legacy-handle-probe'
+export {
   type PostCommitRegistrar,
   PostCommitRegistry,
   PostCommitRunner,
@@ -91,3 +96,10 @@ export {
   StaleVersionError,
   VersionedMutex,
 } from './state-models'
+export {
+  instrumentDriver,
+  queryAttributionProbe,
+  type StatementObservation,
+  type StatementProbe,
+  StatementProbeHub,
+} from './statement-probe'

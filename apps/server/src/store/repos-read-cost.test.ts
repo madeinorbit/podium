@@ -10,10 +10,16 @@
  * `repo_prefixes` with it). The session projection calls it once per session, so
  * a single list of ~1200 sessions paid ~1200 full scans of a 13-row table.
  *
- * WHY A COUNTING WRAPPER RATHER THAN A FAKE REPOSITORY. The thing under test is
- * how many statements the repository ISSUES, which a fake cannot be wrong about.
- * The wrapper delegates every call to a real migrated database, so the rows the
- * assertions read back are the rows SQLite actually returned.
+ * WHY A PROBE RATHER THAN A FAKE REPOSITORY. The thing under test is how many
+ * statements the repository ISSUES, which a fake cannot be wrong about. The
+ * probe observes a real migrated database, so the rows the assertions read back
+ * are the rows SQLite actually returned.
+ *
+ * THE PROBE IS THE EXECUTION SEAM [POD-3281]. It used to be a counting
+ * `SqlDatabase` handed to the constructor; that wrapper disappears from the path
+ * the moment this repository takes an executor instead of a handle. The seam
+ * counts executions on whichever feed issued them, so the same assertions keep
+ * measuring the same quantity through the conversion.
  *
  * Every "reads once" assertion below is paired with an assertion that a WRITE
  * makes the next read go back to the database, so none of them can be satisfied
@@ -22,9 +28,10 @@
  */
 
 import { asMachineId } from '@podium/model'
-import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
+import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { probeLegacyStatements } from './executor'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
 
@@ -33,36 +40,9 @@ const HOST = 'machine-host'
 let counts: Map<string, number>
 let repos: ReposRepository
 let tableWrites: TableWrites
-/** The handle UNDER the counting wrapper — the bypassing writer's way in. */
+/** The migrated database. The bypassing writer issues its UPDATEs straight on
+ *  it; `tableReads` only counts SELECTs, so its writes are not miscounted. */
 let rawDb: SqlDatabase
-
-/** Count executions per statement, delegating to the real database. */
-function counting(db: SqlDatabase, into: Map<string, number>): SqlDatabase {
-  const bump = (sql: string): void => {
-    into.set(sql, (into.get(sql) ?? 0) + 1)
-  }
-  return {
-    prepare(sql) {
-      const st = db.prepare(sql)
-      return {
-        run: (...p: SqlParam[]) => {
-          bump(sql)
-          return st.run(...p)
-        },
-        get: (...p: SqlParam[]) => {
-          bump(sql)
-          return st.get(...p)
-        },
-        all: (...p: SqlParam[]) => {
-          bump(sql)
-          return st.all(...p)
-        },
-      }
-    },
-    exec: (sql) => db.exec(sql),
-    close: () => db.close(),
-  }
-}
 
 /** Executions of any statement reading the `repos` or `repo_prefixes` tables. */
 const tableReads = (table: string): number =>
@@ -74,8 +54,11 @@ const tableReads = (table: string): number =>
 beforeEach(() => {
   rawDb = openMigratedTestDatabase()
   counts = new Map()
+  probeLegacyStatements({ db: rawDb }, (observation) => {
+    counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
+  })
   tableWrites = new TableWrites()
-  repos = new ReposRepository(counting(rawDb, counts), () => {}, asMachineId(HOST), tableWrites)
+  repos = new ReposRepository(rawDb, () => {}, asMachineId(HOST), tableWrites)
   repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
   repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()
@@ -91,8 +74,13 @@ describe('repo reads under a projection pass', () => {
     expect(new Set(ids).size).toBe(1)
     expect(ids[0]).toBe(repos.resolveRepoIdForPath('/home/u/alpha'))
 
-    // 50 resolutions must not be 50 table scans.
+    // 50 resolutions must not be 50 table scans — and must not be ZERO either.
+    // `toBeLessThanOrEqual` alone is satisfied by a probe that counts nothing,
+    // which is how an instrument dies without turning a suite red (POD-3281,
+    // spec §6 rule 14: assert the mechanism, and test the arm the passing test
+    // does not walk).
     expect(tableReads('repos')).toBeLessThanOrEqual(1)
+    expect(tableReads('repos')).toBeGreaterThan(0)
   })
 
   it('resolves prefixes for many paths without re-scanning repo_prefixes per path', () => {
@@ -102,6 +90,8 @@ describe('repo reads under a projection pass', () => {
 
     expect(new Set(prefixes)).toEqual(new Set(['BE']))
     expect(tableReads('repo_prefixes')).toBeLessThanOrEqual(2)
+    // Same pairing: a dead probe reports 0 and would pass the bound above.
+    expect(tableReads('repo_prefixes')).toBeGreaterThan(0)
   })
 
   it('sees a repo registered after the first read', () => {

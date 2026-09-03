@@ -1,6 +1,7 @@
 import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
+import { type LegacyHandleHolder, probeLegacyStatements } from './store/executor'
 
 /**
  * THE ACCOUNT FRAME CACHE [POD-1931].
@@ -13,14 +14,22 @@ import { SessionStore } from './store'
  * The conserved quantity is the NUMBER OF READS. Each test asserts both a read
  * that is saved and a read that still happens, so the probe cannot be dead.
  */
+/**
+ * THE PROBE SITS AT THE EXECUTION SEAM, NOT ON `prepare` [POD-3281].
+ *
+ * It used to count PREPARATIONS by patching `store.db.prepare`. The executor's
+ * driver keeps one prepared statement per SQL text, so under a converted
+ * repository that count is 1 forever however many times the read runs — the
+ * probe would report a cache that works whether or not it does. The seam counts
+ * EXECUTIONS on whichever feed issued them, so the number survives the
+ * conversion. Today the store is unconverted and the two counts coincide, which
+ * is exactly why this moves now rather than in a conversion commit.
+ */
 const readProbe = (store: SessionStore): (() => number) => {
-  const raw = (store as unknown as { db: { prepare(sql: string): unknown } }).db
   let reads = 0
-  const original = raw.prepare.bind(raw)
-  raw.prepare = (sql: string) => {
-    if (sql.includes('FROM users WHERE id')) reads += 1
-    return original(sql)
-  }
+  probeLegacyStatements(store as unknown as LegacyHandleHolder, (observation) => {
+    if (observation.sql.includes('FROM users WHERE id')) reads += 1
+  })
   return () => reads
 }
 

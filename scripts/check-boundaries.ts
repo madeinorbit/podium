@@ -1228,6 +1228,15 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
  * are unconverted, and the rule's opinion is the one that gates.
  */
 export const STAGE_A_UNCONVERTED: readonly string[] = [
+  // NOT a repository, and the one entry here that was not derived from the rule
+  // (POD-3281): the temporary raw-handle feed of the statement probe seam. It
+  // names the handle because that is its whole job — observing the statements
+  // an UNCONVERTED repository issues, so the query-count probes and the
+  // hot-path script keep measuring while Stage A is half done. It is on this
+  // ledger rather than in RAW_HANDLE_OWNERS because it is deleted at the same
+  // gate as the executor's `legacy` field, by POD-3326. The permanent half
+  // (`statement-probe.ts`) names no handle and needs no entry.
+  'apps/server/src/store/executor/legacy-handle-probe.ts',
   'apps/server/src/modules/operations/store.ts',
   'apps/server/src/store/accounts.ts',
   'apps/server/src/store/approvals.ts',

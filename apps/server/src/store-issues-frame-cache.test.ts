@@ -1,6 +1,7 @@
-import { FIRST_ADMIN_USER_ID, asIssueId } from '@podium/model'
+import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionStore } from './store'
+import { type LegacyHandleHolder, probeLegacyStatements } from './store/executor'
 import type { IssueRow } from './store/types'
 
 /**
@@ -17,33 +18,74 @@ import type { IssueRow } from './store/types'
  * the probe cannot be silently dead.
  */
 // SQLite has no SELECT trigger, so the probe counts the statements the
-// repository prepares rather than the rows it touches.
+// repository EXECUTES rather than the rows it touches.
+/**
+ * THE PROBE SITS AT THE EXECUTION SEAM, NOT ON `prepare` [POD-3281].
+ *
+ * It used to count PREPARATIONS by patching `store.db.prepare`. The executor's
+ * driver keeps one prepared statement per SQL text, so under a converted
+ * repository that count is 1 forever however many times the read runs — the
+ * probe would report a cache that works whether or not it does. The seam counts
+ * EXECUTIONS on whichever feed issued them, so the number survives the
+ * conversion. Today the store is unconverted and the two counts coincide, which
+ * is exactly why this moves now rather than in a conversion commit.
+ */
 const readProbe = (store: SessionStore): (() => number) => {
-  const raw = (store as unknown as { db: { prepare(sql: string): unknown } }).db
   let reads = 0
-  const original = raw.prepare.bind(raw)
-  raw.prepare = (sql: string) => {
-    if (sql.includes('FROM issues WHERE id')) reads += 1
-    return original(sql)
-  }
+  probeLegacyStatements(store as unknown as LegacyHandleHolder, (observation) => {
+    if (observation.sql.includes('FROM issues WHERE id')) reads += 1
+  })
   return () => reads
 }
 
 const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
   ({
-    id: asIssueId(id), repoPath: '/r', seq: 1, title: 'A title', description: 'desc',
-    ownerUserId: FIRST_ADMIN_USER_ID, visibility: 'personal' as const,
-    createdByActor: FIRST_ADMIN_USER_ID, createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
-    stage: 'backlog', worktreePath: null, branch: null, parentBranch: 'main',
-    defaultAgent: 'claude-code', defaultModel: 'auto', defaultEffort: 'auto',
-    linearId: null, linearIdentifier: null, linearUrl: null,
-    activityNotes: null, notesUpdatedAt: null, suggestedStage: null, suggestedReason: null,
-    blockedBy: [] as string[], dependencyNote: null, prUrl: null,
-    priority: 2, type: 'task', assignee: null, parentId: null, design: null, acceptance: null,
-    notes: null, dueAt: null, deferUntil: null, closedReason: null, closedAt: null,
-    supersededBy: null, duplicateOf: null, pinned: false, estimateMin: null,
-    needsHuman: false, humanQuestion: null,
-    createdAt: 't0', updatedAt: 't0', archived: false,
+    id: asIssueId(id),
+    repoPath: '/r',
+    seq: 1,
+    title: 'A title',
+    description: 'desc',
+    ownerUserId: FIRST_ADMIN_USER_ID,
+    visibility: 'personal' as const,
+    createdByActor: FIRST_ADMIN_USER_ID,
+    createdByOnBehalfOf: FIRST_ADMIN_USER_ID,
+    stage: 'backlog',
+    worktreePath: null,
+    branch: null,
+    parentBranch: 'main',
+    defaultAgent: 'claude-code',
+    defaultModel: 'auto',
+    defaultEffort: 'auto',
+    linearId: null,
+    linearIdentifier: null,
+    linearUrl: null,
+    activityNotes: null,
+    notesUpdatedAt: null,
+    suggestedStage: null,
+    suggestedReason: null,
+    blockedBy: [] as string[],
+    dependencyNote: null,
+    prUrl: null,
+    priority: 2,
+    type: 'task',
+    assignee: null,
+    parentId: null,
+    design: null,
+    acceptance: null,
+    notes: null,
+    dueAt: null,
+    deferUntil: null,
+    closedReason: null,
+    closedAt: null,
+    supersededBy: null,
+    duplicateOf: null,
+    pinned: false,
+    estimateMin: null,
+    needsHuman: false,
+    humanQuestion: null,
+    createdAt: 't0',
+    updatedAt: 't0',
+    archived: false,
     ...over,
   }) as IssueRow
 
