@@ -6493,6 +6493,17 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       driverId: 'codex-app-server',
     }) as const
 
+  const workingState = (sessionId: SessionId) =>
+    ({
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: '2026-01-01T00:00:00.000Z',
+        nativeSubagentCount: 0,
+      },
+    }) as const
+
   it('asks the driver to interrupt, and never types an abort key at a bridge that is not there', async () => {
     const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
@@ -6505,6 +6516,10 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         cwd: '/repo',
       })
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        workingState(sessionId),
+      )
 
       const answer = registry.modules.sessions.interruptTurn({ sessionId })
 
@@ -6543,6 +6558,10 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
         cwd: '/repo',
       })
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+      registry.gateway.routeDaemonFrame(
+        registry.sessionStore.hostMachineId,
+        workingState(sessionId),
+      )
 
       const answer = registry.modules.sessions.interruptTurn({ sessionId })
       const request = daemon.find(
@@ -6560,6 +6579,35 @@ describe('the stop button on a session with no terminal [POD-2792]', () => {
       // the shape this whole issue is about.
       await expect(answer).resolves.toEqual({ ok: false, reason: 'not_running' })
       expect(daemon.filter((message) => message.type === 'input')).toEqual([])
+    } finally {
+      registry.dispose()
+    }
+  })
+
+  it('refuses the stop before the driver reports working, without sending an interrupt', () => {
+    const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+        daemon.push(message),
+      )
+      const { sessionId } = registry.modules.sessions.createSession({
+        agentKind: 'codex',
+        cwd: '/repo',
+      })
+      registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, codexBind(sessionId))
+
+      const answer = registry.modules.sessions.interruptTurn({ sessionId })
+
+      expect(answer).toEqual({
+        ok: false,
+        reason: 'Codex only takes an interrupt while it is working, and it is not working right now',
+      })
+      expect(
+        daemon.filter(
+          (message) => message.type === 'runtimeInterruptRequest' || message.type === 'input',
+        ),
+      ).toEqual([])
     } finally {
       registry.dispose()
     }
