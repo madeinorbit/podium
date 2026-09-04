@@ -1622,3 +1622,57 @@ THE RULE.
 FOR WAVES, the general form: if your branch goes red on lines you did not write, do not fix them.
 Check whether your base moved (`git log <tip>..HEAD` should be your commits and nothing else) and mail
 the coordinator. A red on someone else's line is a base problem, not a code problem.
+
+### Rule 36a — the TRIGGER is far more common than the HARM, and the harm arrives later
+
+[POD-3395 printed its six projection fragments and found the mechanism ACTIVE in three of them,
+harmless today. POD-3397 contributed the method. 2026-09-04.]
+
+POD-3395's audit found `max("sequence")` emitted as a BARE identifier where the qualified form would be
+`max("conversation_segment_incarnations"."sequence")`. That IS buildSelection's rewrite, firing, in
+shipped code. It is harmless only because none of those queries has a join or a correlated subquery, so
+the bare name binds to the single FROM table.
+
+WHICH MEANS THE BUG IS LATENT, NOT ABSENT. Any of those three inherits the defect the day someone adds
+a join — and at that moment nothing looks wrong: the fragment is not being edited, the join is a normal
+change, no test fails, and the person adding the join has no reason to run `toSQL()` on a projection
+they did not touch. The failure is planted now and detonates on an unrelated future edit by someone
+else.
+
+CONSEQUENCE FOR THE PLAN. A per-wave print catches today's harm and cannot catch tomorrow's. The lint
+shape to want is "a bare identifier in the projection of a query that later grows a join", and the
+hard part — noted here so nobody rediscovers it — is that the dangerous moment is invisible: it is the
+join being added, in a query whose projection nobody is looking at. Filed as a B-prep item rather than
+solved here.
+
+DERIVE THE SITE LIST, DO NOT RECALL IT. POD-3397's method, and it is the difference between an audit
+and a recollection: grep both files for a `sql` fragment appearing inside a `.select({...})`
+projection, which returned exactly two sites out of 86 statements, then print those two. A wave that
+reports "I reviewed my fragments" has done something much weaker than a wave that reports "there are
+two, here they are". State the DENOMINATOR — n sites out of m statements — so the audit is checkable.
+
+### Rule 34b — a getter is only worth having if nothing routes around it
+
+[POD-3395, 2026-09-04, and it is the check that makes rule 34a meaningful rather than decorative.]
+
+`private get db()` resolves the enclosing transaction ON EVERY ACCESS. That property is destroyed by
+binding it to a local:
+
+    const db = this.db          // resolves ONCE
+    db.insert(...)              // ...and every use after this serves a STALE instance,
+    await something()           //    including across an await that left the span
+    db.update(...)              // <- wrong connection, silently
+
+Every `this.db` must chain a query IMMEDIATELY. POD-3395 verified all 71 of its occurrences do.
+
+TWO WARNINGS FROM ITS DOING IT.
+
+The naive grep is WRONG. `const row = this.db` looks like a capture and is usually the first line of a
+multi-line chain whose variable holds the RESULT, not the instance. POD-3395's first grep misread its
+own code; it re-checked by parsing. Any wave running this check by grep is running a check that does
+not work.
+
+AND THE HONEST LIMIT ON THE EVIDENCE, which POD-3395 stated rather than let stand: no test can
+distinguish the getter from the assigned field today, because ambient routing does not exist yet. The
+lane is green either way. Rule 34a's change is verified as NOT-A-REGRESSION, not as a fix, and it is
+the pre-flip lint (already owed) that turns this from a convention into something checkable.
