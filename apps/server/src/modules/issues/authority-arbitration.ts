@@ -60,10 +60,12 @@ export class IssueAuthorityArbitration {
     return this.scope.run({ input, commitClaimed: false }, operation)
   }
 
-  private commit<T>(op: {
-    write: () => T
-    changes: (result: T) => EntityChangeSpec[]
-  }): { result: T; changes: MetadataChange[] } {
+  // Composed from the facade's own op rather than restated, so a caller's
+  // `apply` arm reaches the real ledger instead of being dropped at this
+  // wrapper's type boundary [POD-3366]. The spread below always carried it at
+  // runtime; only the type refused it, which is the quietest way for a
+  // post-commit install to go missing.
+  private commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> {
     const active = this.scope.getStore()
     if (active === undefined || active.commitClaimed) return this.source.commit(op)
     active.commitClaimed = true
