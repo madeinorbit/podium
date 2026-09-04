@@ -1161,3 +1161,62 @@ handoff which boolean columns your files read and that each has a true-case test
 
 The same reasoning covers any mode the schema declares. Read the column's declaration before writing
 its mapper; do not infer the runtime type from what the old raw-handle code compared against.
+
+### Rule 29 — a wave owns its OWN construction lines in `store.ts`, and nothing else in that file
+
+[POD-3395 asked; ratified 2026-09-04 because it was already the practice on four branches.]
+
+Rule 27b requires a converted repository to take the query capability in the constructor slot its
+`SqlDatabase` occupied. That is not achievable without changing the matching line in `store.ts`, so
+"nobody but the coordinator touches `store.ts` during Stage A" and rule 27b contradicted each other
+for every wave. Waves 1, 3, 6 and 7 each resolved it the same way independently, and their four sets
+of lines are disjoint.
+
+THE EXEMPTION IS NARROW. In `apps/server/src/store.ts` a wave may change ONLY the constructor
+argument on the lines constructing ITS OWN repositories — `this.executor` becomes `this.queries`,
+argument positions and every other argument unchanged. Not an import, not a field, not a
+neighbouring line, not a formatting pass. Any other edit in that file is a finding to mail, not a
+task to do.
+
+WHY IT DOES NOT REINTRODUCE THE COLLISION the ownership rule exists to prevent: the lines are
+disjoint per wave, and the coordinator lands branches one at a time behind the merge lock, so two
+waves never write the file concurrently. A wave states the exact lines it changed in its handoff and
+the coordinator checks them against the ledger when landing.
+
+### Rule 30 — the ambient transaction is bun:sqlite's gift, not drizzle's, and it does not survive Turso
+
+[Coordinator, 2026-09-04. Corrects a claim the coordinator made twice; established by probe, not by
+reading.]
+
+Do not justify Podium's own transaction mechanism with "drizzle only supports lexical transactions".
+That is false on the driver we run today, and believing it will produce the wrong design for Stage B.
+
+MEASURED, on `drizzle-orm/bun-sqlite` — `db.transaction()` nested inside `db.transaction()`:
+
+    db.transaction inside db.transaction: OK      rows: [ outer, inner ]
+
+It works, because drizzle's bun `transaction()` delegates to `this.client.transaction(...)`, which is
+bun:sqlite's better-sqlite3-compatible wrapper; that wrapper tracks depth ON THE CONNECTION and emits
+savepoints. The nesting is ambient, and it is bun:sqlite doing it.
+
+MEASURED, the same code on `drizzle-orm/libsql` — the Stage E target:
+
+    db.transaction inside db.transaction: THREW -> Failed query: insert into t ...   rows: []
+    tx.transaction inside db.transaction: OK                                          rows: [ outer, inner ]
+
+Not even the OUTER row survived. libsql's `transaction()` opens a brand new transaction from the
+client every time (`const libsqlTx = await this.client.transaction()`) and binds a NEW session to it;
+it never asks whether one is already open, and a statement issued on the root `db` while a
+transaction is open goes to the client rather than the transaction.
+
+THE CONSEQUENCE FOR STAGE B, and it is the whole argument for ambient routing. Post-flip, a
+repository reached from inside a write span that resolves its query object to the ROOT instance does
+not merely bypass the span — on libsql it FAILS, and it can fail the enclosing statement too. Something
+must route it to the enclosing transaction. Threading a `tx` object to 57 write spans is refused (the
+services hold narrowed dependency lambdas, not the store); rebinding repositories per transaction is
+refused (it splits the frame and grant cache state). AsyncLocalStorage ambient routing is therefore a
+CHOSEN design with two rejected alternatives, not a forced one — say it that way.
+
+WHAT PODIUM'S OWN HELPER STILL EARNS, separately from nesting: `BEGIN IMMEDIATE` at depth 0 (drizzle
+defaults to `deferred`, which takes a read lock and cannot always upgrade it), and the thenable guard
+that refuses an async callback. Its savepoint nesting is redundant on bun:sqlite today.
