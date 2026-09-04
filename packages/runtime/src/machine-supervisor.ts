@@ -16,6 +16,7 @@ import {
 } from '@podium/protocol'
 import { createLogger } from '@podium/logger'
 import { readOrCreateLocalMachineId } from './local-machine'
+import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-trust'
 import { writeConnectivity } from './connectivity'
 
 const log = createLogger('runtime:machine-supervisor')
@@ -106,6 +107,7 @@ export interface MachineSupervisorConnectionDeps {
   report(): MachineServiceReport
   onAssignment?(assignment: MachineServiceAssignment): void
   onGrant(message: Extract<MachineSupervisorControlMessage, { type: 'updateGrant' }>): void
+  onConnected?(): void
   onPaired?(): void
 }
 
@@ -161,10 +163,17 @@ export function createMachineSupervisorConnection(
     throw new Error('machine supervisor has no credential; pair it first')
   }
 
-  const persistHandshake = (issuedToken?: string, updatePubkey?: string): boolean => {
+  const persistHandshake = (
+    issuedToken?: string,
+    updatePubkey?: string,
+    rotations: readonly UpdateKeyRotation[] = [],
+  ): boolean => {
     if (issuedToken) deps.state.token = issuedToken
     if (updatePubkey !== undefined) {
-      if (deps.state.updatePubkey && deps.state.updatePubkey !== updatePubkey) {
+      if (
+        deps.state.updatePubkey &&
+        !acceptsUpdateKeyRotation(deps.state.updatePubkey, updatePubkey, rotations)
+      ) {
         log.error('server update key changed outside pairing; refusing machine plane')
         return false
       }
@@ -220,7 +229,7 @@ export function createMachineSupervisorConnection(
     active.addEventListener('message', (event) => {
       const step = dialer.receive(String(event.data))
       if (step.action === 'established') {
-        if (!persistHandshake(step.issuedToken, step.updatePubkey)) {
+        if (!persistHandshake(step.issuedToken, step.updatePubkey, step.updateKeyRotations)) {
           active.close()
           return
         }
@@ -229,6 +238,7 @@ export function createMachineSupervisorConnection(
         settleFirst(true)
         backoffMs = RECONNECT_MIN_MS
         sendReport()
+        deps.onConnected?.()
         return
       }
       if (step.action === 'deliver') {

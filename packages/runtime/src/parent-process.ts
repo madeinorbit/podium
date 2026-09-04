@@ -24,10 +24,10 @@
  *     precisely the crash the backoff ladder and the rollback exist for.
  */
 import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode } from './config'
+import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
 import { readConnectivity } from './connectivity'
 import {
   clearParentRequest,
@@ -109,6 +109,8 @@ export type DaemonHealthProbeFn = () => Promise<DaemonHandoverHealthProbe>
 
 export interface ParentProcessDeps {
   installDir?: string
+  /** Boot-captured supervisor identity, required by the machine updater. */
+  runningIdentity?: { version: string; digest?: string }
   /**
    * Where `run/` lives. Distinct from `installDir`: a rollback RENAMES the
    * install directory, so the control files must not be inside it. Defaults to
@@ -351,6 +353,39 @@ export class ParentProcess {
     }
   }
 
+  setUpdateMigrationKnowledge(value: boolean | undefined): void {
+    this.deps.releaseHadMigrations = value
+  }
+
+  private readyPath(): string {
+    return join(this.deps.stateDir ?? stateDir(), 'run', 'supervisor-ready.json')
+  }
+  private publishReady(): void {
+    if (!this.deps.runningIdentity) return
+    const path = this.readyPath()
+    mkdirSync(join(this.deps.stateDir ?? stateDir(), 'run'), { recursive: true })
+    const temporary = `${path}.${process.pid}.tmp`
+    writeFileSync(temporary, JSON.stringify({ ...this.deps.runningIdentity, pid: process.pid }), {
+      mode: 0o600,
+    })
+    renameSync(temporary, path)
+  }
+  private successorReady(pid: number, version: string): boolean {
+    if (!this.deps.runningIdentity) return true
+    try {
+      const value = JSON.parse(readFileSync(this.readyPath(), 'utf8'))
+      const digestPath = join(this.installDir, 'ARTIFACT.sha256')
+      const digest = existsSync(digestPath) ? readFileSync(digestPath, 'utf8').trim() : undefined
+      return (
+        value.pid === pid &&
+        value.version === version &&
+        (digest === undefined || value.digest === digest)
+      )
+    } catch {
+      return false
+    }
+  }
+
   snapshot(): ParentSnapshot {
     return this.snap
   }
@@ -581,6 +616,7 @@ export class ParentProcess {
     // it at spawn time would have reclaimed — that is, SIGTERMed — the parent
     // still supervising the serving stack.
     await this.deps.claimRole?.()
+    this.publishReady()
     this.pruneStaleOldBundle(healthy)
     this.deps.notify('READY=1')
     // First pet immediately, so a stall right after boot has the full
@@ -1023,7 +1059,7 @@ export class ParentProcess {
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
-        if (healthy) {
+        if (healthy && this.successorReady(successorPid, expectedVersion)) {
           // The gate has passed: NOW tell systemd where its main process moved.
           // nginx-reload pattern, but strictly after health, never before.
           this.deps.notify(`MAINPID=${successorPid}`)

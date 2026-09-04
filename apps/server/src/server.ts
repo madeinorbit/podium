@@ -868,6 +868,7 @@ export async function startServer(
 
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
+    process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&
     prepareCoordinatorUpdate &&

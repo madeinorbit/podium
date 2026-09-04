@@ -22,6 +22,9 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
+import { readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import { stateDir } from '@podium/runtime/config'
 import { resolveInstallDir } from '@podium/runtime/config'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { liveRecord } from '@podium/runtime/run-registry'
@@ -120,7 +123,30 @@ export function createInstalledCoordinatorUpdate(
       pinned: deps.pinnedPubkey !== undefined,
     })
     try {
-      await requestSwap(target, deps.pinnedPubkey)
+      if (
+        (deps.env ?? process.env).PODIUM_MACHINE_UPDATE_OWNER === 'supervisor' &&
+        !deps.requestSwap
+      ) {
+        const runtimeDir = join(stateDir(), 'runtime')
+        const grant = {
+          type: 'updateGrant',
+          grantId: `coordinator-${crypto.randomUUID()}`,
+          issuedAt: Date.now(),
+          target,
+        }
+        await requestMachineUpdate(runtimeDir, '/prepare', grant)
+        const deadline = Date.now() + 20 * 60_000
+        while (true) {
+          const status = readMachineUpdateJournal(runtimeDir)
+          if (status?.grant.grantId !== grant.grantId)
+            throw new Error('Coordinator preparation authority was replaced.')
+          if (status.phase === 'prepared') break
+          if (['rejected', 'stuck', 'canceled'].includes(status.phase))
+            throw new Error(status.detail ?? 'Supervisor preparation failed.')
+          if (Date.now() >= deadline) throw new Error('Supervisor preparation timed out.')
+          await new Promise((resolve) => setTimeout(resolve, 100))
+        }
+      } else await requestSwap(target, deps.pinnedPubkey)
     } catch (err) {
       // The parent's own sentence, recorded HERE as well: the step turns it into
       // a user-facing failure and the parent writes its own line, but only this
@@ -174,6 +200,17 @@ export function createInstalledCoordinatorRestart(
   const pending = deps.pendingVersion
 
   return () => {
+    if (env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor' && !deps.requestHandover) {
+      const runtimeDir = join(stateDir(), 'runtime')
+      const pending = readMachineUpdateJournal(runtimeDir)
+      if (!pending || pending.grant.target.version !== deps.pendingVersion?.())
+        throw new Error('No exact prepared supervisor update is available.')
+      void requestMachineUpdate(runtimeDir, '/activate', { grantId: pending.grant.grantId }).catch(
+        (error) => log.error('Supervisor activation refused', { err: error }),
+      )
+      return
+    }
+
     if (requested) {
       log.debug('a parent handover has already been requested; not asking again', {})
       return

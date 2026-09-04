@@ -147,6 +147,7 @@ describe('podium update helpers', () => {
 describe('podium update swap crash-safety', () => {
   let work: string
   let server: Server | undefined
+  const savedState = process.env.PODIUM_STATE_DIR
   const savedHome = process.env.PODIUM_HOME
   const savedExit = process.exitCode
 
@@ -157,6 +158,8 @@ describe('podium update swap crash-safety', () => {
   afterEach(() => {
     server?.close()
     server = undefined
+    if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = savedState
     if (savedHome === undefined) delete process.env.PODIUM_HOME
     else process.env.PODIUM_HOME = savedHome
     process.exitCode = savedExit
@@ -243,6 +246,7 @@ describe('podium update swap crash-safety', () => {
     writeFileSync(join(dir, 'VERSION'), `${version}\n`)
     writeFileSync(join(dir, 'podium'), '#!/bin/sh\n')
     process.env.PODIUM_HOME = dir
+    process.env.PODIUM_STATE_DIR = join(dir, '..', 'state')
     return dir
   }
 

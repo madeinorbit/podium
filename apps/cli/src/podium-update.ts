@@ -19,12 +19,19 @@
  * is left untouched. (The desktop AppImage path uses a separate Tauri minisign keypair.)
  */
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdtempSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { compareVersions, isProvablyNewer, platformTargetFor } from '@podium/protocol'
 import { resolveInstallDir, resolveUpdateTarget } from '@podium/runtime/config'
 import { instanceServiceName, resolveInstanceId } from '@podium/runtime/instance'
-import { PODIUM_UPDATE_PUBKEY, verifyTarball } from '@podium/runtime/update-delivery'
+import { PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
+import { MachineUpdateExecutor } from '@podium/runtime/machine-update'
+import {
+  createHeadlessMachineUpdateAdapter,
+  installedArtifactDigest,
+} from '@podium/runtime/machine-update-headless'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
+import { stateDir } from '@podium/runtime/config'
 
 export type SystemctlExec = (command: string, args: string[]) => string
 
@@ -194,58 +201,61 @@ export async function runUpdate(
     return
   }
   console.log(`[podium update] updating ${cur} → ${version}`)
-  // Stage on the install dir's OWN filesystem (a sibling temp dir), NOT tmpdir(): /tmp is
-  // frequently tmpfs / a different device, which would make the final swap rename throw EXDEV
-  // AFTER the old install was already moved to `.old` — bricking the install with no rollback.
-  // A sibling temp dir guarantees the final rename is a same-device atomic operation.
-  const tmp = mkdtempSync(join(dirname(dir), '.podium-update-'))
-  try {
-    const tarball = join(tmp, 'bundle.tar.gz')
-    const dl = await fetch(url)
-    if (!dl.ok) throw new Error(`artifact download returned ${dl.status}`)
-    const bytes = new Uint8Array(await dl.arrayBuffer())
-    // SECURITY GATE: verify the manifest's Ed25519 signature over the EXACT downloaded
-    // bytes against the committed pubkey BEFORE extracting or touching the install. A
-    // tampered/unsigned tarball is rejected here — fail closed, never swap.
-    if (!verifyTarball(bytes, signature, pubkeyB64)) {
-      console.error(
-        '[podium update] signature verification FAILED — refusing to install. ' +
-          'The tarball was not signed by the trusted Podium update key (tampered, ' +
-          'corrupt, or wrong feed). No changes were made.',
-      )
-      process.exitCode = 1
-      return
-    }
-    writeFileSync(tarball, bytes)
-    // Extract into a staging dir, then atomically swap the install dir in place.
-    const staged = join(tmp, 'staged')
-    execFileSync('mkdir', ['-p', staged])
-    execFileSync('tar', ['-xzf', tarball, '-C', staged])
-    const newRoot = join(staged, 'headless')
-    if (!existsSync(newRoot)) throw new Error('tarball did not contain a headless/ dir')
-    const backup = `${dir}.old`
-    rmSync(backup, { recursive: true, force: true })
-    // Both `dir` and `newRoot` live on the same filesystem (sibling temp dir), so each rename is
-    // an atomic same-device operation. If the second rename still fails for any reason, roll the
-    // backup back into place so the install dir is never left missing.
-    renameSync(dir, backup)
-    try {
-      renameSync(newRoot, dir)
-    } catch (err) {
-      renameSync(backup, dir)
-      throw err
-    }
-    // Retain `.old` until a supervising parent declares the new version healthy
-    // (spec §8 disposition 4). Standalone CLI users keep it for manual rollback.
-    console.log(`[podium update] updated to ${version}; restart podium to apply`)
-    if (reviveJanitor()) {
-      console.log(`[podium update] restarted compatibility-blocked janitor`)
-    }
-    // Exit 10 = "actually updated" (distinct from 0 = already current, 1 = failure). The
-    // systemd update timer keys off this code to restart the daemon only on a real swap;
-    // compatibility-blocked janitors need the explicit reset/start above.
-    process.exitCode = 10
-  } finally {
-    rmSync(tmp, { recursive: true, force: true })
+  const runtimeDir = join(stateDir(), 'runtime')
+  const grant = {
+    type: 'updateGrant' as const,
+    grantId: `cli-${crypto.randomUUID()}`,
+    issuedAt: Date.now(),
+    target: {
+      version,
+      critical: false,
+      trust: 'release' as const,
+      artifacts: {
+        headless: {
+          delivery: 'feed' as const,
+          platforms: {
+            [target]: {
+              url,
+              signature,
+              digest: `signature:${signature}`,
+            },
+          },
+        },
+      },
+    },
   }
+  if (existsSync(join(runtimeDir, 'machine-update-control.json'))) {
+    await requestMachineUpdate(runtimeDir, '/grant', grant)
+    console.log(`[podium update] supervisor accepted ${version}; use podium status for progress`)
+    return
+  }
+  // An unconfigured legacy installation has no persistent parent yet. This
+  // command is its one-shot supervisor, using exactly the same journal and
+  // verified installer. Preserve its explicit manual-restart contract.
+  const executor = new MachineUpdateExecutor({
+    runtimeDir,
+    adapter: createHeadlessMachineUpdateAdapter({
+      installDir: dir,
+      runningVersion: cur,
+      runningDigest: installedArtifactDigest(dir),
+      caps: ['update.delivery.feed'],
+      platform: target,
+      pubkey: pubkeyB64,
+      pinnedPubkey: () => undefined,
+      restart: async () => 'handover-pending',
+    }),
+    report: (status) => {
+      if (status.detail) console.error(`[podium update] ${status.detail}`)
+    },
+  })
+  await executor.accept(grant)
+  const result = executor.snapshot()
+  if (result?.phase !== 'restarting' && result?.phase !== 'current') {
+    process.exitCode = 1
+    if (result?.detail?.includes('signature verification')) return
+    throw new Error(result?.detail ?? 'The supervisor could not install the update.')
+  }
+  console.log(`[podium update] updated to ${version}; restart podium to apply`)
+  if (reviveJanitor()) console.log('[podium update] restarted compatibility-blocked janitor')
+  process.exitCode = 10
 }

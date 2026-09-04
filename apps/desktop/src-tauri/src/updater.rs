@@ -602,47 +602,151 @@ fn progress_after_chunk(
     })
 }
 
+fn supervisor_control(path: &str, body: Option<&serde_json::Value>) -> Result<serde_json::Value, UpdateError> {
+    use std::io::{Read, Write};
+    let endpoint_path = crate::bootstrap::state_dir().join("runtime/machine-update-control.json");
+    let endpoint: serde_json::Value = serde_json::from_slice(&std::fs::read(endpoint_path).map_err(|_| UpdateError::updater_unavailable())?)
+        .map_err(|_| UpdateError::updater_unavailable())?;
+    let socket = endpoint["socketPath"].as_str().ok_or_else(UpdateError::updater_unavailable)?;
+    let token = endpoint["token"].as_str().ok_or_else(UpdateError::updater_unavailable)?;
+    #[cfg(unix)]
+    let mut stream = {
+        let stream = std::os::unix::net::UnixStream::connect(socket).map_err(|_| UpdateError::updater_unavailable())?;
+        stream.set_read_timeout(Some(std::time::Duration::from_secs(30))).ok();
+        stream.set_write_timeout(Some(std::time::Duration::from_secs(30))).ok();
+        stream
+    };
+    #[cfg(windows)]
+    let mut stream = std::fs::OpenOptions::new().read(true).write(true).open(socket).map_err(|_| UpdateError::updater_unavailable())?;
+    let payload = body.map(|value| value.to_string()).unwrap_or_default();
+    let method = if body.is_some() { "POST" } else { "GET" };
+    write!(stream, "{method} {path} HTTP/1.1\r\nHost: localhost\r\nAuthorization: Bearer {token}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{payload}", payload.len())
+        .map_err(|_| UpdateError::updater_unavailable())?;
+    let mut response = String::new();
+    stream.read_to_string(&mut response).map_err(|_| UpdateError::updater_unavailable())?;
+    let (headers, data) = response.split_once("\r\n\r\n").ok_or_else(UpdateError::updater_unavailable)?;
+    if !headers.starts_with("HTTP/1.1 2") { return Err(UpdateError::new(UpdateErrorCode::InstallFailed, data)); }
+    // Node emits Content-Length for these one-shot JSON responses.
+    serde_json::from_str(data).map_err(|_| UpdateError::updater_unavailable())
+}
+
+pub fn native_installed_digest() -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(&std::fs::read(crate::bootstrap::state_dir().join("runtime/native-installed.json")).ok()?).ok()?;
+    if value["version"].as_str()? != env!("CARGO_PKG_VERSION") { return None; }
+    value["digest"].as_str().map(str::to_string)
+}
+
 async fn download_and_install_with_progress<F>(
     app: &AppHandle,
     update: &Update,
+    channel: UpdateChannel,
     report: F,
 ) -> Result<(), UpdateError>
 where
     F: Fn(UpdateProgress) + Clone,
 {
+    static EXECUTING: AtomicBool = AtomicBool::new(false);
+    if EXECUTING.compare_exchange(false, true, Ordering::AcqRel, Ordering::Acquire).is_err() { return Err(UpdateError::install_failed()); }
+    struct ExecutionGuard;
+    impl Drop for ExecutionGuard { fn drop(&mut self) { EXECUTING.store(false, Ordering::Release); } }
+    let _guard = ExecutionGuard;
+    let runtime = crate::bootstrap::state_dir().join("runtime");
+    let artifact = runtime.join("native-update-artifact");
     let started = Instant::now();
-    let state = Arc::new(Mutex::new(ProgressState::default()));
-    let chunk_state = state.clone();
-    let chunk_report = report.clone();
-    let finish_state = state;
-    let install = begin_install_for_app(app, || {
-        update.download_and_install(
-            move |chunk, total| {
-                let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                let progress = chunk_state
-                    .lock()
-                    .ok()
-                    .and_then(|mut state| progress_after_chunk(&mut state, chunk, total, now_ms));
-                if let Some(progress) = progress {
-                    chunk_report(progress);
+    let issued_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis() as u64;
+    let grant_id = format!("native-{}-{issued_at}", std::process::id());
+    let native = serde_json::json!({ "url": update.download_url.as_str(), "signature": update.signature, "version": update.version, "channel": channel.as_str() });
+    let grant = serde_json::json!({
+        "type": "updateGrant", "grantId": grant_id, "issuedAt": issued_at,
+        "target": { "version": update.version, "critical": false,
+            "native": native,
+            "artifacts": { "desktop": { "delivery": "feed", "platforms": {
+                "native": { "url": update.download_url.as_str(), "signature": update.signature, "digest": "native-signature-verified" }
+            } } }
+        }
+    });
+    let previous = supervisor_control("/status", None)?;
+    let resuming = previous["grant"]["target"]["native"] == native
+        && matches!(previous["phase"].as_str(), Some("accepted" | "downloading" | "prepared" | "activating" | "restarting"));
+    if !resuming { supervisor_control("/grant", Some(&grant))?; }
+    let mut downloaded: Option<Vec<u8>> = None;
+    loop {
+        let command = supervisor_control("/native/work", None)?;
+        if command.is_null() {
+            let state = supervisor_control("/status", None)?;
+            if matches!(state["phase"].as_str(), Some("rejected" | "stuck" | "canceled")) {
+                return Err(UpdateError::new(UpdateErrorCode::InstallFailed, state["detail"].as_str().unwrap_or("Supervisor update failed.")));
+            }
+            std::thread::sleep(std::time::Duration::from_millis(100));
+            continue;
+        }
+        if command["grant"]["target"]["native"] != native {
+            return Err(UpdateError::update_target_changed(&update.version, command["grant"]["target"]["version"].as_str().unwrap_or("unknown")));
+        }
+        let id = command["id"].as_str().ok_or_else(UpdateError::updater_unavailable)?;
+        let outcome: Result<(), UpdateError> = match command["kind"].as_str() {
+            Some("prepare") => {
+                let state = Arc::new(Mutex::new(ProgressState::default()));
+                let chunk_state = state.clone();
+                let chunk_report = report.clone();
+                let bytes = begin_install_for_app(app, || update.download(
+                    move |chunk, total| {
+                        let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
+                        if let Some(progress) = chunk_state.lock().ok().and_then(|mut state| progress_after_chunk(&mut state, chunk, total, now_ms)) { chunk_report(progress); }
+                    }, || {},
+                ))?.await.map_err(|error| update_error(&error, Some(&update.download_url)));
+                match bytes {
+                    Ok(bytes) => {
+                        use std::io::Write;
+                        let saved = (|| -> std::io::Result<()> {
+                            let mut file = std::fs::File::create(&artifact)?;
+                            file.write_all(&bytes)?; file.sync_all()
+                        })();
+                        downloaded = Some(bytes);
+                        saved.map_err(|_| UpdateError::install_failed())
+                    }
+                    Err(error) => Err(error),
                 }
-            },
-            move || {
-                let progress = finish_state.lock().ok().map(|state| UpdateProgress {
-                    phase: UpdatePhase::Installing,
-                    received: state.received,
-                    total: state.total,
-                    percent: progress_percent(state.received, state.total),
-                });
-                if let Some(progress) = progress {
-                    report(progress);
-                }
-            },
-        )
-    })?;
-    install
-        .await
-        .map_err(|error| update_error(&error, Some(&update.download_url)))
+            }
+            Some("activate") => {
+                report(UpdateProgress { phase: UpdatePhase::Installing, received: downloaded.as_ref().map(|b| b.len() as u64).unwrap_or(0), total: None, percent: None });
+                let bytes = downloaded.take().or_else(|| std::fs::read(&artifact).ok()).ok_or_else(UpdateError::no_pending_update)?;
+                update.install(bytes).map_err(|error| update_error(&error, Some(&update.download_url)))
+            }
+            Some("restart") => {
+                let state = supervisor_control("/status", None)?;
+                let receipt = serde_json::json!({ "version": update.version, "digest": state["prepared"]["digest"] });
+                std::fs::write(runtime.join("native-installed.json"), receipt.to_string()).map_err(|_| UpdateError::install_failed())?;
+                // Do not acknowledge restart in the old shell: only its successor can
+                // confirm the running version and the supervisor's durable receipt.
+                app.restart();
+            }
+            _ => Err(UpdateError::updater_unavailable()),
+        };
+        let result = match &outcome { Ok(()) => serde_json::json!({ "id": id }), Err(error) => serde_json::json!({ "id": id, "error": error.message }) };
+        supervisor_control("/native/result", Some(&result))?;
+        outcome?;
+    }
+}
+
+/// Resume only the durable exact target; a newer feed is used solely to construct
+/// the native plugin's configured verifier, never as fresh install authority.
+pub async fn resume_supervisor_update(app: AppHandle) {
+    let path = crate::bootstrap::state_dir().join("runtime/machine-update.json");
+    let state: serde_json::Value = match std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok()) { Some(value) => value, None => return };
+    if !matches!(state["phase"].as_str(), Some("accepted" | "downloading" | "prepared" | "activating" | "restarting")) { return; }
+    let native = &state["grant"]["target"]["native"];
+    let Some(version) = native["version"].as_str() else { return };
+    if version == env!("CARGO_PKG_VERSION") && native_installed_digest().is_some() { return; }
+    let Some(channel_name) = native["channel"].as_str() else { return };
+    let Ok(channel) = channel_from_name(channel_name) else { return };
+    let Ok(updater) = updater_for_channel(&app, channel) else { return };
+    let Ok(Some(mut update)) = updater.check().await else { log::warn!("native recovery is waiting for its verifier configuration"); return };
+    let Some(url) = native["url"].as_str().and_then(|url| tauri::Url::parse(url).ok()) else { return };
+    let Some(signature) = native["signature"].as_str() else { return };
+    update.version = version.to_string(); update.download_url = url; update.signature = signature.to_string();
+    let progress_app = app.clone();
+    if let Err(error) = download_and_install_with_progress(&app, &update, channel, move |progress| emit_update_progress(&progress_app, progress)).await { log::error!("native supervisor recovery: {}", error.message); }
 }
 
 fn emit_update_progress(app: &AppHandle, progress: UpdateProgress) {
@@ -836,7 +940,7 @@ pub async fn install_update(
     refuse_target_drift(expected_version.as_deref(), &update.version)?;
 
     let progress_app = app.clone();
-    download_and_install_with_progress(&app, &update, move |progress| {
+    download_and_install_with_progress(&app, &update, channel, move |progress| {
         emit_update_progress(&progress_app, progress);
     })
     .await?;
@@ -897,7 +1001,7 @@ pub async fn check_and_prompt_update(app: AppHandle, persisted_channel: Option<U
     }
 
     let title_app = app.clone();
-    if let Err(error) = download_and_install_with_progress(&app, &update, move |progress| {
+    if let Err(error) = download_and_install_with_progress(&app, &update, channel, move |progress| {
         set_native_progress_title(&title_app, progress);
     })
     .await

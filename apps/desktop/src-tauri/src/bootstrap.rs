@@ -717,7 +717,7 @@ pub fn initialize_update_channel(
 
 /// PURE resolver: map (mode, serverUrl) → the launch action.
 ///
-/// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
+/// - `client` + serverUrl  → LocalSupervisor (zero-child parent, window → remote)
 /// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
 ///
 /// `ui_url` rides along on the two remote actions rather than deciding any of them: under
@@ -736,7 +736,7 @@ pub fn resolve_launch(
 ) -> LaunchAction {
     let ui_url = ui_url.filter(|url| !url.is_empty()).map(str::to_string);
     match (mode, server_url) {
-        (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::ClientOnly {
+        (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::LocalSupervisor {
             server_url: url.to_string(),
             ui_url,
         },
@@ -1917,10 +1917,10 @@ mod tests {
     }
 
     #[test]
-    fn resolve_launch_client_with_url_is_client_only() {
+    fn resolve_launch_client_with_url_owns_a_supervisor() {
         assert_eq!(
             resolve_launch(Some("client"), Some("ws://h:1"), None),
-            LaunchAction::ClientOnly {
+            LaunchAction::LocalSupervisor {
                 server_url: "ws://h:1".to_string(),
                 ui_url: None,
             }
@@ -1999,7 +1999,7 @@ mod tests {
                 Some("wss://api.meetpodium.com"),
                 Some("https://app.meetpodium.com")
             ),
-            LaunchAction::ClientOnly {
+            LaunchAction::LocalSupervisor {
                 server_url: "wss://api.meetpodium.com".to_string(),
                 ui_url: Some("https://app.meetpodium.com".to_string()),
             }
@@ -2021,7 +2021,7 @@ mod tests {
     fn resolve_launch_treats_an_empty_ui_url_as_absent() {
         assert_eq!(
             resolve_launch(Some("client"), Some("wss://api.example"), Some("")),
-            LaunchAction::ClientOnly {
+            LaunchAction::LocalSupervisor {
                 server_url: "wss://api.example".to_string(),
                 ui_url: None,
             }

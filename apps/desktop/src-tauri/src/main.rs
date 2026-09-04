@@ -265,6 +265,8 @@ fn local_host_sidecar_command(
             mobile_web_dir.to_string_lossy().to_string(),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
+        .env("PODIUM_DESKTOP_VERSION", env!("CARGO_PKG_VERSION"))
+        .env("PODIUM_DESKTOP_ARTIFACT_DIGEST", crate::updater::native_installed_digest().unwrap_or_default())
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
@@ -288,6 +290,8 @@ fn remote_parent_command(
                 .join(".desktop-successor-pid"),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
+        .env("PODIUM_DESKTOP_VERSION", env!("CARGO_PKG_VERSION"))
+        .env("PODIUM_DESKTOP_ARTIFACT_DIGEST", crate::updater::native_installed_digest().unwrap_or_default())
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
@@ -1472,6 +1476,7 @@ fn main() {
             // Only the server URL can stop the launch.
             let server_transport_error = match &action {
                 bootstrap::LaunchAction::LocalDaemon { server_url, .. }
+                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. }
                 | bootstrap::LaunchAction::ClientOnly { server_url, .. } => {
                     bootstrap::validate_server_transport(server_url).err()
                 }
@@ -2277,6 +2282,8 @@ fn main() {
                             let _ = std::fs::create_dir_all(&state_dir);
                             let _ = std::fs::write(path, if native { "native" } else { "page" });
                         }
+                        let recovery_handle = updater_handle.clone();
+                        tauri::async_runtime::spawn(async move { crate::updater::resume_supervisor_update(recovery_handle).await; });
                         if native {
                             crate::updater::check_and_prompt_update(
                                 updater_handle,

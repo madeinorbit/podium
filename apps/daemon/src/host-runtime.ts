@@ -12,7 +12,13 @@ import {
   resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
-import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  type MachineId,
+  type SessionId,
+} from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
@@ -63,6 +69,8 @@ import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
 import { createGrantRunner } from './grant-apply'
+import { readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import { requestMachineUpdate } from '@podium/runtime/machine-update-control'
 import { ensurePodiumGrokHooks } from './grok-hooks'
 import { sweepHandoffStage } from './handoff-package'
 import { DaemonHarnessRuntime } from './harness-runtime'
@@ -564,6 +572,10 @@ export async function createDaemonHostRuntime(args: {
     process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
 
   const reconcilePendingUpdate = (): string | undefined => {
+    if (process.env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor') {
+      const update = readMachineUpdateJournal(instance.runtimeDir)
+      return update?.grant.target.version === build.appVersion ? build.appVersion : undefined
+    }
     if (parentHasServer) return
     const pending = readPendingGrant(instance.runtimeDir)
     if (!pending) return
@@ -754,6 +766,8 @@ export async function createDaemonHostRuntime(args: {
     now: Date.now,
   })
   const applyUpdateGrant = (grant: Extract<ControlMessage, { type: 'updateGrant' }>) => {
+    if (process.env.PODIUM_MACHINE_UPDATE_OWNER === 'supervisor')
+      return requestMachineUpdate(instance.runtimeDir, '/grant', grant).then(() => undefined)
     if (!parentHasServer) return grantRunner.apply(grant)
     send({
       type: 'updateStatus',

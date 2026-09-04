@@ -44,9 +44,16 @@ import {
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
-import { writePendingGrant } from '@podium/runtime/update-pending'
-import { createGrantRunner } from '@podium/runtime/update-participant'
-import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
+import { MachineUpdateExecutor, readMachineUpdateJournal } from '@podium/runtime/machine-update'
+import {
+  createHeadlessMachineUpdateAdapter,
+  installedArtifactDigest,
+} from '@podium/runtime/machine-update-headless'
+import {
+  NativeMachineUpdateAdapter,
+  withNativeMachineUpdates,
+} from '@podium/runtime/machine-update-native'
+import { startMachineUpdateControl } from '@podium/runtime/machine-update-control'
 import {
   createMachineSupervisorConnection,
   effectiveAssignment,
@@ -1578,11 +1585,19 @@ export async function main(
        */
       const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
       const installDir = resolveInstallDir(process.env)
+      const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+      const runningDigest = installedArtifactDigest(installDir)
+      const runtimeDir = join(stateDir(), 'runtime')
+      const pendingUpdate = readMachineUpdateJournal(runtimeDir)
+      let updateControl: Awaited<ReturnType<typeof startMachineUpdateControl>> | undefined
       let supervisorConnection: ReturnType<typeof createMachineSupervisorConnection> | undefined
       const parent = new ParentProcess({
         port: plan.port,
         children,
+        runningIdentity: { version: appVersion, digest: runningDigest },
+        releaseHadMigrations: pendingUpdate?.prepared?.releaseHadMigrations,
         childEnv: () => ({
+          PODIUM_MACHINE_UPDATE_OWNER: 'supervisor',
           PODIUM_SUPERVISOR_MACHINE_ID: supervisorState.machineId,
           PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT: JSON.stringify(configuredAssignment),
           ...(supervisorState.token
@@ -1640,6 +1655,7 @@ export async function main(
         },
         onExit: async () => {
           supervisorConnection?.close()
+          await updateControl?.close()
           await parentLogging.close().catch(() => {})
         },
         reportSuccessorPid: (pid) => {
@@ -1682,33 +1698,42 @@ export async function main(
           process.exit(1)
         }
       }
-      const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
       const desktopManaged = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
       const installedPayload = compiled || process.env.PODIUM_HOME !== undefined
-      const deliveryCaps = desktopManaged || !installedPayload ? [] : ['update.delivery.feed']
+      const deliveryCaps = !installedPayload ? [] : ['update.delivery.feed']
       const machineServerUrl = children.includes('server')
         ? localServerWsUrl(plan.port)
         : config.serverUrl
       if (!machineServerUrl) {
         throw new Error('machine supervisor has no coordinating server URL')
       }
-      const updateRunner = createGrantRunner({
-        currentVersion: () => appVersion,
+      const nativeAdapter = desktopManaged
+        ? new NativeMachineUpdateAdapter({
+            runtimeDir,
+            version: process.env.PODIUM_DESKTOP_VERSION ?? appVersion,
+            digest: process.env.PODIUM_DESKTOP_ARTIFACT_DIGEST || undefined,
+          })
+        : undefined
+      const payloadAdapter = createHeadlessMachineUpdateAdapter({
+        installDir,
+        runningVersion: appVersion,
+        runningDigest,
         caps: deliveryCaps,
-        installTarget: (target) =>
-          requestParentSwap({
-            expectedVersion: target.version,
-            target: target as unknown as Record<string, unknown>,
-            ...(supervisorState.updatePubkey ? { pinnedPubkey: supervisorState.updatePubkey } : {}),
-          }),
-        writePending: (pending) => writePendingGrant(join(stateDir(), 'runtime'), pending),
-        restart: (expectedVersion, handover) => {
-          const result = requestParentHandover({ expectedVersion, ...handover })
-          if (!result.ok) throw new Error('machine-cannot-restart: no supervising parent')
+        pinnedPubkey: () => supervisorState.updatePubkey,
+        restart: async (grant, prepared) => {
+          parent.setUpdateMigrationKnowledge(prepared.releaseHadMigrations)
+          await parent.handover(grant.target.version)
         },
-        report: (status) => supervisorConnection?.send(status),
-        now: Date.now,
       })
+      const updateRunner = new MachineUpdateExecutor({
+        runtimeDir,
+        adapter: nativeAdapter
+          ? withNativeMachineUpdates(payloadAdapter, nativeAdapter)
+          : payloadAdapter,
+        report: (status) => supervisorConnection?.send(status),
+        log: (phase, fields) => console.error('[machine update]', phase, JSON.stringify(fields)),
+      })
+      await updateRunner.recoverBeforeBoot()
       supervisorConnection = createMachineSupervisorConnection({
         serverUrl: machineServerUrl,
         stateDir: stateDir(),
@@ -1733,8 +1758,18 @@ export async function main(
           configuredAssignment = assignment
         },
         onGrant: (grant) => {
-          void updateRunner.apply(grant)
+          void updateRunner.accept(grant).catch((error) =>
+            supervisorConnection?.send({
+              type: 'updateStatus',
+              grantId: grant.grantId,
+              targetVersion: grant.target.version,
+              version: appVersion,
+              state: 'rejected',
+              detail: String(error),
+            }),
+          )
         },
+        onConnected: () => updateRunner.replay(),
         onPaired: () => {
           if (!config.pairCode) return
           try {
@@ -1747,7 +1782,18 @@ export async function main(
         await supervisorConnection.waitUntilConnected()
       }
       console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
+      if (
+        pendingUpdate &&
+        !pendingUpdate.grant.target.native &&
+        ['activating', 'restarting'].includes(pendingUpdate.phase) &&
+        (appVersion !== pendingUpdate.grant.target.version ||
+          runningDigest !== pendingUpdate.prepared?.digest)
+      ) {
+        await updateRunner.confirmBoot(true)
+      }
       await parent.start()
+      updateControl = await startMachineUpdateControl(runtimeDir, updateRunner, nativeAdapter)
+      await updateRunner.confirmBoot(parent.isBootHealthy())
       // Health-gated unit retirement: only the NEW parent proving healthy may
       // shed leftover units. A failed gate aborts onto the still-armed legacy set.
       // Skip when this parent is not a managed install (foreground tests, desktop).
