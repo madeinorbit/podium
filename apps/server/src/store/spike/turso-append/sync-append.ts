@@ -24,10 +24,10 @@
  * are here because the number the prefetch design needs is the DIFFERENCE.
  */
 
-import { and, asc, eq, gt, sql } from 'drizzle-orm'
+import { and, asc, eq, getTableName, gt, sql } from 'drizzle-orm'
 import type { LibSQLDatabase } from 'drizzle-orm/libsql'
 import type { DriverSession, SqlParam, Statement } from '../../executor/driver'
-import { changeLatest, changes } from './schema'
+import type { SpikeTables } from './schema'
 
 /**
  * The drizzle instance is a QUERY BUILDER here and never an executor.
@@ -155,7 +155,12 @@ function statement(
  * `lastInsertRowid` that arrives over hrana is this connection's last insert or
  * the database's, because those differ the moment a second client writes.
  */
-function insertChunk(db: QueryDb, chunk: readonly ChangeWriteRow[], eventTime: number): Statement {
+function insertChunk(
+  db: QueryDb,
+  tables: SpikeTables,
+  chunk: readonly ChangeWriteRow[],
+  eventTime: number,
+): Statement {
   const values = chunk.map((row) => ({
     entity: row.entity,
     entityId: row.entityId,
@@ -163,7 +168,7 @@ function insertChunk(db: QueryDb, chunk: readonly ChangeWriteRow[], eventTime: n
     payload: row.payload,
     eventTime,
   }))
-  return statement(db.insert(changes).values(values), 'run', 'write')
+  return statement(db.insert(tables.changes).values(values), 'run', 'write')
 }
 
 /**
@@ -178,6 +183,7 @@ function insertChunk(db: QueryDb, chunk: readonly ChangeWriteRow[], eventTime: n
  */
 function latestStatements(
   db: QueryDb,
+  tables: SpikeTables,
   chunk: readonly ChangeWriteRow[],
   firstSeq: number,
 ): Statement[] {
@@ -190,7 +196,7 @@ function latestStatements(
     // never showed it once a corrupt row landed on top.
     if (row.op === 'upsert' && row.payload !== null) {
       const insert = db
-        .insert(changeLatest)
+        .insert(tables.changeLatest)
         .values({
           entity: row.entity,
           entityId: row.entityId,
@@ -198,14 +204,19 @@ function latestStatements(
           payload: row.payload,
         })
         .onConflictDoUpdate({
-          target: [changeLatest.entity, changeLatest.entityId],
+          target: [tables.changeLatest.entity, tables.changeLatest.entityId],
           set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
         })
       out.push(statement(insert, 'run', 'write'))
     } else {
       const remove = db
-        .delete(changeLatest)
-        .where(and(eq(changeLatest.entity, row.entity), eq(changeLatest.entityId, row.entityId)))
+        .delete(tables.changeLatest)
+        .where(
+          and(
+            eq(tables.changeLatest.entity, row.entity),
+            eq(tables.changeLatest.entityId, row.entityId),
+          ),
+        )
       out.push(statement(remove, 'run', 'write'))
     }
   }
@@ -241,6 +252,7 @@ export interface AppendOptions {
 export async function appendChangesLiteral(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
   rows: readonly ChangeWriteRow[],
   eventTime: number,
   options: AppendOptions = {},
@@ -252,11 +264,11 @@ export async function appendChangesLiteral(
     let chunkIndex = 0
     for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
       const chunk = rows.slice(start, start + CHUNK_SIZE)
-      const result = await session.execute(insertChunk(db, chunk, eventTime))
+      const result = await session.execute(insertChunk(db, tables, chunk, eventTime))
       if (!result.run) throw new Error('driver returned no run result for the change insert')
       const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
       for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-      for (const s of latestStatements(db, chunk, first)) await session.execute(s)
+      for (const s of latestStatements(db, tables, chunk, first)) await session.execute(s)
       await options.afterChunk?.(chunkIndex)
       chunkIndex += 1
     }
@@ -280,6 +292,7 @@ export async function appendChangesLiteral(
 export async function appendChangesBatched(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
   rows: readonly ChangeWriteRow[],
   eventTime: number,
   options: AppendOptions = {},
@@ -291,11 +304,11 @@ export async function appendChangesBatched(
     let chunkIndex = 0
     for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
       const chunk = rows.slice(start, start + CHUNK_SIZE)
-      const [result] = await session.executeBatch([insertChunk(db, chunk, eventTime)])
+      const [result] = await session.executeBatch([insertChunk(db, tables, chunk, eventTime)])
       if (!result?.run) throw new Error('driver returned no run result for the change insert')
       const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
       for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-      await session.executeBatch(latestStatements(db, chunk, first))
+      await session.executeBatch(latestStatements(db, tables, chunk, first))
       await options.afterChunk?.(chunkIndex)
       chunkIndex += 1
     }
@@ -333,6 +346,7 @@ export async function appendChangesBatched(
 export async function appendChangesNested(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
   rows: readonly ChangeWriteRow[],
   eventTime: number,
   savepoint: string,
@@ -345,11 +359,11 @@ export async function appendChangesNested(
     let chunkIndex = 0
     for (let start = 0; start < rows.length; start += CHUNK_SIZE) {
       const chunk = rows.slice(start, start + CHUNK_SIZE)
-      const result = await session.execute(insertChunk(db, chunk, eventTime))
+      const result = await session.execute(insertChunk(db, tables, chunk, eventTime))
       if (!result.run) throw new Error('driver returned no run result for the change insert')
       const first = seqRangeFrom(result.run.lastInsertRowid, chunk.length)
       for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
-      for (const s of latestStatements(db, chunk, first)) await session.execute(s)
+      for (const s of latestStatements(db, tables, chunk, first)) await session.execute(s)
       await options.afterChunk?.(chunkIndex)
       chunkIndex += 1
     }
@@ -372,10 +386,18 @@ export async function appendChangesNested(
  * independently of what is retained. 0 means the table has never been inserted
  * into — SQLite does not create the row until the first insert.
  */
-export async function maxChangeSeq(session: DriverSession): Promise<number> {
+export async function maxChangeSeq(
+  session: DriverSession,
+  tables: SpikeTables,
+): Promise<number> {
+  // The name is read off the drizzle table rather than spelled again, so the
+  // lookup key and the table it asks about cannot drift apart [POD-3358]. This
+  // is the statement most easily forgotten when a namespace is introduced: it
+  // matches on a string LITERAL, so a stale one reads another run's counter and
+  // reports a plausible number rather than failing.
   const result = await session.execute({
-    sql: "SELECT seq FROM sqlite_sequence WHERE name = 'changes'",
-    params: [],
+    sql: 'SELECT seq FROM sqlite_sequence WHERE name = ?',
+    params: [getTableName(tables.changes)],
     method: 'get',
     intent: 'read',
   })
@@ -387,9 +409,12 @@ export async function maxChangeSeq(session: DriverSession): Promise<number> {
 }
 
 /** The lowest RETAINED seq, or null when the log is empty. */
-export async function minChangeSeq(session: DriverSession): Promise<number | null> {
+export async function minChangeSeq(
+  session: DriverSession,
+  tables: SpikeTables,
+): Promise<number | null> {
   const result = await session.execute({
-    sql: 'SELECT MIN(seq) AS seq FROM changes',
+    sql: `SELECT MIN(seq) AS seq FROM ${getTableName(tables.changes)}`,
     params: [],
     method: 'get',
     intent: 'read',
@@ -402,14 +427,15 @@ export async function minChangeSeq(session: DriverSession): Promise<number | nul
 export async function changesSince(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
   cursor: number,
   limit = 10_000,
 ): Promise<ChangeReadRow[]> {
   const query = db
     .select()
-    .from(changes)
-    .where(gt(changes.seq, cursor))
-    .orderBy(asc(changes.seq))
+    .from(tables.changes)
+    .where(gt(tables.changes.seq, cursor))
+    .orderBy(asc(tables.changes.seq))
     .limit(limit)
   const result = await session.execute(statement(query, 'all', 'read'))
   return result.rows.map(mapChangeRow)
@@ -426,8 +452,12 @@ export async function changesSince(
 export async function latestChangeStates(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
 ): Promise<ChangeReadRow[]> {
-  const query = db.select().from(changeLatest).orderBy(asc(changeLatest.seq))
+  const query = db
+    .select()
+    .from(tables.changeLatest)
+    .orderBy(asc(tables.changeLatest.seq))
   const result = await session.execute(statement(query, 'all', 'read'))
   return result.rows.map(mapLatestRow)
 }

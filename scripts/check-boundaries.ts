@@ -1959,6 +1959,10 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // latency table it prints IS its product, same category as the perf harnesses
   // above. It is a spike, not wired into the server, and nothing imports it.
   'apps/server/src/store/spike/turso-append/run-proofs.ts',
+  // The same spike's CONCURRENCY check (POD-3358). Its product is the two-arm
+  // verdict it prints — two runs at once, namespaced and then deliberately
+  // shared — which is evidence a human reads, not a log a service emits.
+  'apps/server/src/store/spike/turso-append/namespace-check.ts',
 ])
 
 /**

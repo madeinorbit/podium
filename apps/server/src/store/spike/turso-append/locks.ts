@@ -17,7 +17,7 @@
 
 import { and, eq } from 'drizzle-orm'
 import type { DriverSession, SqlParam, Statement } from '../../executor/driver'
-import { locks } from './schema'
+import type { SpikeTables } from './schema'
 import type { QueryDb } from './sync-append'
 
 export interface LockRequest {
@@ -74,9 +74,11 @@ function statement(
 export async function acquireLock(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
   request: LockRequest,
   now: string,
 ): Promise<LockOutcome> {
+  const { locks } = tables
   await session.begin('write')
   try {
     const read = await session.execute(
@@ -138,9 +140,11 @@ export async function acquireLock(
 export async function readLock(
   session: DriverSession,
   db: QueryDb,
+  tables: SpikeTables,
   repoId: string,
   name: string,
 ): Promise<string | undefined> {
+  const { locks } = tables
   const result = await session.execute(
     statement(
       db

@@ -20,6 +20,7 @@ import { startLocalServer } from './backend'
 import { normalizeTursoUrl, remoteBackend } from './client'
 import { openSlice, type Slice, upsertRows } from './fixture'
 import { acquireLock, readLock } from './locks'
+import { acquireRunLease, refusalBanner, sweepAbandonedNamespaces } from './run-lease'
 import {
   appendChangesBatched,
   appendChangesLiteral,
@@ -41,22 +42,22 @@ function line(label: string, value: unknown): void {
 async function proofContiguousAcrossChunks(slice: Slice): Promise<void> {
   console.log('\nPROOF 1 — contiguous seqs across chunks (250 rows = 3 chunks)')
   const seqs = await slice.withSession((s) =>
-    appendChangesLiteral(s, slice.db, upsertRows(250, 'a'), 1_000),
+    appendChangesLiteral(s, slice.db, slice.tables, upsertRows(250, 'a'), 1_000),
   )
   line('rows appended', seqs.length)
   line('first / last seq', `${seqs[0]} / ${seqs[seqs.length - 1]}`)
   line('contiguous from 1', contiguousFrom(seqs, 1))
   line('crosses chunk boundaries at', `${seqs[99]}→${seqs[100]}, ${seqs[199]}→${seqs[200]}`)
-  const head = await slice.withSession((s) => maxChangeSeq(s))
+  const head = await slice.withSession((s) => maxChangeSeq(s, slice.tables))
   line('sqlite_sequence head', head)
 }
 
 /** PROOF 2 — a second append continues contiguously from the first. */
 async function proofContinuesAcrossAppends(slice: Slice): Promise<void> {
   console.log('\nPROOF 2 — a later append continues from the head')
-  const before = await slice.withSession((s) => maxChangeSeq(s))
+  const before = await slice.withSession((s) => maxChangeSeq(s, slice.tables))
   const seqs = await slice.withSession((s) =>
-    appendChangesLiteral(s, slice.db, upsertRows(30, 'b'), 2_000),
+    appendChangesLiteral(s, slice.db, slice.tables, upsertRows(30, 'b'), 2_000),
   )
   line('head before', before)
   line('first seq of the new append', seqs[0])
@@ -78,15 +79,15 @@ async function proofRowidIsThisStatements(config: Parameters<typeof openSlice>[0
   const a = await openSlice(config, { reset: false })
   const b = await openSlice(config, { reset: false })
   try {
-    const head = await a.withSession((s) => maxChangeSeq(s))
+    const head = await a.withSession((s) => maxChangeSeq(s, a.tables))
     const seqsA = await a.withSession((s) =>
-      appendChangesLiteral(s, a.db, upsertRows(100, 'c'), 3_000),
+      appendChangesLiteral(s, a.db, a.tables, upsertRows(100, 'c'), 3_000),
     )
     const seqsB = await b.withSession((s) =>
-      appendChangesLiteral(s, b.db, upsertRows(50, 'd'), 3_000),
+      appendChangesLiteral(s, b.db, b.tables, upsertRows(50, 'd'), 3_000),
     )
     const seqsA2 = await a.withSession((s) =>
-      appendChangesLiteral(s, a.db, upsertRows(100, 'e'), 3_000),
+      appendChangesLiteral(s, a.db, a.tables, upsertRows(100, 'e'), 3_000),
     )
     line('head before', head)
     line('client A first range', `${seqsA[0]}..${seqsA[seqsA.length - 1]}`)
@@ -98,7 +99,7 @@ async function proofRowidIsThisStatements(config: Parameters<typeof openSlice>[0
       contiguousFrom(seqsA2, head + 150 + 1)
     line('every range contiguous and non-overlapping', contiguousOverall)
     // The rows each client believes it wrote must be the rows that are there.
-    const rows = await a.withSession((s) => changesSince(s, a.db, head))
+    const rows = await a.withSession((s) => changesSince(s, a.db, a.tables, head))
     const byEntity = new Map(rows.map((r) => [r.seq, r.entityId]))
     const aOk = seqsA.every((seq, i) => byEntity.get(seq) === `c${i}`)
     const bOk = seqsB.every((seq, i) => byEntity.get(seq) === `d${i}`)
@@ -124,11 +125,11 @@ async function proofRollbackUndoesCounter(config: Parameters<typeof openSlice>[0
   console.log('\nPROOF 4 — a throw mid-append rolls back the rows and the AUTOINCREMENT counter')
   const slice = await openSlice(config)
   try {
-    const headBefore = await slice.withSession((s) => maxChangeSeq(s))
+    const headBefore = await slice.withSession((s) => maxChangeSeq(s, slice.tables))
     let threw = false
     try {
       await slice.withSession((s) =>
-        appendChangesLiteral(s, slice.db, upsertRows(250, 'f'), 4_000, {
+        appendChangesLiteral(s, slice.db, slice.tables, upsertRows(250, 'f'), 4_000, {
           afterChunk: (i) => {
             if (i === 1) throw new Error('deliberate failure after the second chunk')
           },
@@ -137,9 +138,9 @@ async function proofRollbackUndoesCounter(config: Parameters<typeof openSlice>[0
     } catch {
       threw = true
     }
-    const headAfter = await slice.withSession((s) => maxChangeSeq(s))
-    const rows = await slice.withSession((s) => changesSince(s, slice.db, 0))
-    const world = await slice.withSession((s) => latestChangeStates(s, slice.db))
+    const headAfter = await slice.withSession((s) => maxChangeSeq(s, slice.tables))
+    const rows = await slice.withSession((s) => changesSince(s, slice.db, slice.tables, 0))
+    const world = await slice.withSession((s) => latestChangeStates(s, slice.db, slice.tables))
     line('append threw', threw)
     line('head before / after', `${headBefore} / ${headAfter}`)
     line('counter rolled back', headAfter === headBefore)
@@ -147,7 +148,7 @@ async function proofRollbackUndoesCounter(config: Parameters<typeof openSlice>[0
     line('rows in change_latest', world.length)
     // The next append must take the seqs the failed one would have.
     const seqs = await slice.withSession((s) =>
-      appendChangesLiteral(s, slice.db, upsertRows(5, 'g'), 5_000),
+      appendChangesLiteral(s, slice.db, slice.tables, upsertRows(5, 'g'), 5_000),
     )
     line('next append starts at', seqs[0])
     line('no seq was burned', seqs[0] === headBefore + 1)
@@ -175,19 +176,19 @@ async function proofRoundTrips(config: Parameters<typeof openSlice>[0]): Promise
     }
 
     await measure('append 100 rows, literal port', (s) =>
-      appendChangesLiteral(s, slice.db, upsertRows(100, 'h'), 6_000),
+      appendChangesLiteral(s, slice.db, slice.tables, upsertRows(100, 'h'), 6_000),
     )
     await measure('append 100 rows, batched', (s) =>
-      appendChangesBatched(s, slice.db, upsertRows(100, 'i'), 6_000),
+      appendChangesBatched(s, slice.db, slice.tables, upsertRows(100, 'i'), 6_000),
     )
     await measure('append 250 rows (3 chunks), literal port', (s) =>
-      appendChangesLiteral(s, slice.db, upsertRows(250, 'j'), 6_000),
+      appendChangesLiteral(s, slice.db, slice.tables, upsertRows(250, 'j'), 6_000),
     )
     await measure('append 250 rows (3 chunks), batched', (s) =>
-      appendChangesBatched(s, slice.db, upsertRows(250, 'k'), 6_000),
+      appendChangesBatched(s, slice.db, slice.tables, upsertRows(250, 'k'), 6_000),
     )
     await measure('append 1 row, literal port', (s) =>
-      appendChangesLiteral(s, slice.db, upsertRows(1, 'l'), 6_000),
+      appendChangesLiteral(s, slice.db, slice.tables, upsertRows(1, 'l'), 6_000),
     )
     // The read-decide-write contrast case: the transaction stays open across a
     // network round trip while the DECISION happens in the caller.
@@ -200,20 +201,20 @@ async function proofRoundTrips(config: Parameters<typeof openSlice>[0]): Promise
       expiresAt: '2099-01-01T00:00:00Z',
     }
     await measure('lock acquire, uncontended (read-decide-write)', (s) =>
-      acquireLock(s, slice.db, request, '2026-01-01T00:00:00Z'),
+      acquireLock(s, slice.db, slice.tables, request, '2026-01-01T00:00:00Z'),
     )
     await measure('lock acquire, refused (already held)', (s) =>
       acquireLock(
         s,
-        slice.db,
+        slice.db, slice.tables,
         { ...request, holderSessionId: 'session-b' },
         '2026-01-01T00:00:00Z',
       ),
     )
-    await measure('lock read', (s) => readLock(s, slice.db, 'repo', 'test:heavy'))
-    await measure('bootstrap read (change_latest fold)', (s) => latestChangeStates(s, slice.db))
-    await measure('head read (sqlite_sequence)', (s) => maxChangeSeq(s))
-    await measure('changesSince(0)', (s) => changesSince(s, slice.db, 0))
+    await measure('lock read', (s) => readLock(s, slice.db, slice.tables, 'repo', 'test:heavy'))
+    await measure('bootstrap read (change_latest fold)', (s) => latestChangeStates(s, slice.db, slice.tables))
+    await measure('head read (sqlite_sequence)', (s) => maxChangeSeq(s, slice.tables))
+    await measure('changesSince(0)', (s) => changesSince(s, slice.db, slice.tables, 0))
   } finally {
     await slice.close()
   }
@@ -242,9 +243,9 @@ async function proofRestartContinues(): Promise<void> {
     const slice = await openSlice(server.config)
     try {
       firstSeqs = await slice.withSession((s) =>
-        appendChangesLiteral(s, slice.db, upsertRows(120, 'm'), 7_000),
+        appendChangesLiteral(s, slice.db, slice.tables, upsertRows(120, 'm'), 7_000),
       )
-      head = await slice.withSession((s) => maxChangeSeq(s))
+      head = await slice.withSession((s) => maxChangeSeq(s, slice.tables))
     } finally {
       await slice.close()
     }
@@ -258,9 +259,9 @@ async function proofRestartContinues(): Promise<void> {
 
     const after = await openSlice(server.config, { reset: false })
     try {
-      const headAfter = await after.withSession((s) => maxChangeSeq(s))
+      const headAfter = await after.withSession((s) => maxChangeSeq(s, after.tables))
       const seqs = await after.withSession((s) =>
-        appendChangesLiteral(s, after.db, upsertRows(10, 'n'), 8_000),
+        appendChangesLiteral(s, after.db, after.tables, upsertRows(10, 'n'), 8_000),
       )
       line('head after the restart', headAfter)
       line('head survived', headAfter === head)
@@ -302,7 +303,7 @@ async function proofWriterContention(config: Parameters<typeof openSlice>[0]): P
     try {
       await holder.begin('write')
       await holder.execute({
-        sql: "INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ('issue','held','upsert','{}',9000)",
+        sql: `INSERT INTO ${a.prefix}changes (entity, entity_id, op, payload, event_time) VALUES ('issue','held','upsert','{}',9000)`,
         params: [],
         method: 'run',
         intent: 'write',
@@ -312,7 +313,7 @@ async function proofWriterContention(config: Parameters<typeof openSlice>[0]): P
       const contender = performance.now()
       try {
         secondSeqs = await b.withSession((s) =>
-          appendChangesLiteral(s, b.db, upsertRows(3, 'o'), 9_000),
+          appendChangesLiteral(s, b.db, b.tables, upsertRows(3, 'o'), 9_000),
         )
         waitedMs = performance.now() - contender
         outcome = 'SUCCEEDED'
@@ -342,7 +343,7 @@ async function proofWriterContention(config: Parameters<typeof openSlice>[0]): P
     line('total elapsed', `${(performance.now() - started).toFixed(0)} ms`)
 
     // Whatever happened above, the log itself must still be gap-free.
-    const rows = await a.withSession((s) => changesSince(s, a.db, 0))
+    const rows = await a.withSession((s) => changesSince(s, a.db, a.tables, 0))
     const seqs = rows.map((r) => r.seq)
     const gapFree = seqs.every((seq, i) => i === 0 || seq === (seqs[i - 1] as number) + 1)
     const unique = new Set(seqs).size === seqs.length
@@ -379,7 +380,7 @@ async function proofBatchAtomicityInsideTransaction(
     const tx = await slice.counted.client.transaction('write')
     try {
       const count = async (): Promise<number> => {
-        const r = await tx.execute('SELECT COUNT(*) AS n FROM changes')
+        const r = await tx.execute(`SELECT COUNT(*) AS n FROM ${slice.prefix}changes`)
         return Number((r.rows[0] as unknown as Record<string, unknown>).n)
       }
       const before = await count()
@@ -387,12 +388,12 @@ async function proofBatchAtomicityInsideTransaction(
       try {
         await tx.batch([
           {
-            sql: "INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ('issue','p0','upsert','{}',1)",
+            sql: `INSERT INTO ${slice.prefix}changes (entity, entity_id, op, payload, event_time) VALUES ('issue','p0','upsert','{}',1)`,
             args: [],
           },
           // Second statement fails: `entity` is NOT NULL and this supplies no value.
           {
-            sql: 'INSERT INTO changes (entity_id, op, event_time) VALUES (?, ?, ?)',
+            sql: `INSERT INTO ${slice.prefix}changes (entity_id, op, event_time) VALUES (?, ?, ?)`,
             args: ['p1', 'upsert', 1],
           },
         ])
@@ -465,14 +466,14 @@ async function proofNestedRollbackReusesSeq(
 
       // The inner append SUCCEEDS. Its seqs are returned to the caller — this is
       // exactly the point at which the real code would publish them.
-      first = await appendChangesNested(session, slice.db, upsertRows(5, 'v'), 1_000, 'sp_publish')
+      first = await appendChangesNested(session, slice.db, slice.tables, upsertRows(5, 'v'), 1_000, 'sp_publish')
       line('nested append returned', `${first[0]}..${first[first.length - 1]}`)
 
       // ...and only now does the enclosing span give up.
       await session.rollbackToSavepoint('sp_outer')
       line('enclosing span rolled back', true)
 
-      second = await appendChangesNested(session, slice.db, upsertRows(5, 'w'), 2_000, 'sp_next')
+      second = await appendChangesNested(session, slice.db, slice.tables, upsertRows(5, 'w'), 2_000, 'sp_next')
       line('the NEXT, unrelated append got', `${second[0]}..${second[second.length - 1]}`)
       await session.commit()
     } catch (error) {
@@ -485,7 +486,7 @@ async function proofNestedRollbackReusesSeq(
     const reused = first.length > 0 && second.length > 0 && first[0] === second[0]
     line('SEQS WERE REUSED', reused)
 
-    const rows = await slice.withSession((s) => changesSince(s, slice.db, 0))
+    const rows = await slice.withSession((s) => changesSince(s, slice.db, slice.tables, 0))
     line('rows now in the log', rows.map((r) => `${r.seq}=${r.entityId}`).join(' '))
     line(
       `a replica told about seq ${first[0]} now sees a DIFFERENT row there`,
@@ -517,7 +518,7 @@ async function proofBudgetIsIdleNotTotal(config: Parameters<typeof openSlice>[0]
   try {
     const bump = async (tx: { execute: (sql: string) => Promise<unknown> }): Promise<void> => {
       await tx.execute(
-        "INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ('issue','busy','upsert','{}',1)",
+        `INSERT INTO ${slice.prefix}changes (entity, entity_id, op, payload, event_time) VALUES ('issue','busy','upsert','{}',1)`,
       )
     }
 
@@ -580,7 +581,7 @@ async function proofWatchdogSeesTheGap(config: Parameters<typeof openSlice>[0]):
   const budgetMs = 5_000
   const slice = await openSlice(config)
   const bump: Statement = {
-    sql: "INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ('issue','busy','upsert','{}',1)",
+    sql: `INSERT INTO ${slice.prefix}changes (entity, entity_id, op, payload, event_time) VALUES ('issue','busy','upsert','{}',1)`,
     params: [],
     method: 'run',
     intent: 'write',
@@ -687,6 +688,25 @@ if (which === 'remote' || which === 'both') {
   if (config === undefined) {
     console.log('\nremote backend SKIPPED: TURSO_SPIKE_URL / TURSO_SPIKE_TOKEN are not set')
   } else {
-    await runAll('hosted Turso (spike database)', config)
+    // Row isolation comes from the table prefix and is automatic. THIS is the
+    // other half: proofs 5, 7, 9 and 11 measure latency and transaction
+    // lifetime, and a neighbour holding the database's write lock moves those
+    // numbers without making them look wrong. So the hosted arm runs alone or
+    // does not run — loudly, because a silent overlap is the whole defect
+    // [POD-3358].
+    const lease = await acquireRunLease(config)
+    if ('refused' in lease) {
+      console.log(`\n${refusalBanner(lease)}`)
+    } else {
+      try {
+        // Under the lease there is no neighbour, so leftover `sp_…` tables can
+        // only belong to runs that died. Collect them before adding one more.
+        const swept = await sweepAbandonedNamespaces(config)
+        if (swept > 0) console.log(`\nswept ${swept} table(s) left by earlier runs`)
+        await runAll('hosted Turso (spike database)', config)
+      } finally {
+        await lease.release()
+      }
+    }
   }
 }
