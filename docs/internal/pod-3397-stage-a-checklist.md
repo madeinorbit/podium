@@ -444,3 +444,37 @@ rule 9 will want batched.
 | 569 | `listEnabledSubscriptions` | SELECT | `.all` | read | `all` |
 | 579 | `markDelivered` | INSERT | `.run` | write | `run` |
 
+
+## 12. Rule 39: projection width, derived rather than recalled
+
+`getTableColumns` is spread **nowhere** in either file — zero occurrences, so the widening rule 39
+describes cannot arise by that route. But the rule's underlying question is whether any converted
+read returns MORE columns than the statement it replaced, so it was answered for every projection,
+not just for spreads.
+
+**The 16 bare `.select()` sites** each replace an original `SELECT *`, so they are exact by
+construction: `getIssue`, `getIssues`, `listIssueRows` (×2), `listIssueComments`, `getIssueMessage`,
+`listIssueMessages`; `announceEvent`, `listEventsSince`, `listKindSinceWithPrior` (×2),
+`listKindSubjectSinceWithPrior` (×2), `listSubscriptions`, `getSubscription`,
+`listEnabledSubscriptions`.
+
+**The 38 explicit projections** were compared field-count against the original `SELECT` list,
+derived by script from the pre-conversion file at `3b733b700^` rather than recalled. Every one is
+n/n. The widest are `listIssueCwdRows` 5/5, `closedIssueIds` 4/4, `renumberCollidingIssueSeqs` 5/5,
+`runtimeEventCheckpoint` 5/5, `listRuntimeEventsAfter` 3/3, `searchIssueComments` 3/3,
+`listIssueUserState` 4/4; the rest are 1/1 or 2/2.
+
+FOUR OF THEM CAME BACK AS APPARENT MISMATCHES ON THE FIRST PASS, and the reason is worth recording
+because a reviewer running the same script will see them too: the comparator pairs each converted
+projection against the FIRST `SELECT` in its method, so a method with several statements
+mis-pairs. All four resolved to exact once read against the original SQL:
+
+| Site | Apparent | Actual |
+| --- | --- | --- |
+| `upsertIssue` | 1/? | `SELECT revision` — 1/1 |
+| `assignRepoIdToIssuesUnder` (max) | 1/2 | `SELECT MAX(seq) AS m` — 1/1 |
+| `assignRepoIdToIssuesUnder` (taken) | 1/2 | `SELECT id … AND seq = ?` — 1/1 |
+| `listRuntimeTranscriptEvents` (inner) | 2/1 | the original INNER subquery is `SELECT id, payload` — 2/2; the outer `SELECT payload` is 1/1 |
+
+So a raw count from that script is a starting point, not the answer — which is the same lesson rule
+39 draws from spreads, one level up.
