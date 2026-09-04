@@ -632,7 +632,7 @@ fn supervisor_control(path: &str, body: Option<&serde_json::Value>) -> Result<se
 
 pub fn native_installed_digest() -> Option<String> {
     let value: serde_json::Value = serde_json::from_slice(&std::fs::read(crate::bootstrap::state_dir().join("runtime/native-installed.json")).ok()?).ok()?;
-    if value["version"].as_str()? != env!("CARGO_PKG_VERSION") { return None; }
+    if value["version"].as_str()? != std::env::var("PODIUM_DESKTOP_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()) { return None; }
     value["digest"].as_str().map(str::to_string)
 }
 
@@ -689,12 +689,27 @@ where
                 let state = Arc::new(Mutex::new(ProgressState::default()));
                 let chunk_state = state.clone();
                 let chunk_report = report.clone();
-                let bytes = begin_install_for_app(app, || update.download(
+                let command_id = id.to_string();
+                let download = begin_install_for_app(app, || update.download(
                     move |chunk, total| {
                         let now_ms = started.elapsed().as_millis().min(u64::MAX as u128) as u64;
-                        if let Some(progress) = chunk_state.lock().ok().and_then(|mut state| progress_after_chunk(&mut state, chunk, total, now_ms)) { chunk_report(progress); }
+                        if let Some(progress) = chunk_state.lock().ok().and_then(|mut state| progress_after_chunk(&mut state, chunk, total, now_ms)) {
+                            let _ = supervisor_control("/native/progress", Some(&serde_json::json!({ "id": command_id, "percent": progress.percent })));
+                            chunk_report(progress);
+                        }
                     }, || {},
-                ))?.await.map_err(|error| update_error(&error, Some(&update.download_url)));
+                ))?;
+                tokio::pin!(download);
+                let mut cancellation_poll = tokio::time::interval(std::time::Duration::from_millis(100));
+                let bytes = loop {
+                    tokio::select! {
+                        result = &mut download => break result.map_err(|error| update_error(&error, Some(&update.download_url))),
+                        _ = cancellation_poll.tick() => {
+                            let current = supervisor_control("/native/work", None)?;
+                            if current["id"].as_str() != Some(id) { break Err(UpdateError::new(UpdateErrorCode::InstallFailed, "Native update canceled before activation.")); }
+                        }
+                    }
+                };
                 match bytes {
                     Ok(bytes) => {
                         use std::io::Write;
@@ -737,7 +752,7 @@ pub async fn resume_supervisor_update(app: AppHandle) {
     if !matches!(state["phase"].as_str(), Some("accepted" | "downloading" | "prepared" | "activating" | "restarting")) { return; }
     let native = &state["grant"]["target"]["native"];
     let Some(version) = native["version"].as_str() else { return };
-    if version == env!("CARGO_PKG_VERSION") && native_installed_digest().is_some() { return; }
+    if version == app.package_info().version.to_string() && native_installed_digest().is_some() { return; }
     let Some(channel_name) = native["channel"].as_str() else { return };
     let Ok(channel) = channel_from_name(channel_name) else { return };
     let Ok(updater) = updater_for_channel(&app, channel) else { return };

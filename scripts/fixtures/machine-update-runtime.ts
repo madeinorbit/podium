@@ -256,7 +256,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
             event('status', { machineId: body.id, status })
           }
           if (!wasOnline) {
-            const machine = updates.project().machines.find((candidate) => candidate.id === body.id)
+            const machine = updates.fleet().find((candidate) => candidate.id === body.id)
             const verdict = decideReconciliation({
               machine,
               target: policy.published,
@@ -318,7 +318,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
               eligibility: 'fixture explicit operator approval',
             })
         } else if (req.url === '/fleet') {
-          res.end(JSON.stringify({ fleet: updates.project(), policy, identities: fleet }))
+          res.end(JSON.stringify({ fleet: updates.fleet(), policy, identities: fleet }))
           return
         } else {
           res.writeHead(404).end()

@@ -265,7 +265,7 @@ fn local_host_sidecar_command(
             mobile_web_dir.to_string_lossy().to_string(),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env("PODIUM_DESKTOP_VERSION", env!("CARGO_PKG_VERSION"))
+        .env("PODIUM_DESKTOP_VERSION", std::env::var("PODIUM_DESKTOP_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()))
         .env("PODIUM_DESKTOP_ARTIFACT_DIGEST", crate::updater::native_installed_digest().unwrap_or_default())
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
@@ -290,7 +290,7 @@ fn remote_parent_command(
                 .join(".desktop-successor-pid"),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env("PODIUM_DESKTOP_VERSION", env!("CARGO_PKG_VERSION"))
+        .env("PODIUM_DESKTOP_VERSION", std::env::var("PODIUM_DESKTOP_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()))
         .env("PODIUM_DESKTOP_ARTIFACT_DIGEST", crate::updater::native_installed_digest().unwrap_or_default())
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
@@ -1414,6 +1414,7 @@ fn main() {
             repair_payload
         ])
         .setup(move |app| {
+            std::env::set_var("PODIUM_DESKTOP_VERSION", app.package_info().version.to_string());
             app.manage(native_open_queue.clone());
             #[cfg(target_os = "linux")]
             if let Err(error) = app.deep_link().register_all() {

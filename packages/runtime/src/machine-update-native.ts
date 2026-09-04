@@ -11,6 +11,7 @@ export interface NativeUpdateCommand {
 }
 /** The shell is an installer primitive. Only the supervisor advances durable phases. */
 export class NativeMachineUpdateAdapter implements MachineUpdateAdapter {
+  private progressReport: ((percent?: number) => void) | undefined
   private command: NativeUpdateCommand | undefined
   private result: { resolve(): void; reject(error: Error): void } | undefined
   constructor(private readonly deps: { runtimeDir: string; version: string; digest?: string }) {}
@@ -22,6 +23,13 @@ export class NativeMachineUpdateAdapter implements MachineUpdateAdapter {
   }
   next(): NativeUpdateCommand | undefined {
     return this.command
+  }
+  progress(id: string, percent?: number): boolean {
+    if (this.command?.id !== id || this.command.kind !== 'prepare') return false
+    if (percent !== undefined && (!Number.isInteger(percent) || percent < 0 || percent > 100))
+      return false
+    this.progressReport?.(percent)
+    return true
   }
   finish(id: string, error?: string): boolean {
     if (this.command?.id !== id || !this.result) return false
@@ -67,10 +75,19 @@ export class NativeMachineUpdateAdapter implements MachineUpdateAdapter {
   artifactPath(): string {
     return join(this.deps.runtimeDir, 'native-update-artifact')
   }
-  async prepare(grant: UpdateGrantMessage, signal: AbortSignal): Promise<PreparedUpdate> {
+  async prepare(
+    grant: UpdateGrantMessage,
+    signal: AbortSignal,
+    progress?: (percent?: number) => void,
+  ): Promise<PreparedUpdate> {
     if (!grant.target.artifacts.desktop)
       throw new Error('This native installation requires an authorized desktop artifact.')
-    await this.invoke('prepare', grant, signal)
+    this.progressReport = progress
+    try {
+      await this.invoke('prepare', grant, signal)
+    } finally {
+      this.progressReport = undefined
+    }
     signal.throwIfAborted()
     // The native plugin verifies its pinned minisign signature before returning bytes.
     const digest = `sha256-${createHash('sha256').update(readFileSync(this.artifactPath())).digest('base64')}`

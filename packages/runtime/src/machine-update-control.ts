@@ -66,6 +66,10 @@ export async function startMachineUpdateControl(
         if (body.length > 1024 * 1024) throw new Error('control request too large')
       }
       const parsed = JSON.parse(body)
+      if (req.method === 'POST' && req.url === '/native/progress' && native) {
+        json({ recorded: native.progress(parsed.id, parsed.percent) })
+        return
+      }
       if (req.method === 'POST' && req.url === '/native/result' && native) {
         json({ recorded: native.finish(parsed.id, parsed.error) })
         return
