@@ -102,6 +102,30 @@ jobs:
       # as span-effects: it builds a TypeScript program over apps/server.
       - name: hidden reads (no store read in a constructor or a getter)
         run: bun run audit:hidden-reads
+      # BLOCKING, its own step. THE ONE DEFECT CLASS THAT WOULD REACH BACK INTO
+      # EVERY CONVERTED QUERY (POD-3391, spec §6 rule 16). `Statement.intent` is
+      # the only property of the executor a REPOSITORY chooses — `get`/`all`
+      # declare read, `writeGet`/`writeAll` declare write — so a wrong intent is
+      # the one defect whose repair means revisiting every wave that already
+      # shipped. POD-3321 found an instance before a single repository moved:
+      # drizzle prepares every RETURNING write with method `all`, which declared
+      # those writes as reads.
+      #
+      # It DRIVES THE STORE LANE rather than scanning source, and that is the
+      # design, not a shortcut: a converted repository writes drizzle query
+      # builders, so the SQL the defect is visible in does not exist until
+      # runtime. A scan over call sites would be permanently blind to it and
+      # would report a comfortable zero while being so. The audit rides the
+      # statement-probe seam every lane's every statement passes through.
+      #
+      # It fails on a WRITE DECLARED READ and on nothing else: a read declared
+      # write is printed and tolerated, because rule 16 makes `write` the default
+      # for anything unmarked and a gate that failed on the rule's own
+      # recommended state would be switched off. It also fails on an EXAMINED
+      # COUNT OF ZERO — an absence proved by an instrument that ran over nothing
+      # is the failure mode this check dies of.
+      - name: statement intent (no write declared as a read)
+        run: bun run lint:statement-intent
       # BLOCKING, its own step, same reason as every ratchet above — and this one
       # is the POD-1369 class twice over. It catches the merge defect nothing else
       # reports: both branches ADD the same declaration, git auto-merges them as

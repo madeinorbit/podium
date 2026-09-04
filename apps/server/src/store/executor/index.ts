@@ -73,10 +73,28 @@ export {
 } from './executor'
 export { createFrameFlusher, type FrameFlusher, type FrameFlusherOptions } from './frame-flusher'
 export {
+  auditStatement,
+  callSite,
+  deriveWriteEvidence,
+  type EvidenceVerdict,
+  IntentAudit,
+  type IntentAuditTotals,
+  type IntentDisagreement,
+  type IntentFinding,
+  renderFinding,
+  type WriteEvidence,
+} from './intent-audit'
+export {
   type LegacyHandleHolder,
   observeLegacyHandle,
   probeLegacyStatements,
 } from './legacy-handle-probe'
+export {
+  type PostCommitRegistrar,
+  PostCommitRegistry,
+  PostCommitRunner,
+  type PostCommitStep,
+} from './post-commit'
 export {
   currentReadScope,
   inExplicitReadScope,
@@ -85,12 +103,6 @@ export {
   readScopeSlot,
   withReadScope,
 } from './read-scope'
-export {
-  type PostCommitRegistrar,
-  PostCommitRegistry,
-  PostCommitRunner,
-  type PostCommitStep,
-} from './post-commit'
 export {
   createScheduler,
   type Lease,
