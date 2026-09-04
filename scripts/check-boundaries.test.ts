@@ -7,6 +7,7 @@ import { applyAllowlist, BROWSER_ENTRYPOINTS, partitionAllowlist } from './archi
 import { BOUNDARY_ALLOWLIST } from './boundary-allowlist'
 import {
   checkBrowserGraphAll,
+  checkCacheTableAnnouncement,
   checkConsoleOwnership,
   checkDeclaredDeps,
   checkDrizzleImportHome,
@@ -60,6 +61,7 @@ function realRepoViolations(): Violation[] {
         ...checkDrizzleTransaction(file, source),
         ...checkDrizzleImportHome(file, source),
         ...checkSqlRawLiteral(file, source),
+        ...checkCacheTableAnnouncement(file, source),
       )
     }
   }
@@ -1451,5 +1453,193 @@ describe('store-boundary family vs the write-announcement seam (POD-3247)', () =
       checkStoreRawHandles(SEAM, `const q = sql\`SELECT name FROM sqlite_master\`\n`),
     ).toHaveLength(1)
     expect(checkStoreRawHandles(SEAM, `const s = db.prepare('SELECT 1')\n`)).toHaveLength(1)
+  })
+})
+
+describe('cache-table-announcement — the seam is real, the guarantee was not (POD-3362)', () => {
+  /**
+   * A file OUTSIDE the store boundary, so the fixtures below prove this rule's
+   * scope is "anything under apps/ or packages/" rather than a store rule that
+   * happens to be quiet elsewhere. The failure it exists for is a writer nobody
+   * expected, and the place nobody expects one is outside the store directory.
+   */
+  const OUTSIDER = 'apps/server/src/modules/repos/backfill.ts'
+
+  const write = (sql: string): string => `await client.run(\`${sql}\`)\n`
+  const announce = (table: string): string => `store.tableWrites.wrote('${table}')\n`
+
+  it('is quiet on the real repository', () => {
+    // The control. This rule's correct count on this tree is ZERO — POD-3246
+    // retired the last outside writer of `repos` — so every other assertion in
+    // this block is about a fixture, and this is the only one that says the rule
+    // ships green. Without it, a rule that fired on half the tree would still
+    // pass every fixture below.
+    expect(realRepoViolations().filter((v) => v.rule === 'cache-table-announcement')).toEqual([])
+  })
+
+  describe('a writer that FORGETS, in each spelling the rule claims to catch', () => {
+    // THE MUTATION, AS FIXTURES. A guard whose only evidence is the control
+    // above has proven that it ran. Each case here is the POD-3292 finding
+    // written as source: a write to a cache-owning table with no announcement,
+    // after which `listRepos()` serves the pre-write rows for the life of the
+    // process. The reviewer's model was a no-op callback; this is the same
+    // mutation moved one step earlier, to the caller that never made the call.
+    it.each([
+      ['INSERT', write("INSERT INTO repos (path) VALUES ('/a')")],
+      ['INSERT OR IGNORE', write("INSERT OR IGNORE INTO repos (path) VALUES ('/a')")],
+      ['UPDATE', write("UPDATE repos SET path = '/b' WHERE path = '/a'")],
+      ['UPDATE OR IGNORE', write("UPDATE OR IGNORE repos SET path = '/b'")],
+      ['DELETE', write("DELETE FROM repos WHERE path = '/a'")],
+      ['REPLACE', write("REPLACE INTO repos (path) VALUES ('/a')")],
+      // The spelling this epic is CONVERTING TO. A rule that read only SQL text
+      // would go quiet at exactly the wave that introduces the risk.
+      ['drizzle builder', 'await db.update(repos).set({ path: "/b" })\n'],
+      ['drizzle builder, namespaced', 'await db.delete(schema.repos)\n'],
+      ['drizzle insert', 'await db.insert(repos).values({ path: "/a" })\n'],
+    ])('refuses a %s that never announces', (_spelling, source) => {
+      const violations = checkCacheTableAnnouncement(OUTSIDER, source)
+      expect(violations).toHaveLength(1)
+      expect(violations[0]?.specifier).toBe('repos')
+      expect(violations[0]?.message).toContain('never announces it')
+    })
+
+    it('catches the second table too, by its own schema symbol', () => {
+      const violations = checkCacheTableAnnouncement(
+        OUTSIDER,
+        'await db.update(repoPrefixes).set({ prefix: "p" })\n',
+      )
+      expect(violations).toHaveLength(1)
+      expect(violations[0]?.specifier).toBe('repo_prefixes')
+    })
+
+    it('reports each cache-owning table separately when a writer touches both', () => {
+      const violations = checkCacheTableAnnouncement(
+        OUTSIDER,
+        write('DELETE FROM repos WHERE 1') + write('DELETE FROM repo_prefixes WHERE 1'),
+      )
+      expect(violations.map((v) => v.specifier).sort()).toEqual(['repo_prefixes', 'repos'])
+    })
+  })
+
+  describe('ordering — announcing is not the same as announcing AFTER', () => {
+    // The other half of the same window, and the direction that is easy to get
+    // backwards. INSIDE `ReposRepository` the invalidation goes BEFORE the write
+    // (`store-repos-registry-cache-writers.test.ts` enforces that, and refuses a
+    // cached read in between). OUTSIDE it the announcement goes AFTER, because
+    // an announcement raised first leaves the write itself inside the window: a
+    // read taken between the drop and the write re-holds rows the write is about
+    // to make wrong. Same window, read from the two sides.
+    it('accepts a write followed by its announcement', () => {
+      expect(
+        checkCacheTableAnnouncement(
+          OUTSIDER,
+          write('DELETE FROM repos WHERE 1') + announce('repos'),
+        ),
+      ).toEqual([])
+    })
+
+    it('refuses a write whose only announcement comes first', () => {
+      const violations = checkCacheTableAnnouncement(
+        OUTSIDER,
+        announce('repos') + write('DELETE FROM repos WHERE 1'),
+      )
+      expect(violations).toHaveLength(1)
+      expect(violations[0]?.message).toContain('comes BEFORE that write')
+    })
+
+    it('reads the LAST write, so an announcement between two writes is not enough', () => {
+      // The loop-shaped mistake: announce after the first write, add a second
+      // write later, and a rule that accepted "some announcement after some
+      // write" would stay green.
+      expect(
+        checkCacheTableAnnouncement(
+          OUTSIDER,
+          write('DELETE FROM repos WHERE 1') +
+            announce('repos') +
+            write("INSERT INTO repos (path) VALUES ('/a')"),
+        ),
+      ).toHaveLength(1)
+    })
+
+    it('requires the announcement to name THIS table', () => {
+      // The counterfactual for the whole rule: if any announcement satisfied any
+      // write, `wrote('sessions')` would clear a `repos` write and the rule would
+      // be about nothing. `store/repos-read-cost.test.ts` asserts the runtime
+      // half of exactly this.
+      expect(
+        checkCacheTableAnnouncement(
+          OUTSIDER,
+          write('DELETE FROM repos WHERE 1') + announce('sessions'),
+        ),
+      ).toHaveLength(1)
+    })
+  })
+
+  describe('scope — who is exempt, and why each one is', () => {
+    it('exempts the owner, which is guarded harder and in the other direction', () => {
+      // `store/repos.ts` writes both tables constantly and announces neither: it
+      // calls `invalidateRegistry()` BEFORE each write instead, which is its own
+      // source scan's rule. Flagging it here would demand the opposite of what
+      // that scan demands, and one of the two would get switched off.
+      const owner = 'apps/server/src/store/repos.ts'
+      expect(
+        checkCacheTableAnnouncement(owner, readFileSync(join(REPO_ROOT, owner), 'utf8')),
+      ).toEqual([])
+    })
+
+    it('exempts the migrations, which run before the cache holds a read', () => {
+      expect(
+        checkCacheTableAnnouncement(
+          'apps/server/src/migrations/heal-repos.ts',
+          write('UPDATE repos SET machine_id = ?'),
+        ),
+      ).toEqual([])
+    })
+
+    it('exempts tests, and everything outside apps/ and packages/', () => {
+      const source = write('DELETE FROM repos WHERE 1')
+      expect(checkCacheTableAnnouncement('apps/server/src/store/repos.test.ts', source)).toEqual([])
+      expect(checkCacheTableAnnouncement('scripts/seed-repos.ts', source)).toEqual([])
+    })
+
+    it('honours the one allowlist token, on the write line', () => {
+      expect(
+        checkCacheTableAnnouncement(
+          OUTSIDER,
+          "await client.run('DELETE FROM repos WHERE 1') // DECISION POD-3362\n",
+        ),
+      ).toEqual([])
+    })
+  })
+
+  describe('what a bare name match would have cost', () => {
+    it('does not fire on a READ of a cache-owning table', () => {
+      // A read is the ordinary case and must stay silent, or the rule becomes
+      // noise and stops being read.
+      expect(
+        checkCacheTableAnnouncement(OUTSIDER, write('SELECT path FROM repos ORDER BY rowid')),
+      ).toEqual([])
+    })
+
+    it('does not fire on the table name in prose or in documentation strings', () => {
+      // `packages/model/src/annotations/matrix.ts` really does hold
+      // "Repo / prefix (`repos`, `repo_prefixes`)" in a string literal, and
+      // `stripComments` does not strip strings. Requiring the VERB in front of
+      // the name is what keeps that file out, and it is the live case.
+      expect(
+        checkCacheTableAnnouncement(
+          'packages/model/src/annotations/matrix.ts',
+          "const title = 'Repo / prefix (`repos`, `repo_prefixes`)'\n// deletes from repos\n",
+        ),
+      ).toEqual([])
+    })
+
+    it('does not fire on a table whose name merely STARTS with a listed one', () => {
+      // `repos` is a prefix of `repos_archive`; the word boundary is what stops
+      // this rule demanding an announcement for a table with no cache over it.
+      expect(
+        checkCacheTableAnnouncement(OUTSIDER, write('DELETE FROM repos_archive WHERE 1')),
+      ).toEqual([])
+    })
   })
 })

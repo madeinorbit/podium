@@ -562,6 +562,41 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
    A reviewer meeting an uncalled mechanism should read this paragraph before proposing its removal;
    the conversion waves are what will call it.
 
+   CORRECTED 2026-09-04 BY POD-3362, after POD-3292 checked the claim: THE ANNOUNCEMENT IS A
+   COOPERATIVE SEAM, NOT AN INVARIANT, and the paragraph above (and the comments it was written
+   from) read as though it were one. "The conversion waves are what will call it" describes an
+   intention, not a mechanism — nothing obliged a wave to call it, so a converted writer that
+   omitted `tableWrites.wrote(...)` would leave `listRepos()` serving pre-write rows indefinitely,
+   silently, and through review. The two claims are separate and only the first was true of the
+   code: the seam WORKS WHEN CALLED (replacing the subscribed callback with a no-op fails both
+   writer tests in `store/repos-read-cost.test.ts`), and the announcement WAS NOT GUARANTEED (the
+   same file asserts, immediately before `wrote('repos')`, that a bypassing write has left the read
+   stale).
+
+   WHAT NOW HOLDS IT UP IS A CHECK, and it is deliberately not a construction. The boundary lint
+   family gains `cache-table-announcement` (`scripts/check-boundaries.ts`): every file under `apps/`
+   and `packages/`, excluding tests, the migrations (which run before any cache holds a read) and
+   `store/repos.ts` (held to the OPPOSITE ordering by its own source scan), must follow a write to
+   `repos` or `repo_prefixes` — in SQL text or through drizzle's builder — with an announcement
+   naming that table. Its correct count on this tree is ZERO, so `scripts/check-boundaries.test.ts`
+   drives it against a forgetting writer in each spelling rather than resting on a clean tree. Its
+   ceiling is source text and is stated in the rule: a table name assembled at runtime is invisible
+   to it. Say "guarded" here, never "cannot be bypassed".
+
+   THE STRONG VERSION IS REFUSED, NOT DEFERRED FOR WANT OF TIME. Putting affected tables on
+   `Statement` so the executor announces them was weighed against the shape rule 2 already settled
+   and rejected on three grounds. Write intent belongs on that object because its domain is CLOSED
+   (two values), it costs the caller NOTHING (the `QueryClient` method chosen is the declaration —
+   `run`/`writeGet`/`writeAll` versus `get`/`all`), and a wrong value is LOUD (wrong lane, a busy
+   error, a read-only connection). An affected-table list is open-ended, must be hand-authored per
+   statement, must be COMPLETE to be worth anything, and an incomplete one fails exactly as
+   silently as the omission it was meant to prevent — so it would move one forgettable call to one
+   forgettable field at every write in the store, and call the result enforcement. It also has no
+   slot under drizzle: the sqlite-proxy callback is fixed at `(sql, params, method)`, so the only
+   way to recover tables there is to inspect SQL text, which is the mechanism POD-3247 deleted.
+   Deriving tables instead of declaring them is that same inspection. POD-3263 does not need to
+   carry this.
+
    WRITE INTENT IS NOT `method === 'run'` (POD-3316 / POD-3318, 2026-09-03). This is the most
    consequential finding of the three executor reviews, because it is not an executor bug — it is a
    wrong assumption that Stage A would have built on top of.

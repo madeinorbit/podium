@@ -39,7 +39,19 @@ export class ReposRepository {
    * cache, and the reason a mutator added here still cannot forget.
    *
    * Outside it, the store announces writes per table ({@link TableWrites}) and this
-   * constructor subscribes to both tables.
+   * constructor subscribes to both tables. THAT HALF IS COOPERATIVE, AND SAYING SO
+   * IS THE POINT (POD-3362, correcting this comment): `tableWrites.wrote()` is a
+   * call an outside writer makes or does not make. The seam works when it is
+   * called — replacing the callback with a no-op fails both tests in
+   * `store/repos-read-cost.test.ts` — but nothing in the LANGUAGE obliges the
+   * call, so the two halves are not symmetric and this comment used to read as
+   * though they were. What holds the outside half up is a check, not a
+   * construction: `scripts/check-boundaries.ts`'s `cache-table-announcement` rule
+   * reads every file under `apps/` and `packages/` and refuses a write to either
+   * table, in SQL text or through drizzle's builder, that is not followed by an
+   * announcement naming it. A check can be evaded — a table name assembled from a
+   * variable is invisible to it — so the honest statement is "guarded", never
+   * "cannot happen".
    *
    * THAT SECOND HALF HAS NO CALLER IN THE TREE TODAY, AND IS NOT DEAD CODE. It had
    * one until POD-3246: `SessionStore.migrateLegacyMachineIdentity` rewrote
@@ -49,8 +61,11 @@ export class ReposRepository {
    * id on a live instance until POD-1638 caught it. That upgrade is now retired,
    * which removes the writer and not the shape: every statement the async query
    * layer runs through an executor is a writer this class never sees, and the
-   * announcement is what makes that harmless rather than the same bug again.
-   * `store/repos-read-cost.test.ts` drives it with no repository involved.
+   * announcement is what makes that harmless WHEN IT IS RAISED.
+   * `store/repos-read-cost.test.ts` drives it with no repository involved — and
+   * asserts, before the announcement, that the bypassing write has left the read
+   * STALE, which is the same file recording that the mechanism is a seam rather
+   * than a guarantee.
    */
   private cached: {
     rows: Record<string, unknown>[]
@@ -88,7 +103,13 @@ export class ReposRepository {
    * rule, not decoration, because invalidating afterwards leaves the window between
    * the write and the drop, and a read taken in that window caches rows that the
    * write has already made wrong. It is also what the store's write announcement
-   * runs, so the two halves of the invariant end in the same line.
+   * runs, so the two halves end in the same line — by two different routes, and
+   * from opposite sides of the same window. Inside this class the drop goes
+   * BEFORE the write, because the write is what makes the held read wrong.
+   * Outside it the announcement goes AFTER, because the announcement is the only
+   * thing that can drop a read the writer cannot see. Both orderings are checked:
+   * the first by `store-repos-registry-cache-writers.test.ts`, the second by the
+   * `cache-table-announcement` rule (POD-3362).
    */
   invalidateRegistry(): void {
     this.cached = null

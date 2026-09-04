@@ -1442,6 +1442,185 @@ function rawHandleViolations(file: string, source: string): Violation[] {
   return violations
 }
 
+// ---------------------------------------------------------------------------
+// Cache-owning tables — a writer outside the owner must ANNOUNCE (POD-3362).
+//
+// WHAT THIS FIXES, stated as the two claims it separates. POD-3247 replaced a
+// `prepare` wrapper that recognised writes by reading SQL text with an
+// announcement the store makes (`store/table-writes.ts`). The SEAM works when
+// it is called — `store/repos-read-cost.test.ts` drives it with no repository
+// involved, and replacing the callback with a no-op fails both of its tests.
+// The GUARANTEE did not follow: `TableWrites.wrote()` is a call a writer makes
+// or does not make, and until this rule nothing in the tree read the writer's
+// source to ask. POD-3292 found the gap; the same test file proves it, at the
+// pre-announcement assertion that a bypassing write serves a STALE read.
+//
+// So the failure this rule refuses is precise: a future write to `repos` or
+// `repo_prefixes` from outside `ReposRepository` — the shape every statement
+// the async query layer runs through an executor has — that omits the
+// announcement, after which `listRepos()` serves rows the write already made
+// wrong, indefinitely and silently. That bug reached a live instance once
+// already (POD-1638, the boot machine-identity upgrade).
+//
+// THE OWNER IS EXEMPT BECAUSE IT IS GUARDED HARDER, not because it is trusted.
+// `apps/server/src/store/repos.ts` has its own source scan in
+// `apps/server/src/store-repos-registry-cache-writers.test.ts`, which requires
+// the OPPOSITE ordering: inside the class the invalidation goes BEFORE the
+// write (and with no cached read in between), because a read taken in the
+// window between write and drop re-holds the stale rows. Outside the class the
+// announcement goes AFTER the write, for the same reason read from the other
+// side: announcing first leaves the write itself inside the window. Two
+// directions, one window; this rule checks the outside one.
+//
+// WHAT IT CANNOT SEE, said rather than left to be discovered. It reads source
+// text, not types and not execution order:
+//   - a write whose table name arrives through a variable or a `${…}` hole is
+//     invisible, as is a `wrote(table)` whose argument is not a literal;
+//   - a branch that skips the announcement at runtime reads as announced here;
+//   - `.wrote(` is matched on any receiver, so a same-named method on some
+//     other object would satisfy it. Resolving the declaring TYPE is the
+//     theoretically right answer and is refused on checkability for the reason
+//     this file has already recorded twice (POD-3257, and {@link
+//     TRANSACTION_OPENERS}): a name-matching scan cannot carry a type.
+// The ceiling is real and the rule is still worth having, because the failure
+// it is written for is the ORDINARY one — a new writer that never thought
+// about a cache at all, spelled the way every other writer in the store is.
+//
+// ITS CORRECT COUNT ON THIS TREE IS ZERO, which is the condition under which a
+// green means nothing. `scripts/check-boundaries.test.ts` therefore drives it
+// against a forgetting writer in each spelling it claims to catch; a rule whose
+// only evidence is a clean tree has proven that it ran, not that it works.
+// ---------------------------------------------------------------------------
+
+/**
+ * The tables a repository holds a CACHED READ of, each with the file that owns
+ * that cache and the schema symbol drizzle writes it through.
+ *
+ * A MAP, NOT A DIRECTORY OR A HEURISTIC. There is no way to detect from source
+ * that a table has a cache over it — the cache is a private field and the
+ * subscription is a loop over string names. So the set is declared, one line
+ * per table, and adding a cache means adding the line. That is the honest
+ * shape: the rule fails closed for what is listed and is silent about what is
+ * not, rather than pretending to a completeness it cannot have.
+ *
+ * `repos` and `repo_prefixes` are the two POD-3247's constructor subscribes to
+ * (`store/repos.ts`, `for (const table of ['repos', 'repo_prefixes'])`).
+ */
+const CACHE_OWNED_TABLES: ReadonlyMap<string, { owner: string; schemaSymbol: string }> = new Map([
+  ['repos', { owner: 'apps/server/src/store/repos.ts', schemaSymbol: 'repos' }],
+  ['repo_prefixes', { owner: 'apps/server/src/store/repos.ts', schemaSymbol: 'repoPrefixes' }],
+])
+
+/**
+ * Boot-time schema and data movement, exempt as a TREE.
+ *
+ * The migrations write both tables and are exempt for a reason the writers-test
+ * already states: they run before the repository serves its first read, so
+ * there is no held read to go stale. This is the one place a directory
+ * exemption is right rather than lazy — every file under it runs at that phase
+ * by definition, which is not true of `store/executor/`.
+ */
+const CACHE_ANNOUNCEMENT_EXEMPT_ROOTS: readonly string[] = ['apps/server/src/migrations/']
+
+/** `<anything>.wrote(<args>)` — the announcement, on any receiver. */
+const TABLE_WRITES_ANNOUNCEMENT = /\.\s*wrote\s*\(/g
+
+/** A string literal written out in full, the only spelling of a table name this rule reads. */
+const QUOTED_TABLE_NAME = /'([^'\\]*)'|"([^"\\]*)"|`([^`\\$]*)`/g
+
+/** Offsets of the announcements naming `table`, in the comment-stripped source. */
+function announcementOffsets(code: string, table: string): number[] {
+  const offsets: number[] = []
+  TABLE_WRITES_ANNOUNCEMENT.lastIndex = 0
+  let call: RegExpExecArray | null = TABLE_WRITES_ANNOUNCEMENT.exec(code)
+  while (call !== null) {
+    const args = balancedArgument(code, call.index + call[0].length - 1)
+    if (args !== null) {
+      QUOTED_TABLE_NAME.lastIndex = 0
+      let name: RegExpExecArray | null = QUOTED_TABLE_NAME.exec(args)
+      while (name !== null) {
+        if ((name[1] ?? name[2] ?? name[3]) === table) {
+          offsets.push(call.index)
+          break
+        }
+        name = QUOTED_TABLE_NAME.exec(args)
+      }
+    }
+    call = TABLE_WRITES_ANNOUNCEMENT.exec(code)
+  }
+  return offsets
+}
+
+/**
+ * Offsets of the WRITES to `table`, in both spellings a converted store has.
+ *
+ * TWO SPELLINGS, BECAUSE THE EPIC HAS TWO. A Stage A repository issues the
+ * statement as SQL text (`INSERT OR IGNORE INTO repos …`); a converted one
+ * writes through drizzle's builder (`db.update(repos)`), where the table is a
+ * schema SYMBOL and the string never appears. A rule that read only one of them
+ * would go quiet at exactly the conversion this epic is performing — which is
+ * the moment it most needs to be loud.
+ *
+ * The SQL clause matches the verb and the table together. `repos` and
+ * `repo_prefixes` are ordinary English words that appear in this repository's
+ * prose and in its string-literal documentation tables, so a bare name match
+ * would be noise; requiring `INSERT INTO`/`UPDATE`/`DELETE FROM` in front makes
+ * a hit a statement rather than a mention.
+ */
+function tableWriteSites(code: string, table: string, schemaSymbol: string): number[] {
+  const quote = String.raw`["'\[\`]?`
+  const patterns = [
+    new RegExp(String.raw`\b(?:INSERT|REPLACE)\s+(?:OR\s+\w+\s+)?INTO\s+${quote}${table}\b`, 'gi'),
+    new RegExp(String.raw`\bUPDATE\s+(?:OR\s+\w+\s+)?${quote}${table}\b`, 'gi'),
+    new RegExp(String.raw`\bDELETE\s+FROM\s+${quote}${table}\b`, 'gi'),
+    // The builder form. An optional `<ns>.` prefix covers `schema.repos`, the
+    // namespace-import spelling the migrations' schema is read through.
+    new RegExp(
+      String.raw`\.\s*(?:insert|update|delete)\s*\(\s*(?:[A-Za-z_$][\w$]*\s*\.\s*)?${schemaSymbol}\s*[,)]`,
+      'g',
+    ),
+  ]
+  const offsets: number[] = []
+  for (const pattern of patterns) {
+    let hit: RegExpExecArray | null = pattern.exec(code)
+    while (hit !== null) {
+      offsets.push(hit.index)
+      hit = pattern.exec(code)
+    }
+  }
+  return offsets.sort((a, b) => a - b)
+}
+
+/**
+ * Rule POD-3362 — a write to a cache-owning table, from outside the file that
+ * owns the cache, must be followed by the store's per-table announcement.
+ */
+export function checkCacheTableAnnouncement(file: string, source: string): Violation[] {
+  if (!file.startsWith('apps/') && !file.startsWith('packages/')) return []
+  if (isTestFile(file)) return []
+  if (CACHE_ANNOUNCEMENT_EXEMPT_ROOTS.some((root) => file.startsWith(root))) return []
+  const code = stripComments(source)
+  const marked = decisionMarkedLines(source)
+  const lineOf = (offset: number): number => code.slice(0, offset).split('\n').length
+  const violations: Violation[] = []
+  for (const [table, { owner, schemaSymbol }] of CACHE_OWNED_TABLES) {
+    if (file === owner) continue
+    const writes = tableWriteSites(code, table, schemaSymbol)
+    if (writes.length === 0) continue
+    const last = writes[writes.length - 1] as number
+    if (announcementOffsets(code, table).some((offset) => offset > last)) continue
+    if (marked.has(lineOf(last))) continue
+    const announced = announcementOffsets(code, table).length > 0
+    violations.push({
+      file,
+      specifier: table,
+      rule: 'cache-table-announcement',
+      message: `${file}:${lineOf(last)}: writes \`${table}\` from outside ${owner}, which holds a cached read of it, ${announced ? `and every \`.wrote('${table}')\` in this file comes BEFORE that write — a read taken in the window between the write and the announcement re-holds rows the write already made wrong.` : `and never announces it. \`listRepos()\` would keep serving the pre-write rows indefinitely; that exact bug reached a live instance once (POD-1638).`} Raise the store's per-table announcement AFTER the write — \`store.tableWrites.wrote('${table}')\` (POD-3247, \`store/table-writes.ts\`). If no rule covers this site, mark the line \`// DECISION POD-<n>\` and file the decision issue (method §4).`,
+    })
+  }
+  return violations
+}
+
 /**
  * Rule 13 — no raw handles, and no driver-only construct in a `sql` body, over
  * the store directories, the operations store and the sync SQLite adapter.
@@ -1693,6 +1872,7 @@ export function checkFile(file: string, source: string): Violation[] {
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
+    ...checkCacheTableAnnouncement(file, source),
     ...checkSyncKernelPurity(file, source),
     ...checkSessionBindingFieldAccess(file, source),
     ...checkUiStorageOwnership(file, source),
