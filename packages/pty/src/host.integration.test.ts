@@ -310,30 +310,51 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
     c.onData((seq, d) => got.push({ seq, data: Buffer.from(d) }))
     const w = await c.welcome
     const before = w.seqHigh
-    // Pause the child so seqHigh is stable while we compare (SIGSTOP is not SIGWINCH).
+    // Pause the child so seqHigh is stable while we compare (SIGSTOP is not
+    // SIGWINCH). SIGNAL has no ack and the pty buffer keeps draining after the
+    // stop, so PROVE the stop landed: poll STATUS until seqHigh is identical
+    // across two reads 150 ms apart, and compute the expectation from that.
     c.signal(19)
-    await wait(100)
-    const st = await c.status()
-    const r = await c.replay(10_000)
-    expect(r.from).toBe(st.seqHigh - 10_000n)
-    expect(r.bytes).toBe(10_000)
-    const replayed = got.filter((g) => g.seq >= r.from && g.seq < st.seqHigh)
-    expect(replayed[0]?.seq).toBe(r.from)
-    // Contiguous, original seqs.
-    for (let i = 1; i < replayed.length; i++) {
-      const prev = replayed[i - 1] as { seq: bigint; data: Buffer }
-      expect(replayed[i]?.seq).toBe(prev.seq + BigInt(prev.data.length))
+    try {
+      let st = await c.status()
+      const deadline = Date.now() + 5000
+      for (;;) {
+        await wait(150)
+        const again = await c.status()
+        if (again.seqHigh === st.seqHigh) break
+        st = again
+        if (Date.now() > deadline) throw new Error('seqHigh never settled after SIGSTOP')
+      }
+      // Only frames that arrive AFTER the request are the replay's: the live
+      // frames already received cover the same seqs with other chunk boundaries.
+      const mark = got.length
+      const r = await c.replay(10_000)
+      expect(r.from).toBe(st.seqHigh - 10_000n)
+      expect(r.bytes).toBe(10_000)
+      const replayed = got.slice(mark)
+      expect(replayed.at(-1)!.seq + BigInt(replayed.at(-1)!.data.length)).toBe(st.seqHigh)
+      expect(replayed[0]?.seq).toBe(r.from)
+      // Contiguous, original seqs.
+      for (let i = 1; i < replayed.length; i++) {
+        const prev = replayed[i - 1] as { seq: bigint; data: Buffer }
+        expect(replayed[i]?.seq).toBe(prev.seq + BigInt(prev.data.length))
+      }
+      const text = Buffer.concat(replayed.map((g) => g.data)).toString('utf8')
+      // The line numbers in the replayed tail are the ones that were current: they
+      // continue exactly into the live stream's next line.
+      const lines = text.split('\n').filter(Boolean)
+      const first = Number((lines[1] as string).slice(1)) // lines[0] may be a partial line
+      for (let i = 2; i < lines.length - 1; i++) expect(Number((lines[i] as string).slice(1))).toBe(first + i - 1)
+      // lastSeq is a max: the replay did not move the resume point backwards.
+      expect(c.lastSeq).toBeGreaterThanOrEqual(before)
+    } finally {
+      // Always resume and tear down, or a retry attaches to a stopped child. The
+      // STATUS round trip proves the SIGCONT frame was processed before the
+      // socket is destroyed (destroy drops unflushed writes).
+      c.signal(18)
+      await c.status().catch(() => {})
+      c.destroy()
     }
-    const text = Buffer.concat(replayed.map((g) => g.data)).toString('utf8')
-    // The line numbers in the replayed tail are the ones that were current: they
-    // continue exactly into the live stream's next line.
-    const lines = text.split('\n').filter(Boolean)
-    const first = Number((lines[1] as string).slice(1)) // lines[0] may be a partial line
-    for (let i = 2; i < lines.length - 1; i++) expect(Number((lines[i] as string).slice(1))).toBe(first + i - 1)
-    // lastSeq is a max: the replay did not move the resume point backwards.
-    expect(c.lastSeq).toBeGreaterThanOrEqual(before)
-    c.signal(18)
-    c.destroy()
 
     // Bigger than the ring: everything from seqLow, and the child sees no SIGWINCH.
     const l = label('replay-ring')
