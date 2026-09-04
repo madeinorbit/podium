@@ -10,6 +10,7 @@ import type { ServedWebIdentity, UpdateTarget } from '@podium/protocol'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import { useEffect } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { UpdatePanel } from './UpdatePanel'
 import { ServerUnavailableError } from '@/app/trpc'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import {
@@ -65,10 +66,18 @@ function Probe({
     onResult(result)
   }, [onResult, result])
   return (
-    <output data-testid="view-state">
-      {result.view.state}
-      {result.view.error ? `|${result.view.error.message}` : ''}
-    </output>
+    <>
+      <UpdatePanel
+        view={result.view}
+        pending={result.pending}
+        onAction={(kind) => void result.run(kind)}
+        onHide={result.acknowledge}
+      />
+      <output data-testid="view-state">
+        {result.view.state}
+        {result.view.error ? `|${result.view.error.message}` : ''}
+      </output>
+    </>
   )
 }
 
@@ -212,6 +221,7 @@ afterEach(() => {
   document.head.querySelector('meta[name="podium-version"]')?.remove()
   document.head.querySelector('meta[name="podium-source-digest"]')?.remove()
   clearPageBundle()
+  vi.useRealTimers()
   vi.restoreAllMocks()
   vi.unstubAllGlobals()
   delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
@@ -850,6 +860,205 @@ describe('useUpdateState — all-in-one: one click, one restart', () => {
   })
 })
 
+describe('update mutation observations', () => {
+  const running = { id: 'op_answer', kind: 'update', state: 'running', steps: [] }
+  const flush = async () => {
+    await act(async () => {
+      await Promise.resolve()
+    })
+  }
+  const button = () => screen.getByTestId('update-primary') as HTMLButtonElement
+
+  it.each([
+    'start',
+    'retry',
+    'alreadyRunning',
+  ] as const)('adopts %s immediately without a poll answer', async (action) => {
+    setupTransport()
+    mocks.active
+      .mockResolvedValueOnce(action === 'retry' ? { ...running, state: 'failed' } : null)
+      .mockImplementation(() => new Promise(() => {}))
+    const answer = {
+      operationId: running.id,
+      operation: running,
+      alreadyRunning: action === 'alreadyRunning',
+    }
+    mocks.start.mockResolvedValue(answer)
+    mocks.retry.mockResolvedValue(answer)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await waitFor(() =>
+      expect(results.at(-1)?.view.state).toBe(action === 'retry' ? 'failed' : 'offer'),
+    )
+    await act(async () => {
+      await results.at(-1)?.run(action === 'retry' ? 'retry' : 'start')
+    })
+    expect(screen.getByTestId('view-state').textContent).toBe('running')
+    expect(screen.queryByTestId('update-primary')).toBeNull()
+    expect(results.at(-1)?.pending).toBeNull()
+    expect(results.at(-1)?.operation?.id).toBe(running.id)
+  })
+
+  it('ignores an older null poll even when the polling cadence does not change', async () => {
+    setupTransport()
+    vi.useFakeTimers()
+    mocks.active.mockResolvedValue(running)
+    const stale = deferred<null>()
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await flush()
+    expect(results.at(-1)?.view.state).toBe('running')
+    mocks.active.mockReturnValue(stale.promise)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    mocks.retry.mockResolvedValue({
+      operationId: 'op_retry',
+      operation: { ...running, id: 'op_retry' },
+    })
+    await act(async () => {
+      await results.at(-1)?.run('retry')
+    })
+    await act(async () => {
+      stale.resolve(null)
+    })
+    expect(results.at(-1)?.operation?.id).toBe('op_retry')
+    expect(screen.getByTestId('view-state').textContent).toBe('running')
+    expect(screen.queryByTestId('update-primary')).toBeNull()
+    expect(results.at(-1)?.pending).toBeNull()
+  })
+
+  it.each([
+    'id-only',
+    'unparseable',
+    'cut',
+    'legacy',
+  ] as const)('keeps %s disabled through failed reads and recovers', async (mode) => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    vi.useFakeTimers()
+    mocks.active.mockRejectedValue(new ServerUnavailableError())
+    if (mode === 'cut') mocks.start.mockRejectedValue(new ServerUnavailableError())
+    else if (mode === 'legacy') {
+      mocks.start.mockRejectedValue(notFound('updates.start'))
+      mocks.converge.mockResolvedValue({})
+    } else
+      mocks.start.mockResolvedValue({
+        operationId: running.id,
+        operation: mode === 'unparseable' ? { nonsense: true } : undefined,
+      })
+    await act(async () => {
+      await results.at(-1)?.run('start')
+    })
+    for (let i = 0; i < 3; i++) {
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1_000)
+      })
+      expect(button().disabled).toBe(true)
+      expect(screen.getByTestId('view-state').textContent).toBe('offer')
+    }
+    if (mode === 'id-only' || mode === 'unparseable') {
+      mocks.active.mockResolvedValue(null)
+      mocks.history.mockResolvedValue([{ ...running, state: 'done' }])
+    } else mocks.active.mockResolvedValue(running)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    await flush()
+    expect(results.at(-1)?.operation?.id).toBe(running.id)
+    expect(screen.getByTestId('view-state').textContent).toBe(
+      mode === 'id-only' || mode === 'unparseable' ? 'done' : 'running',
+    )
+    expect(results.at(-1)?.pending).toBeNull()
+    expect(screen.queryByTestId('update-primary')).toBeNull()
+  })
+
+  it.each([
+    false,
+    true,
+  ])('cut-response history recovery preserves pre-click completion=%s', async (oldCompletion) => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const completed = { ...running, state: 'done', createdAt: Date.now() - 60_000 }
+    mocks.history.mockResolvedValue(oldCompletion ? [completed] : [])
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    mocks.start.mockRejectedValue(new ServerUnavailableError())
+    const recovery = deferred<null>()
+    mocks.active.mockReturnValue(recovery.promise)
+    await act(async () => {
+      await results.at(-1)?.run('start')
+    })
+    expect(button().disabled).toBe(true)
+    mocks.history.mockResolvedValue([completed])
+    await act(async () => {
+      recovery.resolve(null)
+    })
+    expect(results.at(-1)?.view.state).toBe(oldCompletion ? 'offer' : 'done')
+    expect(results.at(-1)?.pending).toBeNull()
+    if (oldCompletion) expect(button().disabled).toBe(false)
+    else expect(screen.queryByTestId('update-primary')).toBeNull()
+  })
+
+  it('starts an immediate id-only retry read while the active poll is still hanging', async () => {
+    setupTransport()
+    vi.useFakeTimers()
+    mocks.active.mockResolvedValue(running)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await flush()
+    const oldPoll = deferred<null>()
+    mocks.active.mockReturnValue(oldPoll.promise)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    const beforeRetry = mocks.active.mock.calls.length
+    const recovery = deferred<null>()
+    mocks.active.mockReturnValue(recovery.promise)
+    mocks.retry.mockResolvedValue({ operationId: 'op_retried' })
+    await act(async () => {
+      await results.at(-1)?.run('retry')
+    })
+    expect(mocks.active).toHaveBeenCalledTimes(beforeRetry + 1)
+    expect(results.at(-1)?.pending).toBe('retry')
+    mocks.history.mockResolvedValue([{ ...running, id: 'op_retried', state: 'done' }])
+    await act(async () => {
+      recovery.resolve(null)
+    })
+    expect(results.at(-1)?.view.state).toBe('done')
+    expect(results.at(-1)?.operation?.id).toBe('op_retried')
+    expect(results.at(-1)?.pending).toBeNull()
+    await act(async () => {
+      oldPoll.resolve(null)
+    })
+    expect(results.at(-1)?.operation?.id).toBe('op_retried')
+  })
+
+  it('bounds uncertain recovery and offers a retryable error', async () => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    vi.useFakeTimers()
+    mocks.active.mockRejectedValue(new ServerUnavailableError())
+    mocks.start.mockRejectedValue(new ServerUnavailableError())
+    await act(async () => {
+      await results.at(-1)?.run('start')
+    })
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(90_000)
+    })
+    expect(button().disabled).toBe(false)
+    expect(results.at(-1)?.view.primary?.kind).toBe('retry')
+    expect(screen.getByTestId('view-state').textContent).toContain('could not be confirmed')
+  })
+})
+
 describe('useUpdateState — dispatching actions', () => {
   it('starts the update through the operation verb', async () => {
     setupTransport()
@@ -1209,7 +1418,12 @@ describe('a page whose assets the server has replaced', () => {
       installKind: 'installed',
       sourceDigest: 'a55ec3d',
       target: devRelease,
-      web: { present: true, appVersion: '0.1.1-edge.2', digest: 'a55ec3d', bundle: 'bundle+Bw5YMffE' },
+      web: {
+        present: true,
+        appVersion: '0.1.1-edge.2',
+        digest: 'a55ec3d',
+        bundle: 'bundle+Bw5YMffE',
+      },
     })
     mocks.active.mockResolvedValue(null)
     mocks.history.mockResolvedValue([])
