@@ -1200,7 +1200,11 @@ const PREPARE_CALL = /\.\s*prepare\s*\(/
  * fragment inside a builder query and is explicitly allowed (spec §6 rule 1).
  * So the pattern requires the `sql` tag to open the argument list.
  */
-const RAW_EXECUTION_CALL = /\.\s*(all|get|run|values)\s*\(\s*sql\s*`/
+// `(?:<[^<>()]*>)?` IS NOT DECORATION: `db.all<{ site: string }>(sql`…`)` is the
+// same banned call with a type argument, and without this the rule reads straight
+// past it. Found by defeat-testing the four spellings rather than by review
+// (POD-3404); only the bare one was caught.
+const RAW_EXECUTION_CALL = /\.\s*(all|get|run|values)\s*(?:<[^<>()]*>)?\s*\(\s*sql\s*`/
 
 /**
  * Constructs banned INSIDE a `sql` template body. Each belongs to the driver or
@@ -1458,8 +1462,9 @@ function rawHandleViolations(file: string, source: string): Violation[] {
     add(lineAt(m.index ?? 0), '.prepare(', 'prepares a statement on a raw connection.')
   }
   for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
+    const at = lineAt(m.index ?? 0)
     add(
-      lineAt(m.index ?? 0),
+      at,
       `.${m[1]}(sql\`…\`)`,
       `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port.`,
     )
