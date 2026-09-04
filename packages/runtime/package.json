@@ -34,6 +34,7 @@
     "./sd-notify": "./src/sd-notify.ts",
     "./supervisor": "./src/supervisor.ts",
     "./parent-supervisor": "./src/parent-supervisor.ts",
+    "./machine-supervisor": "./src/machine-supervisor.ts",
     "./parent-process": "./src/parent-process.ts",
     "./parent-control": "./src/parent-control.ts",
     "./parent-update-swap": "./src/parent-update-swap.ts",

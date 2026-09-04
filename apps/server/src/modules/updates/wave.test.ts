@@ -197,26 +197,7 @@ describe('a machine that cannot take the delivery', () => {
   })
 })
 
-/**
- * A DAEMON INSIDE PODIUM DESKTOP IS THE SHELL'S TO UPDATE (POD-2099, spec §4).
- *
- * The flag is the whole decision: each test plans the SAME machine twice, once
- * supervised and once not, so a filter that stopped firing would be visible as
- * the two runs agreeing rather than as a bare red.
- */
-describe('a desktop-supervised daemon', () => {
-  const macAllInOne = (over: Partial<WaveMachine> = {}): WaveMachine => ({
-    id: 'macbook',
-    version: '0.4.1',
-    state: 'current',
-    online: true,
-    busy: false,
-    // The shape that makes this dangerous: it reports `installed` with a real
-    // feed cap, so nothing in the caps answer would refuse it.
-    deliveryCaps: ['update.delivery.feed'],
-    supervised: true,
-    ...over,
-  })
+describe('compatibility-window delivery capability', () => {
   const plan = (machines: WaveMachine[], over: Partial<Parameters<typeof planWave>[0]> = {}) =>
     planWave({
       machines,
@@ -227,36 +208,47 @@ describe('a desktop-supervised daemon', () => {
       ...over,
     })
 
-  it('is granted a target exactly like another capable machine', () => {
-    expect(plan([macAllInOne()])).toEqual(['macbook'])
-    expect(plan([macAllInOne({ supervised: false })])).toEqual(['macbook'])
+  it('keeps an old daemon with absent or empty caps eligible during the window', () => {
+    expect(
+      machineCanTakeDelivery({ presenceSource: 'legacy-daemon', deliveryCaps: [] }, ['feed']),
+    ).toBe(true)
+    expect(machineCanTakeDelivery({ presenceSource: 'legacy-daemon' }, ['feed'])).toBe(true)
   })
 
-  it('can be chosen as the canary', () => {
-    const machines = [macAllInOne(), macAllInOne({ id: 'vmi', supervised: false })]
-    expect(plan(machines, { canaryHealthy: false })).toEqual(['macbook'])
-    expect(plan([macAllInOne()], { canaryHealthy: false })).toEqual(['macbook'])
+  it('treats a supervisor empty cap list as an explicit inability to deliver', () => {
+    const desktop: WaveMachine = {
+      id: 'macbook',
+      version: '0.4.1',
+      state: 'current',
+      online: true,
+      busy: false,
+      presenceSource: 'supervisor',
+      deliveryCaps: [],
+      deliveryUnavailableReason: 'managed by Desktop updater',
+    }
+    expect(machineCanTakeDelivery(desktop, ['feed'])).toBe(false)
+    expect(plan([desktop])).toEqual([])
+    expect(
+      decideWave({
+        machines: [desktop],
+        targetVersion: '0.4.2',
+        concurrency: 3,
+        canaryHealthy: true,
+        deliveries: ['feed'],
+      }).held,
+    ).toEqual([{ id: 'macbook', reason: 'unsupported-delivery' }])
   })
 
-  it('is eligible even when the caller offers no delivery list at all', () => {
-    expect(plan([macAllInOne()], { deliveries: undefined })).toEqual(['macbook'])
+  it('still grants a supervisor that advertises the offered delivery', () => {
+    expect(
+      machineCanTakeDelivery(
+        { presenceSource: 'supervisor', deliveryCaps: ['update.delivery.feed'] },
+        ['feed'],
+      ),
+    ).toBe(true)
   })
 
-  it('never blocks the rest of the fleet from converging', () => {
-    const fleet = [macAllInOne(), macAllInOne({ id: 'ludovico', supervised: false })]
-    expect(plan(fleet)).toEqual(['ludovico', 'macbook'])
-  })
-
-  it('answers the delivery question directly, whatever it reported it can take', () => {
-    // `supervised` is deliberately no longer part of this question (POD-2508):
-    // the delivery answer now depends only on what a machine says it can take,
-    // not on who owns its files. Both cases keep their previous verdicts —
-    // empty caps still means "no caps question to ask", and a matching cap
-    // still matches.
-    expect(machineCanTakeDelivery({ deliveryCaps: [] }, [])).toBe(true)
-    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, ['feed'])).toBe(true)
-    // Absent is an ordinary fleet machine — the frozen-contract reading.
-    expect(machineCanTakeDelivery({ deliveryCaps: ['update.delivery.feed'] }, ['feed'])).toBe(true)
+  it('keeps open capability values and empty target offers strict', () => {
     // A RETIRED cap matches nothing any target offers, which is exactly how an
     // old daemon stays honestly behind instead of being handed bytes it cannot
     // install. Caps are open at the wire; they are not accepted by being old.

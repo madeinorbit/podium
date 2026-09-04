@@ -12,7 +12,7 @@ import {
   resolvedHarnessPath,
 } from '@podium/harness'
 import { createLogger, resolveLevel, setNamespaceFloor } from '@podium/logger'
-import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
+import { asMachineId, asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from '@podium/model'
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
@@ -30,6 +30,11 @@ import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { readAppliedMigrations } from '@podium/runtime/migration-ledger'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
+import {
+  SUPERVISOR_MACHINE_ID_ENV,
+  SUPERVISOR_MACHINE_TOKEN_ENV,
+  SUPERVISOR_UPDATE_PUBKEY_ENV,
+} from '@podium/runtime/machine-supervisor'
 import { fetchArtifact, PODIUM_UPDATE_PUBKEY } from '@podium/runtime/update-delivery'
 import type { RawData } from 'ws'
 import { type ProvisionedAccountHomeSource, provisionedAccountHome } from './account-home'
@@ -287,7 +292,18 @@ export async function createDaemonHostRuntime(args: {
   const { backend, available: durableAvailable } = selectDurableBackend(opts)
   const durable = backend === 'none' ? undefined : createDurable(backend, durableAvailable)
   const identityStateDir = opts.identityDir ?? stateDir()
-  const identity = loadIdentity({ dir: identityStateDir })
+  const handedMachineId = process.env[SUPERVISOR_MACHINE_ID_ENV]
+  const identity = handedMachineId
+    ? {
+        machineId: asMachineId(handedMachineId),
+        ...(process.env[SUPERVISOR_MACHINE_TOKEN_ENV]
+          ? { token: process.env[SUPERVISOR_MACHINE_TOKEN_ENV] }
+          : {}),
+        ...(process.env[SUPERVISOR_UPDATE_PUBKEY_ENV]
+          ? { updatePubkey: process.env[SUPERVISOR_UPDATE_PUBKEY_ENV] }
+          : {}),
+      }
+    : loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
   const portableStateFence = new PortableStateFence()
   const shipping = new ShippingExecutionPlane(join(instance.runtimeDir, 'shipping'), machineId)

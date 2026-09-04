@@ -20,6 +20,7 @@ import {
   type MachineComponent,
   type MachineUseDecision,
   probeTimeoutDescription,
+  type MachineServiceReport,
 } from '../entities/machine'
 import type { MachineId } from '../ids/brands'
 
@@ -43,6 +44,8 @@ export interface SelectableMachine {
    * repo-affinity ones, which is exactly where the coordinator got picked.
    */
   components?: readonly MachineComponent[]
+  /** Live supervisor-owned execution state. Absent during the legacy window. */
+  services?: MachineServiceReport
   /**
    * The calling principal's `use` decision, when someone has resolved it.
    * ABSENT means NOT EVALUATED — never "granted"; see {@link MachineUseDecision}
@@ -201,6 +204,8 @@ export type AgentCapabilityRejection =
   | 'offline'
   | 'inventory-unavailable'
   | 'harness-probe-timed-out'
+  | 'agents-disabled'
+  | 'agents-unavailable'
   | 'harness-missing'
 
 /** A condition that can be reported for a session after it starts. */
@@ -240,7 +245,25 @@ export function agentCapabilityRejection<M extends HandoffMachine>(
   const structural = structuralRejection(machine)
   if (structural !== undefined) return structural
   if (!machine.online) return 'offline'
+  const execution = agentExecutionRejection(machine)
+  if (execution !== undefined) return execution
   return harnessRejection(machine, agentKind)
+}
+
+/**
+ * The supervisor's live execution-plane verdict. Missing is the legacy
+ * compatibility path, where daemon attachment still supplies availability.
+ */
+export function agentExecutionRejection<M extends SelectableMachine>(
+  machine: M,
+): 'agents-disabled' | 'agents-unavailable' | undefined {
+  const execution = machine.services?.agentExecution
+  if (!execution) return undefined
+  if (execution.policy === 'disabled' || machine.services?.agentExecutionLockout === true) {
+    return 'agents-disabled'
+  }
+  if (execution.reason === 'changes on restart') return 'agents-disabled'
+  return execution.state === 'available' ? undefined : 'agents-unavailable'
 }
 
 // ---------------------------------------------------------------------------

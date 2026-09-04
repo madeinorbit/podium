@@ -2999,11 +2999,12 @@
         "worktreeGc": {
           "mode": "propose",
           "afterDays": 14
-        }
+        },
+        "transcripts": {}
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":1,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":80,\"loadPerCore\":1.5,\"maxIdleSessions\":8,\"idleMinutes\":30,\"idleShellMinutes\":1,\"backstopMinutes\":2880},\"gitWorkflow\":{\"defaultParentBranch\":\"\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{},\"worktreeGc\":{\"mode\":\"propose\",\"afterDays\":14},\"transcripts\":{}}"
     },
     {
       "schema": "InstancePreferences",
@@ -3035,12 +3036,15 @@
         "worktreeGc": {
           "mode": "off",
           "afterDays": 1
+        },
+        "transcripts": {
+          "mirror": true
         }
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1}}"
+      "encoded": "{\"hibernation\":{\"enabled\":true,\"memoryPct\":50,\"loadPerCore\":1,\"maxIdleSessions\":1,\"idleMinutes\":1,\"idleShellMinutes\":1,\"backstopMinutes\":60},\"gitWorkflow\":{\"defaultParentBranch\":\"gitWorkflow.defaultParentBranch\",\"mergeStyle\":\"ff-only\",\"autoRebaseBeforeMerge\":true},\"issues\":{\"assistantEnabled\":true},\"steward\":{\"enabled\":true},\"experimental\":{\"experimental.key\":true},\"worktreeGc\":{\"mode\":\"off\",\"afterDays\":1},\"transcripts\":{\"mirror\":true}}"
     },
     {
       "schema": "IntegrationSecrets",
@@ -6316,6 +6320,24 @@
       "encoded": "\"\""
     },
     {
+      "schema": "MachinePresenceSource",
+      "variant": "minimal",
+      "wire": "supervisor",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"supervisor\""
+    },
+    {
+      "schema": "MachinePresenceSource",
+      "variant": "full",
+      "wire": "supervisor",
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "\"supervisor\""
+    },
+    {
       "schema": "MachineQuotaWire",
       "variant": "minimal",
       "wire": {
@@ -6365,6 +6387,101 @@
       "encoded": "{\"machineId\":\"machineId\",\"machineName\":\"machineName\",\"hostname\":\"hostname\",\"agents\":[{\"agent\":\"claude-code\",\"status\":\"ok\",\"account\":{\"email\":\"agents[0].account.email\",\"plan\":\"agents[0].account.plan\"},\"windows\":[{\"key\":\"agents[0].windows[0].key\",\"label\":\"agents[0].windows[0].label\",\"usedPercent\":1,\"resetsAt\":\"agents[0].windows[0].resetsAt\",\"windowMinutes\":1,\"scopeModel\":\"agents[0].windows[0].scopeModel\"}],\"error\":\"agents[0].error\",\"fetchedAt\":\"agents[0].fetchedAt\"}]}"
     },
     {
+      "schema": "MachineServiceAssignment",
+      "variant": "minimal",
+      "wire": {
+        "server": true,
+        "agentExecution": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"server\":true,\"agentExecution\":true}"
+    },
+    {
+      "schema": "MachineServiceAssignment",
+      "variant": "full",
+      "wire": {
+        "server": true,
+        "agentExecution": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"server\":true,\"agentExecution\":true}"
+    },
+    {
+      "schema": "MachineServiceReport",
+      "variant": "minimal",
+      "wire": {
+        "server": {
+          "policy": "enabled",
+          "state": "starting",
+          "observedAt": "server.observedAt"
+        },
+        "agentExecution": {
+          "policy": "enabled",
+          "state": "starting",
+          "observedAt": "agentExecution.observedAt"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"agentExecution.observedAt\"}}"
+    },
+    {
+      "schema": "MachineServiceReport",
+      "variant": "full",
+      "wire": {
+        "server": {
+          "policy": "enabled",
+          "state": "starting",
+          "reason": "server.reason",
+          "observedAt": "server.observedAt"
+        },
+        "agentExecution": {
+          "policy": "enabled",
+          "state": "starting",
+          "reason": "agentExecution.reason",
+          "observedAt": "agentExecution.observedAt"
+        },
+        "agentExecutionLockout": true,
+        "crashOwner": "crashOwner"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"server.reason\",\"observedAt\":\"server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"agentExecution.reason\",\"observedAt\":\"agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"crashOwner\"}"
+    },
+    {
+      "schema": "MachineServiceStatus",
+      "variant": "minimal",
+      "wire": {
+        "policy": "enabled",
+        "state": "starting",
+        "observedAt": "observedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"observedAt\"}"
+    },
+    {
+      "schema": "MachineServiceStatus",
+      "variant": "full",
+      "wire": {
+        "policy": "enabled",
+        "state": "starting",
+        "reason": "reason",
+        "observedAt": "observedAt"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"reason\",\"observedAt\":\"observedAt\"}"
+    },
+    {
       "schema": "MachineUseDecision",
       "variant": "minimal",
       "wire": "granted",
@@ -6406,6 +6523,27 @@
         "hostname": "hostname",
         "online": true,
         "lastSeenAt": "lastSeenAt",
+        "presenceSource": "supervisor",
+        "services": {
+          "server": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.server.reason",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.agentExecution.reason",
+            "observedAt": "services.agentExecution.observedAt"
+          },
+          "agentExecutionLockout": true,
+          "crashOwner": "services.crashOwner"
+        },
+        "serviceAssignment": {
+          "server": true,
+          "agentExecution": true
+        },
         "use": "granted",
         "owned": true,
         "podiumManaged": true,
@@ -6462,7 +6600,6 @@
         "wireSchemaDigest": "wireSchemaDigest",
         "installKind": "installKind",
         "deliveryCaps": ["deliveryCaps[0]"],
-        "supervised": true,
         "buildReportedAt": "buildReportedAt",
         "versionState": "unreported",
         "targetVersion": "targetVersion",
@@ -6471,7 +6608,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"supervised\":true,\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
+      "encoded": "{\"id\":\"id\",\"name\":\"name\",\"hostname\":\"hostname\",\"online\":true,\"lastSeenAt\":\"lastSeenAt\",\"presenceSource\":\"supervisor\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"},\"serviceAssignment\":{\"server\":true,\"agentExecution\":true},\"use\":\"granted\",\"owned\":true,\"podiumManaged\":true,\"components\":[\"daemon\"],\"inventory\":{\"os\":\"linux\",\"arch\":\"x64\",\"podiumVersion\":\"inventory.podiumVersion\",\"agents\":[{\"kind\":\"claude-code\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.agents[0].version\",\"path\":\"inventory.agents[0].path\",\"login\":{\"state\":\"in\",\"account\":\"inventory.agents[0].login.account\",\"identity\":{\"fingerprint\":\"inventory.agents[0].login.identity.fingerprint\",\"email\":\"inventory.agents[0].login.identity.email\",\"providerAccountId\":\"inventory.agents[0].login.identity.providerAccountId\"},\"freshness\":1}}],\"runtimeDrivers\":[{\"harness\":\"claude-code\",\"id\":\"inventory.runtimeDrivers[0].id\",\"family\":\"terminal\"}],\"tools\":[{\"name\":\"inventory.tools[0].name\",\"installed\":true,\"probeError\":{\"reason\":\"timed-out\",\"timeoutMs\":1},\"version\":\"inventory.tools[0].version\",\"path\":\"inventory.tools[0].path\"}]},\"updateChannel\":\"dev\",\"updateChannelOverride\":\"dev\",\"appVersion\":\"appVersion\",\"wireSchemaDigest\":\"wireSchemaDigest\",\"installKind\":\"installKind\",\"deliveryCaps\":[\"deliveryCaps[0]\"],\"buildReportedAt\":\"buildReportedAt\",\"versionState\":\"unreported\",\"targetVersion\":\"targetVersion\",\"targetUnavailableReason\":\"targetUnavailableReason\"}"
     },
     {
       "schema": "MutationId",
@@ -13135,6 +13272,26 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"id\":\"id\",\"cursor\":\"cursor\",\"role\":\"user\",\"ts\":\"ts\",\"text\":\"text\",\"toolName\":\"toolName\",\"toolInput\":\"toolInput\",\"toolTitle\":\"toolTitle\",\"toolInputJson\":\"toolInputJson\",\"toolResult\":\"toolResult\",\"toolUseId\":\"toolUseId\",\"tags\":[{\"kind\":\"image\",\"label\":\"tags[0].label\"}],\"toolPaths\":[\"toolPaths[0]\"],\"event\":\"interrupt\",\"answer\":true,\"systemKind\":\"recap\",\"durationMs\":1}"
+    },
+    {
+      "schema": "TranscriptPolicy",
+      "variant": "minimal",
+      "wire": {},
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{}"
+    },
+    {
+      "schema": "TranscriptPolicy",
+      "variant": "full",
+      "wire": {
+        "mirror": true
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"mirror\":true}"
     },
     {
       "schema": "TranscriptRole",

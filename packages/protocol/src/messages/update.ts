@@ -1,3 +1,4 @@
+import { MachineServiceAssignment, MachineServiceReport } from '@podium/model'
 import { z } from 'zod'
 import { UpdateTarget } from '../update/target'
 
@@ -101,3 +102,29 @@ export const UpdateStatusMessage = z.object({
   phaseDetail: z.string().min(1).optional(),
 })
 export type UpdateStatusMessage = z.infer<typeof UpdateStatusMessage>
+
+/** Supervisor -> server: actual services and local disable-only policy. */
+export const MachineSupervisorReportMessage = z.object({
+  type: z.literal('machineReport'),
+  services: MachineServiceReport,
+})
+export type MachineSupervisorReportMessage = z.infer<typeof MachineSupervisorReportMessage>
+
+/** Server -> supervisor: durable per-machine intent, applied only on restart. */
+export const MachineServiceAssignmentMessage = z.object({
+  type: z.literal('serviceAssignment'),
+  assignment: MachineServiceAssignment,
+})
+export type MachineServiceAssignmentMessage = z.infer<typeof MachineServiceAssignmentMessage>
+
+export const MachineSupervisorMessage = z.discriminatedUnion('type', [
+  MachineSupervisorReportMessage,
+  UpdateStatusMessage,
+])
+export type MachineSupervisorMessage = z.infer<typeof MachineSupervisorMessage>
+
+export const MachineSupervisorControlMessage = z.discriminatedUnion('type', [
+  MachineServiceAssignmentMessage,
+  UpdateGrantMessage,
+])
+export type MachineSupervisorControlMessage = z.infer<typeof MachineSupervisorControlMessage>

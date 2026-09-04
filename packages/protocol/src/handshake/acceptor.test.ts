@@ -119,6 +119,19 @@ describe('framing is common; role resolution is not payload-controlled', () => {
     expect(step.action === 'establish' && step.peer.role).toBe('machine')
   })
 
+  it('pins the supervisor machine endpoint to the authenticated machine role', () => {
+    const a = createHandshakeAcceptor({
+      registry: registry(),
+      transport: transportFacts({ endpoint: '/machine' }),
+    })
+    const step = a.receive(goodHello({ peerRole: 'machine' }))
+    expect(step.action).toBe('establish')
+    expect(step.action === 'establish' && step.peer.principal).toMatchObject({
+      kind: 'machine',
+      machine: 'mach-vps',
+    })
+  })
+
   it('refuses a peerRole that contradicts the endpoint', () => {
     const a = createHandshakeAcceptor({
       registry: registry(),

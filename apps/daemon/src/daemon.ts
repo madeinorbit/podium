@@ -3,7 +3,7 @@ import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
 import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
-import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
+import { SUPERVISOR_MACHINE_ID_ENV } from '@podium/runtime/machine-supervisor'
 import { captureDaemonBootBuild } from './build-report'
 import { createDaemonConnection, type DaemonConnection } from './connection-state'
 import { disarmExitSeam } from './convergence'
@@ -67,6 +67,11 @@ export interface DaemonHandle {
  * each live in their owning modules; this function only wires their ports.
  */
 export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
+  const parentOwnsMachinePresence = process.env[SUPERVISOR_MACHINE_ID_ENV] !== undefined
+  if (parentOwnsMachinePresence) {
+    const { pairCode: _legacyPairCode, ...parentOptions } = opts
+    opts = { ...parentOptions, identityReadOnly: true }
+  }
   await waitForDetachedRestartParent()
   const { build, installDir } = captureDaemonBootBuild(
     process.env,
@@ -118,8 +123,6 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     receiptDir: opts.hooks?.receiptDir,
     acquireGuards: true,
   })
-  const parentHostsUpdateParticipant =
-    process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
   let connection: DaemonConnection | undefined
   const queueDrainOutbox = createQueueDrainOutbox(instance.runtimeDir)
   const runtimeEventOutbox = createRuntimeEventOutbox(instance.runtimeDir)
@@ -161,7 +164,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
   connection = createDaemonConnection({
     options,
     build,
-    reportUpdateIdentity: !parentHostsUpdateParticipant,
+    reportUpdateIdentity: !parentOwnsMachinePresence,
     machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,

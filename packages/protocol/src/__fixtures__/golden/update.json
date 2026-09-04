@@ -57,6 +57,256 @@
       "encoded": "{\"type\":\"devArtifactProbeResult\",\"requestId\":\"requestId\",\"ok\":true,\"status\":100,\"detail\":\"detail\"}"
     },
     {
+      "schema": "MachineServiceAssignmentMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serviceAssignment",
+        "assignment": {
+          "server": true,
+          "agentExecution": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serviceAssignment\",\"assignment\":{\"server\":true,\"agentExecution\":true}}"
+    },
+    {
+      "schema": "MachineServiceAssignmentMessage",
+      "variant": "full",
+      "wire": {
+        "type": "serviceAssignment",
+        "assignment": {
+          "server": true,
+          "agentExecution": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serviceAssignment\",\"assignment\":{\"server\":true,\"agentExecution\":true}}"
+    },
+    {
+      "schema": "MachineSupervisorControlMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "serviceAssignment",
+        "assignment": {
+          "server": true,
+          "agentExecution": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serviceAssignment\",\"assignment\":{\"server\":true,\"agentExecution\":true}}"
+    },
+    {
+      "schema": "MachineSupervisorControlMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "serviceAssignment",
+        "assignment": {
+          "server": true,
+          "agentExecution": true
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"serviceAssignment\",\"assignment\":{\"server\":true,\"agentExecution\":true}}"
+    },
+    {
+      "schema": "MachineSupervisorControlMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "updateGrant",
+        "grantId": "grantId",
+        "repair": false,
+        "updatePubkey": "updatePubkey",
+        "target": {
+          "version": "target.version",
+          "trust": "instance",
+          "schema": {
+            "migrations": ["target.schema.migrations[0]"]
+          },
+          "notes": {
+            "summary": "target.notes.summary",
+            "url": "target.notes.url"
+          },
+          "critical": false,
+          "minRequired": {
+            "desktop": "target.minRequired.desktop",
+            "desktopBridge": 2,
+            "web": "target.minRequired.web",
+            "mobile": {
+              "ios": "target.minRequired.mobile.ios",
+              "android": "target.minRequired.mobile.android"
+            }
+          },
+          "artifacts": {
+            "headless": {
+              "delivery": "feed",
+              "platforms": {
+                "target.artifacts.headless.platforms.key": {
+                  "url": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url",
+                  "digest": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest",
+                  "signature": "target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature"
+                }
+              }
+            },
+            "headlessAlternatives": [
+              {
+                "delivery": "feed",
+                "platforms": {
+                  "target.artifacts.headlessAlternatives[0].platforms.key": {
+                    "url": "target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url",
+                    "digest": "target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest",
+                    "signature": "target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature"
+                  }
+                }
+              }
+            ],
+            "desktop": {
+              "delivery": "feed",
+              "platforms": {
+                "target.artifacts.desktop.platforms.key": {
+                  "url": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url",
+                  "digest": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest",
+                  "signature": "target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature"
+                }
+              }
+            },
+            "web": {
+              "digest": "target.artifacts.web.digest"
+            }
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateGrant\",\"grantId\":\"grantId\",\"repair\":false,\"updatePubkey\":\"updatePubkey\",\"target\":{\"version\":\"target.version\",\"trust\":\"instance\",\"schema\":{\"migrations\":[\"target.schema.migrations[0]\"]},\"notes\":{\"summary\":\"target.notes.summary\",\"url\":\"target.notes.url\"},\"critical\":false,\"minRequired\":{\"desktop\":\"target.minRequired.desktop\",\"desktopBridge\":2,\"web\":\"target.minRequired.web\",\"mobile\":{\"ios\":\"target.minRequired.mobile.ios\",\"android\":\"target.minRequired.mobile.android\"}},\"artifacts\":{\"headless\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headless.platforms.key\":{\"url\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.url\",\"digest\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.digest\",\"signature\":\"target.artifacts.headless.platforms.target.artifacts.headless.platforms.key.signature\"}}},\"headlessAlternatives\":[{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.headlessAlternatives[0].platforms.key\":{\"url\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.url\",\"digest\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.digest\",\"signature\":\"target.artifacts.headlessAlternatives[0].platforms.target.artifacts.headlessAlternatives[0].platforms.key.signature\"}}}],\"desktop\":{\"delivery\":\"feed\",\"platforms\":{\"target.artifacts.desktop.platforms.key\":{\"url\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.url\",\"digest\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.digest\",\"signature\":\"target.artifacts.desktop.platforms.target.artifacts.desktop.platforms.key.signature\"}}},\"web\":{\"digest\":\"target.artifacts.web.digest\"}}}}"
+    },
+    {
+      "schema": "MachineSupervisorMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "machineReport",
+        "services": {
+          "server": {
+            "policy": "enabled",
+            "state": "starting",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "enabled",
+            "state": "starting",
+            "observedAt": "services.agentExecution.observedAt"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineReport\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"services.agentExecution.observedAt\"}}}"
+    },
+    {
+      "schema": "MachineSupervisorMessage",
+      "variant": "full/arm0",
+      "wire": {
+        "type": "machineReport",
+        "services": {
+          "server": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.server.reason",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.agentExecution.reason",
+            "observedAt": "services.agentExecution.observedAt"
+          },
+          "agentExecutionLockout": true,
+          "crashOwner": "services.crashOwner"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineReport\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"}}"
+    },
+    {
+      "schema": "MachineSupervisorMessage",
+      "variant": "full/arm1",
+      "wire": {
+        "type": "updateStatus",
+        "grantId": "grantId",
+        "targetVersion": "targetVersion",
+        "state": "granted",
+        "version": "version",
+        "detail": "detail",
+        "percent": 2,
+        "phaseDetail": "phaseDetail"
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"updateStatus\",\"grantId\":\"grantId\",\"targetVersion\":\"targetVersion\",\"state\":\"granted\",\"version\":\"version\",\"detail\":\"detail\",\"percent\":2,\"phaseDetail\":\"phaseDetail\"}"
+    },
+    {
+      "schema": "MachineSupervisorReportMessage",
+      "variant": "minimal",
+      "wire": {
+        "type": "machineReport",
+        "services": {
+          "server": {
+            "policy": "enabled",
+            "state": "starting",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "enabled",
+            "state": "starting",
+            "observedAt": "services.agentExecution.observedAt"
+          }
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineReport\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"observedAt\":\"services.agentExecution.observedAt\"}}}"
+    },
+    {
+      "schema": "MachineSupervisorReportMessage",
+      "variant": "full",
+      "wire": {
+        "type": "machineReport",
+        "services": {
+          "server": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.server.reason",
+            "observedAt": "services.server.observedAt"
+          },
+          "agentExecution": {
+            "policy": "enabled",
+            "state": "starting",
+            "reason": "services.agentExecution.reason",
+            "observedAt": "services.agentExecution.observedAt"
+          },
+          "agentExecutionLockout": true,
+          "crashOwner": "services.crashOwner"
+        }
+      },
+      "parseAdded": {},
+      "parseChanged": {},
+      "parseDropped": {},
+      "encoded": "{\"type\":\"machineReport\",\"services\":{\"server\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.server.reason\",\"observedAt\":\"services.server.observedAt\"},\"agentExecution\":{\"policy\":\"enabled\",\"state\":\"starting\",\"reason\":\"services.agentExecution.reason\",\"observedAt\":\"services.agentExecution.observedAt\"},\"agentExecutionLockout\":true,\"crashOwner\":\"services.crashOwner\"}}"
+    },
+    {
       "schema": "UpdateGrantMessage",
       "variant": "minimal",
       "wire": {

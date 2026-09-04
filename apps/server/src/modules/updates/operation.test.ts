@@ -185,7 +185,7 @@ describe('planUpdateOperation', () => {
         hostMachineId: 'host',
         fleet: [machine({ id: 'host', installKind: 'installed', online: true })],
       },
-      steps: [UPDATE_STEP_MACHINES, UPDATE_STEP_WEB],
+      steps: [UPDATE_STEP_MACHINES],
     },
     {
       name: 'a server already on the target keeps its machines and its website',
@@ -442,10 +442,12 @@ describe('planUpdateOperation', () => {
     expect(plan.deferred).toHaveLength(1)
   })
 
-  /** Desktop supervision owns crashes; the external payload remains fleet-managed. */
-  it('includes a desktop-supervised daemon in the ordinary fleet wave', () => {
+  /** Supervisor presence owns the installed payload and advertises its delivery path. */
+  it('includes a capable supervisor in the ordinary fleet wave', () => {
     const plan = planUpdateOperation(
-      planInput({ fleet: [machine({ id: 'macbook', supervised: true })] }),
+      planInput({
+        fleet: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
+      }),
     )
     expect(stepIds(plan)).toContain(UPDATE_STEP_MACHINES)
     expect(plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)?.places?.[0]?.id).toBe(
@@ -589,12 +591,70 @@ describe('planUpdateOperation', () => {
     )
   })
 
+  it('records an online no-capability supervisor as a non-blocking wave result', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: packedTarget(),
+        fleet: [
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: [],
+            deliveryUnavailableReason: 'managed by Desktop updater',
+          }),
+        ],
+      }),
+    )
+    const machines = plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)
+    expect(machines?.places).toEqual([
+      {
+        id: 'macbook',
+        name: 'macbook',
+        state: 'cannot-take-delivery',
+        detail: 'managed by Desktop updater',
+      },
+    ])
+    expect(machines?.progress).toEqual({ done: 0, total: 1 })
+    expect(plan.deferred).toEqual([])
+  })
+
+  it('does not build bytes an authoritative no-capability supervisor cannot use', () => {
+    const plan = planUpdateOperation(
+      planInput({
+        target: identityTarget(),
+        fleet: [
+          machine({
+            id: 'source',
+            presenceSource: 'supervisor',
+            deliveryCaps: [],
+            deliveryUnavailableReason: 'source install',
+          }),
+        ],
+      }),
+    )
+
+    expect(stepIds(plan)).not.toContain(UPDATE_STEP_PREPARE)
+    const machines = plan.steps.find((step) => step.id === UPDATE_STEP_MACHINES)
+    expect(machines?.places?.[0]).toMatchObject({
+      id: 'source',
+      state: 'cannot-take-delivery',
+      detail: 'source install',
+    })
+  })
+
   /** The all-in-one host is the first ordinary member of its own fleet. */
   it('plans an all-in-one payload through the machine step without a desktop ask', () => {
     const plan = planUpdateOperation(
       planInput({
         hostMachineId: 'macbook',
-        fleet: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
+        fleet: [
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            name: 'macbook',
+          }),
+        ],
       }),
     )
     expect(stepIds(plan)).toEqual([UPDATE_STEP_PREPARE, UPDATE_STEP_MACHINES])
@@ -606,7 +666,12 @@ describe('planUpdateOperation', () => {
       planInput({
         hostMachineId: 'macbook',
         fleet: [
-          machine({ id: 'macbook', supervised: true, name: 'macbook' }),
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            name: 'macbook',
+          }),
           machine({ id: 'linux-a', name: 'linux-a' }),
           machine({ id: 'linux-b', name: 'linux-b' }),
         ],
@@ -637,8 +702,18 @@ describe('planUpdateOperation', () => {
 
   it('never mints the legacy desktop ask for named or unnamed all-in-one hosts', () => {
     for (const host of [
-      machine({ id: 'm_01jhost', supervised: true, name: 'ludovico' }),
-      machine({ id: 'm_01jhost', supervised: true, name: undefined }),
+      machine({
+        id: 'm_01jhost',
+        presenceSource: 'supervisor',
+        deliveryCaps: FEED_CAPS,
+        name: 'ludovico',
+      }),
+      machine({
+        id: 'm_01jhost',
+        presenceSource: 'supervisor',
+        deliveryCaps: FEED_CAPS,
+        name: undefined,
+      }),
     ]) {
       const plan = planUpdateOperation(
         planInput({
@@ -1467,7 +1542,7 @@ describe('the update operation, driven', () => {
 
   it('keeps an all-in-one operation running on its ordinary machine step', async () => {
     const h = harness({
-      machines: [machine({ id: 'macbook', supervised: true })],
+      machines: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
       hostMachineId: 'macbook',
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1482,7 +1557,14 @@ describe('the update operation, driven', () => {
 
   it('does not turn a pending all-in-one machine grant into a desktop ask', async () => {
     const h = harness({
-      machines: [machine({ id: 'macbook', supervised: true, name: 'macbook' })],
+      machines: [
+        machine({
+          id: 'macbook',
+          presenceSource: 'supervisor',
+          deliveryCaps: FEED_CAPS,
+          name: 'macbook',
+        }),
+      ],
       hostMachineId: 'macbook',
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -1534,6 +1616,44 @@ describe('the update operation, driven', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(h.read().state).toBe('done')
+  })
+
+  it('completes with a visible result when a supervisor advertises no delivery path', async () => {
+    const h = harness({
+      machines: [
+        machine({
+          id: 'desktop',
+          presenceSource: 'supervisor',
+          deliveryCaps: [],
+          deliveryUnavailableReason: 'managed by Desktop updater',
+        }),
+      ],
+      target: packedTarget(),
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    const operation = h.read()
+    expect(operation.state).toBe('done')
+    expect(operation.steps).toEqual([
+      expect.objectContaining({
+        id: UPDATE_STEP_MACHINES,
+        state: 'done',
+        progress: { done: 1, total: 1 },
+        places: [
+          expect.objectContaining({
+            id: 'desktop',
+            state: 'cannot-take-delivery',
+            detail: 'managed by Desktop updater',
+          }),
+        ],
+      }),
+    ])
+    expect(operation.deferred).toEqual([])
+    expect(h.sent).toEqual([])
   })
 })
 
@@ -2412,7 +2532,7 @@ describe('surviving the coordinator restart', () => {
   /** Simulate parent self-handover while retaining the same fleet operation. */
   async function restartAllInOneAt(appVersion: string) {
     const h = harness({
-      machines: [machine({ id: 'macbook', supervised: true })],
+      machines: [machine({ id: 'macbook', presenceSource: 'supervisor', deliveryCaps: FEED_CAPS })],
       hostMachineId: 'macbook',
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
@@ -2428,7 +2548,14 @@ describe('surviving the coordinator restart', () => {
       () => ({
         appVersion,
         servedWebDigest: WEB_DIGEST,
-        machineDirectory: [machine({ id: 'macbook', supervised: true, version: appVersion })],
+        machineDirectory: [
+          machine({
+            id: 'macbook',
+            presenceSource: 'supervisor',
+            deliveryCaps: FEED_CAPS,
+            version: appVersion,
+          }),
+        ],
         now: h.clock.clock.now(),
       }),
       () => h.context(),
@@ -2946,8 +3073,8 @@ describe('the fleet bridge', () => {
     expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
-  /** Crash supervision does not change ownership of a deferred fleet payload. */
-  it('admits a reconnected machine after it becomes desktop-supervised', async () => {
+  /** A reconnected supervisor resumes owning its deferred fleet payload. */
+  it('admits a reconnected machine after supervisor presence returns', async () => {
     const fleet = [machine({ id: 'vmi' }), machine({ id: 'laptop', online: false })]
     const h = harness({
       machines: fleet,
@@ -2958,7 +3085,11 @@ describe('the fleet bridge', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    fleet[1] = machine({ id: 'laptop', supervised: true })
+    fleet[1] = machine({
+      id: 'laptop',
+      presenceSource: 'supervisor',
+      deliveryCaps: FEED_CAPS,
+    })
     createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
@@ -3291,11 +3422,11 @@ describe('the fleet bridge', () => {
 
   /**
    * A target identity with no delivery descriptor does not filter any machine.
-   * Supervision is equally irrelevant here: it describes the process owner, not
-   * the external payload's delivery eligibility.
+   * The supervisor's empty capability list is irrelevant when the target itself
+   * has no machine delivery descriptor to select.
    */
-  it('admits a supervised daemon when a target offers no delivery filter yet', () => {
-    const fleet = [machine({ id: 'laptop', supervised: true })]
+  it('admits a supervisor when a target offers no delivery filter yet', () => {
+    const fleet = [machine({ id: 'laptop', presenceSource: 'supervisor', deliveryCaps: [] })]
     const h = harness({ machines: fleet })
     const operation = {
       id: 'op_1',

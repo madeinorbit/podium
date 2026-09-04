@@ -90,6 +90,20 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
     preAuthNonHandshake: 'ignore',
   })
 
+/** The authenticated parent-owned machine plane; no legacy frame adapter. */
+export const createMachineSupervisorAcceptor = (deps: DaemonAcceptorDeps): HandshakeAcceptor =>
+  createHandshakeAcceptor({
+    registry: createDefaultAuthRegistry({
+      machines: createMachineDirectory(deps.machines, 'supervisor'),
+      mint: gatewayCapabilityMinter,
+    }),
+    supportedCaps: [],
+    transport: {
+      endpoint: '/machine',
+      connectionId: deps.connectionId,
+    },
+  })
+
 export type DaemonFrameOutcome =
   | { readonly kind: 'ignored' }
   | {

@@ -100,6 +100,10 @@ export function machineOptionLabel<M extends ChoosableMachine>(choice: MachineCh
       return name
     case 'offline':
       return `${name} (offline)`
+    case 'agents-disabled':
+      return `${name} (agents off)`
+    case 'agents-unavailable':
+      return `${name} (agents degraded)`
     case 'harness-missing':
       return `${name} (agent not installed)`
     // Probe state, not a verdict (POD-3070 merge): the row is refused for now,

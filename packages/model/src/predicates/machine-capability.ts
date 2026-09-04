@@ -11,6 +11,7 @@ import {
   type AgentCapabilityRejection,
   type AgentLoginCondition,
   type HandoffMachine,
+  agentExecutionRejection,
   harnessRejection,
   type SelectableMachine,
   structuralRejection,
@@ -108,6 +109,8 @@ export function machineRejection<M extends HandoffMachine>(
   const structural = structuralEligibility(machine, requirement)
   if (structural !== undefined) return structural
   if (!machine.online) return 'offline'
+  const execution = agentExecutionRejection(machine)
+  if (execution !== undefined) return execution
   switch (requirement.need) {
     case 'host-repos':
       return undefined
@@ -315,6 +318,10 @@ export function machineRejectionMessage(
       return `machine '${name}' has not reported what it can run yet — wait for its probe, then retry`
     case 'harness-probe-timed-out':
       return `could not determine whether machine '${name}' can ${action} — its probe timed out; retry`
+    case 'agents-disabled':
+      return `machine '${name}' has agent hosting disabled and cannot ${action}`
+    case 'agents-unavailable':
+      return `machine '${name}' has a degraded agent service and cannot ${action}`
     case 'harness-missing':
       return `machine '${name}' does not have the agent installed to ${action}`
     case 'logged-out':
@@ -371,6 +378,11 @@ export function machineChoiceSummary<M extends HandoffMachine>(
     else if (choice.rejection === 'no-daemon') {
       if (choice.machine.components?.length === 0) awaitingFirstConnection.push(choice.machine)
       else incapable.push(choice.machine)
+    } else if (
+      choice.rejection === 'agents-disabled' ||
+      choice.rejection === 'agents-unavailable'
+    ) {
+      incapable.push(choice.machine)
     } else offline.push(choice.machine)
   }
   // Which single axis explains the emptiness: exactly one non-empty bucket gets

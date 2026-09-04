@@ -37,14 +37,17 @@ export interface MachineAuthenticator {
    *  written as a constant here: the directory must not be a second opinion about who
    *  the host is, and there is no id in this process that is not minted material. */
   readonly hostMachineId: MachineId
-  authenticateDaemon(frame: {
-    type: 'pair' | 'hello'
-    code?: string
-    machineId: MachineId
-    token?: string
-    hostname: string
-    name?: string
-  }):
+  authenticateDaemon(
+    frame: {
+      type: 'pair' | 'hello'
+      code?: string
+      machineId: MachineId
+      token?: string
+      hostname: string
+      name?: string
+    },
+    source?: 'supervisor' | 'legacy-daemon',
+  ):
     | {
         ok: true
         machineId: MachineId
@@ -78,7 +81,10 @@ const resolved = (
   ...(pairingGrant === undefined ? {} : { directoryContext: pairingGrant }),
 })
 
-export const createMachineDirectory = (machines: MachineAuthenticator): MachineDirectory => ({
+export const createMachineDirectory = (
+  machines: MachineAuthenticator,
+  source: 'supervisor' | 'legacy-daemon' = 'legacy-daemon',
+): MachineDirectory => ({
   /**
    * ADR 5 D5 row 2. The host machine's shared secret IS its stored credential
    * (`ensureHostMachine` registers this host with it at startup), so verifying the
@@ -88,15 +94,16 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
    * server checking the credential are talking about the same row by construction.
    */
   verifyDaemonSecret(secret: string, observed?: PeerObservations): ResolvedMachine | null {
-    const auth = machines.authenticateDaemon({
-      type: 'hello',
-      machineId: machines.hostMachineId,
-      token: secret,
-      hostname: observed?.hostname ?? machines.hostMachineId,
-    })
-    return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
-      : null
+    const auth = machines.authenticateDaemon(
+      {
+        type: 'hello',
+        machineId: machines.hostMachineId,
+        token: secret,
+        hostname: observed?.hostname ?? machines.hostMachineId,
+      },
+      source,
+    )
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
   },
 
   /**
@@ -113,15 +120,16 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     observed?: PeerObservations,
   ): ResolvedMachine | null {
     if (machineHint === undefined) return null
-    const auth = machines.authenticateDaemon({
-      type: 'hello',
-      machineId: asMachineId(machineHint),
-      token,
-      hostname: observed?.hostname ?? machineHint,
-    })
-    return auth.ok
-      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
-      : null
+    const auth = machines.authenticateDaemon(
+      {
+        type: 'hello',
+        machineId: asMachineId(machineHint),
+        token,
+        hostname: observed?.hostname ?? machineHint,
+      },
+      source,
+    )
+    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
   },
 
   /**
@@ -137,13 +145,16 @@ export const createMachineDirectory = (machines: MachineAuthenticator): MachineD
     // one. `MachinesService` decides what row results; this adapter passes the
     // proposal through and reports back whatever came out (or null on refuse).
     if (request?.machineId === undefined) return null
-    const auth = machines.authenticateDaemon({
-      type: 'pair',
-      code,
-      machineId: request.machineId,
-      hostname: request.hostname ?? request.machineId,
-      ...(request.name === undefined ? {} : { name: request.name }),
-    })
+    const auth = machines.authenticateDaemon(
+      {
+        type: 'pair',
+        code,
+        machineId: request.machineId,
+        hostname: request.hostname ?? request.machineId,
+        ...(request.name === undefined ? {} : { name: request.name }),
+      },
+      source,
+    )
     if (!auth.ok || auth.token === undefined) return null
     return {
       ...resolved(

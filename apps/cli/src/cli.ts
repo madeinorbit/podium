@@ -21,6 +21,7 @@ import {
   type FeatureId,
   type LocalDaemonLink,
   resolveFeatureState,
+  wireSchemaDigest,
 } from '@podium/protocol'
 import {
   loadConfig,
@@ -41,8 +42,20 @@ import {
   stateDir,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
-import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
+import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
+import { writePendingGrant } from '@podium/runtime/update-pending'
+import { createGrantRunner } from '@podium/runtime/update-participant'
+import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
+import {
+  createMachineSupervisorConnection,
+  effectiveAssignment,
+  fallbackAssignment,
+  loadSupervisorState,
+  saveSupervisorState,
+} from '@podium/runtime/machine-supervisor'
+import { machineServiceReport } from '@podium/runtime/parent-supervisor'
+import { consumePairCode } from '@podium/runtime/setup'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -54,7 +67,7 @@ export interface ModePlan {
   showSetupHint: boolean
 }
 
-const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server']
+const SUBCOMMANDS: PodiumMode[] = ['all-in-one', 'daemon', 'client', 'server', 'supervisor']
 
 /** Tokens the LAUNCH path (mode subcommands / bare invocation) understands. Anything
  *  else is a usage error — an unrecognized flag or a typo'd subcommand must never
@@ -654,8 +667,10 @@ export function resolvePlan(
   // Thin parent process [POD-2505]: supervises server + daemon OS children.
   if (argv[0] === 'parent') {
     const takeover = argv.includes('--takeover')
-    const includeDaemon = config.mode !== 'server'
-    const includeServer = config.mode !== 'daemon'
+    const includeDaemon =
+      config.mode !== 'server' && config.mode !== 'supervisor' && config.mode !== 'client'
+    const includeServer =
+      config.mode !== 'daemon' && config.mode !== 'supervisor' && config.mode !== 'client'
     return { kind: 'parent', port, includeDaemon, includeServer, takeover }
   }
   // `podium setup --repair` (#21): back up an existing-but-invalid config.json.
@@ -779,6 +794,15 @@ export function resolvePlan(
     }
     return { kind: 'detached-managed', mode: modePlan.mode, port }
   }
+  if (!forceSetup && modePlan.mode === 'supervisor') {
+    return {
+      kind: 'parent',
+      port,
+      includeDaemon: false,
+      includeServer: false,
+      takeover: argv.includes('--takeover'),
+    }
+  }
 
   // In-process hosting. `forceSetup` here is the headless `podium setup` fallback: serve
   // the web setup UI (server only), claim no run-registry role.
@@ -835,6 +859,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  daemon [--local] [--server <url>] [--pair <code>] [--name <name>]',
     '                        Run only the daemon (connects to a server)',
     '  parent                Supervise server (+ janitor worker) and daemon children',
+    '  supervisor            Run only machine presence and update delivery',
     '  client                Nothing to run locally; points at a remote server',
     '',
     '  --instance <id>        Select an isolated Podium instance (default: default)',
@@ -1526,9 +1551,22 @@ export async function main(
       const { fileURLToPath } = await import('node:url')
       const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
       const compiled = import.meta.url.includes('/$bunfs/')
+      const supervisorState = loadSupervisorState(stateDir())
+      const localBootstrapToken = plan.includeServer ? readOrCreateDaemonSecret() : undefined
+      if (plan.includeServer) {
+        supervisorState.machineId = readOrCreateLocalMachineId()
+        supervisorState.token = localBootstrapToken
+        saveSupervisorState(stateDir(), supervisorState)
+      }
+      let configuredAssignment =
+        supervisorState.assignment ?? fallbackAssignment(config.mode ?? 'all-in-one')
+      const runningAssignment = effectiveAssignment({
+        configured: configuredAssignment,
+        agentExecutionLockout: config.agentExecutionLockout,
+      })
       const children: Array<'server' | 'daemon'> = [
-        ...(plan.includeServer ? (['server'] as const) : []),
-        ...(plan.includeDaemon ? (['daemon'] as const) : []),
+        ...(runningAssignment.server ? (['server'] as const) : []),
+        ...(runningAssignment.agentExecution ? (['daemon'] as const) : []),
       ]
       /**
        * A SUCCESSOR is a parent spawned by a live predecessor during
@@ -1540,12 +1578,23 @@ export async function main(
        */
       const isSuccessor = process.env[PARENT_SUCCESSOR_ENV] === '1'
       const installDir = resolveInstallDir(process.env)
+      let supervisorConnection: ReturnType<typeof createMachineSupervisorConnection> | undefined
       const parent = new ParentProcess({
         port: plan.port,
         children,
-        finalizePendingGrant: children.includes('server')
-          ? (expectedVersion) => finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion)
-          : undefined,
+        childEnv: () => ({
+          PODIUM_SUPERVISOR_MACHINE_ID: supervisorState.machineId,
+          PODIUM_SUPERVISOR_SERVICE_ASSIGNMENT: JSON.stringify(configuredAssignment),
+          ...(supervisorState.token
+            ? { PODIUM_SUPERVISOR_MACHINE_TOKEN: supervisorState.token }
+            : {}),
+          ...(supervisorState.updatePubkey
+            ? { PODIUM_SUPERVISOR_UPDATE_PUBKEY: supervisorState.updatePubkey }
+            : {}),
+        }),
+        onSnapshot: () => supervisorConnection?.report(),
+        finalizePendingGrant: (expectedVersion) =>
+          finalizePendingGrant(join(stateDir(), 'runtime'), expectedVersion),
         env: {
           ...process.env,
           ...(compiled
@@ -1590,6 +1639,7 @@ export async function main(
           })
         },
         onExit: async () => {
+          supervisorConnection?.close()
           await parentLogging.close().catch(() => {})
         },
         reportSuccessorPid: (pid) => {
@@ -1631,6 +1681,70 @@ export async function main(
           console.error((error as Error).message)
           process.exit(1)
         }
+      }
+      const appVersion = process.env.PODIUM_APP_VERSION ?? 'dev'
+      const desktopManaged = process.env.PODIUM_DESKTOP_SUPERVISED === '1'
+      const installedPayload = compiled || process.env.PODIUM_HOME !== undefined
+      const deliveryCaps = desktopManaged || !installedPayload ? [] : ['update.delivery.feed']
+      const machineServerUrl = children.includes('server')
+        ? localServerWsUrl(plan.port)
+        : config.serverUrl
+      if (!machineServerUrl) {
+        throw new Error('machine supervisor has no coordinating server URL')
+      }
+      const updateRunner = createGrantRunner({
+        currentVersion: () => appVersion,
+        caps: deliveryCaps,
+        installTarget: (target) =>
+          requestParentSwap({
+            expectedVersion: target.version,
+            target: target as unknown as Record<string, unknown>,
+            ...(supervisorState.updatePubkey ? { pinnedPubkey: supervisorState.updatePubkey } : {}),
+          }),
+        writePending: (pending) => writePendingGrant(join(stateDir(), 'runtime'), pending),
+        restart: (expectedVersion, handover) => {
+          const result = requestParentHandover({ expectedVersion, ...handover })
+          if (!result.ok) throw new Error('machine-cannot-restart: no supervising parent')
+        },
+        report: (status) => supervisorConnection?.send(status),
+        now: Date.now,
+      })
+      supervisorConnection = createMachineSupervisorConnection({
+        serverUrl: machineServerUrl,
+        stateDir: stateDir(),
+        state: supervisorState,
+        ...(config.pairCode ? { pairCode: config.pairCode } : {}),
+        ...(localBootstrapToken ? { bootstrapToken: localBootstrapToken } : {}),
+        build: {
+          appVersion,
+          wireSchemaDigest: wireSchemaDigest(),
+          installKind: installedPayload ? 'installed' : 'source',
+        },
+        deliveryCaps,
+        report: () =>
+          machineServiceReport({
+            snap: parent.snapshot(),
+            assignment: configuredAssignment,
+            running: runningAssignment,
+            agentExecutionLockout: config.agentExecutionLockout,
+            crashOwner: desktopManaged ? 'desktop' : (config.persistence ?? 'foreground'),
+          }),
+        onAssignment: (assignment) => {
+          configuredAssignment = assignment
+        },
+        onGrant: (grant) => {
+          void updateRunner.apply(grant)
+        },
+        onPaired: () => {
+          if (!config.pairCode) return
+          try {
+            consumePairCode(config.pairCode)
+          } catch {}
+        },
+      })
+      supervisorConnection.start()
+      if (!supervisorState.token && config.pairCode && !children.includes('server')) {
+        await supervisorConnection.waitUntilConnected()
       }
       console.log(`podium parent up — supervising ${children.join(' + ')} on :${plan.port}`)
       await parent.start()

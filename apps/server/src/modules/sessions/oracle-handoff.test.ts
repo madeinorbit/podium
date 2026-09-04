@@ -26,7 +26,7 @@ import { join } from 'node:path'
 import { asAgentIdentityId, asMachineId, asUserId, type MachineId } from '@podium/model'
 import type { UserId } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 
 import { SessionRegistry } from '../../relay'
@@ -632,20 +632,26 @@ describe('oracle: handoff success across two machines', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: a machine the caller may use but that is OFFLINE says so — denied and unreachable are different answers`, async () => {
-    const f = await handoffFixture()
-    // Same operator, same eligible-in-every-other-way target: only reachability
-    // differs from the passing case, so the different message is attributable to
-    // reachability alone (§3.1.4 M5's visible-machine distinction).
-    f.reg.gateway.detachDaemon('m2')
+    vi.useFakeTimers()
+    try {
+      const f = await handoffFixture()
+      // Same operator, same eligible-in-every-other-way target: only reachability
+      // differs from the passing case, so the different message is attributable to
+      // reachability alone (§3.1.4 M5's visible-machine distinction).
+      f.reg.gateway.detachDaemon('m2')
+      vi.advanceTimersByTime(30_001)
 
-    expect(
-      await messageOf(() =>
-        f.reg.modules.issueSessionLifecycle.handoffSession(
-          { sessionId: f.sessionId, machineId: asMachineId('m2') },
-          TEST_CALLER,
+      expect(
+        await messageOf(() =>
+          f.reg.modules.issueSessionLifecycle.handoffSession(
+            { sessionId: f.sessionId, machineId: asMachineId('m2') },
+            TEST_CALLER,
+          ),
         ),
-      ),
-    ).toBe('target machine is offline')
+      ).toBe('target machine is offline')
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

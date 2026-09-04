@@ -352,6 +352,41 @@ export type MachineUseDecision = z.infer<typeof MachineUseDecision>
 export const MachineComponent = z.enum(['daemon', 'server'])
 export type MachineComponent = z.infer<typeof MachineComponent>
 
+/** The server-owned service assignment for one enrolled machine. */
+export const MachineServiceAssignment = z.object({
+  server: z.boolean(),
+  agentExecution: z.boolean(),
+})
+export type MachineServiceAssignment = z.infer<typeof MachineServiceAssignment>
+
+/**
+ * One supervisor observation. Policy says whether the service is intended to
+ * run; state says what the parent actually observed in this boot. Keeping them
+ * separate lets the fleet distinguish a deliberate disable from a refused or
+ * crashed assigned service.
+ */
+export const MachineServiceStatus = z.object({
+  policy: z.enum(['enabled', 'disabled']),
+  state: z.enum(['starting', 'available', 'refused', 'stopped']),
+  reason: z.string().optional(),
+  observedAt: z.string(),
+})
+export type MachineServiceStatus = z.infer<typeof MachineServiceStatus>
+
+export const MachineServiceReport = z.object({
+  server: MachineServiceStatus,
+  agentExecution: MachineServiceStatus,
+  /** True when the local disable-only lockout subtracted agent execution. */
+  agentExecutionLockout: z.boolean().optional(),
+  /** Display-only local crash-owner fact; no server policy may depend on it. */
+  crashOwner: z.string().optional(),
+})
+export type MachineServiceReport = z.infer<typeof MachineServiceReport>
+
+/** Which compatibility-window path currently represents this machine. */
+export const MachinePresenceSource = z.enum(['supervisor', 'legacy-daemon'])
+export type MachinePresenceSource = z.infer<typeof MachinePresenceSource>
+
 /**
  * The update authority selected for one managed machine.
  *
@@ -408,6 +443,12 @@ export const MachineWire = z.object({
   hostname: z.string(),
   online: z.boolean(),
   lastSeenAt: z.string(), // ISO 8601
+  /** The live path selected by compatibility-window arbitration. */
+  presenceSource: MachinePresenceSource.optional(),
+  /** Last supervisor report, retained while offline. */
+  services: MachineServiceReport.optional(),
+  /** Server intent, distinct from what the current boot is actually running. */
+  serviceAssignment: MachineServiceAssignment.optional(),
   /** The authenticated viewer's live `USE` decision. Absent only on unscoped internal lists. */
   use: MachineUseDecision.optional(),
   /**
@@ -473,13 +514,6 @@ export const MachineWire = z.object({
   installKind: z.string().nullable().optional(),
   /** Delivery methods the daemon offered in its last authenticated hello. */
   deliveryCaps: z.array(z.string()).optional(),
-  /**
-   * This daemon runs inside Podium Desktop, which owns its bytes (POD-2099).
-   * Fleet waves never deliver to it; the shell update does. Absent means an
-   * ordinary fleet machine, so a reader that ignores this field is never wrong
-   * about a machine that predates it.
-   */
-  supervised: z.boolean().optional(),
   /** When the server last accepted the build report. */
   buildReportedAt: z.string().nullable().optional(),
   /** Derived relative state; never persisted. */

@@ -174,6 +174,8 @@ export interface ParentProcessDeps {
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   onSnapshot?: (snap: ParentSnapshot) => void
+  /** Parent-owned credential handoff, evaluated for every daemon spawn. */
+  childEnv?: () => NodeJS.ProcessEnv
   /** How long a component may claim to be running without advancing (watchdog). */
   componentWedgedMs?: number
   /** Watchdog pet cadence. Default: half of WATCHDOG_USEC, per systemd's margin. */
@@ -660,6 +662,7 @@ export class ParentProcess {
       else log.warn('parent health gate timed out', { ...fields, budgetMs })
       return ok
     }
+    if (!wantsServer && !wantsDaemon) return true
     while (this.deps.now() < deadline) {
       if (this.terminating) return settle(false, 'terminating')
       if (!wantsServer && wantsDaemon) {
@@ -727,6 +730,7 @@ export class ParentProcess {
     })
     const childEnv: NodeJS.ProcessEnv = {
       ...this.env,
+      ...(this.deps.childEnv?.() ?? {}),
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       PODIUM_UNDER_PARENT: '1',
@@ -1003,6 +1007,7 @@ export class ParentProcess {
     try {
       const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
       const wantsServer = this.childOrder.includes('server')
+      const wantsDaemon = this.requiresDaemon()
       while (this.deps.now() < deadline) {
         if (this.terminating) return
         if (successorExited || successor.exitCode !== null) {
@@ -1010,9 +1015,11 @@ export class ParentProcess {
         }
         const healthy = wantsServer
           ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion, {
-              requiresDaemon: this.requiresDaemon(),
+              requiresDaemon: wantsDaemon,
             })
-          : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+          : wantsDaemon
+            ? isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+            : liveRecord('parent')?.pid === successorPid
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
