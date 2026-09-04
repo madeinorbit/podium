@@ -206,22 +206,30 @@ function toRunStep(row: typeof workflowRunSteps.$inferSelect): RunStep {
 }
 
 export class WorkflowsRepository {
-  /** The query builder. A getter over the enclosing transaction after rule 35. */
-  private readonly db: SyncDrizzle
-  /** A span. Identical across the flip except for `async`/`await`. */
-  private readonly transact: SyncQueries['transact']
+  /**
+   * The capability is WIRING and is named here and nowhere else [spec rule 34].
+   * A call site reads `this.db.select(…)` and `this.transact(…)`.
+   */
+  constructor(private readonly queries: SyncQueries) {}
 
   /**
-   * The capability is WIRING and is named here and nowhere else [spec rule 34]:
-   * destructured at construction so a call site reads `this.db.select(…)` and
-   * `this.transact(…)` rather than carrying the capability's shape around. The
-   * ASYNC pair satisfies the same object, so B1 refills these two fields and the
-   * query bodies below change only by `async` and `await`.
+   * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
+   * freezes `db` to the ROOT instance, and rule 35 routes transactions
+   * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
+   * B1 changes this one line, here, instead of turning 39 fields into getters.
    */
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
-    this.transact = queries.transact
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
+
+  /**
+   * DELEGATES ON EVERY CALL rather than being assigned across. `this.transact =
+   * queries.transact` works only because `syncQueriesOver` returns an arrow
+   * closing over the handle; it breaks SILENTLY, as a detached method, the
+   * moment the implementation uses `this` — which is what rule 35's adapter
+   * does. POD-3396's finding, adopted as the standard.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   ownerOf(kind: string, id: string): string | null {
     let row: { ownerUserId?: UserId | null } | undefined

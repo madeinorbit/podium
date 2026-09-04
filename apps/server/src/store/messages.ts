@@ -162,17 +162,21 @@ const boundedLimit = (limit: number | undefined, fallback: number, ceiling: numb
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
 export class MessagesRepository {
-  /** The query builder. A getter over the enclosing transaction after rule 35. */
-  private readonly db: SyncDrizzle
-
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * Only `db` is taken: this aggregate opens no span of its own. The ASYNC pair
-   * satisfies the same object, so B1 refills this field and the query bodies
-   * below change only by `async` and `await`.
+   * Only `db` is exposed: this aggregate opens no span of its own, so binding a
+   * `transact` here would be a member nothing reads.
    */
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
+  constructor(private readonly queries: SyncQueries) {}
+
+  /**
+   * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
+   * freezes `db` to the ROOT instance, and rule 35 routes transactions
+   * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
+   * B1 changes this one line rather than 39 fields.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
 
   addMessage(m: MessageRow): void {

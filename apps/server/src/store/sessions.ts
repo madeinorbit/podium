@@ -45,21 +45,25 @@ const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 type SessionSelect = typeof sessionsTable.$inferSelect
 
 export class SessionsRepository {
-  /** The query builder. A getter over the enclosing transaction after rule 35. */
-  private readonly db: SyncDrizzle
-
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * Only `db` is taken: this aggregate opens no span of its own — `purgeSession`
-   * runs inside its caller's. The ASYNC pair satisfies the same object, so B1
-   * refills this field and the query bodies below change only by `async` and
-   * `await`.
+   * Only `db` is exposed: this aggregate opens no span of its own —
+   * `purgeSession` runs inside its caller's — so binding a `transact` here would
+   * be a member nothing reads.
    */
   constructor(
-    queries: SyncQueries,
+    private readonly queries: SyncQueries,
     private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
-  ) {
-    this.db = queries.db
+  ) {}
+
+  /**
+   * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
+   * freezes `db` to the ROOT instance, and rule 35 routes transactions
+   * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
+   * B1 changes this one line rather than 39 fields.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
 
   // ---- sessions ----
@@ -853,7 +857,16 @@ export class SessionsRepository {
    * across owners, and it lands in the scope of what it acted on.
    */
   private scrubTabOrders(sessionId: SessionId): void {
-    const rows = this.db.select().from(tabOrder).all()
+    // THREE COLUMNS, NAMED, because the statement this replaces named three
+    // [spec rule 39]. `tab_order` has four; spreading the table here would read
+    // `updated_at` on every row of every purge and hand it to a reader that
+    // builds its object from `user_id`, `worktree` and `ids` — right rows, right
+    // values, and an extra column over the wire on a remote driver, which is
+    // this epic's whole criterion. No test could have seen it.
+    const rows = this.db
+      .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
+      .from(tabOrder)
+      .all()
     for (const row of rows) {
       let ids: string[]
       try {
