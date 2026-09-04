@@ -184,3 +184,80 @@ applied by diffing against `git show HEAD:`, all ten killed with isolating messa
    so a reviewer checks the mapping once instead of 54 times.
 2. **The methods**, grouped by aggregate: orders, attempts, trains, steps, holds, receipts.
 
+
+---
+
+# The conversion, and where a reviewer should look (added after it landed)
+
+Two reviewers, per the method. This section is the map.
+
+## What the file is now
+
+No `.prepare(`, no `@podium/runtime/sqlite` import, no `SqlDatabase`: the raw handle is gone,
+which is the property `STAGE_A_UNCONVERTED`'s definition turns on. The constructor takes the
+executor's synchronous drizzle instance and its synchronous span, and nothing else.
+
+77 raw statements became 71 drizzle ones. The six are DEDUPLICATIONS OF SOURCE, never of
+execution — each call site still issues exactly one statement, so no query count per request
+moves:
+
+| Collapsed | From | Into |
+|---|---:|---|
+| `COALESCE(MAX(generation), 0)` over `ship_holds` | 5 sites | `highestHoldGeneration` |
+| the delivery-receipt insert | 2 sites | `insertDeliveryReceipt` |
+| the lane-revision upsert | 2 sites | `bumpLaneRevision` |
+
+The count reconciles: 31 `.get()`, 13 `.all()`, 27 `.run()` = 71.
+
+## The four things worth a reviewer's attention
+
+**1. Five columns are read as TEXT although the schema declares them `mode: 'json'`.** This is
+the one place the conversion deliberately declines what rule 28 describes, and the reasoning is
+in a block comment above the projection constants. Two independent reasons: the stored TEXT of
+`ship_train_manifests.validation_profile` / `.provider_ref` and `ship_train_members.delivery_depends_on`
+IS the train custody check — compared byte for byte against a re-serialised manifest, so a parsed
+object makes every train fail — and a corrupt value under the json mode throws at the DRIVER,
+before the method's fences and with drizzle's parse message rather than the model's, which the
+corrupt-blob oracle pins. Both were observed, not predicted: the first reddened two golden tests,
+the second reddened six oracle cases. Raised with the coordinator as a wave-wide question.
+
+**2. Every `?? null` had to stay an explicit null.** An omitted key in a drizzle `set` is not
+written, so `finishAttempt`'s five cleared columns would have kept their previous values.
+Thirteen sites in this file are in that position, and the checklist's own question about
+`undefined` parameters (§4 above) is what made them visible.
+
+**3. The write side of a `mode: 'json'` column passes the OBJECT, not the string.** Passing an
+already-stringified value would double-encode it. Byte-identity with the previous
+`JSON.stringify(x)` was verified at drizzle's source — `SQLiteTextJson.mapToDriverValue` is
+`JSON.stringify` — rather than inferred, because the custody check in (1) depends on it.
+
+**4. `onConflictDoUpdate` is like-for-like only because the table has one uniqueness
+constraint.** `ship_lane_revisions` is keyed on `lane_key` alone and declares no other index —
+checked, because it is the same question the coordinator's `OR REPLACE` ruling turns on.
+
+## What was deliberately NOT tidied
+
+`transitionOrder` still carries both `state = ?` and `state NOT IN ('shipped','cancelled')`,
+redundant against each other. The envelope scan still falls back to an empty-string attempt id
+that matches no row. Narrowing a fence or short-circuiting a query during a conversion is a
+behaviour change wearing a tidy-up's clothes.
+
+## Three `sql` fragments inside builder queries
+
+Rule 1 allows them anywhere; none is a whole raw statement and there is no `sql.raw`.
+The step lifecycle-rank ordering (a decision, not a column); the correlated active-claim count,
+twice, because drizzle has no builder form for a correlated subquery in a projection; and
+`COALESCE(MAX(...), 0)` in the hold-generation helper.
+
+## The negatives, each checked rather than assumed
+
+- **Zero `mode: 'boolean'` columns** across all 14 shipping tables, so rule 28's boolean hazard —
+  the one that reports every issue as not archived — cannot arise here and there is no true-case
+  test to write.
+- **Zero `INSERT OR REPLACE` and zero `INSERT OR IGNORE`**, so neither of the coordinator's
+  rulings about them applies, and no line in this file carries a `// DECISION` marker.
+- **Zero `RETURNING` writes**, so no site needs `writeGet`/`writeAll`.
+- **No source-text scanner over this file stops matching.** `scripts/check-boundaries.ts` is the
+  only thing that reads it as text, and it now matches MORE, not less: the ledger's slack check
+  fires precisely because the file is converted. No test reads it as source.
+- **`bun run audit:hidden-reads` is green**, "Shipping code — must be empty (0)".
