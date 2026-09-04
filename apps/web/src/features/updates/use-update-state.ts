@@ -126,7 +126,6 @@ export type PanelActionKind = PrimaryActionKind | 'cancel'
 
 export interface UseUpdateStateOptions {
   httpOrigin: string
-  needRefresh: boolean
   reload?: () => void | Promise<void>
   surface?: UpdateSurface
   serverName?: string
@@ -148,6 +147,8 @@ export interface UpdateStateResult {
   approveProposal: () => Promise<void>
   /** Every action goes through here, and every rejection comes back as view state. */
   run: (kind: PanelActionKind) => Promise<void>
+  /** Refresh polled facts without a manual update check or desktop feed check. */
+  refreshState: () => void
   checkNow: () => Promise<void>
   /** The user has seen a terminal outcome: stop showing it (see `acknowledge`). */
   acknowledge: () => void
@@ -758,7 +759,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     touched.app = false
     touched.phone = false
   }
-  if (options.needRefresh || desktopUpdate !== undefined || desktopTargeted) touched.app = true
+  if (desktopUpdate !== undefined || desktopTargeted) touched.app = true
 
   const offerInput: UpdateInput = {
     localVersion,
@@ -792,8 +793,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    * THE ONE LOCAL FACT (§3.5). Deliberately about the build running THIS PAGE —
    * `pageBuildVersion()` reads the page's own meta tag — and not about the
    * served dist, which is the server's business and is already a step of the
-   * operation. A service worker holding a newer build is the same fact arriving
-   * by another route.
+   * operation. Service-worker notifications only nudge a fresh poll; they do
+   * not establish that this page is stale.
    *
    * -------------------------------------------------------------------------
    * WHY THE SERVED BUNDLE IS ONE OF THE REASONS (POD-2721)
@@ -827,7 +828,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   )?.target
   const operationTargetVersion = operationTarget?.version
   const behind =
-    options.needRefresh ||
     skew !== 'ok' ||
     assets === 'replaced' ||
     (operationTargetVersion !== undefined &&
@@ -906,11 +906,8 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   /**
    * THE PANEL'S INPUTS, WHENEVER THEY CHANGE (POD-3224, question 5).
    *
-   * Six independent facts decide what the panel says and what its button does,
-   * and until now an operator looking at a stuck panel could observe none of
-   * them. `needRefresh` in particular is a LATCH — the library sets it and only
-   * `hide()` clears it — so "the panel says Reload and the page is current" is a
-   * statement about which of these six disagreed, and it was unanswerable.
+   * Polled verdicts decide what the panel says and what its button does.
+   * The service-worker notification is only a poll nudge, never a verdict.
    *
    * TWO THINGS KEEP THIS OFF THE PER-SECOND WIRE, and both are deliberate:
    *
@@ -924,7 +921,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
    *    the very transition the line exists for.
    */
   const inputsSignature = [
-    String(options.needRefresh),
     skew,
     assets,
     String(behind),
@@ -937,7 +933,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const inputsFieldsRef = useRef<Record<string, unknown>>({})
   inputsFieldsRef.current = {
     surface,
-    needRefresh: options.needRefresh,
     skew,
     assets,
     behind,
@@ -1190,6 +1185,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     approveProposal,
     run,
     checkNow,
+    refreshState: query.refresh,
     acknowledge,
   }
 }

@@ -27,7 +27,7 @@
  * can be offered.
  */
 import type { JSX } from 'react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { useRegisterSW } from '@/app/pwa-register'
 import { serverConfig } from '@/app/trpc'
 import { forceReload } from '@/lib/force-reload'
@@ -51,9 +51,9 @@ export interface UpdatesEngineProps {
 export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element | null {
   const [registration, setRegistration] = useState<ServiceWorkerRegistration | null>(null)
   const [reloadStatus, setReloadStatus] = useState<ReloadHandshakeStatus | null>(null)
-  const {
-    needRefresh: [needRefresh, setNeedRefresh],
-  } = useRegisterSW({
+  const refreshRef = useRef(() => {})
+  useRegisterSW({
+    onNeedRefresh: () => refreshRef.current(),
     onRegisteredSW(_swUrl, next) {
       if (next) setRegistration(next)
     },
@@ -148,6 +148,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     pending,
     run,
     checkNow,
+    refreshState,
     acknowledge,
     proposal,
     proposalPending,
@@ -155,9 +156,10 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
     approveProposal,
   } = useUpdateState({
     httpOrigin: resolvedOrigin,
-    needRefresh,
     reload,
   })
+
+  refreshRef.current = refreshState
 
   /**
    * The ONLY piece of panel state, and it is per-tab UI state: has the user
@@ -170,7 +172,7 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   const showingProposal = activeProposal != null
   const [collapsed, setCollapsed] = useState(showingProposal)
 
-  // A NEW ORDINARY UPDATE SITUATION UNCOLLAPSES. A newly discovered proposal is
+  // An ordinary situation reopens only when it needs attention. A newly discovered proposal is
   // the deliberate exception: it starts collapsed behind its truthful indicator,
   // while a state change on the same proposal may reopen the question.
   //
@@ -183,10 +185,11 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   const [lastSituation, setLastSituation] = useState(situation)
   if (situation !== lastSituation) {
     setLastSituation(situation)
-    setCollapsed(
-      activeProposal != null &&
-        !lastSituation.startsWith('proposal:' + activeProposal.headSha + ':'),
-    )
+    if (activeProposal != null) {
+      setCollapsed(!lastSituation.startsWith('proposal:' + activeProposal.headSha + ':'))
+    } else if (view.state !== 'done' && view.state !== 'none') {
+      setCollapsed(false)
+    }
   }
 
   /**
@@ -232,22 +235,17 @@ export function UpdatesEngine({ httpOrigin }: UpdatesEngineProps): JSX.Element |
   const open = hasPanelContent && !collapsed
 
   const hide = useCallback(() => {
-    // Hide is where the panel's two terminal behaviours meet — the latch clears
-    // and a terminal outcome is acknowledged — and it is the gesture behind the
-    // "I pressed Hide and the panel flashed back" report, so it is on the record.
+    // Record the user's collapse choice and acknowledge terminal outcomes.
     updatesLog.info('the user hid the update panel', {
       state: view.state,
       ...(view.operationId ? { operationId: view.operationId } : {}),
       acknowledging: view.state === 'failed' || view.state === 'done',
     })
     setCollapsed(true)
-    // The service worker's "a new build is ready" is a fact about THIS tab, and
-    // the user has now been told. The operation keeps it alive if it matters.
-    setNeedRefresh(false)
     // Hiding a terminal outcome is the user saying they have seen it, so it
     // does not come back on the next poll (or the next reload).
     if (view.state === 'failed' || view.state === 'done') acknowledge()
-  }, [acknowledge, setNeedRefresh, view.operationId, view.state])
+  }, [acknowledge, view.operationId, view.state])
 
   const toggle = useCallback(() => setCollapsed((current) => !current), [])
   const show = useCallback((): boolean => {

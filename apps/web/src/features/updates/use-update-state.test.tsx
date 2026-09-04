@@ -58,7 +58,6 @@ function Probe({
 }) {
   const result = useUpdateState({
     httpOrigin: window.location.origin,
-    needRefresh: false,
     ...(pollFleet ? {} : { fleet: { total: 1, behind, converging: 0, failed: 0 } }),
     reload: withReload ? reloadAction : undefined,
   })
@@ -1122,6 +1121,37 @@ describe('a page whose assets the server has replaced', () => {
     setPageDigest('a55ec3d')
     setPageBundle('/assets/index-Bw5YMffE.js')
   }
+
+  it('stays done on the served bundle after a narrow refresh', async () => {
+    openOnThePackagedBuild()
+    setPageBundle('/assets/index-CFyX4Q_p.js')
+    setupTransport(servedDevRelease())
+    globalThis.localStorage?.setItem(
+      'podium.update.watched-operation',
+      JSON.stringify({ id: 'op_a3440a33', at: Date.now() }),
+    )
+    mocks.active.mockResolvedValue(null)
+    mocks.history.mockResolvedValue([
+      {
+        id: 'op_a3440a33',
+        kind: 'update',
+        state: 'done',
+        details: { target: devRelease },
+        finishedAt: Date.now() - 2_000,
+        steps: [],
+      },
+    ])
+    const results: UpdateStateResult[] = []
+
+    render(<Probe onResult={(result) => results.push(result)} withReload behind={0} />)
+
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('done'))
+    const reads = mocks.active.mock.calls.length
+    act(() => results.at(-1)?.refreshState())
+    await waitFor(() => expect(mocks.active.mock.calls.length).toBeGreaterThan(reads))
+    expect(results.at(-1)?.view.state).toBe('done')
+    expect(mocks.checkNow).not.toHaveBeenCalled()
+  })
 
   it('is offered a reload once the update is done', async () => {
     openOnThePackagedBuild()
