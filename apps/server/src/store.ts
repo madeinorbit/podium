@@ -348,7 +348,7 @@ export class SessionStore {
     this.transcriptCosts = new TranscriptCostsRepository(this.executor)
     this.messages = new MessagesRepository(this.executor)
     this.readWatermarks = new ReadWatermarksRepository(this.executor)
-    this.workflows = new WorkflowsRepository(this.executor)
+    this.workflows = new WorkflowsRepository(this.stage.db, this.stage.spans)
     this.locks = new LocksRepository(this.executor)
     this.maintenance = new MaintenanceRepository(this.executor)
     this.automations = new AutomationsRepository(this.executor)
