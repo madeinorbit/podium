@@ -33,7 +33,6 @@
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
 import type { MachineId, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { eq } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
 import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
@@ -47,24 +46,16 @@ export class SettingsRepository {
   readonly userPreferences: UserPreferencesRepository
 
   /**
-   * THE RAW HANDLE THAT SURVIVES, AND WHY THIS FILE IS NOT DONE.
+   * `UserPreferencesRepository` is composed HERE rather than by `SessionStore`,
+   * so it takes this file's capability directly.
    *
-   * `legacy` is used for exactly one thing: constructing
-   * {@link UserPreferencesRepository}, which belongs to wave 1 and still takes a
-   * `SqlDatabase`. That construction is the only production one in the tree, so
-   * wave 1 cannot change its own constructor without editing this file and wave
-   * 2 cannot pre-empt it — the coordinator owns that line and re-points it when
-   * the second of the two waves lands [POD-3221 boundary ruling].
-   *
-   * Until then this file still imports `SqlDatabase`, so its
-   * `STAGE_A_UNCONVERTED` line stays. Every QUERY in this repository is
-   * converted; the handle is a construction argument and nothing else reads it.
+   * This construction was the POD-3392 / POD-3393 deadlock: wave 1 converted the
+   * repository to take `SyncQueries` while this file, wave 2's, still passed it a
+   * raw handle — so neither branch typechecked alone. Both landed in one window
+   * and this line is the join.
    */
-  constructor(
-    private readonly queries: SyncQueries,
-    legacy: SqlDatabase,
-  ) {
-    this.userPreferences = new UserPreferencesRepository(legacy)
+  constructor(private readonly queries: SyncQueries) {
+    this.userPreferences = new UserPreferencesRepository(queries)
   }
 
   /**

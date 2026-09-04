@@ -46,7 +46,7 @@ beforeEach(() => {
   db = openMigratedTestDatabase()
   const stage = createBunStoreExecutor({ database: db }).syncQueries
   if (!stage) throw new Error('the test database is not bun-backed')
-  settings = new SettingsRepository(stage, db)
+  settings = new SettingsRepository(stage)
 })
 
 describe('a preference row belongs to one person', () => {

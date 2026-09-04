@@ -85,6 +85,8 @@ export class AuthRepository {
     // throw after the conversion. That is a behaviour change on the auth path,
     // so the statement stays raw until the rule lands.
     this.db.run(
+      // DECISION POD-3403 — genuinely open: two uniqueness constraints, and
+      // onConflictDoUpdate names one and throws on the other.
       sql`INSERT OR REPLACE INTO client_sessions
             (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
           VALUES (${tokenHash}, ${userId}, ${new Date().toISOString()}, ${expiresAt}, ${label},

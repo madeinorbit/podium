@@ -7,9 +7,9 @@ import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { accountViews } from './accounts'
 import { AccountsRepository } from './store/accounts'
-import { createBunStoreExecutor } from './store/executor'
 import type { MachineRecord } from './store/types'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
+import { stageASeam } from './test-support/stage-a-seam'
 
 let home: string
 let codexHome: string
@@ -21,7 +21,7 @@ const prevClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR
 /** A fresh, empty managed-accounts store — the "no stored credential" baseline. */
 function emptyAccounts(): AccountsRepository {
   const db = openMigratedTestDatabase()
-  return new AccountsRepository(createBunStoreExecutor({ database: db }))
+  return new AccountsRepository(stageASeam(db))
 }
 
 beforeEach(() => {

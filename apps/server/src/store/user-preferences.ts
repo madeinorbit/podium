@@ -46,7 +46,9 @@
  */
 
 import { settingsPathsInTier, type UserId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { and, asc, eq } from 'drizzle-orm'
+import { userPreferences } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
  *  ORDER and the CONTENT are the classification's, never this module's. */
@@ -60,13 +62,14 @@ const PERSONAL_PREFERENCE_KEYS: ReadonlySet<string> = new Set(
  *  homes. */
 export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFERENCE_KEYS.has(key)
 
-interface PreferenceRow {
-  key: string
-  value: string
-}
-
 export class UserPreferencesRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly queries: SyncQueries) {}
+
+  /** The query builder, resolved on every access so B1 changes this line and nothing else
+   *  [POD-3221 spec rule 34a]. */
+  protected get db() {
+    return this.queries.db
+  }
 
   /**
    * One person's stored preferences, as `path → parsed JSON value`.
@@ -79,8 +82,10 @@ export class UserPreferencesRepository {
    */
   getFor(userId: UserId): Map<string, unknown> {
     const rows = this.db
-      .prepare('SELECT key, value FROM user_preferences WHERE user_id = ?')
-      .all(userId) as PreferenceRow[]
+      .select({ key: userPreferences.key, value: userPreferences.value })
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .all()
     const out = new Map<string, unknown>()
     for (const row of rows) {
       try {
@@ -97,8 +102,10 @@ export class UserPreferencesRepository {
    *  column is NOT NULL and holds JSON, so a stored `null` reads back as `null`. */
   get(userId: UserId, key: string): unknown {
     const row = this.db
-      .prepare('SELECT value FROM user_preferences WHERE user_id = ? AND key = ?')
-      .get(userId, key) as { value: string } | undefined
+      .select({ value: userPreferences.value })
+      .from(userPreferences)
+      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
+      .get()
     if (!row) return undefined
     try {
       return JSON.parse(row.value)
@@ -122,26 +129,45 @@ export class UserPreferencesRepository {
         `'${key}' is not a personal preference (POD-418 classification), so it has no per-user row`,
       )
     }
+    // `INSERT OR REPLACE` -> `onConflictDoUpdate` on the composite primary key.
+    // One uniqueness constraint on this table and all four columns named, so the
+    // forms agree (POD-3403). `value` is `JSON.stringify(value ?? null)`, which
+    // is the string "null" and never `undefined`, so nothing binds undefined.
+    const values = {
+      userId,
+      key,
+      value: JSON.stringify(value ?? null),
+      updatedAt,
+    }
     this.db
-      .prepare(
-        'INSERT OR REPLACE INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(userId, key, JSON.stringify(value ?? null), updatedAt)
+      .insert(userPreferences)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [userPreferences.userId, userPreferences.key],
+        set: values,
+      })
+      .run()
   }
 
   /** Forget one person's choice for one path — it resolves to the fallback
    *  again. A DELETE rather than a written default, so "never chosen" and "chose
    *  the value that happens to be the default" stay distinguishable. */
   clear(userId: UserId, key: string): void {
-    this.db.prepare('DELETE FROM user_preferences WHERE user_id = ? AND key = ?').run(userId, key)
+    this.db
+      .delete(userPreferences)
+      .where(and(eq(userPreferences.userId, userId), eq(userPreferences.key, key)))
+      .run()
   }
 
   /** Every path this person has set. Scoped to one user like every other method
    *  here — see the file header on why there is no cross-user read. */
   keysFor(userId: UserId): string[] {
     const rows = this.db
-      .prepare('SELECT key FROM user_preferences WHERE user_id = ? ORDER BY key')
-      .all(userId) as { key: string }[]
+      .select({ key: userPreferences.key })
+      .from(userPreferences)
+      .where(eq(userPreferences.userId, userId))
+      .orderBy(asc(userPreferences.key))
+      .all()
     return rows.map((r) => r.key)
   }
 }

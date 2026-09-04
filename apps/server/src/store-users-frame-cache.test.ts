@@ -29,7 +29,12 @@ import { openTestStore } from './test-support/open-test-store'
 const readProbe = (store: SessionStore): (() => number) => {
   let reads = 0
   probeLegacyStatements(store as unknown as LegacyHandleHolder, (observation) => {
-    if (observation.sql.includes('FROM users WHERE id')) reads += 1
+    // BOTH SPELLINGS [POD-3221 rule 32]. Drizzle emits lowercase keywords and
+    // quoted identifiers, so the hand-written `FROM users WHERE id` no longer
+    // occurs. Widened rather than replaced: an unconverted caller still emits the
+    // old form and a builder-only matcher would go blind on it. Patch shape from
+    // POD-3393, which mutation-checked it against the real file.
+    if (/from\s+"?users"?\s+where\s+(?:"users"\.)?"?id"?\s*=/i.test(observation.sql)) reads += 1
   })
   return () => reads
 }
