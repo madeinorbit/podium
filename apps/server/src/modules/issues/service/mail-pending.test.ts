@@ -7,6 +7,17 @@ import { MessagesRepository } from '../../../store/messages'
 import { openTestStore } from '../../../test-support/open-test-store'
 import { countContextAwarePendingMail } from './mail-pending'
 
+/**
+ * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
+ * [POD-3221 spec rule 27b]. Local to this file on purpose: hoisting it into
+ * `test-support` would put several parallel conversion waves in one shared file.
+ */
+const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  return stage
+}
+
 function counting(db: SqlDatabase, counts: Map<string, number>): SqlDatabase {
   const bump = (sql: string): void => {
     counts.set(sql, (counts.get(sql) ?? 0) + 1)
@@ -82,9 +93,7 @@ describe('countContextAwarePendingMail', () => {
     try {
       const db = (store as unknown as { db: SqlDatabase }).db
       const counts = new Map<string, number>()
-      const messages = new MessagesRepository(
-        createBunStoreExecutor({ database: counting(db, counts) }),
-      )
+      const messages = new MessagesRepository(stageQueries(counting(db, counts)))
 
       await store.messages.addMessage(
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),

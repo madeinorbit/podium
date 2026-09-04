@@ -5,19 +5,28 @@
  */
 
 import {
-  type AccountId,
   type ActorKind,
   AgentKind,
   actorColumns,
   actorFromColumns,
   asSessionId,
   type IssueId,
-  type MachineId,
   type SessionId,
   type UserId,
 } from '@podium/model'
-import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, asc, eq, inArray, isNotNull, isNull, or, type SQL, sql } from 'drizzle-orm'
+import {
+  issues as issuesTable,
+  offers as offersTable,
+  pins as pinsTable,
+  runtimeEventCheckpoints,
+  sessionDrafts,
+  sessions as sessionsTable,
+  sessionUserState,
+  snoozes as snoozesTable,
+  tabOrder,
+} from '../migrations/schema'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import type {
   OfferMap,
@@ -32,24 +41,39 @@ import type {
 
 const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 
-export class SessionsRepository {
-  private readonly db: SqlDatabase
+/** The one row shape every session read returns, before mapping. */
+type SessionSelect = typeof sessionsTable.$inferSelect
 
+export class SessionsRepository {
+  /**
+   * The capability is WIRING and is named here and nowhere else [spec rule 34].
+   * Only `db` is exposed: this aggregate opens no span of its own —
+   * `purgeSession` runs inside its caller's — so binding a `transact` here would
+   * be a member nothing reads.
+   */
   constructor(
-    executor: StoreExecutor<QueryClient>,
+    private readonly queries: SyncQueries,
     private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
-  ) {
-    this.db = legacyHandle(executor)
+  ) {}
+
+  /**
+   * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
+   * freezes `db` to the ROOT instance, and rule 35 routes transactions
+   * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
+   * B1 changes this one line rather than 39 fields.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
 
   // ---- sessions ----
   loadSessions(): SessionRow[] {
-    return this.readSessions('deleted_at IS NULL')
+    return this.readSessions(isNull(sessionsTable.deletedAt))
   }
 
   /** One durable row, including a tombstone, for scoped delete visibility. */
   getSession(sessionId: SessionId): SessionRow | undefined {
-    return this.readSessions('id = ?', sessionId)[0]
+    return this.readSessions(eq(sessionsTable.id, sessionId))[0]
   }
 
   /**
@@ -69,7 +93,9 @@ export class SessionsRepository {
    * the filter `loadSessions` applied, not an added condition.
    */
   findSessionByResumeValue(resumeValue: string): SessionRow | undefined {
-    return this.readSessions('resume_value = ? AND deleted_at IS NULL', resumeValue)[0]
+    return this.readSessions(
+      and(eq(sessionsTable.resumeValue, resumeValue), isNull(sessionsTable.deletedAt)),
+    )[0]
   }
 
   /**
@@ -80,11 +106,8 @@ export class SessionsRepository {
    */
   getSessions(sessionIds: readonly string[]): Map<string, SessionRow> {
     const out = new Map<string, SessionRow>()
-    const unique = [...new Set(sessionIds)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
-      for (const row of this.readSessions(`id IN (${chunk.map(() => '?').join(',')})`, ...chunk)) {
+    for (const chunk of chunked(sessionIds)) {
+      for (const row of this.readSessions(inArray(sessionsTable.id, chunk as SessionId[]))) {
         out.set(row.id, row)
       }
     }
@@ -99,14 +122,8 @@ export class SessionsRepository {
    */
   findSessionsByResumeValues(resumeValues: readonly string[]): Map<string, SessionRow> {
     const out = new Map<string, SessionRow>()
-    const unique = [...new Set(resumeValues)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
-      for (const row of this.readSessions(
-        `resume_value IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`,
-        ...chunk,
-      )) {
+    for (const chunk of chunked(resumeValues)) {
+      for (const row of this.readSessions(this.liveByResumeValue(chunk))) {
         if (row.resumeValue !== null && !out.has(row.resumeValue)) {
           out.set(row.resumeValue, row)
         }
@@ -130,14 +147,8 @@ export class SessionsRepository {
    */
   listSessionsByResumeValues(resumeValues: readonly string[]): Map<string, SessionRow[]> {
     const out = new Map<string, SessionRow[]>()
-    const unique = [...new Set(resumeValues)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
-      for (const row of this.readSessions(
-        `resume_value IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`,
-        ...chunk,
-      )) {
+    for (const chunk of chunked(resumeValues)) {
+      for (const row of this.readSessions(this.liveByResumeValue(chunk))) {
         if (row.resumeValue === null) continue
         const list = out.get(row.resumeValue)
         if (list) list.push(row)
@@ -145,6 +156,11 @@ export class SessionsRepository {
       }
     }
     return out
+  }
+
+  /** The predicate the two plural resume readers share, so they cannot drift. */
+  private liveByResumeValue(chunk: readonly string[]): SQL | undefined {
+    return and(inArray(sessionsTable.resumeValue, chunk), isNull(sessionsTable.deletedAt))
   }
 
   /**
@@ -156,15 +172,11 @@ export class SessionsRepository {
    * is not part of what the task cost today.
    */
   findSessionsByIssueIds(issueIds: readonly IssueId[]): SessionRow[] {
-    const unique = [...new Set(issueIds)]
     const out: SessionRow[] = []
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
+    for (const chunk of chunked(issueIds)) {
       out.push(
         ...this.readSessions(
-          `issue_id IN (${chunk.map(() => '?').join(',')}) AND deleted_at IS NULL`,
-          ...chunk,
+          and(inArray(sessionsTable.issueId, chunk), isNull(sessionsTable.deletedAt)),
         ),
       )
     }
@@ -173,153 +185,33 @@ export class SessionsRepository {
 
   /** All session tombstones, for repository-level inspection and maintenance. */
   loadDeletedSessions(): SessionRow[] {
-    return this.readSessions('deleted_at IS NOT NULL')
+    return this.readSessions(isNotNull(sessionsTable.deletedAt))
   }
 
   /** Recoverable session tombstones created by one issue deletion. */
   loadDeletedSessionsForIssue(issueId: IssueId): SessionRow[] {
     return this.readSessions(
-      "deleted_at IS NOT NULL AND deletion_source = 'issue' AND deleted_by_issue_id = ?",
-      issueId,
+      and(
+        isNotNull(sessionsTable.deletedAt),
+        eq(sessionsTable.deletionSource, 'issue'),
+        eq(sessionsTable.deletedByIssueId, issueId),
+      ),
     )
   }
 
-  private readSessions(where: string, ...params: SqlParam[]): SessionRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT id, owner_user_id, agent_kind, model, effort, requested_model, requested_effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
-                resume_kind,
-                resume_value, selected_driver_id, requested_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
-                terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
-                archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-                spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
-                deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
-                ref_issue_id, ref_letter, ref_draft,
-                created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of
-         FROM sessions WHERE ${where} ORDER BY created_at ASC, rowid ASC`,
-      )
-      .all(...params) as Record<string, unknown>[]
-    return rows.map((r) => this.mapSession(r))
-  }
-
   /**
-   * SERIALIZATION EDGE — the one place a sqlite `Record<string, unknown>` becomes
-   * a `SessionRow`. Every cast is a decode of an untyped column, brands included:
-   * sqlite carries no brand, so this is where a stored string re-enters the branded
-   * id space. NOT POD-361 adapter casts; above this function every session id is
-   * branded.
+   * THE ONE SESSION READ. Every reader above supplies a predicate and inherits
+   * this ordering; three of them depend on it meaning the same thing, so it is
+   * declared once (see {@link findSessionByResumeValue}).
    */
-  private mapSession(r: Record<string, unknown>): SessionRow {
-    return {
-      id: r.id as SessionId,
-      ownerUserId: r.owner_user_id as UserId,
-      agentKind: r.agent_kind as string,
-      ...(r.model != null ? { model: r.model as string } : {}),
-      ...(r.effort != null ? { effort: r.effort as string } : {}),
-      // ABSENT, NOT NULL, when nobody has changed it — the same spelling as the
-      // launch pair above. `requestedModel: null` and an absent key read the
-      // same at every consumer here, but the absent form keeps "never
-      // configured" from looking like a recorded decision to clear it.
-      ...(r.requested_model != null ? { requestedModel: r.requested_model as string } : {}),
-      ...(r.requested_effort != null ? { requestedEffort: r.requested_effort as string } : {}),
-      ...(r.account_id != null ? { accountId: r.account_id as AccountId } : {}),
-      ...(r.login_harness != null
-        ? { loginHarness: AgentKind.exclude(['shell']).parse(r.login_harness) }
-        : {}),
-      cwd: r.cwd as string,
-      title: r.title as string,
-      name: (r.name as string | null) ?? null,
-      // Anything else on disk (an old/rogue value) reads as "nobody named it" rather
-      // than as a source that could out-rank the user (#490).
-      nameSource: r.name_source === 'user' || r.name_source === 'agent' ? r.name_source : null,
-      originKind: r.origin_kind as 'spawn' | 'resume',
-      conversationId: (r.conversation_id as string | null) ?? null,
-      resumeKind: (r.resume_kind as string | null) ?? null,
-      resumeValue: (r.resume_value as string | null) ?? null,
-      selectedDriverId: (r.selected_driver_id as string | null) ?? null,
-      requestedDriverId: (r.requested_driver_id as string | null) ?? null,
-      // Anything else on disk (an old/rogue value) reads as "no claim recorded"
-      // rather than as proof — the same conservative decode as `name_source`,
-      // and here it is the safety property itself: only a literal 'never'
-      // authorizes discarding a launch and starting it again.
-      conversationBinding:
-        r.conversation_binding === 'never' || r.conversation_binding === 'bound'
-          ? r.conversation_binding
-          : null,
-      status: r.status as SessionStatusPersisted,
-      exitCode: (r.exit_code as number | null) ?? null,
-      spawnFailure: (r.spawn_failure as string | null) ?? null,
-      durableLabel: r.durable_label as string,
-      createdAt: r.created_at as string,
-      lastActiveAt: r.last_active_at as string,
-      geometry: {
-        cols:
-          Number.isInteger(r.terminal_cols) && Number(r.terminal_cols) > 0
-            ? Number(r.terminal_cols)
-            : 80,
-        rows:
-          Number.isInteger(r.terminal_rows) && Number(r.terminal_rows) > 0
-            ? Number(r.terminal_rows)
-            : 24,
-      },
-      ...(r.working_ms_total != null ? { workingMsTotal: r.working_ms_total as number } : {}),
-      ...(Number(r.input_count) > 0 ? { inputCount: Number(r.input_count) } : {}),
-      ...(Number(r.output_count) > 0 ? { outputCount: Number(r.output_count) } : {}),
-      ...(Number(r.activity_count) > 0 ? { activityCount: Number(r.activity_count) } : {}),
-      archived: r.archived === 1,
-      workState: (r.work_state as string | null) ?? null,
-      // SERIALIZATION EDGE: untyped from sqlite; the machine id re-enters its id space.
-      machineId: r.machine_id as MachineId,
-      lastOutputAt: (r.last_output_at as string | null) ?? null,
-      lastInputAt: (r.last_input_at as string | null) ?? null,
-      lastResumedAt: (r.last_resumed_at as string | null) ?? null,
-      spawnedBy: (r.spawned_by as string | null) ?? null,
-      // THE ATTRIBUTION PAIR (POD-1516). BOTH id columns must be present for a
-      // pair to exist — a kind with no id is a half-written row, and decoding it
-      // would mint an actor with an empty id that compares equal to every other
-      // empty one. `null` here is the honest "no pair recorded"; it is NEVER
-      // filled in from `owner_user_id` or `spawned_by`, which answer different
-      // questions (see the migration).
-      // ABSENT, not `null`, when no pair was recorded. One spelling for one fact:
-      // a row carrying `createdBy: null` beside rows that simply omit the key
-      // would be two encodings of "nobody recorded this", and the whole point of
-      // this field is that its absence has a single unambiguous meaning.
-      ...(r.created_by_actor_kind != null && r.created_by_actor_id != null
-        ? {
-            createdBy: {
-              // SERIALIZATION EDGE: the actor's id re-enters the branded id space.
-              actor: actorFromColumns(
-                r.created_by_actor_kind as ActorKind,
-                r.created_by_actor_id as string,
-              ),
-              // The INNER null stays: it is the representable "no human behind
-              // this" for the machine and system arms, which is a different fact
-              // from the pair being absent altogether.
-              onBehalfOf: (r.created_by_on_behalf_of as UserId | null) ?? null,
-            },
-          }
-        : {}),
-      headless: r.headless === 1,
-      issueId: (r.issue_id as IssueId | null) ?? null,
-      refIssueId: (r.ref_issue_id as IssueId | null) ?? null,
-      refLetter: (r.ref_letter as string | null) ?? null,
-      refDraft: (r.ref_draft as number | null) ?? null,
-      stoppedAt: (r.stopped_at as string | null) ?? null,
-      stopReason:
-        r.stop_reason === 'self' ||
-        r.stop_reason === 'parent' ||
-        r.stop_reason === 'forced' ||
-        r.stop_reason === 'exited'
-          ? r.stop_reason
-          : null,
-      oomKilledAt: (r.oom_killed_at as string | null) ?? null,
-      workflowRunId: (r.workflow_run_id as string | null) ?? null,
-      workflowStepId: (r.workflow_step_id as string | null) ?? null,
-      executionProfileId: (r.execution_profile_id as string | null) ?? null,
-      deletedAt: (r.deleted_at as string | null) ?? null,
-      deletionSource: (r.deletion_source as SessionDeletionSource | null) ?? null,
-      deletedByIssueId: (r.deleted_by_issue_id as IssueId | null) ?? null,
-    }
+  private readSessions(where: SQL | undefined): SessionRow[] {
+    return this.db
+      .select()
+      .from(sessionsTable)
+      .where(where)
+      .orderBy(asc(sessionsTable.createdAt), asc(sql`rowid`))
+      .all()
+      .map(mapSession)
   }
 
   upsertSession(row: SessionRow): void {
@@ -334,156 +226,151 @@ export class SessionsRepository {
         `upsertSession: refusing to persist invalid agentKind ${JSON.stringify(row.agentKind)} for ${row.id}`,
       )
     }
+    const createdBy = row.createdBy ? actorColumns(row.createdBy.actor) : null
+    const values = {
+      id: row.id,
+      ownerUserId: row.ownerUserId,
+      agentKind: row.agentKind,
+      model: row.model ?? null,
+      effort: row.effort ?? null,
+      requestedModel: row.requestedModel ?? null,
+      requestedEffort: row.requestedEffort ?? null,
+      accountId: row.accountId ?? null,
+      loginHarness: row.loginHarness ?? null,
+      cwd: row.cwd,
+      title: row.title,
+      name: row.name,
+      nameSource: row.nameSource ?? null,
+      originKind: row.originKind,
+      conversationId: row.conversationId,
+      resumeKind: row.resumeKind,
+      resumeValue: row.resumeValue,
+      selectedDriverId: row.selectedDriverId ?? null,
+      requestedDriverId: row.requestedDriverId ?? null,
+      conversationBinding: row.conversationBinding ?? null,
+      status: row.status,
+      exitCode: row.exitCode,
+      spawnFailure: row.spawnFailure ?? null,
+      durableLabel: row.durableLabel,
+      createdAt: row.createdAt,
+      lastActiveAt: row.lastActiveAt,
+      terminalCols: row.geometry?.cols ?? 80,
+      terminalRows: row.geometry?.rows ?? 24,
+      workingMsTotal: row.workingMsTotal ?? null,
+      inputCount: row.inputCount ?? 0,
+      outputCount: row.outputCount ?? 0,
+      activityCount: row.activityCount ?? 0,
+      archived: row.archived,
+      workState: row.workState,
+      machineId: row.machineId,
+      lastOutputAt: row.lastOutputAt ?? null,
+      lastInputAt: row.lastInputAt ?? null,
+      lastResumedAt: row.lastResumedAt ?? null,
+      spawnedBy: row.spawnedBy ?? null,
+      headless: row.headless ?? false,
+      issueId: row.issueId ?? null,
+      stoppedAt: row.stoppedAt ?? null,
+      /**
+       * `stop_reason` KEEPS ITS FOUR-VALUE VOCABULARY, and `oom` is not one
+       * of them: `sessions_stop_reason_check` admits only self/parent/
+       * forced/exited, and widening it means a SQLite table rebuild the
+       * expand-only gate refuses. So the DEATH persists as `exited` and the
+       * CAUSE persists beside it as a timestamp; `Session.hydrate` re-derives
+       * `oom` from the pair. Without this the whole write threw on the CHECK
+       * and took the durable `oomKilled` event append down with it.
+       */
+      stopReason: row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
+      oomKilledAt: row.oomKilledAt ?? null,
+      deletedAt: row.deletedAt ?? null,
+      deletionSource: row.deletionSource ?? null,
+      deletedByIssueId: row.deletedByIssueId ?? null,
+      workflowRunId: row.workflowRunId ?? null,
+      workflowStepId: row.workflowStepId ?? null,
+      executionProfileId: row.executionProfileId ?? null,
+      refIssueId: row.refIssueId ?? null,
+      refLetter: row.refLetter ?? null,
+      refDraft: row.refDraft ?? null,
+      createdByActorKind: createdBy ? createdBy.kind : null,
+      createdByActorId: createdBy ? createdBy.id : null,
+      createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
+    }
     this.db
-      .prepare(
-        `INSERT INTO sessions
-           (id, owner_user_id, agent_kind, model, effort, requested_model, requested_effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,
-            resume_kind,
-            resume_value, selected_driver_id, requested_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,
-            terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,
-            archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,
-            spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,
-            deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,
-            ref_issue_id, ref_letter, ref_draft,
-            created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           cwd = excluded.cwd,
-           model = excluded.model,
-           effort = excluded.effort,
-           requested_model = excluded.requested_model,
-           requested_effort = excluded.requested_effort,
-           account_id = excluded.account_id,
-           login_harness = COALESCE(sessions.login_harness, excluded.login_harness),
-           title = excluded.title,
-           name = excluded.name,
-           name_source = excluded.name_source,
-           origin_kind = excluded.origin_kind,
-           conversation_id = excluded.conversation_id,
-           resume_kind = excluded.resume_kind,
-           resume_value = excluded.resume_value,
-           selected_driver_id = excluded.selected_driver_id,
-           requested_driver_id = excluded.requested_driver_id,
-           -- BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
-           -- native conversation, no later write may say it never did. The rule
-           -- lives here rather than in the caller because it is the premise the
-           -- fresh-relaunch path depends on — a caller that reconstructs a stale
-           -- Session and persists it must not be able to un-prove a conversation.
-           conversation_binding = CASE
-             WHEN sessions.conversation_binding = 'bound' THEN 'bound'
-             ELSE excluded.conversation_binding
-           END,
-           status = excluded.status,
-           exit_code = excluded.exit_code,
-           spawn_failure = excluded.spawn_failure,
-           durable_label = excluded.durable_label,
-           last_active_at = excluded.last_active_at,
-           terminal_cols = excluded.terminal_cols,
-           terminal_rows = excluded.terminal_rows,
-           working_ms_total = excluded.working_ms_total,
-           input_count = excluded.input_count,
-           output_count = excluded.output_count,
-           activity_count = excluded.activity_count,
-           archived = excluded.archived,
-           work_state = excluded.work_state,
-           machine_id = excluded.machine_id,
-           last_output_at = excluded.last_output_at,
-           last_input_at = excluded.last_input_at,
-           last_resumed_at = excluded.last_resumed_at,
-           spawned_by = excluded.spawned_by,
-           issue_id = excluded.issue_id,
-           stopped_at = excluded.stopped_at,
-           stop_reason = excluded.stop_reason,
-           oom_killed_at = excluded.oom_killed_at,
-           deleted_at = excluded.deleted_at,
-           deletion_source = excluded.deletion_source,
-           deleted_by_issue_id = excluded.deleted_by_issue_id,
-           workflow_run_id = excluded.workflow_run_id,
-           workflow_step_id = excluded.workflow_step_id,
-           execution_profile_id = excluded.execution_profile_id,
-           -- Birth name is PERMANENT (#474): once allocated it never changes, even
-           -- when the session re-attaches to a different issue. COALESCE keeps the
-           -- first non-null allocation.
-           ref_issue_id = COALESCE(sessions.ref_issue_id, excluded.ref_issue_id),
-           ref_letter = COALESCE(sessions.ref_letter, excluded.ref_letter),
-           ref_draft = COALESCE(sessions.ref_draft, excluded.ref_draft),
-           -- ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
-           -- SESSION_IMMUTABLE_AFTER_CREATE lists \`createdBy\`). COALESCE keeps the
-           -- pair stamped at birth: an upsert from a later code path — a status
-           -- change, a rename, a reattach — must not be able to re-attribute the
-           -- session to whoever happened to trigger it. It can only FILL a pair
-           -- that was never recorded, never overwrite one that was.
-           created_by_actor_kind = COALESCE(sessions.created_by_actor_kind, excluded.created_by_actor_kind),
-           created_by_actor_id = COALESCE(sessions.created_by_actor_id, excluded.created_by_actor_id),
-           created_by_on_behalf_of = COALESCE(sessions.created_by_on_behalf_of, excluded.created_by_on_behalf_of)`,
-      )
-      .run(
-        row.id,
-        row.ownerUserId,
-        row.agentKind,
-        row.model ?? null,
-        row.effort ?? null,
-        row.requestedModel ?? null,
-        row.requestedEffort ?? null,
-        row.accountId ?? null,
-        row.loginHarness ?? null,
-        row.cwd,
-        row.title,
-        row.name,
-        row.nameSource ?? null,
-        row.originKind,
-        row.conversationId,
-        row.resumeKind,
-        row.resumeValue,
-        row.selectedDriverId ?? null,
-        row.requestedDriverId ?? null,
-        row.conversationBinding ?? null,
-        row.status,
-        row.exitCode,
-        row.spawnFailure ?? null,
-        row.durableLabel,
-        row.createdAt,
-        row.lastActiveAt,
-        row.geometry?.cols ?? 80,
-        row.geometry?.rows ?? 24,
-        row.workingMsTotal ?? null,
-        row.inputCount ?? 0,
-        row.outputCount ?? 0,
-        row.activityCount ?? 0,
-        row.archived ? 1 : 0,
-        row.workState,
-        row.machineId,
-        row.lastOutputAt ?? null,
-        row.lastInputAt ?? null,
-        row.lastResumedAt ?? null,
-        row.spawnedBy ?? null,
-        row.headless ? 1 : 0,
-        row.issueId ?? null,
-        row.stoppedAt ?? null,
-        /**
-         * `stop_reason` KEEPS ITS FOUR-VALUE VOCABULARY, and `oom` is not one
-         * of them: `sessions_stop_reason_check` admits only self/parent/
-         * forced/exited, and widening it means a SQLite table rebuild the
-         * expand-only gate refuses. So the DEATH persists as `exited` and the
-         * CAUSE persists beside it as a timestamp; `Session.hydrate` re-derives
-         * `oom` from the pair. Without this the whole write threw on the CHECK
-         * and took the durable `oomKilled` event append down with it.
-         */
-        row.stopReason === 'oom' ? 'exited' : (row.stopReason ?? null),
-        row.oomKilledAt ?? null,
-        row.deletedAt ?? null,
-        row.deletionSource ?? null,
-        row.deletedByIssueId ?? null,
-        row.workflowRunId ?? null,
-        row.workflowStepId ?? null,
-        row.executionProfileId ?? null,
-        row.refIssueId ?? null,
-        row.refLetter ?? null,
-        row.refDraft ?? null,
-        row.createdBy ? actorColumns(row.createdBy.actor).kind : null,
-        row.createdBy ? actorColumns(row.createdBy.actor).id : null,
-        row.createdBy?.onBehalfOf ?? null,
-      )
+      .insert(sessionsTable)
+      .values(values)
+      .onConflictDoUpdate({
+        target: sessionsTable.id,
+        set: {
+          cwd: values.cwd,
+          model: values.model,
+          effort: values.effort,
+          requestedModel: values.requestedModel,
+          requestedEffort: values.requestedEffort,
+          accountId: values.accountId,
+          loginHarness: sql`COALESCE(${sessionsTable.loginHarness}, excluded."login_harness")`,
+          title: values.title,
+          name: values.name,
+          nameSource: values.nameSource,
+          originKind: values.originKind,
+          conversationId: values.conversationId,
+          resumeKind: values.resumeKind,
+          resumeValue: values.resumeValue,
+          selectedDriverId: values.selectedDriverId,
+          requestedDriverId: values.requestedDriverId,
+          // BINDING IS ONE-WAY (POD-2392): once a launch is known to have had a
+          // native conversation, no later write may say it never did. The rule
+          // lives here rather than in the caller because it is the premise the
+          // fresh-relaunch path depends on — a caller that reconstructs a stale
+          // Session and persists it must not be able to un-prove a conversation.
+          conversationBinding: sql`CASE
+             WHEN ${sessionsTable.conversationBinding} = 'bound' THEN 'bound'
+             ELSE excluded."conversation_binding"
+           END`,
+          status: values.status,
+          exitCode: values.exitCode,
+          spawnFailure: values.spawnFailure,
+          durableLabel: values.durableLabel,
+          lastActiveAt: values.lastActiveAt,
+          terminalCols: values.terminalCols,
+          terminalRows: values.terminalRows,
+          workingMsTotal: values.workingMsTotal,
+          inputCount: values.inputCount,
+          outputCount: values.outputCount,
+          activityCount: values.activityCount,
+          archived: values.archived,
+          workState: values.workState,
+          machineId: values.machineId,
+          lastOutputAt: values.lastOutputAt,
+          lastInputAt: values.lastInputAt,
+          lastResumedAt: values.lastResumedAt,
+          spawnedBy: values.spawnedBy,
+          issueId: values.issueId,
+          stoppedAt: values.stoppedAt,
+          stopReason: values.stopReason,
+          oomKilledAt: values.oomKilledAt,
+          deletedAt: values.deletedAt,
+          deletionSource: values.deletionSource,
+          deletedByIssueId: values.deletedByIssueId,
+          workflowRunId: values.workflowRunId,
+          workflowStepId: values.workflowStepId,
+          executionProfileId: values.executionProfileId,
+          // Birth name is PERMANENT (#474): once allocated it never changes, even
+          // when the session re-attaches to a different issue. COALESCE keeps the
+          // first non-null allocation.
+          refIssueId: sql`COALESCE(${sessionsTable.refIssueId}, excluded."ref_issue_id")`,
+          refLetter: sql`COALESCE(${sessionsTable.refLetter}, excluded."ref_letter")`,
+          refDraft: sql`COALESCE(${sessionsTable.refDraft}, excluded."ref_draft")`,
+          // ATTRIBUTION IS IMMUTABLE AFTER CREATE (POD-365's
+          // SESSION_IMMUTABLE_AFTER_CREATE lists `createdBy`). COALESCE keeps the
+          // pair stamped at birth: an upsert from a later code path — a status
+          // change, a rename, a reattach — must not be able to re-attribute the
+          // session to whoever happened to trigger it. It can only FILL a pair
+          // that was never recorded, never overwrite one that was.
+          createdByActorKind: sql`COALESCE(${sessionsTable.createdByActorKind}, excluded."created_by_actor_kind")`,
+          createdByActorId: sql`COALESCE(${sessionsTable.createdByActorId}, excluded."created_by_actor_id")`,
+          createdByOnBehalfOf: sql`COALESCE(${sessionsTable.createdByOnBehalfOf}, excluded."created_by_on_behalf_of")`,
+        },
+      })
+      .run()
   }
 
   /** Tombstone sessions without destroying their metadata or UI satellites. */
@@ -493,11 +380,13 @@ export class SessionsRepository {
     source: SessionDeletionSource,
     deletedByIssueId: IssueId | null = null,
   ): void {
-    const update = this.db.prepare(
-      `UPDATE sessions SET deleted_at = ?, deletion_source = ?, deleted_by_issue_id = ?
-       WHERE id = ? AND deleted_at IS NULL`,
-    )
-    for (const id of ids) update.run(deletedAt, source, deletedByIssueId, id)
+    for (const id of ids) {
+      this.db
+        .update(sessionsTable)
+        .set({ deletedAt, deletionSource: source, deletedByIssueId })
+        .where(and(eq(sessionsTable.id, id as SessionId), isNull(sessionsTable.deletedAt)))
+        .run()
+    }
   }
 
   /** Mark sessions as deleted by an issue so restoring that issue can recover them. */
@@ -508,13 +397,22 @@ export class SessionsRepository {
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
   restoreDeletedForIssue(issueId: IssueId): void {
     this.db
-      .prepare(
-        `UPDATE sessions
-         SET deleted_at = NULL, deletion_source = NULL, deleted_by_issue_id = NULL,
-             status = 'exited', exit_code = NULL
-         WHERE deleted_at IS NOT NULL AND deletion_source = 'issue' AND deleted_by_issue_id = ?`,
+      .update(sessionsTable)
+      .set({
+        deletedAt: null,
+        deletionSource: null,
+        deletedByIssueId: null,
+        status: 'exited',
+        exitCode: null,
+      })
+      .where(
+        and(
+          isNotNull(sessionsTable.deletedAt),
+          eq(sessionsTable.deletionSource, 'issue'),
+          eq(sessionsTable.deletedByIssueId, issueId),
+        ),
       )
-      .run(issueId)
+      .run()
   }
 
   /**
@@ -544,14 +442,19 @@ export class SessionsRepository {
    */
   detachTombstonesFromIssue(issueId: IssueId): void {
     this.db
-      .prepare(
-        `UPDATE sessions
-         SET issue_id = CASE WHEN issue_id = ?1 THEN NULL ELSE issue_id END,
-             ref_issue_id = CASE WHEN ref_issue_id = ?1 THEN NULL ELSE ref_issue_id END,
-             ref_letter = CASE WHEN ref_issue_id = ?1 THEN NULL ELSE ref_letter END
-         WHERE deleted_at IS NOT NULL AND (issue_id = ?1 OR ref_issue_id = ?1)`,
+      .update(sessionsTable)
+      .set({
+        issueId: sql`CASE WHEN ${sessionsTable.issueId} = ${issueId} THEN NULL ELSE ${sessionsTable.issueId} END`,
+        refIssueId: sql`CASE WHEN ${sessionsTable.refIssueId} = ${issueId} THEN NULL ELSE ${sessionsTable.refIssueId} END`,
+        refLetter: sql`CASE WHEN ${sessionsTable.refIssueId} = ${issueId} THEN NULL ELSE ${sessionsTable.refLetter} END`,
+      })
+      .where(
+        and(
+          isNotNull(sessionsTable.deletedAt),
+          or(eq(sessionsTable.issueId, issueId), eq(sessionsTable.refIssueId, issueId)),
+        ),
       )
-      .run(issueId)
+      .run()
   }
 
   /**
@@ -562,33 +465,37 @@ export class SessionsRepository {
    * desync. Returns the number of rows healed.
    */
   detachDanglingIssueReferences(): number {
-    const stmt = this.db.prepare(
-      `UPDATE sessions
-         SET issue_id = CASE
-               WHEN issue_id IS NOT NULL AND issue_id NOT IN (SELECT id FROM issues)
-               THEN NULL ELSE issue_id END,
-             ref_letter = CASE
-               WHEN ref_issue_id IS NOT NULL AND ref_issue_id NOT IN (SELECT id FROM issues)
-               THEN NULL ELSE ref_letter END,
-             ref_issue_id = CASE
-               WHEN ref_issue_id IS NOT NULL AND ref_issue_id NOT IN (SELECT id FROM issues)
-               THEN NULL ELSE ref_issue_id END
-         WHERE (issue_id IS NOT NULL AND issue_id NOT IN (SELECT id FROM issues))
-            OR (ref_issue_id IS NOT NULL AND ref_issue_id NOT IN (SELECT id FROM issues))`,
-    )
-    return Number(stmt.run().changes)
+    // The subquery's own column is unqualified and resolves inside `issues`,
+    // which is what it must do; the OUTER columns are the `sessions` ones the
+    // builder qualifies for us here because they are named as columns rather
+    // than interpolated into the fragment.
+    const danglingIssue = sql`${sessionsTable.issueId} IS NOT NULL AND ${sessionsTable.issueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
+    const danglingRef = sql`${sessionsTable.refIssueId} IS NOT NULL AND ${sessionsTable.refIssueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
+    const result = this.db
+      .update(sessionsTable)
+      .set({
+        issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${sessionsTable.issueId} END`,
+        refLetter: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${sessionsTable.refLetter} END`,
+        refIssueId: sql`CASE WHEN ${danglingRef} THEN NULL ELSE ${sessionsTable.refIssueId} END`,
+      })
+      .where(or(danglingIssue, danglingRef))
+      .run()
+    return Number(result.changes)
   }
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: SessionId): void {
-    this.db.prepare('DELETE FROM runtime_event_checkpoints WHERE session_id = ?').run(id)
+    this.db.delete(runtimeEventCheckpoints).where(eq(runtimeEventCheckpoints.sessionId, id)).run()
     this.purgeObservationCheckpoint(id)
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(id)
-    this.db.prepare('DELETE FROM pins WHERE kind = ? AND id = ?').run('panel', id)
-    this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
-    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(id)
-    this.db.prepare('DELETE FROM session_user_state WHERE session_id = ?').run(id)
-    this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(id) // [spec:SP-c7f1]
+    this.db.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
+    this.db
+      .delete(pinsTable)
+      .where(and(eq(pinsTable.kind, 'panel'), eq(pinsTable.id, id)))
+      .run()
+    this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
+    this.db.delete(snoozesTable).where(eq(snoozesTable.sessionId, id)).run()
+    this.db.delete(sessionUserState).where(eq(sessionUserState.sessionId, id)).run()
+    this.db.delete(offersTable).where(eq(offersTable.sessionId, id)).run() // [spec:SP-c7f1]
     this.scrubTabOrders(id)
   }
 
@@ -602,11 +509,11 @@ export class SessionsRepository {
   // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
   listPins(userId: UserId): PinState {
     const rows = this.db
-      .prepare('SELECT kind, id FROM pins WHERE user_id = ? ORDER BY rowid ASC')
-      .all(userId) as {
-      kind: PinKind
-      id: string
-    }[]
+      .select({ kind: pinsTable.kind, id: pinsTable.id })
+      .from(pinsTable)
+      .where(eq(pinsTable.userId, userId))
+      .orderBy(asc(sql`rowid`))
+      .all()
     const pins: PinState = { panels: [], worktrees: [], repos: [] }
     for (const row of rows) {
       if (row.kind === 'panel') pins.panels.push(row.id)
@@ -622,13 +529,35 @@ export class SessionsRepository {
     const cleanId = id.trim()
     if (!cleanId) throw new Error('pin id is empty')
     if (pinned) {
+      // `INSERT OR IGNORE` CONVERTS HERE, and the enumeration is why (spec rule
+      // 31, POD-3403). The two forms differ in general: `OR IGNORE` suppresses
+      // UNIQUE, PRIMARY KEY, NOT NULL and CHECK, while `onConflictDoNothing`
+      // suppresses uniqueness conflicts only. (Neither suppresses FOREIGN KEY,
+      // so foreign keys are not part of this comparison.) They are therefore
+      // equivalent at a site exactly when no NOT NULL and no CHECK violation is
+      // reachable — and at this one, neither is:
+      //
+      //   CHECK       none. `PRAGMA index_list(pins)` on the SHIPPED table
+      //               returns one index, `sqlite_autoindex_pins_1`, unique,
+      //               origin `pk`; the table SQL carries no CHECK clause.
+      //   NOT NULL    all four columns are notnull=1 with no default, and every
+      //               one is refused above before this line is reached:
+      //               `user_id` by `requireUserId` (throws on blank), `kind` by
+      //               the `PIN_KINDS` membership throw, `id` by the empty-string
+      //               throw on the trimmed value, and `pinned_at` is a freshly
+      //               built ISO string.
       this.db
-        .prepare('INSERT OR IGNORE INTO pins (user_id, kind, id, pinned_at) VALUES (?, ?, ?, ?)')
-        .run(userId, kind, cleanId, new Date().toISOString())
+        .insert(pinsTable)
+        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
+        .onConflictDoNothing()
+        .run()
     } else {
       this.db
-        .prepare('DELETE FROM pins WHERE user_id = ? AND kind = ? AND id = ?')
-        .run(userId, kind, cleanId)
+        .delete(pinsTable)
+        .where(
+          and(eq(pinsTable.userId, userId), eq(pinsTable.kind, kind), eq(pinsTable.id, cleanId)),
+        )
+        .run()
     }
   }
 
@@ -644,19 +573,28 @@ export class SessionsRepository {
   listReadAt(userId: UserId): Record<string, string | null> {
     requireUserId(userId)
     const rows = this.db
-      .prepare('SELECT session_id, read_at FROM session_user_state WHERE user_id = ?')
-      .all(userId) as { session_id: SessionId; read_at: string | null }[]
+      .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
+      .from(sessionUserState)
+      .where(eq(sessionUserState.userId, userId))
+      .all()
     const out: Record<string, string | null> = {}
-    for (const r of rows) out[r.session_id] = r.read_at
+    for (const r of rows) out[r.sessionId] = r.readAt
     return out
   }
 
   getReadAt(userId: UserId, sessionId: SessionId): string | null {
     requireUserId(userId)
     const row = this.db
-      .prepare('SELECT read_at FROM session_user_state WHERE user_id = ? AND session_id = ?')
-      .get(userId, sessionId.trim()) as { read_at: string | null } | undefined
-    return row?.read_at ?? null
+      .select({ readAt: sessionUserState.readAt })
+      .from(sessionUserState)
+      .where(
+        and(
+          eq(sessionUserState.userId, userId),
+          eq(sessionUserState.sessionId, asSessionId(sessionId.trim())),
+        ),
+      )
+      .get()
+    return row?.readAt ?? null
   }
 
   markSessionRead(userId: UserId, sessionId: SessionId, readAt: string): void {
@@ -664,11 +602,13 @@ export class SessionsRepository {
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
     this.db
-      .prepare(
-        `INSERT INTO session_user_state (user_id, session_id, read_at) VALUES (?, ?, ?)
-         ON CONFLICT(user_id, session_id) DO UPDATE SET read_at = excluded.read_at`,
-      )
-      .run(userId, id, readAt)
+      .insert(sessionUserState)
+      .values({ userId, sessionId: asSessionId(id), readAt })
+      .onConflictDoUpdate({
+        target: [sessionUserState.userId, sessionUserState.sessionId],
+        set: { readAt },
+      })
+      .run()
   }
 
   /** DELETES the row rather than writing a null. Absence and `read_at IS NULL`
@@ -677,8 +617,14 @@ export class SessionsRepository {
   markSessionUnread(userId: UserId, sessionId: SessionId): void {
     requireUserId(userId)
     this.db
-      .prepare('DELETE FROM session_user_state WHERE user_id = ? AND session_id = ?')
-      .run(userId, sessionId.trim())
+      .delete(sessionUserState)
+      .where(
+        and(
+          eq(sessionUserState.userId, userId),
+          eq(sessionUserState.sessionId, asSessionId(sessionId.trim())),
+        ),
+      )
+      .run()
   }
 
   /**
@@ -691,7 +637,10 @@ export class SessionsRepository {
    * ever sees another reader's state.
    */
   clearAllReadAt(sessionId: SessionId): void {
-    this.db.prepare('DELETE FROM session_user_state WHERE session_id = ?').run(sessionId.trim())
+    this.db
+      .delete(sessionUserState)
+      .where(eq(sessionUserState.sessionId, asSessionId(sessionId.trim())))
+      .run()
   }
 
   // ---- snoozes ----
@@ -700,24 +649,26 @@ export class SessionsRepository {
    *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
   listSnoozes(userId: UserId, now: number = Date.now()): SnoozeMap {
     const rows = this.db
-      .prepare('SELECT session_id, snoozed_until FROM snoozes WHERE user_id = ?')
-      .all(userId) as {
-      session_id: SessionId
-      snoozed_until: string | null
-    }[]
+      .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
+      .from(snoozesTable)
+      .where(eq(snoozesTable.userId, userId))
+      .all()
     const out: SnoozeMap = {}
-    const expired: string[] = []
+    const expired: SessionId[] = []
     for (const r of rows) {
-      if (r.snoozed_until !== null && Date.parse(r.snoozed_until) <= now) {
-        expired.push(r.session_id)
+      if (r.snoozedUntil !== null && Date.parse(r.snoozedUntil) <= now) {
+        expired.push(r.sessionId)
         continue
       }
-      out[r.session_id] = r.snoozed_until
+      out[r.sessionId] = r.snoozedUntil
     }
     // The lazy delete stays scoped to the reader: housekeeping on read must never
     // drop somebody else's row, even an expired one.
     for (const id of expired) {
-      this.db.prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?').run(userId, id)
+      this.db
+        .delete(snoozesTable)
+        .where(and(eq(snoozesTable.userId, userId), eq(snoozesTable.sessionId, id)))
+        .run()
     }
     return out
   }
@@ -729,46 +680,57 @@ export class SessionsRepository {
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
     this.db
-      .prepare(
-        `INSERT INTO snoozes (user_id, session_id, snoozed_until, created_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id, session_id) DO UPDATE SET snoozed_until = excluded.snoozed_until`,
-      )
-      .run(userId, id, until, new Date().toISOString())
+      .insert(snoozesTable)
+      .values({
+        userId,
+        sessionId: asSessionId(id),
+        snoozedUntil: until,
+        createdAt: new Date().toISOString(),
+      })
+      .onConflictDoUpdate({
+        target: [snoozesTable.userId, snoozesTable.sessionId],
+        set: { snoozedUntil: until },
+      })
+      .run()
   }
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
   clearSnooze(userId: UserId, sessionId: SessionId): void {
     this.db
-      .prepare('DELETE FROM snoozes WHERE user_id = ? AND session_id = ?')
-      .run(userId, sessionId.trim())
+      .delete(snoozesTable)
+      .where(
+        and(
+          eq(snoozesTable.userId, userId),
+          eq(snoozesTable.sessionId, asSessionId(sessionId.trim())),
+        ),
+      )
+      .run()
   }
 
   hasAnySnooze(sessionId: SessionId): boolean {
     return (
       this.db
-        .prepare('SELECT 1 AS present FROM snoozes WHERE session_id = ? LIMIT 1')
-        .get(sessionId.trim()) !== undefined
+        .select({ present: sql<number>`1` })
+        .from(snoozesTable)
+        .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
+        .limit(1)
+        .get() !== undefined
     )
   }
 
   /** Clear every viewer's independent snooze after a shared session event. */
   clearAllSnoozes(sessionId: SessionId): void {
-    this.db.prepare('DELETE FROM snoozes WHERE session_id = ?').run(sessionId.trim())
+    this.db
+      .delete(snoozesTable)
+      .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
+      .run()
   }
 
   // ---- agent action offers [spec:SP-c7f1] ----
   /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
    *  row with corrupt JSON actions is dropped rather than failing the load. */
   listOffers(): OfferMap {
-    const rows = this.db
-      .prepare('SELECT session_id, message, actions, artifacts, created_at FROM offers')
-      .all() as {
-      session_id: SessionId
-      message: string
-      actions: string
-      artifacts: string | null
-      created_at: string
-    }[]
+    const rows = this.db.select().from(offersTable).all()
     const out: OfferMap = {}
     for (const r of rows) {
       try {
@@ -784,11 +746,11 @@ export class SessionsRepository {
             }
           } catch {}
         }
-        out[r.session_id] = {
+        out[r.sessionId] = {
           message: r.message,
           actions,
           ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
-          createdAt: r.created_at,
+          createdAt: r.createdAt,
         }
       } catch {
         // corrupt row -> treat as no offer
@@ -801,22 +763,27 @@ export class SessionsRepository {
   setOffer(sessionId: SessionId, offer: OfferRecord): void {
     const id = sessionId.trim()
     if (!id) throw new Error('offer session id is empty')
-    this.db
-      .prepare(
-        `INSERT INTO offers (session_id, message, actions, artifacts, created_at) VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET
-           message = excluded.message,
-           actions = excluded.actions,
-           artifacts = excluded.artifacts,
-           created_at = excluded.created_at`,
-      )
-      .run(
-        id,
-        offer.message,
-        JSON.stringify(offer.actions),
+    const values = {
+      sessionId: asSessionId(id),
+      message: offer.message,
+      actions: JSON.stringify(offer.actions),
+      artifacts:
         offer.artifacts && offer.artifacts.length > 0 ? JSON.stringify(offer.artifacts) : null,
-        offer.createdAt,
-      )
+      createdAt: offer.createdAt,
+    }
+    this.db
+      .insert(offersTable)
+      .values(values)
+      .onConflictDoUpdate({
+        target: offersTable.sessionId,
+        set: {
+          message: values.message,
+          actions: values.actions,
+          artifacts: values.artifacts,
+          createdAt: values.createdAt,
+        },
+      })
+      .run()
   }
 
   /** The stamp of one session's live offer, or undefined when it has none. The
@@ -824,25 +791,29 @@ export class SessionsRepository {
    *  because `listOffers` exists to rebuild every session at boot. */
   offerCreatedAt(sessionId: SessionId): string | undefined {
     const row = this.db
-      .prepare('SELECT created_at FROM offers WHERE session_id = ?')
-      .get(sessionId.trim()) as { created_at: string } | undefined
-    return row?.created_at
+      .select({ createdAt: offersTable.createdAt })
+      .from(offersTable)
+      .where(eq(offersTable.sessionId, asSessionId(sessionId.trim())))
+      .get()
+    return row?.createdAt
   }
 
   /** Remove a session's offer (no-op if none). */
   clearOffer(sessionId: SessionId): void {
-    this.db.prepare('DELETE FROM offers WHERE session_id = ?').run(sessionId.trim())
+    this.db
+      .delete(offersTable)
+      .where(eq(offersTable.sessionId, asSessionId(sessionId.trim())))
+      .run()
   }
 
   // ---- tab order ----
   /** Manual tab order per worktree path. Worktrees never reordered are absent. */
   listTabOrders(userId: UserId): Record<string, string[]> {
     const rows = this.db
-      .prepare('SELECT worktree, ids FROM tab_order WHERE user_id = ?')
-      .all(userId) as {
-      worktree: string
-      ids: string
-    }[]
+      .select({ worktree: tabOrder.worktree, ids: tabOrder.ids })
+      .from(tabOrder)
+      .where(eq(tabOrder.userId, userId))
+      .all()
     const out: Record<string, string[]> = {}
     for (const row of rows) {
       try {
@@ -861,16 +832,21 @@ export class SessionsRepository {
     if (!cleanWorktree) throw new Error('worktree path is empty')
     if (sessionIds.length === 0) {
       this.db
-        .prepare('DELETE FROM tab_order WHERE user_id = ? AND worktree = ?')
-        .run(userId, cleanWorktree)
+        .delete(tabOrder)
+        .where(and(eq(tabOrder.userId, userId), eq(tabOrder.worktree, cleanWorktree)))
+        .run()
       return
     }
+    const ids = JSON.stringify(sessionIds)
+    const updatedAt = new Date().toISOString()
     this.db
-      .prepare(
-        `INSERT INTO tab_order (user_id, worktree, ids, updated_at) VALUES (?, ?, ?, ?)
-         ON CONFLICT(user_id, worktree) DO UPDATE SET ids = excluded.ids, updated_at = excluded.updated_at`,
-      )
-      .run(userId, cleanWorktree, JSON.stringify(sessionIds), new Date().toISOString())
+      .insert(tabOrder)
+      .values({ userId, worktree: cleanWorktree, ids, updatedAt })
+      .onConflictDoUpdate({
+        target: [tabOrder.userId, tabOrder.worktree],
+        set: { ids, updatedAt },
+      })
+      .run()
   }
 
   /**
@@ -881,11 +857,16 @@ export class SessionsRepository {
    * across owners, and it lands in the scope of what it acted on.
    */
   private scrubTabOrders(sessionId: SessionId): void {
-    const rows = this.db.prepare('SELECT user_id, worktree, ids FROM tab_order').all() as {
-      user_id: UserId
-      worktree: string
-      ids: string
-    }[]
+    // THREE COLUMNS, NAMED, because the statement this replaces named three
+    // [spec rule 39]. `tab_order` has four; spreading the table here would read
+    // `updated_at` on every row of every purge and hand it to a reader that
+    // builds its object from `user_id`, `worktree` and `ids` — right rows, right
+    // values, and an extra column over the wire on a remote driver, which is
+    // this epic's whole criterion. No test could have seen it.
+    const rows = this.db
+      .select({ userId: tabOrder.userId, worktree: tabOrder.worktree, ids: tabOrder.ids })
+      .from(tabOrder)
+      .all()
     for (const row of rows) {
       let ids: string[]
       try {
@@ -897,7 +878,7 @@ export class SessionsRepository {
       }
       if (!ids.includes(sessionId)) continue
       this.setTabOrder(
-        row.user_id,
+        row.userId,
         row.worktree,
         ids.filter((id) => id !== sessionId),
       )
@@ -912,12 +893,12 @@ export class SessionsRepository {
   // a row would make either write clobber the other. The registry debounces the
   // writes here (see relay.ts) so SQLite isn't hit per keystroke.
   loadDrafts(): Record<SessionId, string> {
-    const rows = this.db.prepare('SELECT session_id, text FROM session_drafts').all() as {
-      session_id: SessionId
-      text: string
-    }[]
+    const rows = this.db
+      .select({ sessionId: sessionDrafts.sessionId, text: sessionDrafts.text })
+      .from(sessionDrafts)
+      .all()
     const out: Record<string, string> = {}
-    for (const r of rows) out[r.session_id] = r.text
+    for (const r of rows) out[r.sessionId] = r.text
     return out
   }
 
@@ -925,12 +906,12 @@ export class SessionsRepository {
    *  to seed `Session.draftUpdatedAt` at boot so a draft lifts its session in the
    *  attention ordering after a restart. */
   loadDraftTimes(): Record<string, string> {
-    const rows = this.db.prepare('SELECT session_id, updated_at FROM session_drafts').all() as {
-      session_id: SessionId
-      updated_at: string
-    }[]
+    const rows = this.db
+      .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
+      .from(sessionDrafts)
+      .all()
     const out: Record<string, string> = {}
-    for (const r of rows) out[r.session_id] = r.updated_at
+    for (const r of rows) out[r.sessionId] = r.updatedAt
     return out
   }
 
@@ -943,14 +924,16 @@ export class SessionsRepository {
     if (text) {
       const updatedAt = new Date().toISOString()
       this.db
-        .prepare(
-          `INSERT INTO session_drafts (session_id, text, updated_at) VALUES (?, ?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET text = excluded.text, updated_at = excluded.updated_at`,
-        )
-        .run(id, text, updatedAt)
+        .insert(sessionDrafts)
+        .values({ sessionId: asSessionId(id), text, updatedAt })
+        .onConflictDoUpdate({ target: sessionDrafts.sessionId, set: { text, updatedAt } })
+        .run()
       return updatedAt
     }
-    this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+    this.db
+      .delete(sessionDrafts)
+      .where(eq(sessionDrafts.sessionId, asSessionId(id)))
+      .run()
     return undefined
   }
 
@@ -975,21 +958,12 @@ export class SessionsRepository {
    *  versioning columns existed reads back with `rev: 0`, `origin: null`, and an
    *  empty history. */
   loadDraftDocs(): Record<SessionId, StoredDraftDoc> {
-    const rows = this.db
-      .prepare('SELECT session_id, text, updated_at, rev, origin, history FROM session_drafts')
-      .all() as {
-      session_id: SessionId
-      text: string
-      updated_at: string
-      rev?: number | null
-      origin?: string | null
-      history?: string | null
-    }[]
+    const rows = this.db.select().from(sessionDrafts).all()
     const out: Record<string, StoredDraftDoc> = {}
     for (const r of rows) {
-      out[r.session_id] = {
+      out[r.sessionId] = {
         text: r.text,
-        updatedAt: r.updated_at,
+        updatedAt: r.updatedAt,
         rev: r.rev ?? 0,
         origin: r.origin ?? null,
         history: parseHistory(r.history ?? null),
@@ -1006,18 +980,152 @@ export class SessionsRepository {
     const id = asSessionId(sessionId.trim())
     if (!id) return
     if (!doc.text) {
-      this.db.prepare('DELETE FROM session_drafts WHERE session_id = ?').run(id)
+      this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
       return
     }
+    const values = {
+      sessionId: id,
+      text: doc.text,
+      updatedAt: doc.updatedAt,
+      rev: doc.rev,
+      origin: doc.origin,
+      history: JSON.stringify(doc.history),
+    }
     this.db
-      .prepare(
-        `INSERT INTO session_drafts (session_id, text, updated_at, rev, origin, history)
-         VALUES (?, ?, ?, ?, ?, ?)
-         ON CONFLICT(session_id) DO UPDATE SET
-           text = excluded.text, updated_at = excluded.updated_at,
-           rev = excluded.rev, origin = excluded.origin, history = excluded.history`,
-      )
-      .run(id, doc.text, doc.updatedAt, doc.rev, doc.origin, JSON.stringify(doc.history))
+      .insert(sessionDrafts)
+      .values(values)
+      .onConflictDoUpdate({
+        target: sessionDrafts.sessionId,
+        set: {
+          text: values.text,
+          updatedAt: values.updatedAt,
+          rev: values.rev,
+          origin: values.origin,
+          history: values.history,
+        },
+      })
+      .run()
+  }
+}
+
+/** The 500-row chunks every batched id reader here shares. They stay below
+ *  SQLite's variable limit while keeping one repository call per pass. */
+function* chunked<T>(values: readonly T[]): Generator<T[]> {
+  const unique = [...new Set(values)]
+  const CHUNK = 500
+  for (let i = 0; i < unique.length; i += CHUNK) {
+    yield unique.slice(i, i + CHUNK)
+  }
+}
+
+/**
+ * SERIALIZATION EDGE — the one place a `sessions` row becomes a `SessionRow`.
+ *
+ * WHAT IS LEFT HERE IS DECISIONS. The brand casts and the `?? null` decodes are
+ * gone: the schema carries `$type<>()` on the id columns and drizzle's own
+ * execution path maps physical names back, so those lines existed only because
+ * the driver returned `unknown` (spec §6 rule 6). Every line that remains is a
+ * refusal, a whitelist, or a spelling choice, and each says which.
+ */
+function mapSession(r: SessionSelect): SessionRow {
+  return {
+    id: r.id,
+    ownerUserId: r.ownerUserId,
+    agentKind: r.agentKind,
+    ...(r.model != null ? { model: r.model } : {}),
+    ...(r.effort != null ? { effort: r.effort } : {}),
+    // ABSENT, NOT NULL, when nobody has changed it — the same spelling as the
+    // launch pair above. `requestedModel: null` and an absent key read the
+    // same at every consumer here, but the absent form keeps "never
+    // configured" from looking like a recorded decision to clear it.
+    ...(r.requestedModel != null ? { requestedModel: r.requestedModel } : {}),
+    ...(r.requestedEffort != null ? { requestedEffort: r.requestedEffort } : {}),
+    ...(r.accountId != null ? { accountId: r.accountId } : {}),
+    ...(r.loginHarness != null
+      ? { loginHarness: AgentKind.exclude(['shell']).parse(r.loginHarness) }
+      : {}),
+    cwd: r.cwd,
+    title: r.title,
+    name: r.name ?? null,
+    // Anything else on disk (an old/rogue value) reads as "nobody named it" rather
+    // than as a source that could out-rank the user (#490).
+    nameSource: r.nameSource === 'user' || r.nameSource === 'agent' ? r.nameSource : null,
+    originKind: r.originKind as 'spawn' | 'resume',
+    conversationId: r.conversationId ?? null,
+    resumeKind: r.resumeKind ?? null,
+    resumeValue: r.resumeValue ?? null,
+    selectedDriverId: r.selectedDriverId ?? null,
+    requestedDriverId: r.requestedDriverId ?? null,
+    // Anything else on disk (an old/rogue value) reads as "no claim recorded"
+    // rather than as proof — the same conservative decode as `name_source`,
+    // and here it is the safety property itself: only a literal 'never'
+    // authorizes discarding a launch and starting it again.
+    conversationBinding:
+      r.conversationBinding === 'never' || r.conversationBinding === 'bound'
+        ? r.conversationBinding
+        : null,
+    status: r.status as SessionStatusPersisted,
+    exitCode: r.exitCode ?? null,
+    spawnFailure: r.spawnFailure ?? null,
+    durableLabel: r.durableLabel,
+    createdAt: r.createdAt,
+    lastActiveAt: r.lastActiveAt,
+    geometry: {
+      cols: Number.isInteger(r.terminalCols) && r.terminalCols > 0 ? r.terminalCols : 80,
+      rows: Number.isInteger(r.terminalRows) && r.terminalRows > 0 ? r.terminalRows : 24,
+    },
+    ...(r.workingMsTotal != null ? { workingMsTotal: r.workingMsTotal } : {}),
+    ...(r.inputCount > 0 ? { inputCount: r.inputCount } : {}),
+    ...(r.outputCount > 0 ? { outputCount: r.outputCount } : {}),
+    ...(r.activityCount > 0 ? { activityCount: r.activityCount } : {}),
+    archived: r.archived,
+    workState: r.workState ?? null,
+    machineId: r.machineId,
+    lastOutputAt: r.lastOutputAt ?? null,
+    lastInputAt: r.lastInputAt ?? null,
+    lastResumedAt: r.lastResumedAt ?? null,
+    spawnedBy: r.spawnedBy ?? null,
+    // THE ATTRIBUTION PAIR (POD-1516). BOTH id columns must be present for a
+    // pair to exist — a kind with no id is a half-written row, and decoding it
+    // would mint an actor with an empty id that compares equal to every other
+    // empty one. `null` here is the honest "no pair recorded"; it is NEVER
+    // filled in from `owner_user_id` or `spawned_by`, which answer different
+    // questions (see the migration).
+    // ABSENT, not `null`, when no pair was recorded. One spelling for one fact:
+    // a row carrying `createdBy: null` beside rows that simply omit the key
+    // would be two encodings of "nobody recorded this", and the whole point of
+    // this field is that its absence has a single unambiguous meaning.
+    ...(r.createdByActorKind != null && r.createdByActorId != null
+      ? {
+          createdBy: {
+            actor: actorFromColumns(r.createdByActorKind as ActorKind, r.createdByActorId),
+            // The INNER null stays: it is the representable "no human behind
+            // this" for the machine and system arms, which is a different fact
+            // from the pair being absent altogether.
+            onBehalfOf: (r.createdByOnBehalfOf as UserId | null) ?? null,
+          },
+        }
+      : {}),
+    headless: r.headless,
+    issueId: r.issueId ?? null,
+    refIssueId: r.refIssueId ?? null,
+    refLetter: r.refLetter ?? null,
+    refDraft: r.refDraft ?? null,
+    stoppedAt: r.stoppedAt ?? null,
+    stopReason:
+      r.stopReason === 'self' ||
+      r.stopReason === 'parent' ||
+      r.stopReason === 'forced' ||
+      r.stopReason === 'exited'
+        ? r.stopReason
+        : null,
+    oomKilledAt: r.oomKilledAt ?? null,
+    workflowRunId: r.workflowRunId ?? null,
+    workflowStepId: r.workflowStepId ?? null,
+    executionProfileId: r.executionProfileId ?? null,
+    deletedAt: r.deletedAt ?? null,
+    deletionSource: (r.deletionSource as SessionDeletionSource | null) ?? null,
+    deletedByIssueId: r.deletedByIssueId ?? null,
   }
 }
 

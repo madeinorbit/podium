@@ -1,4 +1,4 @@
-import type { SessionId, UserId, MachineId, AccountId } from '@podium/model'
+import type { AccountId, MachineId, SessionId, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import {
   type ExecutionProfileWire as ExecutionProfile,
@@ -20,9 +20,29 @@ import {
   WorkflowStepEvidence,
   type WorkflowWire,
 } from '@podium/protocol'
-import type { SqlDatabase, SqlParam } from '@podium/runtime/sqlite'
-import { transaction } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  getTableColumns,
+  inArray,
+  isNull,
+  max,
+  or,
+  type SQL,
+  sql,
+} from 'drizzle-orm'
+import {
+  executionProfiles,
+  workflowBindings,
+  workflowEvents,
+  workflowRevisions,
+  workflowRunSteps,
+  workflowRuns,
+  workflows as workflowsTable,
+} from '../migrations/schema'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 /**
  * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
@@ -47,20 +67,22 @@ export interface WorkflowRunRow {
   ownerUserId: UserId
 }
 
-type Raw = Record<string, unknown>
-
-function text(value: unknown): string {
-  return typeof value === 'string' ? value : ''
-}
-
-function nullableText(value: unknown): string | null {
-  return typeof value === 'string' ? value : null
-}
 function required<T>(value: T | null, message: string): T {
   if (value === null) throw new Error(message)
   return value
 }
 
+/**
+ * A JSON text column, parsed for the schema that validates it.
+ *
+ * KEPT, and it is a rule 6 DECISION rather than a driver artefact. None of this
+ * file's JSON columns is `mode: 'json'` (checked against `schema.ts`: the only
+ * five in the tree are shipping's), so drizzle hands back the string and this is
+ * where it becomes a value. The `fallback` swallows a PARSE error and the zod
+ * `.parse()` at each call site then refuses a wrong SHAPE — two different
+ * failures with two different answers, which is the behaviour the corrupt-blob
+ * oracle pinned and the conversion preserves exactly.
+ */
 function parseJson<T>(raw: unknown, fallback: T): unknown {
   if (typeof raw !== 'string') return fallback
   try {
@@ -70,171 +92,217 @@ function parseJson<T>(raw: unknown, fallback: T): unknown {
   }
 }
 
-function toWorkflow(row: Raw): WorkflowWire {
+/** `w.*` plus the derived latest version, the shape both workflow reads share. */
+type WorkflowSelection = typeof workflowsTable.$inferSelect & { latestVersion: number }
+
+/**
+ * `COALESCE((SELECT MAX(version) …), 0)` — the derived column both workflow
+ * reads project. A workflow with no revisions is 0, never null.
+ *
+ * THE OUTER COLUMN IS QUALIFIED BY HAND, and it has to be. drizzle does not
+ * table-qualify a column interpolated into a `sql` fragment when the enclosing
+ * query has a single FROM table, so `${workflowsTable.id}` emits a bare `"id"` —
+ * which, inside this subquery, resolves to `workflow_revisions.id` rather than
+ * to the outer row. The correlation then reads
+ * `workflow_revisions.workflow_id = workflow_revisions.id`, matches nothing, and
+ * every workflow reports latestVersion 0. It throws nothing and logs nothing;
+ * store/workflows-golden.test.ts is what caught it.
+ */
+const latestVersionOf = sql<number>`COALESCE((SELECT MAX(${workflowRevisions.version}) FROM ${workflowRevisions} WHERE ${workflowRevisions.workflowId} = ${sql.identifier('workflows')}.${sql.identifier('id')}), 0)`
+
+const workflowSelection = {
+  ...getTableColumns(workflowsTable),
+  latestVersion: latestVersionOf,
+}
+
+function toWorkflow(row: WorkflowSelection): WorkflowWire {
   return {
-    id: text(row.id),
-    name: text(row.name),
-    description: text(row.description),
+    id: row.id,
+    name: row.name,
+    description: row.description,
     scope: row.scope as WorkflowScope,
-    scopeRef: nullableText(row.scope_ref),
-    latestRevisionId: nullableText(row.latest_revision_id),
-    latestVersion: Number(row.latest_version ?? 0),
-    archivedAt: nullableText(row.archived_at),
-    createdAt: text(row.created_at),
-    updatedAt: text(row.updated_at),
+    scopeRef: row.scopeRef,
+    latestRevisionId: row.latestRevisionId,
+    latestVersion: Number(row.latestVersion ?? 0),
+    archivedAt: row.archivedAt,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   }
 }
 
-function toRevision(row: Raw): WorkflowRevisionWire {
+function toRevision(row: typeof workflowRevisions.$inferSelect): WorkflowRevisionWire {
   return {
-    id: text(row.id),
-    workflowId: text(row.workflow_id),
-    version: Number(row.version),
-    instructions: text(row.instructions),
-    steps: WorkflowStep.array().parse(parseJson(row.steps_json, [])),
-    createdAt: text(row.created_at),
-    publishedAt: nullableText(row.published_at),
+    id: row.id,
+    workflowId: row.workflowId,
+    version: row.version,
+    instructions: row.instructions,
+    steps: WorkflowStep.array().parse(parseJson(row.stepsJson, [])),
+    createdAt: row.createdAt,
+    publishedAt: row.publishedAt,
   }
 }
 
-function toBinding(row: Raw): WorkflowBindingWire {
+function toBinding(row: typeof workflowBindings.$inferSelect): WorkflowBindingWire {
   return {
-    targetKind: row.target_kind as WorkflowBindingTarget,
-    targetId: text(row.target_id),
-    revisionId: text(row.revision_id),
-    updatedAt: text(row.updated_at),
+    targetKind: row.targetKind as WorkflowBindingTarget,
+    targetId: row.targetId,
+    revisionId: row.revisionId,
+    updatedAt: row.updatedAt,
   }
 }
 
-function toProfile(row: Raw): ExecutionProfile {
+function toProfile(row: typeof executionProfiles.$inferSelect): ExecutionProfile {
   return ExecutionProfileWire.parse({
     id: row.id,
     name: row.name,
-    accountId: row.account_id,
-    machineId: row.machine_id ?? null,
+    accountId: row.accountId,
+    machineId: row.machineId ?? null,
     harness: row.harness,
     model: row.model,
     effort: row.effort,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt,
   })
 }
 
-function toRun(row: Raw): WorkflowRunRow {
+function toRun(row: typeof workflowRuns.$inferSelect): WorkflowRunRow {
   return {
-    id: text(row.id),
-    subjectKind: row.subject_kind as 'issue' | 'session',
-    subjectId: text(row.subject_id),
-    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
-    coordinatorSessionId: text(row.coordinator_session_id) as SessionId,
-    revisionId: text(row.revision_id),
+    id: row.id,
+    subjectKind: row.subjectKind as 'issue' | 'session',
+    subjectId: row.subjectId,
+    coordinatorSessionId: row.coordinatorSessionId,
+    revisionId: row.revisionId,
     status: row.status as WorkflowRunStatus,
-    supersedesRunId: nullableText(row.supersedes_run_id),
-    startedAt: text(row.started_at),
-    completedAt: nullableText(row.completed_at),
-    ownerUserId: asUserId(text(row.owner_user_id)),
+    supersedesRunId: row.supersedesRunId,
+    startedAt: row.startedAt,
+    completedAt: row.completedAt,
+    ownerUserId: asUserId(row.ownerUserId),
   }
 }
 
-function toRunStep(row: Raw): RunStep {
-  const profileRaw = parseJson(row.execution_profile_json, null)
+function toRunStep(row: typeof workflowRunSteps.$inferSelect): RunStep {
+  const profileRaw = parseJson(row.executionProfileJson, null)
   return WorkflowRunStepWire.parse({
-    stepId: row.step_id,
-    position: Number(row.position),
+    stepId: row.stepId,
+    position: row.position,
     title: row.title,
     instructions: row.instructions,
-    completionGuidance: row.completion_guidance,
-    executionProfileId: row.execution_profile_id ?? null,
+    completionGuidance: row.completionGuidance,
+    executionProfileId: row.executionProfileId ?? null,
     executionProfileSnapshot: profileRaw,
     status: row.status,
-    assignedSessionId: row.assigned_session_id ?? null,
-    attempt: Number(row.attempt),
+    assignedSessionId: row.assignedSessionId ?? null,
+    attempt: row.attempt,
     summary: row.summary,
-    evidence: WorkflowStepEvidence.parse(parseJson(row.evidence_json, {})),
+    evidence: WorkflowStepEvidence.parse(parseJson(row.evidenceJson, {})),
     observation:
-      row.observation_json == null
+      row.observationJson == null
         ? null
-        : WorkflowGitObservation.parse(parseJson(row.observation_json, null)),
-    warnings: parseJson(row.warnings_json, []),
-    startedAt: row.started_at ?? null,
-    completedAt: row.completed_at ?? null,
+        : WorkflowGitObservation.parse(parseJson(row.observationJson, null)),
+    warnings: parseJson(row.warningsJson, []),
+    startedAt: row.startedAt ?? null,
+    completedAt: row.completedAt ?? null,
   })
 }
 
 export class WorkflowsRepository {
-  private readonly db: SqlDatabase
+  /**
+   * The capability is WIRING and is named here and nowhere else [spec rule 34].
+   * A call site reads `this.db.select(…)` and `this.transact(…)`.
+   */
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
+   * freezes `db` to the ROOT instance, and rule 35 routes transactions
+   * ambiently — `db` has to resolve the ENCLOSING transaction on every access.
+   * B1 changes this one line, here, instead of turning 39 fields into getters.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
 
+  /**
+   * DELEGATES ON EVERY CALL rather than being assigned across. `this.transact =
+   * queries.transact` works only because `syncQueriesOver` returns an arrow
+   * closing over the handle; it breaks SILENTLY, as a detached method, the
+   * moment the implementation uses `this` — which is what rule 35's adapter
+   * does. POD-3396's finding, adopted as the standard.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
+
   ownerOf(kind: string, id: string): string | null {
-    let row: { owner_user_id?: UserId | null } | undefined
+    let row: { ownerUserId?: UserId | null } | undefined
     if (kind === 'workflow-definition' || kind === 'workflow-library-entry') {
       row = this.db
-        .prepare('SELECT owner_user_id FROM workflows WHERE id = ?')
-        .get(id) as typeof row
+        .select({ ownerUserId: workflowsTable.ownerUserId })
+        .from(workflowsTable)
+        .where(eq(workflowsTable.id, id))
+        .get()
     } else if (kind === 'workflow-revision') {
       row = this.db
-        .prepare(
-          'SELECT w.owner_user_id FROM workflow_revisions r JOIN workflows w ON w.id = r.workflow_id WHERE r.id = ?',
-        )
-        .get(id) as typeof row
+        .select({ ownerUserId: workflowsTable.ownerUserId })
+        .from(workflowRevisions)
+        .innerJoin(workflowsTable, eq(workflowsTable.id, workflowRevisions.workflowId))
+        .where(eq(workflowRevisions.id, id))
+        .get()
     } else if (kind === 'workflow-binding') {
       const split = id.indexOf(':')
       if (split < 0) return null
       row = this.db
-        .prepare(
-          'SELECT owner_user_id FROM workflow_bindings WHERE target_kind = ? AND target_id = ?',
+        .select({ ownerUserId: workflowBindings.ownerUserId })
+        .from(workflowBindings)
+        .where(
+          and(
+            eq(workflowBindings.targetKind, id.slice(0, split)),
+            eq(workflowBindings.targetId, id.slice(split + 1)),
+          ),
         )
-        .get(id.slice(0, split), id.slice(split + 1)) as typeof row
+        .get()
     } else if (kind === 'execution-profile') {
       row = this.db
-        .prepare('SELECT owner_user_id FROM execution_profiles WHERE id = ?')
-        .get(id) as typeof row
+        .select({ ownerUserId: executionProfiles.ownerUserId })
+        .from(executionProfiles)
+        .where(eq(executionProfiles.id, id))
+        .get()
     } else if (kind === 'workflow-run') {
       row = this.db
-        .prepare('SELECT owner_user_id FROM workflow_runs WHERE id = ?')
-        .get(id) as typeof row
+        .select({ ownerUserId: workflowRuns.ownerUserId })
+        .from(workflowRuns)
+        .where(eq(workflowRuns.id, id))
+        .get()
     }
-    return typeof row?.owner_user_id === 'string' ? row.owner_user_id : null
+    return typeof row?.ownerUserId === 'string' ? row.ownerUserId : null
   }
 
   listWorkflows(
     opts: { includeArchived?: boolean; scope?: WorkflowScope; scopeRef?: string } = {},
   ): WorkflowWire[] {
-    const clauses: string[] = []
-    const values: SqlParam[] = []
-    if (!opts.includeArchived) clauses.push('w.archived_at IS NULL')
-    if (opts.scope) {
-      clauses.push('w.scope = ?')
-      values.push(opts.scope)
-    }
-    if (opts.scopeRef !== undefined) {
-      clauses.push('w.scope_ref = ?')
-      values.push(opts.scopeRef)
-    }
-    const where = clauses.length ? `WHERE ${clauses.join(' AND ')}` : ''
+    const clauses: SQL[] = []
+    if (!opts.includeArchived) clauses.push(isNull(workflowsTable.archivedAt))
+    if (opts.scope) clauses.push(eq(workflowsTable.scope, opts.scope))
+    // `!== undefined`, not truthiness: an explicit scopeRef of null binds null
+    // and therefore matches nothing, which is what this has always done. See the
+    // pin in store/workflows-golden.test.ts.
+    if (opts.scopeRef !== undefined) clauses.push(eq(workflowsTable.scopeRef, opts.scopeRef))
     return (
       this.db
-        .prepare(
-          `SELECT w.*,
-                  COALESCE((SELECT MAX(r.version) FROM workflow_revisions r WHERE r.workflow_id = w.id), 0) AS latest_version
-             FROM workflows w ${where}
-            ORDER BY w.name COLLATE NOCASE, w.created_at`,
-        )
-        .all(...values) as Raw[]
-    ).map(toWorkflow)
+        .select(workflowSelection)
+        .from(workflowsTable)
+        .where(clauses.length ? and(...clauses) : undefined)
+        // COLLATE NOCASE: with a binary collation 'Zebra' would sort before 'apple'.
+        .orderBy(sql`${workflowsTable.name} COLLATE NOCASE`, asc(workflowsTable.createdAt))
+        .all()
+        .map(toWorkflow)
+    )
   }
 
   getWorkflow(id: string): WorkflowWire | null {
     const row = this.db
-      .prepare(
-        `SELECT w.*,
-                COALESCE((SELECT MAX(r.version) FROM workflow_revisions r WHERE r.workflow_id = w.id), 0) AS latest_version
-           FROM workflows w WHERE w.id = ?`,
-      )
-      .get(id) as Raw | undefined
+      .select(workflowSelection)
+      .from(workflowsTable)
+      .where(eq(workflowsTable.id, id))
+      .get()
     return row ? toWorkflow(row) : null
   }
 
@@ -249,37 +317,34 @@ export class WorkflowsRepository {
     now: string
   }): void {
     this.db
-      .prepare(
-        `INSERT INTO workflows
-          (id, name, description, scope, scope_ref, created_by_kind, created_by_id, owner_user_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.id,
-        row.name,
-        row.description,
-        row.scope,
-        row.scopeRef,
-        row.actor.kind,
-        row.actor.id,
-        row.ownerUserId,
-        row.now,
-        row.now,
-      )
+      .insert(workflowsTable)
+      .values({
+        id: row.id,
+        name: row.name,
+        description: row.description,
+        scope: row.scope,
+        scopeRef: row.scopeRef,
+        createdByKind: row.actor.kind,
+        createdById: row.actor.id,
+        ownerUserId: row.ownerUserId,
+        createdAt: row.now,
+        updatedAt: row.now,
+      })
+      .run()
   }
 
   listRevisions(workflowId: string): WorkflowRevisionWire[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM workflow_revisions WHERE workflow_id = ? ORDER BY version DESC`)
-        .all(workflowId) as Raw[]
-    ).map(toRevision)
+    return this.db
+      .select()
+      .from(workflowRevisions)
+      .where(eq(workflowRevisions.workflowId, workflowId))
+      .orderBy(desc(workflowRevisions.version))
+      .all()
+      .map(toRevision)
   }
 
   getRevision(id: string): WorkflowRevisionWire | null {
-    const row = this.db.prepare(`SELECT * FROM workflow_revisions WHERE id = ?`).get(id) as
-      | Raw
-      | undefined
+    const row = this.db.select().from(workflowRevisions).where(eq(workflowRevisions.id, id)).get()
     return row ? toRevision(row) : null
   }
 
@@ -291,56 +356,64 @@ export class WorkflowsRepository {
     actor: WorkflowActor
     now: string
   }): WorkflowRevisionWire {
-    return transaction(this.db, () => {
+    // READ-DECIDE-WRITE. The version is allocated from MAX(version)+1 and then
+    // inserted at, so the span is the allocation's atomicity and not decoration.
+    return this.transact(() => {
       const next = this.db
-        .prepare(
-          `SELECT COALESCE(MAX(version), 0) + 1 AS version FROM workflow_revisions WHERE workflow_id = ?`,
-        )
-        .get(row.workflowId) as { version: number }
+        .select({ version: max(workflowRevisions.version) })
+        .from(workflowRevisions)
+        .where(eq(workflowRevisions.workflowId, row.workflowId))
+        .get()
       this.db
-        .prepare(
-          `INSERT INTO workflow_revisions
-            (id, workflow_id, version, instructions, steps_json, created_by_kind, created_by_id, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          row.id,
-          row.workflowId,
-          Number(next.version),
-          row.instructions,
-          JSON.stringify(row.steps),
-          row.actor.kind,
-          row.actor.id,
-          row.now,
-        )
+        .insert(workflowRevisions)
+        .values({
+          id: row.id,
+          workflowId: row.workflowId,
+          version: Number(next?.version ?? 0) + 1,
+          instructions: row.instructions,
+          stepsJson: JSON.stringify(row.steps),
+          createdByKind: row.actor.kind,
+          createdById: row.actor.id,
+          createdAt: row.now,
+        })
+        .run()
       this.db
-        .prepare(`UPDATE workflows SET latest_revision_id = ?, updated_at = ? WHERE id = ?`)
-        .run(row.id, row.now, row.workflowId)
+        .update(workflowsTable)
+        .set({ latestRevisionId: row.id, updatedAt: row.now })
+        .where(eq(workflowsTable.id, row.workflowId))
+        .run()
       return required(this.getRevision(row.id), `workflow revision ${row.id} was not persisted`)
     })
   }
 
   publishRevision(revisionId: string, now: string): void {
     this.db
-      .prepare(
-        `UPDATE workflow_revisions SET published_at = COALESCE(published_at, ?) WHERE id = ?`,
-      )
-      .run(now, revisionId)
+      .update(workflowRevisions)
+      // COALESCE: a published revision has ONE publication moment, so a repeat
+      // must not re-date it.
+      .set({ publishedAt: sql`COALESCE(${workflowRevisions.publishedAt}, ${now})` })
+      .where(eq(workflowRevisions.id, revisionId))
+      .run()
   }
 
   getBinding(targetKind: WorkflowBindingTarget, targetId: string): WorkflowBindingWire | null {
     const row = this.db
-      .prepare(`SELECT * FROM workflow_bindings WHERE target_kind = ? AND target_id = ?`)
-      .get(targetKind, targetId) as Raw | undefined
+      .select()
+      .from(workflowBindings)
+      .where(
+        and(eq(workflowBindings.targetKind, targetKind), eq(workflowBindings.targetId, targetId)),
+      )
+      .get()
     return row ? toBinding(row) : null
   }
 
   listBindings(): WorkflowBindingWire[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM workflow_bindings ORDER BY target_kind, target_id`)
-        .all() as Raw[]
-    ).map(toBinding)
+    return this.db
+      .select()
+      .from(workflowBindings)
+      .orderBy(asc(workflowBindings.targetKind), asc(workflowBindings.targetId))
+      .all()
+      .map(toBinding)
   }
 
   setBinding(input: {
@@ -352,25 +425,28 @@ export class WorkflowsRepository {
     now: string
   }): WorkflowBindingWire {
     this.db
-      .prepare(
-        `INSERT INTO workflow_bindings
-          (target_kind, target_id, revision_id, updated_by_kind, updated_by_id, owner_user_id, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(target_kind, target_id) DO UPDATE SET
-           revision_id = excluded.revision_id,
-           updated_by_kind = excluded.updated_by_kind,
-           updated_by_id = excluded.updated_by_id,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        input.targetKind,
-        input.targetId,
-        input.revisionId,
-        input.actor.kind,
-        input.actor.id,
-        input.ownerUserId,
-        input.now,
-      )
+      .insert(workflowBindings)
+      .values({
+        targetKind: input.targetKind,
+        targetId: input.targetId,
+        revisionId: input.revisionId,
+        updatedByKind: input.actor.kind,
+        updatedById: input.actor.id,
+        ownerUserId: input.ownerUserId,
+        updatedAt: input.now,
+      })
+      .onConflictDoUpdate({
+        target: [workflowBindings.targetKind, workflowBindings.targetId],
+        // FOUR COLUMNS, and `owner_user_id` is deliberately not among them: a
+        // rebind may not change the resource owner `ownerOf` authorizes from.
+        set: {
+          revisionId: input.revisionId,
+          updatedByKind: input.actor.kind,
+          updatedById: input.actor.id,
+          updatedAt: input.now,
+        },
+      })
+      .run()
     return required(
       this.getBinding(input.targetKind, input.targetId),
       `workflow binding ${input.targetKind}:${input.targetId} was not persisted`,
@@ -378,17 +454,16 @@ export class WorkflowsRepository {
   }
 
   listProfiles(): ExecutionProfile[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM execution_profiles ORDER BY name COLLATE NOCASE`)
-        .all() as Raw[]
-    ).map(toProfile)
+    return this.db
+      .select()
+      .from(executionProfiles)
+      .orderBy(sql`${executionProfiles.name} COLLATE NOCASE`)
+      .all()
+      .map(toProfile)
   }
 
   getProfile(id: string): ExecutionProfile | null {
-    const row = this.db.prepare(`SELECT * FROM execution_profiles WHERE id = ?`).get(id) as
-      | Raw
-      | undefined
+    const row = this.db.select().from(executionProfiles).where(eq(executionProfiles.id, id)).get()
     return row ? toProfile(row) : null
   }
 
@@ -405,61 +480,62 @@ export class WorkflowsRepository {
     now: string
   }): ExecutionProfile {
     this.db
-      .prepare(
-        `INSERT INTO execution_profiles
-          (id, name, account_id, machine_id, harness, model, effort, created_by_kind, created_by_id, owner_user_id, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           name = excluded.name,
-           account_id = excluded.account_id,
-           machine_id = excluded.machine_id,
-           harness = excluded.harness,
-           model = excluded.model,
-           effort = excluded.effort,
-           updated_at = excluded.updated_at`,
-      )
-      .run(
-        input.id,
-        input.name,
-        input.accountId,
-        input.machineId,
-        input.harness,
-        input.model,
-        input.effort,
-        input.actor.kind,
-        input.actor.id,
-        input.ownerUserId,
-        input.now,
-        input.now,
-      )
+      .insert(executionProfiles)
+      .values({
+        id: input.id,
+        name: input.name,
+        accountId: input.accountId,
+        machineId: input.machineId,
+        harness: input.harness,
+        model: input.model,
+        effort: input.effort,
+        createdByKind: input.actor.kind,
+        createdById: input.actor.id,
+        ownerUserId: input.ownerUserId,
+        createdAt: input.now,
+        updatedAt: input.now,
+      })
+      .onConflictDoUpdate({
+        target: executionProfiles.id,
+        // `created_by_*` and `owner_user_id` are absent on purpose: an update
+        // may not re-attribute or re-own a profile.
+        set: {
+          name: input.name,
+          accountId: input.accountId,
+          machineId: input.machineId,
+          harness: input.harness,
+          model: input.model,
+          effort: input.effort,
+          updatedAt: input.now,
+        },
+      })
+      .run()
     return required(this.getProfile(input.id), `execution profile ${input.id} was not persisted`)
   }
 
   listRuns(includeTerminal = false): WorkflowRunRow[] {
-    const where = includeTerminal ? '' : `WHERE status IN ('active', 'blocked')`
-    return (
-      this.db
-        .prepare(
-          `SELECT * FROM workflow_runs ${where}
-           ORDER BY started_at DESC`,
-        )
-        .all() as Raw[]
-    ).map(toRun)
+    return this.db
+      .select()
+      .from(workflowRuns)
+      .where(includeTerminal ? undefined : inArray(workflowRuns.status, ['active', 'blocked']))
+      .orderBy(desc(workflowRuns.startedAt))
+      .all()
+      .map(toRun)
   }
 
   getRun(id: string): WorkflowRunRow | null {
-    const row = this.db.prepare(`SELECT * FROM workflow_runs WHERE id = ?`).get(id) as
-      | Raw
-      | undefined
+    const row = this.db.select().from(workflowRuns).where(eq(workflowRuns.id, id)).get()
     return row ? toRun(row) : null
   }
 
   getRunSteps(runId: string): RunStep[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM workflow_run_steps WHERE run_id = ? ORDER BY position`)
-        .all(runId) as Raw[]
-    ).map(toRunStep)
+    return this.db
+      .select()
+      .from(workflowRunSteps)
+      .where(eq(workflowRunSteps.runId, runId))
+      .orderBy(asc(workflowRunSteps.position))
+      .all()
+      .map(toRunStep)
   }
 
   /**
@@ -471,47 +547,69 @@ export class WorkflowsRepository {
    * answer "who did this, for whom". Ordered by `id` — the insertion order — and
    * served by the `workflow_events_run` index, which is already on
    * `(run_id, id)`.
+   *
+   * THE NARROW PROJECTION IS THE POINT and a `select()` with no argument here
+   * would be a redaction change, not a simplification (spec §6 rule 4 names this
+   * column as having no store reader by design).
    */
   listRunEvents(runId: string): WorkflowRunEventWire[] {
-    return (
-      this.db
-        .prepare(
-          `SELECT kind, actor_kind, actor_id, on_behalf_of, created_at
-             FROM workflow_events WHERE run_id = ? ORDER BY id`,
-        )
-        .all(runId) as Raw[]
-    ).map((row) => ({
-      kind: String(row.kind),
-      actorKind: String(row.actor_kind),
-      // NEVER substituted. A null actor id is a row whose actor predates the
-      // column; inventing one would be a lie in an audit trail.
-      actorId: row.actor_id === null ? null : String(row.actor_id),
-      onBehalfOf: row.on_behalf_of === null ? null : String(row.on_behalf_of),
-      createdAt: String(row.created_at),
-    }))
+    return this.db
+      .select({
+        kind: workflowEvents.kind,
+        actorKind: workflowEvents.actorKind,
+        actorId: workflowEvents.actorId,
+        onBehalfOf: workflowEvents.onBehalfOf,
+        createdAt: workflowEvents.createdAt,
+      })
+      .from(workflowEvents)
+      .where(eq(workflowEvents.runId, runId))
+      .orderBy(asc(workflowEvents.id))
+      .all()
+      .map((row) => ({
+        kind: row.kind,
+        actorKind: row.actorKind,
+        // NEVER substituted. A null actor id is a row whose actor predates the
+        // column; inventing one would be a lie in an audit trail.
+        actorId: row.actorId,
+        onBehalfOf: row.onBehalfOf,
+        createdAt: row.createdAt,
+      }))
   }
 
   findLiveRun(subjectKind: 'issue' | 'session', subjectId: string): WorkflowRunRow | null {
     const row = this.db
-      .prepare(
-        `SELECT * FROM workflow_runs
-          WHERE subject_kind = ? AND subject_id = ? AND status IN ('active', 'blocked')
-          ORDER BY started_at DESC LIMIT 1`,
+      .select()
+      .from(workflowRuns)
+      .where(
+        and(
+          eq(workflowRuns.subjectKind, subjectKind),
+          eq(workflowRuns.subjectId, subjectId),
+          inArray(workflowRuns.status, ['active', 'blocked']),
+        ),
       )
-      .get(subjectKind, subjectId) as Raw | undefined
+      .orderBy(desc(workflowRuns.startedAt))
+      .limit(1)
+      .get()
     return row ? toRun(row) : null
   }
 
   findLiveRunForSession(sessionId: SessionId): WorkflowRunRow | null {
     const row = this.db
-      .prepare(
-        `SELECT DISTINCT r.* FROM workflow_runs r
-         LEFT JOIN workflow_run_steps s ON s.run_id = r.id
-         WHERE r.status IN ('active', 'blocked')
-           AND (r.coordinator_session_id = ? OR s.assigned_session_id = ?)
-         ORDER BY r.started_at DESC LIMIT 1`,
+      .selectDistinct(getTableColumns(workflowRuns))
+      .from(workflowRuns)
+      .leftJoin(workflowRunSteps, eq(workflowRunSteps.runId, workflowRuns.id))
+      .where(
+        and(
+          inArray(workflowRuns.status, ['active', 'blocked']),
+          or(
+            eq(workflowRuns.coordinatorSessionId, sessionId),
+            eq(workflowRunSteps.assignedSessionId, sessionId),
+          ),
+        ),
       )
-      .get(sessionId, sessionId) as Raw | undefined
+      .orderBy(desc(workflowRuns.startedAt))
+      .limit(1)
+      .get()
     return row ? toRun(row) : null
   }
 
@@ -519,51 +617,48 @@ export class WorkflowsRepository {
     run: WorkflowRunRow
     steps: Array<Step & { profile: ExecutionProfile | null }>
   }): void {
-    transaction(this.db, () => {
+    this.transact(() => {
       this.db
-        .prepare(
-          `INSERT INTO workflow_runs
-            (id, subject_kind, subject_id, coordinator_session_id, revision_id, status,
-             supersedes_run_id, started_at, completed_at, owner_user_id)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        .insert(workflowRuns)
+        .values({
+          id: input.run.id,
+          subjectKind: input.run.subjectKind,
+          subjectId: input.run.subjectId,
+          coordinatorSessionId: input.run.coordinatorSessionId,
+          revisionId: input.run.revisionId,
+          status: input.run.status,
+          supersedesRunId: input.run.supersedesRunId,
+          startedAt: input.run.startedAt,
+          completedAt: input.run.completedAt,
+          ownerUserId: input.run.ownerUserId,
+        })
+        .run()
+      // No steps means NO statement, as the `forEach` this replaces did.
+      if (input.steps.length === 0) return
+      this.db
+        .insert(workflowRunSteps)
+        .values(
+          input.steps.map((step, position) => ({
+            runId: input.run.id,
+            stepId: step.id,
+            position,
+            title: step.title,
+            instructions: step.instructions,
+            completionGuidance: step.completionGuidance,
+            executionProfileId: step.executionProfileId ?? null,
+            executionProfileJson: step.profile ? JSON.stringify(step.profile) : null,
+            // The two literals the raw INSERT carried, kept explicit rather than
+            // left to the column defaults, which is what it did.
+            status: 'pending',
+            evidenceJson: '{}',
+          })),
         )
-        .run(
-          input.run.id,
-          input.run.subjectKind,
-          input.run.subjectId,
-          input.run.coordinatorSessionId,
-          input.run.revisionId,
-          input.run.status,
-          input.run.supersedesRunId,
-          input.run.startedAt,
-          input.run.completedAt,
-          input.run.ownerUserId,
-        )
-      const insert = this.db.prepare(
-        `INSERT INTO workflow_run_steps
-          (run_id, step_id, position, title, instructions, completion_guidance,
-           execution_profile_id, execution_profile_json, status, evidence_json)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', '{}')`,
-      )
-      input.steps.forEach((step, position) => {
-        insert.run(
-          input.run.id,
-          step.id,
-          position,
-          step.title,
-          step.instructions,
-          step.completionGuidance,
-          step.executionProfileId ?? null,
-          step.profile ? JSON.stringify(step.profile) : null,
-        )
-      })
+        .run()
     })
   }
 
   updateRunStatus(id: string, status: WorkflowRunStatus, completedAt: string | null): void {
-    this.db
-      .prepare(`UPDATE workflow_runs SET status = ?, completed_at = ? WHERE id = ?`)
-      .run(status, completedAt, id)
+    this.db.update(workflowRuns).set({ status, completedAt }).where(eq(workflowRuns.id, id)).run()
   }
 
   updateStep(input: {
@@ -579,43 +674,48 @@ export class WorkflowsRepository {
     completedAt: string | null
   }): void {
     this.db
-      .prepare(
-        `UPDATE workflow_run_steps SET
-           status = ?, assigned_session_id = ?, summary = ?, evidence_json = ?,
-           observation_json = ?, warnings_json = ?, started_at = ?, completed_at = ?
-         WHERE run_id = ? AND step_id = ?`,
+      .update(workflowRunSteps)
+      .set({
+        status: input.status,
+        assignedSessionId: input.assignedSessionId,
+        summary: input.summary,
+        evidenceJson: JSON.stringify(input.evidence),
+        observationJson: input.observation ? JSON.stringify(input.observation) : null,
+        warningsJson: JSON.stringify(input.warnings),
+        startedAt: input.startedAt,
+        completedAt: input.completedAt,
+      })
+      .where(
+        and(eq(workflowRunSteps.runId, input.runId), eq(workflowRunSteps.stepId, input.stepId)),
       )
-      .run(
-        input.status,
-        input.assignedSessionId,
-        input.summary,
-        JSON.stringify(input.evidence),
-        input.observation ? JSON.stringify(input.observation) : null,
-        JSON.stringify(input.warnings),
-        input.startedAt,
-        input.completedAt,
-        input.runId,
-        input.stepId,
-      )
+      .run()
   }
 
   assignStep(runId: string, stepId: string, sessionId: SessionId | null): void {
     this.db
-      .prepare(
-        `UPDATE workflow_run_steps SET assigned_session_id = ? WHERE run_id = ? AND step_id = ?`,
-      )
-      .run(sessionId, runId, stepId)
+      .update(workflowRunSteps)
+      .set({ assignedSessionId: sessionId })
+      .where(and(eq(workflowRunSteps.runId, runId), eq(workflowRunSteps.stepId, stepId)))
+      .run()
   }
 
   resetStep(runId: string, stepId: string): void {
     this.db
-      .prepare(
-        `UPDATE workflow_run_steps SET
-           status = 'pending', attempt = attempt + 1, summary = '', evidence_json = '{}',
-           observation_json = NULL, warnings_json = '[]', started_at = NULL, completed_at = NULL
-         WHERE run_id = ? AND step_id = ?`,
-      )
-      .run(runId, stepId)
+      .update(workflowRunSteps)
+      .set({
+        status: 'pending',
+        // READ-MODIFY-WRITE IN SQL. Binding a computed value would need a prior
+        // read and would be a different statement with a different race.
+        attempt: sql`${workflowRunSteps.attempt} + 1`,
+        summary: '',
+        evidenceJson: '{}',
+        observationJson: null,
+        warningsJson: '[]',
+        startedAt: null,
+        completedAt: null,
+      })
+      .where(and(eq(workflowRunSteps.runId, runId), eq(workflowRunSteps.stepId, stepId)))
+      .run()
   }
 
   /**
@@ -639,20 +739,17 @@ export class WorkflowsRepository {
     now: string
   }): void {
     this.db
-      .prepare(
-        `INSERT INTO workflow_events
-          (workflow_id, run_id, kind, actor_kind, actor_id, on_behalf_of, payload_json, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.workflowId ?? null,
-        input.runId ?? null,
-        input.kind,
-        input.actor.kind,
-        input.actor.id,
-        input.onBehalfOf ?? null,
-        JSON.stringify(input.payload ?? {}),
-        input.now,
-      )
+      .insert(workflowEvents)
+      .values({
+        workflowId: input.workflowId ?? null,
+        runId: input.runId ?? null,
+        kind: input.kind,
+        actorKind: input.actor.kind,
+        actorId: input.actor.id,
+        onBehalfOf: input.onBehalfOf ?? null,
+        payloadJson: JSON.stringify(input.payload ?? {}),
+        createdAt: input.now,
+      })
+      .run()
   }
 }
