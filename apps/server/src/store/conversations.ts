@@ -3,12 +3,11 @@
  * whether they need summaries, stable identity, mirror cursors, or transcript FTS.
  */
 import type { MachineId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
 import { ConversationRegistryRepository } from './conversations/registry'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import type { QueryClient, StoreExecutor } from './executor'
 
 export class ConversationsRepository {
   readonly index: ConversationIndexRepository
@@ -23,13 +22,17 @@ export class ConversationsRepository {
     hostMachineId: MachineId,
   ) {
     // The sub-repositories of this aggregate are composed HERE and nowhere else,
-    // so they stay on the raw handle until their own conversion; only the set
-    // `SessionStore` builds takes the executor [POD-3254].
-    const db: SqlDatabase = legacyHandle(executor)
-    this.index = new ConversationIndexRepository(db, hostMachineId)
+    // so the Stage A seam is unwrapped once and handed down rather than each of
+    // them taking the executor [POD-3254, spec rule 27a]. Asserted here for the
+    // same reason: the failure names this aggregate rather than the store.
+    if (!executor.stageA) {
+      throw new Error("ConversationsRepository needs the executor's Stage A drizzle instance")
+    }
+    const { db, spans } = executor.stageA
+    this.index = new ConversationIndexRepository(db, spans, hostMachineId)
     this.registry = new ConversationRegistryRepository(db)
-    this.mirror = new TranscriptMirrorRepository(db)
-    this.transcriptIndex = new TranscriptIndexRepository(db)
+    this.mirror = new TranscriptMirrorRepository(db, spans)
+    this.transcriptIndex = new TranscriptIndexRepository(db, spans)
   }
 
   /**

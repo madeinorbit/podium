@@ -1,22 +1,36 @@
 import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { and, eq, inArray, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
+import { conversationIdentities, conversationSegments } from '../../migrations/schema'
+import type { SyncDrizzle } from '../executor/sync-drizzle'
 
 /** Stable Podium identities and the machine-native artifacts that evidence them. */
 export class ConversationRegistryRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly db: SyncDrizzle) {}
 
   repairSubagentSegmentPaths(): void {
-    this.db.exec(
-      "UPDATE conversation_segments SET path=NULL WHERE path LIKE '%/subagents/%' AND path NOT LIKE '%/' || native_id || '.jsonl'",
-    )
+    this.db
+      .update(conversationSegments)
+      .set({ path: null })
+      .where(
+        and(
+          like(conversationSegments.path, '%/subagents/%'),
+          // The comparison is against a value built FROM THE ROW, so it is a
+          // fragment rather than a bound parameter: a subagent path is repaired
+          // unless it ends in its own native id.
+          sql`${conversationSegments.path} NOT LIKE '%/' || ${conversationSegments.nativeId} || '.jsonl'`,
+        ),
+      )
+      .run()
   }
 
   podiumId(machineId: MachineId, nativeId: string): ConversationId | undefined {
     const row = this.db
-      .prepare('SELECT podium_id FROM conversation_segments WHERE machine_id=? AND native_id=?')
-      .get(machineId, nativeId) as { podium_id: ConversationId } | undefined
-    return row?.podium_id
+      .select({ podiumId: conversationSegments.podiumId })
+      .from(conversationSegments)
+      .where(this.segment(machineId, nativeId))
+      .get()
+    return row?.podiumId
   }
 
   /**
@@ -35,32 +49,33 @@ export class ConversationRegistryRepository {
       string,
       { machineId: MachineId; nativeId: string; podiumId: ConversationId }
     >()
-    const unique = [...new Set(paths)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
+    for (const chunk of chunks(paths)) {
       const rows = this.db
-        .prepare(
-          // SCOPED BY MACHINE, like every other lookup in this file. The caller
-          // trusts the returned `machine_id` as the transcript's identity, so an
-          // unscoped match would let a path that also exists in another host's
-          // segment rows attribute this daemon's spend to that host's session
-          // and bank it under the wrong (machine_id, native_id) key.
-          `SELECT machine_id, native_id, podium_id, path FROM conversation_segments
-           WHERE machine_id = ? AND path IN (${chunk.map(() => '?').join(',')})`,
+        .select({
+          machineId: conversationSegments.machineId,
+          nativeId: conversationSegments.nativeId,
+          podiumId: conversationSegments.podiumId,
+          path: conversationSegments.path,
+        })
+        .from(conversationSegments)
+        // SCOPED BY MACHINE, like every other lookup in this file. The caller
+        // trusts the returned `machineId` as the transcript's identity, so an
+        // unscoped match would let a path that also exists in another host's
+        // segment rows attribute this daemon's spend to that host's session and
+        // bank it under the wrong (machineId, nativeId) key.
+        .where(
+          and(
+            eq(conversationSegments.machineId, machineId),
+            inArray(conversationSegments.path, chunk),
+          ),
         )
-        .all(machineId, ...chunk) as {
-        machine_id: MachineId
-        native_id: string
-        podium_id: ConversationId
-        path: string
-      }[]
+        .all()
       for (const row of rows) {
-        if (out.has(row.path)) continue
+        if (row.path === null || out.has(row.path)) continue
         out.set(row.path, {
-          machineId: row.machine_id,
-          nativeId: row.native_id,
-          podiumId: row.podium_id,
+          machineId: row.machineId,
+          nativeId: row.nativeId,
+          podiumId: row.podiumId,
         })
       }
     }
@@ -77,17 +92,27 @@ export class ConversationRegistryRepository {
    */
   parentPodiumIds(podiumIds: readonly ConversationId[]): Map<ConversationId, ConversationId> {
     const out = new Map<ConversationId, ConversationId>()
-    const unique = [...new Set(podiumIds)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
+    for (const chunk of chunks(podiumIds)) {
       const rows = this.db
-        .prepare(
-          `SELECT podium_id, parent_podium_id FROM conversation_identities
-           WHERE parent_podium_id IS NOT NULL AND podium_id IN (${chunk.map(() => '?').join(',')})`,
+        .select({
+          podiumId: conversationIdentities.podiumId,
+          parentPodiumId: conversationIdentities.parentPodiumId,
+        })
+        .from(conversationIdentities)
+        .where(
+          and(
+            isNotNull(conversationIdentities.parentPodiumId),
+            inArray(conversationIdentities.podiumId, chunk),
+          ),
         )
-        .all(...chunk) as { podium_id: ConversationId; parent_podium_id: ConversationId }[]
-      for (const row of rows) out.set(row.podium_id, row.parent_podium_id)
+        .all()
+      for (const row of rows) {
+        if (row.parentPodiumId === null) continue
+        // `conversation_identities.parent_podium_id` carries no `$type` in the
+        // schema, so it arrives as a plain string where every other id on this
+        // row is branded. Same re-entry the raw statement made, named.
+        out.set(row.podiumId, asConversationId(row.parentPodiumId))
+      }
     }
     return out
   }
@@ -95,21 +120,20 @@ export class ConversationRegistryRepository {
   /** The native ids evidencing each of these conversations, earliest segment first. */
   nativeIdsByPodiumIds(podiumIds: readonly ConversationId[]): Map<ConversationId, string[]> {
     const out = new Map<ConversationId, string[]>()
-    const unique = [...new Set(podiumIds)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
+    for (const chunk of chunks(podiumIds)) {
       const rows = this.db
-        .prepare(
-          `SELECT podium_id, native_id FROM conversation_segments
-           WHERE podium_id IN (${chunk.map(() => '?').join(',')})
-           ORDER BY seq_in_conv`,
-        )
-        .all(...chunk) as { podium_id: ConversationId; native_id: string }[]
+        .select({
+          podiumId: conversationSegments.podiumId,
+          nativeId: conversationSegments.nativeId,
+        })
+        .from(conversationSegments)
+        .where(inArray(conversationSegments.podiumId, chunk))
+        .orderBy(conversationSegments.seqInConv)
+        .all()
       for (const row of rows) {
-        const list = out.get(row.podium_id)
-        if (list) list.push(row.native_id)
-        else out.set(row.podium_id, [row.native_id])
+        const list = out.get(row.podiumId)
+        if (list) list.push(row.nativeId)
+        else out.set(row.podiumId, [row.nativeId])
       }
     }
     return out
@@ -124,26 +148,29 @@ export class ConversationRegistryRepository {
    */
   pathsByNativeIds(machineId: MachineId, nativeIds: readonly string[]): Map<string, string> {
     const out = new Map<string, string>()
-    const unique = [...new Set(nativeIds)]
-    const CHUNK = 500
-    for (let i = 0; i < unique.length; i += CHUNK) {
-      const chunk = unique.slice(i, i + CHUNK)
+    for (const chunk of chunks(nativeIds)) {
       const rows = this.db
-        .prepare(
-          `SELECT native_id, path FROM conversation_segments
-           WHERE machine_id = ? AND path IS NOT NULL
-             AND native_id IN (${chunk.map(() => '?').join(',')})`,
+        .select({ nativeId: conversationSegments.nativeId, path: conversationSegments.path })
+        .from(conversationSegments)
+        .where(
+          and(
+            eq(conversationSegments.machineId, machineId),
+            isNotNull(conversationSegments.path),
+            inArray(conversationSegments.nativeId, chunk),
+          ),
         )
-        .all(machineId, ...chunk) as { native_id: string; path: string }[]
-      for (const row of rows) out.set(row.native_id, row.path)
+        .all()
+      for (const row of rows) if (row.path !== null) out.set(row.nativeId, row.path)
     }
     return out
   }
 
   segmentPath(machineId: MachineId, nativeId: string): string | undefined {
     const row = this.db
-      .prepare('SELECT path FROM conversation_segments WHERE machine_id=? AND native_id=?')
-      .get(machineId, nativeId) as { path: string | null } | undefined
+      .select({ path: conversationSegments.path })
+      .from(conversationSegments)
+      .where(this.segment(machineId, nativeId))
+      .get()
     return row?.path ?? undefined
   }
 
@@ -159,12 +186,19 @@ export class ConversationRegistryRepository {
     if (existing !== undefined) {
       if (opts.parentPodiumId) {
         this.db
-          .prepare(
-            'UPDATE conversation_identities SET parent_podium_id=? WHERE podium_id=? AND parent_podium_id IS NULL',
+          .update(conversationIdentities)
+          .set({ parentPodiumId: opts.parentPodiumId })
+          .where(
+            and(
+              eq(conversationIdentities.podiumId, existing),
+              isNull(conversationIdentities.parentPodiumId),
+            ),
           )
-          .run(opts.parentPodiumId, existing)
+          .run()
       }
       if (opts.path || opts.sizeBytes !== undefined) {
+        const path = opts.path ?? null
+        const reportedBytes = opts.sizeBytes ?? null
         // The trailing predicate is what keeps a re-discovery of an UNCHANGED
         // segment free. Every sweep re-offers the whole corpus, so this matched
         // its row and rewrote the same two values ~1656 times per 4 minutes on
@@ -172,42 +206,42 @@ export class ConversationRegistryRepository {
         // against the value the SET would assign makes the no-op write vanish
         // while a real change still lands.
         this.db
-          .prepare(
-            `UPDATE conversation_segments SET path=COALESCE(?,path), reported_bytes=COALESCE(?,reported_bytes)
-             WHERE machine_id=? AND native_id=?
-               AND (path IS NOT COALESCE(?,path) OR reported_bytes IS NOT COALESCE(?,reported_bytes))`,
+          .update(conversationSegments)
+          .set({
+            path: sql`COALESCE(${path}, ${conversationSegments.path})`,
+            reportedBytes: sql`COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes})`,
+          })
+          .where(
+            and(
+              this.segment(opts.machineId, opts.nativeId),
+              sql`(${conversationSegments.path} IS NOT COALESCE(${path}, ${conversationSegments.path})
+                   OR ${conversationSegments.reportedBytes} IS NOT COALESCE(${reportedBytes}, ${conversationSegments.reportedBytes}))`,
+            ),
           )
-          .run(
-            opts.path ?? null,
-            opts.sizeBytes ?? null,
-            opts.machineId,
-            opts.nativeId,
-            opts.path ?? null,
-            opts.sizeBytes ?? null,
-          )
+          .run()
       }
       return existing
     }
     const podiumId = asConversationId(`conv_${randomUUID()}`)
     const now = new Date().toISOString()
     this.db
-      .prepare(
-        'INSERT INTO conversation_identities (podium_id,parent_podium_id,created_at) VALUES(?,?,?)',
-      )
-      .run(podiumId, opts.parentPodiumId ?? null, now)
+      .insert(conversationIdentities)
+      .values({ podiumId, parentPodiumId: opts.parentPodiumId ?? null, createdAt: now })
+      .run()
     this.db
-      .prepare(`INSERT INTO conversation_segments
-      (machine_id,native_id,provider_id,podium_id,path,reported_bytes,seq_in_conv,linked_by,created_at)
-      VALUES(?,?,?,?,?,?,1,'discovery',?)`)
-      .run(
-        opts.machineId,
-        opts.nativeId,
-        opts.providerId,
+      .insert(conversationSegments)
+      .values({
+        machineId: opts.machineId,
+        nativeId: opts.nativeId,
+        providerId: opts.providerId,
         podiumId,
-        opts.path ?? null,
-        opts.sizeBytes ?? null,
-        now,
-      )
+        path: opts.path ?? null,
+        reportedBytes: opts.sizeBytes ?? null,
+        seqInConv: 1,
+        linkedBy: 'discovery',
+        createdAt: now,
+      })
+      .run()
     return podiumId
   }
 
@@ -224,35 +258,41 @@ export class ConversationRegistryRepository {
       nativeId: opts.priorNativeId,
       providerId: opts.providerId,
     })
-    const nextSeq =
-      ((
-        this.db
-          .prepare('SELECT MAX(seq_in_conv) AS m FROM conversation_segments WHERE podium_id=?')
-          .get(podiumId) as { m: number | null }
-      ).m ?? 0) + 1
+    const highest = this.db
+      .select({ m: max(conversationSegments.seqInConv) })
+      .from(conversationSegments)
+      .where(eq(conversationSegments.podiumId, podiumId))
+      .get()
+    const nextSeq = (highest?.m ?? 0) + 1
     this.db
-      .prepare(`INSERT INTO conversation_segments
-      (machine_id,native_id,provider_id,podium_id,path,seq_in_conv,linked_by,created_at)
-      VALUES(?,?,?,?,NULL,?,'live-roll',?)`)
-      .run(
-        opts.machineId,
-        opts.newNativeId,
-        opts.providerId,
+      .insert(conversationSegments)
+      .values({
+        machineId: opts.machineId,
+        nativeId: opts.newNativeId,
+        providerId: opts.providerId,
         podiumId,
-        nextSeq,
-        new Date().toISOString(),
-      )
+        path: null,
+        seqInConv: nextSeq,
+        linkedBy: 'live-roll',
+        createdAt: new Date().toISOString(),
+      })
+      .run()
     return podiumId
   }
 
   podiumIds(machineId: MachineId, nativeIds: string[]): Map<string, ConversationId> {
     const out = new Map<string, ConversationId>()
-    const query = this.db.prepare(
-      'SELECT podium_id FROM conversation_segments WHERE machine_id=? AND native_id=?',
-    )
+    // ONE STATEMENT PER NATIVE ID, exactly as before. Batching this is a
+    // behaviour question rather than a rewrite — the caller's map is keyed by
+    // the ids it asked for and a missing row must stay missing — so it is left
+    // for the read-scope work (B0.6) rather than decided in a conversion.
     for (const nativeId of nativeIds) {
-      const row = query.get(machineId, nativeId) as { podium_id: ConversationId } | undefined
-      if (row) out.set(nativeId, row.podium_id)
+      const row = this.db
+        .select({ podiumId: conversationSegments.podiumId })
+        .from(conversationSegments)
+        .where(this.segment(machineId, nativeId))
+        .get()
+      if (row) out.set(nativeId, row.podiumId)
     }
     return out
   }
@@ -263,11 +303,36 @@ export class ConversationRegistryRepository {
   ): { machineId: MachineId; nativeId: string }[] {
     const podiumId = this.podiumId(machineId, nativeId)
     if (!podiumId) return []
-    const rows = this.db
-      .prepare(
-        'SELECT machine_id,native_id FROM conversation_segments WHERE podium_id=? ORDER BY seq_in_conv',
-      )
-      .all(podiumId) as { machine_id: MachineId; native_id: string }[]
-    return rows.map((row) => ({ machineId: row.machine_id, nativeId: row.native_id }))
+    return this.db
+      .select({
+        machineId: conversationSegments.machineId,
+        nativeId: conversationSegments.nativeId,
+      })
+      .from(conversationSegments)
+      .where(eq(conversationSegments.podiumId, podiumId))
+      .orderBy(conversationSegments.seqInConv)
+      .all()
   }
+
+  private segment(machineId: MachineId, nativeId: string) {
+    return and(
+      eq(conversationSegments.machineId, machineId),
+      eq(conversationSegments.nativeId, nativeId),
+    )
+  }
+}
+
+/**
+ * The 500-row chunking every batch read here uses, deduplicated first.
+ *
+ * SQLite's bound-variable limit is what sets the number, and the bound is per
+ * STATEMENT — so a caller resolving a thousand transcripts issues two statements
+ * rather than one that refuses. Unchanged from the four hand-written copies this
+ * replaces, including the de-duplication, which is what makes the chunk count a
+ * function of DISTINCT inputs.
+ */
+function* chunks<T>(values: readonly T[]): Generator<T[]> {
+  const unique = [...new Set(values)]
+  const CHUNK = 500
+  for (let i = 0; i < unique.length; i += CHUNK) yield unique.slice(i, i + CHUNK)
 }

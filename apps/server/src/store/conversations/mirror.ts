@@ -1,5 +1,7 @@
 import type { MachineId } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { and, desc, eq, isNotNull, isNull, max, ne, or, type SQL } from 'drizzle-orm'
+import { conversationSegmentIncarnations, conversationSegments } from '../../migrations/schema'
+import type { SyncDrizzle, SyncSpans } from '../executor/sync-drizzle'
 
 export interface MirrorIncarnation {
   sequence: number
@@ -11,67 +13,91 @@ export interface MirrorIncarnation {
 
 /** Durable transcript-lake evidence and copy cursors. */
 export class TranscriptMirrorRepository {
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(
+    private readonly db: SyncDrizzle,
+    private readonly spans: SyncSpans,
+  ) {}
 
-  segmentsToMirror(machineId: MachineId): { nativeId: string; path: string; mirroredBytes: number }[] {
-    return this.rows(
-      'SELECT native_id,path,mirrored_bytes FROM conversation_segments WHERE machine_id=? AND path IS NOT NULL',
-      machineId,
-    )
+  segmentsToMirror(
+    machineId: MachineId,
+  ): { nativeId: string; path: string; mirroredBytes: number }[] {
+    return this.rows(eq(conversationSegments.machineId, machineId))
   }
 
   segmentsToMirrorDirty(
     machineId: MachineId,
   ): { nativeId: string; path: string; mirroredBytes: number }[] {
     return this.rows(
-      `SELECT native_id,path,mirrored_bytes FROM conversation_segments
-       WHERE machine_id=? AND path IS NOT NULL
-         AND (reported_bytes IS NULL OR reported_bytes != mirrored_bytes)`,
-      machineId,
+      and(
+        eq(conversationSegments.machineId, machineId),
+        or(
+          isNull(conversationSegments.reportedBytes),
+          ne(conversationSegments.reportedBytes, conversationSegments.mirroredBytes),
+        ),
+      ),
     )
   }
 
-  private rows(sql: string, machineId: MachineId) {
-    const rows = this.db.prepare(sql).all(machineId) as Record<string, unknown>[]
+  /**
+   * `path IS NOT NULL` is carried HERE rather than by each caller, exactly as
+   * the two statements this replaces did: a segment with no path has no lake
+   * file to mirror, and the returned `path` is typed as present because of it.
+   */
+  private rows(where: SQL | undefined): {
+    nativeId: string
+    path: string
+    mirroredBytes: number
+  }[] {
+    const rows = this.db
+      .select({
+        nativeId: conversationSegments.nativeId,
+        path: conversationSegments.path,
+        mirroredBytes: conversationSegments.mirroredBytes,
+      })
+      .from(conversationSegments)
+      .where(and(where, isNotNull(conversationSegments.path)))
+      .all()
     return rows.map((row) => ({
-      nativeId: row.native_id as string,
+      nativeId: row.nativeId,
+      // Narrowing only: `isNotNull` above is what makes it present, and the
+      // column's type cannot say so.
       path: row.path as string,
-      mirroredBytes: row.mirrored_bytes as number,
+      mirroredBytes: row.mirroredBytes,
     }))
   }
 
   setReportedBytes(machineId: MachineId, nativeId: string, bytes: number): void {
     this.db
-      .prepare(
-        'UPDATE conversation_segments SET reported_bytes=? WHERE machine_id=? AND native_id=?',
-      )
-      .run(bytes, machineId, nativeId)
+      .update(conversationSegments)
+      .set({ reportedBytes: bytes })
+      .where(this.segment(machineId, nativeId))
+      .run()
   }
 
   reportedBytes(machineId: MachineId, nativeId: string): number | undefined {
     const row = this.db
-      .prepare(
-        'SELECT reported_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
-      )
-      .get(machineId, nativeId) as { reported_bytes: number | null } | undefined
-    return row?.reported_bytes ?? undefined
+      .select({ reportedBytes: conversationSegments.reportedBytes })
+      .from(conversationSegments)
+      .where(this.segment(machineId, nativeId))
+      .get()
+    return row?.reportedBytes ?? undefined
   }
 
   mirrorCursor(machineId: MachineId, nativeId: string): number {
     const row = this.db
-      .prepare(
-        'SELECT mirrored_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?',
-      )
-      .get(machineId, nativeId) as { mirrored_bytes: number } | undefined
-    return row?.mirrored_bytes ?? 0
+      .select({ mirroredBytes: conversationSegments.mirroredBytes })
+      .from(conversationSegments)
+      .where(this.segment(machineId, nativeId))
+      .get()
+    return row?.mirroredBytes ?? 0
   }
 
   setMirrorCursor(machineId: MachineId, nativeId: string, bytes: number, at: string): void {
     this.db
-      .prepare(
-        'UPDATE conversation_segments SET mirrored_bytes=?,mirrored_at=? WHERE machine_id=? AND native_id=?',
-      )
-      .run(bytes, at, machineId, nativeId)
+      .update(conversationSegments)
+      .set({ mirroredBytes: bytes, mirroredAt: at })
+      .where(this.segment(machineId, nativeId))
+      .run()
   }
 
   activeIncarnation(
@@ -79,12 +105,21 @@ export class TranscriptMirrorRepository {
     nativeId: string,
   ): Omit<MirrorIncarnation, 'mirroredBytes' | 'active'> | undefined {
     return this.db
-      .prepare(
-        `SELECT sequence,device,inode FROM conversation_segment_incarnations
-         WHERE machine_id=? AND native_id=? AND retired_at IS NULL
-         ORDER BY sequence DESC LIMIT 1`,
+      .select({
+        sequence: conversationSegmentIncarnations.sequence,
+        device: conversationSegmentIncarnations.device,
+        inode: conversationSegmentIncarnations.inode,
+      })
+      .from(conversationSegmentIncarnations)
+      .where(
+        and(
+          this.incarnation(machineId, nativeId),
+          isNull(conversationSegmentIncarnations.retiredAt),
+        ),
       )
-      .get(machineId, nativeId) as { sequence: number; device: string; inode: string } | undefined
+      .orderBy(desc(conversationSegmentIncarnations.sequence))
+      .limit(1)
+      .get()
   }
 
   /** Record identity for a legacy/current lake file without disturbing its cursor. */
@@ -96,18 +131,23 @@ export class TranscriptMirrorRepository {
   ): void {
     if (this.activeIncarnation(machineId, nativeId)) return
     const row = this.db
-      .prepare(
-        `SELECT COALESCE(MAX(sequence),0) AS sequence
-         FROM conversation_segment_incarnations WHERE machine_id=? AND native_id=?`,
-      )
-      .get(machineId, nativeId) as { sequence: number }
+      .select({ sequence: max(conversationSegmentIncarnations.sequence) })
+      .from(conversationSegmentIncarnations)
+      .where(this.incarnation(machineId, nativeId))
+      .get()
     this.db
-      .prepare(
-        `INSERT INTO conversation_segment_incarnations
-         (machine_id,native_id,sequence,device,inode,mirrored_bytes,created_at,retired_at)
-         VALUES(?,?,?,?,?,0,?,NULL)`,
-      )
-      .run(machineId, nativeId, row.sequence + 1, identity.device, identity.inode, at)
+      .insert(conversationSegmentIncarnations)
+      .values({
+        machineId,
+        nativeId,
+        sequence: (row?.sequence ?? 0) + 1,
+        device: identity.device,
+        inode: identity.inode,
+        mirroredBytes: 0,
+        createdAt: at,
+        retiredAt: null,
+      })
+      .run()
   }
 
   /** Retire the current file identity after its lake bytes have been archived,
@@ -119,57 +159,79 @@ export class TranscriptMirrorRepository {
     archivedBytes: number,
     at: string,
   ): void {
-    transaction(this.db, () => {
+    this.spans.transact(() => {
       const active = this.activeIncarnation(machineId, nativeId)
       if (!active) {
         this.startIncarnation(machineId, nativeId, identity, at)
         return
       }
       this.db
-        .prepare(
-          `UPDATE conversation_segment_incarnations
-           SET mirrored_bytes=?,retired_at=?
-           WHERE machine_id=? AND native_id=? AND sequence=?`,
+        .update(conversationSegmentIncarnations)
+        .set({ mirroredBytes: archivedBytes, retiredAt: at })
+        .where(
+          and(
+            this.incarnation(machineId, nativeId),
+            eq(conversationSegmentIncarnations.sequence, active.sequence),
+          ),
         )
-        .run(archivedBytes, at, machineId, nativeId, active.sequence)
+        .run()
       this.db
-        .prepare(
-          `INSERT INTO conversation_segment_incarnations
-           (machine_id,native_id,sequence,device,inode,mirrored_bytes,created_at,retired_at)
-           VALUES(?,?,?,?,?,0,?,NULL)`,
-        )
-        .run(machineId, nativeId, active.sequence + 1, identity.device, identity.inode, at)
+        .insert(conversationSegmentIncarnations)
+        .values({
+          machineId,
+          nativeId,
+          sequence: active.sequence + 1,
+          device: identity.device,
+          inode: identity.inode,
+          mirroredBytes: 0,
+          createdAt: at,
+          retiredAt: null,
+        })
+        .run()
       this.db
-        .prepare(
-          `UPDATE conversation_segments
-           SET mirrored_bytes=0,mirrored_at=?,indexed_bytes=0
-           WHERE machine_id=? AND native_id=?`,
-        )
-        .run(at, machineId, nativeId)
+        .update(conversationSegments)
+        .set({ mirroredBytes: 0, mirroredAt: at, indexedBytes: 0 })
+        .where(this.segment(machineId, nativeId))
+        .run()
     })
   }
 
   incarnations(machineId: MachineId, nativeId: string): MirrorIncarnation[] {
     const currentBytes = this.mirrorCursor(machineId, nativeId)
     const rows = this.db
-      .prepare(
-        `SELECT sequence,device,inode,mirrored_bytes,retired_at
-         FROM conversation_segment_incarnations
-         WHERE machine_id=? AND native_id=? ORDER BY sequence`,
-      )
-      .all(machineId, nativeId) as {
-      sequence: number
-      device: string
-      inode: string
-      mirrored_bytes: number
-      retired_at: string | null
-    }[]
+      .select({
+        sequence: conversationSegmentIncarnations.sequence,
+        device: conversationSegmentIncarnations.device,
+        inode: conversationSegmentIncarnations.inode,
+        mirroredBytes: conversationSegmentIncarnations.mirroredBytes,
+        retiredAt: conversationSegmentIncarnations.retiredAt,
+      })
+      .from(conversationSegmentIncarnations)
+      .where(this.incarnation(machineId, nativeId))
+      .orderBy(conversationSegmentIncarnations.sequence)
+      .all()
     return rows.map((row) => ({
       sequence: row.sequence,
       device: row.device,
       inode: row.inode,
-      mirroredBytes: row.retired_at === null ? currentBytes : row.mirrored_bytes,
-      active: row.retired_at === null,
+      // The ACTIVE row's byte count is the segment's live cursor, not its own
+      // column, which is only written when the incarnation retires.
+      mirroredBytes: row.retiredAt === null ? currentBytes : row.mirroredBytes,
+      active: row.retiredAt === null,
     }))
+  }
+
+  private segment(machineId: MachineId, nativeId: string) {
+    return and(
+      eq(conversationSegments.machineId, machineId),
+      eq(conversationSegments.nativeId, nativeId),
+    )
+  }
+
+  private incarnation(machineId: MachineId, nativeId: string) {
+    return and(
+      eq(conversationSegmentIncarnations.machineId, machineId),
+      eq(conversationSegmentIncarnations.nativeId, nativeId),
+    )
   }
 }
