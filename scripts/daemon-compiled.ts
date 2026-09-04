@@ -5,8 +5,10 @@
  * Bun-only embedded-file import; the plain `scripts/daemon.ts` stays Node-runnable.
  */
 import { materializeEmbeddedAbduco } from './embedded-abduco.js'
+import { materializeEmbeddedHost } from './embedded-host.js'
 
 await materializeEmbeddedAbduco()
+await materializeEmbeddedHost()
 // daemon.ts runs its boot at module top-level and then awaits forever; importing it
 // here starts the daemon and keeps this process alive.
 await import('./daemon.js')

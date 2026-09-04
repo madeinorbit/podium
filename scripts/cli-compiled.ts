@@ -8,6 +8,7 @@ import { CLAUDE_SDK_HOST_ENV } from '../apps/daemon/src/claude-sdk-protocol.js'
 import { runSnapshotVerifierChildIfRequested } from '../apps/server/src/migrations/snapshot-verifier-child.js'
 import { main } from './cli.js'
 import { materializeEmbeddedAbduco } from './embedded-abduco.js'
+import { materializeEmbeddedHost } from './embedded-host.js'
 
 // ONE BINARY SHIPS, so the Claude SDK host cannot be its own executable and cannot
 // be handed to a child as a .ts on disk — there is no .ts on disk. Instead the
@@ -25,6 +26,11 @@ if (process.env[CLAUDE_SDK_HOST_ENV] === '1') {
   if (!(await runSnapshotVerifierChildIfRequested())) {
     // Materialization runs AFTER the instance state claim, so a named instance
     // unpacks abduco under its own state root rather than the default's.
-    await main({ afterInstanceStateClaim: materializeEmbeddedAbduco })
+    await main({
+      afterInstanceStateClaim: async () => {
+        await materializeEmbeddedAbduco()
+        await materializeEmbeddedHost()
+      },
+    })
   }
 }
