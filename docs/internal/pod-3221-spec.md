@@ -1133,3 +1133,31 @@ type. That is what makes the existing suite the flip's oracle, and it is what I 
 
 The undefined-check moves with the construction: `store.ts` asserts the seam once, so no repository
 carries a branch for a case its own constructor cannot produce.
+
+### Rule 28 — drizzle returns the schema's TYPES, and the wrong answer is the common answer
+
+[POD-3397, 2026-09-04. Cross-wave, silent, and green under an ordinary fixture.]
+
+A conversion changes what a read RETURNS, not only how it is issued. Drizzle's execution path applies
+the schema's declared modes, so a column declared `integer({ mode: 'boolean' })` comes back `true` or
+`false` — not `0` or `1`. There are SIXTEEN such columns, including `issues.archived`,
+`issues.needs_human`, `issues.draft`, `sessions.headless`, and `subscriptions.deliver_nudge`,
+`deliver_notify` and `enabled`.
+
+Today's mappers read the raw integer: `r.archived === 1`, `Number(r.enabled) !== 0`. After conversion
+those comparisons are against a boolean, and `true === 1` is `false`. So every issue reads as not
+archived, not a draft and not needing a human; every subscription reads as disabled. No error, no type
+error — the comparison still typechecks where the row is `unknown`.
+
+WHAT MAKES IT DANGEROUS IS THAT THE WRONG ANSWER IS THE COMMON ANSWER. Most issues are not archived
+and not drafts, so a fixture that seeds an ordinary row and reads it back is green either way. This is
+the "a fixture must produce the thing" failure in its purest form: the test cannot distinguish the two
+worlds because it never exercises the value that differs.
+
+RULE, TWO PARTS. A converted mapper reads the DECLARED type — use the boolean, never compare it to a
+number, and never wrap it in `Number()`. And every `mode: 'boolean'` column a wave touches must have a
+golden test covering the NON-DEFAULT value, because the default value proves nothing. State in the
+handoff which boolean columns your files read and that each has a true-case test.
+
+The same reasoning covers any mode the schema declares. Read the column's declaration before writing
+its mapper; do not infer the runtime type from what the old raw-handle code compared against.
