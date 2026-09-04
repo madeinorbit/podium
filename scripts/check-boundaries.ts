@@ -1139,6 +1139,15 @@ const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
   'apps/server/src/store/executor/bun-driver.ts',
   'apps/server/src/store/executor/harness.ts',
   'apps/server/src/store/executor/sync-drizzle.ts',
+  // The sync package's test harness, and the SAME case as `harness.ts` above:
+  // scaffolding that opens a real database, whose filename does not end in
+  // `.test.ts` so the test-directory exemption cannot see it. Verified rather
+  // than assumed — its 23 importers are all `.test.ts` except the two
+  // `conformance.ts` suites, and those are themselves imported only by tests.
+  // It is here rather than on STAGE_A_UNCONVERTED because nothing converts it:
+  // a ledger entry that can never clear would block Stage A's exit gate for
+  // ever (POD-3416).
+  'packages/sync/src/adapters/sqlite/test-support.ts',
 ])
 
 /**
@@ -1292,8 +1301,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/executor/legacy-handle-probe.ts',
   'apps/server/src/modules/operations/store.ts',
   'apps/server/src/store/executor/executor.ts',
-  'packages/sync/src/adapters/sqlite/sync-repository.ts',
-  'packages/sync/src/adapters/sqlite/test-support.ts',
 ]
 
 const inStoreBoundary = (file: string): boolean =>
