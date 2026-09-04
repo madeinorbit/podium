@@ -16,7 +16,7 @@ import {
 import type { PeerBuild } from '@podium/protocol'
 import { asc, eq, sql } from 'drizzle-orm'
 import { machines } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 import type { MachineRecord } from './types'
 
 /** Defensive parse of a stored inventory blob → undefined on any failure. Goes
@@ -188,13 +188,18 @@ export const MACHINE_ID_SITES: readonly string[] = [
 ]
 
 export class MachinesRepository {
-  private readonly db: SyncDrizzle
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    // Destructured rather than held as `this.queries`, so every query body below
-    // reads `this.db` — the receiver B1 keeps when it swaps in the async pair
-    // and adds the awaits [spec rule 27b].
-    this.db = queries.db
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
 
   /**

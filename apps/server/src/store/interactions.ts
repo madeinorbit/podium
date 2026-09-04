@@ -37,7 +37,7 @@ import type {
 } from '@podium/protocol'
 import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -127,13 +127,18 @@ function toRow(r: InteractionSelect): InteractionRow {
 }
 
 export class InteractionsRepository {
-  private readonly db: SyncDrizzle
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    // Destructured rather than held as `this.queries`, so every query body below
-    // reads `this.db` — the receiver B1 keeps when it swaps in the async pair
-    // and adds the awaits [spec rule 27b].
-    this.db = queries.db
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
 
   /**

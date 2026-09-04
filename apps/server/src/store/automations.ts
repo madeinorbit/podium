@@ -18,7 +18,7 @@ import type {
 } from '@podium/model'
 import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { automationRuns, automations } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -91,13 +91,18 @@ function rowToRun(r: AutomationRunSelect): AutomationRunRow {
 }
 
 export class AutomationsRepository {
-  private readonly db: SyncDrizzle
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    // Destructured rather than held as `this.queries`, so every query body below
-    // reads `this.db` — the receiver B1 keeps when it swaps in the async pair
-    // and adds the awaits [spec rule 27b].
-    this.db = queries.db
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
 
   list(): AutomationRow[] {

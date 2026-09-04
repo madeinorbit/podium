@@ -8,7 +8,7 @@
 import type { IssueId, RepoId, SessionId } from '@podium/model'
 import { and, asc, eq, lte, sql } from 'drizzle-orm'
 import { locks, lockWaiters } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
 export const OPERATOR_LOCK_SESSION = 'operator'
@@ -81,13 +81,18 @@ export interface LockWaiterRow {
 const asColumnSession = (key: LockSessionKey): SessionId => key as SessionId
 
 export class LocksRepository {
-  private readonly db: SyncDrizzle
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    // Destructured rather than held as `this.queries`, so every query body below
-    // reads `this.db` — the receiver B1 keeps when it swaps in the async pair
-    // and adds the awaits [spec rule 27b].
-    this.db = queries.db
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
 
   getLock(repoId: RepoId, name: string): LockRow | null {

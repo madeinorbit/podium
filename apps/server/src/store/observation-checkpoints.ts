@@ -7,7 +7,7 @@ import {
   sessionObservationRebinds,
   sessionTerminalCandidates,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -80,18 +80,31 @@ type LeaseSelect = Pick<
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  private readonly db: SyncDrizzle
-  /** The synchronous span the runtime helper used to give this file directly.
-   *  Routed through the store's port so the executor knows the span exists and
-   *  the call site's SHAPE survives B1 unchanged [spec rule 27a]. */
-  private readonly transact: SyncQueries['transact']
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    // Destructured rather than held as `this.queries`, so every body below reads
-    // `this.db` and `this.transact` — the receivers B1 keeps [spec rule 27b].
-    this.db = queries.db
-    this.transact = queries.transact
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
+
+  /**
+   * The synchronous span this file used to get from the runtime helper directly,
+   * routed through the store's port so the executor knows the span exists.
+   *
+   * AN ARROW FIELD, not `this.transact = queries.transact` [spec rule 34a,
+   * POD-3396's finding]. Assigning it across works only while the implementation
+   * ignores its own `this` — which today's closure does and rule 35's adapter
+   * over drizzle's transaction will not. It would then break as a detached
+   * method, silently. One closure per instance is the price.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   private mapRow(r: LeaseSelect): ObservationLeaseRecord | null {
     const provider = ObservationProvider.safeParse(r.provider)
@@ -214,8 +227,20 @@ export class ObservationCheckpointsRepository {
           checkpointJson: null,
           updatedAt,
         })
-        // `INSERT OR IGNORE`: the row may already exist and this statement is
-        // only here to make sure it does before the UPDATE below.
+        // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
+        // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
+        // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
+        // uniqueness conflict. Foreign keys do not enter it — NEITHER form
+        // suppresses those, which is why "this table has no foreign keys" is the
+        // wrong premise and is not the one relied on here.
+        //
+        // THE CONDITION IS THAT NO NOT NULL AND NO CHECK VIOLATION IS REACHABLE,
+        // and on the shipped table it holds: no CHECK constraints, one index
+        // (the primary key's own, which both forms suppress), and every NOT NULL
+        // column here — schema_version, provider, binding_version,
+        // observation_generation, updated_at — is supplied from a literal or a
+        // non-nullable parameter. So the only violation either form can meet is
+        // the primary key. The enumeration is in the commit message.
         .onConflictDoNothing()
         .run()
       this.db

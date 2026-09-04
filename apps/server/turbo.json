@@ -643,6 +643,7 @@
         "src/store/locks.ts",
         "src/store/machines-sentinel-scan.test.ts",
         "src/store/machines.build.test.ts",
+        "src/store/machines.golden.test.ts",
         "src/store/machines.ts",
         "src/store/maintenance.golden.test.ts",
         "src/store/maintenance.ts",
