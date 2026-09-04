@@ -7,14 +7,15 @@
  * that opt-out is real rather than asserted.
  */
 
-import { asMachineId } from '@podium/model'
 import { existsSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { openDatabase, openDatabaseFromImage, type SqlDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
 import { installStoreDatabaseOpener, storeDatabaseOpenerInstalled } from '../store-database'
+import { openTestStore } from '../test-support/open-test-store'
 import {
   currentSchemaImage,
   FIXTURE_DISABLED_ENV,
@@ -132,13 +133,13 @@ describe('migration suites keep the full 54-step path [POD-523]', () => {
 })
 
 describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
-  it('reaches identical schema objects and rows', () => {
-    const chain = new SessionStore(':memory:', asMachineId('machine-under-test'))
+  it('reaches identical schema objects and rows', async () => {
+    const chain = await openTestStore(':memory:', asMachineId('machine-under-test'))
     const fromChain = { schema: schemaObjects(raw(chain)), rows: allRows(raw(chain)) }
     chain.close()
 
     installPreMigratedStoreFixture()
-    const cloned = new SessionStore(':memory:', asMachineId('machine-under-test'))
+    const cloned = await openTestStore(':memory:', asMachineId('machine-under-test'))
     const fromClone = { schema: schemaObjects(raw(cloned)), rows: allRows(raw(cloned)) }
     cloned.close()
 
@@ -149,21 +150,21 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     expect(fromClone.rows, DISAGREEMENT).toEqual(fromChain.rows)
   })
 
-  it('carries the whole migration ledger, so nothing is left pending', () => {
+  it('carries the whole migration ledger, so nothing is left pending', async () => {
     installPreMigratedStoreFixture()
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     expect([...appliedDrizzleNames(raw(store))].sort()).toEqual(
       DRIZZLE_MIGRATIONS.map((m) => m.name).sort(),
     )
     store.close()
   })
 
-  it('seeds a fresh file database and leaves an existing one to the chain', () => {
+  it('seeds a fresh file database and leaves an existing one to the chain', async () => {
     const dir = mkdtempSync(join(tmpdir(), 'pod523-'))
     installPreMigratedStoreFixture()
 
     const fresh = join(dir, 'fresh.db')
-    const seeded = new SessionStore(fresh)
+    const seeded = await openTestStore(fresh)
     expect(appliedDrizzleNames(raw(seeded)).size).toBe(DRIZZLE_MIGRATIONS.length)
     seeded.close()
 
@@ -174,7 +175,7 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
     old.exec('PRAGMA foreign_keys = OFF')
     runDrizzleMigrations(old, DRIZZLE_MIGRATIONS.slice(0, 1))
     old.close()
-    const upgraded = new SessionStore(existing)
+    const upgraded = await openTestStore(existing)
     // It advanced by its pending migrations rather than being replaced by the image.
     expect(appliedDrizzleNames(raw(upgraded)).size).toBe(DRIZZLE_MIGRATIONS.length)
     upgraded.close()
@@ -182,32 +183,32 @@ describe.skipIf(disabled)('the clone is the chain [POD-523]', () => {
 })
 
 describe.skipIf(disabled)('state cannot cross test cases [POD-523]', () => {
-  it('gives every store an independent database', () => {
+  it('gives every store an independent database', async () => {
     installPreMigratedStoreFixture()
-    const first = new SessionStore(':memory:')
-    first.repos.addRepo('/only-in-first', first.hostMachineId)
-    const second = new SessionStore(':memory:')
-    expect(second.repos.listRepoPaths()).toEqual([])
-    expect(first.repos.listRepoPaths()).toEqual(['/only-in-first'])
+    const first = await openTestStore(':memory:')
+    await first.repos.addRepo('/only-in-first', first.hostMachineId)
+    const second = await openTestStore(':memory:')
+    expect(await second.repos.listRepoPaths()).toEqual([])
+    expect(await first.repos.listRepoPaths()).toEqual(['/only-in-first'])
     first.close()
     second.close()
   })
 
-  it('never lets a write reach the shared image', () => {
+  it('never lets a write reach the shared image', async () => {
     installPreMigratedStoreFixture()
     const before = Buffer.from(currentSchemaImage()).toString('base64')
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     // Enough writing to force page allocation and growth, not just a header touch:
     // ~4 MB against an 816 KB image, straight at the connection.
     raw(store).exec('CREATE TABLE zz_growth (x TEXT)')
     const insert = raw(store).prepare('INSERT INTO zz_growth VALUES (?)')
     for (let i = 0; i < 20_000; i++) insert.run('x'.repeat(200))
-    store.repos.addRepo('/written', store.hostMachineId)
+    await store.repos.addRepo('/written', store.hostMachineId)
     store.close()
     expect(Buffer.from(currentSchemaImage()).toString('base64')).toBe(before)
     // And the next clone still sees an empty database.
-    const after = new SessionStore(':memory:')
-    expect(after.repos.listRepoPaths()).toEqual([])
+    const after = await openTestStore(':memory:')
+    expect(await after.repos.listRepoPaths()).toEqual([])
     after.close()
   })
 })
@@ -270,13 +271,13 @@ describe('the seam cannot reach production [POD-523]', () => {
     }
   })
 
-  it.skipIf(disabled)('writes the image only where a test asked for a database', () => {
+  it.skipIf(disabled)('writes the image only where a test asked for a database', async () => {
     // Guards the file branch of the opener: it must never invent a path.
     const dir = mkdtempSync(join(tmpdir(), 'pod523-'))
     const decoy = join(dir, 'not-a-database.txt')
     writeFileSync(decoy, 'untouched')
     installPreMigratedStoreFixture()
-    const store = new SessionStore(join(dir, 'db', 'podium.db'))
+    const store = await openTestStore(join(dir, 'db', 'podium.db'))
     store.close()
     expect(readFileSync(decoy, 'utf8')).toBe('untouched')
   })

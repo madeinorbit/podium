@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from '../../../store'
+import { openTestStore } from '../../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '.'
 import { DEFAULT_ISSUE_REPORT_VISIBILITY } from './reads'
 import { issueTestPlumbing } from './test-plumbing'
@@ -11,9 +11,9 @@ const source = (relative: string): string =>
   readFileSync(new URL(relative, import.meta.url), 'utf8')
 
 describe('issue tracker capability composition', () => {
-  it('exposes all capability interfaces over the same live store', () => {
+  it('exposes all capability interfaces over the same live store', async () => {
     const deps: IssueDeps = {
-      store: new SessionStore(':memory:'),
+      store: await openTestStore(':memory:'),
       listSessions: () => [],
       getSettings: () =>
         normalizeSettings({
@@ -24,7 +24,10 @@ describe('issue tracker capability composition', () => {
           },
           sessionDefaults: { agent: 'claude-code' },
         }),
-      spawnSession: () => ({ sessionId: asSessionId('composition-test') , machine: 'machine-under-test' }),
+      spawnSession: () => ({
+        sessionId: asSessionId('composition-test'),
+        machine: 'machine-under-test',
+      }),
       repoOp: async () => ({ ok: true, output: '' }),
       ...issueTestPlumbing(),
     }

@@ -184,11 +184,11 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // per-row table scans at all. Before the fix these read 8 and 64.
     expect(loadSessionsCallsDuringBootstrap(large)).toBe(loadSessionsCallsDuringBootstrap(small))
   })
-  it('memoizes authorization snapshots across anchored issue refs and refreshes after append', () => {
+  it('memoizes authorization snapshots across anchored issue refs and refreshes after append', async () => {
     const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger, store } = internals(reg)
     for (const issueId of ['i1', 'i2']) {
-      store.grants.upsert({
+      await store.grants.upsert({
         resourceKind: 'issue',
         resourceId: issueId,
         grantee: OWNER,
@@ -213,7 +213,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     const sessionLoads = vi.spyOn(store.sessions, 'findSessionsByIssueIds')
     const wholeTableLoads = vi.spyOn(store.sessions, 'loadSessions')
     const dependencyId = issueDepId('i1', 'i-target', 'blocks')
-    store.sync.appendChanges(
+    await store.sync.appendChanges(
       [
         { entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":1}' },
         { entity: 'issue', entityId: 'i2', op: 'upsert', payload: '{"v":1}' },
@@ -253,8 +253,8 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
       }),
     )
 
-    const cursor = store.sync.maxChangeSeq()
-    store.sync.appendChanges(
+    const cursor = await store.sync.maxChangeSeq()
+    await store.sync.appendChanges(
       [{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{"v":2}' }],
       2000,
     )
@@ -340,11 +340,11 @@ const OTHER_OWNER = asUserId('usr_someone_else')
  *  OWNER — so every one of them reaches the grant check rather than stopping at
  *  the owner check. No durable issue row is written on purpose: an absent row is
  *  the same miss a row owned by another user produces, by the same line. */
-function seedGrantedIssues(reg: SessionRegistry, count: number): number {
+async function seedGrantedIssues(reg: SessionRegistry, count: number): Promise<number> {
   const { ledger, store } = internals(reg)
   const ids = Array.from({ length: count }, (_, i) => `iss_shared_${i}`)
   for (const id of ids) {
-    store.grants.upsert({
+    await store.grants.upsert({
       resourceKind: 'issue',
       resourceId: id,
       grantee: OWNER,
@@ -390,15 +390,15 @@ function grantReadsDuring(reg: SessionRegistry, run: () => void): {
 }
 
 describe('POD-3261 — a pass reads grants once, not once per row or once per principal', () => {
-  it('reads the shared corpus grants in one statement, however large the corpus', () => {
+  it('reads the shared corpus grants in one statement, however large the corpus', async () => {
     const small = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const large = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
 
     // CONTROL. Without it a count of 0 passes just as well against a world with
     // no shared rows in it, which is the one way this could be satisfied for the
     // wrong reason.
-    expect(seedGrantedIssues(small, 4)).toBe(4)
-    expect(seedGrantedIssues(large, 32)).toBe(32)
+    expect(await seedGrantedIssues(small, 4)).toBe(4)
+    expect(await seedGrantedIssues(large, 32)).toBe(32)
 
     const a = grantReadsDuring(small, () => {
       internals(small).ledger.authority.bootstrap(feedPrincipal)
@@ -419,10 +419,10 @@ describe('POD-3261 — a pass reads grants once, not once per row or once per pr
     expect(world.changes.filter((change) => change.entity === 'issue')).toHaveLength(32)
   })
 
-  it('reads them once for a batch, not once per subscribed principal', () => {
+  it('reads them once for a batch, not once per subscribed principal', async () => {
     const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     const { ledger } = internals(reg)
-    expect(seedGrantedIssues(reg, 6)).toBe(6)
+    expect(await seedGrantedIssues(reg, 6)).toBe(6)
 
     // Two principals on the same feed. `broadcast` walks them in one drain.
     const second: Principal = {

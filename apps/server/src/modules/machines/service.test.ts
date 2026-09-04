@@ -8,8 +8,9 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, test } from 'vitest'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
+import { openTestStore } from '../../test-support/open-test-store'
 import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
@@ -257,8 +258,8 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
   // The cache is WARMED first in each case: an unwarmed read is a cache MISS
   // that rebuilds anyway, and would pass with invalidation removed entirely.
 
-  function pairingService(): { svc: MachinesService; store: SessionStore } {
-    const store = new SessionStore(':memory:')
+  async function pairingService(): Promise<{ svc: MachinesService; store: SessionStore }> {
+    const store = await openTestStore(':memory:')
     const codes = new Map<string, PairingGrant>()
     const svc = new MachinesService({
       instanceId: 'default',
@@ -282,8 +283,8 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     return { svc, store }
   }
 
-  test('a paired machine is named and listed without a manual invalidate', () => {
-    const { svc } = pairingService()
+  test('a paired machine is named and listed without a manual invalidate', async () => {
+    const { svc } = await pairingService()
     // Warm both caches on the pre-pair fleet: machineName populates the name map,
     // listMachines the record list. Everything after this is served from them
     // until something drops them.
@@ -307,10 +308,10 @@ describe('the machine caches are dropped by pair/hello (POD-1479)', () => {
     expect(svc.ownershipRows().find((m) => m.id === MACHINE)?.ownerUserId).toBe('user:sole')
   })
 
-  test('a hello’s restamped hostname is visible without a manual invalidate', () => {
-    const { svc, store } = pairingService()
+  test('a hello’s restamped hostname is visible without a manual invalidate', async () => {
+    const { svc, store } = await pairingService()
     const token = 'tok-vmi'
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Builder',
       hostname: 'old.local',
@@ -351,8 +352,8 @@ describe('MachinesService inventory persistence (#222)', () => {
     tools: [{ name: 'gh', installed: true, version: 'gh version 2.40.0' }],
   }
 
-  function makeStoreService(): { svc: MachinesService; store: SessionStore } {
-    const store = new SessionStore(':memory:')
+  async function makeStoreService(): Promise<{ svc: MachinesService; store: SessionStore }> {
+    const store = await openTestStore(':memory:')
     const svc = new MachinesService({
       instanceId: 'default',
       store,
@@ -364,9 +365,9 @@ describe('MachinesService inventory persistence (#222)', () => {
     return { svc, store }
   }
 
-  test('recordInventory persists the report and it survives a hello reconnect', () => {
-    const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({
+  test('recordInventory persists the report and it survives a hello reconnect', async () => {
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'vmi',
       hostname: 'vmi',
@@ -375,17 +376,17 @@ describe('MachinesService inventory persistence (#222)', () => {
     })
 
     svc.recordInventory(MACHINE, INV)
-    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(INV)
 
     // A hello only restamps last_seen_at/hostname — the inventory must remain.
-    store.machines.touchMachine(MACHINE, 'vmi-renamed')
-    expect(store.machines.getMachine(MACHINE)?.inventory).toEqual(INV)
-    expect(store.machines.getMachine(MACHINE)?.hostname).toBe('vmi-renamed')
+    await store.machines.touchMachine(MACHINE, 'vmi-renamed')
+    expect((await store.machines.getMachine(MACHINE))?.inventory).toEqual(INV)
+    expect((await store.machines.getMachine(MACHINE))?.hostname).toBe('vmi-renamed')
   })
 
-  test('records the native identity fingerprint selected on the target machine', () => {
-    const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({
+  test('records the native identity fingerprint selected on the target machine', async () => {
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -412,8 +413,8 @@ describe('MachinesService inventory persistence (#222)', () => {
   })
 
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
-    const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -450,9 +451,9 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'claude-code')).toBe(MACHINE)
   })
 
-  test('explicit session placement rejects a missing harness but starts logged out', () => {
-    const { svc, store } = makeStoreService()
-    store.machines.upsertMachine({
+  test('explicit session placement rejects a missing harness but starts logged out', async () => {
+    const { svc, store } = await makeStoreService()
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi',
@@ -474,25 +475,25 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(svc.agentLoginCondition(MACHINE, 'codex')).toBe('logged-out')
   })
 
-  test('implicit placement moves to a capable machine that owns the cwd', () => {
-    const { svc, store } = makeStoreService()
+  test('implicit placement moves to a capable machine that owns the cwd', async () => {
+    const { svc, store } = await makeStoreService()
     const other = 'capable'
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Missing',
       hostname: 'a',
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: other,
       name: 'Capable',
       hostname: 'b',
       tokenHash: 'y',
       ownerUserId: asUserId('user:sole'),
     })
-    store.repos.addRepo('/repo', MACHINE)
-    store.repos.addRepo('/repo', asMachineId(other))
+    await store.repos.addRepo('/repo', MACHINE)
+    await store.repos.addRepo('/repo', asMachineId(other))
     svc.attach(MACHINE, recorder().send)
     svc.attach(asMachineId(other), recorder().send)
     svc.recordInventory(MACHINE, {
@@ -528,16 +529,16 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   const OWNER_A = 'user:alice'
   const OWNER_B = 'user:bob'
 
-  function transferWorld(): {
+  async function transferWorld(): Promise<{
     svc: MachinesService
     store: SessionStore
     dir: string
     /** One entry per broadcast, holding the OWNER the fleet read back at the
      *  moment the broadcast went out. */
     broadcasts: (string | null | undefined)[]
-  } {
+  }> {
     const dir = mkdtempSync(join(tmpdir(), 'podium-transfer-'))
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     const broadcasts: (string | null | undefined)[] = []
     const known = new Set([OWNER_A, OWNER_B])
     let svc!: MachinesService
@@ -557,7 +558,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
         return []
       },
     } satisfies MachinesDeps)
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi.local',
@@ -581,8 +582,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   // ledger-live index rather than from the cached row. The invalidate is defensive — correct to
   // keep, since a future reader of the raw cached row would need it — but no
   // public read can currently distinguish its presence.
-  test('the row is written, the fleet serves the NEW owner, and one broadcast goes out', () => {
-    const { svc, store, dir, broadcasts } = transferWorld()
+  test('the row is written, the fleet serves the NEW owner, and one broadcast goes out', async () => {
+    const { svc, store, dir, broadcasts } = await transferWorld()
     try {
       // Warm on the pre-transfer fleet. Without this the read-back below is a
       // cache MISS that rebuilds anyway and would pass with the invalidate gone.
@@ -592,7 +593,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       svc.transferMachineOwnership(MACHINE, asUserId(OWNER_B), asUserId(OWNER_A))
 
       // 1 — THE ROW. Read straight from the store, past every cache.
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_B)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_B)
       // 2 — THE FLEET. The same public read that was warmed above, with no
       // manual invalidate in between.
       expect(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId).toBe(OWNER_B)
@@ -607,10 +608,10 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     }
   })
 
-  test('the outgoing owner’s audience does not travel with the machine', () => {
-    const { svc, store, dir } = transferWorld()
+  test('the outgoing owner’s audience does not travel with the machine', async () => {
+    const { svc, store, dir } = await transferWorld()
     try {
-      store.grants.upsert({
+      await store.grants.upsert({
         resourceKind: 'machine',
         resourceId: MACHINE,
         grantee: 'user:carol',
@@ -634,8 +635,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     }
   })
 
-  test('a non-owner is refused at the service too, and the fleet is untouched', () => {
-    const { svc, store, dir, broadcasts } = transferWorld()
+  test('a non-owner is refused at the service too, and the fleet is untouched', async () => {
+    const { svc, store, dir, broadcasts } = await transferWorld()
     try {
       // SECOND PRINCIPAL. The gate refuses this in `fleetAuthzFailure`; the
       // service refuses it again, because a service reachable from more than one
@@ -643,7 +644,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       expect(() =>
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
       ).toThrow('only the machine owner may transfer ownership')
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_A)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
       expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
@@ -652,8 +653,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     }
   })
 
-  test('an unknown recipient is refused rather than quarantining the machine', () => {
-    const { svc, store, dir, broadcasts } = transferWorld()
+  test('an unknown recipient is refused rather than quarantining the machine', async () => {
+    const { svc, store, dir, broadcasts } = await transferWorld()
     try {
       expect(() =>
         svc.transferMachineOwnership(MACHINE, asUserId('user:typo'), asUserId(OWNER_A)),
@@ -661,7 +662,7 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // The hazard this closes: an owner the ledger records but `userExists`
       // cannot resolve is quarantined by the next reconcile — owner null, usable
       // by nobody. Nothing was appended, so nothing to reconcile.
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(OWNER_A)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
       expect(svc.effectiveOwner(MACHINE)).toBe(OWNER_A)
       expect(broadcasts).toEqual([])
     } finally {
@@ -669,8 +670,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
     }
   })
 
-  test('transferring to the current owner is refused, not a silent no-op broadcast', () => {
-    const { svc, dir, broadcasts } = transferWorld()
+  test('transferring to the current owner is refused, not a silent no-op broadcast', async () => {
+    const { svc, dir, broadcasts } = await transferWorld()
     try {
       expect(() =>
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_A)),
@@ -695,7 +696,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   const ALICE = asUserId('user:alice')
   const BOB = asUserId('user:bob')
 
-  function adoptWorld(opts: { rowOwner?: UserId | null; known?: UserId[] } = {}): {
+  async function adoptWorld(opts: { rowOwner?: UserId | null; known?: UserId[] } = {}): Promise<{
     svc: MachinesService
     store: SessionStore
     dir: string
@@ -706,9 +707,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
      *  The constructor runs `reconcileOwnersFromLedger`, so this is the boot
      *  repair path, and it is how a test can ask what the LEDGER alone says. */
     reboot: () => MachinesService
-  } {
+  }> {
     const dir = mkdtempSync(join(tmpdir(), 'podium-adopt-'))
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     const known = new Set(opts.known ?? [ALICE, BOB])
     const build = (): MachinesService =>
       new MachinesService({
@@ -722,14 +723,14 @@ describe('adoption of an unowned machine (POD-1494)', () => {
         machinesForPrincipal: () => [],
       } satisfies MachinesDeps)
     const svc = build()
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: MACHINE,
       name: 'Builder',
       hostname: 'vmi.local',
       tokenHash: sha256('tok'),
       ownerUserId: opts.rowOwner ?? null,
     })
-    store.machines.setMachineOwner(MACHINE, opts.rowOwner ?? null)
+    await store.machines.setMachineOwner(MACHINE, opts.rowOwner ?? null)
     return { svc, store, dir, known, reboot: build }
   }
 
@@ -737,8 +738,8 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   // THE THREE UNOWNED STATES, each produced the way production produces it
   // -------------------------------------------------------------------------
 
-  test('state 1 — NEVER RECORDED: no owner event was ever appended', () => {
-    const { svc, store, dir } = adoptWorld()
+  test('state 1 — NEVER RECORDED: no owner event was ever appended', async () => {
+    const { svc, store, dir } = await adoptWorld()
     try {
       // The ledger holds nothing about this machine's ownership at all.
       expect(svc.effectiveOwner(MACHINE)).toBeNull()
@@ -746,14 +747,14 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       svc.adoptMachine(MACHINE, asUserId(ALICE))
 
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('state 2 — RECORDED AS UNOWNED: the pairing code carried no owner', () => {
-    const { svc, store, dir } = adoptWorld()
+  test('state 2 — RECORDED AS UNOWNED: the pairing code carried no owner', async () => {
+    const { svc, store, dir } = await adoptWorld()
     try {
       // What `authenticateDaemon` writes for a code with no `ownerUserId`: an
       // owner event whose owner is explicitly null, not a missing event.
@@ -763,14 +764,14 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       svc.adoptMachine(MACHINE, asUserId(BOB))
 
       expect(svc.effectiveOwner(MACHINE)).toBe(BOB)
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(BOB)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('state 3 — QUARANTINE: the recorded owner no longer resolves (D19.4b)', () => {
-    const { svc, store, dir, known, reboot } = adoptWorld({ rowOwner: ALICE })
+  test('state 3 — QUARANTINE: the recorded owner no longer resolves (D19.4b)', async () => {
+    const { svc, store, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
     try {
       svc.transferOwnership(MACHINE, asUserId(ALICE))
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
@@ -780,7 +781,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // the ledger still records, and boot reconcile projects null.
       known.delete(ALICE)
       const rebooted = reboot()
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
       // The LEDGER still says Alice — it is append-only and never rewritten.
       // What changed is that Alice no longer resolves, which is why this reads
       // null while the ledger entry survives.
@@ -793,7 +794,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       rebooted.adoptMachine(MACHINE, asUserId(BOB))
 
       expect(rebooted.effectiveOwner(MACHINE)).toBe(BOB)
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(BOB)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(BOB)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -803,8 +804,8 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   // THE STATE IT REFUSES
   // -------------------------------------------------------------------------
 
-  test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', () => {
-    const { svc, store, dir } = adoptWorld({ rowOwner: ALICE })
+  test('a machine with a LIVE owner is refused — that is transfer’s act, not this one', async () => {
+    const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
     try {
       svc.transferOwnership(MACHINE, asUserId(ALICE))
 
@@ -818,23 +819,23 @@ describe('adoption of an unowned machine (POD-1494)', () => {
 
       // Refused means SILENT: the ledger was not appended and the row is intact.
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('the refusal reads the LEDGER, not the row it is a projection of', () => {
-    const { svc, store, dir } = adoptWorld({ rowOwner: ALICE })
+  test('the refusal reads the LEDGER, not the row it is a projection of', async () => {
+    const { svc, store, dir } = await adoptWorld({ rowOwner: ALICE })
     try {
       svc.transferOwnership(MACHINE, asUserId(ALICE))
       // Force the row to disagree with the ledger — the state D19.4d says can
       // exist between an append and its projection, and which boot repair
       // exists to fix. A service that asked the ROW would now happily adopt a
       // machine the ledger says is Alice's.
-      store.machines.setMachineOwner(MACHINE, null)
+      await store.machines.setMachineOwner(MACHINE, null)
       svc.invalidateMachineCache()
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
       expect(svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
       expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
@@ -843,8 +844,8 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     }
   })
 
-  test('an unknown recipient is refused rather than re-quarantining the machine', () => {
-    const { svc, store, dir } = adoptWorld()
+  test('an unknown recipient is refused rather than re-quarantining the machine', async () => {
+    const { svc, store, dir } = await adoptWorld()
     try {
       expect(() => svc.adoptMachine(MACHINE, asUserId('user:typo'))).toThrow(
         'unknown user: user:typo',
@@ -853,14 +854,14 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // reconcile cannot resolve, so the machine comes out of adoption in
       // exactly the quarantine it went in with. Nothing was appended.
       expect(svc.effectiveOwner(MACHINE)).toBeNull()
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('an unknown machine is refused before anything is read', () => {
-    const { svc, dir } = adoptWorld()
+  test('an unknown machine is refused before anything is read', async () => {
+    const { svc, dir } = await adoptWorld()
     try {
       expect(() => svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).toThrow(
         "unknown machine 'ghost'",
@@ -874,31 +875,31 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   // THE COMMIT POINT
   // -------------------------------------------------------------------------
 
-  test('THE LEDGER APPEND IS THE COMMIT POINT — the row is only a projection', () => {
-    const { svc, store, dir, reboot } = adoptWorld()
+  test('THE LEDGER APPEND IS THE COMMIT POINT — the row is only a projection', async () => {
+    const { svc, store, dir, reboot } = await adoptWorld()
     try {
       svc.adoptMachine(MACHINE, asUserId(ALICE))
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
 
       // DESTROY THE PROJECTION and nothing else. If the row were the source of
       // truth this machine is now unowned again and the adoption is lost.
-      store.machines.setMachineOwner(MACHINE, null)
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBeNull()
+      await store.machines.setMachineOwner(MACHINE, null)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
 
       // Boot repair, from the ledger alone: the adoption comes back. This is
       // the same `reconcileOwnersFromLedger` sequence that recovers a crash
       // between the append and the row write, and it is what makes the append —
       // not the row — the moment the adoption became real.
       const rebooted = reboot()
-      expect(store.machines.getMachine(MACHINE)?.ownerUserId).toBe(ALICE)
+      expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(ALICE)
       expect(rebooted.effectiveOwner(MACHINE)).toBe(ALICE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
   })
 
-  test('adoption APPENDS — it never rewrites the ledger entry that was there', () => {
-    const { svc, dir, known, reboot } = adoptWorld({ rowOwner: ALICE })
+  test('adoption APPENDS — it never rewrites the ledger entry that was there', async () => {
+    const { svc, dir, known, reboot } = await adoptWorld({ rowOwner: ALICE })
     try {
       svc.transferOwnership(MACHINE, asUserId(ALICE))
       known.delete(ALICE)
@@ -917,13 +918,13 @@ describe('adoption of an unowned machine (POD-1494)', () => {
     }
   })
 
-  test('grant edges surviving on the unowned row do not reach the adopter', () => {
-    const { svc, store, dir } = adoptWorld()
+  test('grant edges surviving on the unowned row do not reach the adopter', async () => {
+    const { svc, store, dir } = await adoptWorld()
     try {
       // An edge from before the machine lost its owner. While the owner is null
       // `machineVerbsFor` grants nobody anything, so this edge is INVISIBLE —
       // and would come back to life the instant an owner exists.
-      store.grants.upsert({
+      await store.grants.upsert({
         resourceKind: 'machine',
         resourceId: MACHINE,
         grantee: 'user:carol',

@@ -22,23 +22,21 @@
  *    predicate-driven `sleep` seam.
  */
 
-import { type HumanCeiling, placementDecision
-} from '@podium/commands'
+import { type HumanCeiling, placementDecision } from '@podium/commands'
 import {
-  FIRST_ADMIN_USER_ID,
-  asSessionId,
   type AgentPhase,
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
   type IssueId,
+  type MachineId,
   type SessionId,
   type SessionMeta,
-  type MachineId,
 } from '@podium/model'
-import type {
-  TurnReceipt,
-} from '@podium/protocol/daemon'
+import type { TurnReceipt } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import type { Capability } from '../../issue-authz'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type IssueDeps, IssueService } from '../issues/service'
 import { issueTestPlumbing } from '../issues/service/test-plumbing'
 import { MessageGate, type MessageGateDeps } from './gate'
@@ -247,7 +245,7 @@ export interface MailHarness {
 export { OPERATOR } from '../../test-support/capabilities'
 
 export function mailHarness(opts?: HarnessOptions): MailHarness {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   const sessions: SessionMeta[] = []
   const pushes: Push[] = []
   const wakeSpawns: Record<string, unknown>[] = []
@@ -269,7 +267,7 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
         },
         sessionDefaults: { agent: 'claude-code' },
       }),
-    spawnSession: () => ({ sessionId: asSessionId('unused') , machine: 'machine-under-test' }),
+    spawnSession: () => ({ sessionId: asSessionId('unused'), machine: 'machine-under-test' }),
     repoOp: async () => ({ ok: true, output: '' }),
     ...issueTestPlumbing(),
     now,
@@ -345,17 +343,14 @@ export function mailHarness(opts?: HarnessOptions): MailHarness {
     mirrorMarkIssueMailRead: (issueId, ids) =>
       store.issues.markIssueMessagesRead(FIRST_ADMIN_USER_ID, issueId, ids, now()),
     ...(opts?.authorizeAtApply ? { authorizeAtApply: opts.authorizeAtApply } : {}),
-    ...(opts?.runtimeContractActive
-      ? { runtimeContractActive: opts.runtimeContractActive }
-      : {}),
+    ...(opts?.runtimeContractActive ? { runtimeContractActive: opts.runtimeContractActive } : {}),
     // POD-1193: when a test supplies machines (or an explicit port), the wake
     // path consults the same placementDecision the gate uses for spawnAgent.
     ...(opts?.placementAtWake
       ? { placementAtWake: opts.placementAtWake }
       : opts?.machines
         ? {
-            placementAtWake: (_message, machineId) =>
-              placementDecision(machineId, opts.machines!),
+            placementAtWake: (_message, machineId) => placementDecision(machineId, opts.machines!),
           }
         : {}),
     transact: (fn) => store.transact(fn),

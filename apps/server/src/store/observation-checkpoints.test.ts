@@ -1,14 +1,13 @@
 import { asSessionId } from '@podium/model'
 import type { SessionObservationCheckpointV1 } from '@podium/protocol'
 import { expect, it } from 'vitest'
-import { SessionStore } from '../store'
 
 const at = '2026-07-18T12:00:00.000Z'
 
-it('durably fences observation generations and rejects stale checkpoint writes', () => {
-  const store = new SessionStore(':memory:')
+it('durably fences observation generations and rejects stale checkpoint writes', async () => {
+  const store = await openTestStore(':memory:')
   try {
-    const lease = store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
+    const lease = await store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
     expect(lease).toMatchObject({
       sessionId: asSessionId('s1'),
       provider: 'codex',
@@ -43,16 +42,16 @@ it('durably fences observation generations and rejects stale checkpoint writes',
       lastLiveReceiptAt: null,
       lastTransitionId: 'snapshot-42',
     }
-    store.observationCheckpoints.save(checkpoint)
-    expect(store.observationCheckpoints.get(asSessionId('s1'))?.checkpoint).toEqual(checkpoint)
+    await store.observationCheckpoints.save(checkpoint)
+    expect((await store.observationCheckpoints.get(asSessionId('s1')))?.checkpoint).toEqual(checkpoint)
 
-    const nextLease = store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
+    const nextLease = await store.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', 'thread-1')
     expect(nextLease.observationGeneration).toBe(2)
     expect(nextLease.checkpoint).toEqual(checkpoint)
     expect(() => store.observationCheckpoints.save(checkpoint)).toThrow(
       'observation checkpoint lease changed',
     )
-    const rebound = store.observationCheckpoints.rebindExact({
+    const rebound = await store.observationCheckpoints.rebindExact({
       sessionId: asSessionId('s1'),
       provider: 'codex',
       providerSessionId: 'thread-1',
@@ -71,7 +70,7 @@ it('durably fences observation generations and rejects stale checkpoint writes',
       },
     })
     expect(
-      store.observationCheckpoints.rebindExact({
+      await store.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
         provider: 'codex',
         providerSessionId: 'thread-1',
@@ -85,7 +84,7 @@ it('durably fences observation generations and rejects stale checkpoint writes',
       lease: { providerSessionId: 'thread-2', bindingVersion: 2, observationGeneration: 3 },
     })
     expect(
-      store.observationCheckpoints.rebindExact({
+      await store.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
         provider: 'codex',
         providerSessionId: 'thread-2',
@@ -98,21 +97,21 @@ it('durably fences observation generations and rejects stale checkpoint writes',
       disposition: 'unchanged',
       lease: { bindingVersion: 2, observationGeneration: 3, checkpoint: null },
     })
-    store.sessions.purgeSession(asSessionId('s1'))
-    expect(store.observationCheckpoints.get(asSessionId('s1'))).toBeNull()
+    await store.sessions.purgeSession(asSessionId('s1'))
+    expect(await store.observationCheckpoints.get(asSessionId('s1'))).toBeNull()
   } finally {
     store.close()
   }
 })
 
-it('keeps exact rebind retries idempotent across repository reopen', () => {
+it('keeps exact rebind retries idempotent across repository reopen', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-observation-rebind-'))
   const path = join(dir, 'podium.sqlite')
   try {
-    const first = new SessionStore(path)
-    first.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', null)
+    const first = await openTestStore(path)
+    await first.observationCheckpoints.advanceGeneration(asSessionId('s1'), 'codex', null)
     expect(
-      first.observationCheckpoints.rebindExact({
+      await first.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
         provider: 'codex',
         providerSessionId: null,
@@ -127,9 +126,9 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
     })
     first.close()
 
-    const reopened = new SessionStore(path)
+    const reopened = await openTestStore(path)
     expect(
-      reopened.observationCheckpoints.rebindExact({
+      await reopened.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
         provider: 'codex',
         providerSessionId: null,
@@ -143,7 +142,7 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
       lease: { providerSessionId: 'thread-1', bindingVersion: 2, observationGeneration: 2 },
     })
     expect(
-      reopened.observationCheckpoints.rebindExact({
+      await reopened.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
         provider: 'codex',
         providerSessionId: null,
@@ -152,7 +151,7 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
         nextProviderSessionId: 'thread-2',
       }),
     ).toMatchObject({ kind: 'rejected', rejectionReason: 'stale_observer_generation' })
-    reopened.observationCheckpoints.rebindExact({
+    await reopened.observationCheckpoints.rebindExact({
       sessionId: asSessionId('s1'),
       provider: 'codex',
       providerSessionId: 'thread-1',
@@ -161,7 +160,7 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
       nextProviderSessionId: 'thread-2',
     })
     expect(
-      reopened.observationCheckpoints.rebindExact({
+      await reopened.observationCheckpoints.rebindExact({
         sessionId: asSessionId('s1'),
         provider: 'codex',
         providerSessionId: null,
@@ -179,3 +178,4 @@ it('keeps exact rebind retries idempotent across repository reopen', () => {
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { openTestStore } from '../test-support/open-test-store'

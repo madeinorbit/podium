@@ -1,17 +1,18 @@
 import {
-  asUserId,
+  asMachineId,
   asSessionId,
+  asUserId,
   FIRST_ADMIN_USER_ID,
   type SessionMeta,
   SOLE_USER_ID,
-  asMachineId,
 } from '@podium/model'
 import { type MetadataChange, type ServerMessage, WIRE_VERSION } from '@podium/protocol'
 import { Ledger } from '@podium/sync'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 type ProjectionEvent = {
   generation: number
@@ -75,8 +76,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     return boot.cursor
   }
 
-  it('(a) a throw between the row write and the change append rolls BOTH back', () => {
-    const store = new SessionStore(':memory:')
+  it('(a) a throw between the row write and the change append rolls BOTH back', async () => {
+    const store = await openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
       now: () => 1_000,
@@ -118,7 +119,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       }),
     ).toThrow('declaration failed')
     // The session row write inside the same transact span rolled back too.
-    expect(store.sessions.loadSessions().find((r) => r.id === 's-atomic')).toBeUndefined()
+    expect((await store.sessions.loadSessions()).find((r) => r.id === 's-atomic')).toBeUndefined()
     expect(ledger.cursor()).toBe(cursorBefore)
   })
 
@@ -198,7 +199,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(delta.inbox.slice(before).some((m) => m.type === 'sessionsChanged')).toBe(false)
   })
 
-  it('(e) kill commits a remove in the same transaction as the row tombstone', () => {
+  it('(e) kill commits a remove in the same transaction as the row tombstone', async () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const cursor = cursorOf(registry)
@@ -219,8 +220,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
         (c) => c.id === sessionId && c.op === 'remove',
       ),
     ).toBe(true)
-    expect(registry.sessionStore.sessions.loadSessions()).toHaveLength(0)
-    expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
+    expect(await registry.sessionStore.sessions.loadSessions()).toHaveLength(0)
+    expect(await registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
       expect.objectContaining({
         id: sessionId,
         deletionSource: 'standalone',
@@ -229,16 +230,16 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     ])
   })
 
-  it('(f) boot reconcile records offline row changes durably, with no fan-out', () => {
-    const store = new SessionStore(':memory:')
+  it('(f) boot reconcile records offline row changes durably, with no fan-out', async () => {
+    const store = await openTestStore(':memory:')
     const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     first.dispose()
     const cursor = first.modules.sessions.syncChangesSince(null).cursor
     // Offline mutation: rename the row behind the server's back.
-    const row = store.sessions.loadSessions().find((r) => r.id === sessionId)
+    const row = (await store.sessions.loadSessions()).find((r) => r.id === sessionId)
     if (!row) throw new Error('row missing')
-    store.sessions.upsertSession({ ...row, name: 'changed offline' })
+    await store.sessions.upsertSession({ ...row, name: 'changed offline' })
     // Restart over the same store: loadFromStore reconciles against the ledger.
     const second = makeRegistry(store)
     const healed = second.modules.sessions.syncChangesSince(cursor)
@@ -442,8 +443,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(registry.modules.sessions.listSessions()[0]).not.toHaveProperty('revision')
   })
 
-  it('resets the internal generation across restart without disturbing durable ledger order', () => {
-    const store = new SessionStore(':memory:')
+  it('resets the internal generation across restart without disturbing durable ledger order', async () => {
+    const store = await openTestStore(':memory:')
     const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     const clientId = attachTestClient(first.clientGateway, () => {})
@@ -676,7 +677,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     off()
   })
 
-  it('rolls back live rename state when the durable append fails', () => {
+  it('rolls back live rename state when the durable append fails', async () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
@@ -697,7 +698,8 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.name,
     ).toBeUndefined()
     expect(
-      registry.sessionStore.sessions.loadSessions().find((row) => row.id === sessionId)?.name,
+      (await registry.sessionStore.sessions.loadSessions()).find((row) => row.id === sessionId)
+        ?.name,
     ).toBeNull()
     expect(cursorOf(registry)).toBe(cursor)
     expect(events).toEqual([])
@@ -719,7 +721,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect((events[0]?.changes[0] as { value?: SessionMeta }).value?.name).toBe('committed-name')
   })
 
-  it('rolls back live and SQLite snooze state when the durable append fails', () => {
+  it('rolls back live and SQLite snooze state when the durable append fails', async () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
@@ -750,9 +752,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(
       registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.snoozedUntil,
     ).toBeUndefined()
-    expect(registry.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID))).not.toHaveProperty(
-      sessionId,
-    )
+    expect(
+      await registry.sessionStore.sessions.listSnoozes(asUserId(SOLE_USER_ID)),
+    ).not.toHaveProperty(sessionId)
     expect(cursorOf(registry)).toBe(cursor)
     expect(events).toEqual([])
 
@@ -789,7 +791,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       { checkpoint: { terminalFence: { turnEpoch: 1 } } },
       false,
     ],
-  ] as const)('(exit fence) %s session emits terminal proof only for a durable terminal fence', (_name, checkpointRecord, terminalFenceReported) => {
+  ] as const)('(exit fence) %s session emits terminal proof only for a durable terminal fence', async (_name, checkpointRecord, terminalFenceReported) => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({
       agentKind: 'shell',
@@ -801,9 +803,9 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
 
     registry.modules.sessions.killSession({ sessionId })
 
-    const exited = registry.sessionStore.events
-      .listEventsSince(0, { kinds: ['session.exited'] })
-      .at(-1)
+    const exited = (
+      await registry.sessionStore.events.listEventsSince(0, { kinds: ['session.exited'] })
+    ).at(-1)
     expect(exited?.subject).toBe(sessionId)
     if (terminalFenceReported) {
       expect(exited?.payload).toMatchObject({ terminalFenceReported: true })
@@ -812,7 +814,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     }
   })
 
-  it('(k) a failed change append on kill leaves the session fully live (#247)', () => {
+  it('(k) a failed change append on kill leaves the session fully live (#247)', async () => {
     const registry = makeRegistry()
     const { sessionId } = registry.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })
     registry.modules.sessions.flushBroadcasts()
@@ -827,8 +829,10 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
       true,
     )
-    expect(registry.sessionStore.sessions.loadSessions().some((r) => r.id === sessionId)).toBe(true)
-    expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([])
+    expect(
+      (await registry.sessionStore.sessions.loadSessions()).some((r) => r.id === sessionId),
+    ).toBe(true)
+    expect(await registry.sessionStore.sessions.loadDeletedSessions()).toEqual([])
     // A subsequent broadcast is snapshot-only and appends NOTHING for the untouched entity.
     registry.modules.sessions.broadcastSessions()
     registry.modules.sessions.flushBroadcasts()
@@ -841,7 +845,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
     expect(registry.modules.sessions.listSessions().some((s) => s.sessionId === sessionId)).toBe(
       false,
     )
-    expect(registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
+    expect(await registry.sessionStore.sessions.loadDeletedSessions()).toEqual([
       expect.objectContaining({ id: sessionId, deletionSource: 'standalone' }),
     ])
   })

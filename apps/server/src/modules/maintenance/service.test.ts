@@ -1,9 +1,9 @@
 import {
-  asThreadId,
-  asUserId,
   asIssueId,
   asMachineId,
   asSessionId,
+  asThreadId,
+  asUserId,
   FIRST_ADMIN_USER_ID,
 } from '@podium/model'
 import {
@@ -28,7 +28,8 @@ import {
   worktreeGcRunKey,
 } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { type MessageRow, SessionStore } from '../../store'
+import type { MessageRow, SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { MaintenanceService } from './service'
 
 const baseMessage = (over: Partial<MessageRow> = {}): MessageRow => ({
@@ -68,7 +69,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
 
   beforeEach(() => {
     nowMs = Date.parse('2026-07-18T00:00:00.000Z')
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     funnelWrites = 0
     service = new MaintenanceService(
       store,
@@ -533,7 +534,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
 
   beforeEach(() => {
     nowMs = Date.parse('2026-07-18T00:00:00.000Z')
-    store = new SessionStore(':memory:')
+    store = openTestStore(':memory:')
     policy = { mode: 'propose', afterDays: 14 }
     tryWorktreeGcObserved = vi.fn(async () => ({ outcome: 'proposed' as const }))
     service = new MaintenanceService(

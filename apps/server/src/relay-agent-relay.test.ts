@@ -1,10 +1,11 @@
-import { asMachineId, asIssueId, asSessionId } from '@podium/model'
 import type { SessionId } from '@podium/model'
-import type { ControlMessage } from '@podium/protocol/daemon'
+import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { sessionTitleRule } from '@podium/protocol'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * The nudge's own opening sentence, taken from the source of truth rather than
@@ -41,28 +42,28 @@ describe('server agent relay handler (P1b)', () => {
   let B: { id: string }
   let sA: string
 
-  beforeEach(() => {
+  beforeEach(async () => {
     // Two machines with a checkout each, seeded through an injected store. Without
     // this the default fixture has a daemon SOCKET but no machines ROW, so a fleet
     // read comes back empty — and an empty array satisfies every per-row assertion
     // below without executing one of them. This seeding is what lets those fail.
-    store = new SessionStore(':memory:')
-    store.machines.upsertMachine({
+    store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: machineId,
       name: 'ludovico',
       hostname: 'ludovico.local',
       tokenHash: 'hash-1',
       ownerUserId: null,
     })
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: 'm2',
       name: 'quiet-box',
       hostname: 'quiet-box.example.net',
       tokenHash: 'hash-2',
       ownerUserId: null,
     })
-    store.repos.addRepo('/home/a/src/podium', asMachineId(machineId))
-    store.repos.addRepo('/home/b/src/podium', asMachineId('m2'))
+    await store.repos.addRepo('/home/a/src/podium', asMachineId(machineId))
+    await store.repos.addRepo('/home/b/src/podium', asMachineId('m2'))
     registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     // A is a subtree root with a worktree; a session runs INSIDE it → subtree cap rooted at A.

@@ -3,7 +3,8 @@ import { WIRE_VERSION } from '@podium/protocol'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../apps/server/src/relay'
-import { type IssueRow, SessionStore } from '../apps/server/src/store'
+import type { IssueRow } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 
 const SESSION_COUNT = 588
 const ISSUE_COUNT = 800
@@ -80,7 +81,7 @@ async function until(check: () => boolean, timeoutMs = 5_000): Promise<void> {
 
 describe('loop split representative load [spec:SP-c29e]', () => {
   it('holds publication interaction and event-loop targets at 588 sessions / 800 issues', async () => {
-    const store = new SessionStore(':memory:')
+    const store = openTestStore(':memory:')
     store.transact(() => {
       for (let seq = 1; seq <= ISSUE_COUNT; seq += 1) store.issues.upsertIssue(issueRow(seq))
     })

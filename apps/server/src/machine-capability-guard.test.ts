@@ -25,19 +25,19 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * A fleet with exactly the shape of the sandbox that broke: a coordinator that
  * runs the server and no daemon, and one ordinary machine that runs a daemon.
  */
-function fleet() {
-  const store = new SessionStore(':memory:')
+async function fleet() {
+  const store = await openTestStore(':memory:')
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   // The coordinator row, stamped `server` by boot exactly as production does.
   const coordinator = asMachineId(registry.modules.machines.ensureHostMachine('source'))
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'laptop',
     name: 'mango',
     hostname: 'mango.local',
@@ -82,14 +82,14 @@ function expectNoDaemonRefusal(error: unknown, name: string): void {
 
 describe('the component fact', () => {
   it('marks the coordinator server-only and the daemon host repo-capable', async () => {
-    const { call, coordinator, laptop } = fleet()
+    const { call, coordinator, laptop } = await fleet()
     const machines = await call.machines.list()
     expect(machines.find((m) => m.id === coordinator)?.components).toEqual(['server'])
     expect(machines.find((m) => m.id === laptop)?.components).toEqual(['daemon'])
   })
 
-  it('is additive: a coordinator that also runs a daemon keeps both', () => {
-    const { registry, coordinator } = fleet()
+  it('is additive: a coordinator that also runs a daemon keeps both', async () => {
+    const { registry, coordinator } = await fleet()
     registry.gateway.attachDaemon(coordinator, () => {})
     registry.modules.machines.invalidateMachineCache()
     const machine = registry.modules.machines.listMachines().find((m) => m.id === coordinator)
@@ -102,7 +102,7 @@ describe('the component fact', () => {
 
 describe('repo actions refuse a machine that runs no daemon', () => {
   it('repos.add refuses the coordinator, and says why', async () => {
-    const { call, coordinator } = fleet()
+    const { call, coordinator } = await fleet()
     await expect(
       call.repos.add({ path: '/home/mgw/src/thing', machineId: coordinator }),
     ).rejects.toThrow(/runs no Podium daemon/)
@@ -115,26 +115,26 @@ describe('repo actions refuse a machine that runs no daemon', () => {
   })
 
   it('repos.add still accepts a machine that runs a daemon, ONLINE OR NOT', async () => {
-    const { call, laptop, registry, dropLaptopDaemon } = fleet()
+    const { call, laptop, registry, dropLaptopDaemon } = await fleet()
     await call.repos.add({ path: '/home/mgw/src/thing', machineId: laptop })
-    expect(registry.sessionStore.repos.listRepoPaths(laptop)).toContain('/home/mgw/src/thing')
+    expect(await registry.sessionStore.repos.listRepoPaths(laptop)).toContain('/home/mgw/src/thing')
     // The gate that matters is DURABLE, not live: dropping the socket must not
     // retract a repo host, or "offline" and "incapable" have been collapsed again.
     dropLaptopDaemon()
     expect(registry.modules.machines.hasDaemon(laptop)).toBe(false)
     await call.repos.add({ path: '/home/mgw/src/other', machineId: laptop })
-    expect(registry.sessionStore.repos.listRepoPaths(laptop)).toContain('/home/mgw/src/other')
+    expect(await registry.sessionStore.repos.listRepoPaths(laptop)).toContain('/home/mgw/src/other')
   })
 
   it('repos.addMany reports the refusal per path rather than swallowing it', async () => {
-    const { call, coordinator } = fleet()
+    const { call, coordinator } = await fleet()
     const result = await call.repos.addMany({ paths: ['/a/one', '/a/two'], machineId: coordinator })
     expect(result.failed).toHaveLength(2)
     expectNoDaemonRefusal(new Error(result.failed[0]?.message ?? ''), 'source')
   })
 
   it('repos.browse refuses the coordinator instead of timing out on a daemon that is not there', async () => {
-    const { call, coordinator } = fleet()
+    const { call, coordinator } = await fleet()
     try {
       await call.repos.browse({ machineId: coordinator })
       expect.unreachable('repos.browse walked a machine with no daemon')
@@ -146,7 +146,7 @@ describe('repo actions refuse a machine that runs no daemon', () => {
 
 describe('issue homing refuses a machine that can never hold the worktree', () => {
   it('issues.create refuses to home an issue on the coordinator', async () => {
-    const { registry, coordinator, repos } = fleet()
+    const { registry, coordinator, repos } = await fleet()
     await repos.add('/home/mgw/src/thing', asMachineId('laptop'))
     expect(() =>
       registry.modules.issues.create({
@@ -160,8 +160,8 @@ describe('issue homing refuses a machine that can never hold the worktree', () =
 })
 
 describe('offline is not incapable', () => {
-  it('an offline daemon host is refused for a LIVE action with different words', () => {
-    const { registry, laptop, coordinator, dropLaptopDaemon } = fleet()
+  it('an offline daemon host is refused for a LIVE action with different words', async () => {
+    const { registry, laptop, coordinator, dropLaptopDaemon } = await fleet()
     dropLaptopDaemon()
     const machines = registry.modules.machines
     // Same requirement, same call, two machines — and two different sentences.

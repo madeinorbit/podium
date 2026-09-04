@@ -1,8 +1,8 @@
 import { asUserId, asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
 import { deriveVersionState, MachinesService } from './service'
+import { openTestStore } from '../../test-support/open-test-store'
 
 describe('deriveVersionState', () => {
   it('is unreported when the machine has not said', () => {
@@ -26,16 +26,16 @@ describe('deriveVersionState', () => {
     expect(deriveVersionState('dev+aaa', 'dev+aaa')).toBe('current')
   })
 
-  it('projects the persisted report and recomputes state when the target moves', () => {
-    const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({
+  it('projects the persisted report and recomputes state when the target moves', async () => {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box.local',
       tokenHash: 'token-hash',
       ownerUserId: asUserId('user:sole'),
     })
-    store.machines.setMachineBuild(
+    await store.machines.setMachineBuild(
       'm1',
       { appVersion: '0.4.2', wireSchemaDigest: 'abc', installKind: 'installed' },
       ['update.delivery.feed'],
@@ -63,13 +63,13 @@ describe('deriveVersionState', () => {
     expect(service.listMachines()[0]?.versionState).toBe('behind')
   })
 
-  it('composes the server target into the machine read model', () => {
-    const store = new SessionStore(':memory:')
+  it('composes the server target into the machine read model', async () => {
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       targetVersion: () => '0.4.2',
     })
-    const machine = store.machines.listMachines()[0]
+    const machine = (await store.machines.listMachines())[0]
     if (!machine) throw new Error('expected the registry host machine')
 
     registry.modules.machines.setMachineBuild(

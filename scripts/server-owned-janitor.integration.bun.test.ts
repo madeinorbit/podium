@@ -28,7 +28,8 @@ import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'bun:test'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
-import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import type { MessageRow } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 
 interface JanitorComponent {
   state?: string
@@ -105,7 +106,7 @@ describe('a bare server hosts its own janitor [PDM-27]', () => {
     let server: ServerHandle | undefined
 
     try {
-      const seed = new SessionStore(dbPath)
+      const seed = openTestStore(dbPath)
       seed.messages.addMessage(dueMessage())
       seed.close()
 

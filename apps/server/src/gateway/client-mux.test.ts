@@ -46,7 +46,7 @@ vi.mock('./client-frame-routing', async (importOriginal) => {
 const presenceStub = (): PresenceRouting =>
   ({ route: vi.fn(), setVisible: vi.fn(), disconnect: vi.fn() }) as unknown as PresenceRouting
 
-function harness() {
+async function harness() {
   const registry = new ClientRegistry()
   const ports: ClientFeaturePorts = {
     sessions: {
@@ -64,7 +64,7 @@ function harness() {
   const mux = new ClientMux({
     registry,
     ports,
-    feed: feedTestPlumbing().serving,
+    feed: (await feedTestPlumbing()).serving,
     presence: presenceStub(),
     bootstrap,
   })
@@ -76,8 +76,8 @@ function harness() {
 const A_ROUTABLE_FRAME = { type: 'attach', sessionId: asSessionId('s1') } satisfies ClientMessage
 
 describe('the instrument', () => {
-  it('routes a well-formed frame to the sessions port', () => {
-    const h = harness()
+  it('routes a well-formed frame to the sessions port', async () => {
+    const h = await harness()
     h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
     expect(h.ports.sessions.onSessionClientFrame).toHaveBeenCalledTimes(1)
   })
@@ -104,8 +104,8 @@ describe('the routing table', () => {
 })
 
 describe('the gate fails closed', () => {
-  it('REFUSES a frame type it cannot classify, rather than defaulting it', () => {
-    const h = harness()
+  it('REFUSES a frame type it cannot classify, rather than defaulting it', async () => {
+    const h = await harness()
     const logs = captureLogs()
     // A type that is on neither table — protocol drift, a newer client, a hostile
     // peer. It must reach no port at all.
@@ -120,12 +120,12 @@ describe('the gate fails closed', () => {
     logs.restore()
   })
 
-  it('refuses when the PLANE INVENTORY cannot classify it, though the port table can', () => {
+  it('refuses when the PLANE INVENTORY cannot classify it, though the port table can', async () => {
     // The two lookups are an AND on purpose, and no REAL frame can exercise that
     // (the table above pins the two key sets identical). So the divergence is
     // forced: this is the "frame classified in one table and forgotten in the
     // other" case, and an OR here would let it through as a default.
-    const h = harness()
+    const h = await harness()
     const logs = captureLogs()
     forced.plane = true
     try {
@@ -137,8 +137,8 @@ describe('the gate fails closed', () => {
     logs.restore()
   })
 
-  it('refuses when the PORT TABLE cannot answer, though the plane inventory can', () => {
-    const h = harness()
+  it('refuses when the PORT TABLE cannot answer, though the plane inventory can', async () => {
+    const h = await harness()
     const logs = captureLogs()
     forced.ports = true
     try {
@@ -150,25 +150,25 @@ describe('the gate fails closed', () => {
     logs.restore()
   })
 
-  it('routes that SAME frame when neither lookup is forced — the forcing is real', () => {
+  it('routes that SAME frame when neither lookup is forced — the forcing is real', async () => {
     // Non-vacuity for the two tests above: without it they would pass against a
     // mock that refuses everything.
-    const h = harness()
+    const h = await harness()
     h.mux.routeClientFrame(h.id, A_ROUTABLE_FRAME)
     expect(h.ports.sessions.onSessionClientFrame).toHaveBeenCalledTimes(1)
   })
 
-  it('drops a frame for a connection that is not registered', () => {
+  it('drops a frame for a connection that is not registered', async () => {
     // There is no principal to route it under, so there is nothing to guess.
-    const h = harness()
+    const h = await harness()
     h.mux.routeClientFrame('c999', A_ROUTABLE_FRAME)
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
   })
 })
 
 describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
-  it('mints it from the connection, never from a frame body', () => {
-    const h = harness()
+  it('mints it from the connection, never from a frame body', async () => {
+    const h = await harness()
     // The forgery: `hello.clientId` is a real payload field naming ANOTHER
     // connection (it drives the reconnect reclaim). A frame claiming to be
     // someone else must still be delivered as itself.
@@ -185,23 +185,23 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
     expect(h.registry.get('attacker')).toBeUndefined()
   })
 
-  it('is user-grade and preserves the authenticated account identity', () => {
-    const h = harness()
+  it('is user-grade and preserves the authenticated account identity', async () => {
+    const h = await harness()
     const principal = h.mux.principalOf(h.id)
     expect(CLIENT_PRINCIPAL_GRADE).toBe('user')
     expect(principal?.kind).toBe('user')
     expect(principal?.user).toBe('user:sole')
   })
 
-  it('fails closed when an in-process peer has no authenticated identity', () => {
-    const h = harness()
+  it('fails closed when an in-process peer has no authenticated identity', async () => {
+    const h = await harness()
     const before = h.registry.size
     expect(() => h.mux.attachClient(() => {})).toThrow(/identity is unavailable/)
     expect(h.registry.size).toBe(before)
   })
 
-  it('gives two connections distinct DEVICES under the same user', () => {
-    const h = harness()
+  it('gives two connections distinct DEVICES under the same user', async () => {
+    const h = await harness()
     const second = attachTestClient(h.mux, () => {})
     expect(second).not.toBe(h.id)
     expect(h.mux.principalOf(second)?.device).not.toBe(h.mux.principalOf(h.id)?.device)
@@ -210,8 +210,8 @@ describe('the principal comes from the AUTHENTICATED TRANSPORT', () => {
 })
 
 describe('the connection lifecycle', () => {
-  it('registers, welcomes with the SERVER-minted id, then bootstraps the feature', () => {
-    const h = harness()
+  it('registers, welcomes with the SERVER-minted id, then bootstraps the feature', async () => {
+    const h = await harness()
     expect(h.sent[0]).toEqual({ type: 'welcome', clientId: h.id })
     expect(h.ports.sessions.onClientAttached).toHaveBeenCalledTimes(1)
     expect(h.bootstrap).toHaveBeenCalledTimes(1)
@@ -224,8 +224,8 @@ describe('the connection lifecycle', () => {
     expect(h.registry.get(h.id)).toBe(conn)
   })
 
-  it('acknowledges binary input only after hello and routes bytes under transport identity', () => {
-    const h = harness()
+  it('acknowledges binary input only after hello and routes bytes under transport identity', async () => {
+    const h = await harness()
     vi.mocked(h.ports.sessions.onSessionClientFrame).mockImplementation((_principal, conn, msg) => {
       if (msg.type === 'hello' && msg.caps) conn.caps = new Set(msg.caps)
     })
@@ -255,8 +255,8 @@ describe('the connection lifecycle', () => {
     )
   })
 
-  it('removes the connection BEFORE the sweep, and hands the sweep its record', () => {
-    const h = harness()
+  it('removes the connection BEFORE the sweep, and hands the sweep its record', async () => {
+    const h = await harness()
     vi.mocked(h.ports.sessions.onClientDetached).mockImplementation(() => {
       // Asserted from INSIDE the port call: a re-entrant fan-out during the sweep
       // must not reach a socket that is already gone.
@@ -267,8 +267,8 @@ describe('the connection lifecycle', () => {
     expect(vi.mocked(h.ports.sessions.onClientDetached).mock.calls[0]?.[1].id).toBe(h.id)
   })
 
-  it('reclaims a stale connection only for the same authenticated user', () => {
-    const h = harness()
+  it('reclaims a stale connection only for the same authenticated user', async () => {
+    const h = await harness()
     const next = attachTestClient(h.mux, () => {})
     h.mux.routeClientFrame(next, {
       type: 'hello',
@@ -283,8 +283,8 @@ describe('the connection lifecycle', () => {
     expect(h.registry.get(next)).toBeDefined()
   })
 
-  it('refuses reconnect reclaim across authenticated users', () => {
-    const h = harness()
+  it('refuses reconnect reclaim across authenticated users', async () => {
+    const h = await harness()
     const logs = captureLogs()
     const next = h.mux.attachClient({
       userId: asUserId('user:other'),
@@ -304,15 +304,15 @@ describe('the connection lifecycle', () => {
     logs.restore()
   })
 
-  it('is idempotent on a second close', () => {
-    const h = harness()
+  it('is idempotent on a second close', async () => {
+    const h = await harness()
     h.mux.detachClient(h.id)
     h.mux.detachClient(h.id)
     expect(h.ports.sessions.onClientDetached).toHaveBeenCalledTimes(1)
   })
 
-  it('answers ping itself, without waking a feature', () => {
-    const h = harness()
+  it('answers ping itself, without waking a feature', async () => {
+    const h = await harness()
     h.mux.routeClientFrame(h.id, { type: 'ping' })
     expect(h.sent.at(-1)).toEqual({ type: 'pong' })
     expect(h.ports.sessions.onSessionClientFrame).not.toHaveBeenCalled()
@@ -321,7 +321,7 @@ describe('the connection lifecycle', () => {
 
 describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
   /** Three connections, so "everyone" and "everyone but one" can differ. */
-  function fanout() {
+  async function fanout() {
     const registry = new ClientRegistry()
     const mux = new ClientMux({
       registry,
@@ -335,7 +335,7 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
           onSessionClientInput: vi.fn(),
         },
       },
-      feed: feedTestPlumbing().serving,
+      feed: (await feedTestPlumbing()).serving,
       presence: presenceStub(),
       bootstrap: vi.fn(),
     })
@@ -353,15 +353,15 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
 
   const NOTE: ServerMessage = { type: 'pong' }
 
-  it('reaches EVERY connection, in registration order', () => {
-    const f = fanout()
+  it('reaches EVERY connection, in registration order', async () => {
+    const f = await fanout()
     f.registry.broadcast(NOTE)
     expect([...f.inboxes.values()].map((i) => i.length)).toEqual([1, 1, 1])
     expect([...f.registry.values()].map((c) => c.id)).toEqual(f.ids)
   })
 
-  it('skips ONLY the originator when one is named (draft echo suppression)', () => {
-    const f = fanout()
+  it('skips ONLY the originator when one is named (draft echo suppression)', async () => {
+    const f = await fanout()
     const originator = f.ids[1] as string
     f.registry.broadcast(NOTE, { exceptClientId: originator })
     expect(f.inboxes.get(originator)).toEqual([])
@@ -370,8 +370,8 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
     }
   })
 
-  it('stops delivering to a connection the moment it is removed', () => {
-    const f = fanout()
+  it('stops delivering to a connection the moment it is removed', async () => {
+    const f = await fanout()
     const gone = f.ids[0] as string
     f.mux.detachClient(gone)
     f.registry.broadcast(NOTE)
@@ -379,11 +379,11 @@ describe('the fan-out mechanism — delivery SHAPE, preserved', () => {
     expect(f.registry.size).toBe(2)
   })
 
-  it('does NOT scope by principal — that is POD-1077 and it is not built', () => {
+  it('does NOT scope by principal — that is POD-1077 and it is not built', async () => {
     // Stated as a test so a green suite cannot be read as evidence of scoping.
     // Every connection here holds a distinct device principal and every one of
     // them still receives the broadcast.
-    const f = fanout()
+    const f = await fanout()
     const devices = [...f.registry.values()].map((c) => c.principal.device)
     expect(new Set(devices).size).toBe(3)
     f.registry.broadcast(NOTE)

@@ -114,7 +114,7 @@ function goIdle(
 
 describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   it(`${MUST_NOT_CHANGE}: a replayed rename does NOT re-apply — a later value stands`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.rename({ sessionId, name: 'queued offline', mutationId: 'm-rename' })
@@ -125,7 +125,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: replay is keyed on the mutationId alone — a DIFFERENT id re-applies the same input`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.rename({ sessionId, name: 'from the queue', mutationId: 'm-a' })
@@ -136,7 +136,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: omitting the mutationId means NO dedup at all`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.rename({ sessionId, name: 'first' })
@@ -144,7 +144,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.rename({ sessionId, name: 'first' })
 
     expect(o.meta(sessionId).name).toBe('first')
-    expect(o.store.sync.getAppliedMutation(asMutationId(''))).toBeUndefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId(''))).toBeUndefined()
   })
 
   // ONE TEST PER MUTATION-BEARING ROUTE. Deliberately not table-driven and
@@ -153,7 +153,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   // test named for that route rather than hiding behind a generic dedup case.
 
   it(`${MUST_NOT_CHANGE}: sessions.setArchived dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.setArchived({ sessionId, archived: true, mutationId: 'm-arch' })
@@ -161,11 +161,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.setArchived({ sessionId, archived: true, mutationId: 'm-arch' })
 
     expect(o.meta(sessionId).archived).toBe(false)
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-arch'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-arch'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.setWorkState dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.setWorkState({ sessionId, workState: 'done', mutationId: 'm-ws' })
@@ -173,11 +173,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.setWorkState({ sessionId, workState: 'done', mutationId: 'm-ws' })
 
     expect(o.meta(sessionId).workState).toBe('planning')
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-ws'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-ws'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.markRead dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.markRead({ sessionId, mutationId: 'm-read' })
@@ -185,11 +185,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.markRead({ sessionId, mutationId: 'm-read' })
 
     expect(o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-read'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-read'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.markUnread dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.markRead({ sessionId })
@@ -200,11 +200,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     // The replay must NOT clear the readAt the later markRead stamped.
     expect(o.meta(sessionId).unread).toBe(false)
     expect(o.meta(sessionId).readAt).not.toBeNull()
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-unread'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-unread'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.setIssueId dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/p', title: 'target', startNow: false })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -214,11 +214,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
     // The replay must not re-attach a session the user has since detached.
     expect(o.meta(sessionId).issueId).toBeUndefined()
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-issue'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-issue'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.dismissOffer dedupes its replay — TWO locks, and this is the one the queue owns`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.modules.sessions.setOffer({ sessionId, message: 'Ready to merge', actions: [] })
     const first = o.meta(sessionId).offer?.createdAt as string
@@ -238,11 +238,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
     // The offer the operator has never seen is still standing.
     expect(o.meta(sessionId).offer?.message).toBe('Ready to land')
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-offer'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-offer'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: snoozes.set dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const until = new Date(Date.now() + 60_000).toISOString()
 
@@ -251,11 +251,11 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.snoozes.set({ sessionId, until, mutationId: 'm-snooze' })
 
     expect(await o.call.snoozes.list()).toEqual({})
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-snooze'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-snooze'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: snoozes.clear dedupes its replay`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const until = new Date(Date.now() + 60_000).toISOString()
 
@@ -266,12 +266,12 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
     // The replay must not un-snooze a session the user has since re-snoozed.
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: until })
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-unsnooze'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-unsnooze'))).toBeDefined()
   })
 
   it(`${MUST_NOT_CHANGE}: sessions.resumeAndSend dedupes its replay — a woken session is not messaged twice`, async () => {
     const clock = agedClock()
-    const o = makeOracle({ now: clock.now })
+    const o = await makeOracle({ now: clock.now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goIdle(o, sessionId, clock)
     o.daemon.length = 0
@@ -287,7 +287,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.resumeAndSend({ sessionId, text: 'wake once', mutationId: 'm-wake' })
 
     expect(ptyFrames(o.daemon)).toEqual(afterFirst)
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-wake'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-wake'))).toBeDefined()
   })
 
   /**
@@ -306,7 +306,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
    */
   it(`${MUST_NOT_CHANGE}: sessions.sendText dedupes its replay — the framework envelope, with no wrapper of its own`, async () => {
     const clock = agedClock()
-    const o = makeOracle({ now: clock.now })
+    const o = await makeOracle({ now: clock.now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goIdle(o, sessionId, clock)
     o.daemon.length = 0
@@ -324,7 +324,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     await o.call.sessions.sendText({ sessionId, text: 'run it once', mutationId: 'm-send' })
 
     expect(ptyFrames(o.daemon)).toEqual(afterFirst)
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-send'))).toBeDefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-send'))).toBeDefined()
 
     // THE COUNTERFACTUAL: a DIFFERENT mutationId is a different write and must
     // deliver again. Without this the assertion above would also hold for a
@@ -339,7 +339,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: a replay returns the value RECORDED at first apply, not a fresh read`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const a = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const b = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
@@ -364,7 +364,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
   it(`${MUST_NOT_CHANGE}: a replayed send does not double-type into the PTY`, async () => {
     const clock = agedClock()
-    const o = makeOracle({ now: clock.now })
+    const o = await makeOracle({ now: clock.now })
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     goIdle(o, sessionId, clock)
     o.daemon.length = 0
@@ -386,7 +386,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: an ASYNC proc records its RESOLVED value — a replayed create returns the same id and spawns once`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     const first = await o.call.sessions.create({
       agentKind: 'shell',
@@ -404,7 +404,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
     expect(o.reg.modules.sessions.listSessions()).toHaveLength(1)
     // Recorded durably, so the replay survives a server restart too.
     expect(
-      JSON.parse(o.store.sync.getAppliedMutation(asMutationId('m-create')) as string),
+      JSON.parse((await o.store.sync.getAppliedMutation(asMutationId('m-create'))) as string),
     ).toMatchObject({
       sessionId: first.sessionId,
     })
@@ -413,7 +413,7 @@ describe('oracle: mutationId dedup (what makes an outbox replay safe)', () => {
 
 describe('oracle: the writes with NO replay protection', () => {
   it(`${MUST_NOT_CHANGE}: pins and tab order take no mutationId, so a replayed toggle applies again`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     // The input schema has no mutationId field; tRPC strips the unknown key, so
     // nothing is recorded and the second call is a fresh apply.
@@ -422,11 +422,11 @@ describe('oracle: the writes with NO replay protection', () => {
     const afterReplay = await o.call.pins.set({ kind: 'panel', id: 'p1', pinned: true })
 
     expect(afterReplay.panels).toEqual(['p1'])
-    expect(o.store.sync.getAppliedMutation(asMutationId('m-pin'))).toBeUndefined()
+    expect(await o.store.sync.getAppliedMutation(asMutationId('m-pin'))).toBeUndefined()
   })
 
   it(`${MUST_NOT_CHANGE}: the lifecycle commands take no mutationId — kill, hibernate, resurrect and handoff each record NOTHING to replay against`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     // The name says four commands, so all four are exercised. tRPC strips the
@@ -446,10 +446,10 @@ describe('oracle: the writes with NO replay protection', () => {
     await o.call.sessions.kill({ sessionId, mutationId: ids.kill } as never)
 
     for (const id of Object.values(ids)) {
-      expect(o.store.sync.getAppliedMutation(asMutationId(id))).toBeUndefined()
+      expect(await o.store.sync.getAppliedMutation(asMutationId(id))).toBeUndefined()
     }
     // And a second kill is simply another (no-op) apply, not a deduped replay.
     await expect(o.call.sessions.kill({ sessionId })).resolves.toBeUndefined()
-    expect(o.store.sessions.loadDeletedSessions()).toHaveLength(1)
+    expect(await o.store.sessions.loadDeletedSessions()).toHaveLength(1)
   })
 })

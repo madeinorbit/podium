@@ -83,7 +83,7 @@ function liveSession(o: ReturnType<typeof makeOracle>, sessionId: string, cwd = 
 
 describe('oracle: sessions.ask (the seance)', () => {
   it(`${MUST_NOT_CHANGE}: an unanswered ask returns the bounded-wait shape — answered:false, the question id, and a live status snapshot`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     liveSession(o, sessionId)
 
@@ -103,7 +103,7 @@ describe('oracle: sessions.ask (the seance)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: ask is a MESSAGE — it lands in the ledger as a question addressed to the target`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     liveSession(o, sessionId)
 
@@ -113,7 +113,7 @@ describe('oracle: sessions.ask (the seance)', () => {
       timeoutSeconds: 0,
     })) as { questionId: string }
 
-    const row = o.store.messages.getMessage(result.questionId)
+    const row = await o.store.messages.getMessage(result.questionId)
     expect(row).toMatchObject({
       kind: 'question',
       toKind: 'session',
@@ -125,7 +125,7 @@ describe('oracle: sessions.ask (the seance)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: an ANSWERED ask returns answered:true with the answer, the ack id and a live snapshot`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const target = o.reg.modules.sessions.createSession({
@@ -172,15 +172,15 @@ describe('oracle: sessions.ask (the seance)', () => {
     })
     // The ack id is the REPLY's message id — the round trip is traceable in the
     // ledger, not just reported back as a string.
-    expect(o.store.messages.getMessage(result.ackId as string)).toMatchObject({
+    expect(await o.store.messages.getMessage(result.ackId as string)).toMatchObject({
       inReplyTo: questionId,
       body: 'left, then straight on',
     })
-    expect(o.store.messages.getMessage(questionId)?.ackedBy).toBe(result.ackId)
+    expect((await o.store.messages.getMessage(questionId))?.ackedBy).toBe(result.ackId)
   })
 
   it(`${MUST_NOT_CHANGE}: ask against an unknown session THROWS 'session not found' — the gate resolves the target before sending`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     expect(
       await messageOf(() =>
@@ -192,7 +192,7 @@ describe('oracle: sessions.ask (the seance)', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: ask carries NO mutationId — a repeated ask asks again, and nothing is recorded to dedupe against`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     liveSession(o, sessionId)
 
@@ -210,12 +210,12 @@ describe('oracle: sessions.ask (the seance)', () => {
     // Two distinct question rows: the seance is NOT replay-protected, and it is
     // not outbox-covered either (live conversation must fail fast, never queue).
     expect(second.questionId).not.toBe(first.questionId)
-    expect(o.store.messages.getMessage(first.questionId)).toBeDefined()
-    expect(o.store.messages.getMessage(second.questionId)).toBeDefined()
+    expect(await o.store.messages.getMessage(first.questionId)).toBeDefined()
+    expect(await o.store.messages.getMessage(second.questionId)).toBeDefined()
   })
 
   it(`${AGENT_ONLY}: ask is NOT relay-reachable — the allowlist refuses it BEFORE the dispatch arm that implements it`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const a = o.reg.issues.create({ repoPath: '/r', title: 'issue A', startNow: false })
     o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
     const agent = o.reg.modules.sessions.createSession({
@@ -245,7 +245,7 @@ describe('oracle: sessions.ask (the seance)', () => {
     expect(reply.ok).toBe(false)
     expect(reply.error).toBe('sessions.ask is not permitted via relay')
     // No question row was created for the refused call.
-    expect(o.store.messages.listLedger({ sessionId: peer.sessionId })).toEqual([])
+    expect(await o.store.messages.listLedger({ sessionId: peer.sessionId })).toEqual([])
   })
 })
 
@@ -255,7 +255,7 @@ describe('oracle: sessions.uploadImage', () => {
   // routing argument dropped. The routing claim now lives — and is only made —
   // in the two-machine test below. This one checks the payload round trip.
   it(`${MUST_NOT_CHANGE}: a successful upload returns the daemon's absolute path and forwards filename, mimeType and bytes verbatim`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     answerUploads(o, (msg) => ({ path: `/home/agent/.podium/uploads/${msg.sessionId}/x.png` }))
 
@@ -279,7 +279,7 @@ describe('oracle: sessions.uploadImage', () => {
   })
 
   it('routes a live runtime session through staged refs and preserves typed refusals', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
       type: 'bind',
@@ -346,7 +346,7 @@ describe('oracle: sessions.uploadImage', () => {
     MUST_NOT_CHANGE +
       ": a daemon-reported failure surfaces as INTERNAL_SERVER_ERROR carrying the daemon's own message",
     async () => {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       answerUploads(o, () => ({ path: '', error: 'disk full' }))
 
@@ -364,7 +364,7 @@ describe('oracle: sessions.uploadImage', () => {
   )
 
   it(`${MUST_NOT_CHANGE}: an answer with no path is treated as NOBODY ANSWERING — a TIMEOUT, not a silent success`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     // The same empty-path value the RPC layer synthesizes when the 30s round-trip
     // expires, driven here directly so the shape is pinned without the wait.
@@ -388,7 +388,7 @@ describe('oracle: sessions.uploadImage', () => {
     // handler mid-test was a needless moving part — attachDaemon has retarget
     // side effects, and a handler swap is exactly the kind of ordering
     // dependence that makes a test flake instead of characterize.
-    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
+    const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
@@ -432,7 +432,7 @@ describe('oracle: sessions.uploadImage', () => {
     // this operator has no declared relationship with, because there is no owner
     // column and no per-machine grant to consult (§3.1.4 M1/M2). Under POD-1079
     // an upload onto a machine the principal lacks `use` on must be refused.
-    const o = makeOracle({
+    const o = await makeOracle({
       offlineMachines: [{ id: asMachineId('someones-laptop'), name: 'Personal Mac' }],
     })
     const seen = answerUploads(
@@ -460,7 +460,7 @@ describe('oracle: sessions.uploadImage', () => {
   })
 
   it(`${willChange('POD-1073', 'invisible must later fail identically to nonexistent — §3.1.5')}: an upload for an UNKNOWN session is dispatched anyway, to the default machine`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     answerUploads(o, () => ({ path: '/home/agent/.podium/uploads/ghost/x.png' }))
 
     // No existence gate at all: the write is routed to the default machine and
@@ -485,7 +485,7 @@ describe('oracle: sessions.uploadImage', () => {
    * about to run on — the default machine is a coin flip. `machineId` answers
    * the routing question the missing session cannot. */
   it(`${MUST_NOT_CHANGE}: routes an upload for a session that does not exist yet to the machine the caller named`, async () => {
-    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
+    const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
 
     const result = await o.call.sessions.uploadImage({
@@ -507,7 +507,7 @@ describe('oracle: sessions.uploadImage', () => {
    * bytes onto a machine of its choosing and hand the agent a path its own disk
    * does not have. */
   it(`${MUST_NOT_CHANGE}: a KNOWN session's machine still wins over a caller-named one`, async () => {
-    const o = makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
+    const o = await makeOracle({ offlineMachines: [{ id: asMachineId('other'), name: 'other' }] })
     const otherSeen = answerUploads(o, () => ({ path: '/on/other/x.png' }), asMachineId('other'))
     const { sessionId } = await o.call.sessions.create({
       agentKind: 'claude-code',
@@ -533,7 +533,7 @@ describe('oracle: sessions.uploadImage', () => {
   it(`${MUST_NOT_CHANGE}: an upload to a DETACHED (offline) machine times out after the RPC budget and surfaces as TIMEOUT`, async () => {
     vi.useFakeTimers()
     try {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
         type: 'bind',
@@ -580,7 +580,7 @@ describe('oracle: sessions.uploadImage', () => {
   it(`${MUST_NOT_CHANGE}: an ONLINE but unresponsive machine is indistinguishable from an offline one — same TIMEOUT, after the same budget`, async () => {
     vi.useFakeTimers()
     try {
-      const o = makeOracle()
+      const o = await makeOracle()
       const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
       // Attached and considered ONLINE, but never answers. Kept as its own
       // characterization because the two states are genuinely different inputs
@@ -612,7 +612,7 @@ describe('oracle: sessions.uploadImage', () => {
   })
 
   it(`${AGENT_ONLY}: uploadImage is NOT relay-reachable — an agent writes files with its own tools, never through the server`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     const reply = await o.relay({
@@ -628,7 +628,7 @@ describe('oracle: sessions.uploadImage', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: uploadImage carries no mutationId — two uploads are two daemon round-trips, never deduped`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     let served = 0
     answerUploads(o, () => {
@@ -654,7 +654,7 @@ describe('oracle: sessions.uploadImage', () => {
   })
 
   it('rejects forged local-file refs from both chat and mail before crossing to the daemon', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'codex', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
       type: 'bind',

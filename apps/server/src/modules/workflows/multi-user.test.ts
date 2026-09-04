@@ -24,10 +24,10 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { WorkflowOwnershipPort, WorkflowUserRef } from '@podium/commands'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
-import { SessionStore } from '../../store'
 import type { WorkflowMachineAccess } from './handlers/context'
 import { type WorkflowCaller, WorkflowService } from './service'
 import { driveWorkflows } from './test-support'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const NOW = '2026-07-30T00:00:00.000Z'
 const ALICE = 'user:alice'
@@ -155,8 +155,8 @@ function twoUserPolicy() {
 
 type Policy = ReturnType<typeof twoUserPolicy>
 
-function makeHarness(policy: Policy) {
-  const store = new SessionStore(':memory:')
+async function makeHarness(policy: Policy) {
+  const store = await openTestStore(':memory:')
   const service = new WorkflowService(
     {
       store: store.workflows,
@@ -184,11 +184,11 @@ const thrown = (fn: () => unknown): string => {
 
 describe('workflows under two humans', () => {
   let policy: Policy
-  let h: ReturnType<typeof makeHarness>
+  let h: Awaited<ReturnType<typeof makeHarness>>
 
-  beforeEach(() => {
+  beforeEach(async () => {
     policy = twoUserPolicy()
-    h = makeHarness(policy)
+    h = await makeHarness(policy)
   })
 
   /** Alice's task workflow, owned by Alice. */
@@ -378,7 +378,7 @@ describe('workflows under two humans', () => {
    * and UNATTENDED, so revoking a person must stop their in-flight runs with no
    * reaper to write and none to forget.
    */
-  it('stops an IN-FLIGHT run advancing once its delegating human is revoked', () => {
+  it('stops an IN-FLIGHT run advancing once its delegating human is revoked', async () => {
     const created = h.service.create(
       {
         name: 'Long run',
@@ -435,7 +435,7 @@ describe('workflows under two humans', () => {
       ),
     ).toBe('no active workflow run for this session')
     // The step really did not move — the refusal is not cosmetic.
-    expect(h.store.workflows.getRunSteps(run.id)[1]?.status).toBe('pending')
+    expect((await h.store.workflows.getRunSteps(run.id))[1]?.status).toBe('pending')
 
     // THE ASSERTION THAT ACTUALLY ISOLATES REVOCATION, and it is here because a
     // mutation test proved the one above does not.
@@ -493,7 +493,7 @@ describe('workflows under two humans', () => {
    * and checked-out private repos — so this is the ONE decision on the surface
    * where refusing must stay distinguishable from the machine being down.
    */
-  it('DENIES assigning a step onto a machine the principal may not use, distinguishably from offline', () => {
+  it('DENIES assigning a step onto a machine the principal may not use, distinguishably from offline', async () => {
     const created = h.service.create(
       {
         name: 'Placement',
@@ -535,7 +535,7 @@ describe('workflows under two humans', () => {
       ),
     ).toBe('machine m-offline is unreachable')
     // Neither was silently retargeted: the step is still unassigned.
-    expect(h.store.workflows.getRunSteps(run.id)[0]?.assignedSessionId).toBe(null)
+    expect((await h.store.workflows.getRunSteps(run.id))[0]?.assignedSessionId).toBe(null)
     // THE COUNTERFACTUAL: her own reachable machine works.
     expect(
       h.service.assignStep(
@@ -661,9 +661,9 @@ describe('run history records the attribution PAIR', () => {
    * one. Here Alice's agent and Bob's agent write to the same history and the
    * rows have to disagree.
    */
-  it('names WHICH agent acted and WHICH human it acted for, and they differ per row', () => {
+  it('names WHICH agent acted and WHICH human it acted for, and they differ per row', async () => {
     const policy = twoUserPolicy()
-    const h = makeHarness(policy)
+    const h = await makeHarness(policy)
     const created = h.service.create(
       {
         name: 'Shared history',
@@ -725,9 +725,9 @@ describe('the ownership port is consulted, not assumed', () => {
    *
    * So this shows the SAME service, with the SAME port, saying yes.
    */
-  it('says YES for an owner before any of its NOs are believed', () => {
+  it('says YES for an owner before any of its NOs are believed', async () => {
     const policy = twoUserPolicy()
-    const h = makeHarness(policy)
+    const h = await makeHarness(policy)
     const created = h.service.create(
       {
         name: 'Probe',
@@ -752,9 +752,9 @@ describe('the ownership port is consulted, not assumed', () => {
    * ownership columns exist) fails closed rather than reading as everyone's.
    * This is the migration hazard, asserted rather than assumed.
    */
-  it('fails closed on a row nobody owns, for a member — and an admin can still reach it', () => {
+  it('fails closed on a row nobody owns, for a member — and an admin can still reach it', async () => {
     const policy = twoUserPolicy()
-    const h = makeHarness(policy)
+    const h = await makeHarness(policy)
     const created = h.service.create(
       {
         name: 'Legacy',

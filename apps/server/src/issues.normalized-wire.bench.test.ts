@@ -1,4 +1,4 @@
-import { asIssueId, asSessionId, FIRST_ADMIN_USER_ID, asMachineId} from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { WIRE_VERSION } from '@podium/protocol'
 import { afterEach, expect, it } from 'vitest'
 import {
@@ -7,9 +7,9 @@ import {
   resetIssueWireBuildCount,
 } from './modules/issues/instrumentation'
 import { SessionRegistry } from './relay'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * POD-797 residue path through the production composition root.
@@ -92,9 +92,9 @@ function issueRow(i: number): IssueRow {
   } as unknown as IssueRow
 }
 
-function seedSession(store: SessionStore, i: number): string {
+async function seedSession(store: SessionStore, i: number): Promise<string> {
   const id = `sess_${i}`
-  store.sessions.upsertSession({
+  await store.sessions.upsertSession({
     id: asSessionId(id),
     ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'shell',
@@ -128,11 +128,11 @@ afterEach(() => {
   for (const r of registries.splice(0)) r.dispose()
 })
 
-function world() {
-  const store = new SessionStore(':memory:')
-  for (let i = 0; i < ISSUE_COUNT; i++) store.issues.upsertIssue(issueRow(i))
+async function world() {
+  const store = await openTestStore(':memory:')
+  for (let i = 0; i < ISSUE_COUNT; i++) await store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
-  for (let i = 0; i < SESSION_COUNT; i++) sessionIds.push(seedSession(store, i))
+  for (let i = 0; i < SESSION_COUNT; i++) sessionIds.push(await seedSession(store, i))
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
 
@@ -152,8 +152,8 @@ function world() {
 
 it('session-free residue never couples session changes back to issues', {
   timeout: RESIDUE_GUARD_TIMEOUT_MS,
-}, () => {
-  const { registry, sessionIds, attachBuilds, attachScans } = world()
+}, async () => {
+  const { registry, sessionIds, attachBuilds, attachScans } = await world()
   // BOUNDED, not pinned at ISSUE_COUNT. Main measures one build per issue at
   // attach; here it is typically ZERO, because the POD-723 memo is populated at
   // registry construction and the attach paints from it. Pinning the exact number

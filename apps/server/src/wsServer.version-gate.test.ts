@@ -9,7 +9,8 @@ import {
   type WsHandle,
 } from './gateway/ws-server'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 let server: Pick<NativeServer<never>, 'port' | 'stop'> | undefined
 let handle: WsHandle | undefined
@@ -26,7 +27,7 @@ afterEach(async () => {
 
 /** Start a real native Bun server with an open client surface. */
 async function start(): Promise<string> {
-  store = new SessionStore(':memory:')
+  store = await openTestStore(':memory:')
   registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   handle = attachWebSockets(registry, {
     userForClient: () => FIRST_ADMIN_USER_ID,

@@ -24,9 +24,9 @@ const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 import type { Capability } from './issue-authz'
 import { SessionRegistry } from './relay'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * Characterization net for the architecture redesign (store.ts / relay.ts dissolution).
@@ -188,25 +188,24 @@ interface LifecycleObservation {
 }
 
 /** Everything observable after the lifecycle ran on one registry. */
-function observe(reg: SessionRegistry, issueId: string): LifecycleObservation {
+async function observe(reg: SessionRegistry, issueId: string): Promise<LifecycleObservation> {
   reg.modules.sessions.flushBroadcasts()
   const store = reg.sessionStore
   return {
     wire: normalize(reg.issues.get(issueId)),
     events: normalize(
-      store.events.listEventsSince(0).map((e) => ({
+      (await store.events.listEventsSince(0)).map((e) => ({
         kind: e.kind,
         subject: e.subject,
         repoPath: e.repoPath,
         payload: e.payload,
       })),
     ),
-    comments: normalize(store.issues.listIssueComments(asIssueId(issueId))),
+    comments: normalize(await store.issues.listIssueComments(asIssueId(issueId))),
     // Compare the FOLDED oplog state, not row counts: sync writes coalesce
     // differently than awaited ones, but the final recorded truth must match.
     oplogIssues: normalize(
-      store.sync
-        .latestChangeStates()
+      (await store.sync.latestChangeStates())
         .filter((r) => r.entity === 'issue')
         .map((r) => ({ op: r.op, payload: r.payload == null ? null : JSON.parse(r.payload) })),
     ),
@@ -221,8 +220,8 @@ describe('characterization: issue lifecycle equivalence across entry points (con
    *  differ in the one field that has nothing to do with the entry point. A real
    *  install has one host; this pins that. */
   const HOST = asMachineId('machine-under-test')
-  const freshRegistry = () => {
-    const reg = SessionRegistry.create(new SessionStore(':memory:', HOST), undefined, {
+  const freshRegistry = async () => {
+    const reg = SessionRegistry.create(await openTestStore(':memory:', HOST), undefined, {
       instanceId: 'default',
     })
     registries.push(reg)
@@ -250,7 +249,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
   it('create → claim → comment → close yields identical rows, events, comments, and folded oplog via IssueService, the CLI command registry, and the tRPC router', async () => {
     try {
       // (a) IssueService direct.
-      const regA = freshRegistry()
+      const regA = await freshRegistry()
       const a = regA.issues.create({
         repoPath: '/repo',
         title: 'Lifecycle',
@@ -263,7 +262,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 
       // (b) the ISSUE_COMMANDS table — the CLI/MCP path — over the command
       // registry's in-process IssueTrpc-shaped client.
-      const regB = freshRegistry()
+      const regB = await freshRegistry()
       const cli = regB.issueCommands.asIssueTrpc(OPERATOR)
       const created = await runIssueCli(
         [
@@ -285,7 +284,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       const bId = regB.issues.resolveRef(seq)
 
       // (c) the tRPC router directly.
-      const regC = freshRegistry()
+      const regC = await freshRegistry()
       const trpc = operatorCaller(regC)
       const c = await trpc.issues.create({
         repoPath: '/repo',
@@ -297,9 +296,9 @@ describe('characterization: issue lifecycle equivalence across entry points (con
       await trpc.issues.addComment({ id: c.id, author: 'agent:test', body: 'progress note' })
       await trpc.issues.close({ id: c.id, reason: 'done' })
 
-      const obsA = observe(regA, a.id)
-      const obsB = observe(regB, bId)
-      const obsC = observe(regC, c.id)
+      const obsA = await observe(regA, a.id)
+      const obsB = await observe(regB, bId)
+      const obsC = await observe(regC, c.id)
 
       // Sanity: the run actually did the whole lifecycle (guards against three
       // identically-empty observations passing vacuously).
@@ -339,7 +338,7 @@ describe('characterization: issue lifecycle equivalence across entry points (con
 // ---------------------------------------------------------------------------
 
 describe('characterization: closed-state normalization (contract 2, issue #24)', () => {
-  it('a bare closedReason patch moves the stage to done (#24)', () => {
+  it('a bare closedReason patch moves the stage to done (#24)', async () => {
     const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'bimodal', startNow: false })
@@ -353,9 +352,9 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reg.issues.search({ repoPath: '/r', status: 'open' })).toEqual([])
       expect(reg.issues.stats('/r')).toMatchObject({ total: 1, closed: 1, open: 0 })
       // The close EVENT fires off the derived flip, with the patched reason.
-      const closed = reg.sessionStore.events
-        .listEventsSince(0)
-        .filter((e) => e.kind === 'issue.closed')
+      const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
+        (e) => e.kind === 'issue.closed',
+      )
       expect(closed).toHaveLength(1)
       expect(closed[0]?.payload).toMatchObject({ seq: w.seq, reason: 'wontfix' })
       // A contradictory patch (non-null reason + non-done stage) is nonsensical.
@@ -367,7 +366,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     }
   })
 
-  it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', () => {
+  it('reopening via a stage patch clears closedReason — a REAL reopen (#24)', async () => {
     const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'reopen me', startNow: false })
@@ -381,9 +380,9 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       expect(reg.issues.search({ repoPath: '/r', status: 'open' }).map((i) => i.id)).toEqual([w.id])
       expect(reg.issues.stats('/r')).toMatchObject({ closed: 0, open: 1 })
       // The reopen is observable: issue.reopened fires on the true→false flip.
-      const reopenedEvents = reg.sessionStore.events
-        .listEventsSince(0)
-        .filter((e) => e.kind === 'issue.reopened')
+      const reopenedEvents = (await reg.sessionStore.events.listEventsSince(0)).filter(
+        (e) => e.kind === 'issue.reopened',
+      )
       expect(reopenedEvents).toHaveLength(1)
       expect(reopenedEvents[0]?.payload).toMatchObject({ seq: w.seq })
     } finally {
@@ -391,7 +390,7 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
     }
   })
 
-  it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', () => {
+  it('re-closing after a stage reopen emits a SECOND issue.closed event (#24)', async () => {
     const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {
       const w = reg.issues.create({ repoPath: '/r', title: 'audible re-close', startNow: false })
@@ -400,16 +399,15 @@ describe('characterization: closed-state normalization (contract 2, issue #24)',
       reg.issues.update(w.id, { stage: 'done' }) // drag back to done
       // #24: the reopen flipped the derived predicate false, so the re-close
       // flips it true again and issue.closed fires a second time.
-      const closed = reg.sessionStore.events
-        .listEventsSince(0)
-        .filter((e) => e.kind === 'issue.closed')
+      const closed = (await reg.sessionStore.events.listEventsSince(0)).filter(
+        (e) => e.kind === 'issue.closed',
+      )
       expect(closed).toHaveLength(2)
       // The second close came from a bare stage patch — reason defaults to 'done'.
       expect(closed[1]?.payload).toMatchObject({ seq: w.seq, reason: 'done' })
       // The stage churn IS visible as stage_changed (done→in_progress only;
       // transitions INTO done never emit stage_changed).
-      const stages = reg.sessionStore.events
-        .listEventsSince(0)
+      const stages = (await reg.sessionStore.events.listEventsSince(0))
         .filter((e) => e.kind === 'issue.stage_changed')
         .map((e) => e.payload)
       expect(stages).toEqual([{ seq: w.seq, from: 'done', to: 'in_progress' }])
@@ -438,8 +436,8 @@ describe('characterization: change-log delta client heals to identical state (co
     return cursor
   }
 
-  it('a client that missed N deltas reconstructs the exact live state from changesSince(cursor)', () => {
-    const store = new SessionStore(':memory:')
+  it('a client that missed N deltas reconstructs the exact live state from changesSince(cursor)', async () => {
+    const store = await openTestStore(':memory:')
     const ledger = new Ledger({
       repo: store.sync,
       now: Date.now,
@@ -475,8 +473,8 @@ describe('characterization: change-log delta client heals to identical state (co
 
     // Compaction past the client's cursor forces the full-resync signal (null),
     // never a silent partial delta.
-    store.sync.pruneChangeBatch(
-      store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() }),
+    await store.sync.pruneChangeBatch(
+      await store.sync.planChangePrune({ keepRows: 1, maxAgeMs: 60_000, now: Date.now() }),
       500,
     )
     expect(ledger.changesSince(lagCursor)).toBeNull()
@@ -503,11 +501,11 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     return rows
   }
 
-  it('close + reopen preserves the full schema and every row across all table families', () => {
+  it('close + reopen preserves the full schema and every row across all table families', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-char-db-')), 'podium.db')
 
     // Populate one row in each family through the real write paths.
-    const store1 = new SessionStore(file)
+    const store1 = await openTestStore(file)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -518,19 +516,19 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
     reg1.issues.addComment(issue.id, 'agent:test', 'durable note', AS_OPERATOR)
     reg1.issues.close(issue.id, 'done')
     reg1.modules.mutations.once(asMutationId('mut-char-1'), 'issues.close', () => ({ ok: true }))
-    store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
+    await store1.sync.enqueueMessage({ id: 'qm-char-1', sessionId, text: 'queued', queuedAt: 1000 })
     reg1.modules.sessions.flushBroadcasts() // oplog `changes` rows
 
     // Capture the observable truth, then shut down cleanly.
     const before = {
-      sessionIds: store1.sessions.loadSessions().map((s) => s.id),
-      issue: store1.issues.getIssue(issue.id),
-      comments: store1.issues.listIssueComments(issue.id),
-      events: store1.events.listEventsSince(0),
-      changes: store1.sync.changesSince(0),
-      maxChangeSeq: store1.sync.maxChangeSeq(),
-      applied: store1.sync.getAppliedMutation(asMutationId('mut-char-1')),
-      queued: store1.sync.listQueuedMessages(sessionId),
+      sessionIds: (await store1.sessions.loadSessions()).map((s) => s.id),
+      issue: await store1.issues.getIssue(issue.id),
+      comments: await store1.issues.listIssueComments(issue.id),
+      events: await store1.events.listEventsSince(0),
+      changes: await store1.sync.changesSince(0),
+      maxChangeSeq: await store1.sync.maxChangeSeq(),
+      applied: await store1.sync.getAppliedMutation(asMutationId('mut-char-1')),
+      queued: await store1.sync.listQueuedMessages(sessionId),
     }
     expect(before.sessionIds).toContain(sessionId)
     expect(before.issue).not.toBeNull()
@@ -543,22 +541,22 @@ describe('characterization: same-version DB reopen is a no-op (contract 5)', () 
 
     // Reopen with the SAME code: the constructor migration pass must not fire any
     // destructive ALTER twice, drop data, or reshape the schema.
-    const store2 = new SessionStore(file)
+    const store2 = await openTestStore(file)
     const after = {
-      sessionIds: store2.sessions.loadSessions().map((s) => s.id),
-      issue: store2.issues.getIssue(issue.id),
-      comments: store2.issues.listIssueComments(issue.id),
-      events: store2.events.listEventsSince(0),
-      changes: store2.sync.changesSince(0),
-      maxChangeSeq: store2.sync.maxChangeSeq(),
-      applied: store2.sync.getAppliedMutation(asMutationId('mut-char-1')),
-      queued: store2.sync.listQueuedMessages(sessionId),
+      sessionIds: (await store2.sessions.loadSessions()).map((s) => s.id),
+      issue: await store2.issues.getIssue(issue.id),
+      comments: await store2.issues.listIssueComments(issue.id),
+      events: await store2.events.listEventsSince(0),
+      changes: await store2.sync.changesSince(0),
+      maxChangeSeq: await store2.sync.maxChangeSeq(),
+      applied: await store2.sync.getAppliedMutation(asMutationId('mut-char-1')),
+      queued: await store2.sync.listQueuedMessages(sessionId),
     }
     expect(after).toEqual(before)
 
     // The oplog seq keeps counting from where it was — a reset here would corrupt
     // every client cursor.
-    const next = store2.sync.appendChanges(
+    const next = await store2.sync.appendChanges(
       [{ entity: 'issue', entityId: issue.id, op: 'upsert', payload: '{}' }],
       2000,
     )

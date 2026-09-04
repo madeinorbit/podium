@@ -8,7 +8,7 @@ afterEach(() => disposeOracles())
 describe('portable upload fence', () => {
   it('drains an in-flight upload and rejects a new upload after fencing', async () => {
     const fence = new PortableStateFence()
-    const oracle = makeOracle({ portableStateFence: fence })
+    const oracle = await makeOracle({ portableStateFence: fence })
     const { sessionId } = await oracle.call.sessions.create({
       agentKind: 'claude-code',
       cwd: '/workspace',

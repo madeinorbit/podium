@@ -1,5 +1,8 @@
+import { createHash } from 'node:crypto'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import {
-  FIRST_ADMIN_USER_ID,
   asDeliveryReceiptId,
   asIssueId,
   asMachineId,
@@ -8,22 +11,20 @@ import {
   asShipHoldId,
   asShipOrderId,
   asShipStepId,
-  integrationReceiptMatchesOrder,
   type DeliveryReceipt,
+  FIRST_ADMIN_USER_ID,
+  integrationReceiptMatchesOrder,
   type ShipOrder,
 } from '@podium/model'
-import { createHash } from 'node:crypto'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { shippingJobRequestFingerprint } from '@podium/protocol/daemon'
+import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
-import type { RootIntegrationReceiptStore } from './store/shipping'
-import { shipOrderProjectionRows } from './modules/shipping/projection'
 import { runDrizzleMigrations } from './migrations'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { shipOrderProjectionRows } from './modules/shipping/projection'
+import type { SessionStore } from './store'
+import type { RootIntegrationReceiptStore } from './store/shipping'
+import { openTestStore } from './test-support/open-test-store'
 
 const base = () => ({
   id: asIssueId('iss_1'),
@@ -76,77 +77,77 @@ const base = () => ({
 })
 
 describe('store issues', () => {
-  it('round-trips an issue', () => {
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(base())
-    const got = s.issues.getIssue('iss_1')
+  it('round-trips an issue', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(base())
+    const got = await s.issues.getIssue('iss_1')
     expect(got?.title).toBe('Fix login')
     expect(got?.worktreePath).toBeNull()
     expect(got?.blockedBy).toEqual([])
     expect(got?.archived).toBe(false)
   })
 
-  it('updates on conflict and preserves JSON blockedBy', () => {
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(base())
-    s.issues.upsertIssue({
+  it('updates on conflict and preserves JSON blockedBy', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(base())
+    await s.issues.upsertIssue({
       ...base(),
       stage: 'planning',
       worktreePath: '/r/wt',
       branch: 'issue/1-x',
       blockedBy: ['iss_2'],
     })
-    const got = s.issues.getIssue('iss_1')
+    const got = await s.issues.getIssue('iss_1')
     expect(got?.stage).toBe('planning')
     expect(got?.worktreePath).toBe('/r/wt')
     expect(got?.blockedBy).toEqual(['iss_2'])
   })
 
-  it('lists by repo and increments seq per repo_id', () => {
-    const s = new SessionStore(':memory:')
-    const rid = (p: string) => s.repos.resolveRepoIdForPath(p)
-    expect(s.issues.nextIssueSeq(rid('/r'))).toBe(1)
-    s.issues.upsertIssue({
+  it('lists by repo and increments seq per repo_id', async () => {
+    const s = await openTestStore(':memory:')
+    const rid = async (p: string) => await s.repos.resolveRepoIdForPath(p)
+    expect(await s.issues.nextIssueSeq(await rid('/r'))).toBe(1)
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('a'),
       repoPath: '/r',
       seq: 1,
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('b'),
       repoPath: '/r',
       seq: 2,
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('c'),
       repoPath: '/other',
       seq: 1,
     })
-    expect(s.issues.nextIssueSeq(rid('/r'))).toBe(3)
-    expect(s.issues.nextIssueSeq(rid('/other'))).toBe(2)
+    expect(await s.issues.nextIssueSeq(await rid('/r'))).toBe(3)
+    expect(await s.issues.nextIssueSeq(await rid('/other'))).toBe(2)
     expect(
-      s.issues
-        .listIssueRows('/r')
+      (await s.issues
+        .listIssueRows('/r'))
         .map((i) => i.id)
         .sort(),
     ).toEqual(['a', 'b'])
-    expect(s.issues.listIssueRows().length).toBe(3)
+    expect((await s.issues.listIssueRows()).length).toBe(3)
   })
 
-  it('allocates seq per repo_id — shared across checkout paths of one origin (#140)', () => {
-    const s = new SessionStore(':memory:')
+  it('allocates seq per repo_id — shared across checkout paths of one origin (#140)', async () => {
+    const s = await openTestStore(':memory:')
     const repoId = asRepoId('repo_shared_origin')
     // Two checkouts of the SAME repo at DIFFERENT paths (e.g. two machines).
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('a'),
       repoPath: '/home/alice/proj',
       repoId,
       seq: 1,
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('b'),
       repoPath: '/home/bob/proj',
@@ -154,16 +155,16 @@ describe('store issues', () => {
       seq: 2,
     })
     // One repo_id → one sequence; the next number is 3, not a per-path duplicate.
-    expect(s.issues.nextIssueSeq(repoId)).toBe(3)
+    expect(await s.issues.nextIssueSeq(repoId)).toBe(3)
   })
 
-  it('rejects colliding (repo_id, seq) at the SQL layer — UNIQUE index from migration 005 (#140)', () => {
+  it('rejects colliding (repo_id, seq) at the SQL layer — UNIQUE index from migration 005 (#140)', async () => {
     // On this branch collisions are unrepresentable through the facade: migration
     // 005 installed UNIQUE(repo_id, seq), so the upsert itself throws and the #140
     // heal has nothing to do on a live DB.
-    const s = new SessionStore(':memory:')
+    const s = await openTestStore(':memory:')
     const repoId = asRepoId('repo_dup')
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('m4'),
       repoPath: '/home/user/p',
@@ -179,47 +180,47 @@ describe('store issues', () => {
         seq: 4,
       }),
     ).toThrow()
-    expect(s.issues.renumberCollidingIssueSeqs()).toBe(0)
+    expect(await s.issues.renumberCollidingIssueSeqs()).toBe(0)
   })
 
-  it('boot-heals colliding seqs restored from a pre-index database, idempotently (#140)', () => {
+  it('boot-heals colliding seqs restored from a pre-index database, idempotently (#140)', async () => {
     // Emulate a database from main's pre-UNIQUE-index lineage: build it, drop the
     // 005 index out-of-band, plant a collision raw, then reopen through the store —
     // the per-boot renumberCollidingIssueSeqs heal renumbers the loser.
     const file = join(mkdtempSync(join(tmpdir(), 'podium-seq-heal-')), 'heal.db')
     const repoId = asRepoId('repo_dup')
-    const s1 = new SessionStore(file)
+    const s1 = await openTestStore(file)
     // Same origin, two paths; canonical (majority) path /home/user + a loser path
     // /home/till that minted colliding #4 (and a non-colliding #1).
-    s1.issues.upsertIssue({
+    await s1.issues.upsertIssue({
       ...base(),
       id: asIssueId('m3'),
       repoPath: '/home/user/p',
       repoId,
       seq: 3,
     })
-    s1.issues.upsertIssue({
+    await s1.issues.upsertIssue({
       ...base(),
       id: asIssueId('m4'),
       repoPath: '/home/user/p',
       repoId,
       seq: 4,
     })
-    s1.issues.upsertIssue({
+    await s1.issues.upsertIssue({
       ...base(),
       id: asIssueId('m5'),
       repoPath: '/home/user/p',
       repoId,
       seq: 5,
     })
-    s1.issues.upsertIssue({
+    await s1.issues.upsertIssue({
       ...base(),
       id: asIssueId('t4'),
       repoPath: '/home/till/p',
       repoId,
       seq: 99,
     })
-    s1.issues.upsertIssue({
+    await s1.issues.upsertIssue({
       ...base(),
       id: asIssueId('t1'),
       repoPath: '/home/till/p',
@@ -231,92 +232,92 @@ describe('store issues', () => {
     raw.exec('DROP INDEX idx_issues_repo_id_seq')
     raw.prepare('UPDATE issues SET seq = 4 WHERE id = ?').run('t4')
     raw.close()
-    const s2 = new SessionStore(file) // boot heal runs here
-    expect(s2.issues.getIssue('m4')?.seq).toBe(4) // canonical path keeps #4
-    expect(s2.issues.getIssue('t4')?.seq).toBe(6) // loser appended after max(5) => 6
-    expect(s2.issues.getIssue('t1')?.seq).toBe(1) // non-colliding kept
-    const seqs = s2.issues.listIssueRows().map((i) => i.seq)
+    const s2 = await openTestStore(file) // boot heal runs here
+    expect((await s2.issues.getIssue('m4'))?.seq).toBe(4) // canonical path keeps #4
+    expect((await s2.issues.getIssue('t4'))?.seq).toBe(6) // loser appended after max(5) => 6
+    expect((await s2.issues.getIssue('t1'))?.seq).toBe(1) // non-colliding kept
+    const seqs = (await s2.issues.listIssueRows()).map((i) => i.seq)
     expect(new Set(seqs).size).toBe(seqs.length) // unique per repo_id
-    expect(s2.issues.renumberCollidingIssueSeqs()).toBe(0) // idempotent
+    expect(await s2.issues.renumberCollidingIssueSeqs()).toBe(0) // idempotent
     s2.close()
   })
 
-  it('deletes', () => {
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(base())
-    s.issues.deleteIssue('iss_1')
-    expect(s.issues.getIssue('iss_1')).toBeNull()
+  it('deletes', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(base())
+    await s.issues.deleteIssue('iss_1')
+    expect(await s.issues.getIssue('iss_1')).toBeNull()
   })
 
-  it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', () => {
-    const s = new SessionStore(':memory:')
+  it('rejects an invalid stage on write but allows the auto defaultAgent sentinel', async () => {
+    const s = await openTestStore(':memory:')
     expect(() => s.issues.upsertIssue({ ...base(), stage: 'bogus' })).toThrow(/stage/i)
     // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
     // it is resolved to a concrete kind only at spawn time.
     expect(() => s.issues.upsertIssue({ ...base(), defaultAgent: 'auto' })).not.toThrow()
   })
 
-  it('normalizes a non-array blockedBy to [] on write', () => {
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue({
+  it('normalizes a non-array blockedBy to [] on write', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue({
       ...base(),
       blockedBy: 'nope' as unknown as string[],
     })
-    expect(s.issues.getIssue('iss_1')?.blockedBy).toEqual([])
+    expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
   })
 
-  it('tolerates a corrupt blocked_by column instead of crashing the whole load', () => {
+  it('tolerates a corrupt blocked_by column instead of crashing the whole load', async () => {
     // A row whose blocked_by holds non-JSON (legacy/externally-corrupted data) must
     // NOT throw out of mapIssueRow — that would abort listIssueRows, which runs in
     // IssueService's constructor at boot, crash-looping the server. Quarantine the
     // bad field (blockedBy -> []) and keep the row.
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(base())
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(base())
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
 
     expect(() => s.issues.listIssueRows()).not.toThrow()
-    expect(s.issues.getIssue('iss_1')?.blockedBy).toEqual([])
-    expect(s.issues.listIssueRows().map((i) => i.id)).toContain('iss_1')
+    expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
+    expect((await s.issues.listIssueRows()).map((i) => i.id)).toContain('iss_1')
   })
 
-  it('quarantines a non-array blocked_by JSON value', () => {
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue(base())
+  it('quarantines a non-array blocked_by JSON value', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue(base())
     // Valid JSON, wrong shape (an object, not a string[]).
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{"a":1}', 'iss_1')
-    expect(s.issues.getIssue('iss_1')?.blockedBy).toEqual([])
+    expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
   })
 
   // POD-568 — the finished-work projection the auto-hibernate sweep orders by.
-  it('names closed issues by stage, close reason and tombstone', () => {
-    const s = new SessionStore(':memory:')
-    s.issues.upsertIssue({
+  it('names closed issues by stage, close reason and tombstone', async () => {
+    const s = await openTestStore(':memory:')
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('open'),
       seq: 1,
       stage: 'in_progress',
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('review'),
       seq: 2,
       stage: 'review',
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('done'),
       seq: 3,
       stage: 'done',
     })
     // Closed for a reason WITHOUT reaching done — the half isIssueClosed exists for.
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('duped'),
       seq: 4,
       stage: 'backlog',
       closedReason: 'duplicate',
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: asIssueId('gone'),
       seq: 5,
@@ -324,7 +325,7 @@ describe('store issues', () => {
     })
     rawDb(s).prepare('UPDATE issues SET deleted_at = ? WHERE id = ?').run('t1', 'gone')
 
-    expect([...s.issues.closedIssueIds()].sort()).toEqual(['done', 'duped', 'gone'])
+    expect([...await s.issues.closedIssueIds()].sort()).toEqual(['done', 'duped', 'gone'])
   })
 })
 
@@ -409,12 +410,12 @@ describe('shipping durable store', () => {
     db.close()
   })
 
-  it('fences active orders, attempts, idempotent steps, holds, and immutable receipts', () => {
+  it('fences active orders, attempts, idempotent steps, holds, and immutable receipts', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-store-')), 'shipping.db')
-    const s = new SessionStore(file)
-    s.issues.upsertIssue(base())
+    const s = await openTestStore(file)
+    await s.issues.upsertIssue(base())
     const order = shipOrder()
-    expect(s.shipping.createOrder(order)).toEqual(order)
+    expect(await s.shipping.createOrder(order)).toEqual(order)
     expect(() =>
       s.shipping.createOrder(
         shipOrder({ id: asShipOrderId('order-not-queued'), state: 'preflight' }),
@@ -456,7 +457,7 @@ describe('shipping durable store', () => {
       startedAt: '2026-08-12T10:01:00.000Z',
       submittedHeadSha: order.approvedHeadSha,
     }
-    s.shipping.createAttempt(attempt)
+    await s.shipping.createAttempt(attempt)
     const stepFence = {
       sourceBaseSha: attempt.expectedSourceBaseSha,
       approvedHeadSha: attempt.approvedHeadSha,
@@ -495,8 +496,8 @@ describe('shipping durable store', () => {
       finishedAt: '2026-08-12T10:03:00.000Z',
       recordedAt: '2026-08-12T10:03:00.000Z',
     }
-    expect(s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
-    expect(s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
+    expect(await s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
+    expect(await s.shipping.appendStep(plannedStep)).toEqual(plannedStep)
     expect(() =>
       s.shipping.appendStep({
         ...plannedStep,
@@ -504,9 +505,9 @@ describe('shipping durable store', () => {
         summary: 'different',
       }),
     ).toThrow(/idempotency collision/)
-    expect(s.shipping.appendStep(runningStep)).toEqual(runningStep)
-    expect(s.shipping.appendStep(finishedStep)).toEqual(finishedStep)
-    expect(s.shipping.latestStepForEffect(attempt.id, plannedStep.effectKey)).toEqual(finishedStep)
+    expect(await s.shipping.appendStep(runningStep)).toEqual(runningStep)
+    expect(await s.shipping.appendStep(finishedStep)).toEqual(finishedStep)
+    expect(await s.shipping.latestStepForEffect(attempt.id, plannedStep.effectKey)).toEqual(finishedStep)
     expect(() =>
       s.shipping.appendStep({
         ...plannedStep,
@@ -529,7 +530,7 @@ describe('shipping durable store', () => {
         raisedAt: '2026-08-12T10:04:00.000Z',
       }),
     ).toThrow(/expected 1/)
-    s.shipping.raiseHold({
+    await s.shipping.raiseHold({
       id: asShipHoldId('hold-1'),
       orderId: order.id,
       generation: 1,
@@ -580,7 +581,7 @@ describe('shipping durable store', () => {
       s.shipping.resolveHold(order.id, 1, 'retry', 'repairing', '2026-08-12T10:05:00.000Z'),
     ).toThrow(/cannot transition/)
     expect(
-      s.shipping.resolveHold(order.id, 1, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
+      await s.shipping.resolveHold(order.id, 1, 'retry', 'queued', '2026-08-12T10:05:00.000Z'),
     ).toMatchObject({ generation: 1, resolution: 'retry' })
 
     expect(() =>
@@ -592,7 +593,7 @@ describe('shipping durable store', () => {
     expect(() =>
       s.shipping.transitionOrder(order.id, 'queued', 'verifying', '2026-08-12T10:06:30.000Z'),
     ).toThrow(/illegal ship order transition/)
-    const retry = s.shipping.claimAttempt({
+    const retry = await s.shipping.claimAttempt({
       orderId: order.id,
       expectedState: 'queued',
       expectedAttemptId: attempt.id,
@@ -601,10 +602,10 @@ describe('shipping durable store', () => {
       startedAt: '2026-08-12T10:06:10.000Z',
     })
     expect(retry.attempt.leaseGeneration).toBe(4)
-    s.shipping.transitionOrder(order.id, 'preflight', 'composing', '2026-08-12T10:06:20.000Z')
-    s.shipping.transitionOrder(order.id, 'composing', 'validating', '2026-08-12T10:06:30.000Z')
-    s.shipping.transitionOrder(order.id, 'validating', 'landing', '2026-08-12T10:06:40.000Z')
-    s.shipping.transitionOrder(order.id, 'landing', 'verifying', '2026-08-12T10:07:00.000Z')
+    await s.shipping.transitionOrder(order.id, 'preflight', 'composing', '2026-08-12T10:06:20.000Z')
+    await s.shipping.transitionOrder(order.id, 'composing', 'validating', '2026-08-12T10:06:30.000Z')
+    await s.shipping.transitionOrder(order.id, 'validating', 'landing', '2026-08-12T10:06:40.000Z')
+    await s.shipping.transitionOrder(order.id, 'landing', 'verifying', '2026-08-12T10:07:00.000Z')
     const receipt: DeliveryReceipt = {
       id: asDeliveryReceiptId('receipt-1'),
       orderId: order.id,
@@ -620,19 +621,15 @@ describe('shipping durable store', () => {
       completedAt: '2026-08-12T10:08:00.000Z',
     }
     expect(() => s.shipping.completeVerifiedOrder(receipt)).toThrow(/successful proof/)
-    const finished = s.shipping.finishAttempt(
-      retry.attempt.id,
-      retry.attempt.leaseGeneration,
-      {
-        finishedAt: '2026-08-12T10:07:30.000Z',
-        outcome: 'succeeded',
-        testedIntegrationSha: 'tested-integration',
-        landedRefSha: 'landed-ref',
-        destinationSha: 'destination-tip',
-        validationProfileId: 'default',
-        validationResult: 'passed',
-      },
-    )
+    const finished = await s.shipping.finishAttempt(retry.attempt.id, retry.attempt.leaseGeneration, {
+      finishedAt: '2026-08-12T10:07:30.000Z',
+      outcome: 'succeeded',
+      testedIntegrationSha: 'tested-integration',
+      landedRefSha: 'landed-ref',
+      destinationSha: 'destination-tip',
+      validationProfileId: 'default',
+      validationResult: 'passed',
+    })
     expect(finished).toMatchObject({
       approvedHeadSha: 'approved-head',
       testedIntegrationSha: 'tested-integration',
@@ -641,9 +638,9 @@ describe('shipping durable store', () => {
       validationProfileId: 'default',
       validationResult: 'passed',
     })
-    expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
-    expect(s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
-    expect(s.shipping.listReceipts()).toContainEqual(
+    expect(await s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
+    expect(await s.shipping.completeVerifiedOrder(receipt)).toEqual(receipt)
+    expect(await s.shipping.listReceipts()).toContainEqual(
       expect.objectContaining({ orderId: order.id, resultCommitSha: 'landed-ref' }),
     )
     expect(() =>
@@ -681,17 +678,17 @@ describe('shipping durable store', () => {
 
     expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))).not.toThrow()
     s.close()
-    const restarted = new SessionStore(file)
-    expect(restarted.shipping.getOrder(order.id)).toMatchObject({
+    const restarted = await openTestStore(file)
+    expect(await restarted.shipping.getOrder(order.id)).toMatchObject({
       state: 'shipped',
     })
-    expect(restarted.shipping.receiptForOrder(order.id)).toEqual(receipt)
-    expect(restarted.shipping.stepsForAttempt(attempt.id)).toEqual([
+    expect(await restarted.shipping.receiptForOrder(order.id)).toEqual(receipt)
+    expect(await restarted.shipping.stepsForAttempt(attempt.id)).toEqual([
       plannedStep,
       runningStep,
       finishedStep,
     ])
-    expect(restarted.shipping.listHolds()).toContainEqual(
+    expect(await restarted.shipping.listHolds()).toContainEqual(
       expect.objectContaining({
         id: asShipHoldId('hold-1'),
         resolution: 'retry',
@@ -705,18 +702,18 @@ describe('shipping durable store', () => {
     expect(shipOrderProjectionRows([cancelled], [], [])).toEqual([])
   })
 
-  it('settles a queued dependency from its shipped train covering proof', () => {
-    const s = new SessionStore(':memory:')
+  it('settles a queued dependency from its shipped train covering proof', async () => {
+    const s = await openTestStore(':memory:')
     const lowerIssue = asIssueId('iss_lower')
     const coveringIssue = asIssueId('iss_covering')
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: lowerIssue,
       seq: 40,
       branch: 'issue/lower',
       machineId: asMachineId('machine-1'),
     })
-    s.issues.upsertIssue({
+    await s.issues.upsertIssue({
       ...base(),
       id: coveringIssue,
       seq: 41,
@@ -734,9 +731,9 @@ describe('shipping durable store', () => {
       approvedHeadSha: 'covering-head',
       deliveryDependsOn: [lower.id],
     })
-    s.shipping.createOrder(lower)
-    s.shipping.createOrder(covering)
-    const train = s.shipping.claimTrain({
+    await s.shipping.createOrder(lower)
+    await s.shipping.createOrder(covering)
+    const train = await s.shipping.claimTrain({
       leaderOrderId: covering.id,
       startedAt: '2026-08-12T10:01:00.000Z',
       members: [lower, covering].map((order) => ({
@@ -768,12 +765,12 @@ describe('shipping durable store', () => {
       ],
     })
     for (const member of train.manifest.members) {
-      expect(s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
+      expect(await s.shipping.trainManifestForAttempt(member.attemptId)).toEqual(train.manifest)
     }
     rawDb(s)
       .prepare('UPDATE ship_lane_revisions SET revision = revision + 1 WHERE lane_key = ?')
       .run(train.manifest.lane.laneKey)
-    expect(s.shipping.activeTrainForOrder(lower.id)).toBeNull()
+    expect(await s.shipping.activeTrainForOrder(lower.id)).toBeNull()
     expect(
       rawDb(s)
         .prepare('SELECT released_at AS releasedAt FROM ship_train_manifests WHERE id = ?')
@@ -818,10 +815,10 @@ describe('shipping durable store', () => {
       ['landing', 'publishing'],
       ['publishing', 'verifying'],
     ] as const) {
-      s.shipping.transitionOrder(covering.id, from, to, '2026-08-12T10:02:00.000Z')
+      await s.shipping.transitionOrder(covering.id, from, to, '2026-08-12T10:02:00.000Z')
     }
     const completedAt = '2026-08-12T10:03:00.000Z'
-    s.shipping.finishAttempt(claimed.attempt.id, claimed.attempt.leaseGeneration, {
+    await s.shipping.finishAttempt(claimed.attempt.id, claimed.attempt.leaseGeneration, {
       finishedAt: completedAt,
       outcome: 'succeeded',
       testedIntegrationSha: 'covering-head',
@@ -844,7 +841,7 @@ describe('shipping durable store', () => {
       destination: covering.destination,
       completedAt,
     }
-    s.shipping.completeVerifiedOrder(coveringReceipt)
+    await s.shipping.completeVerifiedOrder(coveringReceipt)
     const lowerReceipt = {
       ...coveringReceipt,
       id: asDeliveryReceiptId('receipt-lower'),
@@ -896,7 +893,7 @@ describe('shipping durable store', () => {
       providerLandedRefSha: coveringReceipt.landedRefSha,
       destinationSha: coveringReceipt.destinationSha,
     }))
-    const envelopeKey = s.shipping.recordEffectEnvelope({
+    const envelopeKey = await s.shipping.recordEffectEnvelope({
       request: { action: 'start', requestDigest, ...requestFacts },
       result: {
         jobId: requestFacts.jobId,
@@ -923,30 +920,30 @@ describe('shipping durable store', () => {
       recordedAt: coveringReceipt.completedAt,
     })
 
-    expect(s.shipping.completeCoveredOrder(lowerReceipt, covering.id, envelopeKey)).toEqual(
+    expect(await s.shipping.completeCoveredOrder(lowerReceipt, covering.id, envelopeKey)).toEqual(
       lowerReceipt,
     )
-    expect(s.shipping.getOrder(lower.id)?.state).toBe('shipped')
+    expect((await s.shipping.getOrder(lower.id))?.state).toBe('shipped')
     s.close()
   })
 
-  it('exposes a CAS-only issue custody seam for atomic admission and settlement', () => {
-    const s = new SessionStore(':memory:')
+  it('exposes a CAS-only issue custody seam for atomic admission and settlement', async () => {
+    const s = await openTestStore(':memory:')
     const issue = { ...base(), stage: 'review' as const }
-    s.issues.upsertIssue(issue)
-    s.transact(() => {
+    await s.issues.upsertIssue(issue)
+    await s.transact(() => {
       s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't1')
       s.shipping.createOrder(shipOrder())
     })
-    expect(s.issues.getIssue(issue.id)?.stage).toBe('shipping')
+    expect((await s.issues.getIssue(issue.id))?.stage).toBe('shipping')
     expect(() => s.issues.transitionShippingStage(issue.id, 'review', 'shipping', 't2')).toThrow(
       /stage fence/,
     )
-    s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
-    expect(s.issues.getIssue(issue.id)?.stage).toBe('review')
+    await s.issues.transitionShippingStage(issue.id, 'shipping', 'review', 't3')
+    expect((await s.issues.getIssue(issue.id))?.stage).toBe('review')
   })
 
-  it('persists typed root integration receipts as immutable pre-admission proof', () => {
+  it('persists typed root integration receipts as immutable pre-admission proof', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-root-integration-')), 'shipping.db')
     const childA = {
       issueId: asIssueId('iss_child_a'),
@@ -962,15 +959,15 @@ describe('shipping durable store', () => {
       descendants: [childB, childA],
     }
     const canonical = { ...receipt, descendants: [childA, childB] }
-    const s = new SessionStore(file)
-    s.issues.upsertIssue(base())
+    const s = await openTestStore(file)
+    await s.issues.upsertIssue(base())
 
-    expect(s.shipping.recordRootIntegrationReceipt(receipt)).toEqual(canonical)
-    expect(s.shipping.recordRootIntegrationReceipt(canonical)).toEqual(canonical)
-    expect(s.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)).toEqual(
+    expect(await s.shipping.recordRootIntegrationReceipt(receipt)).toEqual(canonical)
+    expect(await s.shipping.recordRootIntegrationReceipt(canonical)).toEqual(canonical)
+    expect(await s.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)).toEqual(
       canonical,
     )
-    expect(s.shipping.rootIntegrationReceipt(receipt.rootIssueId, 'other-head')).toBeNull()
+    expect(await s.shipping.rootIntegrationReceipt(receipt.rootIssueId, 'other-head')).toBeNull()
     expect(() =>
       s.shipping.recordRootIntegrationReceipt({
         ...receipt,
@@ -989,15 +986,15 @@ describe('shipping durable store', () => {
     ).toThrow(/root integration receipt is immutable/)
 
     s.close()
-    const restarted = new SessionStore(file)
+    const restarted = await openTestStore(file)
     expect(
-      restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
+      await restarted.shipping.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha),
     ).toEqual(canonical)
     restarted.close()
   })
 
-  it('atomically rejects cross-lane, non-prefix, and stale-member train custody', () => {
-    const s = new SessionStore(':memory:', asMachineId('machine-1'))
+  it('atomically rejects cross-lane, non-prefix, and stale-member train custody', async () => {
+    const s = await openTestStore(':memory:', asMachineId('machine-1'))
     const issueIds = ['a', 'b', 'c'].map((suffix) => asIssueId(`iss_train_${suffix}`))
     issueIds.forEach((id, index) =>
       s.issues.upsertIssue({
@@ -1024,7 +1021,7 @@ describe('shipping durable store', () => {
       issueId: issueIds[2],
       requestedAt: '2026-08-12T10:02:00.000Z',
     })
-    for (const order of [a, b, c]) s.shipping.createOrder(order)
+    for (const order of [a, b, c]) await s.shipping.createOrder(order)
     expect(() =>
       s.shipping.claimTrain({
         leaderOrderId: b.id,
@@ -1039,27 +1036,27 @@ describe('shipping durable store', () => {
         members: [{ orderId: c.id }],
       }),
     ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
-    expect(s.shipping.listAttempts()).toEqual([])
+    expect(await s.shipping.listAttempts()).toEqual([])
 
-    const claimed = s.shipping.claimTrain({
+    const claimed = await s.shipping.claimTrain({
       leaderOrderId: c.id,
       startedAt: '2026-08-12T10:04:00.000Z',
       members: [a, c].map((order) => ({ orderId: order.id })),
     })
-    expect(s.shipping.activeTrainForOrder(a.id)?.id).toBe(claimed.manifest.id)
+    expect((await s.shipping.activeTrainForOrder(a.id))?.id).toBe(claimed.manifest.id)
     const first = claimed.claimed.find((item) => item.order.id === a.id)!.attempt
-    s.shipping.finishAttempt(first.id, first.leaseGeneration, {
+    await s.shipping.finishAttempt(first.id, first.leaseGeneration, {
       finishedAt: '2026-08-12T10:05:00.000Z',
       outcome: 'failed',
     })
-    expect(s.shipping.activeTrainForOrder(c.id)).toBeNull()
+    expect(await s.shipping.activeTrainForOrder(c.id)).toBeNull()
     s.close()
 
-    const cyclic = new SessionStore(':memory:', asMachineId('machine-1'))
+    const cyclic = await openTestStore(':memory:', asMachineId('machine-1'))
     const upperIssue = asIssueId('iss_cycle_upper')
     const lowerIssue = asIssueId('iss_cycle_lower')
     for (const [index, id] of [upperIssue, lowerIssue].entries()) {
-      cyclic.issues.upsertIssue({
+      await cyclic.issues.upsertIssue({
         ...base(),
         id,
         seq: 80 + index,
@@ -1069,10 +1066,10 @@ describe('shipping durable store', () => {
     }
     const upperId = asShipOrderId('order-cycle-upper')
     const lowerId = asShipOrderId('order-cycle-lower')
-    cyclic.shipping.createOrder(
+    await cyclic.shipping.createOrder(
       shipOrder({ id: upperId, issueId: upperIssue, deliveryDependsOn: [lowerId] }),
     )
-    cyclic.shipping.createOrder(
+    await cyclic.shipping.createOrder(
       shipOrder({ id: lowerId, issueId: lowerIssue, deliveryDependsOn: [upperId] }),
     )
     expect(() =>
@@ -1082,12 +1079,12 @@ describe('shipping durable store', () => {
         members: [{ orderId: upperId }, { orderId: lowerId }],
       }),
     ).toThrow(/canonical contiguous dependency\/FIFO prefix/)
-    expect(cyclic.shipping.listAttempts()).toEqual([])
+    expect(await cyclic.shipping.listAttempts()).toEqual([])
     cyclic.close()
   })
 
-  it('exposes exact current proof through the typed admission retrieval port', () => {
-    const s = new SessionStore(':memory:')
+  it('exposes exact current proof through the typed admission retrieval port', async () => {
+    const s = await openTestStore(':memory:')
     const rootIssueId = asIssueId('iss_1')
     const childA = {
       issueId: asIssueId('iss_child_a'),
@@ -1097,8 +1094,8 @@ describe('shipping durable store', () => {
       issueId: asIssueId('iss_child_b'),
       approvedHeadSha: 'sha-b',
     }
-    s.issues.upsertIssue(base())
-    s.shipping.recordRootIntegrationReceipt({
+    await s.issues.upsertIssue(base())
+    await s.shipping.recordRootIntegrationReceipt({
       rootIssueId,
       approvedHeadSha: 'integrated-root-head',
       descendants: [childA, childB],
@@ -1124,7 +1121,7 @@ describe('shipping durable store', () => {
     ).toBe(false)
   })
 
-  it('persists evidenceManifestRef and a typed current integration receipt', () => {
+  it('persists evidenceManifestRef and a typed current integration receipt', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-shipping-evidence-')), 'shipping.db')
     const childA = {
       issueId: asIssueId('iss_child_a'),
@@ -1143,10 +1140,10 @@ describe('shipping durable store', () => {
         descendants: [childB, childA],
       },
     })
-    const s = new SessionStore(file)
-    s.issues.upsertIssue(base())
-    expect(s.shipping.createOrder(evidenced)).toEqual(evidenced)
-    expect(s.shipping.createOrder(evidenced)).toEqual(evidenced)
+    const s = await openTestStore(file)
+    await s.issues.upsertIssue(base())
+    expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
+    expect(await s.shipping.createOrder(evidenced)).toEqual(evidenced)
     expect(() =>
       s.shipping.createOrder({
         ...evidenced,
@@ -1175,8 +1172,8 @@ describe('shipping durable store', () => {
         .run('{}', evidenced.id),
     ).toThrow(/approval is immutable/)
     s.close()
-    const restarted = new SessionStore(file)
-    expect(restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
+    const restarted = await openTestStore(file)
+    expect(await restarted.shipping.getOrder(evidenced.id)).toEqual(evidenced)
     restarted.close()
   })
 })

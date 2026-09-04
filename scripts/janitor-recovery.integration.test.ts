@@ -6,7 +6,8 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
-import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import type { MessageRow } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import { type JanitorHandle, startJanitor } from '../packages/janitor/src/janitor'
 
 function messageStatus(dbPath: string): string | undefined {
@@ -47,7 +48,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
     let janitor: JanitorHandle | undefined
 
     try {
-      const seed = new SessionStore(dbPath)
+      const seed = openTestStore(dbPath)
       const message: MessageRow = {
         id: 'msg_due',
         threadId: asThreadId('thread_due'),

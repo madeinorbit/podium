@@ -1,8 +1,9 @@
 import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { type LegacyHandleHolder, probeLegacyStatements } from './store/executor'
 import type { IssueRow } from './store/types'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * THE FRAME READ CACHE [POD-1931].
@@ -95,7 +96,7 @@ const issue = (id: string, over: Partial<IssueRow> = {}): IssueRow =>
  * its own — which is exactly the guarantee under test.
  */
 const freshStore = async (): Promise<SessionStore> => {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   await Promise.resolve()
   return store
 }

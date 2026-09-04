@@ -3,8 +3,8 @@ import type { SessionId, SessionMeta } from '@podium/model'
 import type { ServerMessage } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 // Boot-storm regression (the redeploy watchdog-kill incident): a daemon reattach
 // replays one `bind` per surviving session. Pre-fix, EVERY bind ran the full
@@ -20,16 +20,16 @@ describe('bind-storm regression', () => {
   const bind = (sessionId: SessionId, cwd: string) =>
     ({ type: 'bind', sessionId, cmd: 'sh', cwd, agentKind: 'shell', geometry: G }) as const
 
-  function makeStorm(opts: { sessions: number; issues: number }) {
-    const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({
+  async function makeStorm(opts: { sessions: number; issues: number }) {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'one',
       hostname: 'one',
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: 'm2',
       name: 'two',
       hostname: 'two',
@@ -74,8 +74,8 @@ describe('bind-storm regression', () => {
         : [],
     )
 
-  it('a 50-bind storm stays off SQLite for machine names and coalesces the pipeline', () => {
-    const { registry, store, bound, inbox } = makeStorm({ sessions: 50, issues: 30 })
+  it('a 50-bind storm stays off SQLite for machine names and coalesces the pipeline', async () => {
+    const { registry, store, bound, inbox } = await makeStorm({ sessions: 50, issues: 30 })
     const listMachines = vi.spyOn(store.machines, 'listMachines')
     const listSessions = vi.spyOn(registry.modules.sessions, 'listSessions')
 
@@ -112,7 +112,7 @@ describe('bind-storm regression', () => {
   })
 
   it('the coalesced trailing broadcast fires on its own next tick (no flush needed)', async () => {
-    const { registry, bound, inbox } = makeStorm({ sessions: 3, issues: 1 })
+    const { registry, bound, inbox } = await makeStorm({ sessions: 3, issues: 1 })
     for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     // Leading run only so far — the follow-ups are pending on the cooldown timer.
     await new Promise((r) => setTimeout(r, 10))
@@ -123,8 +123,8 @@ describe('bind-storm regression', () => {
     registry.dispose()
   })
 
-  it('a machine rename invalidates the cache: the next broadcast shows the new name', () => {
-    const { registry, bound, inbox } = makeStorm({ sessions: 2, issues: 0 })
+  it('a machine rename invalidates the cache: the next broadcast shows the new name', async () => {
+    const { registry, bound, inbox } = await makeStorm({ sessions: 2, issues: 0 })
     for (const s of bound) registry.gateway.routeDaemonFrame(s.machineId, bind(s.sessionId, s.cwd))
     registry.modules.sessions.flushBroadcasts()
     registry.modules.machines.renameMachine(asMachineId('m1'), 'renamed-one')

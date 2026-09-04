@@ -37,8 +37,8 @@ import type { MachineOwnershipIndex, MachineOwnershipRow } from '../../machine-a
 import { SessionRegistry } from '../../relay'
 import { RepoRegistry } from '../../repo-registry'
 import { appRouter } from '../../router'
-import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { SuperagentService } from '../superagent'
 import { FLEET_TARGETS, type FleetAuthzDeps, fleetAuthzFailure, roleSatisfiesFloor } from './authz'
 
@@ -512,9 +512,9 @@ describe('the machine verb is read from the contract, per command', () => {
  * refusing case were missing. The refusal is produced by an unowned row.
  */
 describe('the derived fleet router actually calls the gate', () => {
-  function caller(ownerUserId: string | null, opts: { stateDir?: string } = {}) {
-    const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({
+  async function caller(ownerUserId: string | null, opts: { stateDir?: string } = {}) {
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'machine-one',
       hostname: 'host-one',
@@ -561,16 +561,16 @@ describe('the derived fleet router actually calls the gate', () => {
   })
 
   it('renames a machine the caller owns', async () => {
-    const { call } = caller(FIRST_ADMIN_USER_ID)
+    const { call } = await caller(FIRST_ADMIN_USER_ID)
     const after = await call.machines.rename({ id: 'm1', name: 'renamed' })
     expect(after.find((m) => m.id === 'm1')?.name).toBe('renamed')
   })
 
   it('persists owner-issued grants with authenticated attribution and revokes them', async () => {
-    const { call, store } = caller(FIRST_ADMIN_USER_ID)
+    const { call, store } = await caller(FIRST_ADMIN_USER_ID)
 
     await call.machines.share({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
-    expect(store.grants.listForResource('machine', 'm1')).toEqual([
+    expect(await store.grants.listForResource('machine', 'm1')).toEqual([
       expect.objectContaining({
         grantee: COLLEAGUE,
         verb: 'use',
@@ -582,7 +582,7 @@ describe('the derived fleet router actually calls the gate', () => {
     ])
 
     await call.machines.unshare({ id: 'm1', grantee: COLLEAGUE, verb: 'use' })
-    expect(store.grants.listForResource('machine', 'm1')).toEqual([])
+    expect(await store.grants.listForResource('machine', 'm1')).toEqual([])
   })
 
   it('transfers ownership through the SERVED procedure, executing the projection tail', async () => {
@@ -593,8 +593,8 @@ describe('the derived fleet router actually calls the gate', () => {
     // contract/registry/target wiring produced a procedure at all.
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
     try {
-      const { call, store } = caller(FIRST_ADMIN_USER_ID, { stateDir: dir })
-      store.users.create(
+      const { call, store } = await caller(FIRST_ADMIN_USER_ID, { stateDir: dir })
+      await store.users.create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -612,7 +612,7 @@ describe('the derived fleet router actually calls the gate', () => {
 
       // The row moved — the projection half of D19.4d, which no caller had ever
       // reached before this command existed.
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
       // And the caller, who was the owner a moment ago, can no longer manage it.
       // Read through the SAME listing the procedure returned, so a stale record
       // cache would show up as the machine still being there to rename.
@@ -620,7 +620,7 @@ describe('the derived fleet router actually calls the gate', () => {
       await expect(call.machines.rename({ id: 'm1', name: 'not-mine-anymore' })).rejects.toThrow(
         /do not have access|unknown machine/,
       )
-      expect(store.machines.getMachine('m1')?.name).toBe('machine-one')
+      expect((await store.machines.getMachine('m1'))?.name).toBe('machine-one')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -632,12 +632,12 @@ describe('the derived fleet router actually calls the gate', () => {
     // positive arm above is what stops this passing against a dead procedure.
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-transfer-'))
     try {
-      const { call, store } = caller(null, { stateDir: dir })
+      const { call, store } = await caller(null, { stateDir: dir })
       await expect(
         call.machines.transferOwnership({ id: 'm1', newOwnerUserId: COLLEAGUE }),
       ).rejects.toThrow(/do not have access/)
       // Refused BEFORE the handler: no row write, so nothing to unwind.
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -654,8 +654,8 @@ describe('the derived fleet router actually calls the gate', () => {
     // block uses to produce a refusal is the one adoption is FOR.
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-'))
     try {
-      const { call, store, registry } = caller(null, { stateDir: dir })
-      store.users.create(
+      const { call, store, registry } = await caller(null, { stateDir: dir })
+      await store.users.create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -665,12 +665,12 @@ describe('the derived fleet router actually calls the gate', () => {
         },
         'hash',
       )
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
 
       const after = await call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })
 
       // The projection moved…
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
       // …and the LEDGER — the commit point — is what it moved from.
       expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
       expect(after.map((m) => m.id)).toContain('m1')
@@ -689,7 +689,7 @@ describe('the derived fleet router actually calls the gate', () => {
       await expect(call.machines.adopt({ id: 'm1', newOwnerUserId: COLLEAGUE })).rejects.toThrow(
         /unknown machine/,
       )
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBe(COLLEAGUE)
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBe(COLLEAGUE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -717,11 +717,11 @@ describe('the derived fleet router actually calls the gate', () => {
     // the colleague's as of that append, and the row still says nobody's.
     const dir = mkdtempSync(join(tmpdir(), 'podium-fleet-adopt-stale-'))
     try {
-      const { call, store, registry } = caller(null, { stateDir: dir })
+      const { call, store, registry } = await caller(null, { stateDir: dir })
       // The colleague must RESOLVE, or `effectiveOwner` projects null for the
       // quarantine reason instead of the stale-row reason and the test would be
       // measuring the wrong disagreement.
-      store.users.create(
+      await store.users.create(
         {
           id: COLLEAGUE,
           displayName: 'Colleague',
@@ -737,7 +737,7 @@ describe('the derived fleet router actually calls the gate', () => {
 
       // The two genuinely disagree. Assert BOTH, or the test proves nothing
       // about which one was read.
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
       expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
 
       // REFUSED, and the shape says which layer refused. Because ownership is
@@ -752,7 +752,7 @@ describe('the derived fleet router actually calls the gate', () => {
       )
       // Nothing was written: not the row, and — the one that counts — not the
       // ledger, which still records the colleague and only the colleague.
-      expect(store.machines.getMachine('m1')?.ownerUserId).toBeNull()
+      expect((await store.machines.getMachine('m1'))?.ownerUserId).toBeNull()
       expect(registry.modules.machines.effectiveOwner(asMachineId('m1'))).toBe(COLLEAGUE)
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -764,26 +764,26 @@ describe('the derived fleet router actually calls the gate', () => {
     // (admins hold `see` on unowned rows) but manage is still refused — not with
     // the "unknown machine" wording (that would hide the row from the people who
     // must assign an owner), but as unauthorized.
-    const { call, store } = caller(null)
+    const { call, store } = await caller(null)
 
     await expect(call.machines.rename({ id: 'm1', name: 'renamed' })).rejects.toThrow(
       /do not have access/,
     )
     // And the write did not happen — the refusal is before the handler, not a
     // message alongside a completed rename.
-    expect(store.machines.getMachine('m1')?.name).toBe('machine-one')
+    expect((await store.machines.getMachine('m1'))?.name).toBe('machine-one')
   })
 
   it('refuses a repo write against an unowned machine', async () => {
-    const { call } = caller(null)
+    const { call } = await caller(null)
     await expect(call.repos.add({ path: '/tmp/x', machineId: 'm1' })).rejects.toThrow(
       /do not have access/,
     )
   })
 
   it('an unowned machine refuses manage/use to EVERYONE, grant or no grant', async () => {
-    const { call, store } = caller(null)
-    store.grants.upsert(edge('manage'))
+    const { call, store } = await caller(null)
+    await store.grants.upsert(edge('manage'))
 
     // `machineUseAllowed`'s rule, reaching the router: an owner-less machine is
     // not team compute with an empty ACL, it is a machine nobody may execute on.
@@ -799,27 +799,27 @@ describe('the derived fleet router actually calls the gate', () => {
     // The only shape in which this build can express a second person: the ROW
     // names an owner the transport cannot authenticate as. The caller is the sole
     // account, and the machine is not theirs.
-    const { call, store } = caller('someone-else')
+    const { call, store } = await caller('someone-else')
 
     await expect(call.machines.rename({ id: 'm1', name: 'nope' })).rejects.toThrow(
       /unknown machine/,
     )
 
-    store.grants.upsert(edge('manage'))
+    await store.grants.upsert(edge('manage'))
 
     const after = await call.machines.rename({ id: 'm1', name: 'granted' })
     expect(after.find((m) => m.id === 'm1')?.name).toBe('granted')
 
     // …and revoking it takes effect at the NEXT call, with nothing to invalidate.
-    store.grants.remove('machine', 'm1', FIRST_ADMIN_USER_ID, 'manage')
+    await store.grants.remove('machine', 'm1', FIRST_ADMIN_USER_ID, 'manage')
     await expect(call.machines.rename({ id: 'm1', name: 'again' })).rejects.toThrow(
       /unknown machine/,
     )
   })
 
   it('a `manage` grant does not carry `use`: discovery on the same machine is still refused', async () => {
-    const { call, store } = caller('someone-else')
-    store.grants.upsert(edge('manage'))
+    const { call, store } = await caller('someone-else')
+    await store.grants.upsert(edge('manage'))
 
     // Visible now (any verb implies `see`), so the refusal is FORBIDDEN-shaped
     // rather than the unknown-machine wording — the M2 line, at the router.
@@ -840,8 +840,8 @@ describe('the derived fleet router actually calls the gate', () => {
  * seam rather than through an HTTP server.
  */
 describe('a paired machine belongs to whoever minted its code', () => {
-  function service() {
-    const store = new SessionStore(':memory:')
+  async function service() {
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, {
       instanceId: 'default',
       pairing: new PairingManager(),
@@ -857,20 +857,20 @@ describe('a paired machine belongs to whoever minted its code', () => {
     name: 'joiner',
   })
 
-  it('the pairer named at mint becomes the owner of the machine that redeems the code', () => {
-    const { store, machines } = service()
+  it('the pairer named at mint becomes the owner of the machine that redeems the code', async () => {
+    const { store, machines } = await service()
     const code = machines.mintPairingCode({ ownerUserId: FIRST_ADMIN_USER_ID })
 
     expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
-    expect(store.machines.getMachine('joiner')?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
+    expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
   })
 
-  it('a code minted with NO pairer produces an unowned machine — refused, not shared', () => {
-    const { store, machines } = service()
+  it('a code minted with NO pairer produces an unowned machine — refused, not shared', async () => {
+    const { store, machines } = await service()
     const code = machines.mintPairingCode({})
 
     expect(machines.authenticateDaemon(pairFrame(code)).ok).toBe(true)
-    expect(store.machines.getMachine('joiner')?.ownerUserId).toBeNull()
+    expect((await store.machines.getMachine('joiner'))?.ownerUserId).toBeNull()
     // Unowned is the fail-CLOSED arm for use/manage: not ambient team compute.
     // Admins hold `see` (D19.4b quarantine) so rename is FORBIDDEN rather than
     // NOT_FOUND — the machine is visible to the people who must assign an owner.

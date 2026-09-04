@@ -70,9 +70,9 @@ describe('an OOM death, durably', () => {
     ).not.toThrow()
   })
 
-  it('keeps the kill time, and keeps the column inside its own vocabulary', () => {
-    sessions.upsertSession(row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }))
-    const back = sessions.getSession(asSessionId('sess-oom'))
+  it('keeps the kill time, and keeps the column inside its own vocabulary', async () => {
+    await sessions.upsertSession(row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }))
+    const back = await sessions.getSession(asSessionId('sess-oom'))
 
     expect(back?.oomKilledAt).toBe(DIED_AT)
     // THE DEATH is what the enum column holds; the CAUSE is the timestamp
@@ -86,11 +86,11 @@ describe('an OOM death, durably', () => {
     expect(raw.oom_killed_at).toBe(DIED_AT)
   })
 
-  it('leaves an ordinary exit with no kill recorded', () => {
+  it('leaves an ordinary exit with no kill recorded', async () => {
     // The admission that pairs with the assertion above: the column is not
     // simply always set, so the previous test measures something.
-    sessions.upsertSession(row('sess-clean', { stopReason: 'exited', exitCode: 0 }))
-    const back = sessions.getSession(asSessionId('sess-clean'))
+    await sessions.upsertSession(row('sess-clean', { stopReason: 'exited', exitCode: 0 }))
+    const back = await sessions.getSession(asSessionId('sess-clean'))
     expect(back?.oomKilledAt).toBeNull()
     expect(back?.stopReason).toBe('exited')
   })

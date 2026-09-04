@@ -1,23 +1,32 @@
+import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
-import type { SessionMeta } from '@podium/model'
-import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations'
-import { SessionStore } from './store'
-import { IssueService, type IssueDeps } from './modules/issues/service'
+import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
+import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
-function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
-  const store = new SessionStore(':memory:')
+async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
+  const store = await openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
     store,
     listSessions: () => sessions,
-    getSettings: () => normalizeSettings({ gitWorkflow: { defaultParentBranch: '', mergeStyle: 'ff-only', autoRebaseBeforeMerge: true }, sessionDefaults: { agent: 'claude-code' } }),
-    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1') , machine: 'machine-under-test' })),
+    getSettings: () =>
+      normalizeSettings({
+        gitWorkflow: {
+          defaultParentBranch: '',
+          mergeStyle: 'ff-only',
+          autoRebaseBeforeMerge: true,
+        },
+        sessionDefaults: { agent: 'claude-code' },
+      }),
+    spawnSession: vi.fn(() => ({ sessionId: asSessionId('s1'), machine: 'machine-under-test' })),
     repoOp: vi.fn(async () => ({ ok: true, output: '' })),
     broadcast,
     ...issueTestPlumbing((msg) => broadcast(msg)),
@@ -27,66 +36,77 @@ function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
 }
 
 describe('SessionStore event log', () => {
-  it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', () => {
-    const store = new SessionStore(':memory:')
-    const id1 = store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's1', payload: { x: 1 } })
-    const id2 = store.events.appendEvent({ ts: 't2', kind: 'b', subject: 's2', repoPath: '/r' })
+  it('appendEvent/listEventsSince round-trips payloads and returns ascending ids', async () => {
+    const store = await openTestStore(':memory:')
+    const id1 = await store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's1', payload: { x: 1 } })
+    const id2 = await store.events.appendEvent({ ts: 't2', kind: 'b', subject: 's2', repoPath: '/r' })
     expect(id2).toBeGreaterThan(id1)
-    const all = store.events.listEventsSince(0)
+    const all = await store.events.listEventsSince(0)
     expect(all.map((e) => e.id)).toEqual([id1, id2])
-    expect(all[0]).toMatchObject({ ts: 't1', kind: 'a', subject: 's1', repoPath: null, payload: { x: 1 } })
+    expect(all[0]).toMatchObject({
+      ts: 't1',
+      kind: 'a',
+      subject: 's1',
+      repoPath: null,
+      payload: { x: 1 },
+    })
     expect(all[1]).toMatchObject({ kind: 'b', repoPath: '/r', payload: {} })
   })
 
-  it('since-cursor returns only events after the cursor', () => {
-    const store = new SessionStore(':memory:')
-    const id1 = store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's' })
-    const id2 = store.events.appendEvent({ ts: 't2', kind: 'a', subject: 's' })
-    expect(store.events.listEventsSince(id1).map((e) => e.id)).toEqual([id2])
-    expect(store.events.listEventsSince(id2)).toEqual([])
+  it('since-cursor returns only events after the cursor', async () => {
+    const store = await openTestStore(':memory:')
+    const id1 = await store.events.appendEvent({ ts: 't1', kind: 'a', subject: 's' })
+    const id2 = await store.events.appendEvent({ ts: 't2', kind: 'a', subject: 's' })
+    expect((await store.events.listEventsSince(id1)).map((e) => e.id)).toEqual([id2])
+    expect(await store.events.listEventsSince(id2)).toEqual([])
   })
 
-  it('filters by kind list, repoPath, and honors limit', () => {
-    const store = new SessionStore(':memory:')
-    store.events.appendEvent({ ts: 't', kind: 'a', subject: 's', repoPath: '/r1' })
-    store.events.appendEvent({ ts: 't', kind: 'b', subject: 's', repoPath: '/r2' })
-    store.events.appendEvent({ ts: 't', kind: 'c', subject: 's', repoPath: '/r1' })
-    expect(store.events.listEventsSince(0, { kinds: ['a', 'c'] }).map((e) => e.kind)).toEqual(['a', 'c'])
-    expect(store.events.listEventsSince(0, { repoPath: '/r2' }).map((e) => e.kind)).toEqual(['b'])
-    expect(store.events.listEventsSince(0, { limit: 2 }).length).toBe(2)
+  it('filters by kind list, repoPath, and honors limit', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.appendEvent({ ts: 't', kind: 'a', subject: 's', repoPath: '/r1' })
+    await store.events.appendEvent({ ts: 't', kind: 'b', subject: 's', repoPath: '/r2' })
+    await store.events.appendEvent({ ts: 't', kind: 'c', subject: 's', repoPath: '/r1' })
+    expect((await store.events.listEventsSince(0, { kinds: ['a', 'c'] })).map((e) => e.kind)).toEqual([
+      'a',
+      'c',
+    ])
+    expect((await store.events.listEventsSince(0, { repoPath: '/r2' })).map((e) => e.kind)).toEqual(['b'])
+    expect((await store.events.listEventsSince(0, { limit: 2 })).length).toBe(2)
   })
 
   // POD-532: the per-issue activity feed used to drain the whole repo log and
   // filter on `subject` in the browser. The filter belongs here.
-  it('narrows to one subject, and returns every subject when omitted', () => {
-    const store = new SessionStore(':memory:')
-    store.events.appendEvent({ ts: 't1', kind: 'issue.created', subject: 'POD-1', repoPath: '/r' })
-    store.events.appendEvent({ ts: 't2', kind: 'issue.created', subject: 'POD-2', repoPath: '/r' })
-    const mine = store.events.appendEvent({
+  it('narrows to one subject, and returns every subject when omitted', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.appendEvent({ ts: 't1', kind: 'issue.created', subject: 'POD-1', repoPath: '/r' })
+    await store.events.appendEvent({ ts: 't2', kind: 'issue.created', subject: 'POD-2', repoPath: '/r' })
+    const mine = await store.events.appendEvent({
       ts: 't3',
       kind: 'issue.closed',
       subject: 'POD-1',
       repoPath: '/r',
     })
 
-    expect(store.events.listEventsSince(0, { subject: 'POD-1' }).map((e) => e.kind)).toEqual([
+    expect((await store.events.listEventsSince(0, { subject: 'POD-1' })).map((e) => e.kind)).toEqual([
       'issue.created',
       'issue.closed',
     ])
-    expect(store.events.listEventsSince(0, { subject: 'POD-9' })).toEqual([])
+    expect(await store.events.listEventsSince(0, { subject: 'POD-9' })).toEqual([])
     // The omitted case is the whole point of keeping the parameter optional:
     // every existing caller reads repo-wide exactly as before.
-    expect(store.events.listEventsSince(0).map((e) => e.subject)).toEqual([
+    expect((await store.events.listEventsSince(0)).map((e) => e.subject)).toEqual([
       'POD-1',
       'POD-2',
       'POD-1',
     ])
     // Composes with the cursor and the other filters rather than replacing them.
     expect(
-      store.events.listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] }).map((e) => e.id),
+      (await store.events
+        .listEventsSince(0, { subject: 'POD-1', kinds: ['issue.closed'] }))
+        .map((e) => e.id),
     ).toEqual([mine])
-    expect(store.events.listEventsSince(0, { subject: 'POD-1', repoPath: '/other' })).toEqual([])
-    expect(store.events.listEventsSince(mine, { subject: 'POD-1' })).toEqual([])
+    expect(await store.events.listEventsSince(0, { subject: 'POD-1', repoPath: '/other' })).toEqual([])
+    expect(await store.events.listEventsSince(mine, { subject: 'POD-1' })).toEqual([])
   })
 
   // The narrowed read exists to be CHEAP enough to refetch on every issue tick.
@@ -96,11 +116,13 @@ describe('SessionStore event log', () => {
   it('searches an index for a subject-narrowed read instead of scanning the log', () => {
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    const plan = (db
-      .prepare(
-        'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
-      )
-      .all(0, 'POD-1', 200) as { detail: string }[])
+    const plan = (
+      db
+        .prepare(
+          'EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND subject = ? ORDER BY id ASC LIMIT ?',
+        )
+        .all(0, 'POD-1', 200) as { detail: string }[]
+    )
       .map((r) => r.detail)
       .join(' | ')
 
@@ -109,22 +131,22 @@ describe('SessionStore event log', () => {
     expect(plan).not.toContain('SCAN podium_events')
   })
 
-  it('reads a kind window with the last prior value for step-function consumers', () => {
-    const store = new SessionStore(':memory:')
-    store.events.appendEvent({
+  it('reads a kind window with the last prior value for step-function consumers', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.appendEvent({
       ts: '2026-08-06T09:00:00.000Z',
       kind: 'fleet',
       subject: 'all',
       payload: { count: 2 },
     })
-    store.events.appendEvent({ ts: '2026-08-06T10:00:00.000Z', kind: 'other', subject: 'all' })
-    store.events.appendEvent({
+    await store.events.appendEvent({ ts: '2026-08-06T10:00:00.000Z', kind: 'other', subject: 'all' })
+    await store.events.appendEvent({
       ts: '2026-08-06T11:00:00.000Z',
       kind: 'fleet',
       subject: 'all',
       payload: { count: 5 },
     })
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: '2026-08-06T12:00:00.000Z',
       kind: 'fleet',
       subject: 'all',
@@ -132,8 +154,8 @@ describe('SessionStore event log', () => {
     })
 
     expect(
-      store.events
-        .listKindSinceWithPrior('fleet', '2026-08-06T10:30:00.000Z')
+      (await store.events
+        .listKindSinceWithPrior('fleet', '2026-08-06T10:30:00.000Z'))
         .map((row) => row.payload),
     ).toEqual([{ count: 2 }, { count: 5 }, { count: 3 }])
   })
@@ -142,98 +164,94 @@ describe('SessionStore event log', () => {
 describe('SessionStore event log retention', () => {
   const daysAgo = (n: number) => new Date(Date.now() - n * 24 * 60 * 60 * 1000).toISOString()
 
-  const pruneEventBatch = (
+  const pruneEventBatch = async (
     store: SessionStore,
     opts: { maxAgeDays: number; maxRows: number; batchSize?: number },
   ) => {
     const { batchSize = 500, ...planOptions } = opts
-    return store.events.pruneEventBatch(store.events.planEventPrune(planOptions), batchSize)
+    return await store.events.pruneEventBatch(await store.events.planEventPrune(planOptions), batchSize)
   }
 
-  it('deletes rows older than maxAgeDays and returns the deleted count', () => {
-    const store = new SessionStore(':memory:')
-    store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
-    store.events.appendEvent({ ts: daysAgo(20), kind: 'old', subject: 's' })
-    const keep = store.events.appendEvent({ ts: daysAgo(1), kind: 'new', subject: 's' })
-    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(2)
-    expect(store.events.listEventsSince(0).map((e) => e.id)).toEqual([keep])
+  it('deletes rows older than maxAgeDays and returns the deleted count', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
+    await store.events.appendEvent({ ts: daysAgo(20), kind: 'old', subject: 's' })
+    const keep = await store.events.appendEvent({ ts: daysAgo(1), kind: 'new', subject: 's' })
+    expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(2)
+    expect((await store.events.listEventsSince(0)).map((e) => e.id)).toEqual([keep])
   })
 
-  it('row cap deletes the oldest rows beyond maxRows even when young', () => {
-    const store = new SessionStore(':memory:')
+  it('row cap deletes the oldest rows beyond maxRows even when young', async () => {
+    const store = await openTestStore(':memory:')
     const ids = [1, 2, 3, 4, 5].map(() =>
       store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }),
     )
-    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 2 })).toBe(3)
-    expect(store.events.listEventsSince(0).map((e) => e.id)).toEqual(ids.slice(3))
+    expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 2 })).toBe(3)
+    expect((await store.events.listEventsSince(0)).map((e) => e.id)).toEqual(ids.slice(3))
   })
 
-  it('bounds each delete unit before the retention owner starts another', () => {
-    const store = new SessionStore(':memory:')
+  it('bounds each delete unit before the retention owner starts another', async () => {
+    const store = await openTestStore(':memory:')
     for (let i = 0; i < 5; i++) {
-      store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
+      await store.events.appendEvent({ ts: daysAgo(30), kind: 'old', subject: 's' })
     }
 
-    expect(
-      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
-    ).toBe(2)
-    expect(store.events.listEventsSince(0)).toHaveLength(3)
-    expect(
-      pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 }),
-    ).toBe(2)
-    expect(store.events.listEventsSince(0)).toHaveLength(1)
+    expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 })).toBe(2)
+    expect(await store.events.listEventsSince(0)).toHaveLength(3)
+    expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100, batchSize: 2 })).toBe(2)
+    expect(await store.events.listEventsSince(0)).toHaveLength(1)
   })
 
-  it('a cursor pointing into a pruned range still works — returns only retained rows', () => {
-    const store = new SessionStore(':memory:')
-    const id1 = store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
-    const id2 = store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
-    const id3 = store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
-    const id4 = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
-    pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
+  it('a cursor pointing into a pruned range still works — returns only retained rows', async () => {
+    const store = await openTestStore(':memory:')
+    const id1 = await store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
+    const id2 = await store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
+    const id3 = await store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
+    const id4 = await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
+    await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
     // Cursor sits below the oldest retained row (id1) and mid-gap (id2): both
     // simply resume at the first retained row above them — no error, no skip
     // of anything that still exists.
-    expect(store.events.listEventsSince(id1).map((e) => e.id)).toEqual([id3, id4])
-    expect(store.events.listEventsSince(id2).map((e) => e.id)).toEqual([id3, id4])
+    expect((await store.events.listEventsSince(id1)).map((e) => e.id)).toEqual([id3, id4])
+    expect((await store.events.listEventsSince(id2)).map((e) => e.id)).toEqual([id3, id4])
   })
 
-  it('maxEventId tracks the newest retained row; ids never rewind after a full prune', () => {
-    const store = new SessionStore(':memory:')
-    store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
-    const top = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
-    pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
-    expect(store.events.maxEventId()).toBe(top)
+  it('maxEventId tracks the newest retained row; ids never rewind after a full prune', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.appendEvent({ ts: daysAgo(30), kind: 'k', subject: 's' })
+    const top = await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
+    await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })
+    expect(await store.events.maxEventId()).toBe(top)
     // AUTOINCREMENT: even after deleting EVERY row, the next id continues past
     // the old max — pruned ids are never reused, so cursors stay monotonic.
-    pruneEventBatch(store, { maxAgeDays: 14, maxRows: 0 })
-    expect(store.events.maxEventId()).toBe(0)
-    const next = store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
+    await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 0 })
+    expect(await store.events.maxEventId()).toBe(0)
+    const next = await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' })
     expect(next).toBeGreaterThan(top)
   })
 
-  it('returns 0 when nothing qualifies for pruning', () => {
-    const store = new SessionStore(':memory:')
-    store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
-    expect(pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(0)
+  it('returns 0 when nothing qualifies for pruning', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.appendEvent({ ts: daysAgo(1), kind: 'k', subject: 's' })
+    expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 100 })).toBe(0)
   })
 })
 
 describe('IssueService event emission', () => {
-  it('create emits issue.created with seq/title and the repo path', () => {
-    const { svc, store } = harness()
+  it('create emits issue.created with seq/title and the repo path', async () => {
+    const { svc, store } = await harness()
     const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    const evs = store.events.listEventsSince(0, { kinds: ['issue.created'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['issue.created'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: w.id, repoPath: '/r', payload: { seq: 1, title: 'A' } })
   })
 
-  it('create calls onIssueCreated once, and no later mutation does', () => {
+  it('create calls onIssueCreated once, and no later mutation does', async () => {
     // The in-process twin of the durable row above. Asserted in the same file
     // and against the same call so the two cannot drift into disagreeing about
     // when an issue comes into existence.
     const seen: unknown[] = []
-    const { svc } = harness([], { onIssueCreated: (event) => seen.push(event) })
+    const { svc } = await harness([], { onIssueCreated: (event) => seen.push(event) })
     const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     // 'user:sole' is what create() defaults the owner to (crud.ts), and the
     // callback reports the ROW's owner rather than the wire's, because the wire
@@ -244,8 +262,8 @@ describe('IssueService event emission', () => {
     expect(seen).toHaveLength(1)
   })
 
-  it('an onIssueCreated that throws does not fail the create', () => {
-    const { svc } = harness([], {
+  it('an onIssueCreated that throws does not fail the create', async () => {
+    const { svc } = await harness([], {
       onIssueCreated: () => {
         throw new Error('observer exploded')
       },
@@ -253,62 +271,68 @@ describe('IssueService event emission', () => {
     expect(() => svc.create({ repoPath: '/r', title: 'A', startNow: false })).not.toThrow()
   })
 
-  it('close emits issue.closed AND issue.ready for a dependent whose only blocker closed', () => {
-    const { svc, store } = harness()
+  it('close emits issue.closed AND issue.ready for a dependent whose only blocker closed', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
     svc.addDep(b.id, a.id, 'blocks')
     svc.close(a.id)
-    const closed = store.events.listEventsSince(0, { kinds: ['issue.closed'] })
+    const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
     expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
-    const ready = store.events.listEventsSince(0, { kinds: ['issue.ready'] })
+    const ready = await store.events.listEventsSince(0, { kinds: ['issue.ready'] })
     expect(ready.length).toBe(1)
     expect(ready[0]).toMatchObject({ subject: b.id, payload: { seq: b.seq, unblockedBy: a.seq } })
   })
 
-  it('close does NOT emit issue.ready for a dependent that is still blocked by another open issue', () => {
-    const { svc, store } = harness()
+  it('close does NOT emit issue.ready for a dependent that is still blocked by another open issue', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
     const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
     svc.addDep(c.id, a.id, 'blocks')
     svc.addDep(c.id, b.id, 'blocks')
     svc.close(a.id)
-    expect(store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
+    expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
 
-  it('stage change emits issue.stage_changed; close does not double-emit it', () => {
-    const { svc, store } = harness()
+  it('stage change emits issue.stage_changed; close does not double-emit it', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.update(a.id, { stage: 'in_progress' })
     svc.update(a.id, { stage: 'in_progress' }) // same value — no event
     svc.close(a.id)
-    const staged = store.events.listEventsSince(0, { kinds: ['issue.stage_changed'] })
+    const staged = await store.events.listEventsSince(0, { kinds: ['issue.stage_changed'] })
     expect(staged.length).toBe(1)
     expect(staged[0]).toMatchObject({
       subject: a.id,
       payload: { seq: a.seq, from: 'backlog', to: 'in_progress' },
     })
-    expect(store.events.listEventsSince(0, { kinds: ['issue.closed'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
   })
 
-  it('needs-human set/clear emit their events', () => {
-    const { svc, store } = harness()
+  it('needs-human set/clear emit their events', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.setNeedsHuman(a.id, 'which key?')
     svc.clearNeedsHuman(a.id)
-    const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
+    const flagged = await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
-    expect(flagged[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, question: 'which key?' } })
-    expect(store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
+    expect(flagged[0]).toMatchObject({
+      subject: a.id,
+      payload: { seq: a.seq, question: 'which key?' },
+    })
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length).toBe(1)
   })
 
-  it('issue.needs_human carries options + askedBy when given (issue #53)', () => {
-    const { svc, store } = harness()
+  it('issue.needs_human carries options + askedBy when given (issue #53)', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
-    svc.setNeedsHuman(a.id, 'merge?', { options: ['Yes', 'No'], askedBy: asSessionId('sess_asker') })
-    const flagged = store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
+    svc.setNeedsHuman(a.id, 'merge?', {
+      options: ['Yes', 'No'],
+      askedBy: asSessionId('sess_asker'),
+    })
+    const flagged = await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })
     expect(flagged.length).toBe(1)
     expect(flagged[0]).toMatchObject({
       subject: a.id,
@@ -317,55 +341,58 @@ describe('IssueService event emission', () => {
   })
 
   // Attention-state transitions S3 renders (issue #124).
-  it('markIssueRead emits issue.read', () => {
-    const { svc, store } = harness()
+  it('markIssueRead emits issue.read', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.markIssueRead(a.id)
-    const evs = store.events.listEventsSince(0, { kinds: ['issue.read'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['issue.read'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
   })
 
-  it('pin change emits issue.pinned with the new value (both directions)', () => {
-    const { svc, store } = harness()
+  it('pin change emits issue.pinned with the new value (both directions)', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.update(a.id, { pinned: true })
     svc.update(a.id, { pinned: true }) // no change — no duplicate event
     svc.update(a.id, { pinned: false })
-    const evs = store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['issue.pinned'] })
     expect(evs.length).toBe(2)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: true } })
     expect(evs[1]).toMatchObject({ subject: a.id, payload: { seq: a.seq, pinned: false } })
   })
 
-  it('defer/undefer emit issue.snoozed / issue.unsnoozed', () => {
-    const { svc, store } = harness()
+  it('defer/undefer emit issue.snoozed / issue.unsnoozed', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.defer(a.id, '2999-01-01')
     svc.defer(a.id, null)
-    const snoozed = store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })
+    const snoozed = await store.events.listEventsSince(0, { kinds: ['issue.snoozed'] })
     expect(snoozed.length).toBe(1)
-    expect(snoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, until: '2999-01-01' } })
-    const unsnoozed = store.events.listEventsSince(0, { kinds: ['issue.unsnoozed'] })
+    expect(snoozed[0]).toMatchObject({
+      subject: a.id,
+      payload: { seq: a.seq, until: '2999-01-01' },
+    })
+    const unsnoozed = await store.events.listEventsSince(0, { kinds: ['issue.unsnoozed'] })
     expect(unsnoozed.length).toBe(1)
     expect(unsnoozed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
   })
 
-  it('archive emits issue.archived once (on the false->true flip)', () => {
-    const { svc, store } = harness()
+  it('archive emits issue.archived once (on the false->true flip)', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.archive(a.id)
     svc.archive(a.id) // already archived — no duplicate event
-    const evs = store.events.listEventsSince(0, { kinds: ['issue.archived'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['issue.archived'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq } })
   })
 
   it('start emits issue.started with branch + worktreePath', async () => {
-    const { svc, store } = harness()
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
     await svc.start(a.id)
-    const evs = store.events.listEventsSince(0, { kinds: ['issue.started'] })
+    const evs = await store.events.listEventsSince(0, { kinds: ['issue.started'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({
       subject: a.id,
@@ -377,8 +404,8 @@ describe('IssueService event emission', () => {
     })
   })
 
-  it('an appendEvent failure never breaks the mutation', () => {
-    const { svc, store } = harness()
+  it('an appendEvent failure never breaks the mutation', async () => {
+    const { svc, store } = await harness()
     vi.spyOn(store.events, 'appendEvent').mockImplementation(() => {
       throw new Error('disk full')
     })
@@ -386,46 +413,46 @@ describe('IssueService event emission', () => {
     expect(svc.close(w.id).stage).toBe('done')
   })
 
-  it('update --stage done (board drag / CLI path) emits issue.closed + the ready fanout', () => {
-    const { svc, store } = harness()
+  it('update --stage done (board drag / CLI path) emits issue.closed + the ready fanout', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
     svc.addDep(b.id, a.id, 'blocks')
     svc.update(a.id, { stage: 'done' })
-    const closed = store.events.listEventsSince(0, { kinds: ['issue.closed'] })
+    const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
     expect(closed[0]).toMatchObject({ subject: a.id, payload: { seq: a.seq, reason: 'done' } })
-    expect(store.events.listEventsSince(0, { kinds: ['issue.stage_changed'] })).toEqual([])
-    const ready = store.events.listEventsSince(0, { kinds: ['issue.ready'] })
+    expect(await store.events.listEventsSince(0, { kinds: ['issue.stage_changed'] })).toEqual([])
+    const ready = await store.events.listEventsSince(0, { kinds: ['issue.ready'] })
     expect(ready.length).toBe(1)
     expect(ready[0]).toMatchObject({ subject: b.id, payload: { seq: b.seq, unblockedBy: a.seq } })
   })
 
-  it('supersede and duplicate emit issue.closed with their reasons', () => {
-    const { svc, store } = harness()
+  it('supersede and duplicate emit issue.closed with their reasons', async () => {
+    const { svc, store } = await harness()
     const old = svc.create({ repoPath: '/r', title: 'Old', startNow: false })
     const canon = svc.create({ repoPath: '/r', title: 'New', startNow: false })
     const dup = svc.create({ repoPath: '/r', title: 'Dup', startNow: false })
     svc.supersede(old.id, canon.id)
     svc.duplicate(dup.id, canon.id)
-    const closed = store.events.listEventsSince(0, { kinds: ['issue.closed'] })
+    const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.map((e) => [e.subject, (e.payload as { reason: string }).reason])).toEqual([
       [old.id, 'superseded'],
       [dup.id, 'duplicate'],
     ])
   })
 
-  it('double-close emits exactly one issue.closed', () => {
-    const { svc, store } = harness()
+  it('double-close emits exactly one issue.closed', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.close(a.id)
     svc.close(a.id, 'wontfix')
     svc.update(a.id, { closedReason: 'obsolete' }) // still closed — no re-emit
-    expect(store.events.listEventsSince(0, { kinds: ['issue.closed'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
   })
 
-  it('a fanout read error after the close persisted does not break close()', () => {
-    const { svc, store } = harness()
+  it('a fanout read error after the close persisted does not break close()', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
     svc.addDep(b.id, a.id, 'blocks')
@@ -453,21 +480,21 @@ describe('IssueService event emission', () => {
       return origAllDeps()
     })
     expect(svc.close(a.id).stage).toBe('done')
-    expect(store.issues.getIssue(a.id)?.stage).toBe('done')
-    expect(store.events.listEventsSince(0, { kinds: ['issue.closed'] }).length).toBe(1)
-    expect(store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
+    expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
+    expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
 
-  it('re-flagging needs-human emits once; re-clearing likewise', () => {
-    const { svc, store } = harness()
+  it('re-flagging needs-human emits once; re-clearing likewise', async () => {
+    const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     svc.clearNeedsHuman(a.id) // never flagged — nothing to log
     svc.setNeedsHuman(a.id, 'q1')
     svc.setNeedsHuman(a.id, 'q2')
-    expect(store.events.listEventsSince(0, { kinds: ['issue.needs_human'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human'] })).length).toBe(1)
     svc.clearNeedsHuman(a.id)
     svc.clearNeedsHuman(a.id)
-    expect(store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.needs_human_cleared'] })).length).toBe(1)
   })
 })
 
@@ -475,22 +502,33 @@ describe('SessionRegistry session.phase events', () => {
   const st = (phase: string, idle?: { kind: string }) =>
     ({ phase, since: 't', nativeSubagentCount: 0, ...(idle ? { idle } : {}) }) as never
 
-  it('skips the prev-undefined seed and logs only real phase transitions', () => {
-    const store = new SessionStore(':memory:')
+  it('skips the prev-undefined seed and logs only real phase transitions', async () => {
+    const store = await openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
-    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'claude-code', cwd: '/proj' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/proj',
+    })
     // First state after boot/spawn: prev is undefined → no phantom row.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: st('working') })
-    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: st('working'),
+    })
+    expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentState',
       sessionId,
       state: st('idle', { kind: 'question' }),
     })
     // Same-phase refresh → no second row.
-    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, { type: 'agentState', sessionId, state: st('idle') })
-    const evs = store.events.listEventsSince(0, { kinds: ['session.phase'] })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+      type: 'agentState',
+      sessionId,
+      state: st('idle'),
+    })
+    const evs = await store.events.listEventsSince(0, { kinds: ['session.phase'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({
       subject: sessionId,

@@ -14,7 +14,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const TIP = 'a'.repeat(40)
 const MAIN = 'b'.repeat(40)
@@ -30,29 +30,29 @@ interface OpCall {
 }
 
 /** revParseVerify answers keyed by `${machineId}:${ref}`; anything absent is unknown. */
-function makeRig(
+async function makeRig(
   known: Record<string, string>,
   overrides?: Record<string, () => unknown>,
   /** revParseVerify answers that only exist once a bundle has actually landed. */
   afterFetch: Record<string, string> = {},
 ) {
-  const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'src',
     name: 'src',
     hostname: 'src',
     tokenHash: 'x',
     ownerUserId: null,
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'tgt',
     name: 'tgt',
     hostname: 'tgt',
     tokenHash: 'y',
     ownerUserId: null,
   })
-  store.repos.addRepo(SOURCE, asMachineId('src'))
-  store.repos.addRepo(TARGET, asMachineId('tgt'))
+  await store.repos.addRepo(SOURCE, asMachineId('src'))
+  await store.repos.addRepo(TARGET, asMachineId('tgt'))
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   const calls: OpCall[] = []
   const rpc = {
@@ -115,7 +115,7 @@ const call = (reg: SessionRegistry, ref = REF) =>
 describe('ensureRefOnMachine', () => {
   it('skips the bundle when the target already holds the tip', async () => {
     // The target fetched the branch: it has the COMMIT but no ref by that name.
-    const { reg, calls } = makeRig({
+    const { reg, calls } = await makeRig({
       [`src:${REF}`]: TIP,
       'src:main': MAIN,
       [`tgt:${TIP}`]: TIP,
@@ -126,7 +126,7 @@ describe('ensureRefOnMachine', () => {
   })
 
   it('still ships commits the target is missing', async () => {
-    const { reg, calls } = makeRig(
+    const { reg, calls } = await makeRig(
       { [`src:${REF}`]: TIP, 'src:main': MAIN, [`tgt:${MAIN}`]: MAIN },
       undefined,
       // The tip only resolves on the target AFTER the bundle lands.
@@ -140,7 +140,7 @@ describe('ensureRefOnMachine', () => {
 
   it('does not mistake an unreachable target for "nothing to send"', async () => {
     // No tgt: answers at all — every revParseVerify on the target fails.
-    const { reg, calls } = makeRig({ [`src:${REF}`]: TIP, 'src:main': MAIN })
+    const { reg, calls } = await makeRig({ [`src:${REF}`]: TIP, 'src:main': MAIN })
     await expect(call(reg)).rejects.toThrow(/does not resolve on the target/u)
     expect(calls.map((c) => c.op)).toContain('bundleCreate')
   })
@@ -154,7 +154,7 @@ describe('ensureRefOnMachine', () => {
    */
   it('does not start from the target’s own stale copy of a shared branch name', async () => {
     const STALE = 'c'.repeat(40)
-    const { reg, calls } = makeRig(
+    const { reg, calls } = await makeRig(
       // src:main is the tip the operator meant; tgt:main is 455 commits behind.
       { 'src:main': TIP, 'src:origin/main': TIP, [`src:${STALE}`]: STALE, 'tgt:main': STALE },
       undefined,
@@ -169,13 +169,17 @@ describe('ensureRefOnMachine', () => {
   })
 
   it('still skips the transfer when the shared name is already the same commit', async () => {
-    const { reg, calls } = makeRig({ 'src:main': TIP, 'src:origin/main': TIP, 'tgt:main': TIP })
+    const { reg, calls } = await makeRig({
+      'src:main': TIP,
+      'src:origin/main': TIP,
+      'tgt:main': TIP,
+    })
     await expect(call(reg, 'main')).resolves.toEqual({ transferred: false, startPoint: TIP })
     expect(calls.map((c) => c.op)).not.toContain('bundleCreate')
   })
 
   it('fails loudly when the transfer itself breaks', async () => {
-    const { reg } = makeRig(
+    const { reg } = await makeRig(
       { [`src:${REF}`]: TIP, 'src:main': MAIN, [`tgt:${MAIN}`]: MAIN },
       { bundleFetch: () => ({ ok: false, output: 'bundle verify failed' }) },
     )

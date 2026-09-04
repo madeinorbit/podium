@@ -27,19 +27,19 @@ const NO_PERSON = willChange(
 
 describe('oracle: who created this session', () => {
   it(`${MUST_NOT_CHANGE}: tRPC creation stamps user provenance and durable human ownership`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     expect(o.meta(sessionId).spawnedBy).toBe('user')
-    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)).toMatchObject({
+    expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)).toMatchObject({
       spawnedBy: 'user',
       ownerUserId: FIRST_ADMIN_USER_ID,
     })
   })
 
   it(`${NO_PERSON}: a resume through the tRPC seam stamps 'user' on its fresh-spawn fallback`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
@@ -52,7 +52,7 @@ describe('oracle: who created this session', () => {
   })
 
   it(`${MUST_NOT_CHANGE}: an agent-spawned child is stamped 'session:<parent>' — the actor half already exists, from the capability`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const parent = o.reg.modules.sessions.createSession({
@@ -78,7 +78,7 @@ describe('oracle: who created this session', () => {
 
 describe('oracle: who named this session', () => {
   it(`${NO_PERSON}: nameSource records the CLASS of writer ('user' | 'agent'), never which user or which agent`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const agent = o.reg.modules.sessions.createSession({
@@ -100,25 +100,25 @@ describe('oracle: who named this session', () => {
     expect(o.meta(human.sessionId).nameSource).toBe('user')
     // Two different agents would both stamp the identical 'agent' — the actor
     // half of the pair is NOT recorded on the row.
-    const rows = o.store.sessions.loadSessions()
+    const rows = await o.store.sessions.loadSessions()
     expect(rows.map((r) => r.nameSource).sort()).toEqual(['agent', 'user'])
   })
 })
 
 describe('oracle: who ended this session', () => {
   it(`${NO_PERSON}: a kill records deletion_source 'standalone' — the CAUSE class, with no actor at all`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.kill({ sessionId })
 
-    const tombstone = o.store.sessions.loadDeletedSessions().find((r) => r.id === sessionId)
+    const tombstone = (await o.store.sessions.loadDeletedSessions()).find((r) => r.id === sessionId)
     expect(tombstone?.deletionSource).toBe('standalone')
     expect(tombstone?.deletedByIssueId).toBeNull()
   })
 
   it(`${NO_PERSON}: archive's park records stopReason 'parent' — again a cause, not an actor`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -131,15 +131,15 @@ describe('oracle: who ended this session', () => {
 
     await o.call.sessions.setArchived({ sessionId, archived: true })
 
-    expect(o.store.sessions.loadSessions().find((r) => r.id === sessionId)?.stopReason).toBe(
-      'parent',
-    )
+    expect(
+      (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.stopReason,
+    ).toBe('parent')
   })
 })
 
 describe('oracle: who typed into this session', () => {
   it(`${NO_PERSON}: PTY frames carry inputOrigin — 'human' for direct terminal input, 'controller' for a chat send`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -170,7 +170,7 @@ describe('oracle: who typed into this session', () => {
 
 describe('oracle: who asked the human a question', () => {
   it(`${NO_PERSON}: humanQuestionAskedBy is stamped from the transport principal, and an agent cannot attribute a question to another session`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/a' })
     const agent = o.reg.modules.sessions.createSession({
@@ -209,10 +209,10 @@ describe('oracle: who asked the human a question', () => {
 
 describe('oracle: who moved this session between machines', () => {
   it(`${MUST_NOT_CHANGE}: handoff preserves the durable per-user session owner`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
 
-    const row = o.store.sessions.loadSessions().find((r) => r.id === sessionId)
+    const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     // Handoff changes placement without changing the durable human owner.
     expect(row?.ownerUserId).toBe(FIRST_ADMIN_USER_ID)
     expect(

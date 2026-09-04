@@ -91,14 +91,14 @@ const READY: ServerReadiness = {
 }
 
 /** The first admin's credential — what "a password is set" means after POD-1554. */
-function credentialHash(): string {
+async function credentialHash(): Promise<string> {
   harness ??= makeHarness()
-  return harness.users.credentialFor(FIRST_ADMIN_USER_ID)?.passwordHash ?? ''
+  return (await harness.users.credentialFor(FIRST_ADMIN_USER_ID))?.passwordHash ?? ''
 }
 
 async function seedPassword(password: string): Promise<void> {
   harness ??= makeHarness()
-  harness.users.setPasswordHash(
+  await harness.users.setPasswordHash(
     FIRST_ADMIN_USER_ID,
     await hashPassword(password),
     new Date().toISOString(),
@@ -199,25 +199,25 @@ describe('setup tRPC', () => {
   })
   it('sets the login password when one is supplied (network-exposed install)', async () => {
     await caller().setup.complete({ publicUrl: 'https://box.ts.net', password: 'launch-code' })
-    expect(await verifyPasswordHash('launch-code', credentialHash())).toBe(true)
+    expect(await verifyPasswordHash('launch-code', await credentialHash())).toBe(true)
   })
   it('rejects a reachable setup without password acknowledgement', async () => {
     await expect(caller().setup.complete({ publicUrl: 'https://box.ts.net' })).rejects.toThrow()
-    expect(credentialHash()).toBe('')
+    expect(await credentialHash()).toBe('')
   })
   it('keeps an existing password when the URL is set later (no re-ack needed)', async () => {
     await seedPassword('already-set')
     // No password + no ack must NOT throw once one is already configured — it's "keep current".
     await caller().setup.complete({ publicUrl: 'https://relay.ts.net' })
     expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
-    expect(await verifyPasswordHash('already-set', credentialHash())).toBe(true) // unchanged
+    expect(await verifyPasswordHash('already-set', await credentialHash())).toBe(true) // unchanged
   })
   it('leaves auth open when no password is explicitly acknowledged', async () => {
     await caller().setup.complete({
       publicUrl: 'https://box.ts.net',
       acknowledgeNoPassword: true,
     })
-    expect(credentialHash()).toBe('')
+    expect(await credentialHash()).toBe('')
   })
   /**
    * PDM-34: connect and join now ask the remote where its UI is. Nothing below
@@ -379,7 +379,7 @@ describe('a credential change does not trip the topology guard [POD-2766]', () =
       password: 'operator',
     })
 
-    expect(await verifyPasswordHash('operator', credentialHash())).toBe(true)
+    expect(await verifyPasswordHash('operator', await credentialHash())).toBe(true)
     // THE ASSERTION THIS ISSUE EXISTS FOR.
     expect(readiness()).toMatchObject({ state: 'ready', dataPlane: 'available' })
     // And the reason it holds: the box's own answer about how it is supervised

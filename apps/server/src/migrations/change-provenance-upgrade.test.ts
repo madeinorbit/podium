@@ -36,7 +36,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 import { appliedDrizzleNames } from './index'
 
 function tmpDbFile(name: string): string {
@@ -67,9 +67,9 @@ const MIGRATION = '20260730162954_change-provenance-envelope'
  * before the upgrade runs — and the seq test below fails on the fixture rather
  * than on the migration if it does not.
  */
-function seedPreMigrationDatabase(file: string, rowCount: number): void {
+async function seedPreMigrationDatabase(file: string, rowCount: number): Promise<void> {
   // 1. A real database at HEAD, through the real boot path.
-  new SessionStore(file).close()
+  ;(await openTestStore(file)).close()
 
   const db = openDatabase(file)
   const insert = db.prepare(
@@ -116,13 +116,13 @@ const sequenceHighWater = (db: SqlDatabase): number =>
 describe('in-place upgrade of an existing podium.db (POD-305)', () => {
   const ROWS = 12
 
-  it('preserves every existing change row', () => {
+  it('preserves every existing change row', async () => {
     const file = tmpDbFile('upgrade.db')
-    seedPreMigrationDatabase(file, ROWS)
+    await seedPreMigrationDatabase(file, ROWS)
 
     // The real boot path: SessionStore runs the drizzle migrations in one
     // transaction. Nothing here reaches past it into the applier.
-    new SessionStore(file).close()
+    ;(await openTestStore(file)).close()
 
     const db = openDatabase(file)
     const rows = db
@@ -137,13 +137,13 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     db.close()
   })
 
-  it('adds the provenance columns as NULL on existing rows, never fabricated', () => {
+  it('adds the provenance columns as NULL on existing rows, never fabricated', async () => {
     // A fabricated causationId would let a replica retire an outbox entry that
     // this change did not confirm — a user's queued write disappearing because a
     // migration invented a confirmation for it.
     const file = tmpDbFile('upgrade-null.db')
-    seedPreMigrationDatabase(file, ROWS)
-    new SessionStore(file).close()
+    await seedPreMigrationDatabase(file, ROWS)
+    ;(await openTestStore(file)).close()
 
     const db = openDatabase(file)
     const row = db
@@ -153,9 +153,9 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     db.close()
   })
 
-  it('KEEPS SEQ CONTINUOUS — the next append is head+1, not 1', () => {
+  it('KEEPS SEQ CONTINUOUS — the next append is head+1, not 1', async () => {
     const file = tmpDbFile('upgrade-seq.db')
-    seedPreMigrationDatabase(file, ROWS)
+    await seedPreMigrationDatabase(file, ROWS)
 
     const before = openDatabase(file)
     const headBefore = maxSeq(before)
@@ -168,7 +168,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(headBefore).toBe(ROWS)
     expect(highWaterBefore).toBe(ROWS)
 
-    new SessionStore(file).close()
+    ;(await openTestStore(file)).close()
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(highWaterBefore)
@@ -188,14 +188,14 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     after.close()
   })
 
-  it('keeps seq continuous even when the log was head-pruned before the upgrade', () => {
+  it('keeps seq continuous even when the log was head-pruned before the upgrade', async () => {
     // The case a naive `MAX(seq)` check would pass while the product broke.
     // Head-pruning (ADR 2 D5) deletes the OLDEST rows, so MAX(seq) is unaffected
     // — but a table rebuild would reset `sqlite_sequence` to the surviving MAX,
     // and after a prune that is LOWER than the highest seq ever assigned. Two
     // different changes would then share a position in the one global sequence.
     const file = tmpDbFile('upgrade-pruned.db')
-    seedPreMigrationDatabase(file, ROWS)
+    await seedPreMigrationDatabase(file, ROWS)
 
     const pre = openDatabase(file)
     pre.prepare('DELETE FROM changes WHERE seq <= ?').run(ROWS - 2)
@@ -203,7 +203,7 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     expect(sequenceHighWater(pre)).toBe(ROWS)
     pre.close()
 
-    new SessionStore(file).close()
+    ;(await openTestStore(file)).close()
 
     const after = openDatabase(file)
     expect(sequenceHighWater(after)).toBe(ROWS)
@@ -221,18 +221,16 @@ describe('in-place upgrade of an existing podium.db (POD-305)', () => {
     after.close()
   })
 
-  it('is idempotent — a second boot changes nothing', () => {
+  it('is idempotent — a second boot changes nothing', async () => {
     const file = tmpDbFile('upgrade-twice.db')
-    seedPreMigrationDatabase(file, ROWS)
-    new SessionStore(file).close()
-    new SessionStore(file).close()
+    await seedPreMigrationDatabase(file, ROWS)
+    ;(await openTestStore(file)).close()
+    ;(await openTestStore(file)).close()
 
     const db = openDatabase(file)
     expect(maxSeq(db)).toBe(ROWS)
     expect(sequenceHighWater(db)).toBe(ROWS)
-    expect(
-      (db.prepare('SELECT COUNT(*) AS n FROM changes').get() as { n: number }).n,
-    ).toBe(ROWS)
+    expect((db.prepare('SELECT COUNT(*) AS n FROM changes').get() as { n: number }).n).toBe(ROWS)
     db.close()
   })
 })

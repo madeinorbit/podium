@@ -9,8 +9,9 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { normalizeSettings } from '@podium/runtime'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 type RestartKind = 'daemon-only' | 'server-only' | 'server-and-daemon'
 
@@ -80,29 +81,29 @@ function observation(input: {
   }
 }
 
-function durableCounts(
+async function durableCounts(
   store: SessionStore,
   childId: string,
   parentId: string,
-): {
+): Promise<{
   phaseRows: number
   notificationFacts: number
   queuedParentNudges: number
-} {
+}> {
   return {
-    phaseRows: store.events
-      .listEventsSince(0, { kinds: ['session.phase'] })
-      .filter((event) => event.subject === childId).length,
-    notificationFacts: store.notificationFacts.hasActive(
+    phaseRows: (await store.events.listEventsSince(0, { kinds: ['session.phase'] })).filter(
+      (event) => event.subject === childId,
+    ).length,
+    notificationFacts: (await store.notificationFacts.hasActive(
       `sessionparentnudge:phase-reported:${childId}`,
       parentId,
       at(23),
-    )
+    ))
       ? 1
       : 0,
-    queuedParentNudges: store.messages
-      .listQueued()
-      .filter((message) => message.fromKind === 'system' && message.body.includes(childId)).length,
+    queuedParentNudges: (await store.messages.listQueued()).filter(
+      (message) => message.fromKind === 'system' && message.body.includes(childId),
+    ).length,
   }
 }
 
@@ -124,7 +125,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       // A server restart reopens the same owned host machine; reminting here
       // would model a replacement machine and invalidate every durable binding.
       const hostMachineId = asMachineId(randomUUID())
-      let store = new SessionStore(dbPath, hostMachineId)
+      let store = await openTestStore(dbPath, hostMachineId)
       let registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
       registry.bus.on('notification.telegramRequested', telegramRequest)
       const controls: ControlMessage[] = []
@@ -151,7 +152,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       registry.modules.settings.setSecret('notifications.telegramBotToken', 'fixture-token')
       // Outbound routing is usable only after the same owner's chat has passed
       // the binding ceremony; a preference string alone is intentionally inert.
-      store.telegramBindings.upsert({
+      await store.telegramBindings.upsert({
         chatId: 'fixture-chat',
         userId: FIRST_ADMIN_USER_ID,
         boundAt: at(0),
@@ -189,8 +190,8 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
         confidence: 'exact',
       })
 
-      const currentGeneration = (): number => {
-        const lease = store.observationCheckpoints.get(childId)
+      const currentGeneration = async (): Promise<number> => {
+        const lease = await store.observationCheckpoints.get(childId)
         if (!lease) throw new Error('missing observation lease')
         return lease.observationGeneration
       }
@@ -218,9 +219,9 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           sourceEventKind: 'terminal_fixture_fold',
         })
 
-      const originalRecency = store.sessions
-        .loadSessions()
-        .find((row) => row.id === childId)?.lastActiveAt
+      const originalRecency = (await store.sessions.loadSessions()).find(
+        (row) => row.id === childId,
+      )?.lastActiveAt
       const bootstrapAcks: Array<{
         kind: 'initial' | RestartKind
         generation: number
@@ -249,16 +250,16 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           result: lastAck.result,
         })
       }
-      deliverBootstrap('initial', frozen(currentGeneration()))
-      const frozenCheckpoint = store.observationCheckpoints.get(childId)?.checkpoint
+      deliverBootstrap('initial', frozen(await currentGeneration()))
+      const frozenCheckpoint = (await store.observationCheckpoints.get(childId))?.checkpoint
       if (!frozenCheckpoint) throw new Error('missing frozen checkpoint')
-      expect(store.sessions.loadSessions().find((row) => row.id === childId)?.lastActiveAt).toBe(
-        originalRecency,
-      )
-      expect(store.observationCheckpoints.getTerminalCandidate(childId)).toBeNull()
+      expect(
+        (await store.sessions.loadSessions()).find((row) => row.id === childId)?.lastActiveAt,
+      ).toBe(originalRecency)
+      expect(await store.observationCheckpoints.getTerminalCandidate(childId)).toBeNull()
 
       const bootstrapSnapshots: Array<{ kind: RestartKind; generation: number }> = []
-      const restart = (kind: RestartKind): void => {
+      const restart = async (kind: RestartKind): Promise<void> => {
         controls.length = 0
         if (kind === 'daemon-only') {
           // The server survives. Replacing the daemon forces a provider-history
@@ -271,13 +272,13 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           // a replaced daemon folds the frozen provider fixture again.
           registry.dispose()
           store.close()
-          store = new SessionStore(dbPath, hostMachineId)
+          store = await openTestStore(dbPath, hostMachineId)
           registry = SessionRegistry.create(store, { ntfy, telegram }, { instanceId: 'default' })
           registry.bus.on('notification.telegramRequested', telegramRequest)
           attachTestClient(registry.clientGateway, (message) => web.push(message))
           attach()
         }
-        const generation = currentGeneration()
+        const generation = await currentGeneration()
         const recovery = controls.find(
           (message) => message.type === 'reattach' && message.sessionId === childId,
         )
@@ -293,7 +294,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           },
         })
         bootstrapSnapshots.push({ kind, generation })
-        if (store.observationCheckpoints.getTerminalCandidate(childId)?.confirmedAt) {
+        if ((await store.observationCheckpoints.getTerminalCandidate(childId))?.confirmedAt) {
           registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
             type: 'agentFrameBatch',
             sessionId: childId,
@@ -304,7 +305,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
           })
         }
         if (kind === 'server-only') {
-          const held = store.observationCheckpoints.get(childId)?.checkpoint
+          const held = (await store.observationCheckpoints.get(childId))?.checkpoint
           if (!held?.providerCursor) throw new Error('missing daemon-held checkpoint')
           deliverBootstrap(kind, {
             ...frozen(generation),
@@ -325,8 +326,8 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       }
 
       for (const kind of ['daemon-only', 'server-only', 'server-and-daemon'] as const) {
-        restart(kind)
-        restart(kind)
+        await restart(kind)
+        await restart(kind)
       }
       await registry.runStewardTick()
 
@@ -335,25 +336,25 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       expect(bootstrapAcks).toHaveLength(7)
       expect(bootstrapAcks[0]?.result).toBe('snapshot_applied')
       expect(bootstrapAcks.slice(1).every((ack) => ack.result === 'rejected')).toBe(true)
-      expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
-      expect(store.sessions.loadSessions().find((row) => row.id === childId)?.lastActiveAt).toBe(
-        originalRecency,
-      )
+      expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
       expect(
-        store.sessions.loadSessions().find((row) => row.id === childId)?.activityCount ?? 0,
+        (await store.sessions.loadSessions()).find((row) => row.id === childId)?.lastActiveAt,
+      ).toBe(originalRecency)
+      expect(
+        (await store.sessions.loadSessions()).find((row) => row.id === childId)?.activityCount ?? 0,
       ).toBe(0)
-      expect(store.observationCheckpoints.getTerminalCandidate(childId)).toBeNull()
-      expect(store.sync.listQueuedMessages(childId)).toEqual([])
+      expect(await store.observationCheckpoints.getTerminalCandidate(childId)).toBeNull()
+      expect(await store.sync.listQueuedMessages(childId)).toEqual([])
       expect(ntfy).not.toHaveBeenCalled()
       expect(telegram).not.toHaveBeenCalled()
       expect(web.filter((message) => message.type === 'attentionEvent')).toEqual([])
-      expect(durableCounts(store, childId, parentId)).toEqual({
+      expect(await durableCounts(store, childId, parentId)).toEqual({
         phaseRows: 0,
         notificationFacts: 0,
         queuedParentNudges: 0,
       })
 
-      const generation = currentGeneration()
+      const generation = await currentGeneration()
       const working = observation({
         sessionId: childId,
         provider,
@@ -389,7 +390,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       deliver(working)
       deliver(terminal)
       deliver(terminal)
-      const terminalLease = store.observationCheckpoints.get(childId)
+      const terminalLease = await store.observationCheckpoints.get(childId)
       const terminalCursor = terminalLease?.checkpoint?.providerCursor
       if (!terminalLease || !terminalCursor) throw new Error('missing terminal checkpoint')
       registry.gateway.routeDaemonFrame(registry.sessionStore.hostMachineId, {
@@ -406,7 +407,7 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       await registry.runStewardTick()
       await registry.runStewardTick()
 
-      const phaseEvents = store.events.listEventsSince(0, { kinds: ['session.phase'] })
+      const phaseEvents = await store.events.listEventsSince(0, { kinds: ['session.phase'] })
       expect(
         phaseEvents.map((event) => (event.payload as { transitionId: string }).transitionId),
       ).toEqual([`${provider}:live-working`, `${provider}:live-terminal`])
@@ -422,29 +423,31 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       expect(telegram).not.toHaveBeenCalled()
       expect(web.filter((message) => message.type === 'attentionEvent')).toHaveLength(1)
       expect(
-        store.notificationFacts.hasActive(
+        await store.notificationFacts.hasActive(
           `sessionparentnudge:phase-reported:${childId}`,
           parentId,
           at(23),
         ),
       ).toBe(true)
-      const candidate = store.observationCheckpoints.getTerminalCandidate(childId)
+      const candidate = await store.observationCheckpoints.getTerminalCandidate(childId)
       expect(candidate?.confirmedAt).toBe(at(22))
-      expect(durableCounts(store, childId, parentId)).toMatchObject({
+      expect(await durableCounts(store, childId, parentId)).toMatchObject({
         phaseRows: 2,
         notificationFacts: 1,
       })
-      expect(durableCounts(store, childId, parentId).queuedParentNudges).toBeLessThanOrEqual(1)
+      expect(
+        (await durableCounts(store, childId, parentId)).queuedParentNudges,
+      ).toBeLessThanOrEqual(1)
 
       const effectsBeforeFinalRestart = {
         ntfy: ntfy.mock.calls.length,
         telegram: telegram.mock.calls.length,
         web: web.filter((message) => message.type === 'attentionEvent').length,
-        facts: durableCounts(store, childId, parentId),
+        facts: await durableCounts(store, childId, parentId),
       }
-      const checkpoint = store.observationCheckpoints.get(childId)?.checkpoint
+      const checkpoint = (await store.observationCheckpoints.get(childId))?.checkpoint
       if (!checkpoint) throw new Error('missing live checkpoint')
-      restart('server-only')
+      await restart('server-only')
       expect(bootstrapAcks).toHaveLength(8)
       expect(new Set(bootstrapAcks.map((ack) => ack.generation)).size).toBe(8)
       expect(bootstrapAcks.at(-1)?.result).toBe('rejected')
@@ -454,16 +457,16 @@ describe('isolated restart notification-storm acceptance [spec:SP-cdb2]', () => 
       expect(web.filter((message) => message.type === 'attentionEvent')).toHaveLength(
         effectsBeforeFinalRestart.web,
       )
-      expect(durableCounts(store, childId, parentId)).toEqual(effectsBeforeFinalRestart.facts)
-      expect(store.observationCheckpoints.getTerminalCandidate(childId)).toMatchObject({
+      expect(await durableCounts(store, childId, parentId)).toEqual(effectsBeforeFinalRestart.facts)
+      expect(await store.observationCheckpoints.getTerminalCandidate(childId)).toMatchObject({
         confirmedAt: at(22),
         facts: {
-          observerGeneration: currentGeneration(),
+          observerGeneration: await currentGeneration(),
           outputCount: (candidate?.facts.outputCount ?? 0) + 2,
         },
       })
       expect(registry.modules.sessions.hasValidTerminalProof(childId)).toBe(true)
-      expect(store.observationCheckpoints.get(childId)?.checkpoint).toEqual(checkpoint)
+      expect((await store.observationCheckpoints.get(childId))?.checkpoint).toEqual(checkpoint)
 
       registry.dispose()
       store.close()

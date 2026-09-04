@@ -15,7 +15,8 @@ import {
   requestUserId,
 } from './auth-route'
 import { authReadinessBoundary } from './readiness-boundary'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const FAR_FUTURE = '2999-01-01T00:00:00.000Z'
 
@@ -34,7 +35,7 @@ function makeApp(opts: Parameters<typeof registerAuthRoute>[1] = {}) {
  * changed is where it lands, and that `POST /auth/login` has one way to check it.
  */
 async function setPassword(password: string, target: SessionStore = store): Promise<void> {
-  target.users.setPasswordHash(
+  await target.users.setPasswordHash(
     FIRST_ADMIN_USER_ID,
     await hashPassword(password),
     new Date().toISOString(),
@@ -46,9 +47,9 @@ function cookieValue(res: Response): string | undefined {
   return setCookie?.match(/podium_session=([^;]+)/)?.[1]
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   dir = mkdtempSync(join(tmpdir(), 'podium-authroute-'))
-  store = new SessionStore(':memory:')
+  store = await openTestStore(':memory:')
 })
 afterEach(() => {
   store.close()
@@ -278,7 +279,7 @@ describe('auth-route', () => {
     expect(response.headers.get('set-cookie')).toBeNull()
     const body = (await response.json()) as { token: string; userId: string; expiresAt: string }
     expect(body.token).toBeTruthy()
-    expect(store.auth.getClientSession(hashToken(body.token))).toMatchObject({
+    expect(await store.auth.getClientSession(hashToken(body.token))).toMatchObject({
       userId: FIRST_ADMIN_USER_ID,
       label: 'mobile',
       sessionId: expect.any(String),
@@ -302,7 +303,7 @@ describe('auth-route', () => {
       }),
     })
     expect(response.status).toBe(400)
-    expect(store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+    expect(await store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
   })
 
   test('browser-origin login cannot opt into response-body bearer delivery', async () => {
@@ -324,7 +325,7 @@ describe('auth-route', () => {
     })
     expect(response.status).toBe(400)
     expect(response.headers.get('set-cookie')).toBeNull()
-    expect(store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+    expect(await store.auth.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
   })
 
   test('the session cookie marks the client authed; logout clears it', async () => {
@@ -433,9 +434,9 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     return app
   }
 
-  function validCookie(): string {
+  async function validCookie(): Promise<string> {
     const token = 'raw-session-token'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(Date.now() + 60_000).toISOString(),
@@ -457,7 +458,9 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
 
   test('allows a request carrying a valid session cookie', async () => {
     await setPassword('hunter2')
-    const res = await guardedApp().request('/trpc/ping', { headers: { cookie: validCookie() } })
+    const res = await guardedApp().request('/trpc/ping', {
+      headers: { cookie: await validCookie() },
+    })
     expect(res.status).toBe(200)
     expect(await res.text()).toBe('pong')
   })
@@ -465,7 +468,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   test('allows a valid native bearer and never reflects it into a browser cookie', async () => {
     await setPassword('hunter2')
     const token = 'native-mobile-token-abcdefghijklmnopqrstuvwxyz'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(Date.now() + 60_000).toISOString(),
@@ -486,7 +489,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     await setPassword('hunter2')
     const res = await guardedApp().request('/trpc/ping', {
       headers: {
-        cookie: validCookie(),
+        cookie: await validCookie(),
         authorization: 'Bearer bad',
         'x-forwarded-proto': 'https',
       },
@@ -497,7 +500,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   test('accepts only mobile-class sessions as bearers', async () => {
     await setPassword('hunter2')
     const token = 'break-glass-bearer-abcdefghijklmnopqrstuvwxyz'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(Date.now() + 60_000).toISOString(),
@@ -519,7 +522,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
   test('refuses a bearer over cleartext even when its session row is valid', async () => {
     await setPassword('hunter2')
     const token = 'native-cleartext-token-abcdefghijklmnopqrstuvwxyz'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(Date.now() + 60_000).toISOString(),
@@ -563,7 +566,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'rolling-token'
     // 28 days left of a 30-day TTL ⇒ last renewed ~2 days ago ⇒ due for a daily renewal.
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(nowMs + 28 * DAY).toISOString(),
@@ -575,7 +578,9 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const setCookie = res.headers.get('set-cookie') ?? ''
     expect(setCookie).toMatch(/podium_session=rolling-token/) // same token, not a new one
     // Expiry pushed back out toward now + 30 days.
-    const expiry = Date.parse(store.auth.getClientSession(hashToken(token))?.expiresAt ?? '')
+    const expiry = Date.parse(
+      (await store.auth.getClientSession(hashToken(token)))?.expiresAt ?? '',
+    )
     expect(expiry).toBeGreaterThan(nowMs + 29 * DAY)
   })
 
@@ -584,7 +589,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'fresh-token'
     // ~1 hour into the 30-day TTL ⇒ renewed within the day ⇒ no re-issue.
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(nowMs + 30 * DAY - HOUR).toISOString(),
@@ -600,7 +605,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     await setPassword('hunter2')
     const nowMs = Date.UTC(2026, 0, 1)
     const token = 'mobile-rolling-token-abcdefghijklmnopqrstuvwxyz'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(nowMs + 28 * DAY).toISOString(),
@@ -616,7 +621,7 @@ describe('clientAuthGuard (HTTP surface gate)', () => {
     expect(res.status).toBe(200)
     expect(res.headers.get('set-cookie')).toBeNull()
     expect(
-      Date.parse(store.auth.getClientSession(hashToken(token))?.expiresAt ?? ''),
+      Date.parse((await store.auth.getClientSession(hashToken(token)))?.expiresAt ?? ''),
     ).toBeGreaterThan(nowMs + 29 * DAY)
   })
 })
@@ -637,9 +642,9 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
     return `podium_session=${token}`
   }
 
-  test('resolves a valid session cookie to its user', () => {
+  test('resolves a valid session cookie to its user', async () => {
     const token = 'gate-valid-token'
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(nowMs + 60_000).toISOString(),
@@ -649,17 +654,17 @@ describe('requestUserId / isRequestAuthed (auth gate)', () => {
     expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(true)
   })
 
-  test('rejects an expired session cookie (present row, past expiresAt)', () => {
+  test('rejects an expired session cookie (present row, past expiresAt)', async () => {
     const token = 'gate-expired-token'
     // Row still exists — getClientSession would return the userId. The gate must
     // still refuse: expiry is enforced here, not only in the store helper.
-    store.auth.createClientSession(
+    await store.auth.createClientSession(
       hashToken(token),
       FIRST_ADMIN_USER_ID,
       new Date(nowMs - 1_000).toISOString(),
     )
     const cookie = cookieFor(token)
-    expect(store.auth.getClientSession(hashToken(token))?.userId).toBe(FIRST_ADMIN_USER_ID)
+    expect((await store.auth.getClientSession(hashToken(token)))?.userId).toBe(FIRST_ADMIN_USER_ID)
     expect(requestUserId(store.auth, cookie, nowMs)).toBeUndefined()
     expect(isRequestAuthed(store.auth, cookie, nowMs)).toBe(false)
   })
@@ -687,9 +692,9 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
   let mintDir: string
   let mintStore: SessionStore
 
-  beforeEach(() => {
+  beforeEach(async () => {
     mintDir = mkdtempSync(join(tmpdir(), 'podium-mint-'))
-    mintStore = new SessionStore(join(mintDir, 'podium.db'))
+    mintStore = await openTestStore(join(mintDir, 'podium.db'))
   })
   afterEach(() => {
     mintStore.close()
@@ -729,7 +734,9 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
     })
     expect(res.status).toBe(200)
 
-    const row = mintStore.auth.listClientSessions().find((s) => s.label === BREAK_GLASS_LABEL)
+    const row = (await mintStore.auth.listClientSessions()).find(
+      (s) => s.label === BREAK_GLASS_LABEL,
+    )
     expect(row?.expiresAt).toBe(minted.expiresAt)
     expect(res.headers.get('set-cookie')).toBeNull()
   })
@@ -737,13 +744,13 @@ describe('break-glass session mint (@podium/runtime ⇄ clientAuthGuard)', () =>
   test('the minted row carries the break-glass label so it is revocable on its own', async () => {
     await setPassword('hunter2', mintStore)
     const minted = mintBreakGlassSession({ stateDir: mintDir })
-    mintStore.auth.createClientSession(
+    await mintStore.auth.createClientSession(
       hashToken('a-browser-login'),
       FIRST_ADMIN_USER_ID,
       FAR_FUTURE,
     )
 
-    expect(mintStore.auth.deleteClientSessionsByLabel(BREAK_GLASS_LABEL)).toBe(1)
+    expect(await mintStore.auth.deleteClientSessionsByLabel(BREAK_GLASS_LABEL)).toBe(1)
 
     expect(
       (
@@ -778,8 +785,8 @@ describe('session expiry at the gate', () => {
   const TOKEN = 'ttl-bound-token'
 
   /** A row that is present in the store and expired one second before `AT`. */
-  function expiredRow(): string {
-    store.auth.createClientSession(
+  async function expiredRow(): Promise<string> {
+    await store.auth.createClientSession(
       hashToken(TOKEN),
       FIRST_ADMIN_USER_ID,
       new Date(AT - 1_000).toISOString(),
@@ -787,14 +794,14 @@ describe('session expiry at the gate', () => {
     return `podium_session=${TOKEN}`
   }
 
-  test('isRequestAuthed refuses a session row that is present but expired', () => {
-    expect(isRequestAuthed(store.auth, expiredRow(), AT)).toBe(false)
+  test('isRequestAuthed refuses a session row that is present but expired', async () => {
+    expect(isRequestAuthed(store.auth, await expiredRow(), AT)).toBe(false)
   })
 
-  test('isRequestAuthed accepts that same row one second before it expires', () => {
+  test('isRequestAuthed accepts that same row one second before it expires', async () => {
     // Counterfactual for the case above: same store, same cookie, only the clock moves.
     // Without this, a gate hard-wired to `false` would satisfy the refusal test.
-    expect(isRequestAuthed(store.auth, expiredRow(), AT - 2_000)).toBe(true)
+    expect(isRequestAuthed(store.auth, await expiredRow(), AT - 2_000)).toBe(true)
   })
 
   test('isRequestAuthed refuses a token that was never issued', () => {
@@ -803,7 +810,7 @@ describe('session expiry at the gate', () => {
 
   test('clientAuthGuard 401s a session row that is present but expired', async () => {
     await setPassword('hunter2')
-    const cookie = expiredRow()
+    const cookie = await expiredRow()
     const app = new Hono()
     app.use('/trpc/*', clientAuthGuard({ store: store.auth, users: store.users, now: () => AT }))
     app.get('/trpc/ping', (c) => c.text('pong'))
@@ -812,7 +819,7 @@ describe('session expiry at the gate', () => {
 
   test('clientAuthGuard serves that same row one second before it expires', async () => {
     await setPassword('hunter2')
-    const cookie = expiredRow()
+    const cookie = await expiredRow()
     const app = new Hono()
     app.use(
       '/trpc/*',
@@ -824,36 +831,36 @@ describe('session expiry at the gate', () => {
 })
 
 describe('client session store', () => {
-  test('a session validates until it expires, then no longer', () => {
+  test('a session validates until it expires, then no longer', async () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const past = new Date(Date.now() - 1_000).toISOString()
-    store.auth.createClientSession('hash-a', FIRST_ADMIN_USER_ID, future)
-    store.auth.createClientSession('hash-b', FIRST_ADMIN_USER_ID, past)
+    await store.auth.createClientSession('hash-a', FIRST_ADMIN_USER_ID, future)
+    await store.auth.createClientSession('hash-b', FIRST_ADMIN_USER_ID, past)
     const now = new Date().toISOString()
-    expect(store.auth.getClientSession('hash-a')?.expiresAt).toBe(future)
-    expect(store.auth.isClientSessionValid('hash-a', now)).toBe(true)
-    expect(store.auth.isClientSessionValid('hash-b', now)).toBe(false)
-    expect(store.auth.isClientSessionValid('missing', now)).toBe(false)
+    expect((await store.auth.getClientSession('hash-a'))?.expiresAt).toBe(future)
+    expect(await store.auth.isClientSessionValid('hash-a', now)).toBe(true)
+    expect(await store.auth.isClientSessionValid('hash-b', now)).toBe(false)
+    expect(await store.auth.isClientSessionValid('missing', now)).toBe(false)
   })
 
-  test('extendClientSession pushes out the expiry of an existing session', () => {
+  test('extendClientSession pushes out the expiry of an existing session', async () => {
     const t1 = new Date(Date.now() + 1_000).toISOString()
     const t2 = new Date(Date.now() + 999_000).toISOString()
-    store.auth.createClientSession('ext', FIRST_ADMIN_USER_ID, t1)
-    store.auth.extendClientSession('ext', t2)
-    expect(store.auth.getClientSession('ext')?.expiresAt).toBe(t2)
+    await store.auth.createClientSession('ext', FIRST_ADMIN_USER_ID, t1)
+    await store.auth.extendClientSession('ext', t2)
+    expect((await store.auth.getClientSession('ext'))?.expiresAt).toBe(t2)
   })
 
-  test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', () => {
+  test('deleteClientSession revokes one; deleteAllClientSessions revokes every session', async () => {
     const future = new Date(Date.now() + 60_000).toISOString()
     const now = new Date().toISOString()
-    store.auth.createClientSession('one', FIRST_ADMIN_USER_ID, future)
-    store.auth.createClientSession('two', FIRST_ADMIN_USER_ID, future)
-    store.auth.deleteClientSession('one')
-    expect(store.auth.isClientSessionValid('one', now)).toBe(false)
-    expect(store.auth.isClientSessionValid('two', now)).toBe(true)
-    store.auth.deleteAllClientSessions()
-    expect(store.auth.isClientSessionValid('two', now)).toBe(false)
+    await store.auth.createClientSession('one', FIRST_ADMIN_USER_ID, future)
+    await store.auth.createClientSession('two', FIRST_ADMIN_USER_ID, future)
+    await store.auth.deleteClientSession('one')
+    expect(await store.auth.isClientSessionValid('one', now)).toBe(false)
+    expect(await store.auth.isClientSessionValid('two', now)).toBe(true)
+    await store.auth.deleteAllClientSessions()
+    expect(await store.auth.isClientSessionValid('two', now)).toBe(false)
   })
 
   /**
@@ -864,28 +871,28 @@ describe('client session store', () => {
    * test. These two assert the round trip: the login path supplies a person,
    * and reading the session back names them.
    */
-  test('a session records WHICH PERSON the device belongs to', () => {
+  test('a session records WHICH PERSON the device belongs to', async () => {
     const future = new Date(Date.now() + 60_000).toISOString()
-    store.auth.createClientSession('with-user', FIRST_ADMIN_USER_ID, future)
-    expect(store.auth.getClientSession('with-user')?.userId).toBe(FIRST_ADMIN_USER_ID)
+    await store.auth.createClientSession('with-user', FIRST_ADMIN_USER_ID, future)
+    expect((await store.auth.getClientSession('with-user'))?.userId).toBe(FIRST_ADMIN_USER_ID)
   })
 
-  test('device and person are separable — two devices, one person', () => {
+  test('device and person are separable — two devices, one person', async () => {
     // The property the column exists for. Before it, "which device" and "who"
     // had one answer; a test that only checked `userId` was non-empty could not
     // tell the two questions apart.
     const future = new Date(Date.now() + 60_000).toISOString()
-    store.auth.createClientSession('laptop', FIRST_ADMIN_USER_ID, future)
-    store.auth.createClientSession('phone', FIRST_ADMIN_USER_ID, future)
+    await store.auth.createClientSession('laptop', FIRST_ADMIN_USER_ID, future)
+    await store.auth.createClientSession('phone', FIRST_ADMIN_USER_ID, future)
 
-    expect(store.auth.getClientSession('laptop')?.userId).toBe(
-      store.auth.getClientSession('phone')?.userId,
+    expect((await store.auth.getClientSession('laptop'))?.userId).toBe(
+      (await store.auth.getClientSession('phone'))?.userId,
     )
     // …and revoking one device does not revoke the person's other device, which
     // is what makes them separable rather than two names for one row.
     const now = new Date().toISOString()
-    store.auth.deleteClientSession('laptop')
-    expect(store.auth.isClientSessionValid('laptop', now)).toBe(false)
-    expect(store.auth.isClientSessionValid('phone', now)).toBe(true)
+    await store.auth.deleteClientSession('laptop')
+    expect(await store.auth.isClientSessionValid('laptop', now)).toBe(false)
+    expect(await store.auth.isClientSessionValid('phone', now)).toBe(true)
   })
 })

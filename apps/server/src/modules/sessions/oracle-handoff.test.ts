@@ -30,8 +30,9 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { userCommandPrincipal } from '../../command-principal'
 
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { machineUseGateFor } from './handoff/access'
 import { MUST_NOT_CHANGE, messageOf, waitFor, willChange } from './oracle-support'
 
@@ -145,15 +146,15 @@ async function handoffFixture(
     modelSourceReleaseMs?: number
   } = {},
 ): Promise<HandoffFixture> {
-  const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'source',
     hostname: 'source',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm2',
     name: 'target',
     hostname: 'target',
@@ -166,10 +167,10 @@ async function handoffFixture(
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
     tools: [],
   })
-  store.machines.setMachineInventory('m1', inventory)
-  store.machines.setMachineInventory('m2', inventory)
-  store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
-  store.repos.addRepo('/target/repo', asMachineId('m2'), 'git@github.com:example/repo.git')
+  await store.machines.setMachineInventory('m1', inventory)
+  await store.machines.setMachineInventory('m2', inventory)
+  await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
+  await store.repos.addRepo('/target/repo', asMachineId('m2'), 'git@github.com:example/repo.git')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   built.push(reg)
 
@@ -415,16 +416,15 @@ const aliceGate = (m2Grants: { subject: string; verb: 'see' | 'use' | 'manage' }
   })
 
 /** The PERSISTED row, as the store holds it — the widest view of "what moved". */
-const rowOf = (f: HandoffFixture): Record<string, unknown> => {
-  const row = f.store.sessions.loadSessions().find((r) => r.id === f.sessionId)
+const rowOf = async (f: HandoffFixture): Promise<Record<string, unknown>> => {
+  const row = (await f.store.sessions.loadSessions()).find((r) => r.id === f.sessionId)
   if (!row) throw new Error('session row vanished')
   return row as unknown as Record<string, unknown>
 }
 
 /** Every durable handoff record, projected to the attribution pair + the move. */
-const handoffRecords = (f: HandoffFixture): unknown[] =>
-  f.store.events
-    .listEventsSince(0, { kinds: ['session.handoff'] })
+const handoffRecords = async (f: HandoffFixture): Promise<unknown[]> =>
+  (await f.store.events.listEventsSince(0, { kinds: ['session.handoff'] }))
     .map((event) => event.payload as Record<string, unknown>)
     .map(({ actor, actorKind, onBehalfOf, fromMachineId, toMachineId }) => ({
       actor,
@@ -887,14 +887,14 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
 
   it(`${MUST_NOT_CHANGE}: the moved row changes ONLY its placement — no owner, provenance or identity field moves with it`, async () => {
     const f = await handoffFixture()
-    const before = rowOf(f)
+    const before = await rowOf(f)
 
     await f.reg.modules.issueSessionLifecycle.handoffSession(
       { sessionId: f.sessionId, machineId: asMachineId('m2') },
       TEST_CALLER,
     )
 
-    const after = rowOf(f)
+    const after = await rowOf(f)
     const changed = Object.keys({ ...before, ...after })
       .filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]))
       .sort()
@@ -941,7 +941,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
 
     // The counterfactual the pair exists for: both moves were made FOR the same human, so
     // an on-behalf-of alone cannot tell them apart. Only the actor half can.
-    expect(handoffRecords(human)).toEqual([
+    expect(await handoffRecords(human)).toEqual([
       {
         actor: FIRST_ADMIN_USER_ID,
         actorKind: 'user',
@@ -950,7 +950,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
         toMachineId: 'm2',
       },
     ])
-    expect(handoffRecords(agent)).toEqual([
+    expect(await handoffRecords(agent)).toEqual([
       {
         actor: 'sess-agent-7',
         actorKind: 'agent',
@@ -979,7 +979,7 @@ describe('oracle: what the transfer is and is not allowed to change', () => {
       },
     )
 
-    expect(handoffRecords(f)).toEqual([
+    expect(await handoffRecords(f)).toEqual([
       {
         actor: 'alice',
         actorKind: 'user',
@@ -1067,14 +1067,14 @@ describe('oracle: duplicate dispatch', () => {
     // The counterfactual this name needs: m3 is a fully eligible target — paired,
     // online, with the same logged-in harness and the same repo — so the refusal
     // below is about the transfer already in flight and not about m3.
-    f.store.machines.upsertMachine({
+    await f.store.machines.upsertMachine({
       id: 'm3',
       name: 'third',
       hostname: 'third',
       tokenHash: 'z',
       ownerUserId: asUserId('user:sole'),
     })
-    f.store.machines.setMachineInventory(
+    await f.store.machines.setMachineInventory(
       'm3',
       JSON.stringify({
         os: 'linux',
@@ -1083,7 +1083,7 @@ describe('oracle: duplicate dispatch', () => {
         tools: [],
       }),
     )
-    f.store.repos.addRepo('/third/repo', asMachineId('m3'), 'git@github.com:example/repo.git')
+    await f.store.repos.addRepo('/third/repo', asMachineId('m3'), 'git@github.com:example/repo.git')
     f.reg.gateway.attachDaemon('m3', () => {})
 
     const first = f.reg.modules.issueSessionLifecycle.handoffSession(

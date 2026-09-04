@@ -78,12 +78,12 @@ const row = (id: string, createdBy: Attribution | undefined): SessionRow => ({
 /** The pair this whole file is about: an AGENT acted, FOR a human. */
 const DELEGATED: Attribution = { actor: actorAgent(AGENT), onBehalfOf: ALICE }
 
-const reread = (id: string) => sessions.getSession(asSessionId(id))
+const reread = async (id: string) => await sessions.getSession(asSessionId(id))
 
 describe('session attribution pair — durable round trip', () => {
-  it('round-trips a DELEGATED pair with both halves distinguishable', () => {
-    sessions.upsertSession(row('sess-1', DELEGATED))
-    const back = reread('sess-1')?.createdBy
+  it('round-trips a DELEGATED pair with both halves distinguishable', async () => {
+    await sessions.upsertSession(row('sess-1', DELEGATED))
+    const back = (await reread('sess-1'))?.createdBy
 
     // WHO ACTED: an agent, and the agent's own id — not the human's.
     expect(back?.actor).toEqual({ kind: 'agent', id: AGENT })
@@ -97,19 +97,19 @@ describe('session attribution pair — durable round trip', () => {
     expect(String((back?.actor as { id: string }).id)).not.toBe(String(back?.onBehalfOf))
   })
 
-  it('keeps a HUMAN pair distinguishable from a delegated one', () => {
+  it('keeps a HUMAN pair distinguishable from a delegated one', async () => {
     // The admission that pairs with the denial above: a direct human act really
     // does put the same person in both halves, so the previous test is asserting
     // a property of DELEGATION and not an artefact of how rows are written.
-    sessions.upsertSession(row('sess-2', { actor: actorUser(ALICE), onBehalfOf: ALICE }))
-    const back = reread('sess-2')?.createdBy
+    await sessions.upsertSession(row('sess-2', { actor: actorUser(ALICE), onBehalfOf: ALICE }))
+    const back = (await reread('sess-2'))?.createdBy
     expect(back?.actor).toEqual({ kind: 'user', id: ALICE })
     expect(back?.onBehalfOf).toBe(ALICE)
   })
 
-  it('stores a SYSTEM actor with an explicit null human, never the owner', () => {
-    sessions.upsertSession(row('sess-3', { actor: actorSystem('steward'), onBehalfOf: null }))
-    const back = reread('sess-3')?.createdBy
+  it('stores a SYSTEM actor with an explicit null human, never the owner', async () => {
+    await sessions.upsertSession(row('sess-3', { actor: actorSystem('steward'), onBehalfOf: null }))
+    const back = (await reread('sess-3'))?.createdBy
 
     // ADR 9 D8 S5: the job is named, and it has NO human by construction.
     expect(back?.actor).toEqual({ kind: 'system', job: 'steward' })
@@ -118,11 +118,11 @@ describe('session attribution pair — durable round trip', () => {
     expect(back?.onBehalfOf).not.toBe(ALICE)
   })
 
-  it('refuses a system actor carrying a human, at the database', () => {
+  it('refuses a system actor carrying a human, at the database', async () => {
     // The CHECK is the enforcement, so it is asserted against the real schema:
     // a system principal that acquired a delegating human is a corrupt row, not
     // a merely unusual one.
-    sessions.upsertSession(row('sess-1', DELEGATED))
+    await sessions.upsertSession(row('sess-1', DELEGATED))
     const setActor = (kind: string, human: UserId | null, id: SessionId) =>
       db
         .prepare(
@@ -135,7 +135,7 @@ describe('session attribution pair — durable round trip', () => {
     // below passes just as well against an UPDATE that matched nothing — which
     // is exactly how this test failed on its first run.
     setActor('system', null, asSessionId('sess-1'))
-    expect(reread('sess-1')?.createdBy?.actor).toEqual({ kind: 'system', job: 'steward' })
+    expect((await reread('sess-1'))?.createdBy?.actor).toEqual({ kind: 'system', job: 'steward' })
 
     // Same statement, same row, one value changed: now it must be refused.
     expect(() => setActor('system', ALICE, asSessionId('sess-1'))).toThrow()
@@ -144,12 +144,12 @@ describe('session attribution pair — durable round trip', () => {
     expect(() => setActor('superagent', null, asSessionId('sess-1'))).toThrow()
   })
 
-  it('reads a pre-attribution row as NO PAIR, and invents nothing', () => {
+  it('reads a pre-attribution row as NO PAIR, and invents nothing', async () => {
     // A row from before the columns existed. `owner_user_id` and `spawned_by`
     // are both populated and both LOOK like an answer — the point is that
     // neither is used to manufacture one.
-    sessions.upsertSession({ ...row('sess-4', undefined), spawnedBy: 'user' })
-    const back = reread('sess-4')
+    await sessions.upsertSession({ ...row('sess-4', undefined), spawnedBy: 'user' })
+    const back = await reread('sess-4')
 
     expect(back?.createdBy).toBeUndefined()
     // The admission: the row is otherwise fully present, so `null` above is the
@@ -158,19 +158,19 @@ describe('session attribution pair — durable round trip', () => {
     expect(back?.spawnedBy).toBe('user')
   })
 
-  it('never re-attributes a session on a later upsert', () => {
+  it('never re-attributes a session on a later upsert', async () => {
     // `createdBy` is in SESSION_IMMUTABLE_AFTER_CREATE. A status change or a
     // rename must not restamp the pair with whoever triggered it — the COALESCE
     // in the upsert is what makes that structural rather than a convention.
-    sessions.upsertSession(row('sess-5', DELEGATED))
-    sessions.upsertSession({
+    await sessions.upsertSession(row('sess-5', DELEGATED))
+    await sessions.upsertSession({
       ...row('sess-5', {
         actor: actorUser(asUserId('user:mallory')),
         onBehalfOf: asUserId('user:mallory'),
       }),
       title: 'renamed',
     })
-    const back = reread('sess-5')
+    const back = await reread('sess-5')
 
     expect(back?.createdBy?.actor).toEqual({ kind: 'agent', id: AGENT })
     expect(back?.createdBy?.onBehalfOf).toBe(ALICE)
@@ -179,12 +179,12 @@ describe('session attribution pair — durable round trip', () => {
     expect(back?.title).toBe('renamed')
   })
 
-  it('fills a pair that was never recorded, without overwriting one that was', () => {
+  it('fills a pair that was never recorded, without overwriting one that was', async () => {
     // The other half of COALESCE: a legacy row CAN acquire a pair later. Without
     // this, "immutable" would be indistinguishable from "unwritable".
-    sessions.upsertSession(row('sess-6', undefined))
-    expect(reread('sess-6')?.createdBy).toBeUndefined()
-    sessions.upsertSession(row('sess-6', DELEGATED))
-    expect(reread('sess-6')?.createdBy?.actor).toEqual({ kind: 'agent', id: AGENT })
+    await sessions.upsertSession(row('sess-6', undefined))
+    expect((await reread('sess-6'))?.createdBy).toBeUndefined()
+    await sessions.upsertSession(row('sess-6', DELEGATED))
+    expect((await reread('sess-6'))?.createdBy?.actor).toEqual({ kind: 'agent', id: AGENT })
   })
 })

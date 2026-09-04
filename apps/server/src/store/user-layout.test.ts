@@ -20,35 +20,35 @@ beforeEach(() => {
 })
 
 describe('UserLayoutRepository', () => {
-  it('writes and reads a snapshot for one user only', () => {
-    layout.set(ALICE, 'dockTab', 'files', AT)
-    layout.set(ALICE, 'superOpen', true, AT)
-    layout.set(BOB, 'dockTab', 'shell', AT)
+  it('writes and reads a snapshot for one user only', async () => {
+    await layout.set(ALICE, 'dockTab', 'files', AT)
+    await layout.set(ALICE, 'superOpen', true, AT)
+    await layout.set(BOB, 'dockTab', 'shell', AT)
 
-    expect(layout.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
-    expect(layout.getSnapshot(BOB)).toEqual({ dockTab: 'shell' })
-    expect(layout.get(ALICE, 'dockTab')).toBe('files')
-    expect(layout.get(BOB, 'superOpen')).toBeUndefined()
+    expect(await layout.getSnapshot(ALICE)).toEqual({ dockTab: 'files', superOpen: true })
+    expect(await layout.getSnapshot(BOB)).toEqual({ dockTab: 'shell' })
+    expect(await layout.get(ALICE, 'dockTab')).toBe('files')
+    expect(await layout.get(BOB, 'superOpen')).toBeUndefined()
   })
 
-  it('setMany is atomic on the closed set and refuses a free-form key', () => {
+  it('setMany is atomic on the closed set and refuses a free-form key', async () => {
     expect(() => layout.setMany(ALICE, { dockTab: 'mail', 'not.a.key': 1 }, AT)).toThrow(
       /not a replicated layout key/,
     )
-    expect(layout.getSnapshot(ALICE)).toEqual({})
+    expect(await layout.getSnapshot(ALICE)).toEqual({})
 
-    layout.setMany(ALICE, { dockTab: 'mail', 'sidebar.section.closed': true }, AT)
-    expect(layout.getSnapshot(ALICE)).toEqual({
+    await layout.setMany(ALICE, { dockTab: 'mail', 'sidebar.section.closed': true }, AT)
+    expect(await layout.getSnapshot(ALICE)).toEqual({
       dockTab: 'mail',
       'sidebar.section.closed': true,
     })
   })
 
-  it('clear deletes the row so absence means never set', () => {
-    layout.set(FIRST_ADMIN_USER_ID, 'panelMode', { s1: 'chat' }, AT)
-    layout.clear(FIRST_ADMIN_USER_ID, 'panelMode')
-    expect(layout.get(FIRST_ADMIN_USER_ID, 'panelMode')).toBeUndefined()
-    expect(layout.keysFor(FIRST_ADMIN_USER_ID)).toEqual([])
+  it('clear deletes the row so absence means never set', async () => {
+    await layout.set(FIRST_ADMIN_USER_ID, 'panelMode', { s1: 'chat' }, AT)
+    await layout.clear(FIRST_ADMIN_USER_ID, 'panelMode')
+    expect(await layout.get(FIRST_ADMIN_USER_ID, 'panelMode')).toBeUndefined()
+    expect(await layout.keysFor(FIRST_ADMIN_USER_ID)).toEqual([])
   })
 
   it('refuses device-local keys that must stay on the client', () => {

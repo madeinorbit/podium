@@ -413,7 +413,7 @@ describe('InteractionService — answering', () => {
 
   it('REFUSES a structured answer — no protocol driver exists yet', async () => {
     const { svc, store, delivered } = harness()
-    store.insert({
+    await store.insert({
       id: 'ixn_structured',
       sessionId: S,
       kind: 'question',
@@ -530,7 +530,7 @@ describe('InteractionService — the default answer table', () => {
     // it. The policy behaviour under test — one entry, applied at ask time,
     // recorded as `policy` — is unchanged.
     const { svc, store } = harness({ structured: true })
-    store.insert({
+    await store.insert({
       id: 'ixn_recovery',
       sessionId: S,
       kind: 'recovery',
@@ -800,7 +800,7 @@ describe('InteractionService — the POD-2414 adversarial review round', () => {
     // answering it means resolving that prompt, and prose over the durable send
     // path only queues a turn behind it.
     const { svc, store, delivered } = harness()
-    store.insert({
+    await store.insert({
       id: 'ixn_resume',
       sessionId: S,
       kind: 'recovery',
@@ -1208,7 +1208,7 @@ describe('InteractionService — STARTING recovery (POD-2414)', () => {
         throw new Error('relay died mid-send')
       },
     })
-    store.insert(recoveryRow('context-overflow'))
+    await store.insert(recoveryRow('context-overflow'))
     const outcome = await svc.answer({
       id: 'ixn_context-overflow',
       answer: { kind: 'recovery', choice: 'full-resume' },
@@ -1411,44 +1411,44 @@ describe('InteractionsRepository', () => {
     askedAt: '2026-08-14T00:00:00.000Z',
   })
 
-  it('collapses a duplicate open fingerprint and reports it as not inserted', () => {
+  it('collapses a duplicate open fingerprint and reports it as not inserted', async () => {
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    expect(store.insert(row('a', 'fp')).inserted).toBe(true)
-    const second = store.insert(row('b', 'fp'))
+    expect((await store.insert(row('a', 'fp'))).inserted).toBe(true)
+    const second = await store.insert(row('b', 'fp'))
     expect(second.inserted).toBe(false)
     expect(second.row.id).toBe('a')
-    expect(store.listOpen()).toHaveLength(1)
+    expect(await store.listOpen()).toHaveLength(1)
   })
 
-  it('lets the SAME question be asked again once the first is resolved', () => {
+  it('lets the SAME question be asked again once the first is resolved', async () => {
     // A long session hits the same permission prompt repeatedly and each one
     // needs its own answer — which is why the unique index is partial.
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    store.insert(row('a', 'fp'))
-    store.answer({
+    await store.insert(row('a', 'fp'))
+    await store.answer({
       id: 'a',
       answer: { kind: 'permission', decision: 'allow-once' },
       answeredBy: 'human',
       deliveredVia: 'menu',
       at: '2026-08-14T00:01:00.000Z',
     })
-    expect(store.insert(row('b', 'fp')).inserted).toBe(true)
-    expect(store.listOpen()).toHaveLength(1)
+    expect((await store.insert(row('b', 'fp'))).inserted).toBe(true)
+    expect(await store.listOpen()).toHaveLength(1)
   })
 
-  it('does not collapse the same fingerprint across sessions', () => {
+  it('does not collapse the same fingerprint across sessions', async () => {
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    store.insert(row('a', 'fp'))
-    expect(store.insert(row('b', 'fp', asSessionId('ses_2'))).inserted).toBe(true)
+    await store.insert(row('a', 'fp'))
+    expect((await store.insert(row('b', 'fp', asSessionId('ses_2')))).inserted).toBe(true)
   })
 
-  it('recordDelivery lands on an ALREADY-ANSWERED row', () => {
+  it('recordDelivery lands on an ALREADY-ANSWERED row', async () => {
     // Regression: the delivery outcome used to be written by a second
     // `answer()`, whose `WHERE status = 'asked'` guard — the idempotency claim —
     // matched nothing by then, so every successfully delivered answer stayed
@@ -1456,53 +1456,53 @@ describe('InteractionsRepository', () => {
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    store.insert(row('a', 'fp'))
-    store.answer({
+    await store.insert(row('a', 'fp'))
+    await store.answer({
       id: 'a',
       answer: { kind: 'permission', decision: 'allow-once' },
       answeredBy: 'human',
       deliveredVia: 'unverified',
       at: '2026-08-14T00:01:00.000Z',
     })
-    expect(store.recordDelivery('a', 'menu')).toBe(true)
-    expect(store.get('a')).toMatchObject({ deliveredVia: 'menu' })
+    expect(await store.recordDelivery('a', 'menu')).toBe(true)
+    expect(await store.get('a')).toMatchObject({ deliveredVia: 'menu' })
   })
 
-  it('recordDelivery does NOT resurrect an expired row', () => {
+  it('recordDelivery does NOT resurrect an expired row', async () => {
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    store.insert(row('a', 'fp'))
-    store.close('a', 'expired', '2026-08-14T00:01:00.000Z')
-    expect(store.recordDelivery('a', 'menu')).toBe(false)
+    await store.insert(row('a', 'fp'))
+    await store.close('a', 'expired', '2026-08-14T00:01:00.000Z')
+    expect(await store.recordDelivery('a', 'menu')).toBe(false)
   })
 
-  it('answer() is the idempotency guarantee — the second conditional update loses', () => {
+  it('answer() is the idempotency guarantee — the second conditional update loses', async () => {
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    store.insert(row('a', 'fp'))
-    const claim = () =>
-      store.answer({
+    await store.insert(row('a', 'fp'))
+    const claim = async () =>
+      await store.answer({
         id: 'a',
         answer: { kind: 'permission', decision: 'deny' },
         answeredBy: 'human',
         deliveredVia: 'menu',
         at: '2026-08-14T00:01:00.000Z',
       })
-    expect(claim()).toBe(true)
-    expect(claim()).toBe(false)
+    expect(await claim()).toBe(true)
+    expect(await claim()).toBe(false)
   })
 
-  it('prunes resolved rows and NEVER open ones', () => {
+  it('prunes resolved rows and NEVER open ones', async () => {
     const store = new InteractionsRepository(
       createBunStoreExecutor({ database: openMigratedTestDatabase() }),
     )
-    store.insert(row('open', 'fp1'))
-    store.insert(row('done', 'fp2'))
-    store.close('done', 'expired', '2026-08-14T00:00:30.000Z')
-    expect(store.pruneResolvedBefore('2026-08-14T01:00:00.000Z')).toBe(1)
+    await store.insert(row('open', 'fp1'))
+    await store.insert(row('done', 'fp2'))
+    await store.close('done', 'expired', '2026-08-14T00:00:30.000Z')
+    expect(await store.pruneResolvedBefore('2026-08-14T01:00:00.000Z')).toBe(1)
     // An ask nobody answered is the one thing this table must not forget.
-    expect(store.listOpen()).toHaveLength(1)
+    expect(await store.listOpen()).toHaveLength(1)
   })
 })

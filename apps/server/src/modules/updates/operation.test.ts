@@ -1434,7 +1434,7 @@ describe('the update operation, driven', () => {
     expect(started.started).toBe(true)
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(stepIds({ steps: operation.steps ?? [] })).toEqual([
       UPDATE_STEP_MACHINES,
       UPDATE_STEP_SERVER,
@@ -1463,7 +1463,7 @@ describe('the update operation, driven', () => {
       r.started ? r.operation.id : 'alreadyRunning' in r ? r.alreadyRunning : 'refused',
     )
     expect(new Set(ids).size).toBe(1)
-    expect(h.store.history(UPDATE_OPERATION_KIND).length).toBe(1)
+    expect((await h.store.history(UPDATE_OPERATION_KIND)).length).toBe(1)
   })
 
   it('keeps an all-in-one operation running on its ordinary machine step', async () => {
@@ -1475,7 +1475,7 @@ describe('the update operation, driven', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('running')
     expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('running')
     expect(operation.awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
@@ -1490,8 +1490,8 @@ describe('the update operation, driven', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('running')
-    expect(h.read().awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
+    expect((await h.read()).state).toBe('running')
+    expect((await h.read()).awaiting?.find((ask) => ask.id === DESKTOP_INSTALL_ASK)).toBeUndefined()
   })
 
   /**
@@ -1534,7 +1534,7 @@ describe('the update operation, driven', () => {
     // voluntary ask must not hold it open.
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('done')
+    expect((await h.read()).state).toBe('done')
   })
 })
 
@@ -1558,7 +1558,7 @@ describe('the step runners', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_PREPARE)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_PREPARE)).toBe('running')
     expect(requestDestBundle).toHaveBeenCalledTimes(1)
 
     // The engine re-enters `ensure()` on a stall retry; idempotence means the
@@ -1582,7 +1582,7 @@ describe('the step runners', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().steps?.some((step) => step.id === UPDATE_STEP_PREPARE)).toBe(false)
+    expect((await h.read()).steps?.some((step) => step.id === UPDATE_STEP_PREPARE)).toBe(false)
     expect(requestDestBundle).not.toHaveBeenCalled()
   })
 
@@ -1600,7 +1600,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('preparation-failed')
     expect(operation.error?.message).toContain('The website has not been built for HEAD')
@@ -1671,9 +1671,9 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().state).toBe('failed')
-    expect(h.read().error?.code).toBe('download-failed')
-    expect(h.read().error?.detail).toContain('signature verification FAILED')
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).error?.code).toBe('download-failed')
+    expect((await h.read()).error?.detail).toContain('signature verification FAILED')
     expect(snapshot).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
@@ -1697,10 +1697,10 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().state).toBe('failed')
-    expect(h.read().error?.code).toBe('artifact-unreachable')
-    expect(h.read().error?.detail).toContain('https://missing.example/a.tgz')
-    expect(h.read().error?.message).not.toMatch(/try again|connection/iu)
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).error?.code).toBe('artifact-unreachable')
+    expect((await h.read()).error?.detail).toContain('https://missing.example/a.tgz')
+    expect((await h.read()).error?.message).not.toMatch(/try again|connection/iu)
     expect(snapshot).not.toHaveBeenCalled()
     expect(restart).not.toHaveBeenCalled()
   })
@@ -1721,9 +1721,9 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
 
     expect(restart).not.toHaveBeenCalled()
-    expect(h.read().state).toBe('failed')
-    expect(h.read().error?.message).toContain('Database snapshot failed')
-    expect(h.read().error?.message).toContain('ENOSPC')
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).error?.message).toContain('Database snapshot failed')
+    expect((await h.read()).error?.message).toContain('ENOSPC')
   })
 
   /**
@@ -1758,7 +1758,7 @@ describe('the step runners', () => {
     // seam is not used at all when the worker-backed one is wired.
     expect(order).toEqual(['verify:start', 'verify:done', 'restart'])
     expect(sync).not.toHaveBeenCalled()
-    expect(h.read().details?.databaseSnapshotPath).toBe(snapshotPath)
+    expect((await h.read()).details?.databaseSnapshotPath).toBe(snapshotPath)
   })
 
   it('server: a verification timeout leaves the old server running', async () => {
@@ -1779,11 +1779,11 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
 
     expect(restart).not.toHaveBeenCalled()
-    expect(h.read().state).toBe('failed')
-    expect(h.read().error?.code).toBe('preparation-failed')
-    expect(h.read().error?.message).toContain('Database snapshot failed')
-    expect(h.read().error?.message).toContain('timeout')
-    expect(h.read().details?.databaseSnapshotPath).toBeUndefined()
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).error?.code).toBe('preparation-failed')
+    expect((await h.read()).error?.message).toContain('Database snapshot failed')
+    expect((await h.read()).error?.message).toContain('timeout')
+    expect((await h.read()).details?.databaseSnapshotPath).toBeUndefined()
   })
 
   it('server: a corrupt snapshot leaves the old server running', async () => {
@@ -1804,8 +1804,8 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
 
     expect(restart).not.toHaveBeenCalled()
-    expect(h.read().state).toBe('failed')
-    expect(h.read().error?.message).toContain('corrupt')
+    expect((await h.read()).state).toBe('failed')
+    expect((await h.read()).error?.message).toContain('corrupt')
   })
 
   it('server: a machine-only plan never asks for a snapshot at all', async () => {
@@ -1839,7 +1839,7 @@ describe('the step runners', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
     expect(restart).not.toHaveBeenCalled()
-    expect(h.read().state).toBe('done')
+    expect((await h.read()).state).toBe('done')
   })
 
   it('web: rebuilds once and finishes when the served stamp catches up', async () => {
@@ -1856,18 +1856,18 @@ describe('the step runners', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_WEB)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_WEB)).toBe('running')
     expect(requestWebRebuild).toHaveBeenCalledTimes(1)
 
     // Still building: the watcher re-reads and re-arms, it does not conclude.
     await h.drain()
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_WEB)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_WEB)).toBe('running')
 
     served = WEB_DIGEST
     await h.drain()
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('done')
+    expect((await h.read()).state).toBe('done')
   })
 
   it('web: a failed build is a typed failure, not an indefinite wait', async () => {
@@ -1888,7 +1888,7 @@ describe('the step runners', () => {
     await h.drain()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('web-build-failed')
   })
@@ -1918,7 +1918,7 @@ describe('the step runners', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('machine-dirty-checkout')
     expect(operation.error?.message).toContain('vmi3407763')
@@ -1970,13 +1970,15 @@ describe('the step runners', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
     expect(operation.error?.code).toBe('machine-update-not-confirmed')
     expect(operation.error?.message).toContain('vmi3407763')
     expect(
-      h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
+      (await h.store.history(UPDATE_OPERATION_KIND)).some(
+        (entry) => entry.operation?.id === operation.id,
+      ),
     ).toBe(true)
   })
 
@@ -1999,8 +2001,8 @@ describe('the step runners', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
-    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
     h.engine.stop()
 
     fleet.length = 0
@@ -2016,9 +2018,9 @@ describe('the step runners', () => {
     )
     await boot.engine.whenSettled('op_1')
     expect(boot.updates.target('dev')).toBeUndefined()
-    expect(h.read().state).toBe('running')
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
-    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
+    expect((await h.read()).state).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_SERVER)).toBeUndefined()
 
     const bridge = createUpdateFleetBridge({
       engine: boot.engine,
@@ -2036,19 +2038,21 @@ describe('the step runners', () => {
       detail: `did not reach ${target.version} after 2 attempt(s); running 0.4.1, pinned to last-known-good`,
     })
     bridge.onFleetChanged()
-    expect(h.read().state).toBe('running')
+    expect((await h.read()).state).toBe('running')
     fleet.push(machine({ id: 'podium', name: 'podium' }))
 
     boot.updates.setTarget('dev', target)
     await boot.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(stepState(operation, UPDATE_STEP_MACHINES)).toBe('failed')
     expect(stepState(operation, UPDATE_STEP_SERVER)).toBeUndefined()
     expect(operation.error?.code).toBe('machine-update-not-confirmed')
     expect(
-      h.store.history(UPDATE_OPERATION_KIND).some((entry) => entry.operation?.id === operation.id),
+      (await h.store.history(UPDATE_OPERATION_KIND)).some(
+        (entry) => entry.operation?.id === operation.id,
+      ),
     ).toBe(true)
   })
 
@@ -2078,7 +2082,7 @@ describe('the step runners', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.details?.databaseSnapshotPath).toBe(snapshotPath)
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('machine-schema-advanced')
@@ -2127,13 +2131,13 @@ describe('the step runners', () => {
     })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('failed')
+    expect((await h.read()).state).toBe('failed')
 
     // Try again: the remainder, as its own operation (§3.2).
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_2')
 
-    const retry = h.read('op_2')
+    const retry = await h.read('op_2')
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vmi'])
     expect(retry.state).toBe('running')
     expect(stepState(retry, UPDATE_STEP_MACHINES)).toBe('running')
@@ -2179,7 +2183,7 @@ describe('the step runners', () => {
     refuse('grant_2')
     await h.engine.whenSettled('op_2')
 
-    const retry = h.read('op_2')
+    const retry = await h.read('op_2')
     expect(retry.state).toBe('failed')
     expect(retry.error?.code).toBe('machine-dirty-checkout')
     expect(h.sent).toHaveLength(2)
@@ -2236,7 +2240,7 @@ describe('the step runners', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi'])
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('machine-dirty-checkout')
@@ -2277,7 +2281,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_2')
 
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vmi'])
-    expect(stepState(h.read('op_2'), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read('op_2'), UPDATE_STEP_MACHINES)).toBe('running')
   })
 
   /**
@@ -2305,8 +2309,8 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     await h.engine.whenSettled('op_1')
 
-    expect(stepState(h.read(), UPDATE_STEP_PREPARE)).toBe('done')
-    expect(h.read().steps?.find((step) => step.id === UPDATE_STEP_MACHINES)?.detail).toBe(
+    expect(stepState(await h.read(), UPDATE_STEP_PREPARE)).toBe('done')
+    expect((await h.read()).steps?.find((step) => step.id === UPDATE_STEP_MACHINES)?.detail).toBe(
       'Waiting for the update package.',
     )
     expect(h.sent).toEqual([])
@@ -2322,7 +2326,7 @@ describe('the step runners', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
 
     // The daemon reconnects on the new build: the machine DIRECTORY is the proof.
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
@@ -2332,7 +2336,7 @@ describe('the step runners', () => {
       now: () => h.clock.clock.now(),
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('done')
+    expect((await h.read()).state).toBe('done')
   })
 })
 
@@ -2353,7 +2357,7 @@ describe('surviving the coordinator restart', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_SERVER)).toBe('running')
     // The process ends here. Nothing in memory survives; the row does.
     h.engine.stop()
 
@@ -2368,7 +2372,7 @@ describe('surviving the coordinator restart', () => {
       () => h.context(),
     )
     await successor.whenSettled('op_1')
-    return h.read()
+    return await h.read()
   }
 
   it('resumes and completes when the successor is at the target', async () => {
@@ -2407,7 +2411,7 @@ describe('surviving the coordinator restart', () => {
       () => h.context(),
     )
     await successor.whenSettled('op_1')
-    expect(h.read().state).toBe('done')
+    expect((await h.read()).state).toBe('done')
   })
 
   /** Simulate parent self-handover while retaining the same fleet operation. */
@@ -2420,7 +2424,7 @@ describe('surviving the coordinator restart', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('running')
+    expect((await h.read()).state).toBe('running')
     // The grant swapped the payload and asked the parent to self-handover.
     h.engine.stop()
 
@@ -2435,7 +2439,7 @@ describe('surviving the coordinator restart', () => {
       () => h.context(),
     )
     await successor.whenSettled('op_1')
-    return h.read()
+    return await h.read()
   }
 
   it('completes the all-in-one machine step when the parent came back at the target', async () => {
@@ -2505,7 +2509,7 @@ describe('surviving the coordinator restart', () => {
       () => boot.context(),
     )
     await boot.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
     expect(h.sent).toHaveLength(sentBefore)
 
     // …and now the daemon reconnects, well inside the silence budget.
@@ -2522,7 +2526,7 @@ describe('surviving the coordinator restart', () => {
     // A grant, three seconds after the reconnect — not ten minutes after it.
     expect(h.sent.length).toBeGreaterThan(sentBefore)
     expect(h.sent.at(-1)?.machineId).toBe('vmi')
-    expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.stalls ?? 0).toBe(0)
+    expect((await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.stalls ?? 0).toBe(0)
   })
 
   /**
@@ -2553,7 +2557,7 @@ describe('surviving the coordinator restart', () => {
     await h.drain()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(stepState(operation, UPDATE_STEP_PREPARE)).toBe('failed')
     expect(operation.state).toBe('failed')
     // The remedy is in the sentence the panel shows, not only in the log.
@@ -2594,7 +2598,7 @@ describe('surviving the coordinator restart', () => {
     })
     publisher = h.updates
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
-    expect(h.read().steps?.map((step) => step.id)).toContain(UPDATE_STEP_PREPARE)
+    expect((await h.read()).steps?.map((step) => step.id)).toContain(UPDATE_STEP_PREPARE)
 
     // Down mid-update, before the pack was published.
     h.engine.stop()
@@ -2620,10 +2624,10 @@ describe('surviving the coordinator restart', () => {
     expect(boot.updates.target('dev')?.artifacts.headless).toBeDefined()
     expect(boot.updates.nextTarget('dev')).toBeUndefined()
     // …the step it was blocking got its grant…
-    expect(stepState(h.read(), UPDATE_STEP_PREPARE)).toBe('done')
+    expect(stepState(await h.read(), UPDATE_STEP_PREPARE)).toBe('done')
     expect(h.sent.length).toBeGreaterThan(sentBefore)
     // …and it is not still saying it has nothing to hand anyone.
-    expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.detail).not.toBe(
+    expect((await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.detail).not.toBe(
       'Waiting for the update package.',
     )
   })
@@ -2786,7 +2790,9 @@ describe('the fleet bridge', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const before = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.lastProgressAt
+    const before = (await h.read()).steps?.find(
+      (s) => s.id === UPDATE_STEP_MACHINES,
+    )?.lastProgressAt
 
     h.clock.advance(1_000)
     h.updates.onStatus(asMachineId('vmi'), {
@@ -2802,7 +2808,7 @@ describe('the fleet bridge', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.lastProgressAt).toBeGreaterThan(before ?? 0)
     expect(step?.places?.[0]).toMatchObject({ id: 'vmi', state: 'downloading' })
   })
@@ -2825,7 +2831,7 @@ describe('the fleet bridge', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     fleet[1] = machine({ id: 'laptop' })
     createUpdateFleetBridge({
@@ -2835,7 +2841,7 @@ describe('the fleet bridge', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.deferred).toEqual([])
     const step = operation.steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
@@ -2891,7 +2897,7 @@ describe('the fleet bridge', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vps'])
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
     const before = h.clock.clock.now()
 
     fleet[2] = machine({ id: 'laptop' })
@@ -2900,7 +2906,7 @@ describe('the fleet bridge', () => {
 
     expect(h.sent.map((grant) => grant.machineId)).toEqual(['vmi', 'vps', 'laptop'])
     expect(h.clock.clock.now()).toBe(before)
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     // The place the panel names is a place with a grant against it, not one
     // still `pending` because its turn never came.
     expect(step?.places?.find((place) => place.id === 'laptop')?.state).not.toBe('pending')
@@ -2937,14 +2943,14 @@ describe('the fleet bridge', () => {
     })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('done')
-    expect(h.read().state).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('done')
+    expect((await h.read()).state).toBe('running')
 
     fleet[1] = machine({ id: 'laptop' })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
   /** Crash supervision does not change ownership of a deferred fleet payload. */
@@ -2967,8 +2973,8 @@ describe('the fleet bridge', () => {
     }).onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([])
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    expect((await h.read()).deferred).toEqual([])
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi', 'laptop'])
   })
   /**
@@ -2990,9 +2996,9 @@ describe('the fleet bridge', () => {
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
 
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.places?.map((place) => place.id)).toEqual(['vmi'])
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
   /**
@@ -3029,7 +3035,7 @@ describe('the fleet bridge', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('artifact-unreachable')
     expect(operation.error?.detail).toContain('https://source.test/a.tgz')
@@ -3112,10 +3118,10 @@ describe('the fleet bridge', () => {
     await h.engine.whenSettled('op_1')
 
     // No wave, no steps, already finished — with the promise standing.
-    expect(h.read().steps ?? []).toEqual([])
-    expect(h.read().state).toBe('done')
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
-    const finishedAt = h.read().finishedAt
+    expect((await h.read()).steps ?? []).toEqual([])
+    expect((await h.read()).state).toBe('done')
+    expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    const finishedAt = (await h.read()).finishedAt
 
     const bridge = createUpdateFleetBridge({
       engine: h.engine,
@@ -3128,13 +3134,13 @@ describe('the fleet bridge', () => {
     h.updates.setTarget('dev', { ...packedTarget(), version: 'dev+def5678' })
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([
+    expect((await h.read()).deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
     // Restating a note is not reanimating an operation.
-    expect(h.read().state).toBe('done')
-    expect(h.read().finishedAt).toBe(finishedAt)
-    expect(h.read().steps ?? []).toEqual([])
+    expect((await h.read()).state).toBe('done')
+    expect((await h.read()).finishedAt).toBe(finishedAt)
+    expect((await h.read()).steps ?? []).toEqual([])
 
     // …and when it finally wakes, nothing grants it the old target under this
     // operation's name. The ordinary reconciler owns it from here.
@@ -3142,7 +3148,7 @@ describe('the fleet bridge', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
     expect(h.sent).toEqual([])
-    expect(h.read().deferred).toEqual([
+    expect((await h.read()).deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
   })
@@ -3169,14 +3175,16 @@ describe('the fleet bridge', () => {
     // op_1: every behind machine asleep. No wave, terminal, promise standing.
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read('op_1').deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect((await h.read('op_1')).deferred).toEqual([
+      { id: 'laptop', name: 'laptop', reason: 'offline' },
+    ])
 
     // op_2: a later update with nothing to defer, which is what a naive
     // "newest operation" reader would find and pass over.
     fleet.length = 0
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_2')
-    const untouched = h.read('op_2')
+    const untouched = await h.read('op_2')
     expect(untouched.deferred).toEqual([])
     expect(h.engine.history(UPDATE_OPERATION_KIND, 1)[0]?.id).toBe('op_2')
 
@@ -3193,13 +3201,13 @@ describe('the fleet bridge', () => {
     await h.engine.whenSettled('op_2')
 
     // The older row is corrected…
-    expect(h.read('op_1').deferred).toEqual([
+    expect((await h.read('op_1')).deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
-    expect(h.read('op_1').state).toBe('done')
+    expect((await h.read('op_1')).state).toBe('done')
 
     // …and the row with nothing to promise is not written at all.
-    expect(h.read('op_2')).toEqual(untouched)
+    expect(await h.read('op_2')).toEqual(untouched)
   })
 
   it('restates the same promise as unavailable when the channel is withdrawn instead', async () => {
@@ -3212,7 +3220,7 @@ describe('the fleet bridge', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     const bridge = createUpdateFleetBridge({
       engine: h.engine,
@@ -3224,10 +3232,10 @@ describe('the fleet bridge', () => {
     h.updates.setTargetUnavailable('dev', 'the source checkout moved')
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([
+    expect((await h.read()).deferred).toEqual([
       { id: 'laptop', name: 'laptop', reason: 'target-unavailable' },
     ])
-    expect(h.read().state).toBe('done')
+    expect((await h.read()).state).toBe('done')
   })
 
   it("leaves the promise alone while the operation's own target is still the published one", async () => {
@@ -3253,7 +3261,7 @@ describe('the fleet bridge', () => {
     h.updates.setTarget('dev', packedTarget())
     await h.engine.whenSettled('op_1')
 
-    expect(h.read().deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
+    expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
   })
 
   it('refuses to admit a deferred place while the channel is offering nothing', () => {
@@ -3317,7 +3325,7 @@ describe('§3.2 the cancel boundary', () => {
     const h = harness({ target: packedTarget(), servedWebDigest: () => WEB_DIGEST })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_MACHINES)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_MACHINES)).toBe('running')
     expect(h.engine.cancel('op_1')).toMatchObject({ canceled: true })
   })
 
@@ -3330,7 +3338,7 @@ describe('§3.2 the cancel boundary', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_SERVER)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_SERVER)).toBe('running')
     expect(h.engine.cancel('op_1')).toMatchObject({
       canceled: false,
       refused: 'irreversible',
@@ -3401,13 +3409,14 @@ describe('a step that hands work off still says it is there', () => {
     const h = harness({ requestDestBundle: () => new Promise(() => {}) })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const before = h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt ?? 0
+    const before =
+      (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt ?? 0
 
     h.clock.advance(STEP_HEARTBEAT_INTERVAL_MS)
     await h.drain()
     await h.engine.whenSettled('op_1')
 
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_PREPARE)
     expect(step?.state).toBe('running')
     expect(step?.lastProgressAt).toBeGreaterThan(before)
     expect(step?.detail).toContain('15s')
@@ -3424,14 +3433,15 @@ describe('a step that hands work off still says it is there', () => {
     settle()
     await Promise.resolve()
     await h.engine.whenSettled('op_1')
-    const settledAt = h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt ?? 0
+    const settledAt =
+      (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt ?? 0
 
     h.clock.advance(STEP_HEARTBEAT_INTERVAL_MS * 4)
     await h.drain()
     await h.engine.whenSettled('op_1')
 
     // The outcome came from the pack settling, not from a watcher still ticking.
-    expect(h.read().steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt).toBe(
+    expect((await h.read()).steps?.find((s) => s.id === UPDATE_STEP_PREPARE)?.lastProgressAt).toBe(
       settledAt,
     )
   })
@@ -3447,13 +3457,13 @@ describe('a step that hands work off still says it is there', () => {
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_WEB)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_WEB)).toBe('running')
 
     h.clock.advance(STEP_HEARTBEAT_INTERVAL_MS)
     await h.drain()
     await h.engine.whenSettled('op_1')
 
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_WEB)
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_WEB)
     expect(step?.state).toBe('running')
     expect(step?.detail).toContain('Rebuilding the app')
     expect(step?.detail).toContain('15s')
@@ -3488,7 +3498,7 @@ describe('a silent grant, with nobody watching', () => {
     // ONE retry, and a retry here MEANS re-issuing the grant: the wave planner
     // skips a machine it believes is mid-grant, so a plain tick would have
     // granted nobody and changed nothing.
-    const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+    const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
     expect(step?.stalls).toBe(1)
     expect(step?.state).toBe('running')
     expect(h.sent).toHaveLength(2)
@@ -3497,7 +3507,7 @@ describe('a silent grant, with nobody watching', () => {
     h.clock.advance(silenceMs)
     await h.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     // AND IT SAYS WHO (POD-2167). This used to be a bare `stalled` with no
     // places — the generic sentence, on the one failure §7 invented `places`
@@ -3533,14 +3543,14 @@ describe('a silent grant, with nobody watching', () => {
       bridge.onFleetChanged()
       await h.engine.whenSettled('op_1')
 
-      const step = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+      const step = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
       expect(step?.state).toBe('running')
       expect(step?.stalls ?? 0).toBe(0)
       // "vmi3407763 downloading 62%" (§6.2) — the number the panel renders.
       expect(step?.places?.[0]).toMatchObject({ id: 'vmi', state: 'downloading', percent })
     }
     // Three quarters of an hour of a healthy download, never once stalled.
-    expect(h.read().state).toBe('running')
+    expect((await h.read()).state).toBe('running')
   })
 
   it('drops the percentage from a place that is no longer moving', async () => {
@@ -3571,7 +3581,7 @@ describe('a silent grant, with nobody watching', () => {
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
 
-    const place = h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.places?.[0]
+    const place = (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)?.places?.[0]
     expect(place).toMatchObject({ state: 'restarting' })
     expect(place).not.toHaveProperty('percent')
   })
@@ -3606,7 +3616,7 @@ it('stays closed before the canary handover reconnects and widens after it does'
   bridge.onFleetChanged()
   await h.engine.whenSettled('op_1')
 
-  const machinesStep = h.read().steps?.find((step) => step.id === UPDATE_STEP_MACHINES)
+  const machinesStep = (await h.read()).steps?.find((step) => step.id === UPDATE_STEP_MACHINES)
   expect.soft(h.sent.map(({ machineId }) => machineId)).toEqual(['a-canary'])
   expect.soft(machinesStep).toMatchObject({
     state: 'running',
@@ -3615,7 +3625,7 @@ it('stays closed before the canary handover reconnects and widens after it does'
   expect.soft(machinesStep?.places?.find((place) => place.id === 'a-canary')).toMatchObject({
     state: 'restarting',
   })
-  expect.soft(h.read().state).toBe('running')
+  expect.soft((await h.read()).state).toBe('running')
 
   const canary = fleet[0]
   if (canary) canary.version = 'dev+abc1234'
@@ -3636,8 +3646,8 @@ it('stays closed before the canary handover reconnects and widens after it does'
  */
 describe('two machines, one of them dead', () => {
   const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_MACHINES]?.silenceMs ?? 0
-  const machinesStep = (h: ReturnType<typeof harness>) =>
-    h.read().steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
+  const machinesStep = async (h: ReturnType<typeof harness>) =>
+    (await h.read()).steps?.find((s) => s.id === UPDATE_STEP_MACHINES)
 
   /**
    * A wave grants a CANARY alone and only widens once it is healthy, so the
@@ -3754,14 +3764,14 @@ describe('two machines, one of them dead', () => {
       await h.engine.whenSettled('op_1')
     }
 
-    const step = machinesStep(h)
+    const step = await machinesStep(h)
     expect(step?.stalls).toBe(1)
     // The retry is a RE-ISSUED grant, and it went to the machine that stopped —
     // the wave planner skips a machine it believes is mid-grant, so a plain tick
     // would have selected nobody and changed nothing.
     expect(h.sent.at(-1)?.machineId).toBe('silent')
     // …and the wave was never failed out from under the healthy machine.
-    expect(h.read().state).toBe('running')
+    expect((await h.read()).state).toBe('running')
   })
 
   it('gives the retry its own window instead of failing it on inherited silence', async () => {
@@ -3771,19 +3781,19 @@ describe('two machines, one of them dead', () => {
 
     h.clock.advance(silenceMs)
     await h.engine.whenSettled('op_1')
-    expect(machinesStep(h)?.stalls).toBe(1)
-    expect(machinesStep(h)?.state).toBe('running')
+    expect((await machinesStep(h))?.stalls).toBe(1)
+    expect((await machinesStep(h))?.state).toBe('running')
 
     // Just short of a second full budget: the retry is judged from when it was
     // made, not from the silence that provoked it.
     h.clock.advance(silenceMs - 1000)
     busyReports(h, bridge, 40)
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('running')
+    expect((await h.read()).state).toBe('running')
 
     h.clock.advance(2000)
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('failed')
+    expect((await h.read()).state).toBe('failed')
   })
 
   it('fails naming the machine that stopped, and not the one that was fine', async () => {
@@ -3799,8 +3809,8 @@ describe('two machines, one of them dead', () => {
     h.clock.advance(silenceMs)
     await h.engine.whenSettled('op_1')
 
-    const error = h.read().error
-    expect(h.read().state).toBe('failed')
+    const error = (await h.read()).error
+    expect((await h.read()).state).toBe('failed')
     // §7's promise, kept on the most likely machine failure there is: the panel
     // can say "vmi3407763 stopped responding" instead of "a machine failed".
     expect(error?.code).toBe('machine-unreachable')
@@ -3849,8 +3859,8 @@ describe('two machines, one of them dead', () => {
     await h.engine.whenSettled('op_1')
     expect(grantedMachines(h)).toEqual(['a-canary', 'b', 'c', 'd'])
 
-    const claimed = machinesStep(h)
-      ?.places?.filter((place) => place.lastProgressAt !== undefined)
+    const claimed = (await machinesStep(h))?.places
+      ?.filter((place) => place.lastProgressAt !== undefined)
       .map((place) => place.id)
     expect(claimed).toEqual(['b', 'c', 'd'])
 
@@ -3859,8 +3869,8 @@ describe('two machines, one of them dead', () => {
       for (const id of ['b', 'c', 'd']) reports(h, bridge, id, 20 + round * 20)
       await h.engine.whenSettled('op_1')
     }
-    expect(h.read().state).toBe('running')
-    expect(machinesStep(h)?.stalls ?? 0).toBe(0)
+    expect((await h.read()).state).toBe('running')
+    expect((await machinesStep(h))?.stalls ?? 0).toBe(0)
   })
 })
 
@@ -3904,7 +3914,7 @@ describe('a machine that says why, and then goes quiet', () => {
     fleet[0] = machine({ id: 'vmi', name: 'vmi3407763', online: false })
     bridge.onFleetChanged()
     await h.engine.whenSettled('op_1')
-    return h.read()
+    return await h.read()
   }
 
   it('keeps the reason when the disconnect follows the report', async () => {
@@ -3948,7 +3958,7 @@ describe('a machine that says why, and then goes quiet', () => {
 
     // The verdict is persisted onto the place, and then this process dies
     // before anything can settle the operation on it.
-    const store = h.store.get('op_1')?.operation
+    const store = (await h.store.get('op_1'))?.operation
     const stuckPlaces = (store?.steps ?? []).map((step) =>
       step.id === UPDATE_STEP_MACHINES
         ? {
@@ -3959,7 +3969,7 @@ describe('a machine that says why, and then goes quiet', () => {
           }
         : step,
     )
-    h.store.update({
+    await h.store.update({
       ...(store as NonNullable<typeof store>),
       steps: stuckPlaces,
       exclusionGroup: LIFECYCLE_EXCLUSION_GROUP,
@@ -3983,7 +3993,7 @@ describe('a machine that says why, and then goes quiet', () => {
     )
     await boot.engine.whenSettled('op_1')
 
-    const operation = h.read()
+    const operation = await h.read()
     expect(operation.state).toBe('failed')
     expect(operation.error?.code).toBe('machine-dirty-checkout')
   })
@@ -4021,7 +4031,7 @@ describe('the web rebuild watcher stops when its step does', () => {
     const { h, reads } = stuckRebuild()
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    expect(stepState(h.read(), UPDATE_STEP_WEB)).toBe('running')
+    expect(stepState(await h.read(), UPDATE_STEP_WEB)).toBe('running')
 
     const silenceMs = UPDATE_STEP_DEADLINES[UPDATE_STEP_WEB]?.silenceMs ?? 0
     // Silence, a stall, its one retry (which starts a SECOND watcher), then the
@@ -4030,7 +4040,7 @@ describe('the web rebuild watcher stops when its step does', () => {
     await h.engine.whenSettled('op_1')
     h.clock.advance(silenceMs)
     await h.engine.whenSettled('op_1')
-    expect(h.read().state).toBe('failed')
+    expect((await h.read()).state).toBe('failed')
 
     // Both watchers are still queued at this point — the fix is that each one
     // now finds the step gone and declines to reschedule itself.
@@ -4174,7 +4184,7 @@ describe('the wave rounds an update writes down', () => {
     await h.engine.whenSettled('op_1')
 
     expect(h.sent).toHaveLength(1)
-    expect(rounds(h.read())).toEqual([
+    expect(rounds(await h.read())).toEqual([
       expect.objectContaining({
         gate: 'canary',
         targetVersion: 'dev+abc1234',
@@ -4201,7 +4211,7 @@ describe('the wave rounds an update writes down', () => {
     await h.engine.reensure('op_1', UPDATE_STEP_MACHINES)
     await h.engine.whenSettled('op_1')
 
-    expect(rounds(h.read())).toEqual([
+    expect(rounds(await h.read())).toEqual([
       expect.objectContaining({ gate: 'canary', granted: [{ id: 'fleet-a', name: 'fleet-a' }] }),
       expect.objectContaining({
         gate: 'widen',
@@ -4224,7 +4234,7 @@ describe('the wave rounds an update writes down', () => {
     const h = waveHarness(fleet)
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
-    const before = rounds(h.read())
+    const before = rounds(await h.read())
     expect(before).toHaveLength(1)
     h.engine.stop()
 
@@ -4244,7 +4254,7 @@ describe('the wave rounds an update writes down', () => {
     )
     await boot.engine.whenSettled('op_1')
 
-    const after = rounds(h.read()) ?? []
+    const after = rounds(await h.read()) ?? []
     expect(after.slice(0, 1)).toEqual(before)
     // The successor grants the machine still behind. Its gate reads `canary`
     // and not `widen`, because a process that has forgotten everything has

@@ -45,8 +45,8 @@ import { asMutationId, asSessionId, asUserId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
 import { type CommandPrincipal, FIRST_ADMIN_USER_ID } from '../../command-principal'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
 import { OPERATOR } from '../../test-support/capabilities'
+import { openTestStore } from '../../test-support/open-test-store'
 import { type RenameServices, renameOnTargetPath } from './rename-target-path'
 
 const registries: SessionRegistry[] = []
@@ -58,8 +58,8 @@ afterEach(() => {
  * A real stack whose ONE not-yet-built dependency — the owner/grant lookup — is
  * controllable, so a revocation between enqueue and drain is expressible.
  */
-function revocableStack() {
-  const store = new SessionStore(':memory:')
+async function revocableStack() {
+  const store = await openTestStore(':memory:')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(reg)
   reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
@@ -133,11 +133,11 @@ const agentOf = (agentSessionId: string, onBehalfOf: string): CommandPrincipal =
 // ---------------------------------------------------------------------------
 
 describe('a rename queued offline is re-authorized at DRAIN, against the world as it is then', () => {
-  it('applies on drain when nothing changed', () => {
+  it('applies on drain when nothing changed', async () => {
     // THE INSTRUMENT MUST SAY YES FIRST. Without this, every refusal below would
     // be consistent with an outbox transport that is simply wired shut, and the
     // whole file would prove nothing.
-    const s = revocableStack()
+    const s = await revocableStack()
 
     const drained = renameOnTargetPath(
       s.deps,
@@ -150,8 +150,8 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     expect(s.nameNow()).toBe('queued while offline')
   })
 
-  it('REJECTS on drain when the principal lost access while offline', () => {
-    const s = revocableStack()
+  it('REJECTS on drain when the principal lost access while offline', async () => {
+    const s = await revocableStack()
 
     // ... the write is authored while the principal still holds the session.
     // Nothing about that authorization is stored — which is the point.
@@ -172,12 +172,12 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     expect(s.nameNow()).toBeUndefined()
   })
 
-  it('REJECTS on drain when the delegating HUMAN was revoked, though the agent was not', () => {
+  it('REJECTS on drain when the delegating HUMAN was revoked, though the agent was not', async () => {
     // §3.1.3 A1's transitive property, which is the reason live resolution beats a
     // snapshot: revoke the person and their unattended agents stop, with no reaper
     // to write and none to forget. The AGENT's own capability is admin/all here and
     // is untouched — only its human lost the row.
-    const s = revocableStack()
+    const s = await revocableStack()
     const agent = agentOf('agent-sess-1', FIRST_ADMIN_USER_ID)
 
     // Instrument first: this agent CAN write before the revocation.
@@ -203,11 +203,11 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     expect(s.nameNow()).toBe('agent name')
   })
 
-  it('re-grants take effect on the next drain, with nothing to invalidate', () => {
+  it('re-grants take effect on the next drain, with nothing to invalidate', async () => {
     // The other direction, and the counterfactual for every refusal above: if the
     // rejections came from a wedged transport rather than from live resolution,
     // restoring the grant would change nothing.
-    const s = revocableStack()
+    const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
     expect(
       renameOnTargetPath(
@@ -231,8 +231,8 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
     expect(s.nameNow()).toBe('yes')
   })
 
-  it('a GRANT, not just ownership, is enough — and is also read live', () => {
-    const s = revocableStack()
+  it('a GRANT, not just ownership, is enough — and is also read live', async () => {
+    const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
     s.ownership.grants = [FIRST_ADMIN_USER_ID]
 
@@ -264,12 +264,12 @@ describe('a rename queued offline is re-authorized at DRAIN, against the world a
 // ---------------------------------------------------------------------------
 
 describe('a replay whose grant was revoked is refused, not served from the dedup cache', () => {
-  it('refuses the SAME mutationId after revocation, though it is in the applied table', () => {
+  it('refuses the SAME mutationId after revocation, though it is in the applied table', async () => {
     // THE ORDERING TEST. The dedup cache is the thing that would launder this: with
     // idempotency first, the second call returns the recorded success and the
     // principal is told a write it may no longer make succeeded. The envelope runs
     // authorization first precisely so this cannot happen (ADR 3 D8).
-    const s = revocableStack()
+    const s = await revocableStack()
 
     const first = renameOnTargetPath(
       s.deps,
@@ -281,7 +281,7 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
 
     // The mutation IS in the applied table — so a cache-first envelope would have
     // something to serve. This assertion is what makes the next one meaningful.
-    expect(s.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
+    expect(await s.store.sync.getAppliedMutation(asMutationId('dup-1'))).toBeDefined()
 
     s.ownership.owner = 'user:someone-else'
 
@@ -295,10 +295,10 @@ describe('a replay whose grant was revoked is refused, not served from the dedup
     expect(replay.outcome).toBe('denied')
   })
 
-  it('still dedupes a replay the principal MAY still make', () => {
+  it('still dedupes a replay the principal MAY still make', async () => {
     // The counterfactual: idempotency is not simply broken. Same replay, rights
     // intact, and it is served from the cache as `replayed` rather than applied twice.
-    const s = revocableStack()
+    const s = await revocableStack()
     renameOnTargetPath(
       s.deps,
       { sessionId: s.sessionId, name: 'once', mutationId: 'dup-2' },
@@ -336,11 +336,11 @@ describe('no capability snapshot exists anywhere in the rename path', () => {
     }
   })
 
-  it('the target path holds no state between calls — two drains resolve independently', () => {
+  it('the target path holds no state between calls — two drains resolve independently', async () => {
     // The behavioural half of the same claim. If ANY rights answer were cached
     // between calls, flipping ownership between two otherwise identical drains
     // could not change the outcome. It does.
-    const s = revocableStack()
+    const s = await revocableStack()
     const call = (mutationId: string) =>
       renameOnTargetPath(s.deps, { sessionId: s.sessionId, name: 'n', mutationId }, human, 'outbox')
         .outcome
@@ -358,12 +358,12 @@ describe('no capability snapshot exists anywhere in the rename path', () => {
 // ---------------------------------------------------------------------------
 
 describe('the offline transport is served because the CONTRACT says so', () => {
-  it('refuses a transport the contract does not declare, before reading the input', () => {
+  it('refuses a transport the contract does not declare, before reading the input', async () => {
     // Default-closed, and checked ahead of parse: `relay` is deliberately absent
     // from rename's exposure (agents rename through sessions.title). A garbage
     // payload proves the exposure check ran FIRST — a parse-first envelope would
     // have answered `invalid-input`.
-    const s = revocableStack()
+    const s = await revocableStack()
     const refused = renameOnTargetPath(s.deps, { total: 'garbage' }, human, 'relay')
     expect(refused.outcome).toBe('not-exposed')
   })
@@ -395,8 +395,8 @@ describe('the offline transport is served because the CONTRACT says so', () => {
  * that distinction belongs in the record.
  */
 describe('today’s operator principal short-circuits the owner gate (transitional, §3.2)', () => {
-  it('OPERATOR renames a session it does not own, because scope `all` allows it', () => {
-    const s = revocableStack()
+  it('OPERATOR renames a session it does not own, because scope `all` allows it', async () => {
+    const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
 
     const operator: CommandPrincipal = {
@@ -419,12 +419,12 @@ describe('today’s operator principal short-circuits the owner gate (transition
     expect(s.nameNow()).toBe('operator wrote this')
   })
 
-  it('but an AGENT is refused on the same session, even with an admin/all capability', () => {
+  it('but an AGENT is refused on the same session, even with an admin/all capability', async () => {
     // THE COUNTERFACTUAL that shows the gate is not simply absent. Same session,
     // same foreign owner, same admin/all capability — refused, because the agent's
     // ceiling is its human's CURRENT rights and that check has no scope
     // short-circuit to fall through.
-    const s = revocableStack()
+    const s = await revocableStack()
     s.ownership.owner = 'user:someone-else'
 
     const dispatch = renameOnTargetPath(

@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { type StewardDeps, StewardService } from './steward'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * THE CURSOR IS THE THING BEING FENCED (POD-3258). A poll reads one durable
@@ -18,9 +18,9 @@ import { SessionStore } from './store'
  * calls are therefore the count that matters.
  */
 describe('StewardService.tick single-flight (POD-3258)', () => {
-  function harness() {
-    const store = new SessionStore(':memory:')
-    store.events.setStewardState('cursor', '0')
+  async function harness() {
+    const store = await openTestStore(':memory:')
+    await store.events.setStewardState('cursor', '0')
     const sessions: SessionMeta[] = []
     const settings = normalizeSettings({
       steward: { enabled: true },
@@ -76,7 +76,7 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
   }
 
   it('skips a poll that lands on a poll already running', async () => {
-    const h = harness()
+    const h = await harness()
     let inner: Promise<void> | undefined
     h.setOnListEvents(() => {
       if (inner) return
@@ -91,14 +91,14 @@ describe('StewardService.tick single-flight (POD-3258)', () => {
   })
 
   it('a later, non-overlapping poll runs normally', async () => {
-    const h = harness()
+    const h = await harness()
     await h.steward.tick()
     await h.steward.tick()
     expect(h.calls()).toBe(2)
   })
 
   it('releases the fence when a poll throws', async () => {
-    const h = harness()
+    const h = await harness()
     let first = true
     h.setOnListEvents(() => {
       if (!first) return

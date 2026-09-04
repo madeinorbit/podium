@@ -31,9 +31,10 @@ import { MessageDeliveryService } from './modules/messages/service'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
-import { type SessionRow, SessionStore } from './store'
+import type { SessionRow } from './store'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -161,7 +162,7 @@ describe('SessionRegistry', () => {
   })
 
   it('records and reuses repo-affine targets for host and remote worktrees', async () => {
-    const store = new SessionStore(':memory:', asMachineId('host-under-test'))
+    const store = openTestStore(':memory:', asMachineId('host-under-test'))
     store.machines.upsertMachine({
       id: 'remote-first',
       name: 'remote',
@@ -266,7 +267,7 @@ describe('SessionRegistry', () => {
 
   it('createSession records spawnedBy provenance, persists it, and omits it when unset (issue #60)', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store = new SessionStore(file, TEST_MACHINE)
+    const store = openTestStore(file, TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -285,7 +286,7 @@ describe('SessionRegistry', () => {
     expect(metaOf(anon)?.spawnedBy).toBeUndefined()
     store.close()
     // Survives a restart (round-trips through the sessions table).
-    const reg2 = SessionRegistry.create(new SessionStore(file, TEST_MACHINE), undefined, {
+    const reg2 = SessionRegistry.create(openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     expect(metaOf(sessionId, reg2)?.spawnedBy).toBe('issue:iss_1')
@@ -637,7 +638,7 @@ describe('SessionRegistry', () => {
   })
 
   it('delivers worker checkpoints through the durable system:workflow message ledger', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const coordinator = reg.modules.sessions.createSession({
@@ -1183,7 +1184,7 @@ describe('SessionRegistry', () => {
   // to carry that identity or a whole pre-upgrade fleet stays unreachable
   // (POD-1647). `principal` is the prober; `adopt` is the session's owner.
   it('the boot probe carries the owner so the daemon can adopt a pre-binding survivor', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-adopt'
     store.sessions.upsertSession(exitedRow(id))
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1198,7 +1199,7 @@ describe('SessionRegistry', () => {
   })
 
   it('probes an exited session on boot and reattaches it when the master is alive', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const id = 'orphan-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1237,7 +1238,7 @@ describe('SessionRegistry', () => {
   })
 
   it('leaves a dead exited session exited and untouched when its master is gone', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const id = 'dead-1'
     store.sessions.upsertSession(exitedRow(id))
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -1256,7 +1257,7 @@ describe('SessionRegistry', () => {
   })
 
   it('does not probe an archived exited session', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession(exitedRow('arch-1', { archived: true }))
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
@@ -1265,7 +1266,7 @@ describe('SessionRegistry', () => {
   })
 
   it('reattaches most-recently-used sessions first', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     // Insert out of recency order to prove the order is by lastActiveAt, not insertion.
     store.sessions.upsertSession(exitedRow('mid', { lastActiveAt: '2026-03-02T00:00:00.000Z' }))
     store.sessions.upsertSession(exitedRow('newest', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
@@ -1282,7 +1283,7 @@ describe('SessionRegistry', () => {
     // (the daemon gates its fan-out). A session some connected client is focused
     // on / rendering must beat a merely-recent one; within a tier the order stays
     // most-recently-used.
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession(exitedRow('recent', { lastActiveAt: '2026-03-09T00:00:00.000Z' }))
     store.sessions.upsertSession(exitedRow('focused', { lastActiveAt: '2026-01-02T00:00:00.000Z' }))
     store.sessions.upsertSession(exitedRow('visible', { lastActiveAt: '2026-01-01T00:00:00.000Z' }))
@@ -1353,7 +1354,7 @@ describe('SessionRegistry', () => {
 
   it('scopes machine bootstrap and broadcasts to each authenticated principal', () => {
     const colleague = asUserId('colleague')
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     store.machines.upsertMachine({
       id: 'shared',
       name: 'Shared but denied',
@@ -1678,7 +1679,7 @@ describe('SessionRegistry', () => {
     // fallback free to rename the session to its first prompt. Asserted through
     // the consequence rather than the private flag.
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store = new SessionStore(file, TEST_MACHINE)
+    const store = openTestStore(file, TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -1694,7 +1695,7 @@ describe('SessionRegistry', () => {
 
     // THE RESTART. The row comes back titled; `titleLocked` does not come back
     // at all, because nothing ever wrote it down.
-    const reg2 = SessionRegistry.create(new SessionStore(file, TEST_MACHINE), undefined, {
+    const reg2 = SessionRegistry.create(openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
@@ -1738,7 +1739,7 @@ describe('SessionRegistry', () => {
   })
 
   it('write-through: a spawned session is persisted, live/exit/title update the row', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -1770,7 +1771,7 @@ describe('SessionRegistry', () => {
   })
 
   it('write-through: an agentState change persists lastActiveAt so recency survives a restart', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -1788,7 +1789,7 @@ describe('SessionRegistry', () => {
   })
 
   it('write-through: running-shell activity persists the row (recency is durable)', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
@@ -1808,7 +1809,7 @@ describe('SessionRegistry', () => {
   })
 
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
-    const reg = SessionRegistry.create(new SessionStore(':memory:', TEST_MACHINE), undefined, {
+    const reg = SessionRegistry.create(openTestStore(':memory:', TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
@@ -1821,7 +1822,7 @@ describe('SessionRegistry', () => {
 
   it('boot reconcile: persisted live sessions retain geometry and trigger a same-size reattach', async () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file, TEST_MACHINE)
+    const store1 = openTestStore(file, TEST_MACHINE)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = await reg1.modules.issueSessionLifecycle.resumeSession({
@@ -1849,7 +1850,7 @@ describe('SessionRegistry', () => {
     store1.close()
 
     // Restart: fresh registry over the same db.
-    const store2 = new SessionStore(file, TEST_MACHINE)
+    const store2 = openTestStore(file, TEST_MACHINE)
     const reg2 = SessionRegistry.create(store2, undefined, { instanceId: 'default' })
     expect(
       reg2.modules.sessions.listSessions().find((m) => m.sessionId === sessionId),
@@ -1885,7 +1886,7 @@ describe('SessionRegistry', () => {
 
   it('reattach success: bind on a reconnecting session makes it live', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file, TEST_MACHINE)
+    const store1 = openTestStore(file, TEST_MACHINE)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -1894,7 +1895,7 @@ describe('SessionRegistry', () => {
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     store1.close()
-    const reg2 = SessionRegistry.create(new SessionStore(file, TEST_MACHINE), undefined, {
+    const reg2 = SessionRegistry.create(openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
@@ -1920,7 +1921,7 @@ describe('SessionRegistry', () => {
    */
   it('carries the driver family across a server restart, with the daemon away', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file, TEST_MACHINE)
+    const store1 = openTestStore(file, TEST_MACHINE)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -1938,7 +1939,7 @@ describe('SessionRegistry', () => {
     store1.close()
 
     // Restart, and DO NOT attach a daemon — that is the window.
-    const reg2 = SessionRegistry.create(new SessionStore(file, TEST_MACHINE), undefined, {
+    const reg2 = SessionRegistry.create(openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     const restored = reg2.modules.sessions.listSessions().at(0)
@@ -1955,7 +1956,7 @@ describe('SessionRegistry', () => {
     // for a server driver and ended up on the terminal one must come back from
     // a restart as a TERMINAL session, or the panel withholds a view it has.
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file, TEST_MACHINE)
+    const store1 = openTestStore(file, TEST_MACHINE)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -1976,7 +1977,7 @@ describe('SessionRegistry', () => {
     expect(reg1.modules.sessions.listSessions().at(0)?.attachKinds).toEqual(['engine'])
     store1.close()
 
-    const reg2 = SessionRegistry.create(new SessionStore(file, TEST_MACHINE), undefined, {
+    const reg2 = SessionRegistry.create(openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     expect(reg2.modules.sessions.listSessions().at(0)?.driverFamily).toBe('terminal')
@@ -1984,7 +1985,7 @@ describe('SessionRegistry', () => {
 
   it('clears a persisted pre-launch driver decision when the spawn is refused', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file, TEST_MACHINE)
+    const store1 = openTestStore(file, TEST_MACHINE)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -2008,7 +2009,7 @@ describe('SessionRegistry', () => {
     expect(store1.sessions.loadSessions().at(0)?.selectedDriverId).toBeNull()
     store1.close()
 
-    const store2 = new SessionStore(file, TEST_MACHINE)
+    const store2 = openTestStore(file, TEST_MACHINE)
     const reg2 = SessionRegistry.create(store2, undefined, { instanceId: 'default' })
     const restored = reg2.modules.sessions.listSessions().at(0)
     expect(restored?.status).toBe('exited')
@@ -2019,7 +2020,7 @@ describe('SessionRegistry', () => {
 
   it('reattachFailed marks the session exited', () => {
     const file = join(trackTmp('podium-relay-'), 'podium.db')
-    const store1 = new SessionStore(file, TEST_MACHINE)
+    const store1 = openTestStore(file, TEST_MACHINE)
     const reg1 = SessionRegistry.create(store1, undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg1.modules.sessions.createSession({
@@ -2028,7 +2029,7 @@ describe('SessionRegistry', () => {
     })
     reg1.gateway.routeDaemonFrame(reg1.sessionStore.hostMachineId, bind(sessionId))
     store1.close()
-    const reg2 = SessionRegistry.create(new SessionStore(file, TEST_MACHINE), undefined, {
+    const reg2 = SessionRegistry.create(openTestStore(file, TEST_MACHINE), undefined, {
       instanceId: 'default',
     })
     reg2.gateway.attachDaemon(reg2.sessionStore.hostMachineId, () => {})
@@ -2042,7 +2043,7 @@ describe('SessionRegistry', () => {
   })
 
   it('skips a persisted session with an invalid agentKind on load', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession({
       id: asSessionId('good'),
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -2135,7 +2136,7 @@ describe('host metrics relay', () => {
     // Per-machine model: each machine reports its own single host sample, keyed by its
     // machineId, so two distinct machines sit side by side (a SAME-machine re-report
     // replaces — see the "latest sample per host" test above).
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     store.machines.upsertMachine({
       id: 'm-alpha',
       name: 'alpha',
@@ -2338,7 +2339,7 @@ describe('agent state', () => {
   })
 
   it('sends every configured external push target only when no client is visible', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -2437,7 +2438,7 @@ describe('agent state', () => {
   it('notifyExternal pushes to every configured target, visible client or not (#470)', () => {
     // The subscription "Notify" switch is an explicit standing request — unlike the
     // attention path it must NOT be suppressed by an open browser tab [spec:SP-17db].
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -2475,7 +2476,7 @@ describe('agent state', () => {
   })
 
   it('suppresses configured notification delivery while the feature is disabled', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -2502,7 +2503,7 @@ describe('agent state', () => {
     }
   })
   it('connects Telegram from a start-code update', async () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     // POD-419: the bot token is a server-owned secret and lives in the keyed
     // store, not the blob. Written through the repository here for the same
     // reason the preferences below are: this fixture is arranging state, not
@@ -2583,7 +2584,7 @@ describe('agent state', () => {
   })
 
   it('sends a catch-up Telegram push when Telegram is enabled for an existing attention session', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const ntfy = vi.fn()
     const telegram = vi.fn()
 
@@ -3507,7 +3508,7 @@ describe('hibernation', () => {
   }
 
   it('does not write the DB on every output frame — coalesces to the flush', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3530,7 +3531,7 @@ describe('hibernation', () => {
   it('dispose stops the periodic flush timer (no DB write after shutdown) and is idempotent', () => {
     vi.useFakeTimers()
     try {
-      const store = new SessionStore(':memory:', TEST_MACHINE)
+      const store = openTestStore(':memory:', TEST_MACHINE)
       const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3555,7 +3556,7 @@ describe('hibernation', () => {
   })
 
   it('seeds activity counters from the DB on a fresh registry (survives restart)', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3669,7 +3670,7 @@ describe('hibernation', () => {
   // driverId undefined and failed OPEN into the spawn loop. The persisted
   // resume kind is the durable fallback; this is the no-bind shape that caught it.
   it('…and still holds it after a server redeploy, when the bind-time driverId is gone', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -3851,7 +3852,7 @@ describe('hibernation', () => {
   })
 
   it('…and the durable resume kind still holds that row after a redeploy drops the unknown id [POD-2456]', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -4157,7 +4158,10 @@ describe('hibernation', () => {
       daemon.length = 0
 
       const result = await dispatchSessionCommand(
-        sessionCommandCtx(reg.modules, userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability),
+        sessionCommandCtx(
+          reg.modules,
+          userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin').capability,
+        ),
         'sendText',
         { sessionId, text: 'accepted while Grok was busy' },
       )
@@ -4399,7 +4403,9 @@ describe('hibernation', () => {
     expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
 
     daemon.length = 0
-    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+    await expect(
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+    ).resolves.toEqual({
       ok: true,
     })
     const retrySpawn = daemon.find(
@@ -4520,9 +4526,9 @@ describe('hibernation', () => {
         turnEpoch: 0,
       },
     })
-    expect(reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' })).toEqual(
-      { ok: true, queued: true },
-    )
+    expect(
+      reg.modules.sessions.queueText({ sessionId, text: 'durable process event recovery' }),
+    ).toEqual({ ok: true, queued: true })
     // The ordinary agentExit frame is intentionally absent: it is the frame
     // that the daemon/server disconnect can drop after the child closes.
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4596,9 +4602,9 @@ describe('hibernation', () => {
       resume: { kind: 'grok-session', value: 'grok-legacy-exit-resume' },
     })
     daemon.length = 0
-    expect(reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' })).toEqual(
-      { ok: true, queued: true },
-    )
+    expect(
+      reg.modules.sessions.queueText({ sessionId, text: 'legacy exit compatibility' }),
+    ).toEqual({ ok: true, queued: true })
 
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentExit',
@@ -4621,7 +4627,9 @@ describe('hibernation', () => {
     expect(reg.modules.sessions.listSessions()[0]?.status).toBe('exited')
 
     daemon.length = 0
-    await expect(reg.modules.issueSessionLifecycle.resurrectSession({ sessionId })).resolves.toEqual({
+    await expect(
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+    ).resolves.toEqual({
       ok: true,
     })
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -4806,7 +4814,7 @@ describe('hibernation', () => {
    *  make a "nothing was spawned" assertion pass for free.
    */
   function reboot(file: string): { reg: SessionRegistry; frames: ControlMessage[] } {
-    const reg = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     const frames: ControlMessage[] = []
     const machineId = reg.modules.sessions.listSessions()[0]?.machineId
     if (!machineId) throw new Error('the rebooted registry loaded no placed session')
@@ -4817,7 +4825,7 @@ describe('hibernation', () => {
 
   it('still refuses a row written before the proof existed', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-legacy-binding-')), 'state.sqlite')
-    const store = new SessionStore(file)
+    const store = openTestStore(file)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -4840,7 +4848,7 @@ describe('hibernation', () => {
 
   it('carries the proof across a restart, so the retry survives a reboot', async () => {
     const file = join(mkdtempSync(join(tmpdir(), 'podium-never-bound-')), 'state.sqlite')
-    const reg = SessionRegistry.create(new SessionStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     const sessionId = exitedCodex(reg, daemon)
@@ -4866,7 +4874,7 @@ describe('hibernation', () => {
   })
 
   it('does not auto-hibernate a legacy unfenced idle session', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -4918,7 +4926,7 @@ describe('hibernation', () => {
   })
 
   it('does not re-hibernate a session that was just resurrected (resume resets the idle timer)', async () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -4961,7 +4969,7 @@ describe('hibernation', () => {
   })
 
   it('keeps a session awake when the user typed recently, even with no agent activity', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
@@ -5197,7 +5205,7 @@ describe('reconnect identity (hello reclaim)', () => {
       try {
         const dir = trackTmp('podium-draft-')
         const dbPath = join(dir, 'podium.db')
-        const store = new SessionStore(dbPath)
+        const store = openTestStore(dbPath)
         const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
         const sessionId = seedSession(reg)
         const idA = attachTestClient(reg.clientGateway, () => {})
@@ -5214,7 +5222,7 @@ describe('reconnect identity (hello reclaim)', () => {
 
         // "Restart": a fresh registry on the same DB replays the persisted draft
         // to the first client to connect (issue #34: survives a full reload).
-        const store2 = new SessionStore(dbPath)
+        const store2 = openTestStore(dbPath)
         const reg2 = SessionRegistry.create(store2, undefined, { instanceId: 'default' })
         const c: ServerMessage[] = []
         attachTestClient(reg2.clientGateway, (m) => c.push(m))
@@ -5234,7 +5242,7 @@ describe('reconnect identity (hello reclaim)', () => {
     it('clears the persisted draft immediately when the composer empties (send)', () => {
       vi.useFakeTimers()
       try {
-        const store = new SessionStore(':memory:', TEST_MACHINE)
+        const store = openTestStore(':memory:', TEST_MACHINE)
         const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
         const sessionId = seedSession(reg)
         const idA = attachTestClient(reg.clientGateway, () => {})
@@ -5265,7 +5273,7 @@ describe('reconnect identity (hello reclaim)', () => {
 })
 
 describe('session draft sync — versioned (POD-859, flag on)', () => {
-  function flaggedReg(store = new SessionStore(':memory:', TEST_MACHINE)) {
+  function flaggedReg(store = openTestStore(':memory:', TEST_MACHINE)) {
     // Enable draft sync through the canonical experiments store [spec:SP-f4b9].
     // Tests run with PODIUM_APP_VERSION unset → devMode → the flag is listed, so a
     // user toggle enables it (matches getFeatureStates resolution).
@@ -5437,7 +5445,7 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
  * user is in.
  */
 describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
-  const plainReg = (store = new SessionStore(':memory:', TEST_MACHINE)) => ({
+  const plainReg = (store = openTestStore(':memory:', TEST_MACHINE)) => ({
     reg: SessionRegistry.create(store, undefined, { instanceId: 'default' }),
     store,
   })
@@ -5588,7 +5596,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
   it('adopts a pre-upgrade draft row as a versioned document', () => {
     const dir = trackTmp('podium-draft-migrate-')
     const dbPath = join(dir, 'podium.db')
-    const store = new SessionStore(dbPath)
+    const store = openTestStore(dbPath)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     // Exactly what the old build persisted: text and updated_at, no rev, no
@@ -5597,7 +5605,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
     reg.dispose()
     store.close()
 
-    const store2 = new SessionStore(dbPath)
+    const store2 = openTestStore(dbPath)
     const reg2 = SessionRegistry.create(store2, undefined, { instanceId: 'default' })
     const c: ServerMessage[] = []
     attachTestClient(reg2.clientGateway, (m) => c.push(m))
@@ -5706,7 +5714,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
 
 describe('SessionRegistry read state (#124)', () => {
   it('a fresh session is unread; markSessionRead clears it and persists across reload', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -5753,7 +5761,7 @@ describe('SessionRegistry read state (#124)', () => {
   })
 
   it('markSessionUnread nulls readAt so the session re-reads as unread + broadcasts (#138)', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { sessionId } = reg.modules.sessions.createSession({
@@ -5860,7 +5868,7 @@ describe('SessionRegistry snooze', () => {
   })
 
   it('seeds snoozedUntil from the store at load', () => {
-    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const store = openTestStore(':memory:', TEST_MACHINE)
     store.sessions.upsertSession({
       id: asSessionId('s1'),
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -6948,7 +6956,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
    * this pins the wiring: the row rides the real inbox, the real
    * `authorizeAtDrain`, and comes out of the daemon gateway as input.
    */
-  it('delivers a child worker\'s queued reply to the coordinator on the parent issue', async () => {
+  it("delivers a child worker's queued reply to the coordinator on the parent issue", async () => {
     vi.useFakeTimers()
     const registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     try {

@@ -21,7 +21,7 @@ import type { ClientPrincipal } from '../../gateway/client-principal'
 import { userClientPrincipal } from '../../gateway/client-principal'
 import type { ClientConn } from '../../gateway/client-registry'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { Session } from './session'
 import { SessionTerminal, type ViewportRequest } from './terminal'
 
@@ -643,12 +643,12 @@ describe('T5 (wiring): the capability travels socket → machine registry → se
     expect(session.terminal.geometry).toEqual({ cols: 111, rows: 41 })
   })
 
-  it('a REHYDRATED session is wired to the capability too — the restart path has its own composition', () => {
+  it('a REHYDRATED session is wired to the capability too — the restart path has its own composition', async () => {
     // The repository builds Sessions from stored rows on a server restart, and
     // it is a SECOND construction site: wiring the capability only into the
     // create path would leave every session that survived a restart on the
     // fallback branch, silently, forever.
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     const first = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(first)
     const { sessionId } = first.modules.sessions.createSession({ agentKind: 'shell', cwd: '/w' })

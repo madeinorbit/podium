@@ -3,7 +3,7 @@ import type { AgentObservation } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const at = (second: number) => `2026-07-18T12:00:${String(second).padStart(2, '0')}.000Z`
 const runtime = (
@@ -19,8 +19,8 @@ const runtime = (
 })
 
 describe('causal session observation gate', () => {
-  it('restores one snapshot, emits only live edges, and survives restart idempotently', () => {
-    const store = new SessionStore(':memory:')
+  it('restores one snapshot, emits only live edges, and survives restart idempotently', async () => {
+    const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = SessionRegistry.create(
       store,
@@ -80,7 +80,7 @@ describe('causal session observation gate', () => {
       reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.agentState,
     ).toMatchObject({ phase: 'idle', since: at(10) })
     expect(effects).toEqual([])
-    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     // Frozen history is cursor-equal even when re-described.
     observe({ ...base, transitionId: 'snapshot-again' })
@@ -128,7 +128,9 @@ describe('causal session observation gate', () => {
     observe(done)
     expect(effects.map((event) => event.transitionId)).toEqual(['turn-1-open', 'turn-1-done'])
     expect(
-      store.events.listEventsSince(0, { kinds: ['session.phase'] }).map((event) => event.payload),
+      (await store.events.listEventsSince(0, { kinds: ['session.phase'] })).map(
+        (event) => event.payload,
+      ),
     ).toMatchObject([
       { phase: 'working', transitionId: 'turn-1-open', provenance: 'live' },
       { phase: 'idle', transitionId: 'turn-1-done', provenance: 'live' },
@@ -182,14 +184,14 @@ describe('causal session observation gate', () => {
       },
     })
     expect(restartEffects).toEqual([])
-    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toHaveLength(2)
+    expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toHaveLength(2)
 
     restarted.dispose()
     store.close()
   })
 
-  it('routes a foreign lease advance to an explicit rejection acknowledgement', () => {
-    const store = new SessionStore(':memory:')
+  it('routes a foreign lease advance to an explicit rejection acknowledgement', async () => {
+    const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
@@ -197,7 +199,7 @@ describe('causal session observation gate', () => {
       agentKind: 'codex',
       cwd: '/proj',
     })
-    store.observationCheckpoints.advanceGeneration(sessionId, 'codex', null)
+    await store.observationCheckpoints.advanceGeneration(sessionId, 'codex', null)
 
     expect(() =>
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -232,7 +234,7 @@ describe('causal session observation gate', () => {
       result: 'rejected',
       rejectionReason: 'stale_observer_generation',
     })
-    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+    expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
       observationGeneration: 2,
       checkpoint: null,
     })
@@ -240,8 +242,8 @@ describe('causal session observation gate', () => {
     store.close()
   })
 
-  it('atomically rebinds an exact native session without phase or notification effects', () => {
-    const store = new SessionStore(':memory:')
+  it('atomically rebinds an exact native session without phase or notification effects', async () => {
+    const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const ntfy = vi.fn()
     const telegram = vi.fn()
@@ -286,7 +288,7 @@ describe('causal session observation gate', () => {
       type: 'agentObservation',
       observation: bootstrap,
     })
-    expect(store.observationCheckpoints.get(sessionId)?.checkpoint).not.toBeNull()
+    expect((await store.observationCheckpoints.get(sessionId))?.checkpoint).not.toBeNull()
 
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
@@ -307,7 +309,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
       checkpoint: null,
     })
-    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+    expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
       providerSessionId: 'thread-2',
       observationGeneration: 2,
       bindingVersion: 2,
@@ -317,7 +319,7 @@ describe('causal session observation gate', () => {
       reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
     expect(effects).toEqual([])
-    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
     expect(ntfy).not.toHaveBeenCalled()
     expect(telegram).not.toHaveBeenCalled()
 
@@ -359,7 +361,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
     })
     expect(effects).toEqual([])
-    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'agentObservationRebind',
@@ -401,7 +403,7 @@ describe('causal session observation gate', () => {
       reg.modules.sessions.listSessions().find((session) => session.sessionId === sessionId)
         ?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-2' })
-    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+    expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
       providerSessionId: 'thread-2',
       bindingVersion: 2,
       observationGeneration: 2,
@@ -432,7 +434,7 @@ describe('causal session observation gate', () => {
       bindingVersion: 2,
     })
     expect(effects).toEqual([])
-    expect(store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
+    expect(await store.events.listEventsSince(0, { kinds: ['session.phase'] })).toEqual([])
 
     reg.dispose()
     const restartedSent: ControlMessage[] = []
@@ -459,8 +461,8 @@ describe('causal session observation gate', () => {
     store.close()
   })
 
-  it('rejects a fresh rebind to a provider thread already owned by another session', () => {
-    const store = new SessionStore(':memory:')
+  it('rejects a fresh rebind to a provider thread already owned by another session', async () => {
+    const store = await openTestStore(':memory:')
     const sent: ControlMessage[] = []
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (msg) => sent.push(msg))
@@ -494,7 +496,7 @@ describe('causal session observation gate', () => {
       observerGeneration: 1,
       bindingVersion: 1,
     })
-    expect(store.observationCheckpoints.get(fresh.sessionId)).toMatchObject({
+    expect(await store.observationCheckpoints.get(fresh.sessionId)).toMatchObject({
       providerSessionId: null,
       observationGeneration: 1,
       bindingVersion: 1,
@@ -538,8 +540,8 @@ describe('causal session observation gate', () => {
     store.close()
   })
 
-  it('rolls back resume and lease when conversation linking throws', () => {
-    const store = new SessionStore(':memory:')
+  it('rolls back resume and lease when conversation linking throws', async () => {
+    const store = await openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, vi.fn<(msg: ControlMessage) => void>())
     const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'codex', cwd: '/proj' })
@@ -593,7 +595,7 @@ describe('causal session observation gate', () => {
     expect(
       reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.resume,
     ).toEqual({ kind: 'codex-thread', value: 'thread-1' })
-    expect(store.observationCheckpoints.get(sessionId)).toMatchObject({
+    expect(await store.observationCheckpoints.get(sessionId)).toMatchObject({
       providerSessionId: 'thread-1',
       bindingVersion: 1,
       observationGeneration: 1,

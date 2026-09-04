@@ -140,7 +140,7 @@ function ctxFor(
 
 describe('draft launch compensation', () => {
   it('stores browser attachments on the draft before starting its session', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
       agentKind: 'codex',
       cwd: '/p',
@@ -170,7 +170,7 @@ describe('draft launch compensation', () => {
   })
 
   it('does not create a draft when an existing issue takes precedence', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
 
     const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
@@ -185,7 +185,7 @@ describe('draft launch compensation', () => {
   })
 
   it('purges only the placeholder created for a session spawn that throws', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce(() => {
       throw new Error('spawn failed')
     })
@@ -203,7 +203,7 @@ describe('draft launch compensation', () => {
   })
 
   it('refuses compensation once the session has been registered against the draft', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const createSession = o.reg.modules.sessions.createSession.bind(o.reg.modules.sessions)
     vi.spyOn(o.reg.modules.sessions, 'createSession').mockImplementationOnce((input) => {
       createSession(input)
@@ -243,7 +243,7 @@ function oracleWithPairedMachine(): {
 
 describe('the machine `use` gate, on every command that starts or feeds work', () => {
   it('denies a principal with no use grant, on create — and the owner still passes', async () => {
-    const { o, rows } = oracleWithPairedMachine()
+    const { o, rows } = await oracleWithPairedMachine()
     const ownership = ownershipTable(rows)
 
     // The owner may spawn there: the fixture is not one that denies everybody.
@@ -269,7 +269,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
   })
 
   it('denies resume on a machine the principal may see but not use', async () => {
-    const { o, rows } = oracleWithPairedMachine()
+    const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', {
       owner: COLLEAGUE,
       grants: [{ subject: FIRST_ADMIN_USER_ID, verb: 'see' }],
@@ -301,7 +301,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     'resumeAndSend',
     'continue',
   ] as const)('denies %s against a session living on a machine the principal may not use', async (command) => {
-    const { o, rows } = oracleWithPairedMachine()
+    const { o, rows } = await oracleWithPairedMachine()
     const ownership = ownershipTable(rows)
     const owner = ctxFor(o, human(FIRST_ADMIN_USER_ID), { ownership })
     const spawned = (await dispatchSessionCommand(owner, 'create', {
@@ -335,7 +335,7 @@ describe('the machine `use` gate, on every command that starts or feeds work', (
     // it is an ordinary machine with an ordinary row: `ensureHostMachine` wrote it
     // at construction, owned by whoever set the instance up. There is no sentinel
     // arm underneath any more, so this exercises the same rule as any other machine.
-    const o = makeOracle()
+    const o = await makeOracle()
     const host = o.store.hostMachineId
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     expect(o.meta(sessionId).machineId).toBe(host)
@@ -430,7 +430,7 @@ describe('the spawn surface never OFFERS a machine the principal cannot use', ()
 
 describe('delegation, resolved live at every apply', () => {
   it('an agent whose human lost the machine grant is denied on the NEXT apply, with no reaper', async () => {
-    const { o, rows } = oracleWithPairedMachine()
+    const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', {
       owner: COLLEAGUE,
       grants: [{ subject: FIRST_ADMIN_USER_ID, verb: 'use' }],
@@ -461,7 +461,7 @@ describe('delegation, resolved live at every apply', () => {
   })
 
   it('a sub-agent cannot spawn on a machine its PARENT could not use', async () => {
-    const o = makeOracle({
+    const o = await makeOracle({
       machineId: asMachineId('a'),
       offlineMachines: [
         { id: asMachineId('a'), name: 'A' },
@@ -518,7 +518,7 @@ describe('delegation, resolved live at every apply', () => {
 
 describe('invisible fails exactly like nonexistent', () => {
   it('a session hidden from the principal produces the same answer as one that never existed', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     // The multi-user answer POD-1075 will supply, injected here so the branch is
     // exercised rather than merely present.
@@ -551,7 +551,7 @@ describe('invisible fails exactly like nonexistent', () => {
   })
 
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const agent = agentFor('agent-1', FIRST_ADMIN_USER_ID)
     const hidden = ctxFor(o, agent, { visibility: () => false })
@@ -571,7 +571,7 @@ describe('invisible fails exactly like nonexistent', () => {
 
 describe('chat interrupt ordering', () => {
   it('reserves a stopped message id so a send arriving later cannot recreate it', async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
     const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
     vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockReturnValue({
@@ -594,7 +594,7 @@ describe('chat interrupt ordering', () => {
       reason: 'interaction interrupted',
       disposition: 'dead_letter',
     })
-    expect(o.store.messages.getMessage('msg_stopped')).toBeNull()
+    expect(await o.store.messages.getMessage('msg_stopped')).toBeNull()
   })
 })
 
@@ -620,7 +620,7 @@ describe('attribution and ownership come from the principal', () => {
     // The colleague needs a machine they may actually use — on the local
     // sentinel they would be denied outright, which is M4 working and would make
     // this test prove nothing about attribution.
-    const { o, rows } = oracleWithPairedMachine()
+    const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
     const ownership = ownershipTable(rows)
     const ctx = ctxFor(o, human(COLLEAGUE), { ownership })
@@ -666,7 +666,7 @@ describe('attribution and ownership come from the principal', () => {
   })
 
   it('persists an agent-created session under its delegating human with the agent recorded as actor', async () => {
-    const { o, rows } = oracleWithPairedMachine()
+    const { o, rows } = await oracleWithPairedMachine()
     rows.set('box', { owner: COLLEAGUE, grants: [], name: 'The Box' })
     const principal = agentFor('agent-1', COLLEAGUE)
     const created = (await dispatchSessionCommand(
@@ -676,7 +676,7 @@ describe('attribution and ownership come from the principal', () => {
     )) as { sessionId: SessionId }
 
     expect(
-      o.store.sessions.loadSessions().find((row) => row.id === created.sessionId),
+      (await o.store.sessions.loadSessions()).find((row) => row.id === created.sessionId),
     ).toMatchObject({
       ownerUserId: COLLEAGUE,
       spawnedBy: 'session:agent-1',

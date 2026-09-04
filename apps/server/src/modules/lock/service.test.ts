@@ -1,7 +1,7 @@
 import { asRepoId, asIssueId, asSessionId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
 import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
+import { openTestStore } from '../../test-support/open-test-store'
 
 /**
  * LockService + LocksRepository semantics [spec:SP-85d1]: grant, same-session
@@ -13,8 +13,8 @@ import { DEFAULT_LOCK_TTL_SECONDS, LockService } from './service'
 
 const REPO = '/repo'
 
-function harness(opts?: { alive?: Set<string>; workspace?: Map<string, string> }) {
-  const store = new SessionStore(':memory:')
+async function harness(opts?: { alive?: Set<string>; workspace?: Map<string, string> }) {
+  const store = await openTestStore(':memory:')
   const alive = opts?.alive ?? new Set<string>()
   const workspace = opts?.workspace ?? new Map<string, string>()
   let nowMs = Date.parse('2026-07-13T12:00:00.000Z')
@@ -53,8 +53,8 @@ const agent = (n: number, workspace: string | null = null) => ({
 const OPERATOR = { sessionId: null, issueId: null, label: 'operator', workspace: null }
 
 describe('LockService', () => {
-  it('does not let a stale shipping generation release its successor principal', () => {
-    const { svc, advance } = harness()
+  it('does not let a stale shipping generation release its successor principal', async () => {
+    const { svc, advance } = await harness()
     const stale = {
       sessionId: asSessionId('system:shipping:order-1:attempt-1:1'),
       issueId: asIssueId('iss_1'),
@@ -83,8 +83,8 @@ describe('LockService', () => {
     )
   })
 
-  it('isolates two worker incarnations of the same attempt and generation', () => {
-    const { svc, advance } = harness()
+  it('isolates two worker incarnations of the same attempt and generation', async () => {
+    const { svc, advance } = await harness()
     const caller = (incarnation: string) => ({
       sessionId: asSessionId(`system:shipping:${incarnation}:order-1:attempt-1:1`),
       issueId: asIssueId('iss_1'),
@@ -114,8 +114,8 @@ describe('LockService', () => {
     )
   })
 
-  it('grants a free lock with the default TTL and holder identity', () => {
-    const { svc } = harness()
+  it('grants a free lock with the default TTL and holder identity', async () => {
+    const { svc } = await harness()
     const r = svc.acquire(agent(1), { repoPath: REPO, name: 'merge:main' })
     expect(r.granted).toBe(true)
     if (!r.granted) throw new Error('unreachable')
@@ -131,8 +131,8 @@ describe('LockService', () => {
     expect(r.lock.queue).toEqual([])
   })
 
-  it('same-session re-acquire renews (extends expiry, keeps acquired_at, reports already held)', () => {
-    const { svc, advance } = harness()
+  it('same-session re-acquire renews (extends expiry, keeps acquired_at, reports already held)', async () => {
+    const { svc, advance } = await harness()
     const first = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
     if (!first.granted) throw new Error('expected grant')
     advance(30_000)
@@ -144,8 +144,8 @@ describe('LockService', () => {
     expect(again.lock.acquiredAt).toBe(first.lock.acquiredAt)
   })
 
-  it('enqueues FIFO with 1-based positions; re-acquire while queued is idempotent', () => {
-    const { svc, advance } = harness()
+  it('enqueues FIFO with 1-based positions; re-acquire while queued is idempotent', async () => {
+    const { svc, advance } = await harness()
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     const q2 = svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     expect(q2).toMatchObject({ granted: false, position: 1 })
@@ -180,8 +180,8 @@ describe('LockService', () => {
     ])
   })
 
-  it('retains queued lease metadata and updates it in place on re-acquire', () => {
-    const { svc, store, alive, advance, sendMail } = harness()
+  it('retains queued lease metadata and updates it in place on re-acquire', async () => {
+    const { svc, store, alive, advance, sendMail } = await harness()
     alive.add('sess_1').add('sess_2').add('sess_3')
     svc.acquire(agent(1), { repoPath: REPO, name: 'test:heavy' })
     svc.acquire(agent(2), {
@@ -193,7 +193,7 @@ describe('LockService', () => {
     advance(1_000)
     svc.acquire(agent(3), { repoPath: REPO, name: 'test:heavy' })
 
-    const before = store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
+    const before = await store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
     expect(before[0]).toMatchObject({
       sessionId: asSessionId('sess_2'),
       ttlSeconds: 1_800,
@@ -208,7 +208,7 @@ describe('LockService', () => {
       note: 'updated request',
     })
     expect(again).toMatchObject({ granted: false, position: 1 })
-    const after = store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
+    const after = await store.locks.listWaiters(asRepoId('repo:/repo'), 'test:heavy')
     expect(after).toHaveLength(2)
     expect(after[0]).toMatchObject({
       id: before[0]?.id,
@@ -231,8 +231,8 @@ describe('LockService', () => {
     )
   })
 
-  it('status reports per-row liveness from sessionAlive (dead waiters stay visible until advance)', () => {
-    const { svc, alive } = harness()
+  it('status reports per-row liveness from sessionAlive (dead waiters stay visible until advance)', async () => {
+    const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_2') // sess_3 dead
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
@@ -245,8 +245,8 @@ describe('LockService', () => {
     ])
   })
 
-  it('refuses a sibling on the same issue that already holds or is queued; --allow-sibling opts in', () => {
-    const { svc, alive } = harness()
+  it('refuses a sibling on the same issue that already holds or is queued; --allow-sibling opts in', async () => {
+    const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_1b').add('sess_2')
     const a = agent(1)
     const sibling = {
@@ -295,10 +295,10 @@ describe('LockService', () => {
     })
   })
 
-  it('refuses co-located sessions that share a worktree even on different issues', () => {
+  it('refuses co-located sessions that share a worktree even on different issues', async () => {
     // POD-516 incident: many issues in one checkout; issue-keyed refuse misses them.
     const wt = '/repo/.worktrees/issue-516'
-    const { svc, alive, workspace } = harness()
+    const { svc, alive, workspace } = await harness()
     alive.add('sess_516').add('sess_539').add('sess_527')
     workspace.set('sess_516', wt).set('sess_539', wt).set('sess_527', '/repo/.worktrees/issue-527')
     const on516 = {
@@ -342,8 +342,8 @@ describe('LockService', () => {
     ).toMatchObject({ granted: false, position: 2 })
   })
 
-  it('re-acquire while already queued is still idempotent and skips the sibling refuse', () => {
-    const { svc, alive } = harness()
+  it('re-acquire while already queued is still idempotent and skips the sibling refuse', async () => {
+    const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_1b')
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     const sibling = {
@@ -359,9 +359,9 @@ describe('LockService', () => {
     expect(again).toMatchObject({ granted: false, position: 1 })
   })
 
-  it('same-session re-acquire renews (does not queue) — FIFO was never violated by re-hold', () => {
+  it('same-session re-acquire renews (does not queue) — FIFO was never violated by re-hold', async () => {
     // Pin POD-527's measurement so nobody re-diagnoses renewal as queue-jumping.
-    const { svc, advance } = harness()
+    const { svc, advance } = await harness()
     const first = svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
     if (!first.granted) throw new Error('expected grant')
     const acquiredAt = first.lock.acquiredAt
@@ -380,8 +380,8 @@ describe('LockService', () => {
     expect(renewed.lock.queue[0]?.sessionId).toBe(asSessionId('sess_2'))
   })
 
-  it('release advances the queue FIFO and mails the new holder; non-holder release errors', () => {
-    const { svc, alive, sendMail } = harness()
+  it('release advances the queue FIFO and mails the new holder; non-holder release errors', async () => {
+    const { svc, alive, sendMail } = await harness()
     alive.add('sess_1').add('sess_2')
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
@@ -401,8 +401,8 @@ describe('LockService', () => {
     expect(() => svc.release(agent(2), { repoPath: REPO, name: 'l' })).toThrow(/not held/)
   })
 
-  it('release prunes waiters whose sessions are gone before granting', () => {
-    const { svc, alive, sendMail } = harness()
+  it('release prunes waiters whose sessions are gone before granting', async () => {
+    const { svc, alive, sendMail } = await harness()
     alive.add('sess_1').add('sess_3') // sess_2 is dead
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
@@ -414,8 +414,8 @@ describe('LockService', () => {
     expect(status[0]?.queue).toEqual([])
   })
 
-  it('renew extends the lease for the holder only', () => {
-    const { svc, advance } = harness()
+  it('renew extends the lease for the holder only', async () => {
+    const { svc, advance } = await harness()
     svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 60 })
     advance(50_000)
     const wire = svc.renew(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 120 })
@@ -424,8 +424,8 @@ describe('LockService', () => {
     expect(() => svc.renew(agent(1), { repoPath: REPO, name: 'nope' })).toThrow(/not held/)
   })
 
-  it('lazy expiry: an expired lease is swept on the next op, advancing the queue with mail', () => {
-    const { svc, alive, advance, sendMail } = harness()
+  it('lazy expiry: an expired lease is swept on the next op, advancing the queue with mail', async () => {
+    const { svc, alive, advance, sendMail } = await harness()
     alive.add('sess_1').add('sess_2')
     svc.acquire(agent(1), { repoPath: REPO, name: 'l', ttlSeconds: 10 })
     svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
@@ -444,8 +444,8 @@ describe('LockService', () => {
     expect(svc.status({ repoPath: REPO })).toEqual([])
   })
 
-  it('steal force-takes, logs an event, and mails the previous holder issue', () => {
-    const { svc, sendMail, appendEvent } = harness()
+  it('steal force-takes, logs an event, and mails the previous holder issue', async () => {
+    const { svc, sendMail, appendEvent } = await harness()
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
     const r = svc.steal(agent(2), { repoPath: REPO, name: 'l' })
@@ -466,8 +466,8 @@ describe('LockService', () => {
     expect(free.previousHolder).toBeNull()
   })
 
-  it('releaseForSession releases held locks (advancing queues) and prunes queue entries', () => {
-    const { svc, alive, sendMail } = harness()
+  it('releaseForSession releases held locks (advancing queues) and prunes queue entries', async () => {
+    const { svc, alive, sendMail } = await harness()
     alive.add('sess_1').add('sess_2').add('sess_3')
     svc.acquire(agent(1), { repoPath: REPO, name: 'a' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'a' })
@@ -480,8 +480,8 @@ describe('LockService', () => {
     expect(sendMail).toHaveBeenCalledWith('iss_2', 'lock-manager', expect.stringContaining("'a'"))
   })
 
-  it('operator (no session) can hold, renew, and queue via the sentinel', () => {
-    const { svc } = harness()
+  it('operator (no session) can hold, renew, and queue via the sentinel', async () => {
+    const { svc } = await harness()
     const r = svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
     expect(r.granted).toBe(true)
     const again = svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
@@ -493,7 +493,7 @@ describe('LockService', () => {
     expect(rel.next).toBeNull()
 
     // operator waits behind an agent and is never pruned as "session gone"
-    const h2 = harness({ alive: new Set(['sess_1']) })
+    const h2 = await harness({ alive: new Set(['sess_1']) })
     h2.svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     const qOp = h2.svc.acquire(OPERATOR, { repoPath: REPO, name: 'l' })
     expect(qOp).toMatchObject({ granted: false, position: 1 })
@@ -502,8 +502,8 @@ describe('LockService', () => {
     expect(rel2.next?.sessionId).toBeNull()
   })
 
-  it('cancel removes the caller from the wait queue; holder/non-queued cancels error', () => {
-    const { svc, alive } = harness()
+  it('cancel removes the caller from the wait queue; holder/non-queued cancels error', async () => {
+    const { svc, alive } = await harness()
     alive.add('sess_1').add('sess_2').add('sess_3')
     svc.acquire(agent(1), { repoPath: REPO, name: 'l' })
     svc.acquire(agent(2), { repoPath: REPO, name: 'l' })
@@ -516,8 +516,8 @@ describe('LockService', () => {
     expect(r.next?.label).toBe('issue:#3')
   })
 
-  it('locks are scoped by repo_id: the same name in another repo is independent', () => {
-    const { svc } = harness()
+  it('locks are scoped by repo_id: the same name in another repo is independent', async () => {
+    const { svc } = await harness()
     svc.acquire(agent(1), { repoPath: '/repo-a', name: 'merge:main' })
     const other = svc.acquire(agent(2), { repoPath: '/repo-b', name: 'merge:main' })
     expect(other.granted).toBe(true)

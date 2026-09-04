@@ -1,7 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 describe('SessionRegistry model catalog wiring', () => {
   it('defaults to an empty catalog and never shells out when no probe is injected', () => {
@@ -38,7 +38,7 @@ describe('SessionRegistry model catalog wiring', () => {
   })
 
   it('persists the catalog so a restart serves it instantly without re-probing', async () => {
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     const machineId = store.hostMachineId
     const probe = vi.fn(async () => ({ grok: [{ value: 'grok-build', label: 'grok-build' }] }))
 
@@ -69,7 +69,7 @@ describe('SessionRegistry model catalog wiring', () => {
    * other's models, and a restart must still keep them separate in meta.
    */
   it('two machines keep distinct catalogs through settings+store — neither sees the other', async () => {
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     const host = store.hostMachineId
     const other = 'other-machine'
     const probe = vi.fn(async (machineId: string) =>
@@ -98,10 +98,12 @@ describe('SessionRegistry model catalog wiring', () => {
     expect(hostSnap.byAgent.grok?.some((m) => m.value === 'other-model')).toBe(false)
     expect(otherSnap.byAgent.grok?.some((m) => m.value === 'host-model')).toBe(false)
     // Durable store rows are keyed separately — a global meta key would collapse them.
-    expect(store.settings.getModelCatalog(host)?.byAgent.grok?.[0]?.value).toBe('host-model')
-    expect(store.settings.getModelCatalog(asMachineId(other))?.byAgent.grok?.[0]?.value).toBe(
-      'other-model',
+    expect((await store.settings.getModelCatalog(host))?.byAgent.grok?.[0]?.value).toBe(
+      'host-model',
     )
+    expect(
+      (await store.settings.getModelCatalog(asMachineId(other)))?.byAgent.grok?.[0]?.value,
+    ).toBe('other-model')
     registry.dispose()
 
     // Restart: each machine still reads its own persisted catalog, not the other's.

@@ -65,12 +65,12 @@ function publishPending(plumbing: ReturnType<typeof feedTestPlumbing>, fromSeq: 
 }
 
 describe('durable visibility changes revalidate ephemeral subscribers', () => {
-  it('notifies the same registry subscribers for rescope and evict deliveries', () => {
+  it('notifies the same registry subscribers for rescope and evict deliveries', async () => {
     const changed: string[][] = []
     const notify = (ids: readonly { toString(): string }[]) =>
       changed.push(ids.map((id) => String(id)))
 
-    const rescoped = feedTestPlumbing({ onVisibilityChanged: notify })
+    const rescoped = await feedTestPlumbing({ onVisibilityChanged: notify })
     const rescopeBootstrap = vi.spyOn(rescoped.authority, 'bootstrap')
     const rescopePeer = new Peer('rescope-peer', WIRE_VERSION, true)
     rescoped.serving.attach(
@@ -91,7 +91,7 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
     )
     expect(rescopeBootstrap).toHaveBeenCalledTimes(2)
 
-    const evicted = feedTestPlumbing({ onVisibilityChanged: notify })
+    const evicted = await feedTestPlumbing({ onVisibilityChanged: notify })
     const evictPeer = new Peer('evict-peer', WIRE_VERSION, true)
     evicted.serving.attach(
       evictPeer,
@@ -109,8 +109,8 @@ describe('durable visibility changes revalidate ephemeral subscribers', () => {
 })
 
 describe('a v1 peer is served the pre-cutover messages, folded out of the feed', () => {
-  it('a snapshot peer gets the five lists, in the attach order it always had', () => {
-    const p = feedTestPlumbing()
+  it('a snapshot peer gets the five lists, in the attach order it always had', async () => {
+    const p = await feedTestPlumbing()
     commit(p, 'session', 's1', { sessionId: 's1' })
     commit(p, 'issue', 'i1', { id: 'i1' })
     commit(p, 'conversation', 'c1', { id: 'c1' })
@@ -134,8 +134,8 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     expect(sessions.sessions).toEqual([{ sessionId: 's1' }])
   })
 
-  it('serves the LATEST value, not a replay of every write', () => {
-    const p = feedTestPlumbing()
+  it('serves the LATEST value, not a replay of every write', async () => {
+    const p = await feedTestPlumbing()
     commit(p, 'issue', 'i1', { id: 'i1', title: 'first' })
     commit(p, 'issue', 'i1', { id: 'i1', title: 'second' })
 
@@ -145,8 +145,8 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     expect(issues.issues).toEqual([{ id: 'i1', title: 'second' }])
   })
 
-  it('a REMOVED entity is absent from the world — not a tombstone in the list', () => {
-    const p = feedTestPlumbing()
+  it('a REMOVED entity is absent from the world — not a tombstone in the list', async () => {
+    const p = await feedTestPlumbing()
     commit(p, 'issue', 'i1', { id: 'i1' })
     commit(p, 'issue', 'i2', { id: 'i2' })
     p.ledger.commit({
@@ -160,8 +160,8 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
     expect(issues.issues.map((i) => i.id)).toEqual(['i2'])
   })
 
-  it('a delta-capable v1 peer resumes EXACTLY where its bootstrap stopped', () => {
-    const p = feedTestPlumbing()
+  it('a delta-capable v1 peer resumes EXACTLY where its bootstrap stopped', async () => {
+    const p = await feedTestPlumbing()
     commit(p, 'session', 's1', { sessionId: 's1' })
     const peer = new Peer('modern-v1', 1, true)
     p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
@@ -187,8 +187,8 @@ describe('a v1 peer is served the pre-cutover messages, folded out of the feed',
 })
 
 describe('the current wire is canonical — the same feed, two shapes', () => {
-  it('a v2 peer receives the frame itself, untranslated', () => {
-    const p = feedTestPlumbing()
+  it('a v2 peer receives the frame itself, untranslated', async () => {
+    const p = await feedTestPlumbing()
     const modern = new Peer('v2', WIRE_VERSION, true)
     const legacy = new Peer('v1', 1, true)
     p.serving.attach(modern, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(modern.id))
@@ -216,8 +216,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     expect(delta.changes.map((c) => c.id)).toEqual(['i1'])
   })
 
-  it('streams a large v2 bootstrap with one atomic snapshot cursor', () => {
-    const p = feedTestPlumbing()
+  it('streams a large v2 bootstrap with one atomic snapshot cursor', async () => {
+    const p = await feedTestPlumbing()
     for (let i = 0; i < FEED_BOOTSTRAP_CHUNK_ROWS + 1; i += 1) {
       commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
     }
@@ -260,8 +260,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     )
   })
 
-  it('a peer outside the supported window is REFUSED, and served nothing', () => {
-    const p = feedTestPlumbing()
+  it('a peer outside the supported window is REFUSED, and served nothing', async () => {
+    const p = await feedTestPlumbing()
     commit(p, 'issue', 'i1', { id: 'i1' })
     const ancient = new Peer('too-old', MIN_SUPPORTED_VERSION - 1)
     const future = new Peer('too-new', WIRE_VERSION + 1)
@@ -290,8 +290,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     expect(p.serving.connectionCount()).toBe(0)
   })
   describe('bootstrap cadence across connections', () => {
-    it('reuses and incrementally advances one principal world across reconnecting peers', () => {
-      const p = feedTestPlumbing()
+    it('reuses and incrementally advances one principal world across reconnecting peers', async () => {
+      const p = await feedTestPlumbing()
       commit(p, 'session', 's1', { sessionId: 's1' })
       const bootstrap = vi.spyOn(p.authority, 'bootstrap')
 
@@ -351,8 +351,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
       expect(afterGapWorld.changes.map((change) => change.entityId)).toEqual(['s2', 's3'])
     })
 
-    it('the existing-peer guard sends no second world for a repeated attach', () => {
-      const p = feedTestPlumbing()
+    it('the existing-peer guard sends no second world for a repeated attach', async () => {
+      const p = await feedTestPlumbing()
       commit(p, 'session', 's1', { sessionId: 's1' })
       const bootstrap = vi.spyOn(p.authority, 'bootstrap')
       const peer = new Peer('stable', WIRE_VERSION, true)
@@ -366,8 +366,8 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
     })
   })
 
-  it('reports the window and the connected versions', () => {
-    const p = feedTestPlumbing()
+  it('reports the window and the connected versions', async () => {
+    const p = await feedTestPlumbing()
     p.serving.attach(new Peer('a', 1), DEVICE_GRADE_PRINCIPAL, p.routingPrincipal('a'))
     p.serving.attach(new Peer('b', WIRE_VERSION), DEVICE_GRADE_PRINCIPAL, p.routingPrincipal('b'))
     expect(p.serving.support()).toEqual({ wire: WIRE_VERSION, min: MIN_SUPPORTED_VERSION })
@@ -378,13 +378,13 @@ describe('the current wire is canonical — the same feed, two shapes', () => {
 })
 
 describe('a reconnect storm heals through the feed, with no snapshot path', () => {
-  it('every reconnecting peer is served a world at its own position and resumes contiguously', () => {
+  it('every reconnecting peer is served a world at its own position and resumes contiguously', async () => {
     // THE SHAPE OF THE INCIDENT: a deploy drops every socket, they all come back
     // at once, and writes keep landing while they do. Before the cutover a
     // reconnect was served by five features each rebuilding a full list; the
     // property that has to survive is that each peer's stream is contiguous from
     // ITS OWN bootstrap, not from a shared cursor.
-    const p = feedTestPlumbing()
+    const p = await feedTestPlumbing()
     for (let i = 0; i < 20; i++) commit(p, 'session', `s${i}`, { sessionId: `s${i}` })
 
     const peers = Array.from({ length: 12 }, (_, i) => new Peer(`c${i}`, 1, true))
@@ -436,8 +436,8 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
     }
   })
 
-  it('a peer that detaches stops being framed for — the storm does not grow the publisher', () => {
-    const p = feedTestPlumbing()
+  it('a peer that detaches stops being framed for — the storm does not grow the publisher', async () => {
+    const p = await feedTestPlumbing()
     const peers = Array.from({ length: 5 }, (_, i) => new Peer(`c${i}`, 1, true))
     for (const peer of peers)
       p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))
@@ -455,7 +455,7 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
 describe('advisories that are not feed content', () => {
   it('a diagnostics change re-serves the conversation list to a v1 peer, and nothing to a v2 one', async () => {
     let diagnostics = [{ kind: 'scan-error', detail: 'x' }] as never[]
-    const p = feedTestPlumbing({ diagnostics: () => diagnostics })
+    const p = await feedTestPlumbing({ diagnostics: () => diagnostics })
     commit(p, 'conversation', 'c1', { id: 'c1' })
     const legacy = new Peer('v1', 1, true)
     const modern = new Peer('v2', WIRE_VERSION, true)

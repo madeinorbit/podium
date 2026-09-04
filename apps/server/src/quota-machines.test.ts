@@ -16,7 +16,7 @@ import type { AgentQuotaWire } from '@podium/model'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
   return {
@@ -32,16 +32,16 @@ function agent(over: Partial<AgentQuotaWire> = {}): AgentQuotaWire {
   }
 }
 
-function regWithTwoDaemons() {
-  const store = new SessionStore(':memory:')
-  store.machines.upsertMachine({
+async function regWithTwoDaemons() {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
     id: 'm1',
     name: 'podium-host',
     hostname: 'podium-host',
     tokenHash: 'x',
     ownerUserId: asUserId('user:sole'),
   })
-  store.machines.upsertMachine({
+  await store.machines.upsertMachine({
     id: 'm2',
     name: 'VMI',
     hostname: 'vmi',
@@ -64,7 +64,7 @@ const reqId = (msgs: ControlMessage[], type: string): string => {
 
 describe('SessionRegistry.agentQuotaAll()', () => {
   it('fans out to every online daemon, tagging each reply with machineId + machineName', async () => {
-    const { reg, m1Out, m2Out } = regWithTwoDaemons()
+    const { reg, m1Out, m2Out } = await regWithTwoDaemons()
     const p = reg.modules.rpc.agentQuotaAll()
 
     reg.gateway.routeDaemonFrame('m1', {
@@ -93,15 +93,15 @@ describe('SessionRegistry.agentQuotaAll()', () => {
   })
 
   it('agentQuota(refresh, machineId) sends the request to only that machine', async () => {
-    const { reg, m1Out, m2Out } = regWithTwoDaemons()
+    const { reg, m1Out, m2Out } = await regWithTwoDaemons()
     void reg.modules.rpc.agentQuota(false, asMachineId('m2'))
     expect(m2Out.some((m) => m.type === 'agentQuotaRequest')).toBe(true)
     expect(m1Out.some((m) => m.type === 'agentQuotaRequest')).toBe(false)
   })
 
   it('single-machine invariant: one online daemon → one entry with that machine agents', async () => {
-    const store = new SessionStore(':memory:')
-    store.machines.upsertMachine({
+    const store = await openTestStore(':memory:')
+    await store.machines.upsertMachine({
       id: 'm1',
       name: 'Solo',
       hostname: 'solo',
@@ -128,7 +128,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
   })
 
   it('returns [] when no daemon is online', async () => {
-    const store = new SessionStore(':memory:')
+    const store = await openTestStore(':memory:')
     const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     expect(await reg.modules.rpc.agentQuotaAll()).toEqual([])
   })
@@ -136,7 +136,7 @@ describe('SessionRegistry.agentQuotaAll()', () => {
 
 describe('SessionRegistry.memoryBreakdown(roots, machineId)', () => {
   it('routes the breakdown request to the requested machine', async () => {
-    const { reg, m1Out, m2Out } = regWithTwoDaemons()
+    const { reg, m1Out, m2Out } = await regWithTwoDaemons()
     void reg.modules.hosts.memoryBreakdown(['/x'], asMachineId('m2'))
     expect(m2Out.some((m) => m.type === 'memoryBreakdownRequest')).toBe(true)
     expect(m1Out.some((m) => m.type === 'memoryBreakdownRequest')).toBe(false)

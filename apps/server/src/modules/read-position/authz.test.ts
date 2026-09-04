@@ -73,7 +73,7 @@ describe('the actor comes from the principal, and the input cannot supply one', 
 })
 
 describe('a refused principal does not write', () => {
-  it('gate refusal means the repository is never called; the positive control writes', () => {
+  it('gate refusal means the repository is never called; the positive control writes', async () => {
     const db = openMigratedTestDatabase()
     const repo = new UserReadPositionRepository(createBunStoreExecutor({ database: db }))
     const service = new ReadPositionService({ cursors: repo })
@@ -82,13 +82,13 @@ describe('a refused principal does not write', () => {
     expect(refusal).toBeDefined()
     // Mimic the trpc order: refuse BEFORE the handler.
     if (!refusal) service.advance(ALICE, 'issueEvents', { lastEventId: 4, seenAt: null }, 't')
-    expect(repo.getSnapshot(ALICE)).toEqual({})
+    expect(await repo.getSnapshot(ALICE)).toEqual({})
 
     expect(readPositionAuthzFailure('readPosition.advance', deps('member'))).toBeUndefined()
     service.advance(ALICE, 'issueEvents', { lastEventId: 4, seenAt: null }, 't')
-    expect(repo.getSnapshot(ALICE)).toEqual({ issueEvents: { lastEventId: 4, seenAt: null } })
+    expect(await repo.getSnapshot(ALICE)).toEqual({ issueEvents: { lastEventId: 4, seenAt: null } })
     // …and it wrote for the ACTOR only.
-    expect(repo.getSnapshot(BOB)).toEqual({})
+    expect(await repo.getSnapshot(BOB)).toEqual({})
     db.close?.()
   })
 })

@@ -11,7 +11,8 @@ import {
   wsOriginVerdict,
 } from './gateway/ws-server'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 describe('isAllowedWsOrigin', () => {
   test('a request with no Origin (native client / daemon) is allowed', () => {
@@ -131,7 +132,7 @@ describe('the CSWSH guard on the real upgrade path', () => {
   })
 
   async function start(deps: WsTransportDeps = {}): Promise<string> {
-    store = new SessionStore(':memory:')
+    store = await openTestStore(':memory:')
     registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     handle = attachWebSockets(
       registry,

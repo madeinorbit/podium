@@ -5,14 +5,14 @@ import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 // POD-723: allWire() memoizes each issue's built wire payload, keyed by that
 // issue's own inputs (a generation counter bumped on any issue-side mutation +
 // its member sessions' issue-relevant projections). A session-driven publish that
 // only touches SOME issues' members must rebuild only those and reuse the rest.
-function harness(sessions: SessionMeta[]) {
-  const store = new SessionStore(':memory:')
+async function harness(sessions: SessionMeta[]) {
+  const store = await openTestStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps = {
     store,
@@ -51,9 +51,9 @@ const member = (sessionId: SessionId, issueId: string, workState?: string): Sess
   }) as unknown as SessionMeta
 
 describe('POD-723 dirty-scoped issue wire rebuild', () => {
-  it('rebuilds only the issue whose member changed; reuses the cached payload for the rest', () => {
+  it('rebuilds only the issue whose member changed; reuses the cached payload for the rest', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions)
+    const { svc } = await harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     const i2 = svc.create({ repoPath: '/repo', title: 'two', startNow: false }).id
     sessions.push(member(asSessionId('sess-1'), i1, 'planning'))
@@ -84,9 +84,9 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     expect(w1b).not.toHaveProperty('sessions')
   })
 
-  it('an issue-row change republishes that issue (fresh payload)', () => {
+  it('an issue-row change republishes that issue (fresh payload)', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions)
+    const { svc } = await harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     sessions.push(member(asSessionId('sess-1'), i1))
 
@@ -98,9 +98,9 @@ describe('POD-723 dirty-scoped issue wire rebuild', () => {
     expect(w1b.labels).toContain('urgent')
   })
 
-  it('a member JOINING an issue no longer rebuilds it (membership left the key)', () => {
+  it('a member JOINING an issue no longer rebuilds it (membership left the key)', async () => {
     const sessions: SessionMeta[] = []
-    const { svc } = harness(sessions)
+    const { svc } = await harness(sessions)
     const i1 = svc.create({ repoPath: '/repo', title: 'one', startNow: false }).id
     const i2 = svc.create({ repoPath: '/repo', title: 'two', startNow: false }).id
     sessions.push(member(asSessionId('sess-2'), i2))

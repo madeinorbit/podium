@@ -17,9 +17,10 @@
  * log with no way to notice.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
 import { Ledger } from '@podium/sync'
-import { SessionStore } from '../../store'
+import { afterEach, describe, expect, it } from 'vitest'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { PostCommitError } from './errors'
 import { postCommit } from './executor'
 import { afterCommit } from './synchronous-span'
@@ -32,7 +33,7 @@ afterEach(() => {
 
 /** A store and a Ledger over it, wired the way `relay.ts` wires them. */
 function openWiredStore(): { store: SessionStore; ledger: Ledger } {
-  const store = new SessionStore(':memory:')
+  const store = openTestStore(':memory:')
   stores.push(store)
   const ledger = new Ledger({
     repo: store.sync,

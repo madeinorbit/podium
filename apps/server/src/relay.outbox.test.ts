@@ -25,8 +25,8 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
-import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 import { advanceToComposerReady, advanceUntil } from './test-support/readiness-queue'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
@@ -90,7 +90,12 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'agentState',
     sessionId: asSessionId(sessionId),
-    state: { phase: 'idle', since: observedAt, nativeSubagentCount: 0, stateObservedAt: observedAt },
+    state: {
+      phase: 'idle',
+      since: observedAt,
+      nativeSubagentCount: 0,
+      stateObservedAt: observedAt,
+    },
   })
   vi.advanceTimersByTime(1400)
 }
@@ -286,7 +291,7 @@ describe('queueText (durable outbox sends)', () => {
     vi.useFakeTimers()
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-dead-send-reconcile-')), 'podium.db')
-      const storeA = new SessionStore(file, TEST_MACHINE)
+      const storeA = openTestStore(file, TEST_MACHINE)
       const regA = SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
       const sessionId = hibernatedSession(regA)
@@ -305,7 +310,7 @@ describe('queueText (durable outbox sends)', () => {
       })
       regA.dispose()
 
-      const storeB = new SessionStore(file, TEST_MACHINE)
+      const storeB = openTestStore(file, TEST_MACHINE)
       const regB = SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       const daemon: ControlMessage[] = []
       regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
@@ -436,7 +441,7 @@ describe('queueText (durable outbox sends)', () => {
     vi.useFakeTimers()
     try {
       const file = join(mkdtempSync(join(tmpdir(), 'podium-outbox-relay-')), 'podium.db')
-      const storeA = new SessionStore(file, TEST_MACHINE)
+      const storeA = openTestStore(file, TEST_MACHINE)
       const regA = SessionRegistry.create(storeA, undefined, { instanceId: 'default' })
       const daemonA: ControlMessage[] = []
       regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, (m) => daemonA.push(m))
@@ -457,7 +462,7 @@ describe('queueText (durable outbox sends)', () => {
       storeA.close()
 
       // Restart: fresh store + registry over the same DB file.
-      const storeB = new SessionStore(file, TEST_MACHINE)
+      const storeB = openTestStore(file, TEST_MACHINE)
       const regB = SessionRegistry.create(storeB, undefined, { instanceId: 'default' })
       expect(
         regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)

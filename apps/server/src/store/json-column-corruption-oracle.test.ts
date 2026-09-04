@@ -111,7 +111,8 @@ import { is } from 'drizzle-orm'
 import { getTableConfig, SQLiteTable } from 'drizzle-orm/sqlite-core'
 import { beforeEach, describe, expect, it } from 'vitest'
 import * as schema from '../migrations/schema'
-import { SessionStore } from '../store'
+import type { SessionStore } from '../store'
+import { openTestStore } from '../test-support/open-test-store'
 
 // ---------------------------------------------------------------------------
 // the raw seam
@@ -328,11 +329,11 @@ const shipOrderInput = (overrides: Partial<ShipOrder> = {}): ShipOrder =>
     ...overrides,
   }) as ShipOrder
 
-function seed(): Fixture {
-  const store = new SessionStore(':memory:')
+async function seed(): Promise<Fixture> {
+  const store = await openTestStore(':memory:')
 
   // --- issues ---------------------------------------------------------------
-  store.issues.upsertIssue(issueRow())
+  await store.issues.upsertIssue(issueRow())
   // `upsertIssue` has no field for it; the oracle only needs a readable value
   // in the column, which is what a live "needs human" issue holds.
   rawDb(store)
@@ -340,13 +341,13 @@ function seed(): Fixture {
     .run(JSON.stringify(['yes', 'no']), 'iss_1')
 
   // --- podium_events --------------------------------------------------------
-  store.events.appendEvent(
+  await store.events.appendEvent(
     { ts: AT, kind: 'issue.updated', subject: 'iss_1', repoPath: '/r', payload: { ok: true } },
     { announce: false },
   )
 
   // --- settings_audit_events ------------------------------------------------
-  store.settingsAudit.append({
+  await store.settingsAudit.append({
     command: 'settings.set',
     outcome: 'applied',
     actorKind: 'user',
@@ -358,8 +359,8 @@ function seed(): Fixture {
   })
 
   // --- observation checkpoints + terminal candidates -------------------------
-  store.observationCheckpoints.advanceGeneration(SESSION, 'codex', 'thread-1')
-  store.observationCheckpoints.save({
+  await store.observationCheckpoints.advanceGeneration(SESSION, 'codex', 'thread-1')
+  await store.observationCheckpoints.save({
     schemaVersion: 1,
     podiumSessionId: SESSION,
     provider: 'codex',
@@ -379,7 +380,7 @@ function seed(): Fixture {
     lastLiveReceiptAt: null,
     lastTransitionId: 'snapshot-1',
   })
-  store.observationCheckpoints.recordTerminalCandidate(
+  await store.observationCheckpoints.recordTerminalCandidate(
     {
       schemaVersion: 1,
       sessionId: SESSION,
@@ -417,7 +418,7 @@ function seed(): Fixture {
 
   // --- shipping: orders, a claimed train (manifest + members + attempts +
   //     steps), a root integration receipt and an open hold -------------------
-  store.issues.upsertIssue(
+  await store.issues.upsertIssue(
     issueRow({ id: asIssueId('iss_2'), seq: 2, branch: 'issue/2', title: 'Second' }),
   )
   const lower = shipOrderInput()
@@ -427,16 +428,16 @@ function seed(): Fixture {
     approvedHeadSha: 'covering-head',
     deliveryDependsOn: [asShipOrderId('order-1')],
   })
-  store.shipping.createOrder(lower)
-  store.shipping.createOrder(covering)
-  const train = store.shipping.claimTrain({
+  await store.shipping.createOrder(lower)
+  await store.shipping.createOrder(covering)
+  const train = await store.shipping.claimTrain({
     leaderOrderId: covering.id,
     startedAt: AT,
     members: [{ orderId: lower.id }, { orderId: covering.id }],
   })
   const leader = train.manifest.members.at(-1)
   if (!leader) throw new Error('fixture: claimed train has no members')
-  const steps = store.shipping.stepsForAttempt(leader.attemptId)
+  const steps = await store.shipping.stepsForAttempt(leader.attemptId)
   const step = steps[0]
   if (!step) throw new Error('fixture: claimed train wrote no ship step')
 
@@ -444,7 +445,7 @@ function seed(): Fixture {
   // receipt that binds it. Kept out of the train on purpose: the same two columns
   // behave differently on an order with descendants and one without, and the
   // oracle records both.
-  store.issues.upsertIssue(
+  await store.issues.upsertIssue(
     issueRow({ id: asIssueId('iss_3'), seq: 3, branch: 'issue/3', title: 'Third' }),
   )
   const stackedDescendants = [{ issueId: asIssueId('iss_2'), approvedHeadSha: 'covering-head' }]
@@ -460,15 +461,15 @@ function seed(): Fixture {
     },
     providerRef: { provider: 'github', id: '42' },
   })
-  store.shipping.createOrder(stacked)
+  await store.shipping.createOrder(stacked)
 
-  store.shipping.recordRootIntegrationReceipt({
+  await store.shipping.recordRootIntegrationReceipt({
     rootIssueId: asIssueId('iss_1'),
     approvedHeadSha: 'approved-head',
     descendants: [{ issueId: asIssueId('iss_2'), approvedHeadSha: 'covering-head' }],
   })
 
-  store.shipping.raiseHold({
+  await store.shipping.raiseHold({
     id: asShipHoldId('hold-1'),
     orderId: lower.id,
     generation: 1,
@@ -482,7 +483,7 @@ function seed(): Fixture {
 
   // --- workflows ------------------------------------------------------------
   const actor = { kind: 'operator' as const, id: null }
-  store.workflows.insertWorkflow({
+  await store.workflows.insertWorkflow({
     id: 'wf-1',
     name: 'Ship it',
     description: 'a workflow',
@@ -492,7 +493,7 @@ function seed(): Fixture {
     ownerUserId: FIRST_ADMIN_USER_ID,
     now: AT,
   })
-  const revision = store.workflows.insertRevision({
+  const revision = await store.workflows.insertRevision({
     id: 'wfrev-1',
     workflowId: 'wf-1',
     instructions: 'do the thing',
@@ -507,7 +508,7 @@ function seed(): Fixture {
     actor,
     now: AT,
   })
-  store.workflows.insertRun({
+  await store.workflows.insertRun({
     run: {
       id: 'wfrun-1',
       subjectKind: 'issue',
@@ -530,7 +531,7 @@ function seed(): Fixture {
       },
     ],
   })
-  store.workflows.appendEvent({
+  await store.workflows.appendEvent({
     workflowId: 'wf-1',
     runId: 'wfrun-1',
     kind: 'run.started',
@@ -541,20 +542,20 @@ function seed(): Fixture {
   })
 
   // --- superagent -----------------------------------------------------------
-  store.superagent.seedGlobalThread(FIRST_ADMIN_USER_ID)
-  store.superagent.appendSuperagentMessage(asThreadId('global'), {
+  await store.superagent.seedGlobalThread(FIRST_ADMIN_USER_ID)
+  await store.superagent.appendSuperagentMessage(asThreadId('global'), {
     role: 'assistant',
     content: 'hi',
     toolCalls: [{ id: 'call-1', name: 'noop', arguments: '{}' }],
   })
-  store.superagent.putQueuedInput({
+  await store.superagent.putQueuedInput({
     inputId: 'queued-1',
     ownerUserId: FIRST_ADMIN_USER_ID,
     threadId: asThreadId('global'),
     text: 'do it',
     focus: { view: 'issues', issueId: asIssueId('iss_1') },
   })
-  store.superagent.putPendingTurn({
+  await store.superagent.putPendingTurn({
     turnId: 'turn-1',
     ownerUserId: FIRST_ADMIN_USER_ID,
     threadId: asThreadId('global'),
@@ -1006,8 +1007,8 @@ describe('the corrupt-blob oracle', () => {
     )
   })
 
-  it('seeds a readable value in every column it is about to corrupt', () => {
-    const fixture = seed()
+  it('seeds a readable value in every column it is about to corrupt', async () => {
+    const fixture = await seed()
     const db = rawDb(fixture.store)
     for (const entry of ALL_ENTRIES) {
       const row = db
@@ -1030,8 +1031,8 @@ describe.each(
 )('%s', (_name, entry) => {
   let fixture: Fixture
 
-  beforeEach(() => {
-    fixture = seed()
+  beforeEach(async () => {
+    fixture = await seed()
     return () => fixture.store.close()
   })
 

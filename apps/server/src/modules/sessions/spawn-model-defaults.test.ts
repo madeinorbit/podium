@@ -1,9 +1,10 @@
-import { asAccountId } from '@podium/model'
 import type { AgentKind } from '@podium/model'
+import { asAccountId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
-import { SessionStore } from '../../store'
+import type { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 
 const registries: SessionRegistry[] = []
 
@@ -11,10 +12,10 @@ afterEach(() => {
   for (const registry of registries.splice(0)) registry.dispose()
 })
 
-function storeWithClaudeDefaults(accountId = 'native:claude-code'): SessionStore {
-  const store = new SessionStore(':memory:')
-  const settings = store.settings.getSettings()
-  store.settings.setSettings({
+async function storeWithClaudeDefaults(accountId = 'native:claude-code'): Promise<SessionStore> {
+  const store = await openTestStore(':memory:')
+  const settings = await store.settings.getSettings()
+  await store.settings.setSettings({
     ...settings,
     roles: {
       ...settings.roles,
@@ -37,7 +38,9 @@ function makeRegistry(store: SessionStore): {
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   const daemon: ControlMessage[] = []
-  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) => daemon.push(message))
+  registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, (message) =>
+    daemon.push(message),
+  )
   return { registry, daemon }
 }
 
@@ -47,17 +50,17 @@ function latestSpawn(daemon: ControlMessage[]): Extract<ControlMessage, { type: 
   return frame as Extract<ControlMessage, { type: 'spawn' }>
 }
 
-function createFrame(
+async function createFrame(
   agentKind: AgentKind,
   override: { model?: string; effort?: string } = {},
-): Extract<ControlMessage, { type: 'spawn' }> {
-  const { registry, daemon } = makeRegistry(storeWithClaudeDefaults())
+): Promise<Extract<ControlMessage, { type: 'spawn' }>> {
+  const { registry, daemon } = makeRegistry(await storeWithClaudeDefaults())
   registry.modules.sessions.createSession({ agentKind, cwd: '/proj', ...override })
   return latestSpawn(daemon)
 }
 
 async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
-  const { registry, daemon } = makeRegistry(storeWithClaudeDefaults())
+  const { registry, daemon } = makeRegistry(await storeWithClaudeDefaults())
   const resume =
     agentKind === 'codex'
       ? ({ kind: 'codex-thread', value: 'thread-1' } as const)
@@ -77,52 +80,54 @@ async function resurrectFrame(agentKind: 'claude-code' | 'codex') {
     geometry: { cols: 80, rows: 24 },
   })
   expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
-  expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({ ok: true })
+  expect(await registry.modules.issueSessionLifecycle.resurrectSession({ sessionId })).toEqual({
+    ok: true,
+  })
   return latestSpawn(daemon)
 }
 
-it('passes configured model and effort to the configured default harness', () => {
-  const frame = createFrame('claude-code')
+it('passes configured model and effort to the configured default harness', async () => {
+  const frame = await createFrame('claude-code')
   expect(frame.model).toBe('claude-opus-4-8')
   expect(frame.effort).toBe('xhigh')
 })
 
-it('inherits configured defaults from auto issue overrides on the configured harness', () => {
-  const frame = createFrame('claude-code', { model: 'auto', effort: 'auto' })
+it('inherits configured defaults from auto issue overrides on the configured harness', async () => {
+  const frame = await createFrame('claude-code', { model: 'auto', effort: 'auto' })
   expect(frame.model).toBe('claude-opus-4-8')
   expect(frame.effort).toBe('xhigh')
 })
 
-it('omits configured model and effort when another harness is selected', () => {
-  const frame = createFrame('codex')
+it('omits configured model and effort when another harness is selected', async () => {
+  const frame = await createFrame('codex')
   expect(Object.hasOwn(frame, 'model')).toBe(false)
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })
 
-it('resolves an omitted incompatible native role account to the selected agent', () => {
-  const { registry } = makeRegistry(storeWithClaudeDefaults())
+it('resolves an omitted incompatible native role account to the selected agent', async () => {
+  const { registry } = makeRegistry(await storeWithClaudeDefaults())
   const { sessionId } = registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
   })
-  expect(registry.sessionStore.sessions.getSession(sessionId)?.accountId).toBe('native:opencode')
+  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe('native:opencode')
 })
 
-it('normalizes an omitted colliding native harness prefix', () => {
-  const { registry } = makeRegistry(storeWithClaudeDefaults('native:opencodeevil'))
+it('normalizes an omitted colliding native harness prefix', async () => {
+  const { registry } = makeRegistry(await storeWithClaudeDefaults('native:opencodeevil'))
   const { sessionId } = registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
   })
-  expect(registry.sessionStore.sessions.getSession(sessionId)?.accountId).toBe('native:opencode')
+  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe('native:opencode')
 })
 
 it.each([
   'native:opencode',
   'native:claude-code',
   'managed:anthropic',
-])('preserves the explicit account %s exactly', (accountId) => {
-  const { registry, daemon } = makeRegistry(storeWithClaudeDefaults())
+])('preserves the explicit account %s exactly', async (accountId) => {
+  const { registry, daemon } = makeRegistry(await storeWithClaudeDefaults())
   const { sessionId } = registry.modules.sessions.createSession({
     agentKind: 'opencode',
     cwd: '/proj',
@@ -130,17 +135,17 @@ it.each([
     runtimeContract: 'opencode-server',
   })
   expect(latestSpawn(daemon)).toMatchObject({ runtimeContract: 'opencode-server' })
-  expect(registry.sessionStore.sessions.getSession(sessionId)?.accountId).toBe(accountId)
+  expect((await registry.sessionStore.sessions.getSession(sessionId))?.accountId).toBe(accountId)
 })
 
-it('keeps auto issue overrides isolated from another harness', () => {
-  const frame = createFrame('codex', { model: 'auto', effort: 'auto' })
+it('keeps auto issue overrides isolated from another harness', async () => {
+  const frame = await createFrame('codex', { model: 'auto', effort: 'auto' })
   expect(Object.hasOwn(frame, 'model')).toBe(false)
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })
 
-it('keeps explicit overrides on another harness without filling missing defaults', () => {
-  const frame = createFrame('codex', { model: 'gpt-5.5' })
+it('keeps explicit overrides on another harness without filling missing defaults', async () => {
+  const frame = await createFrame('codex', { model: 'gpt-5.5' })
   expect(frame.model).toBe('gpt-5.5')
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })

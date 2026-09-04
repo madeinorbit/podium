@@ -1,6 +1,7 @@
 import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * A RE-DISCOVERY THAT CHANGES NOTHING MUST WRITE NOTHING [POD-1931].
@@ -45,8 +46,8 @@ const row = (over: Record<string, unknown> = {}) => ({
 })
 
 describe('idle re-discovery writes', () => {
-  it('re-upserting an identical conversation row does not rewrite it', () => {
-    const store = new SessionStore(':memory:')
+  it('re-upserting an identical conversation row does not rewrite it', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.index.upsert([row()])
     const writes = writeProbe(store, 'conversations')
     expect(writes()).toBe(0)
@@ -62,8 +63,8 @@ describe('idle re-discovery writes', () => {
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('Renamed')
   })
 
-  it('an omitted field is not a change — COALESCE keeps the stored value', () => {
-    const store = new SessionStore(':memory:')
+  it('an omitted field is not a change — COALESCE keeps the stored value', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.index.upsert([row()])
     const writes = writeProbe(store, 'conversations')
 
@@ -74,8 +75,8 @@ describe('idle re-discovery writes', () => {
     expect(found.find((c) => c.id === 'native-a')?.title).toBe('A conversation')
   })
 
-  it('re-ensuring an unchanged segment does not rewrite it', () => {
-    const store = new SessionStore(':memory:')
+  it('re-ensuring an unchanged segment does not rewrite it', async () => {
+    const store = await openTestStore(':memory:')
     const opts = {
       machineId: asMachineId('m1'),
       nativeId: 'native-a',

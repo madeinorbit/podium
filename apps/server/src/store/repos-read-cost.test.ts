@@ -51,7 +51,7 @@ const tableReads = (table: string): number =>
     0,
   )
 
-beforeEach(() => {
+beforeEach(async () => {
   rawDb = openMigratedTestDatabase()
   counts = new Map()
   probeLegacyStatements({ db: rawDb }, (observation) => {
@@ -67,20 +67,20 @@ beforeEach(() => {
     asMachineId(HOST),
     tableWrites,
   )
-  repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
-  repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
+  await repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
+  await repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()
 })
 
 describe('repo reads under a projection pass', () => {
-  it('resolves many paths without re-scanning repos per path', () => {
+  it('resolves many paths without re-scanning repos per path', async () => {
     const paths = Array.from({ length: 50 }, (_, i) => `/home/u/alpha/.worktrees/w${i}`)
     const ids = paths.map((p) => repos.resolveRepoIdForPath(p))
 
     // Correctness first: every worktree path resolves to alpha's stable repo id,
     // so a cache that answered with a wrong (or empty) list would fail here.
     expect(new Set(ids).size).toBe(1)
-    expect(ids[0]).toBe(repos.resolveRepoIdForPath('/home/u/alpha'))
+    expect(ids[0]).toBe(await repos.resolveRepoIdForPath('/home/u/alpha'))
 
     // 50 resolutions must not be 50 table scans — and must not be ZERO either.
     // `toBeLessThanOrEqual` alone is satisfied by a probe that counts nothing,
@@ -102,36 +102,36 @@ describe('repo reads under a projection pass', () => {
     expect(tableReads('repo_prefixes')).toBeGreaterThan(0)
   })
 
-  it('sees a repo registered after the first read', () => {
-    expect(repos.prefixForPath('/home/u/gamma/src')).toBeNull()
+  it('sees a repo registered after the first read', async () => {
+    expect(await repos.prefixForPath('/home/u/gamma/src')).toBeNull()
 
-    repos.addRepo('/home/u/gamma', asMachineId(HOST), undefined, 'GA')
+    await repos.addRepo('/home/u/gamma', asMachineId(HOST), undefined, 'GA')
 
     // The paired admission: a cache that never invalidates would still say null.
-    expect(repos.prefixForPath('/home/u/gamma/src')).toBe('GA')
-    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/gamma')
+    expect(await repos.prefixForPath('/home/u/gamma/src')).toBe('GA')
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/home/u/gamma')
   })
 
-  it('sees a repo removed after the first read', () => {
-    expect(repos.resolveRepoIdForPath('/home/u/alpha/x')).toBe(
-      repos.resolveRepoIdForPath('/home/u/alpha'),
+  it('sees a repo removed after the first read', async () => {
+    expect(await repos.resolveRepoIdForPath('/home/u/alpha/x')).toBe(
+      await repos.resolveRepoIdForPath('/home/u/alpha'),
     )
-    const before = repos.resolveRepoIdForPath('/home/u/alpha/x')
+    const before = await repos.resolveRepoIdForPath('/home/u/alpha/x')
 
-    repos.removeRepo('/home/u/alpha', asMachineId(HOST))
+    await repos.removeRepo('/home/u/alpha', asMachineId(HOST))
 
     // With alpha gone the path no repo row claims falls back to a derived id,
     // which is a DIFFERENT value — a stale cache would still return `before`.
-    expect(repos.resolveRepoIdForPath('/home/u/alpha/x')).not.toBe(before)
-    expect(repos.listRepos().map((r) => r.path)).not.toContain('/home/u/alpha')
+    expect(await repos.resolveRepoIdForPath('/home/u/alpha/x')).not.toBe(before)
+    expect((await repos.listRepos()).map((r) => r.path)).not.toContain('/home/u/alpha')
   })
 
-  it('sees a prefix changed after the first read', () => {
-    expect(repos.prefixForPath('/home/u/alpha/x')).toBe('AL')
+  it('sees a prefix changed after the first read', async () => {
+    expect(await repos.prefixForPath('/home/u/alpha/x')).toBe('AL')
 
-    repos.setRepoPrefix(asMachineId(HOST), '/home/u/alpha', 'AZ')
+    await repos.setRepoPrefix(asMachineId(HOST), '/home/u/alpha', 'AZ')
 
-    expect(repos.prefixForPath('/home/u/alpha/x')).toBe('AZ')
+    expect(await repos.prefixForPath('/home/u/alpha/x')).toBe('AZ')
   })
 })
 
@@ -174,34 +174,34 @@ describe('registry cache vs writers that bypass the repository', () => {
    * involved and nothing about it this class could recognise if it were still
    * reading SQL text.
    */
-  it('a write announced to the store, from no repository at all, drops the held read', () => {
+  it('a write announced to the store, from no repository at all, drops the held read', async () => {
     // Hold the read, so there is something to go stale. Without this the assertion
     // at the end passes against a cache that is simply empty.
-    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/home/u/alpha')
 
     rawDb.prepare("UPDATE repos SET path = '/renamed' WHERE path = '/home/u/alpha'").run()
 
     // Still stale, and that is the point: the ANNOUNCEMENT is what fixes this, not
     // the write. Skipping this step would leave a test that passes against a
     // repository holding no cache at all.
-    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/home/u/alpha')
 
     tableWrites.wrote('repos')
 
-    expect(repos.listRepos().map((r) => r.path)).toContain('/renamed')
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/renamed')
   })
 
-  it('announces per table, so an unrelated table does not drop the read', () => {
-    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+  it('announces per table, so an unrelated table does not drop the read', async () => {
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/home/u/alpha')
     rawDb.prepare("UPDATE repos SET path = '/renamed' WHERE path = '/home/u/alpha'").run()
 
     // The counterfactual for the test above: if any announcement dropped the read,
     // that test would hold for any argument and would not be about `repos` at all.
     tableWrites.wrote('sessions')
-    expect(repos.listRepos().map((r) => r.path)).toContain('/home/u/alpha')
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/home/u/alpha')
 
     // The other subscribed table, because the prefix map is held by the same read.
     tableWrites.wrote('repo_prefixes')
-    expect(repos.listRepos().map((r) => r.path)).toContain('/renamed')
+    expect((await repos.listRepos()).map((r) => r.path)).toContain('/renamed')
   })
 })

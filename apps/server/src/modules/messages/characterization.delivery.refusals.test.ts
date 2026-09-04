@@ -53,8 +53,8 @@ const SHOT = {
  *  UNWRAPPED — no envelope, so no id can ever echo — which is exactly why
  *  `injectAndMark` marks it delivered outright and why a refusal afterwards has
  *  nobody else to correct it. */
-const chatHarness = (answer: () => TurnReceipt, opts?: { defer?: boolean }) => {
-  const h = mailHarness({ receipts: { defer: opts?.defer ?? true, answer } })
+const chatHarness = async (answer: () => TurnReceipt, opts?: { defer?: boolean }) => {
+  const h = await mailHarness({ receipts: { defer: opts?.defer ?? true, answer } })
   const iss = h.createIssue({ title: 'target' })
   h.put({ sessionId: TARGET, issueId: iss.id, phase: 'idle' })
   return h
@@ -70,7 +70,7 @@ const chat = async (h: ReturnType<typeof mailHarness>, body: string): Promise<st
 describe('contract-backed blocking sends return receipt refusals (POD-3044)', () => {
   it('waits for a not-running receipt and returns the typed dead letter', async () => {
     let h!: ReturnType<typeof mailHarness>
-    h = mailHarness({
+    h = await mailHarness({
       receipts: { defer: true, answer: () => refused('not_running') },
       runtimeContractActive: () => true,
       awaitPollMs: 1,
@@ -100,9 +100,8 @@ describe('contract-backed blocking sends return receipt refusals (POD-3044)', ()
 })
 
 /** Every undelivered-notice the sender was actually handed. */
-const notices = (h: ReturnType<typeof mailHarness>): string[] =>
-  h.store.messages
-    .listMessagesFor({ kind: 'operator' })
+const notices = async (h: ReturnType<typeof mailHarness>): Promise<string[]> =>
+  (await h.store.messages.listMessagesFor({ kind: 'operator' }))
     .filter((m) => m.kind === 'notification' && m.fromKind === 'system')
     .map((m) => m.body)
 
@@ -111,7 +110,7 @@ const transitions = (h: ReturnType<typeof mailHarness>, kind: string, id: string
 
 describe('a refusal that will clear puts the row back in the queue (F1)', () => {
   it('retracts the optimistic delivery of a chat line the driver refused as busy', async () => {
-    const h = chatHarness(() =>
+    const h = await chatHarness(() =>
       refused('busy', 'a turn was still open when the ready window closed'),
     )
     const id = await chat(h, 'are you there?')
@@ -140,7 +139,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
 
   it('re-queues rather than re-pushing — the retry is the sweep, not this path', async () => {
     let sends = 0
-    const h = chatHarness(() => {
+    const h = await chatHarness(() => {
       sends += 1
       return sends === 1 ? refused('needs_user', 'a native prompt is open') : ACCEPTED
     })
@@ -161,7 +160,7 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
   })
 
   it('treats a held control lease the same way — the human lets go eventually', async () => {
-    const h = chatHarness(() => refused('lease_held', 'held by a human-controller'))
+    const h = await chatHarness(() => refused('lease_held', 'held by a human-controller'))
     const id = await chat(h, 'when you are free')
 
     h.settleReceipts()
@@ -169,27 +168,27 @@ describe('a refusal that will clear puts the row back in the queue (F1)', () => 
     expect(h.svc.message(id)!.status).toBe('queued')
     // A re-queue is NOT a dead-letter, so the sender is told nothing: the message
     // is still on its way and a notice would be a lie in the other direction.
-    expect(notices(h)).toEqual([])
+    expect(await notices(h)).toEqual([])
   })
 
   it('clears the read receipt the optimistic delivery recorded', async () => {
-    const h = chatHarness(() => refused('busy'))
+    const h = await chatHarness(() => refused('busy'))
     const id = await chat(h, 'unread, actually')
 
     // `markDelivered` records a per-reader receipt [POD-1379]. Left standing, it
     // says this session saw a message it never got — the same lie one table over,
     // and the one that hides the row from that session's own pending set.
-    expect(h.store.messages.readReceipts(TARGET, [id]).has(id)).toBe(true)
+    expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(true)
 
     h.settleReceipts()
 
-    expect(h.store.messages.readReceipts(TARGET, [id]).has(id)).toBe(false)
+    expect((await h.store.messages.readReceipts(TARGET, [id])).has(id)).toBe(false)
   })
 })
 
 describe('a refusal that will not clear goes terminal, and says so once (F2)', () => {
   it('dead-letters a chat line the driver refused as not_running, and tells the sender', async () => {
-    const h = chatHarness(() => refused('not_running', 'the daemon dropped the handle'))
+    const h = await chatHarness(() => refused('not_running', 'the daemon dropped the handle'))
     const id = await chat(h, 'anyone home?')
     expect(h.svc.message(id)!.status).toBe('delivered')
 
@@ -205,17 +204,17 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     })
     // Off the pending set is what takes it off the sweep and out of a blocked
     // sender's wait — the row stops pretending to be in flight.
-    expect(h.store.messages.countPending({ kind: 'session', id: TARGET })).toBe(0)
+    expect(await h.store.messages.countPending({ kind: 'session', id: TARGET })).toBe(0)
 
     // AND THE SENDER FINDS OUT, in POD-2297's words rather than a second set:
     // a refused send and an abandoned drain are the same news to whoever is
     // holding the receipt.
-    expect(notices(h)).toHaveLength(1)
-    expect(notices(h)[0]).toContain('failed to hand it to the agent')
+    expect(await notices(h)).toHaveLength(1)
+    expect((await notices(h))[0]).toContain('failed to hand it to the agent')
   })
 
   it('dead-letters a session that ended with the teardown wording', async () => {
-    const h = chatHarness(() => refused('session_ended'))
+    const h = await chatHarness(() => refused('session_ended'))
     const id = await chat(h, 'too late')
 
     h.settleReceipts()
@@ -224,7 +223,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
       status: 'dead_letter',
       deliveryDeferredReason: 'teardown',
     })
-    expect(notices(h)[0]).toContain('torn down before it could be typed into')
+    expect((await notices(h))[0]).toContain('torn down before it could be typed into')
   })
 
   it('dead-letters a send whose attachment bytes the machine could not persist', async () => {
@@ -232,7 +231,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     // problem: it supports staging and the write failed anyway. A disk that lost
     // the bytes this turn is not talked round by the next sweep tick, so this is
     // terminal and visible rather than a silent re-queue that spins.
-    const h = chatHarness(() => refused('staging_failed', 'ENOSPC'))
+    const h = await chatHarness(() => refused('staging_failed', 'ENOSPC'))
     const id = await chat(h, 'here is the screenshot')
 
     h.settleReceipts()
@@ -241,7 +240,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
       status: 'dead_letter',
       deliveryDeferredReason: 'delivery-failed',
     })
-    expect(notices(h)[0]).toContain('failed to hand it to the agent')
+    expect((await notices(h))[0]).toContain('failed to hand it to the agent')
   })
 
   it('tells the sender once when a LATE unsupported refusal answers an attachment send', async () => {
@@ -251,7 +250,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
     // then rejects the raw bytes. Both end the row; only one of them has a sender
     // still waiting on a claim that turned out to be false, so only one notifies,
     // and the row is dead-lettered exactly once either way.
-    const h = chatHarness(() => refused('unsupported', 'raw attachments need a first turn'))
+    const h = await chatHarness(() => refused('unsupported', 'raw attachments need a first turn'))
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
       to: TARGET,
       body: 'here is the screenshot',
@@ -266,7 +265,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
       deliveryDeferredReason: 'delivery-failed',
     })
     expect(transitions(h, 'message.dead_letter', r.id)).toHaveLength(1)
-    expect(notices(h)).toHaveLength(1)
+    expect(await notices(h)).toHaveLength(1)
   })
 
   it('leaves no refusal reason able to keep an optimistic delivery standing', async () => {
@@ -282,7 +281,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
 
     for (const reason of RefusalReason.options) {
       if (answeredElsewhere.includes(reason)) continue
-      const h = chatHarness(() => refused(reason))
+      const h = await chatHarness(() => refused(reason))
       const id = await chat(h, `refuse me as ${reason}`)
       // The optimism this issue is about: delivered before the driver answered.
       expect(h.svc.message(id)).toMatchObject({ status: 'delivered', injectedAt: null })
@@ -298,7 +297,7 @@ describe('a refusal that will not clear goes terminal, and says so once (F2)', (
   })
 
   it('keeps the precise refusal on the receipt event, which is why the enum need not grow', async () => {
-    const h = chatHarness(() => refused('not_running', 'ECONNRESET'))
+    const h = await chatHarness(() => refused('not_running', 'ECONNRESET'))
     const id = await chat(h, 'diagnose me')
 
     h.settleReceipts()
@@ -320,7 +319,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // Enveloped agent-style mail: an issue-addressed operator body carries an id,
     // so it is INJECTED and still owed an echo — the case where a real
     // confirmation can beat the driver's verdict.
-    const h = mailHarness({ receipts: { defer: true, answer: () => refused('not_running') } })
+    const h = await mailHarness({ receipts: { defer: true, answer: () => refused('not_running') } })
     const iss = h.createIssue({ title: 'target' })
     h.put({ sessionId: TARGET, issueId: iss.id, phase: 'idle' })
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -337,11 +336,11 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // driver that could not prove what the transcript already showed must not
     // dead-letter it — that would be this issue's defect in the mirror.
     expect(h.svc.message(r.id)!.status).toBe('delivered')
-    expect(notices(h)).toEqual([])
+    expect(await notices(h)).toEqual([])
   })
 
   it('makes exactly one transition and one notice when the same refusal repeats', async () => {
-    const h = chatHarness(() => refused('not_running'))
+    const h = await chatHarness(() => refused('not_running'))
     const id = await chat(h, 'say it once')
 
     h.settleReceipts()
@@ -354,11 +353,11 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     h.replayReceipts()
 
     expect(transitions(h, 'message.dead_letter', id)).toHaveLength(1)
-    expect(notices(h)).toHaveLength(1)
+    expect(await notices(h)).toHaveLength(1)
   })
 
   it('makes exactly one re-queue when a clearing refusal repeats', async () => {
-    const h = chatHarness(() => refused('busy'))
+    const h = await chatHarness(() => refused('busy'))
     const id = await chat(h, 'again, then')
 
     h.settleReceipts()
@@ -374,7 +373,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // routes a wake to spawn-on-wake and everything else to the sweep — is still
     // on its way. Correcting there would settle the row against the PREVIOUS
     // push's stamps. `defer: false` is that ordering.
-    const h = mailHarness({
+    const h = await mailHarness({
       receipts: { defer: false, answer: () => refused('not_running') },
     })
     const iss = h.createIssue({ title: 'target' })
@@ -395,7 +394,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // But the row is where the durable queue put it, still deliverable, because
     // the caller owns a synchronous answer.
     expect(h.svc.message(r.id)!.status).toBe('queued')
-    expect(notices(h)).toEqual([])
+    expect(await notices(h)).toEqual([])
   })
 
   it('ends an attachment send refused before anything was stamped [POD-2574]', async () => {
@@ -404,7 +403,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // the latch above correctly declines to correct a row with no stamps on it —
     // and leaving it queued would hand the sweep a row it can only refuse again,
     // for the same reason, forever. `unsupported` is a capability, not a moment.
-    const h = mailHarness({
+    const h = await mailHarness({
       receipts: {
         defer: false,
         answer: () => refused('unsupported', 'this agent cannot accept file attachments'),
@@ -423,7 +422,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // No steward notice: the sender was already told, synchronously, by the
     // `ok: false` their own send returned. Two notices for one refusal is the
     // same disrespect as none, from the other side.
-    expect(notices(h)).toEqual([])
+    expect(await notices(h)).toEqual([])
     // AND IT SAYS WHY [POD-2574]. Asserting the status alone is what let this row
     // reach both readers as an unexplained dead letter, and a null reason falls
     // through to "target gone" — a claim about the SESSION, which is fine and
@@ -438,7 +437,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // The companion to the case above, and the reason it is scoped to
     // `unsupported` rather than to refusals in general: `busy` clears on its own,
     // so the sweep is exactly the retry this row wants.
-    const h = mailHarness({
+    const h = await mailHarness({
       receipts: { defer: false, answer: () => refused('busy') },
     })
     const iss = h.createIssue({ title: 'target' })
@@ -451,11 +450,11 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     })) as { id: string }
 
     expect(h.svc.message(r.id)!.status).toBe('queued')
-    expect(notices(h)).toEqual([])
+    expect(await notices(h)).toEqual([])
   })
 
   it('still does nothing at all for unverified — the policy the sibling file pins', async () => {
-    const h = chatHarness(() => ({
+    const h = await chatHarness(() => ({
       outcome: 'unverified',
       deliveredAs: 'when-ready',
       verificationWindowMs: 4000,
@@ -469,7 +468,7 @@ describe('a refusal corrects the push it answers, and nothing else (F3)', () => 
     // proven. Correcting on it would turn the one honest outcome in the contract
     // into a duplicate turn — the exact reading this issue must not widen into.
     expect(h.svc.message(id)!.status).toBe('delivered')
-    expect(notices(h)).toEqual([])
+    expect(await notices(h)).toEqual([])
   })
 })
 

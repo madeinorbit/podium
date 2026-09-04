@@ -7,7 +7,8 @@ import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { type ServerHandle, startServer } from '../apps/server/src/server'
-import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import type { MessageRow } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import { JanitorWorkerClient } from '../packages/janitor/src/worker-client'
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url))
@@ -65,7 +66,7 @@ describe('server-owned janitor worker', () => {
     const workerLogs: string[] = []
 
     try {
-      const seed = new SessionStore(dbPath)
+      const seed = openTestStore(dbPath)
       const message: MessageRow = {
         id: 'msg_worker_due',
         threadId: asThreadId('thread_worker_due'),

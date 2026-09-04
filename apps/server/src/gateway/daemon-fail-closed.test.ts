@@ -16,8 +16,8 @@ import { asUserId, asSessionId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionRegistry } from '../relay'
-import { SessionStore } from '../store'
 import { wireDaemonSocket } from './daemon-socket'
+import { openTestStore } from '../test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -49,10 +49,10 @@ const A_ROUTABLE_FRAME = {
 }
 
 /** A registry with `machines` rows and spies on the gateway's two entry points. */
-function harness(machines: { id: string; token: string }[]) {
-  const store = new SessionStore(':memory:')
+async function harness(machines: { id: string; token: string }[]) {
+  const store = await openTestStore(':memory:')
   for (const m of machines) {
-    store.machines.upsertMachine({
+    await store.machines.upsertMachine({
       id: m.id,
       name: m.id,
       hostname: m.id,
@@ -69,10 +69,10 @@ function harness(machines: { id: string; token: string }[]) {
 }
 
 describe('the instrument', () => {
-  it('attaches and routes for a daemon that IS recognised', () => {
+  it('attaches and routes for a daemon that IS recognised', async () => {
     // Without this, every refusal below could be a socket that routes nothing at
     // all — a refusal-only suite that would pass against a broken wiring.
-    const h = harness([{ id: 'm1', token: 'tok' }])
+    const h = await harness([{ id: 'm1', token: 'tok' }])
     h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'm1' }))
     expect(h.attach).toHaveBeenCalledTimes(1)
     h.ws.emit('message', frame(A_ROUTABLE_FRAME))
@@ -81,8 +81,8 @@ describe('the instrument', () => {
 })
 
 describe('a daemon that cannot prove who it is', () => {
-  it('rejects an UNPAIRED machine and admits nothing', () => {
-    const h = harness([])
+  it('rejects an UNPAIRED machine and admits nothing', async () => {
+    const h = await harness([])
     h.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'ghost', token: 'whatever', hostname: 'ghost' }),
@@ -91,12 +91,12 @@ describe('a daemon that cannot prove who it is', () => {
     expect(h.ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
 
-  it('rejects a REVOKED credential — the machine row alone is not admission', () => {
+  it('rejects a REVOKED credential — the machine row alone is not admission', async () => {
     // Rotating the token is revocation of the old one. The machine still exists,
     // is still named, and is still in the fleet; a daemon holding the previous
     // secret must get nothing, not a degraded session.
-    const h = harness([{ id: 'm1', token: 'old' }])
-    h.store.machines.upsertMachine({
+    const h = await harness([{ id: 'm1', token: 'old' }])
+    await h.store.machines.upsertMachine({
       id: 'm1',
       name: 'm1',
       hostname: 'm1',
@@ -108,8 +108,8 @@ describe('a daemon that cannot prove who it is', () => {
     expect(h.ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
   })
 
-  it('rejects a valid token presented under ANOTHER machine id, rather than rebinding', () => {
-    const h = harness([
+  it('rejects a valid token presented under ANOTHER machine id, rather than rebinding', async () => {
+    const h = await harness([
       { id: 'm1', token: 'tok1' },
       { id: 'm2', token: 'tok2' },
     ])
@@ -117,8 +117,8 @@ describe('a daemon that cannot prove who it is', () => {
     expect(h.attach).not.toHaveBeenCalled()
   })
 
-  it('keeps a REJECTED socket rejected: later frames reach no feature port', () => {
-    const h = harness([{ id: 'm1', token: 'tok' }])
+  it('keeps a REJECTED socket rejected: later frames reach no feature port', async () => {
+    const h = await harness([{ id: 'm1', token: 'tok' }])
     h.ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'm1' }))
     expect(h.attach).not.toHaveBeenCalled()
     // A retry with the CORRECT token on the same socket must not succeed — a
@@ -130,8 +130,8 @@ describe('a daemon that cannot prove who it is', () => {
     expect(h.route).not.toHaveBeenCalled()
   })
 
-  it('drops pre-auth application traffic without creating a principal', () => {
-    const h = harness([{ id: 'm1', token: 'tok' }])
+  it('drops pre-auth application traffic without creating a principal', async () => {
+    const h = await harness([{ id: 'm1', token: 'tok' }])
     h.ws.emit('message', frame(A_ROUTABLE_FRAME))
     expect(h.route).not.toHaveBeenCalled()
     expect(h.attach).not.toHaveBeenCalled()
@@ -144,14 +144,14 @@ describe('a daemon that cannot prove who it is', () => {
 })
 
 describe('the local socket confers no more than a remote pairing', () => {
-  it('refuses the local machine with a bad credential, exactly as it refuses a remote', () => {
+  it('refuses the local machine with a bad credential, exactly as it refuses a remote', async () => {
     // M4, the all-in-one case: the local daemon has no bootstrap special case.
-    const local = harness([{ id: 'local', token: 'sekret' }])
+    const local = await harness([{ id: 'local', token: 'sekret' }])
     local.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'local', token: 'wrong', hostname: 'thishost' }),
     )
-    const remote = harness([{ id: 'm1', token: 'sekret' }])
+    const remote = await harness([{ id: 'm1', token: 'sekret' }])
     remote.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'wrong', hostname: 'box' }),
@@ -163,15 +163,15 @@ describe('the local socket confers no more than a remote pairing', () => {
     )
   })
 
-  it('gives the local machine the same principal SHAPE a remote one gets', () => {
+  it('gives the local machine the same principal SHAPE a remote one gets', async () => {
     // Same kind, same capability form, a per-connection device: nothing about
     // being local widens what the principal carries.
-    const local = harness([{ id: 'local', token: 'sekret' }])
+    const local = await harness([{ id: 'local', token: 'sekret' }])
     local.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'local', token: 'sekret', hostname: 'thishost' }),
     )
-    const remote = harness([{ id: 'm1', token: 'tok' }])
+    const remote = await harness([{ id: 'm1', token: 'tok' }])
     remote.ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'b' }),

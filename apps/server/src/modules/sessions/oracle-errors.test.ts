@@ -43,7 +43,7 @@ const SESSION_STATE_CLOSED_DEFAULT = provisional(
 
 describe('oracle: not-found shape, per write', () => {
   it(`${EXISTENCE_ORACLE}: rename gives the Outbox a normalized refusal while the remaining session-state writes stay silent`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     await expect(o.call.sessions.rename({ sessionId: GHOST, name: 'x' })).rejects.toMatchObject({
       code: 'UNAUTHORIZED',
@@ -61,20 +61,20 @@ describe('oracle: not-found shape, per write', () => {
       o.call.sessions.setIssueId({ sessionId: GHOST, issueId: null }),
     ).resolves.toBeUndefined()
 
-    expect(o.store.sessions.loadSessions()).toEqual([])
+    expect(await o.store.sessions.loadSessions()).toEqual([])
     expect(o.reg.modules.sessions.listSessions()).toEqual([])
   })
 
   it(`${SESSION_STATE_CLOSED_DEFAULT}: snooze writes on an unknown session are silent no-ops with no row`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     await expect(o.call.snoozes.set({ sessionId: GHOST, until: null })).resolves.toBeUndefined()
-    expect(o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({})
     await expect(o.call.snoozes.clear({ sessionId: GHOST })).resolves.toBeUndefined()
   })
 
   it(`${SESSION_STATE_CLOSED_DEFAULT}: polymorphic panel pins remain valid, while tab order rejects an unknown session`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     expect(await o.call.pins.set({ kind: 'panel', id: GHOST, pinned: true })).toEqual({
       panels: [GHOST],
@@ -84,11 +84,11 @@ describe('oracle: not-found shape, per write', () => {
     await expect(
       o.call.tabs.setOrder({ worktree: '/nowhere', sessionIds: [GHOST] }),
     ).resolves.toBeUndefined()
-    expect(o.store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({})
+    expect(await o.store.sessions.listTabOrders(asUserId(SOLE_USER_ID))).toEqual({})
   })
 
   it(`${EXISTENCE_ORACLE}: the lifecycle primitives REPORT not-found as a returned reason`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     expect(await o.call.sessions.hibernate({ sessionId: GHOST })).toEqual({
       ok: false,
@@ -107,7 +107,7 @@ describe('oracle: not-found shape, per write', () => {
   })
 
   it(`${EXISTENCE_ORACLE}: continue and stop disagree with each other — continue reports a bare ok:false, stop names the cause`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     // Same class of failure (the session does not exist), two different shapes.
     expect(await o.call.sessions.continue({ sessionId: GHOST })).toEqual({ ok: false })
@@ -118,7 +118,7 @@ describe('oracle: not-found shape, per write', () => {
   })
 
   it(`${EXISTENCE_ORACLE}: handoff THROWS on an unknown session — the only session write whose not-found path is an exception`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     expect(
       await messageOf(() => o.call.sessions.handoff({ sessionId: GHOST, machineId: 'local' })),
@@ -126,15 +126,15 @@ describe('oracle: not-found shape, per write', () => {
   })
 
   it(`${EXISTENCE_ORACLE}: kill on an unknown session neither throws nor creates a tombstone`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     await expect(o.call.sessions.kill({ sessionId: GHOST })).resolves.toBeUndefined()
 
-    expect(o.store.sessions.loadDeletedSessions()).toEqual([])
+    expect(await o.store.sessions.loadDeletedSessions()).toEqual([])
   })
 
   it(`${EXISTENCE_ORACLE}: a send to an unknown session DEAD-LETTERS (ok:false) rather than queueing into a black hole`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     const sent = await o.call.sessions.sendText({ sessionId: GHOST, text: 'anyone there' })
     expect(sent.ok).toBe(false)
@@ -146,7 +146,7 @@ describe('oracle: not-found shape, per write', () => {
   })
 
   it(`${EXISTENCE_ORACLE}: via the RELAY, not-found and authz-denied are DIFFERENT messages — the send path is an existence oracle today`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const a = o.reg.issues.create({ repoPath: '/r', title: 'A', startNow: false })
     o.reg.issues.update(a.id, { worktreePath: '/r/.worktrees/a' })
     const b = o.reg.issues.create({ repoPath: '/r', title: 'B', startNow: false })
@@ -200,7 +200,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   )
 
   it(`${MUST_NOT_CHANGE}: create against an OFFLINE machine throws, naming the machine and the reachability fault`, async () => {
-    const o = makeOracle({ offlineMachines: OFFLINE })
+    const o = await makeOracle({ offlineMachines: OFFLINE })
 
     expect(
       await messageOf(() =>
@@ -211,7 +211,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   })
 
   it(`${MUST_NOT_CHANGE}: resume against an OFFLINE machine throws the same reachability message as create, and spawns nothing`, async () => {
-    const o = makeOracle({ offlineMachines: OFFLINE })
+    const o = await makeOracle({ offlineMachines: OFFLINE })
 
     expect(
       await messageOf(() =>
@@ -229,7 +229,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   })
 
   it(`${MUST_NOT_CHANGE}: both send paths distinguish an unreachable machine from authorization refusal`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'claude-code', cwd: '/p' })
     o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
       type: 'bind',
@@ -261,7 +261,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   })
 
   it(`${MUST_NOT_CHANGE}: an UNKNOWN machine id is a different message from an offline one`, async () => {
-    const o = makeOracle()
+    const o = await makeOracle()
 
     expect(
       await messageOf(() =>
@@ -271,8 +271,8 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   })
 
   it(`${MUST_NOT_CHANGE}: handoff to an offline machine is refused BEFORE anything is stopped or moved`, async () => {
-    const o = makeOracle({ offlineMachines: OFFLINE })
-    o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
+    const o = await makeOracle({ offlineMachines: OFFLINE })
+    await o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/x',
@@ -331,7 +331,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     handoff: () => Promise<unknown>
   }> {
     const target = asMachineId('loaded')
-    const o = makeOracle({
+    const o = await makeOracle({
       offlineMachines: [{ id: target, name: 'Loaded', agents: [TIMED_OUT_PROBE] }],
     })
     o.reg.gateway.attachDaemon(target, () => {})
@@ -351,7 +351,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
         tools: [],
       },
     })
-    o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
+    await o.store.repos.addRepo('/r', o.store.hostMachineId, 'git@github.com:example/r.git')
     const { sessionId } = await o.call.sessions.resume({
       agentKind: 'claude-code',
       cwd: '/r/.worktrees/x',

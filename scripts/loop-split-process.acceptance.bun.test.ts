@@ -1,14 +1,15 @@
-import { asThreadId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asThreadId } from '@podium/model'
 import { Hono } from 'hono'
 import { reviveCompatibilityBlockedJanitor } from '../apps/cli/src/podium-update'
 import { registerMaintenanceRoute } from '../apps/server/src/modules/maintenance/route'
 import { MaintenanceService } from '../apps/server/src/modules/maintenance/service'
-import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import type { MessageRow, SessionStore } from '../apps/server/src/store'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 import {
   MAINTENANCE_SCHEMA_VERSION,
   type MaintenanceCommand,
@@ -90,7 +91,7 @@ function makeRoot(prefix: string): string {
 
 function maintenanceHarness(dir: string, leaseTtlMs = 1_000) {
   const dbPath = join(dir, 'podium.db')
-  const store = new SessionStore(dbPath)
+  const store = openTestStore(dbPath)
   const service = new MaintenanceService(
     store,
     {

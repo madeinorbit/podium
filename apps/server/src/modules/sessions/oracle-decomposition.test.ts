@@ -74,8 +74,8 @@ function sessionStatePrincipal(agent: AgentCommandPrincipal): SessionStatePrinci
   }
 }
 
-function twoUserOracle() {
-  const o = makeOracle()
+async function twoUserOracle() {
+  const o = await makeOracle()
   seedUser(o.store, ALICE, 'Alice')
   seedUser(o.store, BOB, 'Bob')
   const alice = o.reg.modules.sessions.createSession({
@@ -104,10 +104,10 @@ function twoUserOracle() {
 }
 
 describe('oracle: two-user SessionService fixture', () => {
-  it(`${MUST_NOT_CHANGE}: contains two accounts, one session each, and one delegated agent principal per human`, () => {
-    const f = twoUserOracle()
-    expect(f.o.store.users.get(ALICE)).toMatchObject({ id: ALICE, displayName: 'Alice' })
-    expect(f.o.store.users.get(BOB)).toMatchObject({ id: BOB, displayName: 'Bob' })
+  it(`${MUST_NOT_CHANGE}: contains two accounts, one session each, and one delegated agent principal per human`, async () => {
+    const f = await twoUserOracle()
+    expect(await f.o.store.users.get(ALICE)).toMatchObject({ id: ALICE, displayName: 'Alice' })
+    expect(await f.o.store.users.get(BOB)).toMatchObject({ id: BOB, displayName: 'Bob' })
     expect(f.agents.alice).toMatchObject({
       agentSessionId: ALICE_SESSION,
       onBehalfOf: ALICE,
@@ -125,8 +125,8 @@ describe('oracle: two-user SessionService fixture', () => {
     ])
   })
 
-  it(`${MUST_NOT_CHANGE}: binding-owned sessions persist each human owner and remain private to the other viewer`, () => {
-    const f = twoUserOracle()
+  it(`${MUST_NOT_CHANGE}: binding-owned sessions persist each human owner and remain private to the other viewer`, async () => {
+    const f = await twoUserOracle()
     expect(f.o.reg.modules.sessions.sessionOwner(f.alice.sessionId)).toEqual({
       owner: ALICE,
       grants: [],
@@ -149,8 +149,8 @@ describe('oracle: two-user SessionService fixture', () => {
 })
 
 describe('oracle: durable per-user session state (not live co-presence)', () => {
-  it(`${MUST_NOT_CHANGE}: snooze, pins, and tab order are isolated for both users, and payload identity is inert`, () => {
-    const f = twoUserOracle()
+  it(`${MUST_NOT_CHANGE}: snooze, pins, and tab order are isolated for both users, and payload identity is inert`, async () => {
+    const f = await twoUserOracle()
     const alice = sessionStatePrincipal(f.agents.alice)
     const bob = sessionStatePrincipal(f.agents.bob)
     const aliceUntil = '2099-08-01T01:00:00.000Z'
@@ -183,46 +183,50 @@ describe('oracle: durable per-user session state (not live co-presence)', () => 
       { worktree: '/work', sessionIds: [f.bob.sessionId, f.alice.sessionId] },
       bob,
     )
-    expect(f.o.store.sessions.listSnoozes(ALICE)).toEqual({
+    expect(await f.o.store.sessions.listSnoozes(ALICE)).toEqual({
       [f.alice.sessionId]: aliceUntil,
     })
-    expect(f.o.store.sessions.listSnoozes(BOB)).toEqual({
+    expect(await f.o.store.sessions.listSnoozes(BOB)).toEqual({
       [f.alice.sessionId]: bobUntil,
     })
-    expect(f.o.store.sessions.listPins(ALICE).panels).toEqual([f.alice.sessionId])
-    expect(f.o.store.sessions.listPins(BOB).panels).toEqual([f.bob.sessionId])
-    expect(f.o.store.sessions.listTabOrders(ALICE)).toEqual({
+    expect((await f.o.store.sessions.listPins(ALICE)).panels).toEqual([f.alice.sessionId])
+    expect((await f.o.store.sessions.listPins(BOB)).panels).toEqual([f.bob.sessionId])
+    expect(await f.o.store.sessions.listTabOrders(ALICE)).toEqual({
       '/work': [f.alice.sessionId, f.bob.sessionId],
     })
-    expect(f.o.store.sessions.listTabOrders(BOB)).toEqual({
+    expect(await f.o.store.sessions.listTabOrders(BOB)).toEqual({
       '/work': [f.bob.sessionId, f.alice.sessionId],
     })
   })
 
-  it(`${MUST_NOT_CHANGE}: readAt is keyed by the on-behalf-of human and one viewer cannot clear another viewer's marker`, () => {
-    const f = twoUserOracle()
+  it(`${MUST_NOT_CHANGE}: readAt is keyed by the on-behalf-of human and one viewer cannot clear another viewer's marker`, async () => {
+    const f = await twoUserOracle()
     f.sessionState.execute(
       'sessions.markRead',
       { sessionId: f.alice.sessionId },
       sessionStatePrincipal(f.agents.alice),
     )
-    expect(f.o.store.sessions.listReadAt(ALICE)[f.alice.sessionId]).toEqual(expect.any(String))
-    expect(f.o.store.sessions.listReadAt(BOB)).toEqual({})
-    expect(f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
+    expect((await f.o.store.sessions.listReadAt(ALICE))[f.alice.sessionId]).toEqual(
+      expect.any(String),
+    )
+    expect(await f.o.store.sessions.listReadAt(BOB)).toEqual({})
+    expect(await f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
     f.sessionState.execute(
       'sessions.markUnread',
       { sessionId: f.alice.sessionId },
       sessionStatePrincipal(f.agents.bob),
     )
-    expect(f.o.store.sessions.listReadAt(ALICE)[f.alice.sessionId]).toEqual(expect.any(String))
-    expect(f.o.store.sessions.listReadAt(BOB)).toEqual({})
-    expect(f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
+    expect((await f.o.store.sessions.listReadAt(ALICE))[f.alice.sessionId]).toEqual(
+      expect.any(String),
+    )
+    expect(await f.o.store.sessions.listReadAt(BOB)).toEqual({})
+    expect(await f.o.store.sessions.listReadAt(FIRST_ADMIN_USER_ID)).toEqual({})
   })
 })
 
 describe('oracle: activity flush and cumulative compute', () => {
-  it(`${MUST_NOT_CHANGE}: frame activity writes once at flush, a clean flush writes nothing, and daemon counter resets accumulate`, () => {
-    const o = makeOracle()
+  it(`${MUST_NOT_CHANGE}: frame activity writes once at flush, a clean flush writes nothing, and daemon counter resets accumulate`, async () => {
+    const o = await makeOracle()
     const { sessionId } = o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/work',
@@ -248,7 +252,7 @@ describe('oracle: activity flush and cumulative compute', () => {
     o.reg.modules.sessions.flushActivity()
     expect(writes).toHaveBeenCalledTimes(1)
     expect(
-      o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.lastOutputAt,
+      (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.lastOutputAt,
     ).not.toBeNull()
     writes.mockClear()
     o.reg.modules.sessions.flushActivity()
@@ -274,7 +278,7 @@ describe('oracle: activity flush and cumulative compute', () => {
       })
     }
     expect(
-      o.store.sessions.loadSessions().find((row) => row.id === sessionId)?.workingMsTotal,
+      (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.workingMsTotal,
     ).toBe(7_000)
     expect(o.meta(sessionId).agentState?.workingMsTotal).toBe(7_000)
   })
@@ -287,8 +291,8 @@ describe('oracle: priority pushes', () => {
         message.type === 'sessionPriority',
     )
 
-  it(`${MUST_NOT_CHANGE}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, () => {
-    const o = makeOracle()
+  it(`${MUST_NOT_CHANGE}: focused is tier 0, visible is tier 1, unchanged view state sends no duplicate, and reconnect replays the map`, async () => {
+    const o = await makeOracle()
     const first = o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
       cwd: '/one',
@@ -327,9 +331,9 @@ describe('oracle: priority pushes', () => {
 })
 
 describe('oracle: queued sends re-authorize at drain', () => {
-  it(`${MUST_NOT_CHANGE}: a send accepted before revocation dead-letters at drain and never reaches the target PTY`, () => {
+  it(`${MUST_NOT_CHANGE}: a send accepted before revocation dead-letters at drain and never reaches the target PTY`, async () => {
     let revoked = false
-    const h = mailHarness({
+    const h = await mailHarness({
       authorizeAtApply: () =>
         revoked ? { ok: false, reason: 'sender no longer has access to the target' } : { ok: true },
     })
@@ -361,8 +365,8 @@ describe('oracle: queued sends re-authorize at drain', () => {
 })
 
 describe('oracle: native identity receipts', () => {
-  it(`${MUST_NOT_CHANGE}: an exact Codex identity is persisted before the owner-scoped ack, and a Bob binding receives Bob`, () => {
-    const f = twoUserOracle()
+  it(`${MUST_NOT_CHANGE}: an exact Codex identity is persisted before the owner-scoped ack, and a Bob binding receives Bob`, async () => {
+    const f = await twoUserOracle()
     f.o.daemon.length = 0
 
     f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
@@ -385,8 +389,8 @@ describe('oracle: native identity receipts', () => {
     })
   })
 
-  it(`${MUST_NOT_CHANGE}: two live exact claims remain visible, neither is redirected, and neither conflict is acked`, () => {
-    const f = twoUserOracle()
+  it(`${MUST_NOT_CHANGE}: two live exact claims remain visible, neither is redirected, and neither conflict is acked`, async () => {
+    const f = await twoUserOracle()
     const shared = { kind: 'codex-thread', value: 'thread-shared' } as const
 
     f.o.reg.gateway.routeDaemonFrame(f.o.reg.sessionStore.hostMachineId, {
@@ -437,8 +441,8 @@ describe('oracle: native identity receipts', () => {
 })
 
 describe('oracle: browser-open forwarding', () => {
-  it(`${MUST_NOT_CHANGE}: forwards an owning-daemon intent and stamps callback identity from the authenticated browser, never payload`, () => {
-    const o = makeOracle()
+  it(`${MUST_NOT_CHANGE}: forwards an owning-daemon intent and stamps callback identity from the authenticated browser, never payload`, async () => {
+    const o = await makeOracle()
     const { sessionId } = o.reg.modules.sessions.createSession({
       agentKind: 'codex',
       cwd: '/work',
@@ -505,7 +509,7 @@ describe('oracle: browser-open forwarding', () => {
 
 describe('oracle: spawn placement fails closed', () => {
   it(`${MUST_NOT_CHANGE}: denied and offline are distinct, neither spawns, and the same online machine succeeds when use is allowed`, async () => {
-    const o = makeOracle({
+    const o = await makeOracle({
       machineId: asMachineId('online'),
       offlineMachines: [
         { id: asMachineId('online'), name: 'Online' },

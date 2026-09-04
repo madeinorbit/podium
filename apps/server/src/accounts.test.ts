@@ -202,7 +202,7 @@ describe('accountViews', () => {
    *  'legacy' is what stops the UI offering a Disconnect the server cannot honour
    *  (the button reported ok:true, deleted nothing, and the row stayed connected —
    *  an unbreakable loop for anyone with a pre-hub API key). */
-  it('marks a legacy settings key as legacy, and a stored credential as stored', () => {
+  it('marks a legacy settings key as legacy, and a stored credential as stored', async () => {
     const legacy = accountViews(
       settings({ anthropic: 'sk-ant-abcdefgh1234' }),
       accounts,
@@ -211,7 +211,7 @@ describe('accountViews', () => {
     expect(legacy.status).toBe('connected')
     expect(legacy.credentialSource).toBe('legacy')
 
-    accounts.upsert({
+    await accounts.upsert({
       id: asAccountId('managed:anthropic'),
       provider: 'anthropic',
       kind: 'api-key',
@@ -238,8 +238,8 @@ describe('accountViews', () => {
 
   /** identity is a display mask, not the credential. A stored row with an empty one
    *  still injects a live key at spawn — status keys off the ROW, not the string. */
-  it('reports a stored row with an empty identity as connected, not not-configured', () => {
-    accounts.upsert({
+  it('reports a stored row with an empty identity as connected, not not-configured', async () => {
+    await accounts.upsert({
       id: asAccountId('managed:openai'),
       provider: 'openai',
       kind: 'api-key',
@@ -254,8 +254,8 @@ describe('accountViews', () => {
     expect(JSON.stringify(view)).not.toContain('sk-live-key')
   })
 
-  it('shows a connected managed account as connected, masked, and never leaks the secret', () => {
-    accounts.upsert({
+  it('shows a connected managed account as connected, masked, and never leaks the secret', async () => {
+    await accounts.upsert({
       id: asAccountId('managed:anthropic'),
       provider: 'anthropic',
       kind: 'api-key',
@@ -274,12 +274,12 @@ describe('accountViews', () => {
     expect(JSON.stringify(views)).not.toContain('sk-ant-supersecret')
   })
 
-  it('shows a stored Claude setup-token as its own connected oauth account', () => {
+  it('shows a stored Claude setup-token as its own connected oauth account', async () => {
     expect(
       accountViews(settings(), accounts, home).find((v) => v.id === 'managed:claude-oauth')!.status,
     ).toBe('not-configured')
 
-    accounts.upsert({
+    await accounts.upsert({
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
       kind: 'oauth',
@@ -297,8 +297,8 @@ describe('accountViews', () => {
     expect(JSON.stringify(views)).not.toContain('sk-ant-oat01-supersecret')
   })
 
-  it('prefers a stored credential over the legacy settings key', () => {
-    accounts.upsert({
+  it('prefers a stored credential over the legacy settings key', async () => {
+    await accounts.upsert({
       id: asAccountId('managed:openai'),
       provider: 'openai',
       kind: 'api-key',

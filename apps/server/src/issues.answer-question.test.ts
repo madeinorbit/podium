@@ -7,8 +7,8 @@ import type { IssueCommandDeps } from './modules/issues/command-ctx'
 import { IssueCommandDispatcher } from './modules/issues/dispatcher'
 import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { openTestStore } from './test-support/open-test-store'
 
 /**
  * issues.answerQuestion end-to-end over the command dispatcher (issue #53):
@@ -17,11 +17,11 @@ import { OPERATOR } from './test-support/capabilities'
  * delivery. Failure paths must leave the pending question untouched.
  */
 
-function harness(
+async function harness(
   answerSessionQuestion?: IssueCommandDeps['answerSessionQuestion'],
   opts: { actorSessionId?: SessionId } = {},
 ) {
-  const store = new SessionStore(':memory:')
+  const store = await openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
     listSessions: () => [],
@@ -89,7 +89,7 @@ function harness(
 describe('issues.answerQuestion (issue #53)', () => {
   it('delivers to the asking session, then clears needsHuman', async () => {
     const deliver = vi.fn(async () => ({ ok: true as const, via: 'text' as const }))
-    const { svc, call } = harness(deliver)
+    const { svc, call } = await harness(deliver)
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', {
       id: a.id,
@@ -114,7 +114,7 @@ describe('issues.answerQuestion (issue #53)', () => {
 
   it('keeps the pending question when delivery fails', async () => {
     const deliver = vi.fn(async () => ({ ok: false as const, message: 'unknown session' }))
-    const { svc, call } = harness(deliver)
+    const { svc, call } = await harness(deliver)
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_gone' })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(
@@ -127,7 +127,7 @@ describe('issues.answerQuestion (issue #53)', () => {
 
   it('refuses when no question is pending, and when the question is unattributed', async () => {
     const deliver = vi.fn(async () => ({ ok: true as const, via: 'text' as const }))
-    const { svc, call } = harness(deliver)
+    const { svc, call } = await harness(deliver)
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(
       /no pending question/,
@@ -142,7 +142,7 @@ describe('issues.answerQuestion (issue #53)', () => {
   })
 
   it('refuses cleanly when delivery is not wired (test/legacy deps)', async () => {
-    const { svc, call } = harness(undefined)
+    const { svc, call } = await harness(undefined)
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?', askedBy: 'sess_asker' })
     await expect(call('answerQuestion', { id: a.id, answer: 'Yes' })).rejects.toThrow(/not wired/)
@@ -150,7 +150,7 @@ describe('issues.answerQuestion (issue #53)', () => {
   })
 
   it('setNeedsHuman defaults askedBy to the calling session', async () => {
-    const { svc, call } = harness(undefined, { actorSessionId: asSessionId('sess_self') })
+    const { svc, call } = await harness(undefined, { actorSessionId: asSessionId('sess_self') })
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     await call('setNeedsHuman', { id: a.id, question: 'merge?' })
     expect(svc.get(a.id)!.humanQuestionAskedBy).toBe('sess_self')
@@ -162,7 +162,7 @@ describe('issues.answerQuestion (issue #53)', () => {
   })
 
   it('rejects a spoofed askedBy from a constrained agent (issue #53 review)', async () => {
-    const { svc, call } = harness(undefined)
+    const { svc, call } = await harness(undefined)
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const worker = {
       capability: {

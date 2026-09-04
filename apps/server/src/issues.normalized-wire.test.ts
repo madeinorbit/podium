@@ -9,9 +9,9 @@ import {
   resetIssueWireBuildCount,
 } from './modules/issues/instrumentation'
 import { SessionRegistry } from './relay'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
@@ -121,13 +121,13 @@ function issueRow(i: number): IssueRow {
 /** A session row that hydrates into a live `Session` object at boot WITHOUT a
  *  PTY — `loadFromStore` rebuilds hibernated rows, so `listSessions()` reaches a
  *  realistic scale for the price of an INSERT. */
-function seedSession(
+async function seedSession(
   store: SessionStore,
   i: number,
   issueId: string | null = `iss_${i % ISSUE_COUNT}`,
-): string {
+): Promise<string> {
   const id = `sess_${i}`
-  store.sessions.upsertSession({
+  await store.sessions.upsertSession({
     id: asSessionId(id),
     ownerUserId: FIRST_ADMIN_USER_ID,
     agentKind: 'shell',
@@ -156,11 +156,12 @@ function seedSession(
   return id
 }
 
-function world(opts: { issues?: number; sessions?: number } = {}) {
-  const store = new SessionStore(':memory:')
-  for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) store.issues.upsertIssue(issueRow(i))
+async function world(opts: { issues?: number; sessions?: number } = {}) {
+  const store = await openTestStore(':memory:')
+  for (let i = 0; i < (opts.issues ?? ISSUE_COUNT); i++) await store.issues.upsertIssue(issueRow(i))
   const sessionIds: string[] = []
-  for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++) sessionIds.push(seedSession(store, i))
+  for (let i = 0; i < (opts.sessions ?? SESSION_COUNT); i++)
+    sessionIds.push(await seedSession(store, i))
   const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
   registries.push(registry)
   return { store, registry, sessionIds }
@@ -256,8 +257,8 @@ describe('issueProjection emission is unconditional with transitional legacy res
       : (boot.kind === 'delta' ? boot.changes : []).filter((c) => c.entity === entity)
   }
 
-  it('issueProjection rows and session-free legacy issue rows are both appended', () => {
-    const { registry } = world({ issues: 3, sessions: 2 })
+  it('issueProjection rows and session-free legacy issue rows are both appended', async () => {
+    const { registry } = await world({ issues: 3, sessions: 2 })
     registry.modules.issues.update('iss_1', { title: 'edited' })
     registry.modules.sessions.flushBroadcasts()
 
@@ -279,9 +280,9 @@ describe('issueProjection emission is unconditional with transitional legacy res
     expect(value?.revision).toBe(2)
   })
 
-  it('cold snapshot includes all normalized issue collections for reload bootstrap', () => {
-    const { registry, store } = world({ issues: 2, sessions: 0 })
-    store.repos.addRepo('/repo', store.hostMachineId)
+  it('cold snapshot includes all normalized issue collections for reload bootstrap', async () => {
+    const { registry, store } = await world({ issues: 2, sessions: 0 })
+    await store.repos.addRepo('/repo', store.hostMachineId)
     registry.modules.issues.publishRepos()
     registry.modules.issues.addDep('iss_0', 'iss_1')
 
@@ -293,16 +294,18 @@ describe('issueProjection emission is unconditional with transitional legacy res
     expect(snapshot.repos).toHaveLength(1)
   })
 
-  it('boot totalizes legacy cwd membership into the normalized snapshot the replica indexes', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(issueRow(0))
-    const sessionId = seedSession(store, 0, null)
+  it('boot totalizes legacy cwd membership into the normalized snapshot the replica indexes', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(issueRow(0))
+    const sessionId = await seedSession(store, 0, null)
 
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.modules.sessions.flushBroadcasts()
 
-    expect(store.sessions.loadSessions().find((row) => row.id === sessionId)?.issueId).toBe('iss_0')
+    expect((await store.sessions.loadSessions()).find((row) => row.id === sessionId)?.issueId).toBe(
+      'iss_0',
+    )
     const snapshot = registry.modules.sessions.syncChangesSince(null)
     expect(snapshot.kind).toBe('snapshot')
     if (snapshot.kind !== 'snapshot') throw new Error('expected snapshot')
@@ -338,8 +341,8 @@ describe('issueProjection emission is unconditional with transitional legacy res
     ).toEqual([])
   })
 
-  it('comment add advances updatedAt on the normalized projection', () => {
-    const { registry } = world({ issues: 1, sessions: 0 })
+  it('comment add advances updatedAt on the normalized projection', async () => {
+    const { registry } = await world({ issues: 1, sessions: 0 })
     const before = registry.modules.issues.get('iss_0')?.updatedAt
 
     registry.modules.issues.addComment('iss_0', 'agent', 'projection revision premise', AS_OPERATOR)
@@ -356,8 +359,8 @@ describe('issueProjection emission is unconditional with transitional legacy res
 describe('D7.2: every session change performs zero issue membership scans [POD-797]', () => {
   it('workState change touches zero issue wire memberships', {
     timeout: SCALE_GUARD_TIMEOUT_MS,
-  }, () => {
-    const { registry, sessionIds } = world()
+  }, async () => {
+    const { registry, sessionIds } = await world()
     client(registry, undefined)
     const { scans } = issueWorkForOneFieldSessionChange(registry, sessionIds[0] as string)
     expect(scans).toBe(0)
@@ -365,8 +368,8 @@ describe('D7.2: every session change performs zero issue membership scans [POD-7
 })
 
 describe('current scoped attach paints session-free issue projections [POD-797]', () => {
-  it('paints current issue data without embedding sessions', () => {
-    const { registry } = world({ issues: 3, sessions: 2 })
+  it('paints current issue data without embedding sessions', async () => {
+    const { registry } = await world({ issues: 3, sessions: 2 })
     const inbox: ServerMessage[] = []
     const id = attachTestClient(registry.clientGateway, (message) => inbox.push(message))
     registry.clientGateway.routeClientFrame(id, {
@@ -392,8 +395,8 @@ describe('current scoped attach paints session-free issue projections [POD-797]'
 describe('normalized dep emission [POD-797]', () => {
   it('one dep write emits one edge and performs zero membership scans', {
     timeout: SCALE_GUARD_TIMEOUT_MS,
-  }, () => {
-    const { registry } = world()
+  }, async () => {
+    const { registry } = await world()
     registry.modules.sessions.flushBroadcasts()
     const before = registry.modules.sessions.syncChangesSince(0)
     const beforeCount =

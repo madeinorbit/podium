@@ -1,7 +1,7 @@
 import { asSessionId, asUserId, type UserId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
-import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { BLANK_TO_NULL_COLUMNS, normalizeBlankIssueText } from './blank-text'
 import { type IssueDeps, IssueService } from './service'
 import { issueTestPlumbing } from './service/test-plumbing'
@@ -11,8 +11,8 @@ import { issueTestPlumbing } from './service/test-plumbing'
  * text column. These assert the ONE spelling that survives a write, at the
  * `persistWith` choke point rather than at any single caller.
  */
-function harness() {
-  const store = new SessionStore(':memory:')
+async function harness() {
+  const store = await openTestStore(':memory:')
   const deps: IssueDeps = {
     store,
     listSessions: () => [],
@@ -35,33 +35,33 @@ function harness() {
 }
 
 describe('blank issue text normalizes to null', () => {
-  it('collapses an empty assignee written through update()', () => {
-    const { store, svc } = harness()
+  it('collapses an empty assignee written through update()', async () => {
+    const { store, svc } = await harness()
     const created = svc.create({ repoPath: '/repo', title: 'T', startNow: false })
     svc.update(created.id, { assignee: '' as UserId })
 
     // Read back through the STORE, not the wire: the wire's truthiness omission
     // renders both spellings identically, which is why this was invisible.
-    expect(store.issues.getIssue(created.id)?.assignee).toBeNull()
+    expect((await store.issues.getIssue(created.id))?.assignee).toBeNull()
   })
 
-  it('leaves a non-empty value and a legitimately empty description alone', () => {
-    const { store, svc } = harness()
+  it('leaves a non-empty value and a legitimately empty description alone', async () => {
+    const { store, svc } = await harness()
     const created = svc.create({ repoPath: '/repo', title: 'T', description: '', startNow: false })
     svc.update(created.id, { assignee: asUserId('user:sole') })
 
-    const row = store.issues.getIssue(created.id)
+    const row = await store.issues.getIssue(created.id)
     expect(row?.assignee).toBe('user:sole')
     // NOT NULL with a legitimate '' value — the rule is scoped to nullable text.
     expect(row?.description).toBe('')
   })
 
-  it('applies to the whole nullable-text class, not just the measured column', () => {
-    const { store, svc } = harness()
+  it('applies to the whole nullable-text class, not just the measured column', async () => {
+    const { store, svc } = await harness()
     const created = svc.create({ repoPath: '/repo', title: 'T', startNow: false })
     svc.update(created.id, { design: '', notes: '', branch: '', closedReason: '' })
 
-    const row = store.issues.getIssue(created.id)
+    const row = await store.issues.getIssue(created.id)
     expect(row?.design).toBeNull()
     expect(row?.notes).toBeNull()
     expect(row?.branch).toBeNull()

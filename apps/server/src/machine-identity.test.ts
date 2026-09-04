@@ -27,7 +27,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createMachineDirectory } from './gateway/machine-directory'
 import { SessionRegistry } from './relay'
 import { deriveRepoId } from './repo-id'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
 
@@ -49,9 +49,9 @@ const HOST = asMachineId('7a0f1b64-2c33-4a5d-9e10-0b1c2d3e4f50')
  * a repo and a conversation on the placeholder. Written with raw SQL because no
  * code in the tree can produce these values any more — which is the point.
  */
-function seedLegacyDb(path: string): void {
+async function seedLegacyDb(path: string): Promise<void> {
   // Let the migration chain build the schema, then close and write behind it.
-  new SessionStore(path, HOST).close()
+  ;(await openTestStore(path, HOST)).close()
   const db = openDatabase(path)
   db.exec(`
     DELETE FROM machines;
@@ -73,28 +73,28 @@ function seedLegacyDb(path: string): void {
 }
 
 describe('the boot refusal that replaced the one-time upgrade', () => {
-  it('refuses to open a pre-POD-318 database, naming every place a sentinel is stored', () => {
+  it('refuses to open a pre-POD-318 database, naming every place a sentinel is stored', async () => {
     // The rewrite that used to fold these rows onto the host id was deleted at
     // POD-3246: the sentinels stopped being written on 2026-08-02 and the first
     // release of any kind is v0.1.0-edge.1 on 2026-08-17, so no database a
     // shipped Podium has ever written can contain one. A database that does is
     // one the fleet cannot see, and the boot says so instead of serving it.
     const path = tmpDb()
-    seedLegacyDb(path)
+    await seedLegacyDb(path)
 
-    expect(() => new SessionStore(path, HOST)).toThrow(
+    expect(() => openTestStore(path, HOST)).toThrow(
       /retired machine sentinels.*machines\.id.*repos\.machine_id.*sessions\.machine_id/s,
     )
   })
 
-  it('finds a sentinel in a table no hand-written list would have named', () => {
+  it('finds a sentinel in a table no hand-written list would have named', async () => {
     // `issues.machine_id` is an issue's machine pin — ordinary user data that
     // could name the machine the UI called `local`, and the placeholder era did
     // ship a rewrite whose list was "sessions, repos, conversations". The scan
     // covers every machine column in the schema, which is what
     // `store/machines-sentinel-scan.test.ts` pins.
     const path = tmpDb()
-    new SessionStore(path, HOST).close()
+    ;(await openTestStore(path, HOST)).close()
     const db = openDatabase(path)
     db.exec(`
       INSERT INTO issues (id, repo_path, seq, title, stage, parent_branch, default_agent,
@@ -103,16 +103,16 @@ describe('the boot refusal that replaced the one-time upgrade', () => {
     `)
     db.close()
 
-    expect(() => new SessionStore(path, HOST)).toThrow(
+    expect(() => openTestStore(path, HOST)).toThrow(
       /retired machine sentinels.*issues\.machine_id/s,
     )
   })
 
-  it('says nothing on a database no sentinel was ever written to', () => {
-    const store = new SessionStore(':memory:', HOST)
-    expect(store.machines.legacyMachineSentinelSites()).toEqual([])
-    store.repos.addRepo('/w', HOST)
-    expect(store.machines.legacyMachineSentinelSites()).toEqual([])
+  it('says nothing on a database no sentinel was ever written to', async () => {
+    const store = await openTestStore(':memory:', HOST)
+    expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
+    await store.repos.addRepo('/w', HOST)
+    expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
     store.close()
   })
 })
@@ -153,26 +153,26 @@ describe('a database that already ran the retired upgrades', () => {
     return repoId
   }
 
-  it('opens in silence, and keeps every row the upgrades moved', () => {
+  it('opens in silence, and keeps every row the upgrades moved', async () => {
     const path = tmpDb()
-    seedLegacyDb(path)
+    await seedLegacyDb(path)
     const repoId = replayRetiredUpgrades(path)
 
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     try {
-      const store = new SessionStore(path, HOST)
+      const store = await openTestStore(path, HOST)
 
       // Nothing refused, and nothing warned either — a live install's boot log
       // does not gain a line because an upgrade was deleted underneath it.
       expect(warn).not.toHaveBeenCalled()
-      expect(store.machines.legacyMachineSentinelSites()).toEqual([])
+      expect(await store.machines.legacyMachineSentinelSites()).toEqual([])
 
       // And the rows are exactly where the upgrades put them.
-      expect(store.sessions.loadSessions().map((s) => s.machineId)).toEqual([HOST, HOST])
-      expect(store.repos.listRepos().map((r) => r.machineId)).toEqual([HOST])
-      expect(store.repos.listRepos()[0]?.repoId).toBe(repoId)
-      expect(store.repos.prefixForRepoId(repoId)).toBe('LEG')
-      const machines = store.machines.listMachines()
+      expect((await store.sessions.loadSessions()).map((s) => s.machineId)).toEqual([HOST, HOST])
+      expect((await store.repos.listRepos()).map((r) => r.machineId)).toEqual([HOST])
+      expect((await store.repos.listRepos())[0]?.repoId).toBe(repoId)
+      expect(await store.repos.prefixForRepoId(repoId)).toBe('LEG')
+      const machines = await store.machines.listMachines()
       expect(machines).toHaveLength(1)
       expect(machines[0]?.id).toBe(HOST)
       // The RENAME is why this survived: a fresh insert would have dropped the
@@ -184,42 +184,46 @@ describe('a database that already ran the retired upgrades', () => {
     }
   })
 
-  it('and the seed itself would have been refused — the assertion above is not vacuous', () => {
+  it('and the seed itself would have been refused — the assertion above is not vacuous', async () => {
     const path = tmpDb()
-    seedLegacyDb(path)
-    expect(() => new SessionStore(path, HOST)).toThrow(/retired machine sentinels/)
+    await seedLegacyDb(path)
+    expect(() => openTestStore(path, HOST)).toThrow(/retired machine sentinels/)
   })
 })
 
 describe('the split-mode local daemon authenticates as this host', () => {
-  const bootedRegistry = (secret: string) => {
-    const store = new SessionStore(':memory:', HOST)
+  const bootedRegistry = async (secret: string) => {
+    const store = await openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', secret)
     return registry
   }
 
-  it('the state-dir secret verifies against the state-dir id — one ordinary hello', () => {
-    const directory = createMachineDirectory(bootedRegistry('shared-secret').modules.machines)
+  it('the state-dir secret verifies against the state-dir id — one ordinary hello', async () => {
+    const directory = createMachineDirectory(
+      (await bootedRegistry('shared-secret')).modules.machines,
+    )
 
     const resolved = directory.verifyDaemonSecret('shared-secret', { hostname: 'this-host' })
 
     expect(resolved).toMatchObject({ machine: HOST, name: 'this-host' })
   })
 
-  it('a WRONG secret with the right id is refused', () => {
+  it('a WRONG secret with the right id is refused', async () => {
     // The counterfactual: the id is not the credential. Reading `machine.id` — a
     // 0600 file, but not a secret — must not be enough to become this host.
-    const directory = createMachineDirectory(bootedRegistry('shared-secret').modules.machines)
+    const directory = createMachineDirectory(
+      (await bootedRegistry('shared-secret')).modules.machines,
+    )
 
     expect(directory.verifyDaemonSecret('not-the-secret')).toBeNull()
   })
 
-  it('the directory names the host from the service, not from a constant', () => {
+  it('the directory names the host from the service, not from a constant', async () => {
     // Two servers, two state dirs, two ids — and each directory verifies against
     // its own. A hard-coded `'local'` could not tell them apart.
     const other = asMachineId('11112222-3333-4444-5555-666677778888')
-    const store = new SessionStore(':memory:', other)
+    const store = await openTestStore(':memory:', other)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('other-host', 'other-secret')
 
@@ -230,8 +234,8 @@ describe('the split-mode local daemon authenticates as this host', () => {
 })
 
 describe('composition threads deployment identity explicitly', () => {
-  it('derives fleet and durable-session namespaces from the constructor parameter', () => {
-    const store = new SessionStore(':memory:', HOST)
+  it('derives fleet and durable-session namespaces from the constructor parameter', async () => {
+    const store = await openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'blue' })
 
     expect(registry.modules.machines.instanceId).toBe('blue')
@@ -239,14 +243,14 @@ describe('composition threads deployment identity explicitly', () => {
       agentKind: 'shell',
       cwd: '/w',
     })
-    const session = store.sessions.getSession(sessionId)
+    const session = await store.sessions.getSession(sessionId)
     expect(session?.durableLabel).toBe('podium-blue-' + sessionId)
 
     const headless = registry.modules.sessions.headless.createHeadlessSession({
       agentKind: 'claude-code',
       cwd: '/w',
     })
-    expect(store.sessions.getSession(headless.sessionId)?.durableLabel).toBe(
+    expect((await store.sessions.getSession(headless.sessionId))?.durableLabel).toBe(
       'podium-blue-' + headless.sessionId,
     )
     registry.dispose()
@@ -255,8 +259,8 @@ describe('composition threads deployment identity explicitly', () => {
 })
 
 describe('rows are attributed from birth — there is no placeholder phase', () => {
-  it('a session created before any daemon connects already names the host', () => {
-    const store = new SessionStore(':memory:', HOST)
+  it('a session created before any daemon connects already names the host', async () => {
+    const store = await openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
@@ -268,12 +272,12 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     expect(
       registry.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.machineId,
     ).toBe(HOST)
-    expect(store.sessions.loadSessions()[0]?.machineId).toBe(HOST)
+    expect((await store.sessions.loadSessions())[0]?.machineId).toBe(HOST)
     store.close()
   })
 
-  it('defaultMachine answers with the host even when its daemon is offline', () => {
-    const store = new SessionStore(':memory:', HOST)
+  it('defaultMachine answers with the host even when its daemon is offline', async () => {
+    const store = await openTestStore(':memory:', HOST)
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registry.modules.machines.ensureHostMachine('this-host', 'secret')
 
@@ -285,10 +289,10 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     store.close()
   })
 
-  it('a durable session row cannot be written without a machine', () => {
+  it('a durable session row cannot be written without a machine', async () => {
     // R1's guarantee, at the layer that would have silently supplied `'__local__'`:
     // the column has no default any more, so the store must be told.
-    const store = new SessionStore(':memory:', HOST)
+    const store = await openTestStore(':memory:', HOST)
     const row = {
       id: asSessionId('s-no-machine'),
       ownerUserId: FIRST_ADMIN_USER_ID,

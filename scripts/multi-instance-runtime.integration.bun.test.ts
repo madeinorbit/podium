@@ -46,8 +46,8 @@ import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
-import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
+import { openTestStore } from '../apps/server/src/test-support/open-test-store'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -114,7 +114,7 @@ function makeSpec(id: InstanceSpec['id'], rootTag: string = id): InstanceSpec {
 function seedLegacyNamedState(spec: InstanceSpec): void {
   mkdirSync(spec.stateDir, { recursive: true })
   const path = join(spec.stateDir, 'podium.db')
-  new SessionStore(path, asMachineId('00000000-0000-4000-8000-000000000734')).close()
+  openTestStore(path, asMachineId('00000000-0000-4000-8000-000000000734')).close()
   const db = openDatabase(path)
   db.prepare('DELETE FROM machines').run()
   db.prepare(

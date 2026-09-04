@@ -8,9 +8,9 @@ import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
-import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
 import { forceFeature } from './test-support/features'
+import { openTestStore } from './test-support/open-test-store'
 
 // Omni-search reads the full-text index, and whether a boot HAS one is the
 // `command-palette` flag (PDM-25). These tests are about the indexed path, so
@@ -34,8 +34,8 @@ describe('MemoryService omni-search', () => {
   })
 
   /** A store + registry seeded with one hit per source for the word "capacitor". */
-  function seed() {
-    const store = new SessionStore(':memory:')
+  async function seed() {
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -117,8 +117,8 @@ describe('MemoryService omni-search', () => {
     return { store, registry, sessionId, issue, commentIssue }
   }
 
-  it('returns typed hits from every matching source in one call', () => {
-    const { store, registry, sessionId, issue, commentIssue } = seed()
+  it('returns typed hits from every matching source in one call', async () => {
+    const { store, registry, sessionId, issue, commentIssue } = await seed()
     const results = registry.modules.memory.search(READER, { text: 'capacitor' })
 
     const kinds = new Map(results.map((r) => [r.kind, r]))
@@ -141,8 +141,8 @@ describe('MemoryService omni-search', () => {
     for (const r of results) expect(shape.safeParse(r).success).toBe(true)
   })
 
-  it('ranks sanely: title-matching session/issue above the transcript hit', () => {
-    const { store, registry } = seed()
+  it('ranks sanely: title-matching session/issue above the transcript hit', async () => {
+    const { store, registry } = await seed()
     const results = registry.modules.memory.search(READER, { text: 'capacitor' })
     const rank = (kind: string) => results.findIndex((r) => r.kind === kind)
     expect(rank('session')).toBeGreaterThanOrEqual(0)
@@ -152,8 +152,8 @@ describe('MemoryService omni-search', () => {
     expect(titleIssue).toBeLessThan(rank('transcript'))
   })
 
-  it('transcript hits carry an FTS snippet with match markers and registry refs', () => {
-    const { store, registry } = seed()
+  it('transcript hits carry an FTS snippet with match markers and registry refs', async () => {
+    const { store, registry } = await seed()
     const hit = registry.modules.memory
       .search(READER, { text: 'capacitor' })
       .find((r) => r.kind === 'transcript')
@@ -162,33 +162,33 @@ describe('MemoryService omni-search', () => {
     expect(hit?.podiumId).toMatch(/^conv_/)
   })
 
-  it('resolves a live sessionId on a transcript hit when a session resumes that native id', () => {
-    const { registry, sessionId } = seed()
+  it('resolves a live sessionId on a transcript hit when a session resumes that native id', async () => {
+    const { registry, sessionId } = await seed()
     const hit = registry.modules.memory
       .search(READER, { text: 'engine.ts' })
       .find((r) => r.kind === 'transcript')
     expect(hit?.sessionId).toBe(sessionId)
   })
 
-  it('matches the settings catalog by label', () => {
-    const { store, registry } = seed()
+  it('matches the settings catalog by label', async () => {
+    const { store, registry } = await seed()
     const results = registry.modules.memory.search(READER, { text: 'notifications' })
     const setting = results.find((r) => r.kind === 'setting')
     expect(setting?.settingKey).toBe('notifications')
     expect(setting?.title).toBe('Settings › Notifications')
   })
 
-  it('respects the limit across the fused list', () => {
-    const { store, registry } = seed()
+  it('respects the limit across the fused list', async () => {
+    const { store, registry } = await seed()
     const results = registry.modules.memory.search(READER, { text: 'capacitor', limit: 2 })
     expect(results.length).toBe(2)
     // The limit trims the tail, not the head: the best hits survive.
     expect(results[0]?.score).toBeGreaterThanOrEqual(results[1]?.score ?? 0)
   })
-  it('uses one live-session snapshot and request-local visibility memos', () => {
-    const { store, registry } = seed()
-    const liveRows = store.sessions.loadSessions()
-    const issueRows = store.issues.listIssueRows()
+  it('uses one live-session snapshot and request-local visibility memos', async () => {
+    const { store, registry } = await seed()
+    const liveRows = await store.sessions.loadSessions()
+    const issueRows = await store.issues.listIssueRows()
     const expectedIssueIds = new Set(
       issueRows
         .filter((row) => !row.deletedAt)
@@ -243,8 +243,8 @@ describe('MemoryService omni-search', () => {
     expect(grantLookups).toBe(expectedGrantResources.size)
   })
 
-  it('batches issue ownership and grant reads for the native conversation list', () => {
-    const store = new SessionStore(':memory:')
+  it('batches issue ownership and grant reads for the native conversation list', async () => {
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -260,7 +260,7 @@ describe('MemoryService omni-search', () => {
         ownerUserId: issueOwner,
       })
       issueIds.push(issue.id)
-      store.grants.upsert({
+      await store.grants.upsert({
         resourceKind: 'issue',
         resourceId: issue.id,
         grantee: READER.id,
@@ -341,8 +341,8 @@ describe('MemoryService omni-search', () => {
     expect(new Set(batchGrantReads[0])).toEqual(new Set(issueIds))
   })
 
-  it('returns nothing for blank text (the router schema rejects it upstream too)', () => {
-    const { store, registry } = seed()
+  it('returns nothing for blank text (the router schema rejects it upstream too)', async () => {
+    const { store, registry } = await seed()
     expect(registry.modules.memory.search(READER, { text: '   ' })).toEqual([])
   })
 })
@@ -353,8 +353,8 @@ describe('search.query tRPC', () => {
     for (const r of registries.splice(0)) r.dispose()
   })
 
-  it('excludes every private memory source owned by another user', () => {
-    const store = new SessionStore(':memory:')
+  it('excludes every private memory source owned by another user', async () => {
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -396,22 +396,22 @@ describe('search.query tRPC', () => {
       description: 'private issue body',
       startNow: false,
     })
-    const issueRow = store.issues.getIssue(issue.id)
+    const issueRow = await store.issues.getIssue(issue.id)
     if (!issueRow) throw new Error('issue seed missing')
-    store.issues.upsertIssue({
+    await store.issues.upsertIssue({
       ...issueRow,
       id: asIssueId('iss_bob_private'),
       seq: issueRow.seq + 1,
       ownerUserId: bob,
       title: 'classifiedneedle issue',
     })
-    store.superagent.upsertSuperagentThread({
+    await store.superagent.upsertSuperagentThread({
       id: 'private-thread',
       ownerUserId: bob,
       kind: 'btw',
       title: 'classifiedneedle superagent',
     })
-    store.superagent.appendSuperagentMessage(asThreadId('private-thread'), {
+    await store.superagent.appendSuperagentMessage(asThreadId('private-thread'), {
       role: 'assistant',
       content: 'classifiedneedle private thread body',
     })
@@ -427,8 +427,8 @@ describe('search.query tRPC', () => {
     expect(bobHits.some((hit) => hit.id === 'superagent:private-thread')).toBe(true)
   })
 
-  it('filters hidden transcript ranks before normalizing visible results', () => {
-    const store = new SessionStore(':memory:')
+  it('filters hidden transcript ranks before normalizing visible results', async () => {
+    const store = await openTestStore(':memory:')
     const registry = SessionRegistry.create(store, undefined, { instanceId: 'default' })
     registries.push(registry)
     registry.gateway.attachDaemon('m1', () => {})
@@ -479,8 +479,8 @@ describe('search.query tRPC', () => {
     expect(after?.score).toBe(before?.score)
   })
 
-  it('defaults unknown memory classes closed and counts to the visible slice', () => {
-    const store = new SessionStore(':memory:')
+  it('defaults unknown memory classes closed and counts to the visible slice', async () => {
+    const store = await openTestStore(':memory:')
     expect(new MemoryVisibilityPolicy(store).mayRead(READER, { class: 'future-kind' })).toBe(false)
     expect(MEMORY_EXISTENCE_POLICY).toEqual({ counts: 'visible-slice', facets: 'visible-slice' })
     store.close()

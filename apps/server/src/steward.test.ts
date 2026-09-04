@@ -1,7 +1,7 @@
 import {
-  asThreadId,
   asIssueId,
   asSessionId,
+  asThreadId,
   type SessionMeta,
   type SessionMetaInput,
 } from '@podium/model'
@@ -12,26 +12,29 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import {
   isAcceptedLiveTerminalEvent,
-  type StewardDeps,
   JANITOR_STEWARD_EVENT_LIMIT,
+  type StewardDeps,
   StewardService,
   subscriptionEventKinds,
   TRIGGER_RULES,
 } from './steward'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
 import { NotificationArbiter } from './store/notification-facts'
 import { captureLogs } from './test-support/capture-logs'
+import { openTestStore } from './test-support/open-test-store'
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */
 const AS_OPERATOR = userCommandPrincipal(FIRST_ADMIN_USER_ID, 'admin')
 
-function harness(opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {}) {
-  const store = new SessionStore(':memory:')
+async function harness(
+  opts: { enabled?: boolean; sessions?: SessionMeta[]; seedCursor?: boolean } = {},
+) {
+  const store = await openTestStore(':memory:')
   // Most tests want the events they emit consumed — pin the cursor to the log
   // start, as if the steward had been enabled since boot. First-enable seeding
   // tests pass seedCursor: false to exercise the absent-row path.
-  if (opts.seedCursor !== false) store.events.setStewardState('cursor', '0')
+  if (opts.seedCursor !== false) await store.events.setStewardState('cursor', '0')
   const sessions = opts.sessions ?? []
   const settings = normalizeSettings({
     steward: { enabled: opts.enabled ?? true },
@@ -100,14 +103,14 @@ const stewardComments = (issues: IssueService, id: string) =>
  *  real wall clock, which always lands after the harness's simulated
  *  2026-07-02 event clock, so it satisfies the "since the change" window
  *  without threading the exact event timestamp through every test. */
-function seedTold(
+async function seedTold(
   store: SessionStore,
   fromIssue: string,
   to: { kind: 'session' | 'issue'; id: string },
   opts: { createdAt?: string; id?: string } = {},
 ) {
   const id = opts.id ?? `msg_${to.kind}_${to.id}`
-  store.messages.addMessage({
+  await store.messages.addMessage({
     id,
     threadId: asThreadId(id),
     inReplyTo: null,
@@ -230,8 +233,8 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't1',
       kind: 'session.phase',
       subject: 'child',
@@ -239,7 +242,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     })
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
       subject: 'child',
@@ -247,7 +250,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     })
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't3',
       kind: 'session.phase',
       subject: 'child',
@@ -271,7 +274,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
     const closure = {
       ...accepted,
       transitionId: 'child-close-1',
@@ -286,7 +289,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
       }),
     ).toBe(false)
 
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't1',
       kind: 'session.phase',
       subject: 'child',
@@ -295,7 +298,7 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
       subject: 'child',
@@ -308,16 +311,21 @@ describe('Steward causal terminal gate [spec:SP-cdb2]', () => {
 
 describe('StewardService cursor', () => {
   it('consumes events exactly once and persists the cursor across re-instantiation', async () => {
-    const { store, deps, steward } = harness()
-    store.events.appendEvent({ ts: 't', kind: 'issue.created', subject: 'iss_a', repoPath: '/r' })
-    const id2 = store.events.appendEvent({
+    const { store, deps, steward } = await harness()
+    await store.events.appendEvent({
+      ts: 't',
+      kind: 'issue.created',
+      subject: 'iss_a',
+      repoPath: '/r',
+    })
+    const id2 = await store.events.appendEvent({
       ts: 't',
       kind: 'issue.created',
       subject: 'iss_b',
       repoPath: '/r',
     })
     await steward.tick()
-    expect(store.events.getStewardState('cursor')).toBe(String(id2))
+    expect(await store.events.getStewardState('cursor')).toBe(String(id2))
     // Crash-resume: a fresh instance over the same store starts past the batch.
     const reborn = new StewardService(deps)
     const listSpy = vi.spyOn(store.events, 'listEventsSince')
@@ -326,7 +334,7 @@ describe('StewardService cursor', () => {
   })
 
   it('does not advance the cursor past a batch until its handlers ran', async () => {
-    const { store, issues, steward } = harness()
+    const { store, issues, steward } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
@@ -341,51 +349,51 @@ describe('StewardService cursor', () => {
     )
     await steward.tick()
     expect(cursorDuringHandler).toBe('0') // still pre-batch while handling
-    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(Number(await store.events.getStewardState('cursor'))).toBeGreaterThan(0)
   })
 
   it('first enable seeds the cursor to the log head — dark-run history never replays', async () => {
-    const { store, issues, steward, sendTextWhenReady } = harness({ seedCursor: false })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ seedCursor: false })
     // Events accumulated while the steward ran dark (no cursor row yet).
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
-    const max = store.events.maxEventId()
+    const max = await store.events.maxEventId()
     expect(max).toBeGreaterThan(0)
     await steward.tick()
-    expect(store.events.getStewardState('cursor')).toBe(String(max))
+    expect(await store.events.getStewardState('cursor')).toBe(String(max))
     expect(stewardComments(issues, b.id)).toEqual([])
     expect(sendTextWhenReady).not.toHaveBeenCalled()
   })
 
   it('first janitor ownership skips the source topology dark-run history once', async () => {
-    const { store, issues, steward, sendTextWhenReady } = harness()
+    const { store, issues, steward, sendTextWhenReady } = await harness()
     const blocker = issues.create({ repoPath: '/r', title: 'Blocker', startNow: false })
     const dependent = issues.create({ repoPath: '/r', title: 'Dependent', startNow: false })
     issues.addDep(dependent.id, blocker.id, 'blocks')
     issues.close(blocker.id)
-    const darkHead = store.events.maxEventId()
+    const darkHead = await store.events.maxEventId()
 
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
 
-    expect(store.events.getStewardState('cursor')).toBe(String(darkHead))
-    expect(store.events.getStewardState('janitor-ownership-v1')).toBe(String(darkHead))
+    expect(await store.events.getStewardState('cursor')).toBe(String(darkHead))
+    expect(await store.events.getStewardState('janitor-ownership-v1')).toBe(String(darkHead))
     expect(stewardComments(issues, dependent.id)).toEqual([])
     expect(sendTextWhenReady).not.toHaveBeenCalled()
 
-    const liveEvent = store.events.appendEvent({
+    const liveEvent = await store.events.appendEvent({
       ts: 't',
       kind: 'issue.created',
       subject: 'iss_live',
       repoPath: '/r',
     })
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
-    expect(store.events.getStewardState('cursor')).toBe(String(liveEvent))
+    expect(await store.events.getStewardState('cursor')).toBe(String(liveEvent))
   })
 
   it('bounds later janitor catch-up without changing ordinary steward polls', async () => {
-    const { store, steward } = harness()
+    const { store, steward } = await harness()
     // Establish ownership at an empty head, then create a genuine post-activation
     // backlog. The first bounded pass must not consume beyond its budget.
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
@@ -402,16 +410,16 @@ describe('StewardService cursor', () => {
     await steward.tick({ owner: 'janitor', limit: JANITOR_STEWARD_EVENT_LIMIT })
 
     expect(listSpy).toHaveBeenLastCalledWith(0, { limit: JANITOR_STEWARD_EVENT_LIMIT })
-    expect(store.events.getStewardState('cursor')).toBe(
+    expect(await store.events.getStewardState('cursor')).toBe(
       String(ids[JANITOR_STEWARD_EVENT_LIMIT - 1]),
     )
     await steward.tick()
-    expect(store.events.getStewardState('cursor')).toBe(String(ids.at(-1)))
+    expect(await store.events.getStewardState('cursor')).toBe(String(ids.at(-1)))
   })
 
   it('a corrupt cursor re-seeds to the log head instead of wedging', async () => {
-    const { store, issues, steward } = harness()
-    store.events.setStewardState('cursor', 'garbage')
+    const { store, issues, steward } = await harness()
+    await store.events.setStewardState('cursor', 'garbage')
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const logs = captureLogs()
     await expect(steward.tick()).resolves.toBeUndefined()
@@ -421,18 +429,20 @@ describe('StewardService cursor', () => {
         msg: expect.stringContaining('corrupt cursor'),
       }),
     )
-    expect(store.events.getStewardState('cursor')).toBe(String(store.events.maxEventId()))
+    expect(await store.events.getStewardState('cursor')).toBe(
+      String(await store.events.maxEventId()),
+    )
     logs.restore()
     // Recovered: the next event past the re-seed is consumed normally.
     issues.setNeedsHuman(a.id, 'q')
     await steward.tick()
-    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['steward.observed'] })).length).toBe(1)
   })
 })
 
 describe('StewardService unblock handler', () => {
   it('posting the unblock comment carries the closed issue completion note', async () => {
-    const { issues, steward } = harness()
+    const { issues, steward } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
@@ -447,7 +457,7 @@ describe('StewardService unblock handler', () => {
 
   it('replayed events do not duplicate the comment or nudge (reset-cursor idempotence)', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('s1'), cwd: '/r/.worktrees/issue-2-b' })]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
@@ -457,7 +467,7 @@ describe('StewardService unblock handler', () => {
     expect(stewardComments(issues, b.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
     // Crash-replay: rewind the cursor so the SAME events are read again.
-    store.events.setStewardState('cursor', '0')
+    await store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(stewardComments(issues, b.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
@@ -465,7 +475,7 @@ describe('StewardService unblock handler', () => {
 
   it('retries a missing nudge after the comment was durably written', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('s1'), cwd: '/r/.worktrees/issue-2-b' })]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
@@ -479,17 +489,17 @@ describe('StewardService unblock handler', () => {
     await steward.tick()
     expect(stewardComments(issues, b.id)).toHaveLength(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    expect(store.events.getStewardState('cursor')).toBe('0')
+    expect(await store.events.getStewardState('cursor')).toBe('0')
 
     await steward.tick()
     expect(stewardComments(issues, b.id)).toHaveLength(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(2)
-    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(Number(await store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     logs.restore()
   })
 
   it('dedup is colon-anchored: a prior #<seq><digit> comment does not swallow #<seq>', async () => {
-    const { issues, steward } = harness()
+    const { issues, steward } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false }) // seq 1
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     // A steward comment for a DIFFERENT closer whose seq starts with a's seq
@@ -505,7 +515,7 @@ describe('StewardService unblock handler', () => {
   })
 
   it('falls back to the closed issue title when it has no completion note', async () => {
-    const { issues, steward } = harness()
+    const { issues, steward } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'Fix the flux capacitor', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
@@ -538,7 +548,7 @@ describe('StewardService unblock handler', () => {
       fakeSession({ sessionId: asSessionId('live1'), cwd: '/r/.worktrees/issue-2-b' }),
       fakeSession({ sessionId: asSessionId('elsewhere'), cwd: '/other' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
@@ -567,7 +577,7 @@ describe('StewardService unblock handler', () => {
         status: 'starting',
       }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const blocker = issues.create({ repoPath: '/r', title: 'Blocker', startNow: false })
     const dependent = issues.create({ repoPath: '/r', title: 'Dependent', startNow: false })
     issues.update(dependent.id, { worktreePath: '/r/.worktrees/issue-2-b' })
@@ -581,7 +591,7 @@ describe('StewardService unblock handler', () => {
   })
 
   it('no live session → no nudge, but the comment still lands', async () => {
-    const { issues, steward, sendTextWhenReady } = harness()
+    const { issues, steward, sendTextWhenReady } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
@@ -597,7 +607,7 @@ describe('StewardService unblock handler', () => {
       fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/issue-2-b' }),
       fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-2-b' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
@@ -615,13 +625,13 @@ describe('StewardService unblock handler', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-2-b' }),
     ]
-    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady, store } = await harness({ sessions })
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
     issues.addDep(b.id, a.id, 'blocks')
     // A's agent already told the dependent session directly, ahead of closing.
-    seedTold(store, a.id, { kind: 'session', id: 'other' })
+    await seedTold(store, a.id, { kind: 'session', id: 'other' })
     issues.close(a.id)
     await steward.tick()
     // The audit-trail comment still lands — only the redundant nudge is cut.
@@ -635,7 +645,7 @@ describe('StewardService parent-nudge handler', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false }) // seq 1
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -676,7 +686,7 @@ describe('StewardService parent-nudge handler', () => {
         cwd: '/r/.worktrees/issue-1-epic',
       }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     issues.setCoordinator(parent.id, asSessionId('coordinator'))
@@ -697,7 +707,7 @@ describe('StewardService parent-nudge handler', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady, store } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -708,7 +718,7 @@ describe('StewardService parent-nudge handler', () => {
     })
     issues.create({ repoPath: '/r', title: 'Child 2', parentId: parent.id, startNow: false })
     // The child already told the parent's live session directly.
-    seedTold(store, c1.id, { kind: 'session', id: 'plive' })
+    await seedTold(store, c1.id, { kind: 'session', id: 'plive' })
     issues.close(c1.id)
     await steward.tick()
     // The audit-trail comment still lands — only the redundant nudge is cut.
@@ -720,7 +730,7 @@ describe('StewardService parent-nudge handler', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -754,7 +764,7 @@ describe('StewardService parent-nudge handler', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -767,14 +777,14 @@ describe('StewardService parent-nudge handler', () => {
     await steward.tick()
     expect(stewardComments(issues, parent.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    store.events.setStewardState('cursor', '0')
+    await store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(stewardComments(issues, parent.id).length).toBe(1)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
 
   it('closing an issue without a parentId produces no parent-nudge activity', async () => {
-    const { issues, steward, sendTextWhenReady } = harness()
+    const { issues, steward, sendTextWhenReady } = await harness()
     const solo = issues.create({ repoPath: '/r', title: 'Solo', startNow: false })
     issues.close(solo.id)
     await steward.tick()
@@ -791,7 +801,7 @@ describe('StewardService parent-nudge handler', () => {
       fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/issue-1-epic' }),
       fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -823,7 +833,7 @@ describe('StewardService parent-nudge handler', () => {
         agentKind: 'shell',
       }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -839,7 +849,7 @@ describe('StewardService parent-nudge handler', () => {
   })
 
   it('note excerpt is first-line-only and capped at 200 chars', async () => {
-    const { issues, steward } = harness()
+    const { issues, steward } = await harness()
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     const c1 = issues.create({
       repoPath: '/r',
@@ -866,7 +876,7 @@ describe('StewardService child→review parent nudge', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -894,7 +904,7 @@ describe('StewardService child→review parent nudge', () => {
       fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/issue-1-epic' }),
       fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -916,7 +926,7 @@ describe('StewardService child→needs_human parent nudge', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -933,28 +943,28 @@ describe('StewardService child→needs_human parent nudge', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
     expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('needs a human')
     // Breadcrumb still recorded (unchanged from before).
-    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['steward.observed'] })).length).toBe(1)
   })
 })
 
 describe('StewardService needs-human handler', () => {
   it('P1: leaves only a steward.observed breadcrumb', async () => {
-    const { store, issues, steward } = harness()
+    const { store, issues, steward } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     issues.setNeedsHuman(a.id, 'which key?')
     await steward.tick()
-    const crumbs = store.events.listEventsSince(0, { kinds: ['steward.observed'] })
+    const crumbs = await store.events.listEventsSince(0, { kinds: ['steward.observed'] })
     expect(crumbs.length).toBe(1)
     expect(crumbs[0]).toMatchObject({ subject: a.id, payload: { kind: 'issue.needs_human' } })
     // The breadcrumb itself is unmatched — the next tick consumes it silently.
     await steward.tick()
-    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['steward.observed'] })).length).toBe(1)
   })
 })
 
 describe('StewardService gating and resilience', () => {
   it('disabled → tick consumes nothing, not even the cursor seed', async () => {
-    const { store, issues, steward, sendTextWhenReady } = harness({
+    const { store, issues, steward, sendTextWhenReady } = await harness({
       enabled: false,
       seedCursor: false,
     })
@@ -963,13 +973,13 @@ describe('StewardService gating and resilience', () => {
     issues.addDep(b.id, a.id, 'blocks')
     issues.close(a.id)
     await steward.tick()
-    expect(store.events.getStewardState('cursor')).toBeUndefined()
+    expect(await store.events.getStewardState('cursor')).toBeUndefined()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     expect(stewardComments(issues, b.id)).toEqual([])
   })
 
   it('a throwing durable handler holds the cursor and succeeds on replay', async () => {
-    const { store, issues, steward } = harness()
+    const { store, issues, steward } = await harness()
     const a = issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = issues.create({ repoPath: '/r', title: 'B', startNow: false })
     issues.addDep(b.id, a.id, 'blocks')
@@ -979,7 +989,7 @@ describe('StewardService gating and resilience', () => {
     })
     const logs = captureLogs()
     await expect(steward.tick()).resolves.toBeUndefined()
-    expect(store.events.getStewardState('cursor')).toBe('0')
+    expect(await store.events.getStewardState('cursor')).toBe('0')
     expect(logs.at('warn')).toContainEqual(
       expect.objectContaining({
         ns: 'server:steward',
@@ -988,7 +998,7 @@ describe('StewardService gating and resilience', () => {
     )
     addComment.mockRestore()
     await steward.tick()
-    expect(Number(store.events.getStewardState('cursor'))).toBeGreaterThan(0)
+    expect(Number(await store.events.getStewardState('cursor'))).toBeGreaterThan(0)
     logs.restore()
   })
 })
@@ -1013,11 +1023,13 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it('an issue-event subscription fires once and dedups on cursor-rewind replay', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
+    await store.events.addSubscription(
+      seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }),
+    )
     issues.close(x.id)
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
@@ -1026,7 +1038,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     expect(text).not.toContain('`')
     expect(text).not.toContain('\n')
     // Crash-replay: the same close event is re-read but never re-delivered.
-    store.events.setStewardState('cursor', '0')
+    await store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
@@ -1036,12 +1048,12 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('worker'), cwd: '/r/.worktrees/p' }),
       fakeSession({ sessionId: asSessionId('coordinator'), cwd: '/r/.worktrees/p' }),
     ]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const subscriber = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(subscriber.id, { worktreePath: '/r/.worktrees/p' })
     issues.setCoordinator(subscriber.id, asSessionId('coordinator'))
     const source = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(
+    await store.events.addSubscription(
       seedSub({
         id: 'sub_coord',
         subscriberId: subscriber.id,
@@ -1057,13 +1069,15 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it('already-communicated (§07b, POD-913): suppresses a subscription nudge when the source issue already messaged the subscriber directly', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }))
+    await store.events.addSubscription(
+      seedSub({ id: 'sub_1', subscriberId: p.id, sourceRef: x.id }),
+    )
     // x already told the watcher's live session directly.
-    seedTold(store, x.id, { kind: 'session', id: 'psess' })
+    await seedTold(store, x.id, { kind: 'session', id: 'psess' })
     issues.close(x.id)
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
@@ -1074,8 +1088,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('watcher'), cwd: '/w' }),
       fakeSession({ sessionId: asSessionId('worker'), cwd: '/x' }),
     ]
-    const { store, steward, sendTextWhenReady } = harness({ sessions })
-    store.events.addSubscription(
+    const { store, steward, sendTextWhenReady } = await harness({ sessions })
+    await store.events.addSubscription(
       seedSub({
         id: 'sub_exit',
         subscriberKind: 'session',
@@ -1085,7 +1099,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
         sourceRef: 'worker',
       }),
     )
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.exited',
       subject: 'worker',
@@ -1103,8 +1117,8 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('watcher'), cwd: '/w' }),
       fakeSession({ sessionId: asSessionId('worker'), cwd: '/x' }),
     ]
-    const { store, steward, sendTextWhenReady } = harness({ sessions })
-    store.events.addSubscription(
+    const { store, steward, sendTextWhenReady } = await harness({ sessions })
+    await store.events.addSubscription(
       seedSub({
         id: 'sub_s',
         subscriberKind: 'session',
@@ -1115,13 +1129,13 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       }),
     )
     // Non-finished phases are ignored; only idle+done derives session.finished.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'worker',
       payload: { phase: 'active' },
     })
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'worker',
@@ -1134,7 +1148,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it("resolves a 'my-children' relationship source for a child session.finished", async () => {
     const sessions: SessionMeta[] = []
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const epic = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(epic.id, { worktreePath: '/r/.worktrees/epic' })
     const child = issues.create({
@@ -1151,7 +1165,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('kid'), cwd: '/k', issueId: child.id }),
       fakeSession({ sessionId: asSessionId('stranger'), cwd: '/s', issueId: outsider.id }),
     )
-    store.events.addSubscription(
+    await store.events.addSubscription(
       seedSub({
         id: 'sub_rel',
         subscriberId: epic.id,
@@ -1161,7 +1175,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       }),
     )
     // A non-child session finishing does NOT deliver.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'stranger',
@@ -1170,7 +1184,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     // The child session finishing DOES — its bound issue's parent is the subscriber.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'kid',
@@ -1183,11 +1197,11 @@ describe('StewardService stored subscriptions (Phase B)', () => {
 
   it('a disabled subscription is silent', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(
+    await store.events.addSubscription(
       seedSub({ id: 'sub_off', subscriberId: p.id, sourceRef: x.id, enabled: false }),
     )
     issues.close(x.id)
@@ -1200,12 +1214,14 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       fakeSession({ sessionId: asSessionId('causer'), cwd: '/r/.worktrees/p' }),
       fakeSession({ sessionId: asSessionId('other'), cwd: '/r/.worktrees/p' }),
     ]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     issues.setCoordinator(p.id, asSessionId('causer'))
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }))
+    await store.events.addSubscription(
+      seedSub({ id: 'sub_c', subscriberId: p.id, sourceRef: x.id }),
+    )
     issues.close(x.id, 'done', { actorSessionId: asSessionId('causer') })
     await steward.tick()
     const targets = sendTextWhenReady.mock.calls.map((c) => (c as [string, string])[0])
@@ -1213,10 +1229,10 @@ describe('StewardService stored subscriptions (Phase B)', () => {
   })
 
   it('deliverNotify appends a steward.notify breadcrumb AND pushes externally (#470)', async () => {
-    const { store, issues, steward, sendTextWhenReady, notify } = harness()
+    const { store, issues, steward, sendTextWhenReady, notify } = await harness()
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(
+    await store.events.addSubscription(
       seedSub({
         id: 'sub_n',
         subscriberId: p.id,
@@ -1229,7 +1245,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     await steward.tick()
     expect(sendTextWhenReady).not.toHaveBeenCalled()
     // The breadcrumb stays — it is the durable audit record the dedup is keyed on.
-    const crumbs = store.events.listEventsSince(0, { kinds: ['steward.notify'] })
+    const crumbs = await store.events.listEventsSince(0, { kinds: ['steward.notify'] })
     expect(crumbs.length).toBe(1)
     expect(crumbs[0]).toMatchObject({
       subject: p.id,
@@ -1243,32 +1259,34 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       body: expect.stringContaining(x.id),
     })
     // Replay-safe with the breadcrumb: a cursor rewind re-matches but never re-pushes.
-    store.events.setStewardState('cursor', '0')
+    await store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(notify).toHaveBeenCalledTimes(1)
   })
 
   it('a notify:false subscription never pushes', async () => {
     const sessions = [fakeSession({ sessionId: asSessionId('psess'), cwd: '/r/.worktrees/p' })]
-    const { store, issues, steward, notify } = harness({ sessions })
+    const { store, issues, steward, notify } = await harness({ sessions })
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     issues.update(p.id, { worktreePath: '/r/.worktrees/p' })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(seedSub({ id: 'sub_q', subscriberId: p.id, sourceRef: x.id }))
+    await store.events.addSubscription(
+      seedSub({ id: 'sub_q', subscriberId: p.id, sourceRef: x.id }),
+    )
     issues.close(x.id)
     await steward.tick()
     expect(notify).not.toHaveBeenCalled()
   })
 
   it('a throwing notifier costs neither the breadcrumb nor the cursor advance', async () => {
-    const { store, issues, steward, deps, notify } = harness()
+    const { store, issues, steward, deps, notify } = await harness()
     notify.mockImplementation(() => {
       throw new Error('ntfy exploded')
     })
     expect(deps.notify).toBe(notify)
     const p = issues.create({ repoPath: '/r', title: 'Watcher', startNow: false })
     const x = issues.create({ repoPath: '/r', title: 'Target', startNow: false })
-    store.events.addSubscription(
+    await store.events.addSubscription(
       seedSub({
         id: 'sub_boom',
         subscriberId: p.id,
@@ -1279,7 +1297,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
     )
     issues.close(x.id)
     await expect(steward.tick()).resolves.toBeUndefined()
-    expect(store.events.listEventsSince(0, { kinds: ['steward.notify'] })).toHaveLength(1)
+    expect(await store.events.listEventsSince(0, { kinds: ['steward.notify'] })).toHaveLength(1)
   })
 })
 
@@ -1312,17 +1330,17 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   })
 
   it('invokes the messaging seam once per settled session with the outcome', async () => {
-    const h = harness()
+    const h = await harness()
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
     })
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's8',
@@ -1344,12 +1362,12 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   })
 
   it('coalesces and replay-suppresses repeated events for one settle transition', async () => {
-    const h = harness()
+    const h = await harness()
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
     for (let i = 0; i < 2; i++) {
-      h.store.events.appendEvent({
+      await h.store.events.appendEvent({
         ts: 't',
         kind: 'session.phase',
         subject: 's9',
@@ -1360,13 +1378,13 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(1)
 
-    h.store.events.setStewardState('cursor', '0')
+    await h.store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(1)
   })
 
   it('suppresses a second producer claiming the same settle fact and target', async () => {
-    const h = harness()
+    const h = await harness()
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
@@ -1382,7 +1400,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
       }),
     ).toBe(false)
 
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's9',
@@ -1393,11 +1411,11 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
   })
 
   it('allows a replayed settle transition to re-fire after the fact TTL expires', async () => {
-    const h = harness()
+    const h = await harness()
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's9',
@@ -1408,14 +1426,14 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
     expect(ackFallback).toHaveBeenCalledTimes(1)
 
     h.advanceTime(24 * 60 * 60 * 1000 + 1)
-    h.store.events.setStewardState('cursor', '0')
+    await h.store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(2)
   })
 
   it('is inert without the seam (unwired deployments)', async () => {
-    const h = harness()
-    h.store.events.appendEvent({
+    const h = await harness()
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's9',
@@ -1427,7 +1445,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
 
 describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
   it('retires facts scoped to an issue when issue.closed is consumed', async () => {
-    const h = harness()
+    const h = await harness()
     const issue = h.issues.create({ repoPath: '/r', title: 'Closing', startNow: false })
 
     expect(
@@ -1461,13 +1479,13 @@ describe('StewardService notification fact retirement [spec:SP-ba61]', () => {
  */
 describe('StewardService condition-clear fact retirement (POD-890)', () => {
   it('re-settling after leave-idle re-fires ackfallback (fact retired on leave; TTL unchanged)', async () => {
-    const h = harness()
+    const h = await harness()
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
 
     // First settle → claim settle:s9 + fire once.
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't1',
       kind: 'session.phase',
       subject: 's9',
@@ -1478,14 +1496,14 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // Still settled (no leave): same-condition re-tick must NOT re-fire, and
     // the fact remains live well before the 24h TTL ceiling.
-    h.store.events.setStewardState('cursor', '0')
+    await h.store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(1)
     // A concurrent producer still loses while the fact is live (TTL not shortened).
     expect(h.arbiter.claim('settle:s9', 's9', { source: 'daemon.stop-hook' })).toBe(false)
 
     // Leave idle (working) → condition-clear retires settle:s9 (not TTL expiry).
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
       subject: 's9',
@@ -1494,7 +1512,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     await steward.tick()
 
     // Second genuine settle → re-fires.
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't3',
       kind: 'session.phase',
       subject: 's9',
@@ -1508,7 +1526,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -1539,19 +1557,19 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
   })
 
   it('flapping within the same condition still dedups (no over-fire)', async () => {
-    const h = harness()
+    const h = await harness()
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
 
     // Two settle events in one poll (rapid re-tick / dual producer shape).
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's9',
       payload: { phase: 'idle', verdict: 'done' },
     })
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 's9',
@@ -1561,7 +1579,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     expect(ackFallback).toHaveBeenCalledTimes(1)
 
     // Cursor rewind: still the same settled condition — no leave-idle — no re-fire.
-    h.store.events.setStewardState('cursor', '0')
+    await h.store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(ackFallback).toHaveBeenCalledTimes(1)
 
@@ -1569,7 +1587,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const rev = harness({ sessions })
+    const rev = await harness({ sessions })
     const parent = rev.issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     rev.issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = rev.issues.create({
@@ -1581,7 +1599,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     rev.issues.update(c1.id, { stage: 'review' })
     await rev.steward.tick()
     expect(rev.sendTextWhenReady).toHaveBeenCalledTimes(1)
-    rev.store.events.setStewardState('cursor', '0')
+    await rev.store.events.setStewardState('cursor', '0')
     await rev.steward.tick()
     expect(rev.sendTextWhenReady).toHaveBeenCalledTimes(1)
   })
@@ -1596,8 +1614,8 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'child',
@@ -1607,7 +1625,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
     // Exit in the SAME completion cycle (no leave-idle) stays silent.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.exited',
       subject: 'child',
@@ -1618,14 +1636,14 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
 
     // Phantom leave-idle → re-settle WITHOUT parent ack (POD-917): sticky holds,
     // no second wake, and exit still suppressed.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't3',
       kind: 'session.phase',
       subject: 'child',
@@ -1633,7 +1651,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     })
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't4',
       kind: 'session.exited',
       subject: 'child',
@@ -1647,7 +1665,7 @@ describe('StewardService condition-clear fact retirement (POD-890)', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -1699,8 +1717,8 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'child',
@@ -1714,7 +1732,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(text).toMatch(/finished \(done\)/i)
     // Wake path = sendTextWhenReady (wired to queueText → resurrect), not a
     // breadcrumb-only steward.observed row.
-    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] })).toHaveLength(0)
+    expect(await store.events.listEventsSince(0, { kinds: ['steward.observed'] })).toHaveLength(0)
   })
 
   it('already-communicated (§07b, POD-913) does NOT apply here: still wakes even if the child already messaged the parent', async () => {
@@ -1722,7 +1740,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     // comment): a message in the ledger proves the parent was TOLD, not that
     // it was WOKEN. Suppressing here could strand a parked parent forever.
     const sessions: SessionMeta[] = []
-    const { issues, steward, sendTextWhenReady, store } = harness({ sessions })
+    const { issues, steward, sendTextWhenReady, store } = await harness({ sessions })
     const childIssue = issues.create({ repoPath: '/r', title: 'Child issue', startNow: false })
     sessions.push(
       fakeSession({
@@ -1740,8 +1758,8 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         issueId: childIssue.id,
       }),
     )
-    seedTold(store, childIssue.id, { kind: 'session', id: 'parent' })
-    store.events.appendEvent({
+    await seedTold(store, childIssue.id, { kind: 'session', id: 'parent' })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'child',
@@ -1762,8 +1780,8 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'child',
@@ -1786,8 +1804,8 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.exited',
       subject: 'child',
@@ -1805,8 +1823,8 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('parent'), status: 'hibernated', cwd: '/r/p' }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.exited',
       subject: 'gone-child',
@@ -1828,14 +1846,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
       }),
       fakeSession({ sessionId: asSessionId('orphan'), status: 'live', cwd: '/r/o' }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
-    store.events.appendEvent({
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'idle', verdict: 'done' },
     })
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'orphan',
@@ -1855,14 +1873,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
 
     // The live storm: a terminal child yields a NEW durable session.phase event
     // (fresh id) on every poll. A per-EVENT fact key changes each tick and would
     // re-wake the parent forever; the sticky phase-reported fact dedups the whole
     // completion cycle down to ONE wake. Six distinct settle events, one wake.
     for (let i = 0; i < 6; i++) {
-      store.events.appendEvent({
+      await store.events.appendEvent({
         ts: `t${i}`,
         kind: 'session.phase',
         subject: 'child',
@@ -1875,13 +1893,13 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
 
     // Crash-replay of the whole log (cursor rewind) still does not re-wake.
-    store.events.setStewardState('cursor', '0')
+    await store.events.setStewardState('cursor', '0')
     await steward.tick()
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
     // Exit trailing a clean done is not exit-without-report — the same sticky
     // suppresses the exit wake within the cycle (POD-907).
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 'tx',
       kind: 'session.exited',
       subject: 'child',
@@ -1903,10 +1921,10 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store } = harness({ sessions })
+    const { steward, sendTextWhenReady, store } = await harness({ sessions })
 
     // First settle → wake once (a/d).
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't1',
       kind: 'session.phase',
       subject: 'child',
@@ -1917,7 +1935,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect((sendTextWhenReady.mock.calls[0] as [string, string])[0]).toBe('parent')
 
     // Per-poll re-emit of the SAME completion must NOT re-fire.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
       subject: 'child',
@@ -1927,14 +1945,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
     // Phantom work cycle (leave idle → re-idle) WITHOUT parent ack — sticky holds.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't3',
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't4',
       kind: 'session.phase',
       subject: 'child',
@@ -1956,9 +1974,9 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const { steward, sendTextWhenReady, store, arbiter } = harness({ sessions })
+    const { steward, sendTextWhenReady, store, arbiter } = await harness({ sessions })
 
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't1',
       kind: 'session.phase',
       subject: 'child',
@@ -1968,14 +1986,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
 
     // Leave-idle alone must NOT re-arm (phantom cycle still suppressed).
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't2',
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't3',
       kind: 'session.phase',
       subject: 'child',
@@ -1989,14 +2007,14 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     arbiter.retire('sessionparentnudge:phase-reported:child', 'parent')
 
     // Subsequent genuine settle → wakes once more.
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't4',
       kind: 'session.phase',
       subject: 'child',
       payload: { phase: 'working' },
     })
     await steward.tick()
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't5',
       kind: 'session.phase',
       subject: 'child',
@@ -2007,7 +2025,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect((sendTextWhenReady.mock.calls[1] as [string, string])[0]).toBe('parent')
 
     // And stays once until next ack (no storm on re-emit).
-    store.events.appendEvent({
+    await store.events.appendEvent({
       ts: 't6',
       kind: 'session.phase',
       subject: 'child',
@@ -2021,7 +2039,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     const sessions = [
       fakeSession({ sessionId: asSessionId('plive'), cwd: '/r/.worktrees/issue-1-epic' }),
     ]
-    const { store, issues, steward, sendTextWhenReady } = harness({ sessions })
+    const { store, issues, steward, sendTextWhenReady } = await harness({ sessions })
     const parent = issues.create({ repoPath: '/r', title: 'Epic', startNow: false })
     issues.update(parent.id, { worktreePath: '/r/.worktrees/issue-1-epic' })
     const c1 = issues.create({
@@ -2037,7 +2055,7 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
     expect(posted[0]!.body).toBe(`Child #${c1.seq} needs a human: which database?`)
     expect(sendTextWhenReady).toHaveBeenCalledTimes(1)
     expect((sendTextWhenReady.mock.calls[0] as [string, string])[1]).toContain('needs a human')
-    expect(store.events.listEventsSince(0, { kinds: ['steward.observed'] }).length).toBe(1)
+    expect((await store.events.listEventsSince(0, { kinds: ['steward.observed'] })).length).toBe(1)
   })
 
   it('keeps ackfallback alongside session-parent wake on the same settle', async () => {
@@ -2050,11 +2068,11 @@ describe('StewardService session-parent wake (POD-904 / §07b)', () => {
         spawnedBy: 'session:parent',
       }),
     ]
-    const h = harness({ sessions })
+    const h = await harness({ sessions })
     const ackFallback = vi.fn()
     h.deps.messaging = { ackFallback }
     const steward = new StewardService(h.deps)
-    h.store.events.appendEvent({
+    await h.store.events.appendEvent({
       ts: 't',
       kind: 'session.phase',
       subject: 'child',

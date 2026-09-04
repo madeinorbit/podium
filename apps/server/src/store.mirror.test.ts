@@ -1,9 +1,10 @@
-import { asMachineId } from '@podium/model'
 import { mkdtemp } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import type { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 // Transcript-mirror store state (docs/spec/transcript-mirror.md §2.2): additive
 // `mirrored_bytes`/`mirrored_at` columns on conversation_segments — the pull
@@ -28,8 +29,8 @@ function rawMirrorRow(
 }
 
 describe('SessionStore transcript mirror state', () => {
-  it('defaults mirror columns to 0/NULL on a fresh segment', () => {
-    const store = new SessionStore(':memory:')
+  it('defaults mirror columns to 0/NULL on a fresh segment', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'n1',
@@ -43,8 +44,8 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
-  it('setMirrorCursor round-trips and stores mirrored_at', () => {
-    const store = new SessionStore(':memory:')
+  it('setMirrorCursor round-trips and stores mirrored_at', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'n1',
@@ -74,8 +75,8 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
-  it('retains retired file identities while advancing the active incarnation', () => {
-    const store = new SessionStore(':memory:')
+  it('retains retired file identities while advancing the active incarnation', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'reused',
@@ -122,8 +123,8 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
-  it('segmentsToMirror lists only path-known segments of the requested machine', () => {
-    const store = new SessionStore(':memory:')
+  it('segmentsToMirror lists only path-known segments of the requested machine', async () => {
+    const store = await openTestStore(':memory:')
     store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'with-path',
@@ -168,8 +169,8 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
-  it('persists reported_bytes through ensureConversationIdentity (insert, update, COALESCE)', () => {
-    const store = new SessionStore(':memory:')
+  it('persists reported_bytes through ensureConversationIdentity (insert, update, COALESCE)', async () => {
+    const store = await openTestStore(':memory:')
     // Insert with a size (first observation carries discovery's stat).
     store.conversations.registry.ensure({
       machineId: asMachineId('m1'),
@@ -208,8 +209,8 @@ describe('SessionStore transcript mirror state', () => {
     store.close()
   })
 
-  it('segmentsToMirrorDirty lists behind + NULL-reported segments, never caught-up ones', () => {
-    const store = new SessionStore(':memory:')
+  it('segmentsToMirrorDirty lists behind + NULL-reported segments, never caught-up ones', async () => {
+    const store = await openTestStore(':memory:')
     const seed = (nativeId: string, sizeBytes?: number) =>
       store.conversations.registry.ensure({
         machineId: asMachineId('m1'),
@@ -257,7 +258,7 @@ describe('SessionStore transcript mirror state', () => {
 
   it('reopening a file-backed store is idempotent and keeps cursors (ALTER guard)', async () => {
     const file = await tmpDbPath()
-    const first = new SessionStore(file)
+    const first = await openTestStore(file)
     first.conversations.registry.ensure({
       machineId: asMachineId('m1'),
       nativeId: 'n1',
@@ -275,7 +276,7 @@ describe('SessionStore transcript mirror state', () => {
 
     // Second open replays CREATE TABLE ... IF NOT EXISTS + the ALTER guards over a
     // schema that ALREADY has the mirror columns — must not throw, must not reset.
-    const second = new SessionStore(file)
+    const second = await openTestStore(file)
     expect(second.conversations.mirror.mirrorCursor(asMachineId('m1'), 'n1')).toBe(777)
     // reported_bytes survives too — attach-time dirty reconcile reads it before
     // the first scan of the new server life.

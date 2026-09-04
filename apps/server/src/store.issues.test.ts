@@ -1,7 +1,7 @@
-import { FIRST_ADMIN_USER_ID, asIssueId, asSessionId, asUserId, SOLE_USER_ID } from '@podium/model'
+import { asIssueId, asSessionId, asUserId, FIRST_ADMIN_USER_ID, SOLE_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueRow } from './store'
-import { SessionStore } from './store'
+import type { IssueRow, SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 function issueColumns(store: SessionStore): Set<string> {
   // @ts-expect-error reach the private db for a schema assertion
@@ -18,8 +18,8 @@ function tableNames(store: SessionStore): Set<string> {
 }
 
 describe('issues schema migration (P1)', () => {
-  it('fresh DB has all new rich-field columns', () => {
-    const cols = issueColumns(new SessionStore(':memory:'))
+  it('fresh DB has all new rich-field columns', async () => {
+    const cols = issueColumns(await openTestStore(':memory:'))
     for (const c of [
       'priority',
       'type',
@@ -49,8 +49,8 @@ describe('issues schema migration (P1)', () => {
 })
 
 describe('issues child tables (P1)', () => {
-  it('creates issue_labels, issue_deps, issue_comments', () => {
-    const t = tableNames(new SessionStore(':memory:'))
+  it('creates issue_labels, issue_deps, issue_comments', async () => {
+    const t = tableNames(await openTestStore(':memory:'))
     expect(t.has('issue_labels')).toBe(true)
     expect(t.has('issue_deps')).toBe(true)
     expect(t.has('issue_comments')).toBe(true)
@@ -109,9 +109,9 @@ function baseRow(over: Partial<IssueRow> = {}): IssueRow {
 }
 
 describe('needs-human question metadata round-trip (issue #53)', () => {
-  it('persists options/askedBy/askedAt; corrupt options quarantine to null', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(
+  it('persists options/askedBy/askedAt; corrupt options quarantine to null', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(
       baseRow({
         needsHuman: true,
         humanQuestion: 'merge?',
@@ -120,13 +120,15 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
         humanQuestionAskedAt: '2026-07-14T00:00:00.000Z',
       }),
     )
-    const back = store.issues.getIssue('iss_x')!
+    const back = (await store.issues.getIssue('iss_x'))!
     expect(back.humanQuestionOptions).toEqual(['Yes, merge', 'No', 'Later'])
     expect(back.humanQuestionAskedBy).toBe('sess_1')
     expect(back.humanQuestionAskedAt).toBe('2026-07-14T00:00:00.000Z')
     // A row literal without the optional fields (legacy shape) reads back null.
-    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_plain'), seq: 2, needsHuman: true }))
-    const plain = store.issues.getIssue('iss_plain')!
+    await store.issues.upsertIssue(
+      baseRow({ id: asIssueId('iss_plain'), seq: 2, needsHuman: true }),
+    )
+    const plain = (await store.issues.getIssue('iss_plain'))!
     expect(plain.humanQuestionOptions).toBeNull()
     expect(plain.humanQuestionAskedBy).toBeNull()
     expect(plain.humanQuestionAskedAt).toBeNull()
@@ -135,7 +137,7 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
     store.db
       .prepare('UPDATE issues SET human_question_options = ? WHERE id = ?')
       .run('not-json', 'iss_x')
-    expect(store.issues.getIssue('iss_x')!.humanQuestionOptions).toBeNull()
+    expect((await store.issues.getIssue('iss_x'))!.humanQuestionOptions).toBeNull()
   })
 })
 
@@ -147,10 +149,10 @@ function seedIssues(store: SessionStore, ...ids: string[]): void {
 }
 
 describe('IssueRow rich fields round-trip (P1)', () => {
-  it('persists and reads back new fields', () => {
-    const store = new SessionStore(':memory:')
+  it('persists and reads back new fields', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
-    store.issues.upsertIssue(
+    await store.issues.upsertIssue(
       baseRow({
         priority: 0,
         type: 'bug',
@@ -168,7 +170,7 @@ describe('IssueRow rich fields round-trip (P1)', () => {
         estimateMin: 30,
       }),
     )
-    const r = store.issues.getIssue('iss_x')!
+    const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(0)
     expect(r.type).toBe('bug')
     expect(r.assignee).toBe('agent:claude')
@@ -179,21 +181,21 @@ describe('IssueRow rich fields round-trip (P1)', () => {
     expect(r.closedReason).toBe('duplicate')
   })
 
-  it('defaults are applied for a minimal legacy-style insert', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow())
-    const r = store.issues.getIssue('iss_x')!
+  it('defaults are applied for a minimal legacy-style insert', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(baseRow())
+    const r = (await store.issues.getIssue('iss_x'))!
     expect(r.priority).toBe(2)
     expect(r.type).toBe('task')
     expect(r.color).toBeNull()
   })
 
-  it('persists palette slots and clears them back to null', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow({ color: 'teal' }))
-    expect(store.issues.getIssue('iss_x')?.color).toBe('teal')
-    store.issues.upsertIssue(baseRow({ color: null }))
-    expect(store.issues.getIssue('iss_x')?.color).toBeNull()
+  it('persists palette slots and clears them back to null', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(baseRow({ color: 'teal' }))
+    expect((await store.issues.getIssue('iss_x'))?.color).toBe('teal')
+    await store.issues.upsertIssue(baseRow({ color: null }))
+    expect((await store.issues.getIssue('iss_x'))?.color).toBeNull()
   })
 })
 
@@ -201,8 +203,8 @@ describe('IssueRow rich fields round-trip (P1)', () => {
 // additive COLUMN on `issues`; the re-key inverted it, so the flipped form asserts
 // the column is gone and the marker is one person's row.
 describe('per-user issue state (POD-1076)', () => {
-  it('the three markers are NOT columns on the shared issue row', () => {
-    const cols = issueColumns(new SessionStore(':memory:'))
+  it('the three markers are NOT columns on the shared issue row', async () => {
+    const cols = issueColumns(await openTestStore(':memory:'))
     // The instrument can say YES about a column that IS there — without this,
     // every absence claim below would pass against a table it failed to read.
     expect(cols.has('stage')).toBe(true)
@@ -211,49 +213,52 @@ describe('per-user issue state (POD-1076)', () => {
     expect(cols.has('pinned')).toBe(false)
   })
 
-  it('persists all three markers on ONE (userId, issueId) row, per user', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read') }))
+  it('persists all three markers on ONE (userId, issueId) row, per user', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_read') }))
     // Distinct seq — UNIQUE(repo_path, seq) is enforced since migration 004.
-    store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
+    await store.issues.upsertIssue(baseRow({ id: asIssueId('iss_untouched'), seq: 2 }))
 
-    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
       readAt: '2026-07-07T00:00:00.000Z',
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
-    expect(store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'))).toEqual({
+    expect(
+      await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')),
+    ).toEqual({
       readAt: '2026-07-07T00:00:00.000Z',
       tuckedAt: null,
       pinnedAt: '2026-07-08T00:00:00.000Z',
     })
     // An issue nobody touched has NO row — absence is the single spelling.
     expect(
-      store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_untouched')),
+      await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_untouched')),
     ).toBeUndefined()
 
     // The PARTIAL patch: writing readAt must not disturb pinnedAt. This is the
     // whole reason the method takes a patch rather than a row — a whole-row
     // upsert makes "marking it read un-pinned it" a one-line mistake.
-    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
       readAt: '2026-07-09T00:00:00.000Z',
     })
     expect(
-      store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'))?.pinnedAt,
+      (await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')))
+        ?.pinnedAt,
     ).toBe('2026-07-08T00:00:00.000Z')
 
     // ANOTHER user's slice is empty for the SAME issue.
     expect(
-      store.issues.getIssueUserState(asUserId('user:other'), asIssueId('iss_read')),
+      await store.issues.getIssueUserState(asUserId('user:other'), asIssueId('iss_read')),
     ).toBeUndefined()
-    expect(store.issues.listIssueUserState(asUserId('user:other')).size).toBe(0)
+    expect((await store.issues.listIssueUserState(asUserId('user:other'))).size).toBe(0)
 
     // Clearing every marker DELETES the row rather than leaving three nulls.
-    store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
+    await store.issues.setIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read'), {
       readAt: null,
       pinnedAt: null,
     })
     expect(
-      store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')),
+      await store.issues.getIssueUserState(asUserId(SOLE_USER_ID), asIssueId('iss_read')),
     ).toBeUndefined()
 
     // A write with no identity fails CLOSED; it never falls back to an operator.
@@ -265,111 +270,111 @@ describe('per-user issue state (POD-1076)', () => {
 })
 
 describe('issue soft-delete persistence', () => {
-  it('adds deleted_at and round-trips its tombstone', () => {
-    const store = new SessionStore(':memory:')
+  it('adds deleted_at and round-trips its tombstone', async () => {
+    const store = await openTestStore(':memory:')
     expect(issueColumns(store).has('deleted_at')).toBe(true)
     const deletedAt = '2026-07-13T10:00:00.000Z'
-    store.issues.upsertIssue(baseRow({ deletedAt }))
-    expect(store.issues.getIssue('iss_x')?.deletedAt).toBe(deletedAt)
-    store.issues.upsertIssue(baseRow())
-    expect(store.issues.getIssue('iss_x')?.deletedAt).toBeNull()
+    await store.issues.upsertIssue(baseRow({ deletedAt }))
+    expect((await store.issues.getIssue('iss_x'))?.deletedAt).toBe(deletedAt)
+    await store.issues.upsertIssue(baseRow())
+    expect((await store.issues.getIssue('iss_x'))?.deletedAt).toBeNull()
   })
 })
 
 describe('needs_human data layer (P4)', () => {
-  it('fresh DB has needs_human + human_question columns', () => {
-    const cols = issueColumns(new SessionStore(':memory:'))
+  it('fresh DB has needs_human + human_question columns', async () => {
+    const cols = issueColumns(await openTestStore(':memory:'))
     expect(cols.has('needs_human'), 'missing column needs_human').toBe(true)
     expect(cols.has('human_question'), 'missing column human_question').toBe(true)
   })
 
-  it('persists needsHuman + humanQuestion round-trip', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(
+  it('persists needsHuman + humanQuestion round-trip', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(
       baseRow({ id: asIssueId('iss_x'), needsHuman: true, humanQuestion: 'which API key?' }),
     )
-    const got = store.issues.getIssue('iss_x')!
+    const got = (await store.issues.getIssue('iss_x'))!
     expect(got.needsHuman).toBe(true)
     expect(got.humanQuestion).toBe('which API key?')
   })
 
-  it('defaults needsHuman=false / humanQuestion=null when unset', () => {
-    const store = new SessionStore(':memory:')
-    store.issues.upsertIssue(
+  it('defaults needsHuman=false / humanQuestion=null when unset', async () => {
+    const store = await openTestStore(':memory:')
+    await store.issues.upsertIssue(
       baseRow({ id: asIssueId('iss_y'), needsHuman: false, humanQuestion: null }),
     )
-    const y = store.issues.getIssue('iss_y')!
+    const y = (await store.issues.getIssue('iss_y'))!
     expect(y.needsHuman).toBe(false)
     expect(y.humanQuestion).toBeNull()
   })
 })
 
 describe('issue labels (P1)', () => {
-  it('sets, reads (sorted), and lists distinct labels', () => {
-    const store = new SessionStore(':memory:')
+  it('sets, reads (sorted), and lists distinct labels', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
-    store.issues.setIssueLabels(asIssueId('iss_a'), ['ui', 'backend', 'ui'])
-    store.issues.setIssueLabels(asIssueId('iss_b'), ['backend'])
-    expect(store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['backend', 'ui'])
-    expect(store.issues.listAllLabels()).toEqual(['backend', 'ui'])
+    await store.issues.setIssueLabels(asIssueId('iss_a'), ['ui', 'backend', 'ui'])
+    await store.issues.setIssueLabels(asIssueId('iss_b'), ['backend'])
+    expect(await store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['backend', 'ui'])
+    expect(await store.issues.listAllLabels()).toEqual(['backend', 'ui'])
   })
 
-  it('setIssueLabels replaces the prior set', () => {
-    const store = new SessionStore(':memory:')
+  it('setIssueLabels replaces the prior set', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.issues.setIssueLabels(asIssueId('iss_a'), ['x', 'y'])
-    store.issues.setIssueLabels(asIssueId('iss_a'), ['y', 'z'])
-    expect(store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['y', 'z'])
+    await store.issues.setIssueLabels(asIssueId('iss_a'), ['x', 'y'])
+    await store.issues.setIssueLabels(asIssueId('iss_a'), ['y', 'z'])
+    expect(await store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['y', 'z'])
   })
 })
 
 describe('issue deps (P1)', () => {
-  it('adds, lists (both directions), and removes deps', () => {
-    const store = new SessionStore(':memory:')
+  it('adds, lists (both directions), and removes deps', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
-    store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
-    store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
-    store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b')) // idempotent
-    expect(store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
+    await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
+    await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
+    await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b')) // idempotent
+    expect(await store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
       { toId: 'iss_b', type: 'blocks' },
       { toId: 'iss_c', type: 'related' },
     ])
-    expect(store.issues.listDependents(asIssueId('iss_b'))).toEqual([
+    expect(await store.issues.listDependents(asIssueId('iss_b'))).toEqual([
       { fromId: 'iss_a', type: 'blocks' },
     ])
-    store.issues.removeIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
-    expect(store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
+    await store.issues.removeIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
+    expect(await store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
       { toId: 'iss_c', type: 'related' },
     ])
   })
 })
 
 describe('issue comments (P1)', () => {
-  it('adds and lists comments oldest-first', () => {
-    const store = new SessionStore(':memory:')
+  it('adds and lists comments oldest-first', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_b')
-    store.issues.addIssueComment({
+    await store.issues.addIssueComment({
       id: asIssueId('c1'),
       issueId: asIssueId('iss_a'),
       author: 'mike',
       body: 'first',
       createdAt: 't1',
     })
-    store.issues.addIssueComment({
+    await store.issues.addIssueComment({
       id: asIssueId('c2'),
       issueId: asIssueId('iss_a'),
       author: 'agent',
       body: 'second',
       createdAt: 't2',
     })
-    store.issues.addIssueComment({
+    await store.issues.addIssueComment({
       id: asIssueId('c3'),
       issueId: asIssueId('iss_b'),
       author: 'x',
       body: 'other',
       createdAt: 't1',
     })
-    const cs = store.issues.listIssueComments(asIssueId('iss_a'))
+    const cs = await store.issues.listIssueComments(asIssueId('iss_a'))
     expect(cs.map((c) => c.body)).toEqual(['first', 'second'])
     expect(cs[0]!.author).toBe('mike')
   })
@@ -388,70 +393,92 @@ describe('issue mail store (agent mail #103)', () => {
     claimedAt: null,
   })
 
-  it('creates the issue_messages table', () => {
-    expect(tableNames(new SessionStore(':memory:')).has('issue_messages')).toBe(true)
+  it('creates the issue_messages table', async () => {
+    expect(tableNames(await openTestStore(':memory:')).has('issue_messages')).toBe(true)
   })
 
-  it('add/list/count: ordered by created_at,id; count only unread', () => {
-    const store = new SessionStore(':memory:')
+  it('add/list/count: ordered by created_at,id; count only unread', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
-    store.issues.addIssueMessage(msg('msg_b', asIssueId('iss_a'), 't2'))
-    store.issues.addIssueMessage(msg('msg_a', asIssueId('iss_a'), 't1'))
-    store.issues.addIssueMessage(msg('msg_c', asIssueId('iss_other'), 't1'))
-    const list = store.issues.listIssueMessages(asIssueId('iss_a'))
+    await store.issues.addIssueMessage(msg('msg_b', asIssueId('iss_a'), 't2'))
+    await store.issues.addIssueMessage(msg('msg_a', asIssueId('iss_a'), 't1'))
+    await store.issues.addIssueMessage(msg('msg_c', asIssueId('iss_other'), 't1'))
+    const list = await store.issues.listIssueMessages(asIssueId('iss_a'))
     expect(list.map((m) => m.id)).toEqual(['msg_a', 'msg_b'])
     expect(list[0]).toMatchObject({ issueId: 'iss_a', fromAuthor: 'issue:#2', status: 'unread' })
-    expect(store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(2)
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 'tr')
-    expect(store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(1)
+    expect(await store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(2)
+    await store.issues.markIssueMessagesRead(
+      asUserId(SOLE_USER_ID),
+      asIssueId('iss_a'),
+      ['msg_a'],
+      'tr',
+    )
+    expect(await store.issues.countUnreadIssueMessages(asIssueId('iss_a'))).toBe(1)
     expect(
-      store.issues.listIssueMessages(asIssueId('iss_a'), { status: 'unread' }).map((m) => m.id),
+      (await store.issues.listIssueMessages(asIssueId('iss_a'), { status: 'unread' })).map(
+        (m) => m.id,
+      ),
     ).toEqual(['msg_b'])
   })
 
-  it('claim is atomic: second claim returns false and does not overwrite the winner', () => {
-    const store = new SessionStore(':memory:')
+  it('claim is atomic: second claim returns false and does not overwrite the winner', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.issues.addIssueMessage(msg('msg_a'))
-    expect(store.issues.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
-    expect(store.issues.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
-    const m = store.issues.getIssueMessage('msg_a')!
+    await store.issues.addIssueMessage(msg('msg_a'))
+    expect(await store.issues.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
+    expect(await store.issues.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
+    const m = (await store.issues.getIssueMessage('msg_a'))!
     expect(m.status).toBe('claimed')
     expect(m.claimedBy).toBe('issue:#3')
     expect(m.claimedAt).toBe('tc')
   })
 
-  it('markRead is idempotent and never regresses a claimed message', () => {
-    const store = new SessionStore(':memory:')
+  it('markRead is idempotent and never regresses a claimed message', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a')
-    store.issues.addIssueMessage(msg('msg_a'))
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't1')
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't2')
+    await store.issues.addIssueMessage(msg('msg_a'))
+    await store.issues.markIssueMessagesRead(
+      asUserId(SOLE_USER_ID),
+      asIssueId('iss_a'),
+      ['msg_a'],
+      't1',
+    )
+    await store.issues.markIssueMessagesRead(
+      asUserId(SOLE_USER_ID),
+      asIssueId('iss_a'),
+      ['msg_a'],
+      't2',
+    )
     // TWO CLASSES, TWO BEHAVIOURS (POD-1076). `status` is the mail's SHARED
     // delivery state and is idempotent — the second call is a no-op on it. The
     // per-user `read_at` is a fact about THIS reader and DOES advance, because
     // "when did I last look at this" is not a once-only event.
-    expect(store.issues.getIssueMessage('msg_a')!.status).toBe('read')
-    expect(store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID)).msg_a).toBe('t2')
+    expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('read')
+    expect((await store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID))).msg_a).toBe('t2')
     // …and another reader has no marker for the same message.
-    expect(store.issues.listIssueMessageReadAt(asUserId('user:other'))).toEqual({})
+    expect(await store.issues.listIssueMessageReadAt(asUserId('user:other'))).toEqual({})
 
-    store.issues.claimIssueMessage('msg_a', 'x', 'tc')
-    store.issues.markIssueMessagesRead(asUserId(SOLE_USER_ID), asIssueId('iss_a'), ['msg_a'], 't3')
+    await store.issues.claimIssueMessage('msg_a', 'x', 'tc')
+    await store.issues.markIssueMessagesRead(
+      asUserId(SOLE_USER_ID),
+      asIssueId('iss_a'),
+      ['msg_a'],
+      't3',
+    )
     // Never regresses a claimed message back to 'read'…
-    expect(store.issues.getIssueMessage('msg_a')!.status).toBe('claimed')
+    expect((await store.issues.getIssueMessage('msg_a'))!.status).toBe('claimed')
     // …but MY having read it after the claim is still true and is recorded.
-    expect(store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID)).msg_a).toBe('t3')
+    expect((await store.issues.listIssueMessageReadAt(asUserId(SOLE_USER_ID))).msg_a).toBe('t3')
   })
 
-  it('deleteIssueChildRows removes the issue mailbox', () => {
-    const store = new SessionStore(':memory:')
+  it('deleteIssueChildRows removes the issue mailbox', async () => {
+    const store = await openTestStore(':memory:')
     seedIssues(store, 'iss_a', 'iss_other')
-    store.issues.addIssueMessage(msg('msg_a'))
-    store.issues.addIssueMessage(msg('msg_z', asIssueId('iss_other')))
-    store.issues.deleteIssueChildRows(asIssueId('iss_a'))
-    expect(store.issues.listIssueMessages(asIssueId('iss_a'))).toEqual([])
-    expect(store.issues.listIssueMessages(asIssueId('iss_other')).length).toBe(1)
+    await store.issues.addIssueMessage(msg('msg_a'))
+    await store.issues.addIssueMessage(msg('msg_z', asIssueId('iss_other')))
+    await store.issues.deleteIssueChildRows(asIssueId('iss_a'))
+    expect(await store.issues.listIssueMessages(asIssueId('iss_a'))).toEqual([])
+    expect((await store.issues.listIssueMessages(asIssueId('iss_other'))).length).toBe(1)
   })
 })
 
@@ -473,19 +500,19 @@ describe('subscriptions store (Phase B)', () => {
     ...over,
   })
 
-  it('creates the subscriptions and subscription_deliveries tables', () => {
-    const t = tableNames(new SessionStore(':memory:'))
+  it('creates the subscriptions and subscription_deliveries tables', async () => {
+    const t = tableNames(await openTestStore(':memory:'))
     expect(t.has('subscriptions')).toBe(true)
     expect(t.has('subscription_deliveries')).toBe(true)
   })
 
-  it('adds, lists (round-trips booleans), filters, and removes', () => {
-    const store = new SessionStore(':memory:')
-    store.events.addSubscription(sub())
-    store.events.addSubscription(
+  it('adds, lists (round-trips booleans), filters, and removes', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(sub())
+    await store.events.addSubscription(
       sub({ id: 'sub_b', subscriberId: 'iss_other', deliverNotify: true, createdAt: 't2' }),
     )
-    const all = store.events.listSubscriptions()
+    const all = await store.events.listSubscriptions()
     expect(all.map((s) => s.id)).toEqual(['sub_a', 'sub_b'])
     expect(all[0]).toMatchObject({
       deliverNudge: true,
@@ -494,38 +521,38 @@ describe('subscriptions store (Phase B)', () => {
       origin: 'custom',
     })
     expect(all[1]!.deliverNotify).toBe(true)
-    expect(store.events.listSubscriptions({ subscriberId: 'iss_p' }).map((s) => s.id)).toEqual([
-      'sub_a',
-    ])
-    store.events.removeSubscription('sub_a')
-    expect(store.events.listSubscriptions().map((s) => s.id)).toEqual(['sub_b'])
+    expect(
+      (await store.events.listSubscriptions({ subscriberId: 'iss_p' })).map((s) => s.id),
+    ).toEqual(['sub_a'])
+    await store.events.removeSubscription('sub_a')
+    expect((await store.events.listSubscriptions()).map((s) => s.id)).toEqual(['sub_b'])
   })
 
-  it('listEnabledSubscriptions omits disabled rows', () => {
-    const store = new SessionStore(':memory:')
-    store.events.addSubscription(sub({ id: 'sub_on', enabled: true }))
-    store.events.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
-    expect(store.events.listEnabledSubscriptions().map((s) => s.id)).toEqual(['sub_on'])
+  it('listEnabledSubscriptions omits disabled rows', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(sub({ id: 'sub_on', enabled: true }))
+    await store.events.addSubscription(sub({ id: 'sub_off', enabled: false, createdAt: 't2' }))
+    expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual(['sub_on'])
   })
 
-  it('setSubscriptionEnabled toggles the flag and getSubscription reflects it', () => {
-    const store = new SessionStore(':memory:')
-    store.events.addSubscription(sub({ id: 'sub_t', enabled: true }))
-    expect(store.events.setSubscriptionEnabled('sub_t', false)).toBe(true)
-    expect(store.events.getSubscription('sub_t')?.enabled).toBe(false)
-    expect(store.events.listEnabledSubscriptions().map((s) => s.id)).toEqual([])
-    expect(store.events.setSubscriptionEnabled('sub_t', true)).toBe(true)
-    expect(store.events.getSubscription('sub_t')?.enabled).toBe(true)
+  it('setSubscriptionEnabled toggles the flag and getSubscription reflects it', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(sub({ id: 'sub_t', enabled: true }))
+    expect(await store.events.setSubscriptionEnabled('sub_t', false)).toBe(true)
+    expect((await store.events.getSubscription('sub_t'))?.enabled).toBe(false)
+    expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual([])
+    expect(await store.events.setSubscriptionEnabled('sub_t', true)).toBe(true)
+    expect((await store.events.getSubscription('sub_t'))?.enabled).toBe(true)
     // Unknown id → no row updated.
-    expect(store.events.setSubscriptionEnabled('nope', false)).toBe(false)
-    expect(store.events.getSubscription('nope')).toBeUndefined()
+    expect(await store.events.setSubscriptionEnabled('nope', false)).toBe(false)
+    expect(await store.events.getSubscription('nope')).toBeUndefined()
   })
 
-  it('markDelivered is idempotent per (subscription, event)', () => {
-    const store = new SessionStore(':memory:')
-    expect(store.events.markDelivered('sub_a', 5)).toBe(true)
-    expect(store.events.markDelivered('sub_a', 5)).toBe(false) // replay: already delivered
-    expect(store.events.markDelivered('sub_a', 6)).toBe(true) // a different event delivers
-    expect(store.events.markDelivered('sub_b', 5)).toBe(true) // a different sub delivers
+  it('markDelivered is idempotent per (subscription, event)', async () => {
+    const store = await openTestStore(':memory:')
+    expect(await store.events.markDelivered('sub_a', 5)).toBe(true)
+    expect(await store.events.markDelivered('sub_a', 5)).toBe(false) // replay: already delivered
+    expect(await store.events.markDelivered('sub_a', 6)).toBe(true) // a different event delivers
+    expect(await store.events.markDelivered('sub_b', 5)).toBe(true) // a different sub delivers
   })
 })

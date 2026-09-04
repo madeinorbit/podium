@@ -61,7 +61,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       hasOwnCredential: false,
       canManageInstance: true,
     })
-    users.setPasswordHash(
+    await users.setPasswordHash(
       FIRST_ADMIN_USER_ID,
       await hashPassword('hunter2'),
       new Date().toISOString(),
@@ -99,7 +99,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
     await expect(
       caller.auth.setLoginRequired({ required: false, current: 'hunter2' }),
     ).rejects.toThrow()
-    expect(loginRequired()).toBe(true)
+    expect(await loginRequired()).toBe(true)
   })
 
   it('turns login off for the instance WITHOUT destroying the credential', async () => {
@@ -114,18 +114,18 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
         acknowledgeNoPassword: true,
       }),
     ).rejects.toThrow()
-    expect(loginRequired()).toBe(true)
+    expect(await loginRequired()).toBe(true)
 
     await caller.auth.setLoginRequired({
       required: false,
       current: 'hunter2',
       acknowledgeNoPassword: true,
     })
-    expect(loginRequired()).toBe(false)
+    expect(await loginRequired()).toBe(false)
     // THE PROPERTY THE CONFIG FLAG BUYS: nobody's password was deleted, so turning login
     // back on does not make everyone re-enrol.
     expect(hashOf(users)).toBe(hashBefore)
-    expect(users.hasPerUserCredentials()).toBe(true)
+    expect(await users.hasPerUserCredentials()).toBe(true)
   })
 
   it('turns login back on with the same password still working', async () => {
@@ -137,7 +137,7 @@ describe('auth tRPC (my own password · this instance’s login policy)', () => 
       acknowledgeNoPassword: true,
     })
     await caller.auth.setLoginRequired({ required: true, current: 'hunter2' })
-    expect(loginRequired()).toBe(true)
+    expect(await loginRequired()).toBe(true)
     expect(await verifyPasswordHash('hunter2', hashOf(users))).toBe(true)
   })
 })

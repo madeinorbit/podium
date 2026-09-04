@@ -8,7 +8,7 @@ import { asMachineId, asSessionId, asUserId, FIRST_ADMIN_USER_ID } from '@podium
 // test always goes through the @podium/runtime/sqlite shim; this direct driver use
 // mirrors store.test.ts's own v1-migration fixture and never touches the shim.
 import { describe, expect, it } from 'vitest'
-import { SessionStore } from './store'
+import { openTestStore } from './test-support/open-test-store'
 
 async function tmpDbPath(): Promise<string> {
   const dir = await mkdtemp(join(tmpdir(), 'podium-machines-'))
@@ -18,9 +18,9 @@ async function tmpDbPath(): Promise<string> {
 const hash = (t: string) => createHash('sha256').update(t).digest('hex')
 
 describe('machines store', () => {
-  it('upserts, lists, renames, deletes a machine', () => {
-    const s = new SessionStore(':memory:')
-    s.machines.upsertMachine({
+  it('upserts, lists, renames, deletes a machine', async () => {
+    const s = await openTestStore(':memory:')
+    await s.machines.upsertMachine({
       id: 'm1',
       name: 'box',
       hostname: 'box',
@@ -28,75 +28,75 @@ describe('machines store', () => {
       ownerUserId: asUserId('user:sole'),
       podiumManaged: false,
     })
-    expect(s.machines.listMachines().map((m) => m.id)).toEqual(['m1'])
-    expect(s.machines.listMachines()[0]?.podiumManaged).toBe(false)
-    expect(s.machines.getMachineByToken('m1', 'secret')).toBe(true)
-    expect(s.machines.getMachineByToken('m1', 'wrong')).toBe(false)
-    s.machines.renameMachine('m1', 'laptop')
-    expect(s.machines.listMachines()[0]?.name).toBe('laptop')
-    s.machines.deleteMachine('m1')
-    expect(s.machines.listMachines()).toEqual([])
+    expect((await s.machines.listMachines()).map((m) => m.id)).toEqual(['m1'])
+    expect((await s.machines.listMachines())[0]?.podiumManaged).toBe(false)
+    expect(await s.machines.getMachineByToken('m1', 'secret')).toBe(true)
+    expect(await s.machines.getMachineByToken('m1', 'wrong')).toBe(false)
+    await s.machines.renameMachine('m1', 'laptop')
+    expect((await s.machines.listMachines())[0]?.name).toBe('laptop')
+    await s.machines.deleteMachine('m1')
+    expect(await s.machines.listMachines()).toEqual([])
     s.close()
   })
 
-  it('repos table is re-keyed to (machine_id, path) with origin_url', () => {
-    const s = new SessionStore(':memory:')
-    s.repos.addRepo('/home/u/a', s.hostMachineId)
-    s.repos.addRepo('/home/u/b', asMachineId('m2'), 'https://github.com/u/b')
-    const rows = s.repos.listRepos()
+  it('repos table is re-keyed to (machine_id, path) with origin_url', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/home/u/a', s.hostMachineId)
+    await s.repos.addRepo('/home/u/b', asMachineId('m2'), 'https://github.com/u/b')
+    const rows = await s.repos.listRepos()
     expect(rows.find((r) => r.path === '/home/u/a')?.machineId).toBe(s.hostMachineId)
     expect(rows.find((r) => r.path === '/home/u/b')?.originUrl).toBe('https://github.com/u/b')
-    s.repos.removeRepo('/home/u/a', s.hostMachineId)
-    expect(s.repos.listRepos().map((r) => r.path)).toEqual(['/home/u/b'])
+    await s.repos.removeRepo('/home/u/a', s.hostMachineId)
+    expect((await s.repos.listRepos()).map((r) => r.path)).toEqual(['/home/u/b'])
     s.close()
   })
 
-  it('listRepoPaths returns a flat string[] for back-compat', () => {
-    const s = new SessionStore(':memory:')
-    s.repos.addRepo('/abs/one', s.hostMachineId)
-    s.repos.addRepo('/abs/two', asMachineId('m2'))
-    const paths = s.repos.listRepoPaths()
+  it('listRepoPaths returns a flat string[] for back-compat', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/abs/one', s.hostMachineId)
+    await s.repos.addRepo('/abs/two', asMachineId('m2'))
+    const paths = await s.repos.listRepoPaths()
     expect(paths).toEqual(['/abs/one', '/abs/two'])
     s.close()
   })
 
-  it('listRepos(machineId) filters to one machine', () => {
-    const s = new SessionStore(':memory:')
-    s.repos.addRepo('/abs/local', s.hostMachineId)
-    s.repos.addRepo('/abs/remote', asMachineId('m2'))
-    expect(s.repos.listRepos(s.hostMachineId).map((r) => r.path)).toEqual(['/abs/local'])
-    expect(s.repos.listRepos(asMachineId('m2')).map((r) => r.path)).toEqual(['/abs/remote'])
-    expect(s.repos.listRepoPaths(asMachineId('m2'))).toEqual(['/abs/remote'])
+  it('listRepos(machineId) filters to one machine', async () => {
+    const s = await openTestStore(':memory:')
+    await s.repos.addRepo('/abs/local', s.hostMachineId)
+    await s.repos.addRepo('/abs/remote', asMachineId('m2'))
+    expect((await s.repos.listRepos(s.hostMachineId)).map((r) => r.path)).toEqual(['/abs/local'])
+    expect((await s.repos.listRepos(asMachineId('m2'))).map((r) => r.path)).toEqual(['/abs/remote'])
+    expect(await s.repos.listRepoPaths(asMachineId('m2'))).toEqual(['/abs/remote'])
     s.close()
   })
 
-  it('getMachine returns a record when it exists', () => {
-    const s = new SessionStore(':memory:')
-    s.machines.upsertMachine({
+  it('getMachine returns a record when it exists', async () => {
+    const s = await openTestStore(':memory:')
+    await s.machines.upsertMachine({
       id: 'm2',
       name: 'server',
       hostname: 'srv',
       tokenHash: hash('tok'),
       ownerUserId: asUserId('user:sole'),
     })
-    const m = s.machines.getMachine('m2')
+    const m = await s.machines.getMachine('m2')
     expect(m?.id).toBe('m2')
     expect(m?.name).toBe('server')
-    expect(s.machines.getMachine('no-such')).toBeUndefined()
+    expect(await s.machines.getMachine('no-such')).toBeUndefined()
     s.close()
   })
 
-  it('touchMachine updates last_seen_at and hostname', () => {
-    const s = new SessionStore(':memory:')
-    s.machines.upsertMachine({
+  it('touchMachine updates last_seen_at and hostname', async () => {
+    const s = await openTestStore(':memory:')
+    await s.machines.upsertMachine({
       id: 'm3',
       name: 'box',
       hostname: 'old-host',
       tokenHash: hash('t'),
       ownerUserId: asUserId('user:sole'),
     })
-    s.machines.touchMachine('m3', 'new-host')
-    const m = s.machines.getMachine('m3')
+    await s.machines.touchMachine('m3', 'new-host')
+    const m = await s.machines.getMachine('m3')
     expect(m?.hostname).toBe('new-host')
     s.close()
   })
@@ -107,16 +107,16 @@ describe('machines store', () => {
 
   it('multi-machine migration is idempotent — re-opening the same file db is a no-op', async () => {
     const file = await tmpDbPath()
-    const s1 = new SessionStore(file)
-    s1.machines.upsertMachine({
+    const s1 = await openTestStore(file)
+    await s1.machines.upsertMachine({
       id: 'm1',
       name: 'a',
       hostname: 'h',
       tokenHash: 'x',
       ownerUserId: asUserId('user:sole'),
     })
-    s1.repos.addRepo('/a', s1.hostMachineId)
-    s1.sessions.upsertSession({
+    await s1.repos.addRepo('/a', s1.hostMachineId)
+    await s1.sessions.upsertSession({
       id: asSessionId('s1'),
       ownerUserId: FIRST_ADMIN_USER_ID,
       agentKind: 'shell',
@@ -146,13 +146,13 @@ describe('machines store', () => {
     // the same file is a different host as far as its own default is concerned, and
     // nothing rewrites rows behind it.
     const host = s1.hostMachineId
-    const s2 = new SessionStore(file)
-    expect(s2.sessions.loadSessions()[0]?.machineId).toBe(host)
-    expect(s2.machines.listMachines()).toHaveLength(1)
-    expect(s2.repos.listRepoPaths()).toEqual(['/a'])
+    const s2 = await openTestStore(file)
+    expect((await s2.sessions.loadSessions())[0]?.machineId).toBe(host)
+    expect(await s2.machines.listMachines()).toHaveLength(1)
+    expect(await s2.repos.listRepoPaths()).toEqual(['/a'])
     // The settings row written through migrate() survives the reopen — a proxy that
     // the meta table wasn't wiped.
-    expect(s2.settings.getSettings().roles.coding.accountId).toBe('') // defaults always present
+    expect((await s2.settings.getSettings()).roles.coding.accountId).toBe('') // defaults always present
     s2.close()
     rmSync(file, { force: true })
   })

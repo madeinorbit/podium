@@ -40,9 +40,13 @@ async function post(path: string, body: unknown, headers: Record<string, string>
   })
 }
 
-beforeEach(() => {
+beforeEach(async () => {
   store = new AuthRepository(createBunStoreExecutor({ database: openMigratedTestDatabase() }))
-  store.createClientSession(hashToken(AUTH_TOKEN), FIRST_ADMIN_USER_ID, '2999-01-01T00:00:00.000Z')
+  await store.createClientSession(
+    hashToken(AUTH_TOKEN),
+    FIRST_ADMIN_USER_ID,
+    '2999-01-01T00:00:00.000Z',
+  )
   pairing = new MobilePairingManager()
   peerAddress = '198.51.100.10'
   app = new Hono()
@@ -128,7 +132,7 @@ describe('mobile pairing routes', () => {
     }
     expect(completed).toMatchObject({ delivery: 'native' })
     expect(completed.token).toBeTruthy()
-    expect(store.getClientSession(hashToken(completed.token))).toMatchObject({
+    expect(await store.getClientSession(hashToken(completed.token))).toMatchObject({
       userId: FIRST_ADMIN_USER_ID,
       label: 'mobile',
       sessionId: expect.any(String),
@@ -163,7 +167,7 @@ describe('mobile pairing routes', () => {
       mobileUrl: 'http://podium.lan:18787/mobile',
       transport: { grade: 'insecure' },
     })
-    expect(store.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
+    expect(await store.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toHaveLength(0)
   })
 
   it('delivers browser completion only as the existing HttpOnly session cookie', async () => {
@@ -397,7 +401,7 @@ describe('mobile pairing routes', () => {
   })
 
   it('lists and remotely revokes only the caller-owned mobile row', async () => {
-    store.createClientSession(
+    await store.createClientSession(
       'a'.repeat(64),
       FIRST_ADMIN_USER_ID,
       '2999-01-01T00:00:00.000Z',
@@ -409,7 +413,7 @@ describe('mobile pairing routes', () => {
         platform: 'ios',
       },
     )
-    store.createClientSession(
+    await store.createClientSession(
       'b'.repeat(64),
       FIRST_ADMIN_USER_ID,
       '2999-01-01T00:00:00.000Z',
@@ -431,8 +435,8 @@ describe('mobile pairing routes', () => {
         )
       ).status,
     ).toBe(200)
-    expect(store.getClientSession('a'.repeat(64))).toBeUndefined()
-    expect(store.getClientSession('b'.repeat(64))?.label).toBe('break-glass')
+    expect(await store.getClientSession('a'.repeat(64))).toBeUndefined()
+    expect((await store.getClientSession('b'.repeat(64)))?.label).toBe('break-glass')
   })
 })
 
