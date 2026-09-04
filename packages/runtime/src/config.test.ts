@@ -31,6 +31,9 @@ import {
   resolveAuthMode,
   resolveAuthSignInUrl,
   resolveAppUrl,
+  resolveConnectBaseUrl,
+  resolveConnectEnabled,
+  resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
   resolveEffectiveSampleUs,
   resolveFeatureOverrides,
@@ -740,6 +743,54 @@ describe('the layered keys a cloud deployment sets (PDM-26)', () => {
     )
     expect(() => resolveUpdateScope({}, { PODIUM_UPDATE_SCOPE: 'none' })).toThrow(
       /PODIUM_UPDATE_SCOPE.*all, fleet-only/,
+    )
+  })
+
+  it('resolveConnectEnabled: env → file → on', () => {
+    expect(resolveConnectEnabled({}, {})).toBe(true)
+    expect(resolveConnectEnabled({ connect: { enabled: false } }, {})).toBe(false)
+    expect(resolveConnectEnabled({ connect: { enabled: false } }, { PODIUM_CONNECT: 'on' })).toBe(
+      true,
+    )
+    expect(resolveConnectEnabled({ connect: { enabled: true } }, { PODIUM_CONNECT: 'off' })).toBe(
+      false,
+    )
+    expect(() => resolveConnectEnabled({}, { PODIUM_CONNECT: 'maybe' })).toThrow(
+      /PODIUM_CONNECT.*on, off/,
+    )
+  })
+
+  it('resolveConnectBaseUrl: env → file → the cloud, https origins only', () => {
+    expect(resolveConnectBaseUrl({}, {})).toBe('https://connect.meetpodium.com')
+    expect(resolveConnectBaseUrl({ connect: { baseUrl: 'https://dev.workers.dev/' } }, {})).toBe(
+      'https://dev.workers.dev',
+    )
+    expect(
+      resolveConnectBaseUrl(
+        { connect: { baseUrl: 'https://a.example' } },
+        { PODIUM_CONNECT_URL: 'http://localhost:8787' },
+      ),
+    ).toBe('http://localhost:8787')
+    for (const bad of ['http://a.example', 'https://a.example/path', 'nope']) {
+      expect(() => resolveConnectBaseUrl({}, { PODIUM_CONNECT_URL: bad })).toThrow(
+        /PODIUM_CONNECT_URL/,
+      )
+    }
+  })
+
+  it('resolveConnectProbeKeys: env → file → [], wire keys only', () => {
+    const a = `ed25519:${'A'.repeat(43)}`
+    const b = `ed25519:${'B'.repeat(43)}`
+    expect(resolveConnectProbeKeys({}, {})).toEqual([])
+    expect(resolveConnectProbeKeys({ connect: { trustedProbeKeys: [a] } }, {})).toEqual([a])
+    expect(
+      resolveConnectProbeKeys(
+        { connect: { trustedProbeKeys: [a] } },
+        { PODIUM_CONNECT_PROBE_KEYS: ` ${b}, ${a},${b}` },
+      ),
+    ).toEqual([b, a])
+    expect(() => resolveConnectProbeKeys({}, { PODIUM_CONNECT_PROBE_KEYS: 'rsa:abc' })).toThrow(
+      /PODIUM_CONNECT_PROBE_KEYS/,
     )
   })
 
