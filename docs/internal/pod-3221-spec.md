@@ -1255,3 +1255,45 @@ REFINEMENT TO RULE 28, from the same wave. `Number(...)` is not itself the hazar
 SPECIFIC NUMBER is. `Number(r.enabled) !== 0` is redundant after conversion but not wrong, because
 `Number(true) !== 0` holds. The defect shape is `=== 1`. Delete the redundant conversions when you
 see them, but do not report a surviving `Number(x) !== 0` mutation as a defect — classify it.
+
+### Rule 32 — a SQL-TEXT matcher does not survive conversion; widen it, never replace it
+
+[Waves 4, 6 and 7 each hit this separately, 2026-09-04. It is the most common non-obvious breakage in
+Stage A and it has three distinct failure modes.]
+
+Drizzle emits lowercase keywords and quoted identifiers. An instrument written against hand-written
+SQL is matching a spelling that no longer occurs:
+
+    hand-written   SELECT machine_id, path FROM repos ORDER BY rowid ASC
+    drizzle        select "machine_id", "path" from "repos" order by rowid ASC
+
+`sql.includes('FROM repos') && sql.startsWith('SELECT')` matches the first and not the second.
+
+THE THREE FAILURE MODES, all observed:
+
+1. LOUD. The instrument carries a lower bound on its own arming — `expect(writes).toBeGreaterThanOrEqual(10)`
+   — and fails with "expected 2 to be greater than or equal to 10". This is the good case and it is
+   why those lower bounds exist. Keep writing them.
+2. VACUOUS. A cache-hit assertion of the form `expect(reads()).toBe(afterFirst)` passes at `0 === 0`.
+   A count that has gone to zero looks exactly like a perfect cache. POD-3397 found two of these
+   passing in a file where two others were failing loudly.
+3. MISDIAGNOSIS. Two different defects produce one symptom. POD-3395 reported the seam as the cause
+   of its zero counts; the seam WAS broken and was fixed, and its own file was still at zero
+   afterwards because of the matcher. Fixing one cause does not clear the other — re-check by
+   PRINTING what the instrument observes, not by re-reading the code.
+
+THE RULE.
+
+WIDEN, DO NOT REPLACE. Converted and unconverted files coexist until the ledger empties, so an
+instrument that matches only the builder spelling goes blind to every file not yet converted. Accept
+BOTH spellings for the whole of Stage A.
+
+INSTRUMENTS ARE THE COORDINATOR'S TO REPAIR. A wave that finds one reports it and may hand back a
+PATCH; it does not land the edit on its conversion branch. Three waves asked before touching one,
+which is right — a count instrument shared by other waves is not a file a conversion commit may
+quietly change.
+
+MUTATION-CHECK THE WIDENING AGAINST THE REAL FILE, not against fixtures. The check is that removing
+the behaviour the instrument guards still reddens it AFTER the widening, with the isolating reason
+code. POD-3395's writer-guard patch is the model: three removals, three different and correct reason
+codes.
