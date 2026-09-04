@@ -213,6 +213,8 @@ export interface HandoffPorts {
   listSessions(): { sessionId: SessionId; machineId: MachineId; cwd: string; status: string }[]
   listRepos(): HandoffRepo[]
   listMachines(): HandoffMachine[]
+  /** Join a freshly attached target's first current-generation inventory report. */
+  waitForInventory(machineId: MachineId): Promise<void>
   issueMeta(issueId: IssueId): HandoffIssue | undefined
   rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: MachineId): Promise<{ path: string }>

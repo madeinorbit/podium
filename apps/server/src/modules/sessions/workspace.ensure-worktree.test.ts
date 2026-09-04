@@ -1,9 +1,69 @@
+import { asMachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { Session } from './session'
 import { SessionWorkspace, type SessionWorkspacePorts } from './workspace'
 
 type EnsureWorktreeResult = Awaited<ReturnType<SessionIssueWorkflowPort['ensureWorktree']>>
+
+describe('prepareTarget reconnect inventory', () => {
+  it('waits for an explicit agent target before resolving its harness or preparing a repo', async () => {
+    const order: string[] = []
+    let reportInventory!: () => void
+    const waitForInventory = vi.fn(async () => {
+      order.push('wait')
+      await new Promise<void>((resolve) => {
+        reportInventory = resolve
+      })
+      order.push('reported')
+    })
+    const resolveMachineForAgent = vi.fn(() => {
+      order.push('resolve')
+      return asMachineId('machine-b')
+    })
+    const listRepos = vi.fn(() => {
+      order.push('repos')
+      return []
+    })
+    const workspace = new SessionWorkspace({
+      machines: { waitForInventory, resolveMachineForAgent },
+      store: { repos: { listRepos } },
+    } as unknown as SessionWorkspacePorts)
+
+    const preparing = workspace.prepareTarget({
+      agentKind: 'claude-code',
+      cwd: '/repo',
+      machineId: asMachineId('machine-b'),
+    })
+
+    expect(waitForInventory).toHaveBeenCalledWith('machine-b')
+    expect(resolveMachineForAgent).not.toHaveBeenCalled()
+    expect(listRepos).not.toHaveBeenCalled()
+
+    reportInventory()
+    await expect(preparing).resolves.toEqual({ cwd: '/repo', machineId: 'machine-b' })
+    expect(order).toEqual(['wait', 'reported', 'resolve', 'repos'])
+  })
+
+  it('does not wait for inventory when the explicit target runs a shell', async () => {
+    const waitForInventory = vi.fn(() => new Promise<void>(() => {}))
+    const resolveMachineForAgent = vi.fn(() => asMachineId('machine-b'))
+    const workspace = new SessionWorkspace({
+      machines: { waitForInventory, resolveMachineForAgent },
+      store: { repos: { listRepos: () => [] } },
+    } as unknown as SessionWorkspacePorts)
+
+    await expect(
+      workspace.prepareTarget({
+        agentKind: 'shell',
+        cwd: '/repo',
+        machineId: asMachineId('machine-b'),
+      }),
+    ).resolves.toEqual({ cwd: '/repo', machineId: 'machine-b' })
+    expect(waitForInventory).not.toHaveBeenCalled()
+    expect(resolveMachineForAgent).toHaveBeenCalledOnce()
+  })
+})
 
 /**
  * POD-1704 — `ensureSessionWorktree` decides whether a session about to be

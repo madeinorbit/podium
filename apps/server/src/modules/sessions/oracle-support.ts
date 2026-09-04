@@ -40,6 +40,7 @@ import { attachTestClient } from '../../test-support/client-transport'
 
 import {
   type AgentProbeError,
+  BUILTIN_HARNESS_KINDS,
   FIRST_ADMIN_USER_ID,
   type MachineId,
   type SessionId,
@@ -262,6 +263,24 @@ export function makeOracle(
         output: '',
       })
     }
+  })
+  // A real daemon reports its current inventory immediately after attaching.
+  // Without this frame the fixture describes a connection that is permanently
+  // mid-probe, and every harness-gated command exercises reconnect timing
+  // rather than the behavior its oracle case names.
+  reg.gateway.routeDaemonFrame(machineId, {
+    type: 'inventoryReport',
+    machineId,
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
+        kind,
+        installed: true,
+        login: { state: 'in' as const },
+      })),
+      tools: [],
+    },
   })
   const clientId = attachTestClient(reg.clientGateway, (msg) => client.push(msg))
   reg.clientGateway.routeClientFrame(clientId, {

@@ -42,6 +42,11 @@ export class SessionWorkspace {
       ? parsed.data
       : resolveRole(this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
           .harness
+    // A freshly reconnected daemon temporarily hides its persisted inventory:
+    // the old report belongs to the previous socket. Explicit placement can
+    // afford to wait for this connection's report before the harness gate, and
+    // must do so before ensureTargetRepo can clone anything onto the target.
+    if (agentKind !== 'shell') await this.ports.machines.waitForInventory(input.machineId)
     this.ports.machines.resolveMachineForAgent(input.machineId, input.cwd, agentKind, input.use)
     const sourceRepo = this.ports.store.repos
       .listRepos()
