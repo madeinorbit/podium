@@ -311,3 +311,53 @@ scripts/check-boundaries.ts in the same commit as the conversion." The coordinat
 opposite — it edits `STAGE_A_UNCONVERTED`, no wave does. Both cannot hold, and the lint is therefore
 red for every wave from the moment it converts until the coordinator removes its lines. Worth
 reconciling before "lint family green" is used as Phase A's exit gate.
+
+## 8. Rule 28 (declared column modes) — wave 2's exposure is zero, derived not asserted
+
+Rule 28 lands after this wave converted, so it was checked against the landed code rather than
+assumed away.
+
+**No column any wave 2 file reads carries a declared mode, and none is an integer.** Derived by
+scanning each table's declaration in `migrations/schema.ts` rather than by recalling the earlier note:
+
+| Table | Columns with a declared `mode` | `integer()` columns |
+| --- | --- | --- |
+| `users` | none | none |
+| `user_credentials` | none | none |
+| `client_sessions` | none | none |
+| `grants` | none | none |
+| `approval_requests` | none | none |
+| `user_layout` | none | none |
+| `meta` | none | none |
+
+Every column in all seven is `text()`. So there is no `mode: 'boolean'` column to write a true-case
+golden test for, and no mapper in this wave can compare a boolean against a number.
+
+**The converse check, because the table above only proves the trigger is absent.** Searching the six
+converted files for the hazard's shape — `=== 1`, `!== 0`, `=== 0`, `!== 1`, `Number(` — finds six
+sites, and five are not database values at all: `settings.ts:132` and `:171` measure JavaScript
+collection sizes, and `auth.ts:124` and `grants.ts:286` wrap a driver `changes` count, which is
+`number | bigint` across the two drivers and has nothing to do with a column mode.
+
+The sixth is the only place this wave compares a value the database returned against a number:
+`users.ts:167`, `return row?.present === 1`, where `present` is the SQL literal `1` from
+`select 1 ... limit 1` — a literal, not a column, so no declared mode can reach it.
+
+It was exercised anyway, on both arms, because rule 28's point is that the default value proves
+nothing:
+
+```
+empty table                              -> false   (want false)
+per-user-scrypt WITH hash  [TRUE ARM]    -> true    (want true)
+per-user-scrypt with NULL hash           -> false   (want false)
+another source WITH hash                 -> false   (want false)
+mixed rows, one qualifying [TRUE ARM]    -> true    (want true)
+```
+
+Both true arms fire, and both near-miss rows — the right source with no hash, the wrong source with a
+hash — correctly answer false. That is the fail-closed behaviour `credentialFor`'s header describes,
+holding after the conversion.
+
+**The other two rulings in the same message are also no-ops here.** `INSERT OR IGNORE`: zero
+occurrences in the six files. `markDelivered`: not a wave 2 method. Both checked by search, not by
+recollection.
