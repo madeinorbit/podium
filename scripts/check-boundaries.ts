@@ -1459,8 +1459,35 @@ function rawHandleViolations(file: string, source: string): Violation[] {
   for (const m of stripped.matchAll(new RegExp(PREPARE_CALL.source, 'g'))) {
     add(lineAt(m.index ?? 0), '.prepare(', 'prepares a statement on a raw connection.')
   }
+  // A MARKER ANYWHERE IN THE STATEMENT'S LINE SPAN COVERS IT [POD-3393].
+  //
+  // These rules report the line the CALL STARTS on, and `marked` is keyed by
+  // line. A statement too long for one line cannot carry a trailing marker
+  // there: biome moves a trailing `// DECISION …` off `this.db.run(` and onto a
+  // line INSIDE the call. POD-3403's site is ten lines of SQL and hits exactly
+  // that, so the marker's line and the reported line can never be equal. The
+  // only remaining way to silence the rule would be to hoist the statement into
+  // a variable so `.run(statement)` stops matching — which silences the BAN and
+  // lets the ledger call the file converted when it is not.
+  const spanIsMarked = (start: number): boolean => {
+    let depth = 0
+    let i = start
+    for (; i < stripped.length; i++) {
+      const ch = stripped[i]
+      if (ch === '(') depth++
+      else if (ch === ')') {
+        depth--
+        if (depth === 0) break
+      }
+    }
+    const from = lineAt(start)
+    const to = lineAt(Math.min(i, stripped.length - 1))
+    for (let line = from; line <= to; line++) if (marked.has(line)) return true
+    return false
+  }
   for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
     const at = lineAt(m.index ?? 0)
+    if (spanIsMarked(m.index ?? 0)) continue
     add(
       at,
       `.${m[1]}(sql\`…\`)`,
