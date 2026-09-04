@@ -232,8 +232,37 @@ already-stringified value would double-encode it. Byte-identity with the previou
 `JSON.stringify` — rather than inferred, because the custody check in (1) depends on it.
 
 **4. `onConflictDoUpdate` is like-for-like only because the table has one uniqueness
-constraint.** `ship_lane_revisions` is keyed on `lane_key` alone and declares no other index —
-checked, because it is the same question the coordinator's `OR REPLACE` ruling turns on.
+constraint**, and rule 31 requires that established on the SHIPPED TABLE rather than read off
+`schema.ts`, which is the map and not the territory. After the full migration chain:
+
+```
+DDL         CREATE TABLE `ship_lane_revisions` (`lane_key` text PRIMARY KEY,
+            `revision` integer NOT NULL, `updated_at` text NOT NULL)
+index_list  [{seq:0, name:"sqlite_autoindex_ship_lane_revisions_1", unique:1, origin:"pk"}]
+fk_list     []
+CHECKs      none
+```
+
+One entry, origin `pk`, on `lane_key`. So exactly one constraint can conflict and
+`onConflictDoUpdate({ target: lane_key })` resolves the same one `ON CONFLICT(lane_key)` did; both
+NOT NULL columns are supplied from non-nullable sources (the literal `1` and a `string` parameter).
+Answered with evidence, so per rule 31 there is **no marker** — a marker is for a site you cannot
+answer.
+
+**5. One `sql` fragment needed a hand-written table qualifier**, and wave 6's note reached me about
+an hour before I would have shipped the bug. drizzle emits an interpolated column UNQUALIFIED when
+the enclosing query has a single FROM table, and inside a correlated subquery a bare name resolves
+against the SUBQUERY's table first. Checked with `.toSQL()` rather than read off the builder:
+
+```
+two-table (activeTrainForOrder):  … WHERE c.train_id = "ship_train_manifests"."id"
+one-table (completeVerifiedTrain): … WHERE c.train_id = "id"
+```
+
+The bare form is correct TODAY only because `ship_train_active_claims` happens to have no `id`
+column. Proven fragile rather than assumed: give that table an `id` and the bare form counts **0**
+where the qualified form counts **2** — no error, no log, a plausible number, and every train then
+reads as unclaimed. Both sites now share one named fragment that qualifies the outer column by hand.
 
 ## What was deliberately NOT tidied
 
@@ -257,7 +286,19 @@ twice, because drizzle has no builder form for a correlated subquery in a projec
 - **Zero `INSERT OR REPLACE` and zero `INSERT OR IGNORE`**, so neither of the coordinator's
   rulings about them applies, and no line in this file carries a `// DECISION` marker.
 - **Zero `RETURNING` writes**, so no site needs `writeGet`/`writeAll`.
-- **No source-text scanner over this file stops matching.** `scripts/check-boundaries.ts` is the
-  only thing that reads it as text, and it now matches MORE, not less: the ledger's slack check
-  fires precisely because the file is converted. No test reads it as source.
+- **No source-text scanner over this file stops matching** (rule 32). `scripts/check-boundaries.ts`
+  is the only thing that reads it as text, and it now matches MORE, not less: the ledger's slack
+  check fires precisely because the file is converted. No test reads it as source.
+- **The statement probe still SEES this file's queries**, checked positively rather than reasoned,
+  because zero is what a dead counter reports: a converted `listOrders` + `listHolds` observed
+  through `probeLegacyStatements` emits two statements and the probe records both. The seam's own
+  routing fix is what makes that true — before it, a converted repository would have been invisible
+  to the query-count probes and to `scripts/measure-hot-paths.ts`.
+- **Two mutants survived and both are classified**, because "2 of 4 killed" without the reasons
+  reads as half-untested. Omitting an explicit `null` is an EQUIVALENT mutant here: all fifteen
+  sites are nullable columns with no default, on an insert or on the single `finishAttempt` update,
+  which is fenced on `finished_at IS NULL` over columns `createAttempt` never sets. Swapping the
+  lane upsert for `onConflictDoNothing` is a COVERAGE GAP with a stated cause: the lane revision is
+  a second fence behind `invalidateActiveLane`, which releases the affected trains explicitly, so
+  no public path separates the two mechanisms.
 - **`bun run audit:hidden-reads` is green**, "Shipping code — must be empty (0)".
