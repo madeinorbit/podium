@@ -139,6 +139,9 @@ function harness(
   })
   return {
     containerEvents,
+    setController: (next: typeof controller) => {
+      if (serviceWorker) serviceWorker.controller = next
+    },
     replacement,
     registration: reg,
     reload,
@@ -165,6 +168,7 @@ afterEach(() => {
 describe('startReloadHandshake', () => {
   it('waits for a slow replacement worker instead of reloading the old shell on a timer', async () => {
     const run = harness()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
 
     expect(run.replacement.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
     run.fireTimer()
@@ -194,7 +198,9 @@ describe('startReloadHandshake', () => {
 
   it('reloads when the browser reports that the replacement controls the page', async () => {
     const run = harness()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
     const promise = run.promise
+    run.setController(run.replacement.worker)
     run.containerEvents.dispatch('controllerchange')
     await promise
     expect(run.reload).toHaveBeenCalledTimes(1)
@@ -209,7 +215,9 @@ describe('startReloadHandshake', () => {
 
   it('latches activation and controllerchange into one reload', async () => {
     const run = harness()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
     run.replacement.setState('activated')
+    run.setController(run.replacement.worker)
     run.containerEvents.dispatch('controllerchange')
     await run.promise
     expect(run.reload).toHaveBeenCalledTimes(1)
@@ -233,12 +241,76 @@ describe('startReloadHandshake', () => {
         run.registration.dispatchUpdateFound()
       },
     })
-    await Promise.resolve()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
+    run.registration.setWaiting(installing.worker)
+    run.registration.setInstalling(null)
     installing.setState('installed')
     installing.setState('activated')
     await run.promise
     expect(installing.postMessage).toHaveBeenCalledWith({ type: 'SKIP_WAITING' })
     expect(run.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('revalidates a parked worker and gives a new installation priority', async () => {
+    const newer = worker('installing')
+    let release!: () => void
+    const check = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const run = harness({
+      controlled: true,
+      update: () => {
+        run.registration.setInstalling(newer.worker)
+        run.registration.dispatchUpdateFound()
+        return check
+      },
+    })
+    await vi.waitFor(() => expect(run.registration.registration.installing).toBe(newer.worker))
+    expect(run.replacement.postMessage).not.toHaveBeenCalled()
+    release()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
+    expect(run.replacement.postMessage).not.toHaveBeenCalled()
+    run.registration.setWaiting(newer.worker)
+    run.registration.setInstalling(null)
+    newer.setState('installed')
+    expect(newer.postMessage).toHaveBeenCalledTimes(1)
+    newer.setState('activated')
+    expect(run.reload).not.toHaveBeenCalled()
+    run.setController(run.replacement.worker)
+    run.containerEvents.dispatch('controllerchange')
+    expect(run.reload).not.toHaveBeenCalled()
+    run.setController(newer.worker)
+    run.containerEvents.dispatch('controllerchange')
+    expect((await run.promise).outcome).toBe('reloading')
+    expect(run.reload).toHaveBeenCalledTimes(1)
+    expect(logged.at(-1)).toMatchObject({
+      revalidated: true,
+      superseded: true,
+      selectedControlsPage: true,
+    })
+  })
+
+  it('observes control acquired during revalidation without an installation', async () => {
+    const run = harness({
+      controlled: true,
+      update: () => {
+        run.setController(run.replacement.worker)
+        run.containerEvents.dispatch('controllerchange')
+        expect(run.reload).not.toHaveBeenCalled()
+      },
+    })
+    expect((await run.promise).outcome).toBe('reloading')
+    expect(run.reload).toHaveBeenCalledTimes(1)
+  })
+
+  it('fails closed with a parked worker when revalidation rejects', async () => {
+    const run = harness({
+      update: () => {
+        throw new Error('restart')
+      },
+    })
+    expect((await run.promise).outcome).toBe('failed')
+    expect(run.replacement.postMessage).not.toHaveBeenCalled()
   })
 
   it('reports a failed update check without navigating', async () => {
@@ -256,6 +328,7 @@ describe('startReloadHandshake', () => {
 
   it('reports a redundant replacement without navigating', async () => {
     const run = harness()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
     run.replacement.setState('redundant')
     const outcome = await run.promise
     expect(outcome.outcome).toBe('failed')
@@ -300,6 +373,7 @@ describe('what the handshake forwards', () => {
     atClientDefaults()
     logged.length = 0
     const run = harness()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
     run.replacement.setState('activated')
     await run.promise
 
@@ -345,6 +419,7 @@ describe('what the handshake forwards', () => {
     setLogLevel('debug')
     logged.length = 0
     const run = harness()
+    await vi.waitFor(() => expect(run.registration.update).toHaveResolved())
     run.replacement.setState('activated')
     await run.promise
 
@@ -386,6 +461,7 @@ describe('a reload the browser refuses', () => {
       waitingWorker: replacement.worker,
       onStatus: (status) => statuses.push(status),
       reload: () => {
+        expect(logged.at(-1)).toMatchObject({ revalidated: true, outcome: 'reloading' })
         throw refusal
       },
       setTimer: () => {},
