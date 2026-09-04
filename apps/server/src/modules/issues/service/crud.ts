@@ -1376,7 +1376,7 @@ export class IssueCrudModule {
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
-        this.store.rows.set(row.id, row)
+        this.store.installRow(row.id, row)
         this.store.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
       },
       publish: () => this.store.broadcastList(),
@@ -1443,7 +1443,7 @@ export class IssueCrudModule {
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
-        this.store.rows.set(row.id, row)
+        this.store.installRow(row.id, row)
         this.store.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
       },
       publish: () => this.store.broadcastList(),

@@ -874,6 +874,7 @@
         "src/modules/issues/service/mail.ts",
         "src/modules/issues/service/not-found.ts",
         "src/modules/issues/service/reads.ts",
+        "src/modules/issues/service/row-install-fold.test.ts",
         "src/modules/issues/service/test-plumbing.ts",
         "src/modules/issues/service/types.ts",
         "src/modules/issues/service/workflow.ts",

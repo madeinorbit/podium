@@ -13,7 +13,7 @@ import type {
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { BaselineFoldPort, EntityChangeSpec } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
@@ -152,6 +152,17 @@ export type { IssueTree, IssueTreeNode, IssueTreeSession }
 
 export interface IssueDeps {
   store: SessionStore
+  /**
+   * Where a ROW INSTALL waits for the outermost commit [POD-3366].
+   *
+   * `IssueStore.rows` is the authoritative in-memory issue projection, and every
+   * persist used to install into it on the statement after a `ledger.commit`.
+   * Nested inside a caller's span that commit is a savepoint, and a savepoint
+   * release is not a commit. Unset means every install is immediate, which is
+   * what a fixture with a pass-through `transact` wants and is where the install
+   * happens today.
+   */
+  applyCommit?: BaselineFoldPort
   listSessions(): SessionMeta[]
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test

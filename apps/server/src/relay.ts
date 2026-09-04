@@ -1429,6 +1429,11 @@ export class SessionRegistry {
 
     const issues = IssueService.compose({
       store: this.store,
+      // The issue row map is the authoritative in-memory projection and it is
+      // installed behind a `ledger.commit` that may be a savepoint inside a
+      // wider span, so it waits for the OUTERMOST commit through the same port
+      // the baseline fold does [POD-3366, spec §3.3 mechanism 1].
+      applyCommit: { spanOpen, onCommit: applyAfterCommit },
       artifacts: issueArtifacts,
       listSessions: () => sessionsSvc.listSessions(),
       // The by-id read [POD-1646]: one session, not the full pass.
