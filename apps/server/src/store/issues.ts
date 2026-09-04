@@ -92,20 +92,34 @@ export class IssuesRepository {
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
 
-  /** The query layer. `SyncQueries` is wiring and is named in the constructor
-   *  and nowhere else (spec rule 34), so a call site reads as a query. */
-  private readonly db: SyncDrizzle
-  /** The store's transaction port — the two read-decide-write spans below. */
-  private readonly transact: SyncQueries['transact']
-
   constructor(
-    queries: SyncQueries,
+    private readonly queries: SyncQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
-  ) {
-    this.db = queries.db
-    this.transact = queries.transact
+  ) {}
+
+  /**
+   * The query layer. `SyncQueries` is wiring and is named here and nowhere else
+   * (spec rule 34), so a call site reads as a query.
+   *
+   * A GETTER, not a field (rule 34a): once transaction routing is ambient
+   * (rule 35) this resolves the ENCLOSING transaction on every access, and a
+   * field frozen at construction could never do that. B1 changes this one line.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
+
+  /**
+   * The store's transaction port — the two read-decide-write spans below.
+   *
+   * An ARROW FIELD rather than an assignment of `queries.transact`, which would
+   * work today only because `syncQueriesOver` returns an arrow closing over the
+   * handle. The moment the implementation uses `this` — which rule 35's adapter
+   * does — a detached method breaks SILENTLY. One closure per instance is the
+   * price.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
    *  and whatever it had already cached is dropped.
