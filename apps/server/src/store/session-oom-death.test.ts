@@ -23,12 +23,24 @@ import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
+/**
+ * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
+ * [POD-3221 spec rule 27b]. A converted repository takes this in the slot its
+ * executor occupied. Local to this file on purpose: hoisting it into
+ * `test-support` would put six parallel conversion waves in one shared file.
+ */
+const stageDb = (database: ReturnType<typeof openDatabase>) => {
+  const stage = createBunStoreExecutor({ database }).stageA
+  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
+  return stage.db
+}
+
 let db: ReturnType<typeof openDatabase>
 let sessions: SessionsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
+  sessions = new SessionsRepository(stageDb(db))
 })
 
 const DIED_AT = '2026-08-20T10:00:00.000Z'

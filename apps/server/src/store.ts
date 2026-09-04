@@ -308,7 +308,7 @@ export class SessionStore {
     // purge observation checkpoints, issues resolve their stable repo_id via the
     // repos aggregate, and a repo-identity upgrade dual-writes onto issues.
     this.observationCheckpoints = new ObservationCheckpointsRepository(this.executor)
-    this.sessions = new SessionsRepository(this.executor, (id) =>
+    this.sessions = new SessionsRepository(this.stage.db, (id) =>
       this.observationCheckpoints.purge(id),
     )
     this.issues = new IssuesRepository(this.queries, (repoPath) =>

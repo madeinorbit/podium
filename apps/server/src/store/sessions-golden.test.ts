@@ -37,6 +37,13 @@ import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
+/** Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it. */
+const stageDb = (database: ReturnType<typeof openDatabase>) => {
+  const stage = createBunStoreExecutor({ database }).stageA
+  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
+  return stage.db
+}
+
 const ALICE = asUserId('user:alice')
 const BOB = asUserId('user:bob')
 
@@ -45,7 +52,7 @@ let sessions: SessionsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
+  sessions = new SessionsRepository(stageDb(db))
 })
 
 function row(input: Omit<Partial<SessionRow>, 'id'> & { id: string }): SessionRow {

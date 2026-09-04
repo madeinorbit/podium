@@ -11,10 +11,22 @@ import { createBunStoreExecutor } from './executor'
 import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
+/**
+ * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
+ * [POD-3221 spec rule 27b]. A converted repository takes this in the slot its
+ * executor occupied. Local to this file on purpose: hoisting it into
+ * `test-support` would put six parallel conversion waves in one shared file.
+ */
+const stageDb = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
+  const stage = createBunStoreExecutor({ database }).stageA
+  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
+  return stage.db
+}
+
 describe('session upsert rebase seam', () => {
   it('persists driver, login, and creator columns in one current-schema row', async () => {
     const db = openMigratedTestDatabase()
-    const sessions = new SessionsRepository(createBunStoreExecutor({ database: db }))
+    const sessions = new SessionsRepository(stageDb(db))
     const row: SessionRow = {
       id: asSessionId('session-rebase-seam'),
       ownerUserId: FIRST_ADMIN_USER_ID,
