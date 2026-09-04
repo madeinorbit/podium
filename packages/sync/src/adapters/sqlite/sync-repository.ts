@@ -11,41 +11,73 @@
  * package may not import from `apps/server`. So they are INJECTED — see
  * `./server-tables.ts` for why, and the constructor for what that buys.
  *
- * The CONNECTION arrives the same way and for the same reason: the store's
- * executor, narrowed to the one member this adapter uses, through
- * `./store-executor.ts` (POD-3338, spec §6 rule 20). Before that port this was
- * the only repository in the set still handed a raw `SqlDatabase`, because the
- * executor lives in `apps/server` and a package may not import an app.
+ * The QUERY CAPABILITY arrives the same way and for the same reason: the store's
+ * drizzle instance and its transaction, narrowed to the two members this adapter
+ * uses, through `./store-queries.ts` (POD-3338 for the port, spec §6 rule 20).
+ * Before that port this was the only repository in the set still handed a raw
+ * `SqlDatabase`, because the seam lives in `apps/server` and a package may not
+ * import an app.
+ *
+ * CONVERTED TO DRIZZLE AT POD-3416 (spec §6 rules 27a, 27b, 34a). The 22
+ * hand-written statements that used to run on `.prepare()` are builder queries
+ * now; this file names no connection and imports no raw handle. Two of them keep
+ * a `sql` fragment for a construct the builder has no form for, and each says so
+ * at its site.
  */
 
 import { asMutationId, type MutationId, type SessionId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
-import { transaction } from '@podium/runtime/sqlite'
-import { getTableName } from 'drizzle-orm'
+import { and, asc, count, eq, gt, inArray, lt, lte, max, min, sql } from 'drizzle-orm'
+import { integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change-lifecycle'
 import type { ChangePrunePlan } from '../../change-log'
-import type { SyncServerTables } from './server-tables'
-import type { SyncSqlConnection, SyncSqlParam, SyncStoreExecutor } from './store-executor'
+import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
+import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
+import type { SyncQueries } from './store-queries'
 
 /**
- * A table identifier for interpolation into this repository's statements.
+ * SQLite's OWN autoincrement bookkeeping table, declared so that
+ * {@link SyncRepository.maxChangeSeq} can read it through the builder rather
+ * than as a whole raw statement.
  *
- * The name comes from a drizzle schema object, never from a caller — the
- * quoting is here so that the identifier stays an identifier no matter what the
- * schema calls the table, not as protection against input that cannot reach it.
+ * DELIBERATELY NOT IN `./schema.ts`. That file is named in `drizzle.config.ts`,
+ * so a table declared there is a table drizzle-kit will try to CREATE — and
+ * `sqlite_sequence` is the engine's, created and dropped by SQLite itself the
+ * first time an AUTOINCREMENT table is written. Declaring it here keeps it out of
+ * the journal while still giving the read the schema's names and types.
+ *
+ * It is not `sqlite_master` and it is not a `PRAGMA`: this is ordinary table data
+ * on SQLite and on Turso alike (measured for the append spike,
+ * `store/spike/turso-append/`), which is why the boundary lint's driver-only list
+ * does not name it and why the read survives the remote backend.
  */
-function quoteIdentifier(name: string): string {
-  return `"${name.replaceAll('"', '""')}"`
-}
+const sqliteSequence = sqliteTable('sqlite_sequence', {
+  name: text().notNull(),
+  seq: integer().notNull(),
+})
 
-/** Map a raw `changes` SELECT row onto the composed lifecycle read shape. */
-function mapChangeLogReadRow(r: Record<string, unknown>): ChangeLogReadRow {
+/**
+ * Map a selected `changes` row onto the composed lifecycle read shape.
+ *
+ * THE CASTS ARE THE UNION, NOT THE DRIVER. `entity` and `op` are `text()`
+ * columns, so drizzle hands back `string`; {@link ChangeLogReadRow} narrows both
+ * to the model's unions. That is a decision the column cannot carry and it stays
+ * (rule 6). Every other field arrives already typed, which is what the conversion
+ * bought: the `Record<string, unknown>` this mapper used to take is gone.
+ */
+function mapChangeLogReadRow(r: {
+  seq: number
+  entity: string
+  entityId: string
+  op: string
+  payload: string | null
+}): ChangeLogReadRow {
   return {
-    seq: r.seq as number,
+    seq: r.seq,
     entity: r.entity as ChangeLogReadRow['entity'],
-    entityId: r.entity_id as string,
+    entityId: r.entityId,
     op: r.op as ChangeLogReadRow['op'],
-    payload: (r.payload as string | null) ?? null,
+    payload: r.payload,
   }
 }
 
@@ -61,44 +93,50 @@ export class SyncRepository {
   private latestChangeStatesGenerationValue = 0
 
   /**
-   * The two server-owned tables, resolved from the objects the composition root
+   * The two server-owned tables, as the drizzle objects the composition root
    * hands in rather than spelled out in the SQL below. That is the whole point of
    * the injection: this file no longer names a table `apps/server` owns, so the
-   * declaration stays single and the drizzle conversion (POD-3221 Stage A) has
-   * the real table objects to build its queries from.
+   * declaration stays single and the queries below are built from the real table
+   * objects.
+   *
+   * WHAT THE STRUCTURAL PORT COSTS, stated so nobody reads it as an oversight:
+   * `./server-tables.ts` types their columns as bare `SQLiteColumn`, because
+   * naming `typeof queuedMessages` is the import the port exists to avoid. So a
+   * read of one of these two tables comes back with `unknown` values and its
+   * mapper still casts, exactly as it did before the conversion — the four tables
+   * this adapter OWNS get rule 3's names and types through `./schema.ts`.
    */
-  private readonly queuedMessagesTable: string
-  private readonly upstreamOutboxTable: string
+  private readonly queuedMessages: QueuedMessagesTable
+  private readonly upstreamOutbox: UpstreamOutboxTable
 
   /**
-   * The connection this adapter's statements run on, resolved ONCE from the
-   * executor's legacy handle.
+   * A GETTER, NOT AN ASSIGNED FIELD [spec rule 34a]. Ambient transaction routing
+   * resolves the enclosing span on every access, and a field frozen at
+   * construction can never do that; B1 changes this one line, in this one place.
    *
-   * RESOLVED AT CONSTRUCTION, NOT PER STATEMENT, and the refusal below is why.
-   * `legacy` is optional on the port because it is optional on the executor: a
-   * fake or a remote driver has no `bun:sqlite` connection. An adapter built
-   * over one has to fail HERE, where the stack still says what was mis-wired,
-   * rather than at whichever statement happened to run first.
-   *
-   * IT IS ALSO THE SAME OBJECT the composition root's own spans run on, which
-   * is what keeps `transaction()` nesting-safe across the boundary: the helper
-   * keys its depth by handle identity, so a `SessionStore.transact` wrapping an
-   * `appendChanges` still degrades the inner span to a savepoint.
+   * Every `this.db` below chains a query IMMEDIATELY and none binds it to a local
+   * [rule 34b] — a captured instance survives the span it was read in and serves
+   * the wrong connection silently.
    */
-  private readonly db: SyncSqlConnection
+  private get db() {
+    return this.queries.db
+  }
 
-  constructor(executor: SyncStoreExecutor, tables: SyncServerTables) {
-    const connection = executor.legacy
-    if (connection === undefined) {
-      throw new TypeError(
-        'SyncRepository needs the executor\'s legacy connection: this adapter still issues ' +
-          'synchronous statements, and the executor it was given has no raw handle to issue ' +
-          'them on (POD-3338).',
-      )
-    }
-    this.db = connection
-    this.queuedMessagesTable = quoteIdentifier(getTableName(tables.queuedMessages))
-    this.upstreamOutboxTable = quoteIdentifier(getTableName(tables.upstreamOutbox))
+  /**
+   * AN ARROW FIELD RATHER THAN A STRAIGHT ASSIGNMENT [spec rule 34a]. The
+   * server's `transact` happens to be an arrow closing over the handle today, so
+   * `this.transact = queries.transact` would work — and would stop working, as a
+   * detached method, the moment the implementation uses `this`. Silent is the
+   * failure mode this epic keeps paying for, so it costs one closure.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
+
+  constructor(
+    private readonly queries: SyncQueries,
+    tables: SyncServerTables,
+  ) {
+    this.queuedMessages = tables.queuedMessages
+    this.upstreamOutbox = tables.upstreamOutbox
   }
 
   // ---- metadata oplog (docs/spec/oplog-read-path.md) ----
@@ -118,20 +156,33 @@ export class SyncRepository {
     // while collapsing a live-scale reconcile from hundreds of statements to a
     // handful. One outer transaction preserves the contiguous, non-interleaved
     // sequence contract across every chunk.
+    //
+    // STILL FIVE PARAMETERS PER ROW after the conversion, verified by printing
+    // the statement: drizzle names all nine columns but emits a literal `null`
+    // for `seq` and for the three provenance columns rather than binding them,
+    // so the chunk size still buys the same headroom it was chosen for.
     const chunkSize = 100
-    transaction(this.db, () => {
+    this.transact(() => {
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
-        const params: SyncSqlParam[] = []
-        for (const row of chunk) {
-          params.push(row.entity, row.entityId, row.op, row.payload, eventTime)
-        }
-        const placeholders = chunk.map(() => '(?, ?, ?, ?, ?)').join(', ')
+        // AN EXPLICIT NULL WHERE THE ORIGINAL OMITTED [spec rule 43], and it is
+        // safe on this table for both shapes it takes. `seq` is INTEGER PRIMARY
+        // KEY AUTOINCREMENT, where an explicit null auto-assigns exactly as an
+        // omission does; the three provenance columns are nullable with no
+        // DEFAULT clause, so null IS what the omission stored. No column of
+        // `changes` carries a default for an explicit null to defeat.
         const result = this.db
-          .prepare(
-            `INSERT INTO changes (entity, entity_id, op, payload, event_time) VALUES ${placeholders}`,
+          .insert(changes)
+          .values(
+            chunk.map((row) => ({
+              entity: row.entity,
+              entityId: row.entityId,
+              op: row.op,
+              payload: row.payload,
+              eventTime,
+            })),
           )
-          .run(...params)
+          .run()
         const last = Number(result.lastInsertRowid)
         const first = last - chunk.length + 1
         for (let i = 0; i < chunk.length; i++) seqs.push(first + i)
@@ -156,11 +207,6 @@ export class SyncRepository {
    * same reason it is true in the log.
    */
   private applyLatestChangeStates(rows: readonly ChangeLogWriteRow[], firstSeq: number): void {
-    const upsert = this.db.prepare(
-      `INSERT INTO change_latest (entity, entity_id, seq, payload) VALUES (?, ?, ?, ?)
-       ON CONFLICT(entity, entity_id) DO UPDATE SET seq = excluded.seq, payload = excluded.payload`,
-    )
-    const remove = this.db.prepare('DELETE FROM change_latest WHERE entity = ? AND entity_id = ?')
     for (let i = 0; i < rows.length; i++) {
       const row = rows[i] as ChangeLogWriteRow
       // A payload-less upsert is the corrupt row every reader of the fold already
@@ -169,9 +215,28 @@ export class SyncRepository {
       // the column says NOT NULL; keeping the PREVIOUS state would be worse still,
       // since the folded log never showed it once a corrupt row landed on top.
       if (row.op === 'upsert' && row.payload !== null) {
-        upsert.run(row.entity, row.entityId, firstSeq + i, row.payload)
+        // TARGETED ON THE PRIMARY KEY, which is `change_latest`'s ONLY uniqueness
+        // constraint — checked with `pragma index_list` on the migrated table, so
+        // no conflict can arrive on a constraint this target does not cover
+        // [spec rule 31a].
+        this.db
+          .insert(changeLatest)
+          .values({
+            entity: row.entity,
+            entityId: row.entityId,
+            seq: firstSeq + i,
+            payload: row.payload,
+          })
+          .onConflictDoUpdate({
+            target: [changeLatest.entity, changeLatest.entityId],
+            set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
+          })
+          .run()
       } else {
-        remove.run(row.entity, row.entityId)
+        this.db
+          .delete(changeLatest)
+          .where(and(eq(changeLatest.entity, row.entity), eq(changeLatest.entityId, row.entityId)))
+          .run()
       }
     }
   }
@@ -192,18 +257,27 @@ export class SyncRepository {
 
   /** Highest assigned seq ever (survives head-pruning via sqlite_sequence). 0 = none. */
   maxChangeSeq(): number {
-    const row = this.db.prepare("SELECT seq FROM sqlite_sequence WHERE name = 'changes'").get() as
-      | { seq: number }
-      | undefined
+    // ABSENT ROW, NOT ZERO, is the empty case: SQLite creates the
+    // `sqlite_sequence` entry on the first insert, so a log that has never been
+    // written has no row here at all.
+    const row = this.db
+      .select({ seq: sqliteSequence.seq })
+      .from(sqliteSequence)
+      .where(eq(sqliteSequence.name, 'changes'))
+      .get()
     return row?.seq ?? 0
   }
 
   /** Lowest RETAINED seq, or null when the log is empty. */
   minChangeSeq(): number | null {
-    const row = this.db.prepare('SELECT MIN(seq) AS seq FROM changes').get() as {
-      seq: number | null
-    }
-    return row.seq
+    // An aggregate over an empty table is still ONE row carrying NULL, which is
+    // the `null` this returns; the `?? null` is for `.get()`'s optional type, not
+    // for a case SQLite produces.
+    const row = this.db
+      .select({ seq: min(changes.seq) })
+      .from(changes)
+      .get()
+    return row?.seq ?? null
   }
 
   /**
@@ -212,11 +286,22 @@ export class SyncRepository {
    * this is a plain range read.
    */
   changesSince(cursor: number, limit = 10_000): ChangeLogReadRow[] {
+    // FIVE COLUMNS OF NINE, named rather than spread [spec rule 39]: the original
+    // statement projected a subset, and a spread would read the four provenance
+    // and clock columns nobody here asks for.
     const rows = this.db
-      .prepare(
-        'SELECT seq, entity, entity_id, op, payload FROM changes WHERE seq > ? ORDER BY seq ASC LIMIT ?',
-      )
-      .all(cursor, limit) as Record<string, unknown>[]
+      .select({
+        seq: changes.seq,
+        entity: changes.entity,
+        entityId: changes.entityId,
+        op: changes.op,
+        payload: changes.payload,
+      })
+      .from(changes)
+      .where(gt(changes.seq, cursor))
+      .orderBy(asc(changes.seq))
+      .limit(limit)
+      .all()
     return rows.map((r) => mapChangeLogReadRow(r))
   }
 
@@ -232,12 +317,19 @@ export class SyncRepository {
    */
   planChangePrune(opts: { keepRows: number; maxAgeMs: number; now: number }): ChangePrunePlan {
     const rowCapSeq = this.maxChangeSeq() - opts.keepRows
+    // `INDEXED BY` HAS NO BUILDER FORM, so the FROM clause is an `sql` fragment —
+    // which rule 1 allows inside a builder query, and which keeps the WHERE, the
+    // aggregate and the row decoding on the builder where the rest of this file
+    // is. The hint is load-bearing rather than decoration: measured on the
+    // fixture, `EXPLAIN QUERY PLAN` reports `SEARCH changes` without it against
+    // `SEARCH changes USING COVERING INDEX changes_event_time` with it, and this
+    // read runs once per prune job.
     const aged = this.db
-      .prepare(
-        'SELECT MAX(seq) AS seq FROM changes INDEXED BY changes_event_time WHERE event_time < ?',
-      )
-      .get(opts.now - opts.maxAgeMs) as { seq: number | null }
-    return { thresholdSeq: Math.max(rowCapSeq, aged.seq ?? 0) }
+      .select({ seq: max(changes.seq) })
+      .from(sql`${changes} indexed by ${sql.identifier('changes_event_time')}`)
+      .where(lt(changes.eventTime, opts.now - opts.maxAgeMs))
+      .get()
+    return { thresholdSeq: Math.max(rowCapSeq, aged?.seq ?? 0) }
   }
 
   /**
@@ -253,13 +345,19 @@ export class SyncRepository {
     }
     if (plan.thresholdSeq <= 0) return 0
     const result = this.db
-      .prepare(
-        `DELETE FROM changes
-         WHERE seq IN (
-           SELECT seq FROM changes WHERE seq <= ? ORDER BY seq ASC LIMIT ?
-         )`,
+      .delete(changes)
+      .where(
+        inArray(
+          changes.seq,
+          this.db
+            .select({ seq: changes.seq })
+            .from(changes)
+            .where(lte(changes.seq, plan.thresholdSeq))
+            .orderBy(asc(changes.seq))
+            .limit(batchSize),
+        ),
       )
-      .run(plan.thresholdSeq, batchSize)
+      .run()
     return Number(result.changes)
   }
 
@@ -283,9 +381,18 @@ export class SyncRepository {
    */
   latestChangeStates(): ChangeLogReadRow[] {
     if (this.latestChangeStatesCache !== undefined) return this.latestChangeStatesCache
+    // FOUR COLUMNS OF FOUR — the whole table, named rather than spread so the
+    // projection stays a statement about what this read wants [spec rule 39].
     const rows = this.db
-      .prepare('SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq')
-      .all() as Record<string, unknown>[]
+      .select({
+        seq: changeLatest.seq,
+        entity: changeLatest.entity,
+        entityId: changeLatest.entityId,
+        payload: changeLatest.payload,
+      })
+      .from(changeLatest)
+      .orderBy(asc(changeLatest.seq))
+      .all()
     this.latestChangeStatesCache = rows.map((r) => mapChangeLogReadRow({ ...r, op: 'upsert' }))
     return this.latestChangeStatesCache
   }
@@ -300,8 +407,10 @@ export class SyncRepository {
   /** The stored result of an already-applied mutation, or undefined if new. */
   getAppliedMutation(mutationId: MutationId): string | undefined {
     const row = this.db
-      .prepare('SELECT result FROM applied_mutations WHERE mutation_id = ?')
-      .get(mutationId) as { result: string } | undefined
+      .select({ result: appliedMutations.result })
+      .from(appliedMutations)
+      .where(eq(appliedMutations.mutationId, mutationId))
+      .get()
     return row?.result
   }
 
@@ -311,17 +420,25 @@ export class SyncRepository {
     result: string,
     appliedAt: number,
   ): void {
+    // `INSERT OR IGNORE` -> `onConflictDoNothing()` [spec rules 31, 31a]. The two
+    // forms differ only where a NOT NULL or a CHECK violation is reachable, and
+    // on the shipped `applied_mutations` neither is: the table declares no CHECK
+    // constraint, and all four of its NOT NULL columns are supplied here from
+    // non-nullable parameters. The conflict target is left off deliberately —
+    // a bare `on conflict do nothing` covers every uniqueness constraint, which
+    // is what `OR IGNORE` did.
     this.db
-      .prepare(
-        'INSERT OR IGNORE INTO applied_mutations (mutation_id, proc, result, applied_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(mutationId, proc, result, appliedAt)
+      .insert(appliedMutations)
+      .values({ mutationId, proc, result, appliedAt })
+      .onConflictDoNothing()
+      .run()
   }
 
   pruneAppliedMutations(opts: { maxAgeMs: number; now: number }): void {
     this.db
-      .prepare('DELETE FROM applied_mutations WHERE applied_at < ?')
-      .run(opts.now - opts.maxAgeMs)
+      .delete(appliedMutations)
+      .where(lt(appliedMutations.appliedAt, opts.now - opts.maxAgeMs))
+      .run()
   }
 
   /** Enqueue a message; the id IS the mutationId, so a replayed enqueue is a no-op.
@@ -340,28 +457,39 @@ export class SyncRepository {
     onBehalfOf?: string | null
     sourceMessageId?: string | null
   }): boolean {
+    // `INSERT OR IGNORE` -> `onConflictDoNothing()` [spec rules 31, 31a], and this
+    // table is the one that needs the enumeration spelled out because it DOES
+    // carry CHECK constraints. `queued_messages_principal_kind` and
+    // `queued_messages_actor_kind` admit only 'user' | 'agent' | 'system', which
+    // is exactly the union this parameter declares for both fields, so neither
+    // CHECK is reachable from a caller the compiler accepts. Every NOT NULL
+    // column is supplied from a non-nullable source: the four required
+    // parameters, and a `??` fallback for each optional one.
+    //
+    // `attempts` IS THE RULE 43 SITE. The original omitted it and let the column
+    // DEFAULT 0 apply; drizzle names every column it knows, so the conversion
+    // binds a value — and the value it binds is 0, the default DECLARED on the
+    // injected table object, not a null. That holds because the declaration
+    // agrees with the shipped DDL, which is what `schema.test.ts` pins. Printed
+    // to confirm, rather than reasoned from the builder.
     const r = this.db
-      .prepare(
-        `INSERT OR IGNORE INTO ${this.queuedMessagesTable}
-          (id, session_id, text, queued_at, input_origin, principal_kind,
-           principal_ref, delegation_ref, actor_kind, actor_id, on_behalf_of,
-           source_message_id)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.id,
-        row.sessionId,
-        row.text,
-        row.queuedAt,
-        row.inputOrigin ?? 'unknown',
-        row.principalKind ?? 'system',
-        row.principalRef ?? 'legacy-session-inbox',
-        row.delegationRef ?? null,
-        row.actorKind ?? 'system',
-        row.actorId ?? 'legacy-session-inbox',
-        row.onBehalfOf ?? null,
-        row.sourceMessageId ?? null,
-      )
+      .insert(this.queuedMessages)
+      .values({
+        id: row.id,
+        sessionId: row.sessionId,
+        text: row.text,
+        queuedAt: row.queuedAt,
+        inputOrigin: row.inputOrigin ?? 'unknown',
+        principalKind: row.principalKind ?? 'system',
+        principalRef: row.principalRef ?? 'legacy-session-inbox',
+        delegationRef: row.delegationRef ?? null,
+        actorKind: row.actorKind ?? 'system',
+        actorId: row.actorId ?? 'legacy-session-inbox',
+        onBehalfOf: row.onBehalfOf ?? null,
+        sourceMessageId: row.sourceMessageId ?? null,
+      })
+      .onConflictDoNothing()
+      .run()
     return Number(r.changes) > 0
   }
 
@@ -379,59 +507,80 @@ export class SyncRepository {
     onBehalfOf: string | null
     sourceMessageId: string | null
   }[] {
+    // ELEVEN COLUMNS OF THIRTEEN, named [spec rule 39]: `queued_at` and
+    // `session_id` are the ordering and the predicate, not part of the answer.
     const rows = this.db
-      .prepare(
-        `SELECT id, text, attempts, input_origin, principal_kind, principal_ref,
-                delegation_ref, actor_kind, actor_id, on_behalf_of, source_message_id
-           FROM ${this.queuedMessagesTable} WHERE session_id = ?
-          ORDER BY queued_at ASC, rowid ASC`,
-      )
-      .all(sessionId) as Record<string, unknown>[]
+      .select({
+        id: this.queuedMessages.id,
+        text: this.queuedMessages.text,
+        attempts: this.queuedMessages.attempts,
+        inputOrigin: this.queuedMessages.inputOrigin,
+        principalKind: this.queuedMessages.principalKind,
+        principalRef: this.queuedMessages.principalRef,
+        delegationRef: this.queuedMessages.delegationRef,
+        actorKind: this.queuedMessages.actorKind,
+        actorId: this.queuedMessages.actorId,
+        onBehalfOf: this.queuedMessages.onBehalfOf,
+        sourceMessageId: this.queuedMessages.sourceMessageId,
+      })
+      .from(this.queuedMessages)
+      .where(eq(this.queuedMessages.sessionId, sessionId))
+      .orderBy(asc(this.queuedMessages.queuedAt), asc(sql`rowid`))
+      .all()
+    // The casts are the structural port's, not the driver's — see the field
+    // declaration above: an injected table's columns are bare `SQLiteColumn`, so
+    // their values arrive `unknown` exactly as they did before the conversion.
     return rows.map((r) => ({
       id: r.id as string,
       text: r.text as string,
       attempts: r.attempts as number,
-      inputOrigin: (r.input_origin as ObservationInputOrigin | null) ?? 'unknown',
-      principalKind: r.principal_kind as 'user' | 'agent' | 'system',
-      principalRef: r.principal_ref as string,
-      delegationRef: (r.delegation_ref as string | null) ?? null,
-      actorKind: r.actor_kind as 'user' | 'agent' | 'system',
-      actorId: r.actor_id as string,
-      onBehalfOf: (r.on_behalf_of as string | null) ?? null,
-      sourceMessageId: (r.source_message_id as string | null) ?? null,
+      inputOrigin: (r.inputOrigin as ObservationInputOrigin | null) ?? 'unknown',
+      principalKind: r.principalKind as 'user' | 'agent' | 'system',
+      principalRef: r.principalRef as string,
+      delegationRef: (r.delegationRef as string | null) ?? null,
+      actorKind: r.actorKind as 'user' | 'agent' | 'system',
+      actorId: r.actorId as string,
+      onBehalfOf: (r.onBehalfOf as string | null) ?? null,
+      sourceMessageId: (r.sourceMessageId as string | null) ?? null,
     }))
   }
 
   /** Per-session queued counts — the boot seed for Session.queuedMessageCount. */
   queuedMessageCounts(): Map<SessionId, number> {
     const rows = this.db
-      .prepare(
-        `SELECT session_id, COUNT(*) AS n FROM ${this.queuedMessagesTable} GROUP BY session_id`,
-      )
-      // SERIALIZATION EDGE: an untyped column re-entering the session id space.
-      .all() as { session_id: SessionId; n: number }[]
-    return new Map(rows.map((r) => [r.session_id, r.n]))
+      .select({ sessionId: this.queuedMessages.sessionId, n: count() })
+      .from(this.queuedMessages)
+      .groupBy(this.queuedMessages.sessionId)
+      .all()
+    // SERIALIZATION EDGE: an untyped column re-entering the session id space.
+    return new Map(rows.map((r) => [r.sessionId as SessionId, r.n]))
   }
 
   deleteQueuedMessage(id: string): void {
-    this.db.prepare(`DELETE FROM ${this.queuedMessagesTable} WHERE id = ?`).run(id)
+    this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.id, id)).run()
   }
 
   bumpQueuedAttempts(id: string): void {
     this.db
-      .prepare(`UPDATE ${this.queuedMessagesTable} SET attempts = attempts + 1 WHERE id = ?`)
-      .run(id)
+      .update(this.queuedMessages)
+      .set({ attempts: sql`${this.queuedMessages.attempts} + 1` })
+      .where(eq(this.queuedMessages.id, id))
+      .run()
   }
 
   /** The count bounds how many copies ONE CLI process may be typed; a fresh PTY
    *  has received none of them, so a bind clears it (POD-1242). */
   resetQueuedAttempts(id: string): void {
-    this.db.prepare(`UPDATE ${this.queuedMessagesTable} SET attempts = 0 WHERE id = ?`).run(id)
+    this.db
+      .update(this.queuedMessages)
+      .set({ attempts: 0 })
+      .where(eq(this.queuedMessages.id, id))
+      .run()
   }
 
   /** Drop a dead session's queue (kill without resume ref, permanent delete). */
   deleteQueuedMessagesForSession(sessionId: SessionId): void {
-    this.db.prepare(`DELETE FROM ${this.queuedMessagesTable} WHERE session_id = ?`).run(sessionId)
+    this.db.delete(this.queuedMessages).where(eq(this.queuedMessages.sessionId, sessionId)).run()
   }
 
   // ---- ARCHIVED: the retired node→hub issue-write outbox (POD-309) ----
@@ -448,16 +597,22 @@ export class SyncRepository {
    * forwarding path; a table quietly dropped would have taken the evidence with it.
    */
   listParkedUpstreamMutations(): { mutationId: MutationId; proc: string; queuedAt: number }[] {
+    // THREE COLUMNS OF FIVE, named [spec rule 39]: `input` is the parked payload
+    // this report deliberately does not read, and `attempts` belongs to the
+    // retired forwarder.
     const rows = this.db
-      .prepare(
-        `SELECT mutation_id, proc, queued_at FROM ${this.upstreamOutboxTable}
-          ORDER BY queued_at ASC, rowid ASC`,
-      )
-      .all() as Record<string, unknown>[]
+      .select({
+        mutationId: this.upstreamOutbox.mutationId,
+        proc: this.upstreamOutbox.proc,
+        queuedAt: this.upstreamOutbox.queuedAt,
+      })
+      .from(this.upstreamOutbox)
+      .orderBy(asc(this.upstreamOutbox.queuedAt), asc(sql`rowid`))
+      .all()
     return rows.map((r) => ({
-      mutationId: asMutationId(r.mutation_id as string),
+      mutationId: asMutationId(r.mutationId as string),
       proc: r.proc as string,
-      queuedAt: Number(r.queued_at),
+      queuedAt: Number(r.queuedAt),
     }))
   }
 
@@ -475,9 +630,11 @@ export class SyncRepository {
    */
   readFeedIdentity(): { feedId: string; epoch: string } | null {
     const row = this.db
-      .prepare('SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1')
-      .get() as { feed_id: string; epoch: string } | undefined
-    return row === undefined ? null : { feedId: row.feed_id, epoch: row.epoch }
+      .select({ feedId: feedIdentity.feedId, epoch: feedIdentity.epoch })
+      .from(feedIdentity)
+      .where(eq(feedIdentity.singleton, 1))
+      .get()
+    return row === undefined ? null : { feedId: row.feedId, epoch: row.epoch }
   }
 
   /**
@@ -487,12 +644,20 @@ export class SyncRepository {
    * a query happened to return first.
    */
   writeFeedIdentity(identity: { feedId: string; epoch: string }, mintedAt: number): void {
+    // TARGETED ON THE PRIMARY KEY, which is `feed_identity`'s ONLY uniqueness
+    // constraint — checked with `pragma index_list` on the migrated table
+    // [spec rule 31a].
     this.db
-      .prepare(
-        'INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?) ' +
-          'ON CONFLICT(singleton) DO UPDATE SET feed_id = excluded.feed_id, ' +
-          'epoch = excluded.epoch, minted_at = excluded.minted_at',
-      )
-      .run(identity.feedId, identity.epoch, mintedAt)
+      .insert(feedIdentity)
+      .values({ singleton: 1, feedId: identity.feedId, epoch: identity.epoch, mintedAt })
+      .onConflictDoUpdate({
+        target: feedIdentity.singleton,
+        set: {
+          feedId: sql`excluded.feed_id`,
+          epoch: sql`excluded.epoch`,
+          mintedAt: sql`excluded.minted_at`,
+        },
+      })
+      .run()
   }
 }

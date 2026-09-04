@@ -19,9 +19,9 @@ import {
   FeedIdentityRegistry,
   Ledger,
   SyncRepository,
-  syncStoreExecutorOver,
 } from '@podium/sync'
 import { afterEach, describe, expect, it } from 'vitest'
+import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { backupDatabase } from './backup'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { applyBaselineSchema, runDrizzleMigrations } from './index'
@@ -69,7 +69,7 @@ function authority(): { db: SqlDatabase; dbPath: string; dir: string; ledger: Le
 type LedgerWithIdentity = Ledger & { feedIdentity: () => FeedIdentity }
 
 function ledgerOver(db: SqlDatabase): LedgerWithIdentity {
-  const repo = new SyncRepository(syncStoreExecutorOver(db), syncServerTables)
+  const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
   const ledger = new Ledger({
     repo,
     now: () => 1_000,
@@ -123,7 +123,7 @@ describe('the migration creates the feed-identity table', () => {
     const identity = ledger.feedIdentity()
     expect(identity.feedId).toBeTruthy()
     expect(identity.epoch).toBeTruthy()
-    expect(await new SyncRepository(syncStoreExecutorOver(db), syncServerTables).readFeedIdentity()).toEqual(identity)
+    expect(await new SyncRepository(syncQueriesOver(db), syncServerTables).readFeedIdentity()).toEqual(identity)
   })
 
   it('preserves the existing identity while adding the singleton constraint', () => {
@@ -166,7 +166,7 @@ describe('the migration creates the feed-identity table', () => {
 
   it('one database is one feed — a bump REPLACES the identity rather than appending', async () => {
     const { db } = authority()
-    const repo = new SyncRepository(syncStoreExecutorOver(db), syncServerTables)
+    const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_1' }, 1)
     await repo.writeFeedIdentity({ feedId: 'feed_a', epoch: 'epoch_2' }, 2)
 
@@ -274,7 +274,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     const r = restoreDatabase({ backupPath, dbPath, freeBytes: PLENTY })
     const db2 = openDatabase(dbPath)
-    expect(await new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity()).toEqual({
+    expect(await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity()).toEqual({
       feedId: r.feedId,
       epoch: r.epoch,
     })
@@ -294,7 +294,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
     // The re-mint happens on the COPY. A backup mutated in place would be
     // single-use, and the second rollback attempt would find a lie.
     const backupDb = openDatabase(backupPath)
-    expect((await new SyncRepository(syncStoreExecutorOver(backupDb), syncServerTables).readFeedIdentity())?.epoch).toBe(
+    expect((await new SyncRepository(syncQueriesOver(backupDb), syncServerTables).readFeedIdentity())?.epoch).toBe(
       backupEpoch,
     )
     backupDb.close()
@@ -335,7 +335,7 @@ describe('restore re-mints the epoch (ADR 2 D1)', () => {
 
     const db2 = openDatabase(dbPath)
     expect(ledgerOver(db2).cursor()).toBe(cursorBefore)
-    expect((await new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity())?.epoch).toBe(epochBefore)
+    expect((await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch).toBe(epochBefore)
     db2.close()
   })
 
@@ -411,7 +411,7 @@ describe('restoreCliMain (the command-shaped entry)', () => {
     // the only feedback that the guarantee actually fired.
     expect(out).toContain(before)
     const db2 = openDatabase(dbPath)
-    const after = (await new SyncRepository(syncStoreExecutorOver(db2), syncServerTables).readFeedIdentity())?.epoch as string
+    const after = (await new SyncRepository(syncQueriesOver(db2), syncServerTables).readFeedIdentity())?.epoch as string
     db2.close()
     expect(after).not.toBe(before)
     expect(out).toContain(after)

@@ -22,10 +22,10 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core'
 import { describe, expect, it } from 'vitest'
 import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import { FeedIdentityRegistry } from '../../feed'
-import { syncStoreExecutorOver } from './store-executor'
 import { SyncRepository } from './sync-repository'
 import {
   createTestSyncDatabase,
+  createTestSyncQueries,
   createTestSyncRepository,
   testQueuedMessages,
   testSyncServerTables,
@@ -156,7 +156,7 @@ describe('feed identity persists, and there is exactly one of it', () => {
     // row count is the assertion; equality of the read alone would pass against an
     // append-only table whose SELECT happened to return the newest row.
     const db = createTestSyncDatabase()
-    const repo = new SyncRepository(syncStoreExecutorOver(db), testSyncServerTables)
+    const repo = new SyncRepository(createTestSyncQueries(db), testSyncServerTables)
     repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P8Z3M4N5R6T7V8W9XAYBZ' }, 1)
     repo.writeFeedIdentity({ feedId: 'feed-a', epoch: '01JQ0P9Q1C2D3E4F5G6H7J8K9M' }, 2)
 
