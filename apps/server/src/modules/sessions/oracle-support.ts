@@ -334,6 +334,31 @@ export async function waitFor(
   }
 }
 
+/**
+ * Reproduce the short paint-and-settle sequence a terminal TUI emits after
+ * binding. A fresh bind is not itself proof that Claude's composer is mounted,
+ * so oracle sends that are about a later property (such as attribution) use
+ * this to cross the readiness boundary without sleeping for its fallback
+ * ceiling.
+ *
+ * Spread the frames over time: the inbox records its output baseline on the
+ * first drain poll, and a synchronous burst before that poll is correctly not
+ * evidence of output after the baseline.
+ */
+export function paintOracleTui(o: Oracle, sessionId: SessionId): void {
+  let seq = 0
+  const painter = setInterval(() => {
+    o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
+      type: 'agentFrame',
+      sessionId,
+      seq: seq++,
+      data: 'eA==',
+    })
+    if (seq >= 5) clearInterval(painter)
+  }, 100)
+  painter.unref?.()
+}
+
 // ---------------------------------------------------------------------------
 // PTY frames
 // ---------------------------------------------------------------------------

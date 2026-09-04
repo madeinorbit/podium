@@ -16,7 +16,14 @@
 import { FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it } from 'vitest'
-import { disposeOracles, MUST_NOT_CHANGE, makeOracle, willChange } from './oracle-support'
+import {
+  disposeOracles,
+  MUST_NOT_CHANGE,
+  makeOracle,
+  paintOracleTui,
+  waitFor,
+  willChange,
+} from './oracle-support'
 
 afterEach(() => disposeOracles())
 
@@ -159,9 +166,24 @@ describe('oracle: who typed into this session', () => {
     await o.call.sessions.answerAskUserQuestion({ sessionId, choices: [{ optionIndices: [1] }] })
     await o.call.sessions.sendText({ sessionId, text: 'via the substrate' })
 
-    const origins = o.daemon
-      .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
-      .map((m) => m.inputOrigin)
+    // A fresh Claude bind intentionally holds chat sends until the TUI has
+    // painted and settled. That readiness policy is orthogonal to this oracle;
+    // cross its boundary, then snapshot the exact input sequence before the
+    // later submit-verification carriage return can add another frame.
+    paintOracleTui(o, sessionId)
+    let origins: (string | undefined)[] = []
+    await waitFor(
+      () => {
+        const next = o.daemon
+          .filter((m): m is Extract<ControlMessage, { type: 'input' }> => m.type === 'input')
+          .map((m) => m.inputOrigin)
+        if (!next.includes('controller')) return false
+        origins = next
+        return true
+      },
+      'the attributed chat send to reach the PTY',
+      20_000,
+    )
     // Both are the SAME operator; the field distinguishes direct terminal input
     // from controller-mediated user input. Agent/system delivery remains 'mail'.
     expect(origins).toEqual(['human', 'controller'])
