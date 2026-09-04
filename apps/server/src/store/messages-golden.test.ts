@@ -37,10 +37,10 @@ import type { MessageRow } from './types'
  * [POD-3221 spec rule 27b]. Local to this file on purpose: hoisting it into
  * `test-support` would put several parallel conversion waves in one shared file.
  */
-const stageDb = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).stageA
-  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
-  return stage.db
+const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  return stage
 }
 
 let db: ReturnType<typeof openDatabase>
@@ -48,7 +48,7 @@ let messages: MessagesRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  messages = new MessagesRepository(stageDb(db))
+  messages = new MessagesRepository(stageQueries(db))
 })
 
 const TARGET = 'iss_target'

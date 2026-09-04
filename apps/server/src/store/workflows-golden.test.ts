@@ -30,9 +30,9 @@ import { createBunStoreExecutor } from './executor'
 import { type WorkflowActor, WorkflowsRepository } from './workflows'
 
 /** The Stage A seam the store asserts once; a test builds it the same way. */
-const stageOf = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).stageA
-  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
+const stageQueries = (database: ReturnType<typeof openDatabase>) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
   return stage
 }
 
@@ -45,8 +45,8 @@ let workflows: WorkflowsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  const stage = stageOf(db)
-  workflows = new WorkflowsRepository(stage.db, stage.spans)
+  const stage = stageQueries(db)
+  workflows = new WorkflowsRepository(stage)
 })
 
 const makeWorkflow = async (

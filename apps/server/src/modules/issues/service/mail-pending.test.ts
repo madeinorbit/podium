@@ -12,10 +12,10 @@ import { countContextAwarePendingMail } from './mail-pending'
  * [POD-3221 spec rule 27b]. Local to this file on purpose: hoisting it into
  * `test-support` would put several parallel conversion waves in one shared file.
  */
-const stageDb = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).stageA
-  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
-  return stage.db
+const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  return stage
 }
 
 function counting(db: SqlDatabase, counts: Map<string, number>): SqlDatabase {
@@ -93,7 +93,7 @@ describe('countContextAwarePendingMail', () => {
     try {
       const db = (store as unknown as { db: SqlDatabase }).db
       const counts = new Map<string, number>()
-      const messages = new MessagesRepository(stageDb(counting(db, counts)))
+      const messages = new MessagesRepository(stageQueries(counting(db, counts)))
 
       await store.messages.addMessage(
         message({ id: 'msg-peer-1', fromIssue: 'iss_peer', fromSession: 'peer-session' }),

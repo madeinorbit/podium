@@ -42,10 +42,10 @@ import type { SessionRow } from './types'
  * executor occupied. Local to this file on purpose: hoisting it into
  * `test-support` would put six parallel conversion waves in one shared file.
  */
-const stageDb = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).stageA
-  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
-  return stage.db
+const stageQueries = (database: ReturnType<typeof openDatabase>) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  return stage
 }
 
 const ALICE = asUserId('user:alice')
@@ -56,7 +56,7 @@ let sessions: SessionsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(stageDb(db))
+  sessions = new SessionsRepository(stageQueries(db))
 })
 
 const row = (id: string, createdBy: Attribution | undefined): SessionRow => ({

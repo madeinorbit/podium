@@ -42,7 +42,7 @@ import {
   workflowRuns,
   workflows as workflowsTable,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncSpans } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /**
  * DISCRIMINATED (POD-362), was `{ kind: 'operator' | 'session'; id: string | null }`.
@@ -207,25 +207,23 @@ function toRunStep(row: typeof workflowRunSteps.$inferSelect): RunStep {
 
 export class WorkflowsRepository {
   /**
-   * Stage A's synchronous drizzle instance and span, injected [spec rule 27b].
-   * B1 rebinds these two constructor arguments to the asynchronous instance and
-   * the executor's own `transact`; the query bodies below do not change.
+   * The synchronous query capability, injected [spec rule 27b]. `db` and
+   * `transact` arrive as ONE object because they are one capability, and the
+   * ASYNC pair satisfies the same shape — so B1 refills this field and the query
+   * bodies below do not change.
    */
-  constructor(
-    private readonly db: SyncDrizzle,
-    private readonly spans: SyncSpans,
-  ) {}
+  constructor(private readonly queries: SyncQueries) {}
 
   ownerOf(kind: string, id: string): string | null {
     let row: { ownerUserId?: UserId | null } | undefined
     if (kind === 'workflow-definition' || kind === 'workflow-library-entry') {
-      row = this.db
+      row = this.queries.db
         .select({ ownerUserId: workflowsTable.ownerUserId })
         .from(workflowsTable)
         .where(eq(workflowsTable.id, id))
         .get()
     } else if (kind === 'workflow-revision') {
-      row = this.db
+      row = this.queries.db
         .select({ ownerUserId: workflowsTable.ownerUserId })
         .from(workflowRevisions)
         .innerJoin(workflowsTable, eq(workflowsTable.id, workflowRevisions.workflowId))
@@ -234,7 +232,7 @@ export class WorkflowsRepository {
     } else if (kind === 'workflow-binding') {
       const split = id.indexOf(':')
       if (split < 0) return null
-      row = this.db
+      row = this.queries.db
         .select({ ownerUserId: workflowBindings.ownerUserId })
         .from(workflowBindings)
         .where(
@@ -245,13 +243,13 @@ export class WorkflowsRepository {
         )
         .get()
     } else if (kind === 'execution-profile') {
-      row = this.db
+      row = this.queries.db
         .select({ ownerUserId: executionProfiles.ownerUserId })
         .from(executionProfiles)
         .where(eq(executionProfiles.id, id))
         .get()
     } else if (kind === 'workflow-run') {
-      row = this.db
+      row = this.queries.db
         .select({ ownerUserId: workflowRuns.ownerUserId })
         .from(workflowRuns)
         .where(eq(workflowRuns.id, id))
@@ -271,7 +269,7 @@ export class WorkflowsRepository {
     // pin in store/workflows-golden.test.ts.
     if (opts.scopeRef !== undefined) clauses.push(eq(workflowsTable.scopeRef, opts.scopeRef))
     return (
-      this.db
+      this.queries.db
         .select(workflowSelection)
         .from(workflowsTable)
         .where(clauses.length ? and(...clauses) : undefined)
@@ -283,7 +281,7 @@ export class WorkflowsRepository {
   }
 
   getWorkflow(id: string): WorkflowWire | null {
-    const row = this.db
+    const row = this.queries.db
       .select(workflowSelection)
       .from(workflowsTable)
       .where(eq(workflowsTable.id, id))
@@ -301,7 +299,7 @@ export class WorkflowsRepository {
     ownerUserId: UserId
     now: string
   }): void {
-    this.db
+    this.queries.db
       .insert(workflowsTable)
       .values({
         id: row.id,
@@ -319,7 +317,7 @@ export class WorkflowsRepository {
   }
 
   listRevisions(workflowId: string): WorkflowRevisionWire[] {
-    return this.db
+    return this.queries.db
       .select()
       .from(workflowRevisions)
       .where(eq(workflowRevisions.workflowId, workflowId))
@@ -329,7 +327,11 @@ export class WorkflowsRepository {
   }
 
   getRevision(id: string): WorkflowRevisionWire | null {
-    const row = this.db.select().from(workflowRevisions).where(eq(workflowRevisions.id, id)).get()
+    const row = this.queries.db
+      .select()
+      .from(workflowRevisions)
+      .where(eq(workflowRevisions.id, id))
+      .get()
     return row ? toRevision(row) : null
   }
 
@@ -343,13 +345,13 @@ export class WorkflowsRepository {
   }): WorkflowRevisionWire {
     // READ-DECIDE-WRITE. The version is allocated from MAX(version)+1 and then
     // inserted at, so the span is the allocation's atomicity and not decoration.
-    return this.spans.transact(() => {
-      const next = this.db
+    return this.queries.transact(() => {
+      const next = this.queries.db
         .select({ version: max(workflowRevisions.version) })
         .from(workflowRevisions)
         .where(eq(workflowRevisions.workflowId, row.workflowId))
         .get()
-      this.db
+      this.queries.db
         .insert(workflowRevisions)
         .values({
           id: row.id,
@@ -362,7 +364,7 @@ export class WorkflowsRepository {
           createdAt: row.now,
         })
         .run()
-      this.db
+      this.queries.db
         .update(workflowsTable)
         .set({ latestRevisionId: row.id, updatedAt: row.now })
         .where(eq(workflowsTable.id, row.workflowId))
@@ -372,7 +374,7 @@ export class WorkflowsRepository {
   }
 
   publishRevision(revisionId: string, now: string): void {
-    this.db
+    this.queries.db
       .update(workflowRevisions)
       // COALESCE: a published revision has ONE publication moment, so a repeat
       // must not re-date it.
@@ -382,7 +384,7 @@ export class WorkflowsRepository {
   }
 
   getBinding(targetKind: WorkflowBindingTarget, targetId: string): WorkflowBindingWire | null {
-    const row = this.db
+    const row = this.queries.db
       .select()
       .from(workflowBindings)
       .where(
@@ -393,7 +395,7 @@ export class WorkflowsRepository {
   }
 
   listBindings(): WorkflowBindingWire[] {
-    return this.db
+    return this.queries.db
       .select()
       .from(workflowBindings)
       .orderBy(asc(workflowBindings.targetKind), asc(workflowBindings.targetId))
@@ -409,7 +411,7 @@ export class WorkflowsRepository {
     ownerUserId: UserId
     now: string
   }): WorkflowBindingWire {
-    this.db
+    this.queries.db
       .insert(workflowBindings)
       .values({
         targetKind: input.targetKind,
@@ -439,7 +441,7 @@ export class WorkflowsRepository {
   }
 
   listProfiles(): ExecutionProfile[] {
-    return this.db
+    return this.queries.db
       .select()
       .from(executionProfiles)
       .orderBy(sql`${executionProfiles.name} COLLATE NOCASE`)
@@ -448,7 +450,11 @@ export class WorkflowsRepository {
   }
 
   getProfile(id: string): ExecutionProfile | null {
-    const row = this.db.select().from(executionProfiles).where(eq(executionProfiles.id, id)).get()
+    const row = this.queries.db
+      .select()
+      .from(executionProfiles)
+      .where(eq(executionProfiles.id, id))
+      .get()
     return row ? toProfile(row) : null
   }
 
@@ -464,7 +470,7 @@ export class WorkflowsRepository {
     ownerUserId: UserId
     now: string
   }): ExecutionProfile {
-    this.db
+    this.queries.db
       .insert(executionProfiles)
       .values({
         id: input.id,
@@ -499,7 +505,7 @@ export class WorkflowsRepository {
   }
 
   listRuns(includeTerminal = false): WorkflowRunRow[] {
-    return this.db
+    return this.queries.db
       .select()
       .from(workflowRuns)
       .where(includeTerminal ? undefined : inArray(workflowRuns.status, ['active', 'blocked']))
@@ -509,12 +515,12 @@ export class WorkflowsRepository {
   }
 
   getRun(id: string): WorkflowRunRow | null {
-    const row = this.db.select().from(workflowRuns).where(eq(workflowRuns.id, id)).get()
+    const row = this.queries.db.select().from(workflowRuns).where(eq(workflowRuns.id, id)).get()
     return row ? toRun(row) : null
   }
 
   getRunSteps(runId: string): RunStep[] {
-    return this.db
+    return this.queries.db
       .select()
       .from(workflowRunSteps)
       .where(eq(workflowRunSteps.runId, runId))
@@ -538,7 +544,7 @@ export class WorkflowsRepository {
    * column as having no store reader by design).
    */
   listRunEvents(runId: string): WorkflowRunEventWire[] {
-    return this.db
+    return this.queries.db
       .select({
         kind: workflowEvents.kind,
         actorKind: workflowEvents.actorKind,
@@ -562,7 +568,7 @@ export class WorkflowsRepository {
   }
 
   findLiveRun(subjectKind: 'issue' | 'session', subjectId: string): WorkflowRunRow | null {
-    const row = this.db
+    const row = this.queries.db
       .select()
       .from(workflowRuns)
       .where(
@@ -579,7 +585,7 @@ export class WorkflowsRepository {
   }
 
   findLiveRunForSession(sessionId: SessionId): WorkflowRunRow | null {
-    const row = this.db
+    const row = this.queries.db
       .selectDistinct(getTableColumns(workflowRuns))
       .from(workflowRuns)
       .leftJoin(workflowRunSteps, eq(workflowRunSteps.runId, workflowRuns.id))
@@ -602,8 +608,8 @@ export class WorkflowsRepository {
     run: WorkflowRunRow
     steps: Array<Step & { profile: ExecutionProfile | null }>
   }): void {
-    this.spans.transact(() => {
-      this.db
+    this.queries.transact(() => {
+      this.queries.db
         .insert(workflowRuns)
         .values({
           id: input.run.id,
@@ -620,7 +626,7 @@ export class WorkflowsRepository {
         .run()
       // No steps means NO statement, as the `forEach` this replaces did.
       if (input.steps.length === 0) return
-      this.db
+      this.queries.db
         .insert(workflowRunSteps)
         .values(
           input.steps.map((step, position) => ({
@@ -643,7 +649,11 @@ export class WorkflowsRepository {
   }
 
   updateRunStatus(id: string, status: WorkflowRunStatus, completedAt: string | null): void {
-    this.db.update(workflowRuns).set({ status, completedAt }).where(eq(workflowRuns.id, id)).run()
+    this.queries.db
+      .update(workflowRuns)
+      .set({ status, completedAt })
+      .where(eq(workflowRuns.id, id))
+      .run()
   }
 
   updateStep(input: {
@@ -658,7 +668,7 @@ export class WorkflowsRepository {
     startedAt: string | null
     completedAt: string | null
   }): void {
-    this.db
+    this.queries.db
       .update(workflowRunSteps)
       .set({
         status: input.status,
@@ -677,7 +687,7 @@ export class WorkflowsRepository {
   }
 
   assignStep(runId: string, stepId: string, sessionId: SessionId | null): void {
-    this.db
+    this.queries.db
       .update(workflowRunSteps)
       .set({ assignedSessionId: sessionId })
       .where(and(eq(workflowRunSteps.runId, runId), eq(workflowRunSteps.stepId, stepId)))
@@ -685,7 +695,7 @@ export class WorkflowsRepository {
   }
 
   resetStep(runId: string, stepId: string): void {
-    this.db
+    this.queries.db
       .update(workflowRunSteps)
       .set({
         status: 'pending',
@@ -723,7 +733,7 @@ export class WorkflowsRepository {
     payload?: Record<string, unknown>
     now: string
   }): void {
-    this.db
+    this.queries.db
       .insert(workflowEvents)
       .values({
         workflowId: input.workflowId ?? null,

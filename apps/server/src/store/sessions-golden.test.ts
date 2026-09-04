@@ -38,10 +38,10 @@ import { SessionsRepository } from './sessions'
 import type { SessionRow } from './types'
 
 /** Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it. */
-const stageDb = (database: ReturnType<typeof openDatabase>) => {
-  const stage = createBunStoreExecutor({ database }).stageA
-  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
-  return stage.db
+const stageQueries = (database: ReturnType<typeof openDatabase>) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  return stage
 }
 
 const ALICE = asUserId('user:alice')
@@ -52,7 +52,7 @@ let sessions: SessionsRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  sessions = new SessionsRepository(stageDb(db))
+  sessions = new SessionsRepository(stageQueries(db))
 })
 
 function row(input: Omit<Partial<SessionRow>, 'id'> & { id: string }): SessionRow {
@@ -92,6 +92,47 @@ const put = async (input: Omit<Partial<SessionRow>, 'id'> & { id: string }): Pro
 // ---------------------------------------------------------------------------
 // The batched id readers
 // ---------------------------------------------------------------------------
+
+describe('boolean columns round-trip at their NON-DEFAULT value', () => {
+  /**
+   * SPEC RULE 28, and the reason it is a rule: `archived` and `headless` are
+   * `integer({ mode: 'boolean' })`, so drizzle's execution path returns
+   * `true`/`false` where the raw handle returned 1/0. Every pre-conversion mapper
+   * compared `=== 1`, and `true === 1` is false — so a converted read would have
+   * reported every session as not archived and not headless, with no error and no
+   * type error.
+   *
+   * THE DANGER IS THAT THE WRONG ANSWER IS THE COMMON ANSWER: both columns
+   * default to false, so an ordinary fixture is green either way. This test
+   * therefore seeds TRUE, which is the only value that can tell the two
+   * implementations apart, and asserts the type as well as the value — `1` would
+   * satisfy a truthiness check while still being the wrong thing to hand a
+   * consumer that compares against `true`.
+   */
+  it('persists and reads archived and headless as true, not as 1', async () => {
+    await put({ id: 'flagged', archived: true, headless: true })
+    const back = await sessions.getSession(asSessionId('flagged'))
+    expect(back?.archived).toBe(true)
+    expect(back?.headless).toBe(true)
+    expect(typeof back?.archived).toBe('boolean')
+    expect(typeof back?.headless).toBe('boolean')
+  })
+
+  it('keeps the default FALSE distinguishable, and an upsert can clear a set flag', async () => {
+    // The admission beside the denial: a fixture that only ever seeds true would
+    // pass against an implementation that hard-coded it.
+    await put({ id: 'plain' })
+    expect((await sessions.getSession(asSessionId('plain')))?.archived).toBe(false)
+    expect((await sessions.getSession(asSessionId('plain')))?.headless).toBe(false)
+
+    // `archived` is in the ON CONFLICT set, so a second upsert must be able to
+    // move it back down — a write path that only ever ORs the flag on would pass
+    // every test above.
+    await put({ id: 'flagged', archived: true, headless: true })
+    await put({ id: 'flagged', archived: false, headless: true })
+    expect((await sessions.getSession(asSessionId('flagged')))?.archived).toBe(false)
+  })
+})
 
 describe('getSessions — the batched form of getSession', () => {
   it('INCLUDES tombstones, because feed visibility needs the delete-audience answer', async () => {

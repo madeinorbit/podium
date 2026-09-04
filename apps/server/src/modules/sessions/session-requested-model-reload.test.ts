@@ -42,10 +42,10 @@ import { Session } from './session'
  * executor occupied. Local to this file on purpose: hoisting it into
  * `test-support` would put six parallel conversion waves in one shared file.
  */
-const stageDb = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
-  const stage = createBunStoreExecutor({ database }).stageA
-  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
-  return stage.db
+const stageQueries = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
+  const stage = createBunStoreExecutor({ database }).syncQueries
+  if (!stage) throw new Error('the synchronous query capability is absent on this handle')
+  return stage
 }
 
 /** The stored row, asserted present rather than assumed. A `getSession` that
@@ -96,7 +96,7 @@ describe('a runtime model change survives a server restart', () => {
   it('round-trips through the sessions table and comes back on the rehydrated session', async () => {
     const db = openMigratedTestDatabase()
     try {
-      const store = new SessionsRepository(stageDb(db))
+      const store = new SessionsRepository(stageQueries(db))
       const session = launched()
       expect(session.setRequestedModel({ model: 'gpt-5.1-codex-max', effort: 'high' })).toBe(true)
 
@@ -132,7 +132,7 @@ describe('a runtime model change survives a server restart', () => {
   it('leaves a never-configured session with no runtime request at all', async () => {
     const db = openMigratedTestDatabase()
     try {
-      const store = new SessionsRepository(stageDb(db))
+      const store = new SessionsRepository(stageQueries(db))
       await store.upsertSession(launched().toRow())
 
       const stored = await store.getSession(SID)
@@ -157,7 +157,7 @@ describe('a runtime model change survives a server restart', () => {
   it('carries a LATER change over the earlier one, one field at a time', async () => {
     const db = openMigratedTestDatabase()
     try {
-      const store = new SessionsRepository(stageDb(db))
+      const store = new SessionsRepository(stageQueries(db))
       const session = launched()
       session.setRequestedModel({ model: 'gpt-5.1-codex-max' })
       await store.upsertSession(session.toRow())
