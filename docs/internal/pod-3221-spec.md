@@ -1651,6 +1651,46 @@ projection, which returned exactly two sites out of 86 statements, then print th
 reports "I reviewed my fragments" has done something much weaker than a wave that reports "there are
 two, here they are". State the DENOMINATOR — n sites out of m statements — so the audit is checkable.
 
+### Rule 36b — CORRECTS 36a: a join FIXES the bare identifier; a same-named inner column is what breaks it
+
+[POD-3395 retracted its own inference and I re-measured before amending. 2026-09-04. Rule 36a as I
+first wrote it had the latency pointing the wrong way, and POD-3414's defeat test could not have
+failed.]
+
+I wrote in 36a that a bare identifier "inherits the defect the day someone adds a join". Measured, that
+is false in both directions:
+
+    max / 1 table          select max("n") from "a"
+    max / joined           select max("a"."n") from "a" inner join "b" ...        <- RE-QUALIFIED
+    countDistinct / 1      select count(distinct "id") from "a"
+    countDistinct / joined select count(distinct "a"."id") from "a" inner join …  <- RE-QUALIFIED
+    hand-written / 1 table select (select count(*) from b where b.a_id = "id") from "a"
+    hand-written / joined  select (select count(*) from b where b.a_id = "a"."id") …  <- RE-QUALIFIED
+
+Adding a join RE-QUALIFIES. It is the fix, not the trigger. A defeat test that adds a join to a bare
+site is green whether the check works or not — the vacuous-guard shape this epic has now hit five
+times, and POD-3395 caught this one before I built it.
+
+WHEN THE BUG ACTUALLY BITES. A hand-written fragment carrying its OWN FROM, in a single-table query,
+emits the outer table's column bare INSIDE the subquery. SQLite resolves that name against the INNER
+table first. So it is:
+
+  - WRONG NOW, silently, when the inner table has a column of that name;
+  - CORRECT BY ACCIDENT when the inner table does not.
+
+AND THE REAL LATENCY IS THE OTHER EDIT ENTIRELY: the accident ends when someone adds a same-named
+column TO THE INNER TABLE. Nobody touches the fragment, nobody touches the query, and there is no join
+involved. POD-3396's `ship_train_active_claims` case is exactly this — bare because that table has no
+`id`, and it would start counting 0 the day it gained one.
+
+DRIZZLE'S OWN HELPERS ARE NOT AT RISK, and that is the distinction I collapsed: `max()`,
+`countDistinct()` and a plain column are re-rendered per query shape, so bare output from them is
+normal and self-correcting. A hand-written `sql` fragment's chunks are mapped ONCE and blindly. Only
+the hand-written fragment with an inner FROM has the defect.
+
+WHAT CARRIES OVER FROM 36a UNCHANGED: derive the site list rather than recalling it, state the
+denominator, and print rather than read.
+
 ### Rule 34b — a getter is only worth having if nothing routes around it
 
 [POD-3396, 2026-09-04, and it is the check that makes rule 34a meaningful rather than decorative.
