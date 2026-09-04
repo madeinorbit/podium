@@ -62,7 +62,9 @@ function openAccountsDatabase() {
 /** The server side: a managed anthropic api-key account, resolved to spawn env. */
 function managedAccountEnv(): Record<string, string> | undefined {
   const db = openAccountsDatabase()
-  const accounts = new AccountsRepository(createBunStoreExecutor({ database: db }))
+  const queries = createBunStoreExecutor({ database: db }).syncQueries
+  if (!queries) throw new Error('the probe database is not bun-backed')
+  const accounts = new AccountsRepository(queries)
   accounts.upsert({
     id: asAccountId('managed:anthropic'),
     provider: 'anthropic',
@@ -290,7 +292,9 @@ describe('managed account -> real spawned process env (#216)', () => {
 
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
     const db = openAccountsDatabase()
-    const accounts = new AccountsRepository(createBunStoreExecutor({ database: db }))
+    const queries = createBunStoreExecutor({ database: db }).syncQueries
+  if (!queries) throw new Error('the probe database is not bun-backed')
+  const accounts = new AccountsRepository(queries)
     accounts.upsert({
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',

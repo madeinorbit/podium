@@ -1494,7 +1494,7 @@ describe('flip-undeleted (POD-3221 B1 exit gate)', () => {
   it('defeat: fires naming a listed construct deleted from a scratch copy', () => {
     const entry = FLIP_UNDELETED.find(({ construct }) => construct === 'the `depths` WeakMap')
     expect(entry?.target.kind).toBe('code')
-    if (!entry || entry.target.kind !== 'code') throw new Error('missing depths ledger entry')
+    if (entry?.target.kind !== 'code') throw new Error('missing depths ledger entry')
     const source = readFileSync(join(REPO_ROOT, entry.file), 'utf8')
     const deleted = source.replace(entry.target.pattern, 'const removedDepths = new Map<')
     expect(deleted).not.toBe(source)
