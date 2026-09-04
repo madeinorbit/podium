@@ -241,6 +241,42 @@ and the tip should be STILL while it lands. The two costs are asymmetric — reg
 minutes, verifying was 90 — and a pass that must be re-verified faster than it can be verified never
 lands at all.
 
+AND THE PASS'S REFUSAL SET IS PART OF THE PASS (POD-3371, 2026-09-04). The rule above makes
+idempotence the oracle, and then nobody could apply it, because a pass only reaches its fixed point
+when it is told which functions must stay synchronous — and POD-3262 derived that set into a scratch
+file outside the repo. The commit recorded the COUNT and not the SET. Run without it, the pass
+proposes edits at every refusal, which reads exactly like missing work; that false alarm has now been
+filed twice, by two different reviewers (POD-3294, POD-3369), and I made a version of it myself by
+running with a stale list.
+
+The pass itself was not in the repo either — it ran from a scratch file with a worktree path pasted
+into it. A mechanical pass, its refusal set and the check that the two agree are ONE artefact. They
+are now `scripts/awaitify.ts`, `scripts/awaitify-keep-sync.txt`,
+`scripts/awaitify-derive-keep-sync.ts` and `bun run lint:await-idempotence`.
+
+RULE, THREE PARTS.
+
+A tool whose OUTPUT is reviewed must itself be reviewable. If a reviewer cannot re-run it and get the
+same answer, every re-derivation is a fresh false alarm and the reviewer pays for it each time.
+
+A REFUSAL CARRIES ITS REASON, not just its location. Each refusal becomes a decision at the flip, and
+"why was this skipped" is the question asked at every one. The reason is recorded at the moment of
+refusal and the category is derived FROM it — so it cannot drift away from the thing it labels — and
+they are separated by KIND, because the kind of decision comes before the location:
+`illegal-await-context`, `would-change-what-the-caller-reads`,
+`caller-type-cannot-absorb-a-promise`, `assertion-must-change-at-the-flip`.
+
+A DERIVED SET GOING STALE MUST BE LOUD. Entries address a function by byte offset, so an edit that
+moves the function makes its entry a silent no-op: the pass stops refusing there and regenerates the
+bad form with nothing saying the list expired. That is exactly what a round-4 list did against round-5
+code. So an UNUSED entry fails the check rather than warning, and the remedy is always to re-derive
+rather than to hand-edit.
+
+AND A COUNT MUST NAME WHAT IT COUNTS. The pass reported `files=45` for a run that changed nothing —
+it was counting files it had CONSIDERED. A number a reviewer reads as "45 files changed" that means
+"45 files looked at" is the same vacuity as a check that never fires, and it is what made the two
+false alarms readable as findings. It now counts only files it would write, and reports zero.
+
 A DECISION MARKER MUST NAME AN OPEN ISSUE (R1 finding, 2026-09-04). The rule was "every marker must
 have a filed issue", and it was satisfied in letter and void in substance. POD-3325 answered the half
 of its site that had no semantic question and ESCALATED the other half to R3; it was then closed as
