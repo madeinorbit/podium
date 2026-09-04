@@ -1052,3 +1052,33 @@ is loud, which is the wrong reason to treat the quiet one as the only one.
 
 Corollary, from POD-3373: a draft living across a public sub-operation is the long-lived mutable
 object this model exists to remove. That argument never depended on who writes in the gap.
+
+### Rule 27 — Stage A converts onto `drizzle-orm/bun-sqlite`, not onto the executor's client
+
+[POD-3393, ruled 2026-09-04. My Stage A briefs said "the executor's client" and were wrong.]
+
+Every `QueryClient` member returns a Promise (`store/executor/driver.ts:246-267`), so a SYNCHRONOUS
+Stage A repository has nothing there to call. Rule 20's own correction already said this — "there is
+nothing a synchronous Stage A repository could be converted onto today" — and I wrote briefs against
+it anyway. POD-3393 found the contradiction before writing a line of conversion.
+
+THE DECISION WAS ALREADY ON RECORD in section 3.7, from POD-3242: drizzle stays the query layer with
+TWO drivers, `drizzle-orm/bun-sqlite` and `drizzle-orm/libsql`. The bun-sqlite driver is SYNCHRONOUS
+and the migrator already uses it.
+
+So Stage A builds a drizzle instance over the store's existing handle and writes ordinary drizzle —
+`db.select().from(t).where(...).get()`, `db.insert(t).values(r).run()` — synchronously. The
+executor's async `QueryClient` is the POST-FLIP path and Stage A does not touch it.
+
+THIS IS ALSO WHY THE ROW-MAPPING QUESTION DOES NOT ARISE. A builder → `toSQL()` → raw-client route
+returns rows keyed by PHYSICAL column names, so repositories would lose rule 3's TypeScript names and
+the `$type` brands and every wave would hand-map. Drizzle's own execution path does that mapping, so
+there are no mappers to write and none for B1 to unpick.
+
+B1 then swaps the drizzle instance to the async driver and adds `await` at the call sites; the query
+BODIES do not change. That is exactly the edit POD-3262's await pass performs, which is what makes the
+existing suite the flip's oracle.
+
+Intent is still declared, through drizzle's terminal methods: `.get()`/`.all()` on a select are reads;
+`.run()`/`.returning()` on insert/update/delete are writes. POD-3391's lint derives intent from the
+SQL and checks the call site either way.
