@@ -3,7 +3,11 @@ import {
   type ActorKind,
   actorColumns,
   actorFromColumns,
+  asIssueId,
+  asShipAttemptId,
   asShipHoldId,
+  asShipOrderId,
+  asShipStepId,
   asShipTrainId,
   asShipTrainSubsetId,
   canonicalShippingDestination,
@@ -38,66 +42,66 @@ import {
   shippingTrainProofsMatch,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import type {
+import { and, asc, desc, eq, getTableColumns, inArray, isNull, notInArray, sql } from 'drizzle-orm'
+import {
   deliveryReceipts,
+  issues,
   rootIntegrationReceipts,
   shipAttempts,
+  shipEffectEnvelopes,
+  shipEvidence,
   shipHolds,
+  shipLaneRevisions,
   shipOrderStackEdges,
   shipOrders,
+  shipRepairCandidates,
   shipSteps,
+  shipTrainActiveClaims,
   shipTrainManifests,
   shipTrainMembers,
 } from '../migrations/schema'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
 
 /**
- * THE SIX ROW SHAPES THE MAPPERS READ [POD-3396, spec rule 3].
+ * "How many members still claim this train", the correlated count two authority
+ * reads share. drizzle has no builder form for a correlated subquery in a
+ * projection, so it stays a `sql` fragment inside the builder query, which spec
+ * rule 1 allows.
+ *
+ * THE OUTER COLUMN IS QUALIFIED BY HAND, and that is the whole reason this is a
+ * named constant rather than two inline templates. drizzle emits an interpolated
+ * column UNQUALIFIED when the enclosing query has a single FROM table — checked
+ * with `.toSQL()`, not read off the builder: `completeVerifiedTrain`'s one-table
+ * read emitted `WHERE c.train_id = "id"`, while `activeTrainForOrder`'s
+ * two-table join emitted the qualified form. Inside the subquery a bare name
+ * resolves against the SUBQUERY's table first, so the one-table form is correct
+ * today only because `ship_train_active_claims` happens to have no `id` column.
+ * Proven fragile rather than assumed: give that table an `id` and the bare form
+ * counts 0 where the qualified form counts 2 — no error, no log, a plausible
+ * number, and every train then reads as unclaimed.
+ */
+const activeClaimCount = sql<number>`(SELECT COUNT(*) FROM ${shipTrainActiveClaims} c WHERE c.train_id = ${sql.identifier('ship_train_manifests')}.${sql.identifier('id')})`
+
+/**
+ * THE SIX ROW SHAPES THE MAPPERS BELOW READ [POD-3396, spec rule 3].
  *
  * Each is the schema's own inferred select row, replacing the
- * `Record<string, unknown>` this file used to cast to. The brands now arrive
- * through the schema's `$type` instead of through a hand-written cast, and the
- * field names are the schema's rather than a `SELECT … AS …` alias list.
+ * `Record<string, unknown>` this file used to cast to. Two things follow, and
+ * they are the reason the shapes and the mappers convert as their own commit
+ * ahead of the 54 methods that use them: the brands arrive through the schema's
+ * `$type` rather than through a cast, and the FIELD NAMES are drizzle's own
+ * mapping of the physical columns, so the five hand-written `SELECT … AS …`
+ * strings this file carried are not replaced by anything — the aliases WERE the
+ * mapping.
  *
- * THE SHAPES AND THE MAPPERS CONVERT AHEAD OF THE 54 METHODS THAT USE THEM,
- * which is the method's rule for the large repositories: 48 of this file's 77
- * statements read through these six functions, so a reviewer checks the mapping
- * ONCE here instead of 54 times in the commit that follows. The statements
- * themselves do not move in this commit.
- *
- * THE CASTS AT THE CALL SITES ARE TRUE, not placeholders for the next commit.
- * Each hand-written select names precisely the columns its table declares —
- * derived, not assumed: 25/25 for `ship_orders`, 16/16 attempts, 15/15 steps,
- * 11/11 holds, 12/12 receipts, with nothing in the table missing from the select
- * and no selected name absent from the table — and the aliases are already the
- * schema's field names. So the raw handle returns exactly these shapes today,
- * and `select()` will return exactly them tomorrow.
- *
- * THE FIVE `mode: 'json'` COLUMNS ARE TYPED AS TEXT, and that is a decision
- * rather than a description of the raw handle. Rule 28 says a converted read
- * returns the schema's declared type; here that is the hazard and not the
- * answer, in two independent ways:
- *
- *   THE BYTES ARE A CUSTODY CHECK. `trainManifestForAttempt` compares
- *   `JSON.stringify(manifest.lane.validationProfile)` against the STORED TEXT of
- *   `validation_profile`, and `JSON.stringify(providerRef ?? null)` against
- *   `String(row.providerRef ?? 'null')`; the member check does the same for
- *   `delivery_depends_on`. Against a parsed object those are always unequal, so
- *   every train fails its authority check. Comparing structurally instead is not
- *   a like-for-like fix: byte equality rejects a re-serialised or
- *   whitespace-altered blob and structural equality accepts it.
- *
- *   THE THROW MOVES. A corrupt value under `mode: 'json'` throws AT THE DRIVER,
- *   before the method's own fences and with drizzle's parse message rather than
- *   the model's. The corrupt-blob oracle pins that message for all five columns.
- *
- * Rule 4 says the json mode is ACCEPTABLE for the five columns whose throw is
- * intended; it does not oblige a READER to take it, and §5.1 asks for no
- * behaviour change on SQLite. Raised with the coordinator as a wave-wide
- * question, because 23 columns in the schema carry that mode.
+ * THAT SUBSTITUTION IS EXACT, and it was derived rather than assumed: each of
+ * the five hand-written selects names precisely the columns its table declares,
+ * 25/25 for `ship_orders`, 16/16 attempts, 15/15 steps, 11/11 holds, 12/12
+ * receipts, with no column in the table missing from the select and no selected
+ * name absent from the table. So `select().from(table)` returns the same set of
+ * fields under the same names, and no read gains or loses a column.
  */
 type OrderRow = Omit<typeof shipOrders.$inferSelect, 'validationProfile'> & {
   validationProfile: string | null
@@ -109,53 +113,53 @@ type ReceiptRow = typeof deliveryReceipts.$inferSelect
 type IntegrationReceiptRow = typeof rootIntegrationReceipts.$inferSelect
 
 /**
- * The two projections that feed no mapper: the train-manifest authority read and
- * its member read. They select a SUBSET of their table under the schema's own
- * field names, and both carry `mode: 'json'` columns the custody check reads as
- * text, for the reason above.
+ * THE FIVE COLUMNS THIS FILE READS AS TEXT THOUGH THE SCHEMA DECLARES THEM
+ * `mode: 'json'` [POD-3396, and it is the sharpest thing this conversion found].
+ *
+ * Spec rule 28 says a converted read returns the SCHEMA's declared type, and
+ * that is exactly the problem here rather than the answer. Under `mode: 'json'`
+ * drizzle parses the column, and this file depends on the unparsed text in two
+ * separate ways that a parsed value cannot serve:
+ *
+ *   THE BYTES ARE THE CUSTODY CHECK. `trainManifestForAttempt` compares
+ *   `JSON.stringify(manifest.lane.validationProfile)` against the stored column
+ *   and `JSON.stringify(providerRef ?? null)` against `String(row.providerRef ??
+ *   'null')`, and the member check does the same for `delivery_depends_on`.
+ *   Against a parsed object those comparisons are ALWAYS unequal, so every train
+ *   fails its authority check — and "compare structurally instead" is not a
+ *   like-for-like fix: a byte comparison rejects a re-serialised or
+ *   whitespace-altered blob and a structural one accepts it, on a custody check.
+ *
+ *   THE THROW MOVES. A corrupt value under `mode: 'json'` throws AT THE DRIVER,
+ *   before the method's own fences run and with drizzle's parse message rather
+ *   than the model's. The corrupt-blob oracle pins the message for all five of
+ *   these columns, so adopting the json mode changes what a caller sees on the
+ *   arm the oracle exists to watch.
+ *
+ * Rule 4 says `mode: 'json'` is ACCEPTABLE for the five columns whose throw is
+ * intended; it does not oblige a READER to take it, and §5.1 asks for no
+ * behaviour change on SQLite. So each read below re-projects the column as raw
+ * text, the quarantine and the parse stay exactly where they are, and no
+ * assertion moves. Raised with the coordinator as a wave-wide question, because
+ * 23 columns carry this mode and the other waves read them too.
  */
-type ManifestAuthorityRow = Omit<
-  Pick<
-    typeof shipTrainManifests.$inferSelect,
-    | 'id'
-    | 'canonicalJson'
-    | 'canonicalDigest'
-    | 'repoId'
-    | 'repoPath'
-    | 'machineId'
-    | 'laneKey'
-    | 'laneRevision'
-    | 'targetBranch'
-    | 'expectedTargetSha'
-    | 'destination'
-    | 'policyId'
-    | 'validationProfileDigest'
-    | 'memberCount'
-    | 'leaderOrderId'
-    | 'leaderAttemptId'
-    | 'leaderGeneration'
-  >,
-  never
-> & { providerRef: string | null; validationProfile: string }
-type ManifestMemberRow = Omit<
-  Pick<
-    typeof shipTrainMembers.$inferSelect,
-    | 'ordinal'
-    | 'issueId'
-    | 'orderId'
-    | 'attemptId'
-    | 'generation'
-    | 'machineId'
-    | 'sourceBranch'
-    | 'approvedBaseSha'
-    | 'approvedHeadSha'
-  >,
-  never
-> & { deliveryDependsOn: string }
-type StackEdgeRow = Pick<
-  typeof shipOrderStackEdges.$inferSelect,
-  'lowerOrderId' | 'upperApprovedHeadSha' | 'lowerApprovedHeadSha'
->
+const orderColumns = {
+  ...getTableColumns(shipOrders),
+  validationProfile: sql<string | null>`${shipOrders.validationProfile}`,
+}
+const stepColumns = {
+  ...getTableColumns(shipSteps),
+  inputFence: sql<string>`${shipSteps.inputFence}`,
+}
+const trainManifestColumns = {
+  ...getTableColumns(shipTrainManifests),
+  providerRef: sql<string | null>`${shipTrainManifests.providerRef}`,
+  validationProfile: sql<string>`${shipTrainManifests.validationProfile}`,
+}
+const trainMemberColumns = {
+  ...getTableColumns(shipTrainMembers),
+  deliveryDependsOn: sql<string>`${shipTrainMembers.deliveryDependsOn}`,
+}
 
 export interface StoredShippingRepairCandidate {
   orderId: ShipOrderValue['id']
@@ -312,7 +316,7 @@ function mapOrder(row: OrderRow): ShipOrderValue {
     // `resultCommitSha` was read here and `orderSelect` never returned it, so it
     // was always `undefined` — and `ShipOrder` does not declare the key, so the
     // parse dropped it. Removing it is behaviour-identical; keeping it would not
-    // compile against a typed row, which is how the dead line surfaced.
+    // compile against the typed row, which is how the dead line surfaced.
     descendantManifest: jsonArray(row.descendantManifest),
     deliveryDependsOn: jsonArray(row.deliveryDependsOn),
     ...(optionalString(row.evidenceManifestRef)
@@ -412,48 +416,6 @@ function mapReceipt(row: ReceiptRow): DeliveryReceiptValue {
   })
 }
 
-const orderSelect = `SELECT id, issue_id AS issueId, repo_id AS repoId,
-  repo_path AS repoPath, machine_id AS machineId,
-  target_branch AS targetBranch, destination, approved_base_sha AS approvedBaseSha,
-  approved_head_sha AS approvedHeadSha, descendant_manifest AS descendantManifest,
-  delivery_depends_on AS deliveryDependsOn,
-  evidence_manifest_ref AS evidenceManifestRef,
-  current_integration_receipt AS currentIntegrationReceipt,
-  provider_ref AS providerRef,
-  requested_by_actor_kind AS requestedByActorKind,
-  requested_by_actor_id AS requestedByActorId,
-  requested_by_on_behalf_of AS requestedByOnBehalfOf, requested_at AS requestedAt,
-  policy_id AS policyId, validation_profile AS validationProfile,
-  validation_profile_digest AS validationProfileDigest, close_mode AS closeMode, state,
-  state_changed_at AS stateChangedAt, hold_code AS holdCode FROM ship_orders`
-
-const attemptSelect = `SELECT id, order_id AS orderId,
-  expected_source_base_sha AS expectedSourceBaseSha, approved_head_sha AS approvedHeadSha,
-  expected_target_sha AS expectedTargetSha, machine_id AS machineId,
-  lease_generation AS leaseGeneration, started_at AS startedAt, finished_at AS finishedAt,
-  outcome, submitted_head_sha AS submittedHeadSha,
-  tested_integration_sha AS testedIntegrationSha, landed_ref_sha AS landedRefSha,
-  destination_sha AS destinationSha, validation_profile_id AS validationProfileId,
-  validation_result AS validationResult FROM ship_attempts`
-
-const stepSelect = `SELECT id, order_id AS orderId, attempt_id AS attemptId,
-  effect_key AS effectKey, idempotency_key AS idempotencyKey, generation,
-  input_fence AS inputFence, kind, state, outcome, summary, artifact_ref AS artifactRef,
-  recorded_at AS recordedAt, started_at AS startedAt, finished_at AS finishedAt
-  FROM ship_steps`
-
-const holdSelect = `SELECT id, order_id AS orderId, generation, reason_code AS reasonCode,
-  headline, detail, evidence_refs AS evidenceRefs, actions, raised_at AS raisedAt,
-  resolved_at AS resolvedAt, resolution FROM ship_holds`
-
-const receiptSelect = `SELECT id, order_id AS orderId,
-  approved_base_sha AS approvedBaseSha, approved_head_sha AS approvedHeadSha,
-  result_commit_sha AS resultCommitSha,
-  tested_integration_sha AS testedIntegrationSha, landed_ref_sha AS landedRefSha,
-  destination_sha AS destinationSha, validation_profile_id AS validationProfileId,
-  validation_result AS validationResult, destination, completed_at AS completedAt
-  FROM delivery_receipts`
-
 /** Narrow typed producer/consumer port shared by issue integration and Shipping
  * admission. Its lookup key is the approved root head itself—not an evidence
  * manifest reference and not an event payload. */
@@ -469,20 +431,88 @@ export interface RootIntegrationReceiptStore {
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
-  private readonly db: SqlDatabase
+  /** The query builder, in the field this file's `SqlDatabase` used to occupy. */
+  private readonly db: SyncQueries['db']
+  /** The span, beside it, so a call site reads `this.transact(...)` (rule 34). */
+  private readonly transact: SyncQueries['transact']
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+    // Wrapped rather than assigned straight across, so the field cannot depend
+    // on how the capability happens to be built today: `syncQueriesOver` returns
+    // an arrow that closes over the handle, but a later implementation — the
+    // async pair at B1 — is free to use `this`, and a detached method would
+    // break silently there rather than here.
+    this.transact = (fn) => queries.transact(fn)
+  }
+
+  /**
+   * The lane-revision upsert, which two call sites carried verbatim.
+   *
+   * `ON CONFLICT(lane_key)` names ONE target and `ship_lane_revisions` has
+   * exactly one uniqueness constraint — `lane_key` is its whole primary key and
+   * the table declares no other index. That is checked rather than assumed,
+   * because it is the same question the coordinator's `OR REPLACE` ruling turns
+   * on: `onConflictDoUpdate` resolves ONE named target and raises on any other,
+   * so it is a like-for-like replacement only where there is nothing else to
+   * conflict with. The increment reads the stored row and the timestamp reads
+   * `excluded`, both exactly as before.
+   */
+  /**
+   * The next hold generation's predecessor, which five call sites carried
+   * verbatim. `COALESCE(MAX(generation), 0)` returns 0 for an order with no
+   * hold, and every caller adds one — so an order's first hold is generation 1.
+   * Kept as one aggregate read rather than `max()` over a mapped list, because
+   * the zero case is the aggregate's, not the caller's.
+   */
+  private highestHoldGeneration(orderId: ShipOrderValue['id']): number {
+    const row = this.db
+      .select({ generation: sql<number>`COALESCE(MAX(${shipHolds.generation}), 0)` })
+      .from(shipHolds)
+      .where(eq(shipHolds.orderId, orderId))
+      .get()
+    return row?.generation ?? 0
+  }
+
+  /** See {@link activeClaimCount}. */
+  /** The immutable delivery receipt, inserted identically by the covered and
+   *  the verified completion paths. */
+  private insertDeliveryReceipt(receipt: DeliveryReceiptValue): void {
+    this.db
+      .insert(deliveryReceipts)
+      .values({
+        id: receipt.id,
+        orderId: receipt.orderId,
+        approvedBaseSha: receipt.approvedBaseSha,
+        approvedHeadSha: receipt.approvedHeadSha,
+        resultCommitSha: receipt.resultCommitSha,
+        testedIntegrationSha: receipt.testedIntegrationSha,
+        landedRefSha: receipt.landedRefSha,
+        destinationSha: receipt.destinationSha,
+        validationProfileId: receipt.validationProfileId,
+        validationResult: receipt.validationResult,
+        destination: receipt.destination,
+        completedAt: receipt.completedAt,
+      })
+      .run()
+  }
+
+  private bumpLaneRevision(laneKey: string, updatedAt: string): void {
+    this.db
+      .insert(shipLaneRevisions)
+      .values({ laneKey, revision: 1, updatedAt })
+      .onConflictDoUpdate({
+        target: shipLaneRevisions.laneKey,
+        set: {
+          revision: sql`${shipLaneRevisions.revision} + 1`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      })
+      .run()
   }
 
   shippingEvidence(ref: string): StoredShippingEvidence | null {
-    const row = this.db
-      .prepare(
-        `SELECT ref, custody_digest AS custodyDigest, content_digest AS contentDigest,
-                source_ref AS sourceRef, content, materialized_at AS materializedAt
-           FROM ship_evidence WHERE ref = ?`,
-      )
-      .get(ref) as StoredShippingEvidence | undefined
+    const row = this.db.select().from(shipEvidence).where(eq(shipEvidence.ref, ref)).get()
     return row ? { ...row } : null
   }
 
@@ -491,12 +521,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     sourceRef: string,
   ): StoredShippingEvidence | null {
     const row = this.db
-      .prepare(
-        `SELECT ref, custody_digest AS custodyDigest, content_digest AS contentDigest,
-                source_ref AS sourceRef, content, materialized_at AS materializedAt
-           FROM ship_evidence WHERE custody_digest = ? AND source_ref = ? LIMIT 1`,
+      .select()
+      .from(shipEvidence)
+      .where(
+        and(eq(shipEvidence.custodyDigest, custodyDigest), eq(shipEvidence.sourceRef, sourceRef)),
       )
-      .get(custodyDigest, sourceRef) as StoredShippingEvidence | undefined
+      .limit(1)
+      .get()
     return row ? { ...row } : null
   }
 
@@ -520,35 +551,27 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       return existing
     }
     this.db
-      .prepare(
-        `INSERT INTO ship_evidence
-          (ref, custody_digest, content_digest, source_ref, content, materialized_at)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.ref,
-        input.custodyDigest,
-        input.contentDigest,
-        input.sourceRef,
-        input.content,
-        input.materializedAt,
-      )
+      .insert(shipEvidence)
+      .values({
+        ref: input.ref,
+        custodyDigest: input.custodyDigest,
+        contentDigest: input.contentDigest,
+        sourceRef: input.sourceRef,
+        content: input.content,
+        materializedAt: input.materializedAt,
+      })
+      .run()
     return { ...input }
   }
 
   repairCandidatesForAttempt(attemptId: ShipAttemptValue['id']): StoredShippingRepairCandidate[] {
-    return (
-      this.db
-        .prepare(
-          `SELECT order_id AS orderId, attempt_id AS attemptId, generation, sequence, round,
-                  context_digest AS contextDigest, repair_ref AS repairRef,
-                  candidate_head_sha AS candidateHeadSha, result_token AS resultToken,
-                  recorded_at AS recordedAt
-             FROM ship_repair_candidates
-            WHERE attempt_id = ? ORDER BY sequence`,
-        )
-        .all(attemptId) as StoredShippingRepairCandidate[]
-    ).map((row) => ({ ...row }))
+    return this.db
+      .select()
+      .from(shipRepairCandidates)
+      .where(eq(shipRepairCandidates.attemptId, attemptId))
+      .orderBy(asc(shipRepairCandidates.sequence))
+      .all()
+      .map((row) => ({ ...row }))
   }
 
   private recordRepairCandidate(input: StoredShippingRepairCandidate): void {
@@ -571,24 +594,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship repair ${input.attemptId}:${input.sequence} context digest is invalid`)
     }
     this.db
-      .prepare(
-        `INSERT INTO ship_repair_candidates
-          (order_id, attempt_id, generation, sequence, round, context_digest,
-           repair_ref, candidate_head_sha, result_token, recorded_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        input.orderId,
-        input.attemptId,
-        input.generation,
-        input.sequence,
-        input.round,
-        input.contextDigest,
-        input.repairRef,
-        input.candidateHeadSha,
-        input.resultToken,
-        input.recordedAt,
-      )
+      .insert(shipRepairCandidates)
+      .values({
+        orderId: input.orderId,
+        attemptId: input.attemptId,
+        generation: input.generation,
+        sequence: input.sequence,
+        round: input.round,
+        contextDigest: input.contextDigest,
+        repairRef: input.repairRef,
+        candidateHeadSha: input.candidateHeadSha,
+        resultToken: input.resultToken,
+        recordedAt: input.recordedAt,
+      })
+      .run()
   }
 
   /**
@@ -601,13 +620,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     approvedHeadSha: string,
   ): RootIntegrationReceiptValue | null {
     const row = this.db
-      .prepare(
-        `SELECT root_issue_id AS rootIssueId, approved_head_sha AS approvedHeadSha,
-                descendants
-           FROM root_integration_receipts
-          WHERE root_issue_id = ? AND approved_head_sha = ?`,
+      .select()
+      .from(rootIntegrationReceipts)
+      .where(
+        and(
+          eq(rootIntegrationReceipts.rootIssueId, rootIssueId),
+          eq(rootIntegrationReceipts.approvedHeadSha, approvedHeadSha),
+        ),
       )
-      .get(rootIssueId, approvedHeadSha) as IntegrationReceiptRow | undefined
+      .get()
     return row ? mapIntegrationReceipt(row) : null
   }
 
@@ -626,39 +647,61 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       )
     }
     this.db
-      .prepare(
-        `INSERT INTO root_integration_receipts
-          (root_issue_id, approved_head_sha, descendants)
-         VALUES (?, ?, ?)`,
-      )
-      .run(receipt.rootIssueId, receipt.approvedHeadSha, JSON.stringify(receipt.descendants))
+      .insert(rootIntegrationReceipts)
+      .values({
+        rootIssueId: receipt.rootIssueId,
+        approvedHeadSha: receipt.approvedHeadSha,
+        // `descendants` is plain `text()`, so the serialisation stays the
+        // caller's, exactly as the raw statement had it.
+        descendants: JSON.stringify(receipt.descendants),
+      })
+      .run()
     const stored = this.rootIntegrationReceipt(receipt.rootIssueId, receipt.approvedHeadSha)
     if (!stored) throw new Error('root integration receipt insert did not persist')
     return stored
   }
 
   getOrder(id: string): ShipOrderValue | null {
-    const row = this.db.prepare(`${orderSelect} WHERE id = ?`).get(id) as OrderRow | undefined
+    // The public signature takes a plain `string` and widening it to the brand
+    // is a caller change, not a conversion; `asShipOrderId` is the identity cast
+    // the model exports for exactly this boundary.
+    const row = this.db
+      .select(orderColumns)
+      .from(shipOrders)
+      .where(eq(shipOrders.id, asShipOrderId(id)))
+      .get()
     return row ? mapOrder(row) : null
   }
 
   activeOrderForIssue(issueId: string): ShipOrderValue | null {
     const row = this.db
-      .prepare(`${orderSelect} WHERE issue_id = ? AND state NOT IN ('shipped', 'cancelled')`)
-      .get(issueId) as OrderRow | undefined
+      .select(orderColumns)
+      .from(shipOrders)
+      .where(
+        and(
+          eq(shipOrders.issueId, asIssueId(issueId)),
+          notInArray(shipOrders.state, ['shipped', 'cancelled']),
+        ),
+      )
+      .get()
     return row ? mapOrder(row) : null
   }
 
   listOrders(): ShipOrderValue[] {
-    return (this.db.prepare(`${orderSelect} ORDER BY requested_at, id`).all() as OrderRow[]).map(
-      mapOrder,
-    )
+    return this.db
+      .select(orderColumns)
+      .from(shipOrders)
+      .orderBy(asc(shipOrders.requestedAt), asc(shipOrders.id))
+      .all()
+      .map(mapOrder)
   }
 
   issueIdForOrder(id: string): string | null {
     const row = this.db
-      .prepare('SELECT issue_id AS issueId FROM ship_orders WHERE id = ?')
-      .get(id) as { issueId: string } | undefined
+      .select({ issueId: shipOrders.issueId })
+      .from(shipOrders)
+      .where(eq(shipOrders.id, asShipOrderId(id)))
+      .get()
     return row?.issueId ?? null
   }
 
@@ -668,12 +711,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     const chunkSize = 500
     for (let offset = 0; offset < unique.length; offset += chunkSize) {
       const chunk = unique.slice(offset, offset + chunkSize)
+      // The 500-id chunk stays: it bounds the number of distinct SQL texts the
+      // statement cache sees, and drizzle's `inArray` emits one placeholder per
+      // id exactly as the hand-built list did.
       const rows = this.db
-        .prepare(
-          `SELECT id, issue_id AS issueId FROM ship_orders
-           WHERE id IN (${chunk.map(() => '?').join(',')})`,
-        )
-        .all(...chunk) as { id: string; issueId: string }[]
+        .select({ id: shipOrders.id, issueId: shipOrders.issueId })
+        .from(shipOrders)
+        .where(inArray(shipOrders.id, chunk.map(asShipOrderId)))
+        .all()
       for (const row of rows) out.set(row.id, row.issueId)
     }
     return out
@@ -684,7 +729,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (order.state !== 'queued') {
       throw new Error(`ship order ${order.id} must be created queued`)
     }
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const existing = this.getOrder(order.id)
       if (existing) {
         if (JSON.stringify(existing) === JSON.stringify(order)) return existing
@@ -705,8 +750,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship order ${order.id} validation policy digest does not match`)
       }
       const issue = this.db
-        .prepare('SELECT repo_path AS repoPath, machine_id AS machineId FROM issues WHERE id = ?')
-        .get(order.issueId) as { repoPath?: string; machineId?: string } | undefined
+        .select({ repoPath: issues.repoPath, machineId: issues.machineId })
+        .from(issues)
+        .where(eq(issues.id, order.issueId))
+        .get()
       if (!issue?.repoPath || !issue.machineId) {
         throw new Error(`ship order ${order.id} issue has no durable lane custody`)
       }
@@ -719,52 +766,45 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       })
       const actor = actorColumns(order.requestedBy.actor)
       this.db
-        .prepare(
-          `INSERT INTO ship_orders
-            (id, issue_id, repo_id, repo_path, machine_id, target_branch, destination, approved_base_sha,
-             approved_head_sha, descendant_manifest, delivery_depends_on,
-             evidence_manifest_ref, current_integration_receipt, provider_ref,
-             requested_by_actor_kind, requested_by_actor_id, requested_by_on_behalf_of,
-             requested_at, policy_id, validation_profile, validation_profile_digest,
-             close_mode, state, state_changed_at, hold_code)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          order.id,
-          order.issueId,
-          order.repoId,
-          order.repoPath,
-          order.machineId,
-          order.targetBranch,
-          order.destination,
-          order.approvedBaseSha,
-          order.approvedHeadSha,
-          JSON.stringify(order.descendantManifest),
-          JSON.stringify(order.deliveryDependsOn),
-          order.evidenceManifestRef ?? null,
-          order.currentIntegrationReceipt ? JSON.stringify(order.currentIntegrationReceipt) : null,
-          order.providerRef ? JSON.stringify(order.providerRef) : null,
-          actor.kind,
-          actor.id,
-          order.requestedBy.onBehalfOf,
-          order.requestedAt,
-          order.policyId,
-          JSON.stringify(profile),
-          order.validationProfileDigest,
-          order.closeMode,
-          order.state,
-          order.stateChangedAt,
-          order.holdCode ?? null,
-        )
-      this.db
-        .prepare(
-          `INSERT INTO ship_lane_revisions (lane_key, revision, updated_at)
-           VALUES (?, 1, ?)
-           ON CONFLICT(lane_key) DO UPDATE SET
-             revision = ship_lane_revisions.revision + 1,
-             updated_at = excluded.updated_at`,
-        )
-        .run(laneKey, order.requestedAt)
+        .insert(shipOrders)
+        .values({
+          id: order.id,
+          issueId: order.issueId,
+          repoId: order.repoId,
+          repoPath: order.repoPath,
+          machineId: order.machineId,
+          targetBranch: order.targetBranch,
+          destination: order.destination,
+          approvedBaseSha: order.approvedBaseSha,
+          approvedHeadSha: order.approvedHeadSha,
+          // Plain `text()` columns: the serialisation stays this file's, byte
+          // for byte, because the reads compare and quarantine that text.
+          descendantManifest: JSON.stringify(order.descendantManifest),
+          deliveryDependsOn: JSON.stringify(order.deliveryDependsOn),
+          evidenceManifestRef: order.evidenceManifestRef ?? null,
+          currentIntegrationReceipt: order.currentIntegrationReceipt
+            ? JSON.stringify(order.currentIntegrationReceipt)
+            : null,
+          providerRef: order.providerRef ? JSON.stringify(order.providerRef) : null,
+          requestedByActorKind: actor.kind,
+          requestedByActorId: actor.id,
+          requestedByOnBehalfOf: order.requestedBy.onBehalfOf,
+          requestedAt: order.requestedAt,
+          policyId: order.policyId,
+          // `validation_profile` IS `mode: 'json'`, so the OBJECT goes in and
+          // drizzle serialises it. Verified at the source rather than assumed:
+          // `SQLiteTextJson.mapToDriverValue` is `JSON.stringify`, so the bytes
+          // are identical to the `JSON.stringify(profile)` this replaces — which
+          // matters because the train custody check compares those bytes.
+          validationProfile: profile,
+          validationProfileDigest: order.validationProfileDigest,
+          closeMode: order.closeMode,
+          state: order.state,
+          stateChangedAt: order.stateChangedAt,
+          holdCode: order.holdCode ?? null,
+        })
+        .run()
+      this.bumpLaneRevision(laneKey, order.requestedAt)
       this.invalidateActiveLane(laneKey, order.requestedAt, 'lane-enqueue')
       return this.getOrder(order.id) as ShipOrderValue
     })
@@ -778,7 +818,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     created: boolean
   } {
     const candidate = ShipOrder.parse(input)
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const active = this.activeOrderForIssue(candidate.issueId)
       if (active) {
         if (sameFrozenShipOrder(active, candidate)) {
@@ -821,11 +861,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship order ${id} has durable cancellation intent`)
     }
     const result = this.db
-      .prepare(
-        `UPDATE ship_orders SET state = ?, state_changed_at = ?, hold_code = NULL
-         WHERE id = ? AND state = ? AND state NOT IN ('shipped', 'cancelled')`,
+      .update(shipOrders)
+      .set({ state: nextState, stateChangedAt, holdCode: null })
+      .where(
+        and(
+          eq(shipOrders.id, asShipOrderId(id)),
+          eq(shipOrders.state, expectedState),
+          // Redundant against the equality above and kept verbatim: narrowing a
+          // fence during a conversion is a behaviour change, not a tidy-up.
+          notInArray(shipOrders.state, ['shipped', 'cancelled']),
+        ),
       )
-      .run(nextState, stateChangedAt, id, expectedState)
+      .run()
     if (result.changes !== 1) {
       throw new Error(`ship order ${id} state fence failed: expected ${expectedState}`)
     }
@@ -833,7 +880,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   getAttempt(id: string): ShipAttemptValue | null {
-    const row = this.db.prepare(`${attemptSelect} WHERE id = ?`).get(id) as AttemptRow | undefined
+    const row = this.db
+      .select()
+      .from(shipAttempts)
+      .where(eq(shipAttempts.id, asShipAttemptId(id)))
+      .get()
     return row ? mapAttempt(row) : null
   }
 
@@ -867,37 +918,40 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship attempt ${attempt.id} must be created unfinished`)
     }
     this.db
-      .prepare(
-        `INSERT INTO ship_attempts
-          (id, order_id, expected_source_base_sha, approved_head_sha, expected_target_sha,
-           machine_id, lease_generation, started_at, submitted_head_sha)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        attempt.id,
-        attempt.orderId,
-        attempt.expectedSourceBaseSha,
-        attempt.approvedHeadSha,
-        attempt.expectedTargetSha,
-        attempt.machineId,
-        attempt.leaseGeneration,
-        attempt.startedAt,
-        attempt.submittedHeadSha,
-      )
+      .insert(shipAttempts)
+      .values({
+        id: attempt.id,
+        orderId: attempt.orderId,
+        expectedSourceBaseSha: attempt.expectedSourceBaseSha,
+        approvedHeadSha: attempt.approvedHeadSha,
+        expectedTargetSha: attempt.expectedTargetSha,
+        machineId: attempt.machineId,
+        leaseGeneration: attempt.leaseGeneration,
+        startedAt: attempt.startedAt,
+        submittedHeadSha: attempt.submittedHeadSha,
+      })
+      .run()
     return this.getAttempt(attempt.id) as ShipAttemptValue
   }
 
   latestAttemptForOrder(orderId: string): ShipAttemptValue | null {
     const row = this.db
-      .prepare(`${attemptSelect} WHERE order_id = ? ORDER BY lease_generation DESC LIMIT 1`)
-      .get(orderId) as AttemptRow | undefined
+      .select()
+      .from(shipAttempts)
+      .where(eq(shipAttempts.orderId, asShipOrderId(orderId)))
+      .orderBy(desc(shipAttempts.leaseGeneration))
+      .limit(1)
+      .get()
     return row ? mapAttempt(row) : null
   }
 
   listAttempts(): ShipAttemptValue[] {
-    return (this.db.prepare(`${attemptSelect} ORDER BY started_at, id`).all() as AttemptRow[]).map(
-      mapAttempt,
-    )
+    return this.db
+      .select()
+      .from(shipAttempts)
+      .orderBy(asc(shipAttempts.startedAt), asc(shipAttempts.id))
+      .all()
+      .map(mapAttempt)
   }
 
   claimTrain(input: {
@@ -908,7 +962,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     manifest: ShipTrainManifestValue
     claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[]
   } {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const requestedIds = [...new Set(input.members.map((member) => member.orderId))]
       if (requestedIds.length === 0 || requestedIds.length !== input.members.length) {
         throw new Error('ship train claim requires unique non-empty order ids')
@@ -948,12 +1002,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const issueFacts = new Map(
         selected.map((order) => {
           const row = this.db
-            .prepare(
-              'SELECT branch, machine_id AS machineId, repo_path AS repoPath FROM issues WHERE id = ?',
-            )
-            .get(order.issueId) as
-            | { branch?: string; machineId?: string; repoPath?: string }
-            | undefined
+            .select({
+              branch: issues.branch,
+              machineId: issues.machineId,
+              repoPath: issues.repoPath,
+            })
+            .from(issues)
+            .where(eq(issues.id, order.issueId))
+            .get()
           if (!row?.branch || !row.machineId || !row.repoPath) {
             throw new Error(`ship train issue ${order.issueId} has no durable branch custody`)
           }
@@ -980,8 +1036,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error('ship train members cross canonical lane authority')
       }
       const laneRevisionRow = this.db
-        .prepare('SELECT revision FROM ship_lane_revisions WHERE lane_key = ?')
-        .get(laneKey) as { revision: number } | undefined
+        .select({ revision: shipLaneRevisions.revision })
+        .from(shipLaneRevisions)
+        .where(eq(shipLaneRevisions.laneKey, laneKey))
+        .get()
       if (!laneRevisionRow || laneRevisionRow.revision < 1) {
         throw new Error('ship train lane has no durable revision')
       }
@@ -998,11 +1056,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         )
       }
       const stackEdges = this.db
-        .prepare(
-          `SELECT upper_order_id AS upperOrderId, lower_order_id AS lowerOrderId
-             FROM ship_order_stack_edges`,
-        )
-        .all() as { upperOrderId: ShipOrderValue['id']; lowerOrderId: ShipOrderValue['id'] }[]
+        .select({
+          upperOrderId: shipOrderStackEdges.upperOrderId,
+          lowerOrderId: shipOrderStackEdges.lowerOrderId,
+        })
+        .from(shipOrderStackEdges)
+        .all()
       const stackLower = new Map<ShipOrderValue['id'], ShipOrderValue['id'][]>()
       for (const edge of stackEdges) {
         const lower = stackLower.get(edge.upperOrderId) ?? []
@@ -1144,73 +1203,73 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const canonicalJson = serializeShipTrainManifest(manifest)
       const canonicalDigest = createHash('sha256').update(canonicalJson).digest('hex')
       this.db
-        .prepare(
-          `INSERT INTO ship_train_manifests
-            (id, version, subset_id, repair_round, canonical_digest, canonical_json,
-             repo_id, repo_path, machine_id, target_branch, expected_target_sha,
-             destination, provider_ref, policy_id, validation_profile,
-             validation_profile_digest, lane_key, lane_revision, member_count,
-             leader_order_id, leader_attempt_id, leader_generation, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          manifest.id,
-          manifest.version,
-          manifest.subsetId,
-          manifest.repairRound,
+        .insert(shipTrainManifests)
+        .values({
+          id: manifest.id,
+          version: manifest.version,
+          subsetId: manifest.subsetId,
+          repairRound: manifest.repairRound,
           canonicalDigest,
           canonicalJson,
-          manifest.lane.repoId,
-          manifest.lane.repoPath,
-          manifest.lane.machineId,
-          manifest.lane.targetBranch,
-          manifest.lane.expectedTargetSha,
-          manifest.lane.destination,
-          manifest.lane.providerRef ? JSON.stringify(manifest.lane.providerRef) : null,
-          manifest.lane.policyId,
-          JSON.stringify(manifest.lane.validationProfile),
-          manifest.lane.validationProfileDigest,
-          manifest.lane.laneKey,
-          manifest.lane.laneRevision,
-          manifest.memberCount,
-          manifest.leaderOrderId,
-          leader.attempt.id,
-          leader.attempt.leaseGeneration,
-          input.startedAt,
-        )
+          repoId: manifest.lane.repoId,
+          repoPath: manifest.lane.repoPath,
+          machineId: manifest.lane.machineId,
+          targetBranch: manifest.lane.targetBranch,
+          expectedTargetSha: manifest.lane.expectedTargetSha,
+          destination: manifest.lane.destination,
+          // `provider_ref` and `validation_profile` are `mode: 'json'`, so the
+          // OBJECT goes in and drizzle serialises it with `JSON.stringify` —
+          // byte-identical to the calls this replaces, which the custody check
+          // in `trainManifestForAttempt` depends on. `providerRef` keeps its
+          // absent-means-NULL arm rather than storing the string "null".
+          providerRef: manifest.lane.providerRef ?? null,
+          policyId: manifest.lane.policyId,
+          validationProfile: manifest.lane.validationProfile,
+          validationProfileDigest: manifest.lane.validationProfileDigest,
+          laneKey: manifest.lane.laneKey,
+          laneRevision: manifest.lane.laneRevision,
+          memberCount: manifest.memberCount,
+          leaderOrderId: manifest.leaderOrderId,
+          leaderAttemptId: leader.attempt.id,
+          leaderGeneration: leader.attempt.leaseGeneration,
+          createdAt: input.startedAt,
+        })
+        .run()
       for (const [ordinal, member] of manifest.members.entries()) {
         this.db
-          .prepare(
-            `INSERT INTO ship_train_members
-              (train_id, ordinal, issue_id, order_id, attempt_id, generation, machine_id,
-               source_branch, approved_base_sha, approved_head_sha, delivery_depends_on)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-          )
-          .run(
-            manifest.id,
+          .insert(shipTrainMembers)
+          .values({
+            trainId: manifest.id,
             ordinal,
-            member.issueId,
-            member.orderId,
-            member.attemptId,
-            member.generation,
-            member.machineId,
-            member.sourceBranch,
-            member.approvedBaseSha,
-            member.approvedHeadSha,
-            JSON.stringify(member.deliveryDependsOn),
-          )
+            issueId: member.issueId,
+            orderId: member.orderId,
+            attemptId: member.attemptId,
+            generation: member.generation,
+            machineId: member.machineId,
+            sourceBranch: member.sourceBranch,
+            approvedBaseSha: member.approvedBaseSha,
+            approvedHeadSha: member.approvedHeadSha,
+            // `mode: 'json'`, so the array goes in unserialised. Same bytes.
+            deliveryDependsOn: member.deliveryDependsOn,
+          })
+          .run()
       }
       for (const member of manifest.members) {
         this.db
-          .prepare(
-            `INSERT INTO ship_train_active_claims
-              (train_id, order_id, attempt_id, generation) VALUES (?, ?, ?, ?)`,
-          )
-          .run(manifest.id, member.orderId, member.attemptId, member.generation)
+          .insert(shipTrainActiveClaims)
+          .values({
+            trainId: manifest.id,
+            orderId: member.orderId,
+            attemptId: member.attemptId,
+            generation: member.generation,
+          })
+          .run()
       }
       const finalRevision = this.db
-        .prepare('SELECT revision FROM ship_lane_revisions WHERE lane_key = ?')
-        .get(laneKey) as { revision: number } | undefined
+        .select({ revision: shipLaneRevisions.revision })
+        .from(shipLaneRevisions)
+        .where(eq(shipLaneRevisions.laneKey, laneKey))
+        .get()
       if (finalRevision?.revision !== laneRevisionRow.revision) {
         throw new Error('ship train lane changed during claim')
       }
@@ -1237,24 +1296,14 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   trainManifestForAttempt(attemptId: ShipAttemptValue['id']): ShipTrainManifestValue | null {
+    // The projection named 19 of the manifest table's columns and the join adds
+    // none, so `select()` over the joined table returns the same fields.
     const row = this.db
-      .prepare(
-        `SELECT m.id, m.canonical_json AS canonicalJson, m.canonical_digest AS canonicalDigest,
-                m.repo_id AS repoId, m.repo_path AS repoPath, m.machine_id AS machineId,
-                m.lane_key AS laneKey, m.lane_revision AS laneRevision,
-                m.target_branch AS targetBranch,
-                m.expected_target_sha AS expectedTargetSha, m.destination,
-                m.provider_ref AS providerRef, m.policy_id AS policyId,
-                m.validation_profile AS validationProfile,
-                m.validation_profile_digest AS validationProfileDigest,
-                m.member_count AS memberCount,
-                m.leader_order_id AS leaderOrderId,
-                m.leader_attempt_id AS leaderAttemptId, m.leader_generation AS leaderGeneration
-           FROM ship_train_manifests m
-           JOIN ship_train_members tm ON tm.train_id = m.id
-          WHERE tm.attempt_id = ?`,
-      )
-      .get(attemptId) as ManifestAuthorityRow | undefined
+      .select(trainManifestColumns)
+      .from(shipTrainManifests)
+      .innerJoin(shipTrainMembers, eq(shipTrainMembers.trainId, shipTrainManifests.id))
+      .where(eq(shipTrainMembers.attemptId, attemptId))
+      .get()
     if (!row) return null
     let manifest: ShipTrainManifestValue
     try {
@@ -1287,14 +1336,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship train manifest ${manifest.id} normalized authority mismatch`)
     }
     const normalizedMembers = this.db
-      .prepare(
-        `SELECT ordinal, issue_id AS issueId, order_id AS orderId, attempt_id AS attemptId,
-                generation, machine_id AS machineId, source_branch AS sourceBranch,
-                approved_base_sha AS approvedBaseSha, approved_head_sha AS approvedHeadSha,
-                delivery_depends_on AS deliveryDependsOn
-           FROM ship_train_members WHERE train_id = ? ORDER BY ordinal`,
-      )
-      .all(manifest.id) as ManifestMemberRow[]
+      .select(trainMemberColumns)
+      .from(shipTrainMembers)
+      .where(eq(shipTrainMembers.trainId, manifest.id))
+      .orderBy(asc(shipTrainMembers.ordinal))
+      .all()
     if (
       normalizedMembers.length !== manifest.members.length ||
       normalizedMembers.some(
@@ -1338,13 +1384,11 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
 
   private claimedTrainForOrder(orderId: ShipOrderValue['id']): ShipTrainManifestValue | null {
     const row = this.db
-      .prepare(
-        `SELECT c.attempt_id AS attemptId
-           FROM ship_train_active_claims c
-           JOIN ship_train_manifests m ON m.id = c.train_id
-          WHERE c.order_id = ? AND m.released_at IS NULL`,
-      )
-      .get(orderId) as { attemptId: ShipAttemptValue['id'] } | undefined
+      .select({ attemptId: shipTrainActiveClaims.attemptId })
+      .from(shipTrainActiveClaims)
+      .innerJoin(shipTrainManifests, eq(shipTrainManifests.id, shipTrainActiveClaims.trainId))
+      .where(and(eq(shipTrainActiveClaims.orderId, orderId), isNull(shipTrainManifests.releasedAt)))
+      .get()
     if (!row) return null
     return this.trainManifestForAttempt(row.attemptId)
   }
@@ -1353,14 +1397,19 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     const manifest = this.claimedTrainForOrder(orderId)
     if (!manifest) return null
     const authority = this.db
-      .prepare(
-        `SELECT m.released_at AS releasedAt, lr.revision,
-                (SELECT COUNT(*) FROM ship_train_active_claims c WHERE c.train_id = m.id) AS claimCount
-           FROM ship_train_manifests m
-           JOIN ship_lane_revisions lr ON lr.lane_key = m.lane_key
-          WHERE m.id = ?`,
-      )
-      .get(manifest.id) as { releasedAt?: string; revision: number; claimCount: number } | undefined
+      .select({
+        releasedAt: shipTrainManifests.releasedAt,
+        revision: shipLaneRevisions.revision,
+        // The correlated count is a DECISION about what "still claimed" means,
+        // and drizzle has no builder form for a correlated subquery in a
+        // projection, so it stays a `sql` fragment inside the builder query
+        // (spec rule 1). The predicate is unchanged.
+        claimCount: activeClaimCount,
+      })
+      .from(shipTrainManifests)
+      .innerJoin(shipLaneRevisions, eq(shipLaneRevisions.laneKey, shipTrainManifests.laneKey))
+      .where(eq(shipTrainManifests.id, manifest.id))
+      .get()
     if (
       !authority ||
       authority.releasedAt ||
@@ -1399,14 +1448,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       machineId: order.machineId,
     })
     const rows = this.db
-      .prepare(
-        `SELECT c.order_id AS orderId
-           FROM ship_train_active_claims c
-           JOIN ship_train_manifests m ON m.id = c.train_id
-          WHERE m.lane_key = ? AND m.released_at IS NULL
-          ORDER BY m.created_at, m.id, c.order_id`,
+      .select({ orderId: shipTrainActiveClaims.orderId })
+      .from(shipTrainActiveClaims)
+      .innerJoin(shipTrainManifests, eq(shipTrainManifests.id, shipTrainActiveClaims.trainId))
+      .where(and(eq(shipTrainManifests.laneKey, laneKey), isNull(shipTrainManifests.releasedAt)))
+      .orderBy(
+        asc(shipTrainManifests.createdAt),
+        asc(shipTrainManifests.id),
+        asc(shipTrainActiveClaims.orderId),
       )
-      .all(laneKey) as { orderId: ShipOrderValue['id'] }[]
+      .all()
     const manifests = new Map<string, ShipTrainManifestValue>()
     for (const row of rows) {
       const manifest = this.claimedTrainForOrder(row.orderId)
@@ -1416,31 +1467,35 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): void {
-    transaction(this.db, () => {
+    this.transact(() => {
       const row = this.db
-        .prepare(
-          `SELECT released_at AS releasedAt, release_reason AS releaseReason
-             FROM ship_train_manifests WHERE id = ?`,
-        )
-        .get(trainId) as { releasedAt?: string; releaseReason?: string } | undefined
+        .select({
+          releasedAt: shipTrainManifests.releasedAt,
+          releaseReason: shipTrainManifests.releaseReason,
+        })
+        .from(shipTrainManifests)
+        .where(eq(shipTrainManifests.id, trainId))
+        .get()
       if (!row) throw new Error(`unknown ship train ${trainId}`)
       if (row.releasedAt) {
         if (row.releasedAt === releasedAt && row.releaseReason === reason) return
         throw new Error(`ship train ${trainId} was already released differently`)
       }
       const changed = this.db
-        .prepare(
-          `UPDATE ship_train_manifests SET released_at = ?, release_reason = ?
-            WHERE id = ? AND released_at IS NULL`,
-        )
-        .run(releasedAt, reason, trainId)
+        .update(shipTrainManifests)
+        .set({ releasedAt, releaseReason: reason })
+        .where(and(eq(shipTrainManifests.id, trainId), isNull(shipTrainManifests.releasedAt)))
+        .run()
       if (changed.changes !== 1) throw new Error(`ship train ${trainId} release fence failed`)
       const claims = this.db
-        .prepare('DELETE FROM ship_train_active_claims WHERE train_id = ?')
-        .run(trainId)
+        .delete(shipTrainActiveClaims)
+        .where(eq(shipTrainActiveClaims.trainId, trainId))
+        .run()
       const memberCount = this.db
-        .prepare('SELECT member_count AS memberCount FROM ship_train_manifests WHERE id = ?')
-        .get(trainId) as { memberCount?: number } | undefined
+        .select({ memberCount: shipTrainManifests.memberCount })
+        .from(shipTrainManifests)
+        .where(eq(shipTrainManifests.id, trainId))
+        .get()
       if (claims.changes !== memberCount?.memberCount) {
         throw new Error(`ship train ${trainId} did not release every active member claim`)
       }
@@ -1457,7 +1512,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     isolatedAt: string
     detail: string
   }): void {
-    transaction(this.db, () => {
+    this.transact(() => {
       const manifest = this.claimedTrainForOrder(input.leaderOrderId)
       if (
         !manifest ||
@@ -1489,20 +1544,20 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         }
         if (!failures.has(member.orderId)) {
           const changed = this.db
-            .prepare(
-              `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
-                WHERE id = ? AND state NOT IN ('shipped', 'cancelled', 'held')`,
+            .update(shipOrders)
+            .set({ state: 'queued', stateChangedAt: input.isolatedAt, holdCode: null })
+            .where(
+              and(
+                eq(shipOrders.id, member.orderId),
+                notInArray(shipOrders.state, ['shipped', 'cancelled', 'held']),
+              ),
             )
-            .run(input.isolatedAt, member.orderId)
+            .run()
           if (changed.changes !== 1)
             throw new Error(`ship train ${manifest.id} green member reset failed`)
           continue
         }
-        const generationRow = this.db
-          .prepare(
-            'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
-          )
-          .get(member.orderId) as { generation: number }
+        const generationRow = { generation: this.highestHoldGeneration(member.orderId) }
         this.raiseHold({
           id: asShipHoldId(`hold:${member.orderId}:isolation:${generationRow.generation + 1}`),
           orderId: member.orderId,
@@ -1520,25 +1575,29 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
 
   private invalidateActiveLane(laneKey: string, at: string, reason: string): void {
     const rows = this.db
-      .prepare(
-        `SELECT id FROM ship_train_manifests
-          WHERE lane_key = ? AND released_at IS NULL ORDER BY created_at, id`,
-      )
-      .all(laneKey) as { id: ShipTrainManifestValue['id'] }[]
+      .select({ id: shipTrainManifests.id })
+      .from(shipTrainManifests)
+      .where(and(eq(shipTrainManifests.laneKey, laneKey), isNull(shipTrainManifests.releasedAt)))
+      .orderBy(asc(shipTrainManifests.createdAt), asc(shipTrainManifests.id))
+      .all()
     for (const row of rows) {
       const memberRows = this.db
-        .prepare(
-          `SELECT tm.order_id AS orderId, tm.attempt_id AS attemptId, tm.generation
-             FROM ship_train_members tm
-             JOIN ship_train_active_claims c
-               ON c.train_id = tm.train_id AND c.order_id = tm.order_id
-            WHERE tm.train_id = ? ORDER BY tm.ordinal`,
+        .select({
+          orderId: shipTrainMembers.orderId,
+          attemptId: shipTrainMembers.attemptId,
+          generation: shipTrainMembers.generation,
+        })
+        .from(shipTrainMembers)
+        .innerJoin(
+          shipTrainActiveClaims,
+          and(
+            eq(shipTrainActiveClaims.trainId, shipTrainMembers.trainId),
+            eq(shipTrainActiveClaims.orderId, shipTrainMembers.orderId),
+          ),
         )
-        .all(row.id) as {
-        orderId: ShipOrderValue['id']
-        attemptId: ShipAttemptValue['id']
-        generation: number
-      }[]
+        .where(eq(shipTrainMembers.trainId, row.id))
+        .orderBy(asc(shipTrainMembers.ordinal))
+        .all()
       const orders = memberRows.map((member) => this.getOrder(member.orderId))
       const resettable =
         memberRows.length > 0 &&
@@ -1552,11 +1611,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             outcome: 'failed',
           })
           const changed = this.db
-            .prepare(
-              `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
-                WHERE id = ? AND state = 'preflight'`,
-            )
-            .run(at, member.orderId)
+            .update(shipOrders)
+            .set({ state: 'queued', stateChangedAt: at, holdCode: null })
+            .where(and(eq(shipOrders.id, member.orderId), eq(shipOrders.state, 'preflight')))
+            .run()
           if (changed.changes !== 1)
             throw new Error(`ship train ${row.id} reset was not manifest-wide`)
         }
@@ -1572,11 +1630,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
             outcome: 'failed',
           })
         }
-        const generationRow = this.db
-          .prepare(
-            'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
-          )
-          .get(member.orderId) as { generation: number }
+        const generationRow = { generation: this.highestHoldGeneration(member.orderId) }
         this.raiseHold({
           id: asShipHoldId(`hold:${member.orderId}:lane:${generationRow.generation + 1}`),
           orderId: member.orderId,
@@ -1597,7 +1651,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     lowerOrderId: ShipOrderValue['id']
     recordedAt: string
   }): void {
-    transaction(this.db, () => {
+    this.transact(() => {
       const upper = this.getOrder(input.upperOrderId)
       const lower = this.getOrder(input.lowerOrderId)
       if (!upper || !lower || upper.id === lower.id) throw new Error('invalid native stack edge')
@@ -1611,8 +1665,10 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       }
       const issueRows = [upper, lower].map((order) => {
         const issue = this.db
-          .prepare('SELECT repo_path AS repoPath, machine_id AS machineId FROM issues WHERE id = ?')
-          .get(order.issueId) as { repoPath?: string; machineId?: string } | undefined
+          .select({ repoPath: issues.repoPath, machineId: issues.machineId })
+          .from(issues)
+          .where(eq(issues.id, order.issueId))
+          .get()
         if (!issue?.repoPath || !issue.machineId)
           throw new Error('native stack edge has no lane custody')
         return { repoPath: issue.repoPath, machineId: issue.machineId }
@@ -1622,13 +1678,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error('native stack edge crosses immutable compatibility')
       }
       const existing = this.db
-        .prepare(
-          `SELECT lower_order_id AS lowerOrderId,
-                  upper_approved_head_sha AS upperApprovedHeadSha,
-                  lower_approved_head_sha AS lowerApprovedHeadSha
-             FROM ship_order_stack_edges WHERE upper_order_id = ? AND lower_order_id = ?`,
+        .select()
+        .from(shipOrderStackEdges)
+        .where(
+          and(
+            eq(shipOrderStackEdges.upperOrderId, upper.id),
+            eq(shipOrderStackEdges.lowerOrderId, lower.id),
+          ),
         )
-        .get(upper.id, lower.id) as StackEdgeRow | undefined
+        .get()
       if (existing) {
         if (
           existing.lowerOrderId === lower.id &&
@@ -1640,22 +1698,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`native stack edge ${upper.id} → ${lower.id} is immutable`)
       }
       this.db
-        .prepare(
-          `INSERT INTO ship_order_stack_edges
-            (upper_order_id, lower_order_id, upper_approved_head_sha,
-             lower_approved_head_sha, recorded_at)
-           VALUES (?, ?, ?, ?, ?)`,
-        )
-        .run(upper.id, lower.id, upper.approvedHeadSha, lower.approvedHeadSha, input.recordedAt)
-      this.db
-        .prepare(
-          `INSERT INTO ship_lane_revisions (lane_key, revision, updated_at)
-           VALUES (?, 1, ?)
-           ON CONFLICT(lane_key) DO UPDATE SET
-             revision = ship_lane_revisions.revision + 1,
-             updated_at = excluded.updated_at`,
-        )
-        .run(laneKey, input.recordedAt)
+        .insert(shipOrderStackEdges)
+        .values({
+          upperOrderId: upper.id,
+          lowerOrderId: lower.id,
+          upperApprovedHeadSha: upper.approvedHeadSha,
+          lowerApprovedHeadSha: lower.approvedHeadSha,
+          recordedAt: input.recordedAt,
+        })
+        .run()
+      this.bumpLaneRevision(laneKey, input.recordedAt)
       this.invalidateActiveLane(laneKey, input.recordedAt, 'native-stack-change')
     })
   }
@@ -1666,11 +1718,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   ): boolean {
     return Boolean(
       this.db
-        .prepare(
-          `SELECT 1 FROM ship_order_stack_edges
-            WHERE upper_order_id = ? AND lower_order_id = ?`,
+        .select({ present: sql<number>`1` })
+        .from(shipOrderStackEdges)
+        .where(
+          and(
+            eq(shipOrderStackEdges.upperOrderId, upperOrderId),
+            eq(shipOrderStackEdges.lowerOrderId, lowerOrderId),
+          ),
         )
-        .get(upperOrderId, lowerOrderId),
+        .get(),
     )
   }
 
@@ -1685,7 +1741,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     machineId: ShipAttemptValue['machineId']
     startedAt: string
   }): { order: ShipOrderValue; attempt: ShipAttemptValue } {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(input.orderId)
       if (!order) throw new Error(`unknown ship order ${input.orderId}`)
       if (order.state !== input.expectedState) {
@@ -1757,7 +1813,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     effectKey: string
     operation: ShipStepValue['kind']
   }): void {
-    transaction(this.db, () => {
+    this.transact(() => {
       const order = this.getOrder(input.orderId)
       const attempt = this.latestAttemptForOrder(input.orderId)
       const step = this.latestStepForEffect(input.attemptId, input.effectKey)
@@ -1813,7 +1869,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           attemptFinishedAt: string
         }
   }): ShipOrderValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(input.orderId)
       const latestAttempt = this.latestAttemptForOrder(input.orderId)
       if (
@@ -1908,7 +1964,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     hold: ShipHoldValue
     attemptFinishedAt: string
   }): ShipOrderValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(input.orderId)
       const latestAttempt = this.latestAttemptForOrder(input.orderId)
       const intent = this.latestStepForEffect(input.attemptId, input.intentKey)
@@ -1961,7 +2017,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     hold: ShipHoldValue
     attemptFinishedAt: string
   }): ShipOrderValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(input.orderId)
       const latestAttempt = this.latestAttemptForOrder(input.orderId)
       if (
@@ -2021,23 +2077,27 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`completed ship attempt ${id} is missing finishedAt/outcome`)
     }
     const changed = this.db
-      .prepare(
-        `UPDATE ship_attempts SET finished_at = ?, outcome = ?, tested_integration_sha = ?,
-           landed_ref_sha = ?, destination_sha = ?, validation_profile_id = ?,
-           validation_result = ?
-         WHERE id = ? AND lease_generation = ? AND finished_at IS NULL`,
+      .update(shipAttempts)
+      .set({
+        finishedAt: completed.finishedAt,
+        outcome: completed.outcome,
+        // Every `?? null` stays an EXPLICIT null. An omitted key in a drizzle
+        // `set` is not written at all, which would leave the previous value
+        // standing where the raw statement cleared it.
+        testedIntegrationSha: completed.testedIntegrationSha ?? null,
+        landedRefSha: completed.landedRefSha ?? null,
+        destinationSha: completed.destinationSha ?? null,
+        validationProfileId: completed.validationProfileId ?? null,
+        validationResult: completed.validationResult ?? null,
+      })
+      .where(
+        and(
+          eq(shipAttempts.id, asShipAttemptId(id)),
+          eq(shipAttempts.leaseGeneration, leaseGeneration),
+          isNull(shipAttempts.finishedAt),
+        ),
       )
-      .run(
-        completed.finishedAt,
-        completed.outcome,
-        completed.testedIntegrationSha ?? null,
-        completed.landedRefSha ?? null,
-        completed.destinationSha ?? null,
-        completed.validationProfileId ?? null,
-        completed.validationResult ?? null,
-        id,
-        leaseGeneration,
-      )
+      .run()
     if (changed.changes !== 1) {
       throw new Error(`ship attempt ${id} generation fence failed: expected ${leaseGeneration}`)
     }
@@ -2057,7 +2117,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       terminalSteps: ShipStepValue[]
     },
   ): ShipOrderValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(orderId)
       if (!order || order.state !== expectedState) {
         throw new Error(
@@ -2102,17 +2162,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           }
           if (sibling.state === 'preflight') {
             this.db
-              .prepare(
-                `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
-                  WHERE id = ? AND state = 'preflight'`,
-              )
-              .run(cancelledAt, sibling.id)
+              .update(shipOrders)
+              .set({ state: 'queued', stateChangedAt: cancelledAt, holdCode: null })
+              .where(and(eq(shipOrders.id, sibling.id), eq(shipOrders.state, 'preflight')))
+              .run()
           } else {
-            const holdGeneration = this.db
-              .prepare(
-                'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
-              )
-              .get(sibling.id) as { generation: number }
+            const holdGeneration = { generation: this.highestHoldGeneration(sibling.id) }
             this.raiseHold({
               id: asShipHoldId(`hold:${sibling.id}:train:${holdGeneration.generation + 1}`),
               orderId: sibling.id,
@@ -2139,7 +2194,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     planned: ShipStepValue
     running: ShipStepValue
   }): ShipStepValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       if (
         !this.hasAttemptCustody({
           orderId: input.orderId,
@@ -2182,8 +2237,15 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship step ${step.id} input fence does not match attempt ${attempt.id}`)
     }
     const existingRow = this.db
-      .prepare(`${stepSelect} WHERE attempt_id = ? AND idempotency_key = ?`)
-      .get(step.attemptId, step.idempotencyKey) as StepRow | undefined
+      .select(stepColumns)
+      .from(shipSteps)
+      .where(
+        and(
+          eq(shipSteps.attemptId, step.attemptId),
+          eq(shipSteps.idempotencyKey, step.idempotencyKey),
+        ),
+      )
+      .get()
     if (existingRow) {
       const existing = mapStep(existingRow)
       if (JSON.stringify(existing) === JSON.stringify(step)) return existing
@@ -2205,79 +2267,101 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       throw new Error(`ship step effect ${step.effectKey} is already terminal`)
     }
     this.db
-      .prepare(
-        `INSERT INTO ship_steps
-          (id, order_id, attempt_id, effect_key, idempotency_key, generation,
-           input_fence, kind, state, outcome, summary, artifact_ref, recorded_at,
-           started_at, finished_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        step.id,
-        step.orderId,
-        step.attemptId,
-        step.effectKey,
-        step.idempotencyKey,
-        step.generation,
-        JSON.stringify(step.inputFence),
-        step.kind,
-        step.state,
-        step.outcome ?? null,
-        step.summary,
-        step.artifactRef ?? null,
-        step.recordedAt,
-        step.startedAt ?? null,
-        step.finishedAt ?? null,
-      )
+      .insert(shipSteps)
+      .values({
+        id: step.id,
+        orderId: step.orderId,
+        attemptId: step.attemptId,
+        effectKey: step.effectKey,
+        idempotencyKey: step.idempotencyKey,
+        generation: step.generation,
+        // `input_fence` is `mode: 'json'`, so the object goes in and drizzle
+        // serialises it — the same bytes `appendStep`'s own fence comparison
+        // and `mapStep`'s quarantine read back.
+        inputFence: step.inputFence,
+        kind: step.kind,
+        state: step.state,
+        outcome: step.outcome ?? null,
+        summary: step.summary,
+        artifactRef: step.artifactRef ?? null,
+        recordedAt: step.recordedAt,
+        startedAt: step.startedAt ?? null,
+        finishedAt: step.finishedAt ?? null,
+      })
+      .run()
     return this.stepById(step.id) as ShipStepValue
   }
 
   stepById(id: string): ShipStepValue | null {
-    const row = this.db.prepare(`${stepSelect} WHERE id = ?`).get(id) as StepRow | undefined
+    const row = this.db
+      .select(stepColumns)
+      .from(shipSteps)
+      .where(eq(shipSteps.id, asShipStepId(id)))
+      .get()
     return row ? mapStep(row) : null
   }
 
   stepsForAttempt(attemptId: string): ShipStepValue[] {
-    return (
-      this.db
-        .prepare(`${stepSelect} WHERE attempt_id = ? ORDER BY recorded_at, id`)
-        .all(attemptId) as StepRow[]
-    ).map(mapStep)
+    return this.db
+      .select(stepColumns)
+      .from(shipSteps)
+      .where(eq(shipSteps.attemptId, asShipAttemptId(attemptId)))
+      .orderBy(asc(shipSteps.recordedAt), asc(shipSteps.id))
+      .all()
+      .map(mapStep)
   }
 
   latestStepForEffect(attemptId: string, effectKey: string): ShipStepValue | null {
     // A fixed test clock and fast production transitions can share one timestamp.
     // Lifecycle rank, not the textual step id, identifies the durable successor.
     const row = this.db
-      .prepare(
-        `${stepSelect} WHERE attempt_id = ? AND effect_key = ?
-         ORDER BY CASE state
+      .select(stepColumns)
+      .from(shipSteps)
+      .where(
+        and(
+          eq(shipSteps.attemptId, asShipAttemptId(attemptId)),
+          eq(shipSteps.effectKey, effectKey),
+        ),
+      )
+      // The lifecycle rank is an ordering DECISION, not a column, so it stays a
+      // `sql` fragment inside the builder query — which spec rule 1 allows
+      // anywhere. Its arms and their order are unchanged.
+      .orderBy(
+        sql`CASE ${shipSteps.state}
            WHEN 'planned' THEN 0
            WHEN 'running' THEN 1
            ELSE 2
-         END DESC, recorded_at DESC, id DESC LIMIT 1`,
+         END DESC`,
+        desc(shipSteps.recordedAt),
+        desc(shipSteps.id),
       )
-      .get(attemptId, effectKey) as StepRow | undefined
+      .limit(1)
+      .get()
     return row ? mapStep(row) : null
   }
 
   openHoldForOrder(orderId: string): ShipHoldValue | null {
     const row = this.db
-      .prepare(`${holdSelect} WHERE order_id = ? AND resolved_at IS NULL`)
-      .get(orderId) as HoldRow | undefined
+      .select()
+      .from(shipHolds)
+      .where(and(eq(shipHolds.orderId, asShipOrderId(orderId)), isNull(shipHolds.resolvedAt)))
+      .get()
     return row ? mapHold(row) : null
   }
 
   listHolds(): ShipHoldValue[] {
-    return (this.db.prepare(`${holdSelect} ORDER BY order_id, generation`).all() as HoldRow[]).map(
-      mapHold,
-    )
+    return this.db
+      .select()
+      .from(shipHolds)
+      .orderBy(asc(shipHolds.orderId), asc(shipHolds.generation))
+      .all()
+      .map(mapHold)
   }
 
   raiseHold(input: ShipHoldValue): ShipHoldValue {
     const hold = ShipHold.parse(input)
     if (hold.resolvedAt || hold.resolution) throw new Error(`new ship hold ${hold.id} is resolved`)
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(hold.orderId)
       if (!order) throw new Error(`unknown ship order ${hold.orderId}`)
       if (isTerminalShipOrderState(order.state)) {
@@ -2287,39 +2371,38 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`illegal ship order transition ${order.state} → held`)
       }
       const activeTrain = this.claimedTrainForOrder(order.id)
-      const generationRow = this.db
-        .prepare(
-          'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
-        )
-        .get(hold.orderId) as { generation: number }
+      const generationRow = { generation: this.highestHoldGeneration(hold.orderId) }
       const expected = generationRow.generation + 1
       if (hold.generation !== expected) {
         throw new Error(`ship hold ${hold.id} generation fence failed: expected ${expected}`)
       }
       this.db
-        .prepare(
-          `INSERT INTO ship_holds
-            (id, order_id, generation, reason_code, headline, detail, evidence_refs,
-             actions, raised_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          hold.id,
-          hold.orderId,
-          hold.generation,
-          hold.reasonCode,
-          hold.headline,
-          hold.detail,
-          JSON.stringify(hold.evidenceRefs),
-          JSON.stringify(hold.actions),
-          hold.raisedAt,
-        )
+        .insert(shipHolds)
+        .values({
+          id: hold.id,
+          orderId: hold.orderId,
+          generation: hold.generation,
+          reasonCode: hold.reasonCode,
+          headline: hold.headline,
+          detail: hold.detail,
+          // Both are plain `text()`, so the serialisation stays this file's —
+          // `actions` in particular, whose quarantine-then-refuse behaviour on
+          // a corrupt value the oracle pins (spec rule 4).
+          evidenceRefs: JSON.stringify(hold.evidenceRefs),
+          actions: JSON.stringify(hold.actions),
+          raisedAt: hold.raisedAt,
+        })
+        .run()
       const orderChanged = this.db
-        .prepare(
-          `UPDATE ship_orders SET state = 'held', hold_code = ?, state_changed_at = ?
-           WHERE id = ? AND state NOT IN ('shipped', 'cancelled')`,
+        .update(shipOrders)
+        .set({ state: 'held', holdCode: hold.reasonCode, stateChangedAt: hold.raisedAt })
+        .where(
+          and(
+            eq(shipOrders.id, hold.orderId),
+            notInArray(shipOrders.state, ['shipped', 'cancelled']),
+          ),
         )
-        .run(hold.reasonCode, hold.raisedAt, hold.orderId)
+        .run()
       if (orderChanged.changes !== 1) {
         throw new Error(`ship order ${hold.orderId} hold fence failed`)
       }
@@ -2338,18 +2421,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           }
           if (sibling.state === 'preflight') {
             this.db
-              .prepare(
-                `UPDATE ship_orders SET state = 'queued', state_changed_at = ?, hold_code = NULL
-                  WHERE id = ? AND state = 'preflight'`,
-              )
-              .run(hold.raisedAt, sibling.id)
+              .update(shipOrders)
+              .set({ state: 'queued', stateChangedAt: hold.raisedAt, holdCode: null })
+              .where(and(eq(shipOrders.id, sibling.id), eq(shipOrders.state, 'preflight')))
+              .run()
             continue
           }
-          const siblingGeneration = this.db
-            .prepare(
-              'SELECT COALESCE(MAX(generation), 0) AS generation FROM ship_holds WHERE order_id = ?',
-            )
-            .get(sibling.id) as { generation: number }
+          const siblingGeneration = { generation: this.highestHoldGeneration(sibling.id) }
           this.raiseHold({
             id: asShipHoldId(`hold:${sibling.id}:train:${siblingGeneration.generation + 1}`),
             orderId: sibling.id,
@@ -2375,7 +2453,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     resolvedAt: string,
     repairCandidate?: StoredShippingRepairCandidate,
   ): ShipHoldValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const hold = this.openHoldForOrder(orderId)
       if (!hold || hold.generation !== expectedGeneration) {
         throw new Error(
@@ -2403,41 +2481,60 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         })
       }
       const changed = this.db
-        .prepare(
-          `UPDATE ship_holds SET resolved_at = ?, resolution = ?
-           WHERE order_id = ? AND generation = ? AND resolved_at IS NULL`,
+        .update(shipHolds)
+        .set({ resolvedAt, resolution })
+        .where(
+          and(
+            eq(shipHolds.orderId, asShipOrderId(orderId)),
+            eq(shipHolds.generation, expectedGeneration),
+            isNull(shipHolds.resolvedAt),
+          ),
         )
-        .run(resolvedAt, resolution, orderId, expectedGeneration)
+        .run()
       if (changed.changes !== 1) {
         throw new Error(
           `ship hold ${orderId} generation fence failed: expected ${expectedGeneration}`,
         )
       }
       const orderChanged = this.db
-        .prepare(
-          `UPDATE ship_orders SET state = ?, hold_code = NULL, state_changed_at = ?
-           WHERE id = ? AND state = 'held'`,
-        )
-        .run(nextState, resolvedAt, orderId)
+        .update(shipOrders)
+        .set({ state: nextState, holdCode: null, stateChangedAt: resolvedAt })
+        .where(and(eq(shipOrders.id, asShipOrderId(orderId)), eq(shipOrders.state, 'held')))
+        .run()
       if (orderChanged.changes !== 1) throw new Error(`ship order ${orderId} is not held`)
       const row = this.db
-        .prepare(`${holdSelect} WHERE order_id = ? AND generation = ?`)
-        .get(orderId, expectedGeneration) as HoldRow
+        .select()
+        .from(shipHolds)
+        .where(
+          and(
+            eq(shipHolds.orderId, asShipOrderId(orderId)),
+            eq(shipHolds.generation, expectedGeneration),
+          ),
+        )
+        .get()
+      // The row is guaranteed by the fenced update above; the raw form asserted
+      // it with a bare `as SqlRow` and would have thrown inside the mapper.
+      if (!row) throw new Error(`ship hold ${orderId}@${expectedGeneration} vanished mid-span`)
       return mapHold(row)
     })
   }
 
   receiptForOrder(orderId: string): DeliveryReceiptValue | null {
-    const row = this.db.prepare(`${receiptSelect} WHERE order_id = ?`).get(orderId) as
-      | ReceiptRow
-      | undefined
+    const row = this.db
+      .select()
+      .from(deliveryReceipts)
+      .where(eq(deliveryReceipts.orderId, asShipOrderId(orderId)))
+      .get()
     return row ? mapReceipt(row) : null
   }
 
   listReceipts(): DeliveryReceiptValue[] {
-    return (
-      this.db.prepare(`${receiptSelect} ORDER BY completed_at, id`).all() as ReceiptRow[]
-    ).map(mapReceipt)
+    return this.db
+      .select()
+      .from(deliveryReceipts)
+      .orderBy(asc(deliveryReceipts.completedAt), asc(deliveryReceipts.id))
+      .all()
+      .map(mapReceipt)
   }
 
   recordEffectEnvelope(input: { request: unknown; result: unknown; recordedAt: string }): string {
@@ -2478,15 +2575,16 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     const effectKey = `${request.jobId}:${request.requestDigest}`
     const requestJson = JSON.stringify(request)
     const resultJson = JSON.stringify(result)
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const existing = this.db
-        .prepare(
-          `SELECT request_json AS requestJson, result_json AS resultJson, recorded_at AS recordedAt
-             FROM ship_effect_envelopes WHERE effect_key = ?`,
-        )
-        .get(effectKey) as
-        | { requestJson: string; resultJson: string; recordedAt: string }
-        | undefined
+        .select({
+          requestJson: shipEffectEnvelopes.requestJson,
+          resultJson: shipEffectEnvelopes.resultJson,
+          recordedAt: shipEffectEnvelopes.recordedAt,
+        })
+        .from(shipEffectEnvelopes)
+        .where(eq(shipEffectEnvelopes.effectKey, effectKey))
+        .get()
       if (existing) {
         if (
           existing.requestJson === requestJson &&
@@ -2498,20 +2596,17 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`shipping effect envelope ${effectKey} is immutable`)
       }
       this.db
-        .prepare(
-          `INSERT INTO ship_effect_envelopes
-            (effect_key, train_id, attempt_id, request_digest, request_json, result_json, recorded_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
+        .insert(shipEffectEnvelopes)
+        .values({
           effectKey,
-          manifest.id,
-          request.attemptId,
-          request.requestDigest,
+          trainId: manifest.id,
+          attemptId: request.attemptId,
+          requestDigest: request.requestDigest,
           requestJson,
           resultJson,
-          input.recordedAt,
-        )
+          recordedAt: input.recordedAt,
+        })
+        .run()
       return effectKey
     })
   }
@@ -2526,16 +2621,18 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     effectEnvelopeKey: string,
   ): DeliveryReceiptValue {
     const receipt = DeliveryReceipt.parse(input)
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(receipt.orderId)
       const covering = this.getOrder(coveringOrderId)
       const coveringReceipt = this.receiptForOrder(coveringOrderId)
       const envelope = this.db
-        .prepare(
-          `SELECT request_json AS requestJson, result_json AS resultJson
-             FROM ship_effect_envelopes WHERE effect_key = ?`,
-        )
-        .get(effectEnvelopeKey) as { requestJson: string; resultJson: string } | undefined
+        .select({
+          requestJson: shipEffectEnvelopes.requestJson,
+          resultJson: shipEffectEnvelopes.resultJson,
+        })
+        .from(shipEffectEnvelopes)
+        .where(eq(shipEffectEnvelopes.effectKey, effectEnvelopeKey))
+        .get()
       if (!envelope) throw new Error(`unknown shipping effect envelope ${effectEnvelopeKey}`)
       const request = ShippingJobRequestMessage.parse(JSON.parse(envelope.requestJson))
       const result = ShippingJobResult.parse(JSON.parse(envelope.resultJson))
@@ -2552,12 +2649,13 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       const manifest = request.train.manifest
       const proof = result.trainProofs?.find((candidate) => candidate.orderId === receipt.orderId)
       const manifestAuthority = this.db
-        .prepare(
-          `SELECT released_at AS releasedAt,
-                  (SELECT COUNT(*) FROM ship_train_active_claims c WHERE c.train_id = m.id) AS claimCount
-             FROM ship_train_manifests m WHERE id = ?`,
-        )
-        .get(manifest.id) as { releasedAt?: string; claimCount: number } | undefined
+        .select({
+          releasedAt: shipTrainManifests.releasedAt,
+          claimCount: activeClaimCount,
+        })
+        .from(shipTrainManifests)
+        .where(eq(shipTrainManifests.id, manifest.id))
+        .get()
       if (!order || !covering || !coveringReceipt || covering.state !== 'shipped') {
         throw new Error(`covered delivery receipt ${receipt.id} has no shipped covering order`)
       }
@@ -2630,34 +2728,12 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         validationProfileId: receipt.validationProfileId,
         validationResult: 'passed',
       })
-      this.db
-        .prepare(
-          `INSERT INTO delivery_receipts
-            (id, order_id, approved_base_sha, approved_head_sha, result_commit_sha, tested_integration_sha,
-             landed_ref_sha, destination_sha, validation_profile_id, validation_result,
-             destination, completed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          receipt.id,
-          receipt.orderId,
-          receipt.approvedBaseSha,
-          receipt.approvedHeadSha,
-          receipt.resultCommitSha,
-          receipt.testedIntegrationSha,
-          receipt.landedRefSha,
-          receipt.destinationSha,
-          receipt.validationProfileId,
-          receipt.validationResult,
-          receipt.destination,
-          receipt.completedAt,
-        )
+      this.insertDeliveryReceipt(receipt)
       const changed = this.db
-        .prepare(
-          `UPDATE ship_orders SET state = 'shipped', state_changed_at = ?, hold_code = NULL
-           WHERE id = ? AND state = 'preflight'`,
-        )
-        .run(receipt.completedAt, receipt.orderId)
+        .update(shipOrders)
+        .set({ state: 'shipped', stateChangedAt: receipt.completedAt, holdCode: null })
+        .where(and(eq(shipOrders.id, receipt.orderId), eq(shipOrders.state, 'preflight')))
+        .run()
       if (changed.changes !== 1) throw new Error(`ship order ${order.id} coverage fence failed`)
       return this.receiptForOrder(order.id) as DeliveryReceiptValue
     })
@@ -2673,7 +2749,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     invalidations?: ShipHoldValue[]
     release?: { trainId: ShipTrainManifestValue['id']; releasedAt: string; reason: string }
   }): ShipOrderValue {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const leader = this.commitEffectResult(input.leader)
       for (const covered of input.covered) {
         this.completeCoveredOrder(
@@ -2695,7 +2771,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * finished attempt's tested/landed/destination facts. */
   completeVerifiedOrder(input: DeliveryReceiptValue): DeliveryReceiptValue {
     const receipt = DeliveryReceipt.parse(input)
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const order = this.getOrder(receipt.orderId)
       if (!order) throw new Error(`unknown ship order ${receipt.orderId}`)
       const existing = this.receiptForOrder(receipt.orderId)
@@ -2707,42 +2783,48 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`ship order ${order.id} is ${order.state}, not verifying`)
       }
       if (existing) throw new Error(`ship order ${order.id} already has a receipt`)
-      const trainReceiptProof = (
-        this.db
-          .prepare(
-            `SELECT request_json AS requestJson, result_json AS resultJson
-               FROM ship_effect_envelopes WHERE attempt_id = ? ORDER BY recorded_at DESC`,
-          )
-          .all(this.latestAttemptForOrder(order.id)?.id ?? '') as {
-          requestJson: string
-          resultJson: string
-        }[]
-      ).some((envelope) => {
-        try {
-          const request = ShippingJobRequestMessage.parse(JSON.parse(envelope.requestJson))
-          const result = ShippingJobResult.parse(JSON.parse(envelope.resultJson))
-          if (
-            request.operation !== 'verify' ||
-            result.state !== 'succeeded' ||
-            !request.train ||
-            !('manifest' in request.train) ||
-            request.train.manifest.leaderOrderId !== order.id ||
-            !shippingTrainProofsMatch(request, result)
-          ) {
+      const trainReceiptProof = this.db
+        .select({
+          requestJson: shipEffectEnvelopes.requestJson,
+          resultJson: shipEffectEnvelopes.resultJson,
+        })
+        .from(shipEffectEnvelopes)
+        .where(
+          eq(
+            shipEffectEnvelopes.attemptId,
+            // The empty-string fallback is preserved: it matches no attempt
+            // and the raw statement relied on that rather than short-circuiting.
+            this.latestAttemptForOrder(order.id)?.id ?? asShipAttemptId(''),
+          ),
+        )
+        .orderBy(desc(shipEffectEnvelopes.recordedAt))
+        .all()
+        .some((envelope) => {
+          try {
+            const request = ShippingJobRequestMessage.parse(JSON.parse(envelope.requestJson))
+            const result = ShippingJobResult.parse(JSON.parse(envelope.resultJson))
+            if (
+              request.operation !== 'verify' ||
+              result.state !== 'succeeded' ||
+              !request.train ||
+              !('manifest' in request.train) ||
+              request.train.manifest.leaderOrderId !== order.id ||
+              !shippingTrainProofsMatch(request, result)
+            ) {
+              return false
+            }
+            const proof = result.trainProofs?.find((candidate) => candidate.orderId === order.id)
+            return (
+              proof?.resultCommitSha === receipt.resultCommitSha &&
+              proof.testedIntegrationSha === receipt.testedIntegrationSha &&
+              proof.providerLandedRefSha === receipt.landedRefSha &&
+              proof.destinationSha === receipt.destinationSha &&
+              result.validationProfileId === receipt.validationProfileId
+            )
+          } catch {
             return false
           }
-          const proof = result.trainProofs?.find((candidate) => candidate.orderId === order.id)
-          return (
-            proof?.resultCommitSha === receipt.resultCommitSha &&
-            proof.testedIntegrationSha === receipt.testedIntegrationSha &&
-            proof.providerLandedRefSha === receipt.landedRefSha &&
-            proof.destinationSha === receipt.destinationSha &&
-            result.validationProfileId === receipt.validationProfileId
-          )
-        } catch {
-          return false
-        }
-      })
+        })
       if (
         receipt.approvedBaseSha !== order.approvedBaseSha ||
         receipt.approvedHeadSha !== order.approvedHeadSha ||
@@ -2752,53 +2834,32 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
         throw new Error(`delivery receipt ${receipt.id} does not match order ${order.id}`)
       }
       const proof = this.db
-        .prepare(
-          `SELECT id FROM ship_attempts
-           WHERE order_id = ? AND finished_at IS NOT NULL AND outcome = 'succeeded'
-             AND approved_head_sha = ?
-             AND tested_integration_sha = ? AND landed_ref_sha = ? AND destination_sha = ?
-             AND validation_profile_id = ? AND validation_result = 'passed'
-           LIMIT 1`,
+        .select({ id: shipAttempts.id })
+        .from(shipAttempts)
+        .where(
+          and(
+            eq(shipAttempts.orderId, order.id),
+            sql`${shipAttempts.finishedAt} IS NOT NULL`,
+            eq(shipAttempts.outcome, 'succeeded'),
+            eq(shipAttempts.approvedHeadSha, receipt.approvedHeadSha),
+            eq(shipAttempts.testedIntegrationSha, receipt.testedIntegrationSha),
+            eq(shipAttempts.landedRefSha, receipt.landedRefSha),
+            eq(shipAttempts.destinationSha, receipt.destinationSha),
+            eq(shipAttempts.validationProfileId, receipt.validationProfileId),
+            eq(shipAttempts.validationResult, 'passed'),
+          ),
         )
-        .get(
-          order.id,
-          receipt.approvedHeadSha,
-          receipt.testedIntegrationSha,
-          receipt.landedRefSha,
-          receipt.destinationSha,
-          receipt.validationProfileId,
-        )
+        .limit(1)
+        .get()
       if (!proof) {
         throw new Error(`delivery receipt ${receipt.id} has no matching successful proof`)
       }
-      this.db
-        .prepare(
-          `INSERT INTO delivery_receipts
-            (id, order_id, approved_base_sha, approved_head_sha, result_commit_sha, tested_integration_sha,
-             landed_ref_sha, destination_sha, validation_profile_id, validation_result,
-             destination, completed_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        )
-        .run(
-          receipt.id,
-          receipt.orderId,
-          receipt.approvedBaseSha,
-          receipt.approvedHeadSha,
-          receipt.resultCommitSha,
-          receipt.testedIntegrationSha,
-          receipt.landedRefSha,
-          receipt.destinationSha,
-          receipt.validationProfileId,
-          receipt.validationResult,
-          receipt.destination,
-          receipt.completedAt,
-        )
+      this.insertDeliveryReceipt(receipt)
       const changed = this.db
-        .prepare(
-          `UPDATE ship_orders SET state = 'shipped', state_changed_at = ?, hold_code = NULL
-           WHERE id = ? AND state = 'verifying'`,
-        )
-        .run(receipt.completedAt, receipt.orderId)
+        .update(shipOrders)
+        .set({ state: 'shipped', stateChangedAt: receipt.completedAt, holdCode: null })
+        .where(and(eq(shipOrders.id, receipt.orderId), eq(shipOrders.state, 'verifying')))
+        .run()
       if (changed.changes !== 1) throw new Error(`ship order ${order.id} verification fence failed`)
       return this.receiptForOrder(receipt.orderId) as DeliveryReceiptValue
     })

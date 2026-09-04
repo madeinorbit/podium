@@ -352,7 +352,7 @@ export class SessionStore {
     this.locks = new LocksRepository(this.executor)
     this.maintenance = new MaintenanceRepository(this.executor)
     this.automations = new AutomationsRepository(this.executor)
-    this.shipping = new ShippingRepository(this.executor)
+    this.shipping = new ShippingRepository(this.queries)
     this.operations = new OperationStore(this.executor)
     this.messagingTopics = new MessagingTopicsRepository(this.executor)
 
