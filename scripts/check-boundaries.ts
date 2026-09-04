@@ -1304,7 +1304,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/locks.ts',
   'apps/server/src/store/machines.ts',
   'apps/server/src/store/maintenance.ts',
-  'apps/server/src/store/messages.ts',
   'apps/server/src/store/messaging-topics.ts',
   'apps/server/src/store/notification-facts.ts',
   'apps/server/src/store/observation-checkpoints.ts',
@@ -1312,7 +1311,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/read-watermarks.ts',
   'apps/server/src/store/repos.ts',
   'apps/server/src/store/server-secrets.ts',
-  'apps/server/src/store/sessions.ts',
   'apps/server/src/store/settings-audit.ts',
   'apps/server/src/store/settings.ts',
   'apps/server/src/store/shipping.ts',
@@ -1323,7 +1321,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/user-preferences.ts',
   'apps/server/src/store/user-read-position.ts',
   'apps/server/src/store/users.ts',
-  'apps/server/src/store/workflows.ts',
   'packages/sync/src/adapters/sqlite/sync-repository.ts',
   'packages/sync/src/adapters/sqlite/test-support.ts',
 ]
