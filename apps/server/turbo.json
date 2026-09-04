@@ -659,6 +659,7 @@
         "src/store/sessions.ts",
         "src/store/settings-audit.ts",
         "src/store/settings.ts",
+        "src/store/shipping-uncovered.test.ts",
         "src/store/shipping.ts",
         "src/store/superagent.ts",
         "src/store/table-writes.ts",
