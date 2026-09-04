@@ -31,10 +31,12 @@
  */
 
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
-import type { UserId, MachineId } from '@podium/model'
+import type { MachineId, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { eq } from 'drizzle-orm'
+import { meta } from '../migrations/schema'
+import type { SyncDrizzle } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 export class SettingsRepository {
@@ -44,13 +46,25 @@ export class SettingsRepository {
    *  tier a key is in. */
   readonly userPreferences: UserPreferencesRepository
 
-  private readonly db: SqlDatabase
-
-  constructor(executor: StoreExecutor<QueryClient>) {
-    // `UserPreferencesRepository` is composed here, not by `SessionStore`, so it
-    // keeps the raw handle until its own conversion [POD-3254].
-    this.db = legacyHandle(executor)
-    this.userPreferences = new UserPreferencesRepository(this.db)
+  /**
+   * THE RAW HANDLE THAT SURVIVES, AND WHY THIS FILE IS NOT DONE.
+   *
+   * `legacy` is used for exactly one thing: constructing
+   * {@link UserPreferencesRepository}, which belongs to wave 1 and still takes a
+   * `SqlDatabase`. That construction is the only production one in the tree, so
+   * wave 1 cannot change its own constructor without editing this file and wave
+   * 2 cannot pre-empt it — the coordinator owns that line and re-points it when
+   * the second of the two waves lands [POD-3221 boundary ruling].
+   *
+   * Until then this file still imports `SqlDatabase`, so its
+   * `STAGE_A_UNCONVERTED` line stays. Every QUERY in this repository is
+   * converted; the handle is a construction argument and nothing else reads it.
+   */
+  constructor(
+    private readonly db: SyncDrizzle,
+    legacy: SqlDatabase,
+  ) {
+    this.userPreferences = new UserPreferencesRepository(legacy)
   }
 
   /**
@@ -62,9 +76,11 @@ export class SettingsRepository {
    * (hibernation policy, git workflow, the steward toggle).
    */
   getSettings(): PodiumSettings {
-    const row = this.db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as
-      | { value: string }
-      | undefined
+    const row = this.db
+      .select({ value: meta.value })
+      .from(meta)
+      .where(eq(meta.key, 'settings'))
+      .get()
     if (!row) return normalizeSettings(undefined)
     try {
       return normalizeSettings(JSON.parse(row.value))
@@ -74,9 +90,23 @@ export class SettingsRepository {
   }
 
   setSettings(settings: PodiumSettings): void {
+    this.writeMeta('settings', JSON.stringify(settings))
+  }
+
+  /**
+   * The one `meta` write, shared by {@link setSettings} and
+   * {@link setModelCatalog}.
+   *
+   * `meta` carries its `key` primary key and NO second uniqueness constraint, so
+   * `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly (checklist item 1,
+   * as amended: every column is named).
+   */
+  private writeMeta(key: string, value: string): void {
     this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run('settings', JSON.stringify(settings))
+      .insert(meta)
+      .values({ key, value })
+      .onConflictDoUpdate({ target: meta.key, set: { value } })
+      .run()
   }
 
   // -------------------------------------------------------------------------
@@ -193,8 +223,10 @@ export class SettingsRepository {
     version?: number
   } | null {
     const row = this.db
-      .prepare('SELECT value FROM meta WHERE key = ?')
-      .get(`model_catalog:${machineId}`) as { value: string } | undefined
+      .select({ value: meta.value })
+      .from(meta)
+      .where(eq(meta.key, `model_catalog:${machineId}`))
+      .get()
     if (!row) return null
     try {
       const parsed = JSON.parse(row.value) as {
@@ -224,9 +256,7 @@ export class SettingsRepository {
     fetchedAt: number
     version?: number
   }): void {
-    this.db
-      .prepare('INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)')
-      .run(`model_catalog:${snapshot.machineId}`, JSON.stringify(snapshot))
+    this.writeMeta(`model_catalog:${snapshot.machineId}`, JSON.stringify(snapshot))
   }
 
   // RETIRED at POD-309: the node⇄hub cursor (`upstream_sync_cursor`) and the

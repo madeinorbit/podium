@@ -1,7 +1,8 @@
 import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { ApprovalOp, ApprovalStatus } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, asc, eq, sql } from 'drizzle-orm'
+import { approvalRequests } from '../migrations/schema'
+import type { SyncDrizzle } from './executor/sync-drizzle'
 
 /** One approval-broker row [spec:SP-edbb] as stored (wire enrichment — machine
  *  name, issue seq/title — happens in the service layer). */
@@ -17,27 +18,24 @@ export interface ApprovalRow {
   resultText: string | null
 }
 
-function toRow(r: Record<string, unknown>): ApprovalRow {
+type ApprovalSelection = typeof approvalRequests.$inferSelect
+
+function toRow(r: ApprovalSelection): ApprovalRow {
   return {
-    id: r.id as string,
-    // SERIALIZATION EDGE: untyped sqlite columns re-entering their id spaces.
-    machineId: r.machine_id as MachineId,
-    sessionId: r.session_id as SessionId,
-    issueId: (r.issue_id as IssueId | null) ?? null,
-    op: JSON.parse(r.op_json as string) as ApprovalOp,
+    id: r.id,
+    machineId: r.machineId,
+    sessionId: r.sessionId,
+    issueId: r.issueId,
+    op: JSON.parse(r.opJson) as ApprovalOp,
     status: r.status as ApprovalStatus,
-    createdAt: r.created_at as string,
-    decidedAt: (r.decided_at as string | null) ?? null,
-    resultText: (r.result_text as string | null) ?? null,
+    createdAt: r.createdAt,
+    decidedAt: r.decidedAt,
+    resultText: r.resultText,
   }
 }
 
 export class ApprovalsRepository {
-  private readonly db: SqlDatabase
-
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
-  }
+  constructor(private readonly db: SyncDrizzle) {}
 
   insert(row: {
     id: string
@@ -48,26 +46,32 @@ export class ApprovalsRepository {
     createdAt: string
   }): void {
     this.db
-      .prepare(
-        `INSERT INTO approval_requests (id, machine_id, session_id, issue_id, op_json, status, created_at)
-         VALUES (?, ?, ?, ?, ?, 'pending', ?)`,
-      )
-      .run(row.id, row.machineId, row.sessionId, row.issueId, JSON.stringify(row.op), row.createdAt)
+      .insert(approvalRequests)
+      .values({
+        id: row.id,
+        machineId: row.machineId,
+        sessionId: row.sessionId,
+        issueId: row.issueId,
+        opJson: JSON.stringify(row.op),
+        status: 'pending',
+        createdAt: row.createdAt,
+      })
+      .run()
   }
 
   get(id: string): ApprovalRow | null {
-    const r = this.db.prepare(`SELECT * FROM approval_requests WHERE id = ?`).get(id) as
-      | Record<string, unknown>
-      | undefined
+    const r = this.db.select().from(approvalRequests).where(eq(approvalRequests.id, id)).get()
     return r ? toRow(r) : null
   }
 
   listPending(): ApprovalRow[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM approval_requests WHERE status = 'pending' ORDER BY created_at`)
-        .all() as Record<string, unknown>[]
-    ).map(toRow)
+    return this.db
+      .select()
+      .from(approvalRequests)
+      .where(eq(approvalRequests.status, 'pending'))
+      .orderBy(asc(approvalRequests.createdAt))
+      .all()
+      .map(toRow)
   }
 
   /** Every row handed to a daemon and not yet answered (POD-2223). The stall sweep
@@ -75,24 +79,29 @@ export class ApprovalsRepository {
    *  a human-paced number. `decided_at` is the approve instant — `transition` sets it
    *  on the first move out of `pending`, and pending → executing IS that move. */
   listExecuting(): ApprovalRow[] {
-    return (
-      this.db
-        .prepare(`SELECT * FROM approval_requests WHERE status = 'executing' ORDER BY decided_at`)
-        .all() as Record<string, unknown>[]
-    ).map(toRow)
+    return this.db
+      .select()
+      .from(approvalRequests)
+      .where(eq(approvalRequests.status, 'executing'))
+      .orderBy(asc(approvalRequests.decidedAt))
+      .all()
+      .map(toRow)
   }
 
   /** Atomic state transition; returns false when the row wasn't in `from`
    *  (double-click / racing decisions decide once). */
   transition(id: string, from: ApprovalStatus, to: ApprovalStatus, resultText?: string): boolean {
+    const now = new Date().toISOString()
+    const next = resultText ?? null
     const r = this.db
-      .prepare(
-        `UPDATE approval_requests
-         SET status = ?, decided_at = COALESCE(decided_at, ?),
-             result_text = COALESCE(?, result_text)
-         WHERE id = ? AND status = ?`,
-      )
-      .run(to, new Date().toISOString(), resultText ?? null, id, from)
+      .update(approvalRequests)
+      .set({
+        status: to,
+        decidedAt: sql`COALESCE(${approvalRequests.decidedAt}, ${now})`,
+        resultText: sql`COALESCE(${next}, ${approvalRequests.resultText})`,
+      })
+      .where(and(eq(approvalRequests.id, id), eq(approvalRequests.status, from)))
+      .run()
     return r.changes > 0
   }
 }

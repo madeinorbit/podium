@@ -45,7 +45,6 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { runSynchronousSpan } from './store/executor/synchronous-span'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
@@ -65,6 +64,7 @@ import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { createBunStoreExecutor, type QueryClient, type RootStoreExecutor } from './store/executor'
+import { runSynchronousSpan } from './store/executor/synchronous-span'
 import { GrantsRepository } from './store/grants'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
@@ -320,7 +320,7 @@ export class SessionStore {
       this.hostMachineId,
       this.tableWrites,
     )
-    this.approvals = new ApprovalsRepository(this.executor)
+    this.approvals = new ApprovalsRepository(this.syncQueries.db)
     this.interactions = new InteractionsRepository(this.executor)
     this.conversations = new ConversationsRepository(this.executor, this.hostMachineId)
     // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
@@ -330,17 +330,20 @@ export class SessionStore {
     // still an UNCONVERTED repository: it reads `legacy` through the port and
     // stays on `STAGE_A_UNCONVERTED` until its own conversion wave.
     this.sync = new SyncRepository(this.executor, syncServerTables)
-    this.auth = new AuthRepository(this.executor)
+    this.auth = new AuthRepository(this.syncQueries.db)
     this.superagent = new SuperagentRepository(this.executor)
-    this.settings = new SettingsRepository(this.executor)
-    this.layout = new UserLayoutRepository(this.executor)
+    // `legacy` is passed for ONE thing: settings.ts composes wave 1's
+    // `UserPreferencesRepository`, which still takes the raw handle. The
+    // coordinator re-points that construction when wave 1 lands [POD-3393].
+    this.settings = new SettingsRepository(this.syncQueries.db, this.db)
+    this.layout = new UserLayoutRepository(this.syncQueries.db, this.syncQueries.transact)
     this.readPositions = new UserReadPositionRepository(this.executor)
     this.secrets = new ServerSecretsRepository(this.executor)
     this.settingsAudit = new SettingsAuditRepository(this.executor)
     this.accounts = new AccountsRepository(this.executor)
     this.machines = new MachinesRepository(this.executor)
-    this.grants = new GrantsRepository(this.executor)
-    this.users = new UsersRepository(this.executor)
+    this.grants = new GrantsRepository(this.syncQueries.db)
+    this.users = new UsersRepository(this.syncQueries.db, this.syncQueries.transact)
     this.telegramBindings = new TelegramBindingsRepository(this.executor)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.executor)

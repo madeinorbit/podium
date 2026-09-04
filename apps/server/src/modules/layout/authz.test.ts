@@ -41,7 +41,9 @@ describe('layoutAuthzFailure reads the contract floor LIVE', () => {
 describe('a refused principal does not write', () => {
   it('gate refusal means the repository is never called', async () => {
     const db = openMigratedTestDatabase()
-    const repo = new UserLayoutRepository(createBunStoreExecutor({ database: db }))
+    const stage = createBunStoreExecutor({ database: db }).syncQueries
+    if (!stage) throw new Error('the test database is not bun-backed')
+    const repo = new UserLayoutRepository(stage.db, stage.transact)
     const service = new LayoutService({ layout: repo })
 
     const refusal = layoutAuthzFailure('layout.set', deps(undefined))

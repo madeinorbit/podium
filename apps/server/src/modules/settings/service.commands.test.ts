@@ -47,7 +47,9 @@ import { SettingsService } from './service'
  */
 function makeStore(): SettingsRepository {
   const db = openMigratedTestDatabase()
-  return new SettingsRepository(createBunStoreExecutor({ database: db }))
+  const stage = createBunStoreExecutor({ database: db }).syncQueries
+  if (!stage) throw new Error('the test database is not bun-backed')
+  return new SettingsRepository(stage.db, db)
 }
 
 /** The person every write below is made by. Named once so a test asserting

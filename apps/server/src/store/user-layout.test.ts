@@ -16,7 +16,9 @@ let layout: UserLayoutRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  layout = new UserLayoutRepository(createBunStoreExecutor({ database: db }))
+  const stage = createBunStoreExecutor({ database: db }).syncQueries
+  if (!stage) throw new Error('the test database is not bun-backed')
+  layout = new UserLayoutRepository(stage.db, stage.transact)
 })
 
 describe('UserLayoutRepository', () => {

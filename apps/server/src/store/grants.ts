@@ -29,8 +29,9 @@
 
 import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, asc, count, eq, inArray } from 'drizzle-orm'
+import { grants } from '../migrations/schema'
+import type { SyncDrizzle } from './executor/sync-drizzle'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
 export const MACHINE_RESOURCE_KIND = 'machine'
@@ -67,20 +68,22 @@ const parseVerb = (raw: unknown): GrantVerb | undefined =>
     ? (raw as GrantVerb)
     : undefined
 
-function toRow(r: Record<string, unknown>): GrantRow | undefined {
+type GrantSelection = typeof grants.$inferSelect
+
+function toRow(r: GrantSelection): GrantRow | undefined {
   const verb = parseVerb(r.verb)
   if (verb === undefined) return undefined
   return {
-    resourceKind: r.resource_kind as string,
-    resourceId: r.resource_id as string,
-    grantee: r.grantee as string,
+    resourceKind: r.resourceKind,
+    resourceId: r.resourceId,
+    grantee: r.grantee,
     verb,
-    owner: r.owner as string,
-    visibility: r.visibility as string,
-    createdAt: r.created_at as string,
-    actorKind: r.actor_kind as string,
-    actorId: (r.actor_id as string | null | undefined) ?? null,
-    onBehalfOf: (r.on_behalf_of as string | null | undefined) ?? null,
+    owner: r.owner,
+    visibility: r.visibility,
+    createdAt: r.createdAt,
+    actorKind: r.actorKind,
+    actorId: r.actorId,
+    onBehalfOf: r.onBehalfOf,
   }
 }
 
@@ -130,19 +133,16 @@ export class GrantsRepository {
     audience.add(grantee)
     this.visibilityAudiences.set(key, audience)
   }
-  private readonly db: SqlDatabase
-
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
-  }
+  constructor(private readonly db: SyncDrizzle) {}
 
   /** Every edge on one resource, read LIVE (D16.1). Unparseable rows are omitted. */
   listForResource(resourceKind: string, resourceId: string): GrantRow[] {
     const rows = this.db
-      .prepare(
-        'SELECT * FROM grants WHERE resource_kind = ? AND resource_id = ? ORDER BY created_at ASC',
-      )
-      .all(resourceKind, resourceId) as Record<string, unknown>[]
+      .select()
+      .from(grants)
+      .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId)))
+      .orderBy(asc(grants.createdAt))
+      .all()
     return rows.flatMap((r) => {
       const row = toRow(r)
       return row ? [row] : []
@@ -182,12 +182,11 @@ export class GrantsRepository {
     for (let i = 0; i < unique.length; i += CHUNK) {
       const chunk = unique.slice(i, i + CHUNK)
       const rows = this.db
-        .prepare(
-          `SELECT * FROM grants
-             WHERE resource_kind = ? AND resource_id IN (${chunk.map(() => '?').join(',')})
-             ORDER BY created_at ASC`,
-        )
-        .all(resourceKind, ...chunk) as Record<string, unknown>[]
+        .select()
+        .from(grants)
+        .where(and(eq(grants.resourceKind, resourceKind), inArray(grants.resourceId, chunk)))
+        .orderBy(asc(grants.createdAt))
+        .all()
       for (const r of rows) {
         const row = toRow(r)
         if (!row) continue
@@ -203,8 +202,11 @@ export class GrantsRepository {
    *  listing needs, so N machines cost one query rather than N. */
   listForKind(resourceKind: string): GrantRow[] {
     const rows = this.db
-      .prepare('SELECT * FROM grants WHERE resource_kind = ? ORDER BY created_at ASC')
-      .all(resourceKind) as Record<string, unknown>[]
+      .select()
+      .from(grants)
+      .where(eq(grants.resourceKind, resourceKind))
+      .orderBy(asc(grants.createdAt))
+      .all()
     return rows.flatMap((r) => {
       const row = toRow(r)
       return row ? [row] : []
@@ -219,24 +221,35 @@ export class GrantsRepository {
    */
   upsert(row: GrantRow): void {
     this.noteVisibilityAudience(row.resourceKind, row.resourceId, row.grantee)
+    // `grants` carries its four-column primary key and NO second uniqueness
+    // constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE` exactly
+    // (checklist item 1, as amended: every column is named).
     this.db
-      .prepare(
-        `INSERT OR REPLACE INTO grants
-           (resource_kind, resource_id, grantee, verb, owner, visibility, created_at, actor_kind, actor_id, on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.resourceKind,
-        row.resourceId,
-        row.grantee,
-        row.verb,
-        row.owner,
-        row.visibility,
-        row.createdAt,
-        row.actorKind,
-        row.actorId,
-        row.onBehalfOf,
-      )
+      .insert(grants)
+      .values({
+        resourceKind: row.resourceKind,
+        resourceId: row.resourceId,
+        grantee: row.grantee,
+        verb: row.verb,
+        owner: row.owner,
+        visibility: row.visibility,
+        createdAt: row.createdAt,
+        actorKind: row.actorKind,
+        actorId: row.actorId,
+        onBehalfOf: row.onBehalfOf,
+      })
+      .onConflictDoUpdate({
+        target: [grants.resourceKind, grants.resourceId, grants.grantee, grants.verb],
+        set: {
+          owner: row.owner,
+          visibility: row.visibility,
+          createdAt: row.createdAt,
+          actorKind: row.actorKind,
+          actorId: row.actorId,
+          onBehalfOf: row.onBehalfOf,
+        },
+      })
+      .run()
     this.visibilityRevisionValue += 1
   }
 
@@ -245,16 +258,14 @@ export class GrantsRepository {
    *  second read that could race the delete. */
   remove(resourceKind: string, resourceId: string, grantee: string, verb: GrantVerb): boolean {
     this.noteVisibilityAudience(resourceKind, resourceId, grantee)
-    const before = this.db
-      .prepare(
-        'SELECT COUNT(*) AS n FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb = ?',
-      )
-      .get(resourceKind, resourceId, grantee, verb) as { n: number } | undefined
-    this.db
-      .prepare(
-        'DELETE FROM grants WHERE resource_kind = ? AND resource_id = ? AND grantee = ? AND verb = ?',
-      )
-      .run(resourceKind, resourceId, grantee, verb)
+    const match = and(
+      eq(grants.resourceKind, resourceKind),
+      eq(grants.resourceId, resourceId),
+      eq(grants.grantee, grantee),
+      eq(grants.verb, verb),
+    )
+    const before = this.db.select({ n: count() }).from(grants).where(match).get()
+    this.db.delete(grants).where(match).run()
     const removed = (before?.n ?? 0) > 0
     if (removed) this.visibilityRevisionValue += 1
     return removed
@@ -269,8 +280,9 @@ export class GrantsRepository {
    */
   removeAllForResource(resourceKind: string, resourceId: string): void {
     const result = this.db
-      .prepare('DELETE FROM grants WHERE resource_kind = ? AND resource_id = ?')
-      .run(resourceKind, resourceId)
+      .delete(grants)
+      .where(and(eq(grants.resourceKind, resourceKind), eq(grants.resourceId, resourceId)))
+      .run()
     if (Number(result.changes) > 0) this.visibilityRevisionValue += 1
   }
 }
