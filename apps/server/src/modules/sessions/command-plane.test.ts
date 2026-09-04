@@ -580,8 +580,8 @@ describe('chat interrupt ordering', () => {
     })
 
     expect(
-      dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_stopped' }),
-    ).toEqual({ ok: true })
+      await dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_stopped' }),
+    ).toEqual({ ok: true, requested: 'retraction' })
 
     expect(
       await dispatchSessionCommand(ctx, 'sendText', {
