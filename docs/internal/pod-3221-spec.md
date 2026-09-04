@@ -1297,3 +1297,42 @@ MUTATION-CHECK THE WIDENING AGAINST THE REAL FILE, not against fixtures. The che
 the behaviour the instrument guards still reddens it AFTER the widening, with the isolating reason
 code. POD-3395's writer-guard patch is the model: three removals, three different and correct reason
 codes.
+
+### Rule 31a — the constraint COUNT matters for DO UPDATE and is irrelevant for DO NOTHING
+
+[POD-3395 spotted that rule 31 might be wider than it needs to be, and declined to act on it because
+it is a judgement about the rule. Measured by the coordinator, 2026-09-04. It narrows rule 31 and it
+sharpens what POD-3403 is actually about.]
+
+The two conflict clauses behave completely differently, and lumping them together as "the OR REPLACE /
+OR IGNORE question" was my error.
+
+DO NOTHING — TARGETLESS, SO EVERY UNIQUENESS CONSTRAINT IS COVERED. Drizzle's `onConflictDoNothing()`
+with no argument emits a bare `on conflict do nothing`, and SQLite applies that to ANY uniqueness
+conflict. Measured on a table with a PRIMARY KEY and a separate UNIQUE:
+
+    onConflictDoNothing()  conflict on the PRIMARY KEY   -> suppressed
+    onConflictDoNothing()  conflict on the OTHER UNIQUE  -> suppressed
+    INSERT OR IGNORE       both                          -> suppressed
+
+So for `INSERT OR IGNORE` the number of uniqueness constraints is IRRELEVANT. Rule 31's test is
+complete as written: no CHECK, and no reachable NOT NULL violation. Do not count indexes for an
+OR IGNORE site.
+
+DO UPDATE — TARGETED, SO A SECOND UNIQUENESS CONSTRAINT IS A REAL DEFECT. `onConflictDoUpdate` REQUIRES
+a target and emits `on conflict ("t"."id") do update set ...`. A conflict arriving on a DIFFERENT
+uniqueness constraint is not covered:
+
+    onConflictDoUpdate({target: id})  conflict on the TARGETED pk       -> applied
+    onConflictDoUpdate({target: id})  conflict on the UNTARGETED unique -> THREW
+    INSERT OR REPLACE                 the same untargeted conflict      -> applied
+
+That is POD-3403's actual subject, and it is a conversion that starts REFUSING a write which currently
+succeeds. Note also what OR REPLACE does in that row: it DELETES the conflicting row and reinserts, so
+a table with inbound foreign keys can cascade — a second question the builder form never asks.
+
+WHAT THIS CHANGES. An `INSERT OR IGNORE` site needs the rule 31 enumeration and nothing more. An
+`INSERT OR REPLACE` site needs the enumeration AND a count of the table's uniqueness constraints AND a
+check for inbound foreign keys, exactly as POD-3392 performed it with `pragma_index_list` against the
+migrated database.
+
