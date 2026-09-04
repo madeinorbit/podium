@@ -288,7 +288,11 @@ describe('the daemon socket speaks the permanent envelope', () => {
     expect(routeOutput).toHaveBeenCalledOnce()
     const batch = routeOutput.mock.calls[0]![1]
     expect(batch).toMatchObject({ sessionId: 'legacy', sourceFrames: 2 })
-    expect(batch.bytes).toEqual(Uint8Array.of(0x00, 0xff))
+    // The BYTES, not the constructor. `decodeLegacyOutput` builds this with
+    // `Buffer.from`, and a Buffer is a Uint8Array subclass that `toEqual`
+    // nonetheless refuses to match — which is why the two assertions below had
+    // never once run (POD-3368).
+    expect(Uint8Array.from(batch.bytes)).toEqual(Uint8Array.of(0x00, 0xff))
     expect(routeFrame).not.toHaveBeenCalled()
     expect(ws.terminate).not.toHaveBeenCalled()
   })

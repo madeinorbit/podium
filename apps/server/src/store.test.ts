@@ -133,6 +133,10 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // because nothing has reported one for this fixture, which is also what a
     // row written before the column reads as.
     selectedDriverId: null,
+    // The OPERATOR's driver request (POD-3102), distinct from the daemon's
+    // decision above — always projected; null = nobody asked for a driver, which
+    // is also what a row written before the column reads as.
+    requestedDriverId: null,
     // Whether the launch ever had a conversation (POD-2392): always projected,
     // null = the row makes no claim (which is what a pre-column row reads as).
     conversationBinding: null,
