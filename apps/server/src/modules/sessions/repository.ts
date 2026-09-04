@@ -451,26 +451,77 @@ export class SessionRepository {
    * authoritative recency delta clients order the sidebar by.
    */
   persist(session: Session, additionalWrite: () => void = () => {}): void {
+    // NOTHING DURABLE CHANGED, so the draft is the live state [POD-3330]. This
+    // is the write the activity flush, the volatile sweep and the boot install
+    // make: they advance the live half (or nothing at all) and want the row
+    // restated. A write that CHANGES a durable field goes through {@link write}
+    // instead, so that its change is never on the shared object before it is
+    // committed. Same body, same commit tail — the difference is only where the
+    // fields being written came from.
+    this.persistDraft(session, session.captureDurableState(), additionalWrite)
+  }
+
+  /**
+   * A DRAFT OF THE DURABLE HALF [POD-3330], cut from the live object.
+   *
+   * The session-side twin of `IssueRegistry.draft`. The bag is a copy, so the
+   * caller's assignments are invisible to every other reader — including a
+   * second writer that commits inside this one's span, which used to capture
+   * this writer's uncommitted fields off the shared object and make them
+   * durable. Cut it, mutate it, persist it, and do not let it outlive a
+   * suspension it will be persisted after (spec rule 26).
+   */
+  draft(session: Session): SessionDurableState {
+    return session.captureDurableState()
+  }
+
+  /**
+   * THE session mutation seam [POD-3330]: mutate a DRAFT, commit it, install it.
+   *
+   * `mutate` runs against a copy of the durable half and may return an extra
+   * write to land inside the same transaction (the shape `persist` already
+   * had). Nothing it assigns reaches the live `Session` until the commit
+   * returns, so a reader in the window sees only committed state and a failed
+   * commit has nothing to undo.
+   */
+  write(
+    session: Session,
+    mutate: (draft: SessionDurableState) => void | (() => void),
+    additionalWrite: () => void = () => {},
+  ): void {
+    const draft = this.draft(session)
+    const extra = mutate(draft)
+    this.persistDraft(session, draft, extra ?? additionalWrite)
+  }
+
+  /** {@link write} for a draft the caller already holds. */
+  persistDraft(
+    session: Session,
+    draft: SessionDurableState,
+    additionalWrite: () => void = () => {},
+  ): void {
     const pending = this.pendingVolatileSessions.get(session.sessionId)
-    // THE DRAFT [POD-3259]. The row this write persists is built from the
-    // session's durable half AS IT IS NOW, so that half is snapshotted now —
-    // before the commit, not re-read from the live object after it. Re-reading
-    // afterwards would bake whatever changed DURING the write into the committed
-    // baseline, and the next rollback would restore a state no commit ever saw.
-    const draft = session.captureDurableState()
+    // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330]. The row and
+    // the declared change are projected from it rather than from the live
+    // object, so the write describes what its caller asked for and nothing a
+    // concurrent writer left on the shared session. It also becomes the
+    // committed baseline once the commit returns: re-reading the live object
+    // afterwards would bake whatever changed DURING the write into the baseline,
+    // and the next rollback would restore a state no commit ever saw.
+    const installedVersion = this.volatileSessionMutationVersion
     let changes: MetadataChange[]
     try {
       const committed = this.ports.ledger.commit({
         write: () => {
           additionalWrite()
-          this.store.sessions.upsertSession(session.toRow())
+          this.store.sessions.upsertSession(session.toRow(draft))
         },
         changes: () => [
           {
             entity: 'session',
             id: session.sessionId,
             op: 'upsert',
-            value: this.view.wire(session),
+            value: this.view.wire(session, undefined, undefined, draft),
           },
         ],
       })
@@ -479,7 +530,9 @@ export class SessionRepository {
       const captured = this.durableBaselineFor(session.sessionId)
       // The LATEST committed baseline, deliberately — see the field's doc for
       // why a version-pinned refusal is the wrong answer here. The live terminal
-      // half survives this either way.
+      // half survives this either way. A drafted write has nothing of its own to
+      // undo (that is the point of the draft); what this restores is the state
+      // of a live object that some OTHER path left ahead of the durable row.
       if (captured) session.restoreDurableState(captured, pending?.preserve)
       else this.sessions.delete(session.sessionId)
       throw err
@@ -491,8 +544,23 @@ export class SessionRepository {
       this.pendingVolatileSessions.delete(session.sessionId)
       if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
     }
-    // INSTALL THE DRAFT, not a fresh capture: the committed baseline is what was
-    // written, not what the live object happens to hold now.
+    // INSTALL THE DRAFT ON THE LIVE OBJECT, now that it is durable — the write's
+    // fields become visible in memory at the same moment they become visible in
+    // the row, and not one statement earlier.
+    //
+    // THE PRESERVE SET IS THE VOLATILE WORK THAT LANDED DURING THIS WRITE, not
+    // the pending entry this write inherited. A sweep that marked `status` or
+    // `machineId` dirty while the commit was in flight knows something newer
+    // than this draft about those four fields, so it keeps them; everything
+    // this write changed is installed regardless, because the draft was cut
+    // from the same live object one statement before the commit. Nothing
+    // suspends today, so the version cannot move and this installs the whole
+    // draft — which is exactly what assigning onto the live object did before.
+    const raced = this.pendingVolatileSessions.get(session.sessionId)
+    session.installDurableState(
+      draft,
+      raced !== undefined && raced.version > installedVersion ? raced.preserve : undefined,
+    )
     this.commitDurableBaseline(session.sessionId, draft)
     this.publishSessionProjection(changes)
   }
@@ -727,8 +795,11 @@ export class SessionRepository {
     // loadSessions returns created_at order, so allocation is deterministic; the
     // loop is a no-op once every session carries a ref.
     for (const session of this.sessions.values()) {
-      const additionalWrite = this.view.prepareRefAllocation(session)
-      if (additionalWrite) this.persist(session, additionalWrite)
+      // Against the DRAFT [POD-3330]: the allocation assigns the ref inside the
+      // transaction, so it has to assign into the state `toRow` reads.
+      const draft = this.draft(session)
+      const additionalWrite = this.view.prepareRefAllocation(draft)
+      if (additionalWrite) this.persistDraft(session, draft, additionalWrite)
     }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon

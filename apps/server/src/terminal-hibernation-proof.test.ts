@@ -35,8 +35,14 @@ async function harness({
   closing = false,
   terminalRetryable = false,
   instanceId = 'default',
+  terminalProviderAt,
 }: {
   instanceId?: string
+  /** Provider time of the terminal observation. Defaults to the fixture's
+   *  2026-07-19 clock, which is BEHIND a freshly created row's `lastActiveAt`
+   *  and therefore never advances it — pass a later one to exercise the arm
+   *  where the checkpoint moves the session's recency [POD-3330]. */
+  terminalProviderAt?: string
   terminalProvenance?: 'live' | 'bootstrap'
   resumable?: boolean
   terminalTransitionKind?: AgentObservation['transitionKind']
@@ -101,8 +107,8 @@ async function harness({
   const terminal: AgentObservation = {
     ...base,
     providerCursor: { segmentId: 'rollout-1', components: { file: 20 } },
-    providerAt: at(20),
-    receivedAt: at(21),
+    providerAt: terminalProviderAt ?? at(20),
+    receivedAt: terminalProviderAt ?? at(21),
     sourceEventKind: 'task_complete',
     transitionKind: terminalTransitionKind,
     provenance: terminalProvenance,
@@ -176,6 +182,30 @@ describe('durable terminal hibernation proof', () => {
 
     expect(registry.modules.sessions.hasValidTerminalProof(sessionId)).toBe(false)
     expect(registry.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
+  })
+
+  it('records the candidate against the recency the same write persists [POD-3330]', async () => {
+    // `facts()` copies the session's own `lastActiveAt`, and the checkpoint being
+    // recorded is what advances it — so the two have to be one write's answer.
+    // The hibernate path re-derives these facts and compares them byte-for-byte
+    // against the stored candidate, so a candidate recorded against the PREVIOUS
+    // recency refuses a reap nothing is wrong with.
+    //
+    // ONLY A PROVIDER TIME AHEAD OF THE ROW'S RECENCY SEPARATES THE TWO, which
+    // is why this observation is dated in the future: a fresh row's
+    // `lastActiveAt` is the moment it was created, so the fixture's own 2026
+    // stamps never advance it and the difference is invisible on every other
+    // test in this file.
+    const ahead = '2099-01-01T00:00:00.000Z'
+    const h = await harness({ terminalProviderAt: ahead })
+
+    const candidate = await h.store.observationCheckpoints.getTerminalCandidate(h.sessionId)
+    expect(candidate?.facts.lastActiveAt).toBe(ahead)
+    expect(
+      h.registry.modules.sessions.listSessions().find((s) => s.sessionId === h.sessionId)
+        ?.lastActiveAt,
+      'and the session the row describes says the same thing',
+    ).toBe(ahead)
   })
 
   it('qualifies one unchanged live terminal exactly once', async () => {

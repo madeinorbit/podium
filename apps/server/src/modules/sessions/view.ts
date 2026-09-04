@@ -14,7 +14,7 @@ import { isIssueMember } from '../../issue-util'
 import type { SessionStore } from '../../store'
 import type { MachinesService } from '../machines/service'
 import { DEPLOYMENT, perf } from '../perf/registry'
-import type { Session } from './session'
+import type { Session, SessionDurableFields } from './session'
 import { sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 
@@ -238,27 +238,33 @@ export class SessionView {
       .map((session) => this.wire(session, principal, memo))
   }
 
+  /**
+   * `d` is the DURABLE SOURCE this projection answers from [POD-3330], and it
+   * defaults to the live object. A write in flight passes its DRAFT, so the
+   * change the commit declares describes what is being written rather than what
+   * the live object happens to hold — which, until the install after the commit,
+   * is the previous committed state.
+   */
   wire(
     session: Session,
     forPrincipal?: SessionStatePrincipal,
     memo?: SessionListMemo,
+    d: SessionDurableFields = session,
   ): SessionMeta {
     const harnessCapabilities = harnessCapabilitiesFor(session.agentKind)
     const viewer = forPrincipal ?? this.defaultPrincipal()
-    const loginCondition = this.ports.machines.agentLoginCondition?.(
-      session.machineId,
-      session.agentKind,
-    )
+    const loginCondition = this.ports.machines.agentLoginCondition?.(d.machineId, session.agentKind)
     const meta = session.toMeta(
       viewer ? this.ports.state.overlay(viewer.userId, session.sessionId) : NO_SESSION_USER_STATE,
+      d,
     )
     const occupancy = this.ports.sessionOccupancyCount?.(session.sessionId)
-    return this.stampRef(session, memo, {
+    return this.stampRef(d, memo, {
       ...meta,
       // Presence-room occupancy is the product "who is watching" count when the
       // stream plane is wired; attach-set size remains the fallback for fixtures.
       ...(occupancy !== undefined ? { clientCount: occupancy } : {}),
-      machineName: this.ports.machines.machineName(session.machineId),
+      machineName: this.ports.machines.machineName(d.machineId),
       ...(loginCondition ? { condition: loginCondition } : {}),
       ...(harnessCapabilities
         ? {
@@ -290,7 +296,14 @@ export class SessionView {
     return this.ports.state.overlay(this.broadcastViewer(), sessionId)
   }
 
-  prepareRefAllocation(session: Session): (() => void) | undefined {
+  /**
+   * THE ALLOCATION IS PREPARED AGAINST A DRAFT [POD-3330], and the returned
+   * write assigns into that same draft inside the transaction. It reads the
+   * caller's `issueId` — which the caller has just set on the draft and nowhere
+   * else — so passing the live session here would decide against the PREVIOUS
+   * attachment and allocate the wrong ref, or none.
+   */
+  prepareRefAllocation(session: SessionDurableFields): (() => void) | undefined {
     if (session.refIssueId || session.refDraft != null) return
     const birthIssueId = session.issueId ?? null
     if (birthIssueId) {
@@ -310,7 +323,7 @@ export class SessionView {
   }
 
   private stampRef(
-    session: Session,
+    session: SessionDurableFields,
     memo: SessionListMemo | undefined,
     meta: SessionMeta,
   ): SessionMeta {
@@ -324,7 +337,10 @@ export class SessionView {
     }
   }
 
-  private computeDisplayRef(session: Session, memo?: SessionListMemo): string | undefined {
+  private computeDisplayRef(
+    session: SessionDurableFields,
+    memo?: SessionListMemo,
+  ): string | undefined {
     if (session.refIssueId && session.refLetter) {
       const issue = this.memoIssue(session.refIssueId, memo)
       if (!issue) return undefined

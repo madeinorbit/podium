@@ -4,7 +4,7 @@ import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { harnessRequiresExclusiveInteractiveResume } from '../../harness-manifest'
 import type { SessionStore } from '../../store'
 import type { MemoryService } from '../memory/service'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 
 const log = createLogger('server:sessions')
 
@@ -21,7 +21,8 @@ export interface SessionBindingReceiptsDeps {
   sessions(): Iterable<Session>
   session(sessionId: SessionId): Session | undefined
   sessionOwner(sessionId: SessionId): SessionOwnership | undefined
-  persist(session: Session): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
   toMachine(machineId: MachineId, message: ControlMessage): void
 }
@@ -108,10 +109,11 @@ export class SessionBindingReceipts {
         // the row keeps its `'bound'` claim and stays out of the fresh-relaunch
         // path. `Session`'s setter enforces the direction; this is the case it
         // exists for.
-        conflict.resume = undefined
-        conflict.conversationPodiumId = undefined
         this.projectedConfidence.delete(conflict)
-        this.deps.persist(conflict)
+        this.deps.write(conflict, (draft) => {
+          conflict.setResume(undefined, draft)
+          draft.conversationPodiumId = undefined
+        })
       }
       this.deps.broadcastSessions()
     }
@@ -121,8 +123,11 @@ export class SessionBindingReceipts {
       session.resume?.value !== message.resume.value
     ) {
       const prior = session.resume?.value
-      session.resume = message.resume
-      session.conversationPodiumId = prior
+      // THE IDENTITY IS RESOLVED BEFORE THE DRAFT IS CUT [POD-3330]. Both
+      // branches below are memory-service calls that mint or link a durable
+      // conversation identity, so they are the kind of work rule 26 says a draft
+      // may not be held across; the values they return are what the write needs.
+      const conversationPodiumId = prior
         ? this.deps.memory.linkConversationSegment({
             machineId: session.machineId,
             newNativeId: message.resume.value,
@@ -134,7 +139,13 @@ export class SessionBindingReceipts {
             nativeId: message.resume.value,
             providerId: session.agentKind,
           })
-      this.deps.persist(session)
+      this.deps.write(session, (draft) => {
+        // Through `setResume`, because a draft is a bag: assigning `resume` on
+        // one would skip the `conversationBinding` promotion the class's setter
+        // performs and leave a bound session claiming it never bound.
+        session.setResume(message.resume, draft)
+        draft.conversationPodiumId = conversationPodiumId
+      })
       this.deps.broadcastSessions()
     }
     this.projectedConfidence.set(session, confidence)

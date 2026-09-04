@@ -499,8 +499,13 @@ export class SessionStart {
     // for a genuinely issueless spawn) — allocate the permanent ref now, and let
     // it ride the SAME persist as the row so a session cannot exist durably
     // without its ref.
-    const additionalWrite = this.ports.view.prepareRefAllocation(session)
-    this.ports.repository.persist(session, additionalWrite)
+    // THE REF IS ALLOCATED ONTO THIS WRITE'S DRAFT [POD-3330]. The allocation
+    // happens inside the transaction (it takes a letter from the issue, or a
+    // draft ordinal from the repo), so it has to assign into the state the row
+    // is built from rather than onto the live object beside it.
+    const draft = this.ports.repository.draft(session)
+    const additionalWrite = this.ports.view.prepareRefAllocation(draft)
+    this.ports.repository.persistDraft(session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.

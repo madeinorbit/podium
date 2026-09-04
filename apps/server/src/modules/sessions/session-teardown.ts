@@ -104,18 +104,24 @@ export class SessionTeardown {
       session.status === 'starting' ||
       session.status === 'reconnecting'
     if (!running) return
-    if (session.agentKind !== 'shell' && !session.resume) {
-      session.status = 'exited'
-      session.exitCode = session.exitCode ?? 0
-    } else {
-      session.status = 'hibernated'
-    }
     this.ports.autoContinue.onSessionGone(sessionId)
-    session.stoppedAt = new Date(this.ports.now()).toISOString()
-    session.stopReason = 'parent'
     // Unlike stopSession, readAt is left alone: archiving IS the acknowledgment —
     // resurfacing the session as unread would undo the tidy-up the user just did.
-    this.ports.repository.persist(session)
+      // THE PARK IS ONE DRAFTED WRITE [POD-3330]: the status flip, the exit code
+      // and the stop metadata are the same decision, and none of them is true
+      // until the row says so. Assigning them onto the live session first — which
+      // is what this did — published a stopped session to every reader before the
+      // commit, and left it stopped if the commit failed.
+    this.ports.repository.write(session, (draft) => {
+      if (session.agentKind !== 'shell' && !draft.resume) {
+        draft.status = 'exited'
+        draft.exitCode = draft.exitCode ?? 0
+      } else {
+        draft.status = 'hibernated'
+      }
+      draft.stoppedAt = new Date(this.ports.now()).toISOString()
+      draft.stopReason = 'parent'
+    })
     this.killStoppedSession(session)
     this.ports.broadcastSessions()
   }
@@ -138,12 +144,13 @@ export class SessionTeardown {
       session.status === 'starting' ||
       session.status === 'reconnecting'
     if (!running) return { ok: false, reason: 'not running' }
-    session.status = 'hibernated'
     this.ports.autoContinue.onSessionGone(sessionId)
-    session.stoppedAt = new Date(this.ports.now()).toISOString()
-    session.stopReason = 'parent'
     this.ports.rearmUnread(sessionId)
-    this.ports.repository.persist(session)
+    this.ports.repository.write(session, (draft) => {
+      draft.status = 'hibernated'
+      draft.stoppedAt = new Date(this.ports.now()).toISOString()
+      draft.stopReason = 'parent'
+    })
     this.killStoppedSession(session)
     this.ports.broadcastSessions()
     return { ok: true }
@@ -174,16 +181,17 @@ export class SessionTeardown {
       session.status === 'starting' ||
       session.status === 'reconnecting'
     if (!running) return { ok: false, reason: 'not running' }
-    if (session.agentKind !== 'shell' && !session.resume) {
-      session.status = 'exited'
-      session.exitCode = session.exitCode ?? 0
-    } else {
-      session.status = 'hibernated'
-    }
     this.ports.autoContinue.onSessionGone(sessionId)
-    session.stoppedAt = new Date(this.ports.now()).toISOString()
-    session.stopReason = 'parent'
-    this.ports.repository.persist(session)
+    this.ports.repository.write(session, (draft) => {
+      if (session.agentKind !== 'shell' && !draft.resume) {
+        draft.status = 'exited'
+        draft.exitCode = draft.exitCode ?? 0
+      } else {
+        draft.status = 'hibernated'
+      }
+      draft.stoppedAt = new Date(this.ports.now()).toISOString()
+      draft.stopReason = 'parent'
+    })
     this.killStoppedSession(session)
     this.ports.broadcastSessions()
     return { ok: true }
@@ -305,26 +313,29 @@ export class SessionTeardown {
     // Park the row first (keep resume ref + transcript). Shells have no resume
     // ref — stop still parks them as exited so they stay inspectable.
     if (wasRunning) {
-      if (session.agentKind !== 'shell' && !session.resume) {
-        // No resume ref yet: still stop the process but mark exited rather than
-        // hibernated (same inspectability; resume may not recover conversation).
-        session.status = 'exited'
-        session.exitCode = session.exitCode ?? 0
-      } else {
-        session.status = 'hibernated'
-      }
       this.ports.autoContinue.onSessionGone(input.sessionId)
-      // A terminal transition is new unread information; acknowledgment begins only
-      // after the operator opens it again. [spec:SP-6144]
-      session.stoppedAt = new Date(this.ports.now()).toISOString()
-      // 'forced' is reserved for --force (work may be discarded); a plain
-      // operator/parent stop is an orderly park, labeled 'parent'. [spec:SP-6144]
-      session.stopReason = input.force
-        ? 'forced'
-        : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
       this.ports.rearmUnread(input.sessionId)
-      this.ports.repository.persist(session, () =>
-        this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
+      this.ports.repository.write(
+        session,
+        (draft) => {
+          if (session.agentKind !== 'shell' && !draft.resume) {
+            // No resume ref yet: still stop the process but mark exited rather than
+            // hibernated (same inspectability; resume may not recover conversation).
+            draft.status = 'exited'
+            draft.exitCode = draft.exitCode ?? 0
+          } else {
+            draft.status = 'hibernated'
+          }
+          // A terminal transition is new unread information; acknowledgment begins
+          // only after the operator opens it again. [spec:SP-6144]
+          draft.stoppedAt = new Date(this.ports.now()).toISOString()
+          // 'forced' is reserved for --force (work may be discarded); a plain
+          // operator/parent stop is an orderly park, labeled 'parent'. [spec:SP-6144]
+          draft.stopReason = input.force
+            ? 'forced'
+            : (input.stopReason ?? (input.selfStop ? 'self' : 'parent'))
+        },
+        () => this.ports.store.observationCheckpoints.cancelTerminalCandidate(input.sessionId),
       )
       this.ports.broadcastSessions()
     } else if (session.status !== 'hibernated' && session.status !== 'exited') {
@@ -541,12 +552,21 @@ export class SessionTeardown {
         return { ok: false, reason: 'terminal state has not passed live revalidation' }
       }
     }
-    const runningStatus = session.status
-    session.status = 'hibernated'
     const consumedAt = new Date(this.ports.now()).toISOString()
     try {
-      this.ports.repository.persist(
+      // THE PARK IS THE DRAFT'S [POD-3330], and the revalidation below reads the
+      // LIVE session deliberately. `facts()` describes what the session has DONE
+      // — lastActiveAt, the input/output counters, the queue, the resume ref,
+      // the machine — and this write changes none of them; it changes `status`,
+      // which the subject session's own facts do not include. So the live object
+      // is the right thing to re-derive from, and it is also the only correct
+      // one: the comparison exists to catch the session doing something between
+      // the two derivations, which a draft cut before the first would hide.
+      this.ports.repository.write(
         session,
+        (draft) => {
+          draft.status = 'hibernated'
+        },
         facts
           ? () => {
               const currentLease = this.ports.store.observationCheckpoints.get(sessionId)
@@ -567,10 +587,12 @@ export class SessionTeardown {
           : undefined,
       )
     } catch (error) {
-      // `persist` restores its captured durable state on any transaction error;
-      // keep this lifecycle primitive independently correct even when a caller or
-      // test supplies a store without a prior capture.
-      session.status = runningStatus
+      // NOTHING TO PUT BACK [POD-3330]. This used to restore the status it had
+      // overwritten before the write, because the park was assigned onto the
+      // live session first. The park now lives on the draft until the commit
+      // returns, so a failed commit leaves a session that was never parked —
+      // and a hand-rolled restore here would be a second answer to a question
+      // the write seam already answers.
       if (error instanceof Error && error.message === 'terminal proof changed before hibernation') {
         return { ok: false, reason: error.message }
       }

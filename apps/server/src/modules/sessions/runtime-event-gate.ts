@@ -2,6 +2,7 @@ import { type AgentStateEvent, compareProviderCursor } from '@podium/harness/met
 import { createLogger } from '@podium/logger'
 import type { AgentRuntimeState, SessionId } from '@podium/model'
 import type { InteractionEvent } from '@podium/protocol'
+import type { SessionDurableState } from './session'
 import { isRuntimeFineEvent, type RuntimeEvent, type TurnEvent } from '@podium/protocol/daemon'
 import {
   type EventsRepository,
@@ -35,10 +36,10 @@ export type RuntimeEventGateResult =
 
 export interface RuntimeEventSessionProjection {
   readonly sessionId: SessionId
-  recordRuntimeActivity(at: string): boolean
+  recordRuntimeActivity(at: string, draft: SessionDurableState): boolean
   /** A kernel OOM kill the machine's supervisor observed in this session's
    *  scope (POD-2413). Explains an exit; never causes one. */
-  recordOomKill(at: string): void
+  recordOomKill(at: string, draft: SessionDurableState): void
 }
 
 /** The state transition made by an accepted causal state event. The mutation
@@ -63,11 +64,22 @@ export interface RuntimeEventGatePorts {
   >
   session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
   persist(sessionId: SessionId, additionalWrite: () => void): void
+  /** {@link persist} with the session's own durable write applied to the draft
+   *  the commit persists [POD-3330]. The transaction body is handed that same
+   *  draft, because the state projection inside it writes the session too — and
+   *  a write that landed on the live object there would not reach the row. */
+  write(
+    sessionId: SessionId,
+    mutate: (draft: SessionDurableState) => void,
+    additionalWrite: (draft: SessionDurableState) => void,
+  ): void
   /** Apply the normalized state event atomically with its runtime-event row. */
   state?(input: {
     sessionId: SessionId
     change: AgentStateEvent
     at: string
+    /** The draft this event's session write persists [POD-3330]. */
+    draft: SessionDurableState
   }): RuntimeStateProjection | undefined
   /** Publish the committed state to the same consumers as the compatibility
    * agentState frame. This is deliberately downstream of {@link state}. */
@@ -187,38 +199,49 @@ export class RuntimeEventGate {
       closedTurnEpoch: closesTurn(event) ? event.turnEpoch : (current?.closedTurnEpoch ?? null),
       updatedAt: new Date(this.ports.now()).toISOString(),
     }
-    session.recordRuntimeActivity(event.at)
-    /**
-     * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
-     *
-     * Recorded here rather than in the board projection because it is not a
-     * board effect and must not wait on the oplog drain: an exit frame can be
-     * milliseconds behind the kill, and a session that has already been stamped
-     * `exited` gets its cause corrected by this call. Persisted with the event
-     * in the same session-ledger write below.
-     */
-    if (event.t === 'process' && event.ev.ev === 'oomKilled') session.recordOomKill(event.at)
     let eventId = 0
     let stateProjection: RuntimeStateProjection | undefined
-    this.ports.persist(sessionId, () => {
-      if (event.t === 'state') {
-        stateProjection = this.ports.state?.({
-          sessionId,
-          change: event.change as AgentStateEvent,
-          at: event.at,
-        })
-      }
-      eventId = this.ports.events.appendEvent(
-        {
-          ts: event.at,
-          kind: RUNTIME_EVENT_LOG_KIND,
-          subject: sessionId,
-          payload: event,
-        },
-        { announce: false },
-      )
-      this.ports.events.saveRuntimeEventCheckpoint(next)
-    })
+    // BOTH SESSION WRITES LAND ON THE DRAFT THIS COMMIT PERSISTS [POD-3330].
+    // They used to be assigned onto the live session in the two statements
+    // above this one, where a durable failure left them standing and a
+    // concurrent writer could pick them up and commit them.
+    this.ports.write(
+      sessionId,
+      (draft) => {
+        session.recordRuntimeActivity(event.at, draft)
+        /**
+         * THE ONE RUNTIME EVENT THAT CHANGES THE ROW'S STOP REASON (POD-2413).
+         *
+         * Recorded here rather than in the board projection because it is not a
+         * board effect and must not wait on the oplog drain: an exit frame can
+         * be milliseconds behind the kill, and a session that has already been
+         * stamped `exited` gets its cause corrected by this call. Persisted
+         * with the event in the same session-ledger write.
+         */
+        if (event.t === 'process' && event.ev.ev === 'oomKilled')
+          session.recordOomKill(event.at, draft)
+      },
+      (draft) => {
+        if (event.t === 'state') {
+          stateProjection = this.ports.state?.({
+            sessionId,
+            change: event.change as AgentStateEvent,
+            at: event.at,
+            draft,
+          })
+        }
+        eventId = this.ports.events.appendEvent(
+          {
+            ts: event.at,
+            kind: RUNTIME_EVENT_LOG_KIND,
+            subject: sessionId,
+            payload: event,
+          },
+          { announce: false },
+        )
+        this.ports.events.saveRuntimeEventCheckpoint(next)
+      },
+    )
     this.ports.events.announceEvent(eventId)
     if (stateProjection) {
       this.ports.stateChanged?.({ sessionId, ...stateProjection })

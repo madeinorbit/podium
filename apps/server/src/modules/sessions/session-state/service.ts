@@ -47,7 +47,7 @@ import type { DraftEditMessage, LiveServerMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { ClientConn } from '../../../gateway/client-registry'
 import type { PinState, SessionStore, SnoozeMap } from '../../../store'
-import type { Session } from '../session'
+import type { Session, SessionDurableState } from '../session'
 
 const log = createLogger('server:sessions')
 
@@ -68,6 +68,16 @@ export interface SessionStatePrincipal {
 export type SessionStateRecord = Pick<
   Session,
   'sessionId' | 'machineId' | 'lastActiveAt' | 'draftUpdatedAt' | 'archived' | 'workState'
+>
+
+/**
+ * The only DURABLE fields this module may WRITE [POD-3330], as they appear on a
+ * draft rather than on the live session. Read state through
+ * {@link SessionStateRecord}; change it through one of these.
+ */
+export type SessionStateDraft = Pick<
+  SessionDurableState,
+  'draftUpdatedAt' | 'archived' | 'workState'
 >
 
 /**
@@ -124,13 +134,17 @@ export interface SessionStatePorts {
    *  Optional: a fixture that omits it is slow, never wrong, because every key
    *  it would have primed is still computed on demand by `sessionOwner`. */
   readonly primeOwnerMemo?: (memo: SessionOwnerMemo, sessionIds: readonly SessionId[]) => void
-  /** Persist one session and an optional satellite-row write atomically. */
+  /** Persist one session and an optional satellite-row write atomically. The
+   *  session's own durable fields are UNCHANGED by this write — one that changes
+   *  them goes through {@link writeSession} or {@link mutateSession}. */
   readonly persistSession: (sessionId: SessionId, additionalWrite?: () => void) => void
-  /** Shared session-field mutation through the host's canonical metadata seam. */
-  readonly mutateSession: (
-    sessionId: SessionId,
-    mutate: (session: SessionStateRecord) => void,
-  ) => void
+  /** {@link persistSession} with a durable-field write applied to the draft the
+   *  commit persists [POD-3330]. Persist-only, like the method it sits beside:
+   *  no funnel span and no broadcast of its own. */
+  readonly writeSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void
+  /** Shared session-field mutation through the host's canonical metadata seam
+   *  — the funnel span and the broadcast that makes it visible. */
+  readonly mutateSession: (sessionId: SessionId, mutate: (draft: SessionStateDraft) => void) => void
   readonly broadcastSessions: () => void
   readonly broadcastToClients: (
     message: LiveServerMessage,
@@ -428,15 +442,15 @@ export class SessionStateService {
   // -------------------------------------------------------------------------
 
   setArchived(sessionId: SessionId, archived: boolean): void {
-    this.ports.mutateSession(sessionId, (session) => {
-      session.archived = archived
+    this.ports.mutateSession(sessionId, (draft) => {
+      draft.archived = archived
     })
     if (archived) this.ports.onArchived(sessionId)
   }
 
   setWorkState(sessionId: SessionId, workState: WorkState | null): void {
-    this.ports.mutateSession(sessionId, (session) => {
-      session.workState = workState ?? undefined
+    this.ports.mutateSession(sessionId, (draft) => {
+      draft.workState = workState ?? undefined
     })
   }
 
@@ -580,14 +594,21 @@ export class SessionStateService {
     this.draftTimes.set(sessionId, doc.editedAt)
     const session = this.ports.getSession(sessionId)
     const draftNonemptyChanged = session && (session.draftUpdatedAt !== undefined) !== !!doc.text
-    if (session) session.draftUpdatedAt = doc.text ? doc.editedAt : undefined
+    const editedAt = doc.text ? doc.editedAt : undefined
+    // THE TAG IS WRITTEN THROUGH THE WRITE THAT PERSISTS IT [POD-3330] when the
+    // DRAFT/no-DRAFT bit flips, because that is the case with a commit in the
+    // span. Every other edit only advances a stamp nothing is persisting here —
+    // the text itself lives in `session_drafts`, written above — so it stays a
+    // live assignment with no window to be captured in.
     if (draftNonemptyChanged) {
       try {
-        this.ports.persistSession(sessionId)
+        this.ports.writeSession(sessionId, (draft) => {
+          draft.draftUpdatedAt = editedAt
+        })
       } catch (error) {
         log.warn('failed to persist the DRAFT tag', { err: error, sessionId })
       }
-    }
+    } else if (session) session.draftUpdatedAt = editedAt
     // TO EVERY CLIENT, THE SENDER INCLUDED (POD-2045).
     //
     // The sender is not being told what it typed — it already knows that. It is

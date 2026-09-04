@@ -47,15 +47,15 @@ const makeSession = (): Session =>
 function fixture() {
   const session = makeSession()
   const sessions = new Map([[session.sessionId, session]])
-  const upserted: { id: string; title: string | null }[] = []
+  const upserted: { id: string; title: string | null; name: string | null }[] = []
   let during: { fn: () => void; when: 'before' | 'after' } | null = null
   let fail = false
   const repo = new SessionRepository({
     sessions,
     store: {
       sessions: {
-        upsertSession: (row: { id: string; title: string | null }) =>
-          upserted.push({ id: row.id, title: row.title }),
+        upsertSession: (row: { id: string; title: string | null; name: string | null }) =>
+          upserted.push({ id: row.id, title: row.title, name: row.name }),
       },
     },
     ledger: {
@@ -72,7 +72,13 @@ function fixture() {
       },
       capture: () => [],
     },
-    view: { wire: (s: Session) => ({ sessionId: s.sessionId, title: s.title }) },
+    view: {
+      wire: (s: Session, _p: unknown, _m: unknown, d: { title: string; name: string } = s) => ({
+        sessionId: s.sessionId,
+        title: d.title,
+        name: d.name,
+      }),
+    },
     now: () => Date.now(),
     broadcastSessions: vi.fn(),
     flushBroadcasts: vi.fn(),
@@ -104,7 +110,7 @@ describe('the committed baseline is the draft, not a later re-capture', () => {
     })
     f.repo.persist(f.session)
 
-    expect(f.upserted).toEqual([{ id: 'model-1', title: 'written title' }])
+    expect(f.upserted).toEqual([{ id: 'model-1', title: 'written title', name: null }])
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('written title')
   })
 
@@ -149,18 +155,19 @@ describe('a rollback racing a successful persist', () => {
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('winner')
   })
 
-  it('CHARACTERIZATION: a winner still writes the loser\'s uncommitted field (POD-3330)', () => {
-    // THIS PINS A DEFECT, DELIBERATELY, and it is the failing case POD-3330
-    // exists to fix. Flip the assertions there rather than deleting this.
+  it("a winner writes only its OWN fields, not the loser's uncommitted ones", () => {
+    // THE CASE POD-3330 EXISTS FOR, and until POD-3330 this test stood here as a
+    // named CHARACTERIZATION of the opposite behaviour.
     //
     // POD-3259 converted the SNAPSHOT half of this registry: the baseline is the
-    // draft that was written, and the rollback restores the latest baseline. The
-    // MUTATION half is untouched — every write path still assigns onto the LIVE
-    // `Session` before its commit — so two writers share one object. Here writer
-    // A sets `name`, writer B sets `title` and commits inside A's span, and B's
-    // draft is captured from an object already carrying A's uncommitted `name`.
-    // B therefore durably writes a field nobody asked it to write, and A's
-    // rollback restores it because it is now part of the committed baseline.
+    // draft that was written, and a rollback restores the latest baseline. The
+    // MUTATION half is what this pins. Writer A sets `name`, writer B sets
+    // `title` and commits inside A's span, and A then fails. While both writers
+    // assigned onto the LIVE `Session`, B's draft was captured from an object
+    // already carrying A's uncommitted `name`: B durably wrote a field nobody
+    // asked it to write, and A's rollback restored it because it had become part
+    // of the committed baseline. Now each writer mutates its OWN draft, so B's
+    // write is B's alone and A's rollback has nothing of A's to put back.
     //
     // Two writers touching DIFFERENT fields is what makes this visible; on the
     // same field the two behaviours are indistinguishable, which is why it took
@@ -168,20 +175,28 @@ describe('a rollback racing a successful persist', () => {
     const f = fixture()
     f.repo.persist(f.session) // baseline: title 'committed title', name ''
 
-    f.session.name = 'loser name'
     f.duringNextWrite(() => {
-      f.session.title = 'winner'
-      f.repo.persist(f.session)
+      // The winner runs inside the loser's span and commits first.
+      f.repo.write(f.session, (draft) => {
+        draft.title = 'winner'
+      })
     })
     f.failNextWrite()
-    expect(() => f.repo.persist(f.session)).toThrow('commit failed')
+    expect(() =>
+      f.repo.write(f.session, (draft) => {
+        draft.name = 'loser name'
+      }),
+    ).toThrow('commit failed')
 
-    expect(f.session.title, "the winner's field survives — correct today").toBe('winner')
+    expect(f.session.title, "the winner's field survives").toBe('winner')
     expect(
       f.session.name,
-      "POD-3330: should be '', because the loser never committed. The winner " +
-        'captured it off the shared live object and made it durable.',
-    ).toBe('loser name')
+      "the loser never committed, so nothing of the loser's is on the session",
+    ).toBe('')
+    expect(
+      f.repo.committedDurableState(f.session.sessionId)?.name,
+      'and the committed baseline never carried it either',
+    ).toBe('')
   })
 
   it('still rolls the durable half back when nothing else committed', () => {
@@ -197,6 +212,49 @@ describe('a rollback racing a successful persist', () => {
 
     expect(f.session.title).toBe('committed title')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('committed title')
+  })
+})
+
+describe('a drafted write is invisible until its commit returns [POD-3330]', () => {
+  it('the row and the declared change describe the DRAFT, not the live object', () => {
+    // The row is built from the draft, so a write that assigns inside the
+    // TRANSACTION has to assign into the draft too — that is what the ref
+    // allocation, the observation rebind and the runtime state projection all
+    // do. If `toRow` read the live object instead, this row would be written
+    // with the previous name and nothing would fail anywhere else.
+    const f = fixture()
+    f.repo.write(
+      f.session,
+      (draft) => {
+        draft.title = 'drafted title'
+      },
+      // stands in for an allocation the store decides inside the span
+      undefined,
+    )
+
+    expect(f.upserted).toEqual([{ id: 'model-1', title: 'drafted title', name: null }])
+  })
+
+  it('a reader inside the span still sees the previous state on the live session', () => {
+    // The whole point of the draft: between the write and its commit, the
+    // shared object says what the last commit said. A second writer entering
+    // here — which is what the interleaving above does — captures that, and not
+    // this writer's half-finished change.
+    const f = fixture()
+    f.repo.persist(f.session)
+
+    let observedLive: string | undefined
+    f.duringNextWrite(() => {
+      observedLive = f.session.title
+    })
+    f.repo.write(f.session, (draft) => {
+      draft.title = 'in flight'
+    })
+
+    expect(observedLive, 'the live object still carried the committed title').toBe(
+      'committed title',
+    )
+    expect(f.session.title, 'and carries the new one once the commit returned').toBe('in flight')
   })
 })
 

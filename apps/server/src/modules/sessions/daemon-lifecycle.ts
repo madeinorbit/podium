@@ -23,7 +23,7 @@ import type { MemoryService } from '../memory/service'
 import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionInbox } from './inbox'
 import type { SessionObservationLeases } from './observation-leases'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 import type { SessionStateService } from './session-state/service'
 
 const log = createLogger('server:sessions')
@@ -40,6 +40,17 @@ export interface SessionDaemonLifecyclePorts {
   memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
   observationLeases: SessionObservationLeases
   persist(session: Session, additionalWrite?: () => void): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(
+    session: Session,
+    mutate: (draft: SessionDurableState) => void,
+    additionalWrite?: () => void,
+  ): void
+  /** A draft, for a write whose own mutation has to happen inside the
+   *  transaction (an outcome the store decides) or whose derived values must
+   *  describe the row being written. */
+  draft(session: Session): SessionDurableState
+  persistDraft(session: Session, draft: SessionDurableState, additionalWrite?: () => void): void
   broadcastSessions(): void
   onSessionActivity(sessionId: SessionId): void
   onSessionAttention(sessionId: SessionId): void
@@ -51,6 +62,7 @@ export interface SessionDaemonLifecyclePorts {
     session: Session,
     lease: ObservationLeaseRecord,
     checkpoint: NonNullable<ObservationLeaseRecord['checkpoint']>,
+    draft?: SessionDurableState,
   ): TerminalCandidateFacts | null
   broadcastToClients(message: LiveServerMessage): void
   clearOffer(sessionId: SessionId): void
@@ -168,6 +180,18 @@ export class SessionDaemonLifecycle {
   }
   private readonly persist = (session: Session, additionalWrite?: () => void): void =>
     this.ports.persist(session, additionalWrite)
+  private readonly write = (
+    session: Session,
+    mutate: (draft: SessionDurableState) => void,
+    additionalWrite?: () => void,
+  ): void => this.ports.write(session, mutate, additionalWrite)
+  private readonly draft = (session: Session): SessionDurableState =>
+    this.ports.draft(session)
+  private readonly persistDraft = (
+    session: Session,
+    draft: SessionDurableState,
+    additionalWrite?: () => void,
+  ): void => this.ports.persistDraft(session, draft, additionalWrite)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
   private readonly emitSessionExited = (
     sessionId: SessionId,
@@ -181,7 +205,9 @@ export class SessionDaemonLifecycle {
     session: Session,
     lease: ObservationLeaseRecord,
     checkpoint: NonNullable<ObservationLeaseRecord['checkpoint']>,
-  ): TerminalCandidateFacts | null => this.ports.terminalCandidateFacts(session, lease, checkpoint)
+    draft?: SessionDurableState,
+  ): TerminalCandidateFacts | null =>
+    this.ports.terminalCandidateFacts(session, lease, checkpoint, draft)
   private readonly broadcastToClients = (message: LiveServerMessage): void =>
     this.ports.broadcastToClients(message)
   private readonly clearOffer = (sessionId: SessionId): void => this.ports.clearOffer(sessionId)
@@ -216,7 +242,6 @@ export class SessionDaemonLifecycle {
     ) {
       return
     }
-    before?.onExit(msg.code)
     this.autoContinue.onSessionGone(msg.sessionId)
     // Free the lingering per-session title debouncer when the process ends (audit
     // P1-12) — previously only killSession did, so every exited-but-not-killed
@@ -225,7 +250,14 @@ export class SessionDaemonLifecycle {
     // (resurrect/chat needs them).
     this.daemonProjection.disposeTitle(msg.sessionId)
     const s = this.sessions.get(msg.sessionId)
-    if (s) this.persist(s)
+    // THE EXIT IS APPLIED TO THE DRAFT THIS COMMIT PERSISTS [POD-3330]. It used
+    // to be assigned onto the live session at the top of this method, which put
+    // `exited` and its stop metadata on the shared object several statements
+    // (and one whole transaction) before anything made them true. `onExit`'s
+    // LIVE effects — stopping output, the `agentExit` frame, the unread re-arm —
+    // still happen where the durable write happens, which is the point at which
+    // the death is a fact.
+    if (s) this.write(s, (draft) => s.onExit(msg.code, draft))
     this.broadcastSessions()
     // The assistant digest remains a legacy consumer in this vertical slice.
     this.ports.onSessionActivity(msg.sessionId)
@@ -350,7 +382,6 @@ export class SessionDaemonLifecycle {
       }
       case 'bind': {
         this.unfencedExitsAwaitingBind.delete(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.markLive(msg.cmd, msg.geometry)
         this.inbox.markSessionBound(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
         if (s) {
@@ -388,8 +419,17 @@ export class SessionDaemonLifecycle {
           if (msg.driverId) s.selectedDriverId = msg.driverId
           // Present only for a permitted manifest/machine default degradation.
           // Reattach echoes it so daemon reconnects preserve the fact.
-          if (msg.requestedDriverId && !s.requestedDriverId) s.requestedDriverId = msg.requestedDriverId
-          this.persist(s)
+          if (msg.requestedDriverId && !s.requestedDriverId)
+            s.requestedDriverId = msg.requestedDriverId
+          // `markLive` is the DURABLE half of a bind — cmd, and the status flip
+          // out of starting/reconnecting/exited — so it writes the draft this
+          // commit persists [POD-3330]. The fields above it are the live handle
+          // facts (transient, or row columns with no durable-state field), which
+          // stay assignments on the session itself. Applied here rather than at
+          // the top of the case so the flip to `live` and the row that says so
+          // land together; the drain below still sees `live`, because the draft
+          // is installed the moment the commit returns.
+          this.write(s, (draft) => s.markLive(msg.cmd, msg.geometry, draft))
           this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()
@@ -443,9 +483,8 @@ export class SessionDaemonLifecycle {
         // clean lifecycle accounting; fenced Grok exits remain distinguishable
         // by their observer generation across both attempts.
         this.unfencedExitsAwaitingBind.delete(msg.sessionId)
-        this.sessions.get(msg.sessionId)?.markSpawnError(msg.message)
         const s = this.sessions.get(msg.sessionId)
-        if (s) this.persist(s)
+        if (s) this.write(s, (draft) => s.markSpawnError(msg.message, draft))
         this.broadcastSessions()
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
         // [spec:SP-85d1] like any other real death.
@@ -474,9 +513,9 @@ export class SessionDaemonLifecycle {
         // redundant agentExit and churn the row on every restart. A 'reconnecting'
         // survivor that fails to reattach is a real death — mark it exited.
         if (s && s.status !== 'exited') {
-          s.onExit(-1) // the durable host is gone; the agent died with it
           this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
-          this.persist(s)
+          // the durable host is gone; the agent died with it
+          this.write(s, (draft) => s.onExit(-1, draft))
           // Real death (not a boot-time probe of an already-exited row) —
           // notify lock auto-release etc. [spec:SP-85d1]. onExit keeps a
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
@@ -548,7 +587,14 @@ export class SessionDaemonLifecycle {
 
         let outcome: ReturnType<typeof this.store.observationCheckpoints.rebindExact> | undefined
         try {
-          this.persist(session, () => {
+          // THE DRAFT IS CUT HERE AND MUTATED INSIDE THE TRANSACTION [POD-3330],
+          // because what this write assigns is decided BY the transaction: the
+          // store's rebind either advances the binding or rejects it, and only
+          // the advanced case owns a new conversation identity. Assigning onto
+          // the live session (which is what this did) both published the new ref
+          // before the commit and left it standing when the commit threw.
+          const draft = this.draft(session)
+          this.persistDraft(session, draft, () => {
             outcome = this.store.observationCheckpoints.rebindExact({
               sessionId: session.sessionId,
               provider: msg.provider,
@@ -560,9 +606,9 @@ export class SessionDaemonLifecycle {
             if (outcome.kind === 'rejected') {
               throw new Error(`observation rebind rejected for ${session.sessionId}`)
             }
-            session.resume = { kind: msg.resumeKind, value: msg.nextProviderSessionId }
+            session.setResume({ kind: msg.resumeKind, value: msg.nextProviderSessionId }, draft)
             if (outcome.disposition !== 'advanced') return
-            session.conversationPodiumId = msg.providerSessionId
+            draft.conversationPodiumId = msg.providerSessionId
               ? this.ports.memory.linkConversationSegment({
                   machineId: session.machineId,
                   newNativeId: msg.nextProviderSessionId,
@@ -677,9 +723,17 @@ export class SessionDaemonLifecycle {
         }
 
         const prev = session.agentState
+        // THE CHECKPOINT LANDS ON THE DRAFT [POD-3330], and the candidate facts
+        // below are derived from that same draft. `facts()` reads
+        // `lastActiveAt`, which this call advances, so facts derived from the
+        // live object here would describe the session as it was BEFORE the
+        // write — and the hibernate path re-derives them and compares
+        // byte-for-byte, so the mismatch would refuse a legitimate reap.
+        const draft = this.draft(session)
         session.applyObservationCheckpoint(
           outcome.checkpoint,
           !this.ports.runtimeEvents?.ready(session.sessionId),
+          draft,
         )
         const acceptedLive =
           outcome.kind === 'live_transition_accepted' || outcome.kind === 'live_refresh_accepted'
@@ -694,8 +748,9 @@ export class SessionDaemonLifecycle {
           session,
           acceptedLease,
           outcome.checkpoint,
+          draft,
         )
-        this.persist(session, () => {
+        this.persistDraft(session, draft, () => {
           this.store.observationCheckpoints.save(outcome.checkpoint)
           if (acceptedLive) {
             if (candidateFacts) {
@@ -816,13 +871,22 @@ export class SessionDaemonLifecycle {
           break
         }
         const prev = session.agentState
-        session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId))
-        const next = session.agentState ?? msg.state
+        // Persisted so the advanced recency (lastActiveAt) is durable across a
+        // server restart — otherwise the row keeps its stale last-persisted time
+        // and the ordering jumps backward on every redeploy until events
+        // re-arrive. The fold itself is applied to the draft this commit
+        // persists [POD-3330]: `setAgentState` accumulates a compute total on
+        // top of the previous one, so it is exactly the write a second writer
+        // must not be able to capture half-finished.
+        const draft = this.draft(session)
+        session.setAgentState(
+          msg.state,
+          !this.ports.runtimeEvents?.ready(session.sessionId),
+          draft,
+        )
+        const next = draft.agentState ?? msg.state
+        this.persistDraft(session, draft)
         this.autoContinue.onStateChange(msg.sessionId, next)
-        // Persist so the advanced recency (lastActiveAt) is durable across a server
-        // restart — otherwise the row keeps its stale last-persisted time and the
-        // ordering jumps backward on every redeploy until events re-arrive.
-        this.persist(session)
         // A dedicated per-session message — not broadcastSessions(). Hook events
         // fire often (TodoWrite mutations, turn boundaries, across all sessions);
         // re-serializing and fanning out the whole session list each time is
