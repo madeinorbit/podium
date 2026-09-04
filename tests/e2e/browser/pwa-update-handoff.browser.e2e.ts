@@ -76,7 +76,10 @@ test('one Reload waits for the real replacement worker and opens the new shell',
   browserName,
   isMobile,
 }) => {
-  test.skip(browserName !== 'chromium' || isMobile, 'This proof targets the desktop Chromium PWA.')
+  test.skip(
+    !['chromium', 'webkit'].includes(browserName) || isMobile,
+    'This proof targets the desktop service-worker boundary.',
+  )
 
   test.setTimeout(60_000)
   const originals = [...servedFiles(indexUrl), ...servedFiles(swUrl)]
@@ -156,13 +159,10 @@ test('one Reload waits for the real replacement worker and opens the new shell',
     await page.reload()
     expect(await page.locator('meta[name="pwa-handoff-build"]').getAttribute('content')).toBe('old')
 
-    // This is a genuine production service-worker update: the generated
-    // Workbox worker installs a different index revision and waits. Holding its
-    // activate event beyond the old 2 s fallback makes the race deterministic.
-    writeServed(indexUrl, indexBuild(originalIndex.toString(), NEW_VERSION, 'new'))
-    writeServed(swUrl, workerBuild(originalWorker.toString(), 'new', 4_000))
+    // A script-URL change deterministically installs byte-identical old worker
+    // bytes in the same scope, reproducing WebKit's parked duplicate topology.
     await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker.ready
+      const registration = await navigator.serviceWorker.register('/sw.js?parked-duplicate')
       await registration.update()
       if (registration.waiting) return
       await new Promise<void>((resolve, reject) => {
@@ -177,6 +177,8 @@ test('one Reload waits for the real replacement worker and opens the new shell',
       })
       if (!registration.waiting) throw new Error('replacement worker never entered waiting')
     })
+    writeServed(indexUrl, indexBuild(originalIndex.toString(), NEW_VERSION, 'new'))
+    writeServed(swUrl, workerBuild(originalWorker.toString(), 'new', 4_000))
     expect(activeReads).toBeGreaterThan(0)
 
     const panel = page.getByRole('dialog', { name: 'Podium update' })
