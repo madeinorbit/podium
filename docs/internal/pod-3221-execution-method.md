@@ -173,6 +173,28 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
 
+A CHECK AT A TRANSPORT OR PROCESS BOUNDARY MUST BE SHOWN TO FIRE (POD-3358, 2026-09-04). Its guard
+enforcing the per-run table prefix read `init.body` — which `@libsql/client/web` never sets, because
+the statement travels in a Request object. The guard could not fail, and every test still passed.
+Only mutating a call site back to a bare table name exposed it.
+
+That is the THIRD vacuous check this epic has caught, and the first two were mine: a mutation applied
+to a `.sql` file the manifest embeds as a string literal, and a statement replaced with a bare comment
+so the engine threw for an unrelated reason. The pattern is always the same — the check reports
+success because it never ran, and success is indistinguishable from a passing check by inspection.
+
+RULE: any assertion that inspects something crossing a boundary you do not own — a fetch body, a
+spawned process's argv, a serialized frame — is not evidence until you have watched it FAIL. Break
+the thing it guards and see the message. This is the same rule as "a fixture must produce the thing",
+applied where the object under inspection is built by a library rather than by the test.
+
+AND A CONCURRENCY FIX NEEDS A CONTROL ARM THAT ACTUALLY SHARES. My first reproduction of POD-3358 ran
+two concurrent test runs with the namespace disabled and both passed, which read as the claim
+failing. It was my rig: `startLocalServer()` mkdtemps a fresh database per call, so the two arms never
+shared anything and the control could not fail. A concurrency control that does not share state is
+the same vacuity in a different coat — arrange the sharing explicitly and prove the control RED
+before believing the treatment green.
+
 A MECHANICAL PASS MUST BE IDEMPOTENT, AND A CLEAN MERGE OF ONE IS THE DANGEROUS CASE (POD-3262,
 2026-09-04). Two corrections from the regeneration, both from the worker, both against my own rules.
 
