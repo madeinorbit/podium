@@ -1837,10 +1837,7 @@ export class MessageDeliveryService {
   /** One recipient's live meta, through the narrow read when the composition
    *  root wired it [POD-1653]. Undefined for a session this service cannot see. */
   private targetOf(sessionId: SessionId): SessionMeta | undefined {
-    return (
-      this.deps.sessions.sessionById?.(sessionId) ??
-      this.deps.sessions.listSessions().find((candidate) => candidate.sessionId === sessionId)
-    )
+    return findSessionById(this.deps.sessions, sessionId)
   }
 
   /** Shared idempotency/cooldown gate for every event-triggered or sweep retry.
