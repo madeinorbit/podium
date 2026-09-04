@@ -1806,6 +1806,38 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
  * The SearchIndex port is exempt because dynamic identifiers are what it is
  * for — an FTS5 column filter and a table name chosen per index.
  */
+/**
+ * WHOLE STATEMENTS WHOSE IDENTIFIERS ARE PROGRAM CONSTANTS — rule 33's exemption.
+ *
+ * Rule 1 allows a whole raw statement only behind the search port. POD-3404 is a
+ * site that is genuinely a whole statement and genuinely not a search: a boot
+ * integrity scan built as a UNION ALL of one EXISTS arm per entry in a SOURCE
+ * CONSTANT. Rewriting it as one statement per table turns ONE round trip into
+ * FOURTEEN at boot, which rule 24 says is the finding rather than the fix.
+ *
+ * TWO KEYS, BOTH REQUIRED: the file listed here AND the token on the line. A
+ * listed file cannot quietly grow a second raw statement, and the token pasted
+ * into an unlisted file does nothing. The token is deliberately NOT
+ * `// DECISION POD-<n>`: a decision marker means UNANSWERED and Stage A's exit
+ * gate counts those to zero. This one is answered, so it needs a spelling that
+ * survives the gate.
+ *
+ * `derivedBy` IS THE PRECONDITION, not a citation: the identifiers are safe only
+ * because that test derives the same set from the schema and fails when a table
+ * grows a machine column without joining the constant. If the test goes, this
+ * entry's argument goes with it.
+ */
+const CONSTANT_IDENTIFIER_STATEMENTS: ReadonlyMap<string, { token: string; derivedBy: string }> =
+  new Map([
+    [
+      'apps/server/src/store/machines.ts',
+      {
+        token: 'CONSTANT-IDENTIFIER STATEMENT POD-3404',
+        derivedBy: 'apps/server/src/store/machines-sentinel-scan.test.ts',
+      },
+    ],
+  ])
+
 export function checkSqlRawLiteral(file: string, source: string): Violation[] {
   // Superset pre-filter, same reason as rule 14.
   if (!SQL_RAW_CALL.test(source)) return []
@@ -1822,7 +1854,19 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
     // `sql.raw('a' + b)` — a concatenation that opens with a literal — which is
     // exactly the defeat this rule exists to refuse, and a fixture pins it.
     const argument = balancedArgument(code, m.index + m[0].length - 1)
-    if (argument !== null && !SQL_RAW_STRING_LITERAL.test(argument.trim()) && !marked.has(line)) {
+    // Rule 33's exemption fires HERE, in the rule that actually reports this
+    // site. My first two attempts hooked it to the raw-EXECUTION rule, which
+    // never sees `sql.raw(...)` at all and so was inert both times.
+    const constant = CONSTANT_IDENTIFIER_STATEMENTS.get(file)
+    const tokenOnLine =
+      constant !== undefined &&
+      (source.split('\n')[line - 1] ?? '').includes(constant.token)
+    if (
+      argument !== null &&
+      !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
+      !marked.has(line) &&
+      !tokenOnLine
+    ) {
       violations.push({
         file,
         specifier: 'sql.raw',

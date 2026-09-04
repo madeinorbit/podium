@@ -229,7 +229,7 @@ export class MachinesRepository {
       const [table, column] = site.split('.')
       return `SELECT '${site}' AS site WHERE EXISTS (SELECT 1 FROM "${table}" WHERE "${column}" IN (${sentinels}))`
     })
-    // DECISION POD-3404 — a WHOLE statement, which rule 1 allows only behind the
+    // CONSTANT-IDENTIFIER STATEMENT POD-3404 — a WHOLE statement, which rule 1 allows only behind the
     // search port and which this is not. Converted in the most literal form
     // pending the rule: the identifiers are the `MACHINE_ID_SITES` source
     // constant, never user input, and `machines-sentinel-scan.test.ts` derives
@@ -237,7 +237,7 @@ export class MachinesRepository {
     // without appearing there. One statement rather than fourteen is the
     // method's own documented choice about round trips, not an accident.
     const statement = arms.join('\nUNION ALL\n')
-    const rows = this.db.all<{ site: string }>(sql.raw(statement)) // DECISION POD-3404
+    const rows = this.db.all<{ site: string }>(sql.raw(statement)) // CONSTANT-IDENTIFIER STATEMENT POD-3404
     return rows.map((r) => r.site)
   }
 
