@@ -6,6 +6,7 @@ import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
 import type { CommandPrincipal } from './command-principal'
 import type { Capability } from './issue-authz'
+import type { ConnectPublisher } from './modules/connect/publisher'
 import type { IssueCaller } from './modules/issues/command-ctx'
 import { IssueRevisionConflict } from './modules/issues/conflict'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
@@ -78,6 +79,9 @@ export interface Context {
    *  needs it to refuse an instance that is not actually activation-pending, which
    *  is what keeps a control-plane restart from being a remote bounce lever. */
   readiness?: () => ServerReadiness
+  /** Podium Connect (PDM-51): `connect.check` asks the cloud whether a public URL
+   *  is reachable. Optional: absent when Connect is not wired (tests). */
+  connect?: Pick<ConnectPublisher, 'check'>
   /** This server process is supervised and replaced by the native desktop shell. */
   desktopSupervised?: boolean
   /** Installed coordinator-only exact-target delivery before the process-manager restart. */

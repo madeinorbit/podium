@@ -385,6 +385,26 @@ export const appRouter = t.router({
    * cannot be pointed at an arbitrary path.
    */
   hosts: t.router(hostFamilyProcedures()),
+  /**
+   * PODIUM CONNECT (PDM-51). `check` asks connect.meetpodium.com to probe a
+   * public URL from the outside and say precisely why it does not work. The
+   * result is the cloud's answer verbatim; nothing here is stored — it is a
+   * READ of the world, which is why it is a query and this router is in the
+   * census as reads-only (scripts/router-mutation-census.json).
+   */
+  connect: t.router({
+    check: t.procedure
+      .input(z.object({ url: z.string().min(1).max(512) }))
+      .query(({ ctx, input }) =>
+        ctx.connect
+          ? ctx.connect.check(input.url)
+          : {
+              ok: false as const,
+              error: 'CONNECT_UNAVAILABLE' as const,
+              detail: 'Podium Connect is not enabled on this server',
+            },
+      ),
+  }),
   discovery: t.router({
     // refreshRepos · scanFolder · scanMachine — DERIVED (POD-384): the three
     // `machineVerb: 'use'` commands, each placing a filesystem walk on the target

@@ -25,6 +25,8 @@ import {
   loadConfig,
   resolveAllowedOrigins,
   resolveAppUrl,
+  resolveConnectBaseUrl,
+  resolveConnectEnabled,
   resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
   resolveInstanceId,
@@ -89,6 +91,8 @@ import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
 import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import { connectClient } from './modules/connect/client'
+import { ConnectPublisher } from './modules/connect/publisher'
 import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
@@ -568,6 +572,19 @@ export async function startServer(
   // a server transfer, signs everything this server says to Podium Connect.
   const installation = readOrCreateInstallationIdentity(stateDir())
   const installationPublicKey = installationPublicKeyWire(installation)
+  // Keeps Connect's record of where this server is reachable current. Started
+  // once the listener is up (below); reads PODIUM_CONNECT and the public URL
+  // per tick, so both land without a restart. The base URL is a boot fact.
+  const connectPublisher = new ConnectPublisher({
+    client: connectClient({
+      baseUrl: resolveConnectBaseUrl(config, process.env),
+      identity: () => installation,
+    }),
+    identity: () => installation,
+    publicUrl: () => resolvePublicUrl(loadConfig(), process.env),
+    enabled: () => resolveConnectEnabled(loadConfig(), process.env),
+    log: createLogger('server:connect'),
+  })
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
@@ -1308,6 +1325,7 @@ export async function startServer(
           // the data plane is blocked — reads this live and refuses any instance
           // that is not activation-pending, so it never becomes a bounce lever.
           readiness,
+          connect: connectPublisher,
           // The web build is the server's own step now, not a systemd unit to
           // restart (POD-1985) — but the context shape is unchanged, so the
           // Update panel's "the website is behind" path still just calls this.
@@ -1719,6 +1737,7 @@ export async function startServer(
         schedule: timerSchedule,
       })
       targetsResolvedOnBoot = true
+      connectPublisher.start()
       resolve({
         port: server.port,
         instanceId,
@@ -1741,6 +1760,9 @@ export async function startServer(
               // An armed refresh timer that outlives the server would resolve a
               // target against a service whose store is already closed.
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
+              // A publish that outlives the server would advertise a URL that
+              // is about to stop answering; the next boot republishes anyway.
+              ['connect.stop', () => connectPublisher.stop()],
               ['updates.localParticipant.close', () => localUpdateParticipant?.close()],
               // Same hazard, same window (POD-2097): an armed operation deadline
               // that outlives the server would wake into a closed store and try
