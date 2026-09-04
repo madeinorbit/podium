@@ -29,9 +29,6 @@ const dist = new URL('../../../apps/web/dist/', import.meta.url)
 const indexUrl = new URL('index.html', dist)
 const swUrl = new URL('sw.js', dist)
 
-type TrpcEntry = {
-  result?: Record<string, unknown>
-}
 type ServedFile = {
   url: URL
   bytes: Buffer
@@ -89,59 +86,61 @@ test('one Reload waits for the real replacement worker and opens the new shell',
   writeServed(indexUrl, indexBuild(originalIndex.toString(), OLD_VERSION, 'old'))
   writeServed(swUrl, workerBuild(originalWorker.toString(), 'old'))
 
-  await page.route('**/version', async (route) => {
-    await route.fulfill({
-      contentType: 'application/json',
-      body: JSON.stringify({
-        appVersion: NEW_VERSION,
-        target: { version: NEW_VERSION, critical: false, artifacts: {} },
-      }),
-    })
-  })
-  let activeReads = 0
-  let operationFinished = false
-  await page.route('**/trpc/**', async (route) => {
-    const procedurePath = new URL(route.request().url()).pathname.split('/trpc/')[1] ?? ''
-    const procedures = decodeURIComponent(procedurePath).split(',')
-    const targets = procedures.some((procedure) =>
-      ['operations.active', 'operations.history', 'updates.fleet'].includes(procedure),
-    )
-    if (!targets) {
-      await route.fallback()
-      return
-    }
-
-    const upstream = await route.fetch()
-    const upstreamBody = (await upstream.json()) as TrpcEntry[]
-    const patched = procedures.map((procedure, index) => {
-      const current = upstreamBody[index] ?? {}
-      const withData = (data: unknown): TrpcEntry => ({
-        ...current,
-        result: { ...current.result, data },
-      })
-      if (procedure === 'operations.active') {
-        activeReads += 1
-        return withData(operationFinished ? null : WAITING_OPERATION)
+  // WebKit's service-worker-controlled requests bypass Playwright page routes.
+  // Mock only the window's update metadata fetches, leaving worker script checks,
+  // precache fetches, and document navigations on the real network boundary.
+  await page.addInitScript(
+    ({ version, operation }) => {
+      const networkFetch = window.fetch.bind(window)
+      window.fetch = async (input, init) => {
+        const url = new URL(input instanceof Request ? input.url : String(input), location.href)
+        if (url.pathname === '/version') {
+          return Response.json({
+            appVersion: version,
+            target: { version, critical: false, artifacts: {} },
+          })
+        }
+        const procedures = decodeURIComponent(url.pathname.split('/trpc/')[1] ?? '').split(',')
+        if (
+          !procedures.some((name) =>
+            [
+              'operations.active',
+              'operations.history',
+              'updates.fleet',
+              'updates.proposal',
+            ].includes(name),
+          )
+        )
+          return networkFetch(input, init)
+        const response = await networkFetch(input, init)
+        const entries = await response.json()
+        const finished =
+          document.querySelector('meta[name="pwa-handoff-build"]')?.getAttribute('content') ===
+          'new'
+        return Response.json(
+          procedures.map((name, index) => {
+            const current = entries[index] ?? {}
+            const withData = (data: unknown) => ({ result: { ...current.result, data } })
+            if (name === 'operations.active') return withData(finished ? null : operation)
+            if (name === 'operations.history') return withData([])
+            if (name === 'updates.proposal') return withData(null)
+            if (name === 'updates.fleet')
+              return withData({
+                total: 0,
+                behind: 0,
+                converging: 0,
+                failed: 0,
+                targetVersion: version,
+                machines: [],
+              })
+            return current
+          }),
+          { status: response.status },
+        )
       }
-      if (procedure === 'operations.history') return withData([])
-      if (procedure === 'updates.fleet') {
-        return withData({
-          total: 0,
-          behind: 0,
-          converging: 0,
-          failed: 0,
-          targetVersion: NEW_VERSION,
-          machines: [],
-        })
-      }
-      return current
-    })
-    await route.fulfill({
-      response: upstream,
-      contentType: 'application/json',
-      body: JSON.stringify(patched),
-    })
-  })
+    },
+    { version: NEW_VERSION, operation: WAITING_OPERATION },
+  )
 
   try {
     await page.goto(`/?server=${RELAY}&e2e=1`)
@@ -179,7 +178,6 @@ test('one Reload waits for the real replacement worker and opens the new shell',
     })
     writeServed(indexUrl, indexBuild(originalIndex.toString(), NEW_VERSION, 'new'))
     writeServed(swUrl, workerBuild(originalWorker.toString(), 'new', 4_000))
-    expect(activeReads).toBeGreaterThan(0)
 
     const panel = page.getByRole('dialog', { name: 'Podium update' })
     const reload = panel.getByRole('button', { name: 'Reload', exact: true })
@@ -200,7 +198,6 @@ test('one Reload waits for the real replacement worker and opens the new shell',
     )
     const navigated = page.waitForEvent('framenavigated', (frame) => frame === page.mainFrame())
     await reload.click()
-    operationFinished = true
     const firstHtml = await (await firstDocument).text()
     expect(firstHtml).toContain('<meta name="pwa-handoff-build" content="new">')
     await navigated
