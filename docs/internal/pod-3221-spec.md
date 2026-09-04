@@ -1082,3 +1082,33 @@ existing suite the flip's oracle.
 Intent is still declared, through drizzle's terminal methods: `.get()`/`.all()` on a select are reads;
 `.run()`/`.returning()` on insert/update/delete are writes. POD-3391's lint derives intent from the
 SQL and checks the call site either way.
+
+### Rule 27a — the executor OWNS the synchronous drizzle instance; a repository never holds a handle
+
+[Corrects rule 27 within the hour, on objections from waves 1, 3, 5 and 7. 2026-09-04.]
+
+Rule 27 said Stage A converts onto `drizzle-orm/bun-sqlite`. Right driver, wrong owner. As written it
+implied a REPOSITORY builds the instance over the store's handle — and a repository that holds a
+handle has not converted: rule 13 bans the runtime-sqlite import, and `STAGE_A_UNCONVERTED`'s own
+definition is that a file is unconverted until it holds no raw handle at all. So a wave converting
+that way could delete no ledger line, and Stage A's exit gate is that array being empty. Wave 1 put it
+exactly: it would empty the ledger without moving anything, which is the failure rule 20 already names.
+
+SO THE EXECUTOR BUILDS IT ONCE AND EXPOSES IT. The executor already holds the handle; it constructs
+`drizzle({ client })` — the same call the migrator makes at `migrations/index.ts:277`, with
+`bunSqliteClient` — and exposes it as a synchronous drizzle database. A repository imports
+`drizzle-orm` and the schema, nothing else. It never sees `SqlDatabase`, never calls `.prepare(`, and
+its ledger line comes off legitimately.
+
+What each party gets: repositories write real drizzle and receive rule 3's TypeScript names and the
+`$type` brands through drizzle's own execution path, so no wave hand-maps physical column names. The
+boundary lint stays satisfied by construction rather than by exemption. And B1 rebinds that one field
+from the synchronous driver to the asynchronous one and the await pass adds the awaits; the query
+BODIES do not change, which is what makes the existing suite the flip's oracle.
+
+INTENT under this shape is declared by drizzle's terminal method — `.get()`/`.all()` on a select read;
+`.run()`/`.returning()` on insert/update/delete write. That is a DECLARATION at the call site, not
+inference from SQL text, so rule 16 holds. POD-3391's lint derives intent from the emitted SQL and
+fails where the two disagree.
+
+Building this instance is an executor edit and therefore the coordinator's, not a wave's.
