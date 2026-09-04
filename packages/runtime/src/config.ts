@@ -34,6 +34,9 @@
  * | PODIUM_ALLOWED_ORIGINS        | config.allowedOrigins   | `resolveAllowedOrigins()` — credentialed CORS list      |
  * | PODIUM_UPDATE_SCOPE           | config.updateScope      | `resolveUpdateScope()` — 'fleet-only' = CI owns server  |
  * | PODIUM_TRANSCRIPT_LAKE        | config.transcriptLake   | `resolveTranscriptLake()` — 'off' = no mirroring        |
+ * | PODIUM_CONNECT                | config.connect.enabled  | `resolveConnectEnabled()` — 'off' = never publish      |
+ * | PODIUM_CONNECT_URL            | config.connect.baseUrl  | `resolveConnectBaseUrl()`                              |
+ * | PODIUM_CONNECT_PROBE_KEYS     | config.connect.trustedProbeKeys | `resolveConnectProbeKeys()` — extra verifiers  |
  * | DO_NOT_TRACK                  | — (env-only kill switch)| @podium/telemetry `telemetrySuppressedBy()` [SP-f933]  |
  * | PODIUM_TELEMETRY              | — (env-only kill switch)| `=off` suppresses sending AND the setup prompt         |
  * | PODIUM_TELEMETRY_ENDPOINT     | config.telemetry.endpoint| @podium/telemetry `resolveTelemetryEndpoint()`         |
@@ -310,6 +313,21 @@ export const PodiumConfig = z.object({
    * `endpoint` override is the config layer of the relay-URL precedence
    * (PODIUM_TELEMETRY_ENDPOINT → here → signed update manifest → baked-in).
    */
+  /**
+   * PODIUM CONNECT (PDM-51): the locator at connect.meetpodium.com that tells a
+   * client where this installation is reachable today, and the checker that
+   * tells the operator whether a public URL works. ON BY DEFAULT once a public
+   * URL exists — nothing is sent before then — and one switch turns it off.
+   * `trustedProbeKeys` widens which cloud keys may probe `/.well-known/podium`;
+   * the built-in Podium Cloud key is always trusted.
+   */
+  connect: z
+    .object({
+      enabled: z.boolean().optional(),
+      baseUrl: z.string().optional(),
+      trustedProbeKeys: z.array(z.string()).optional(),
+    })
+    .optional(),
   telemetry: z
     .object({
       /** Random UUIDv4 (not derived from the machine); `podium telemetry reset-id` rotates it. */
@@ -733,6 +751,9 @@ export const LAYERED_KEYS = [
   'allowedOrigins',
   'updateScope',
   'transcriptLake',
+  'connectEnabled',
+  'connectBaseUrl',
+  'connectProbeKeys',
 ] as const
 export type LayeredKey = (typeof LAYERED_KEYS)[number]
 
@@ -750,6 +771,9 @@ export const LAYERED_ENV: Readonly<Record<LayeredKey, string>> = {
   allowedOrigins: 'PODIUM_ALLOWED_ORIGINS',
   updateScope: 'PODIUM_UPDATE_SCOPE',
   transcriptLake: 'PODIUM_TRANSCRIPT_LAKE',
+  connectEnabled: 'PODIUM_CONNECT',
+  connectBaseUrl: 'PODIUM_CONNECT_URL',
+  connectProbeKeys: 'PODIUM_CONNECT_PROBE_KEYS',
 }
 
 /** What each layered key resolves TO. */
@@ -766,6 +790,9 @@ export interface LayeredValues {
   allowedOrigins: string[]
   updateScope: UpdateScope
   transcriptLake: TranscriptLakeMode
+  connectEnabled: boolean
+  connectBaseUrl: string
+  connectProbeKeys: string[]
 }
 export type LayeredValue<K extends LayeredKey> = LayeredValues[K]
 
@@ -1022,6 +1049,74 @@ const LAYERED_READERS: {
     file: (config) => config.transcriptLake,
     default: () => 'on',
   },
+  connectEnabled: {
+    env: (env) =>
+      env.PODIUM_CONNECT === undefined
+        ? undefined
+        : parseEnum(env.PODIUM_CONNECT, ['on', 'off'] as const, 'PODIUM_CONNECT') === 'on',
+    file: (config) => config.connect?.enabled,
+    default: () => true,
+  },
+  connectBaseUrl: {
+    env: (env) =>
+      env.PODIUM_CONNECT_URL === undefined
+        ? undefined
+        : parseConnectBaseUrl(env.PODIUM_CONNECT_URL, 'PODIUM_CONNECT_URL'),
+    file: (config) =>
+      config.connect?.baseUrl === undefined
+        ? undefined
+        : parseConnectBaseUrl(config.connect.baseUrl, 'connect.baseUrl'),
+    default: () => DEFAULT_CONNECT_BASE_URL,
+  },
+  connectProbeKeys: {
+    env: (env) =>
+      env.PODIUM_CONNECT_PROBE_KEYS === undefined
+        ? undefined
+        : parseProbeKeys(env.PODIUM_CONNECT_PROBE_KEYS.split(','), 'PODIUM_CONNECT_PROBE_KEYS'),
+    file: (config) =>
+      config.connect?.trustedProbeKeys === undefined
+        ? undefined
+        : parseProbeKeys(config.connect.trustedProbeKeys, 'connect.trustedProbeKeys'),
+    default: () => [],
+  },
+}
+
+export const DEFAULT_CONNECT_BASE_URL = 'https://connect.meetpodium.com'
+
+/** An https origin (http only on loopback, for a local worker), no path. */
+function parseConnectBaseUrl(raw: string, name: string): string {
+  let url: URL
+  try {
+    url = new URL(raw.trim())
+  } catch {
+    return envError(name, `expected an https origin, got ${JSON.stringify(raw)}`)
+  }
+  if (
+    url.protocol !== 'https:' &&
+    !(url.protocol === 'http:' && isLoopbackHostname(url.hostname))
+  ) {
+    return envError(name, `expected an https origin, got ${JSON.stringify(raw)}`)
+  }
+  if (url.pathname !== '/' || url.search || url.hash || url.username) {
+    return envError(name, `expected a bare origin, got ${JSON.stringify(raw)}`)
+  }
+  return url.origin
+}
+
+const WIRE_KEY_RE = /^ed25519:[A-Za-z0-9_-]{43}$/
+
+/** Wire-form keys (`ed25519:<base64url 32 bytes>`); blanks dropped, order kept. */
+function parseProbeKeys(raw: readonly string[], name: string): string[] {
+  const out: string[] = []
+  for (const entry of raw) {
+    const key = entry.trim()
+    if (!key) continue
+    if (!WIRE_KEY_RE.test(key)) {
+      envError(name, `expected ed25519:<base64url key>, got ${JSON.stringify(entry)}`)
+    }
+    if (!out.includes(key)) out.push(key)
+  }
+  return out
 }
 
 /**
@@ -1142,6 +1237,33 @@ export function resolveUpdateScope(
   env: EnvSource = process.env,
 ): UpdateScope {
   return resolveSetting('updateScope', config, env).value
+}
+
+/** Whether this server publishes its location to Podium Connect:
+ *  PODIUM_CONNECT → config.connect.enabled → true. */
+export function resolveConnectEnabled(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): boolean {
+  return resolveSetting('connectEnabled', config, env).value
+}
+
+/** The Connect origin: PODIUM_CONNECT_URL → config.connect.baseUrl →
+ *  https://connect.meetpodium.com. */
+export function resolveConnectBaseUrl(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string {
+  return resolveSetting('connectBaseUrl', config, env).value
+}
+
+/** Extra cloud probe keys `/.well-known/podium` answers, beyond the built-in
+ *  Podium Cloud key: PODIUM_CONNECT_PROBE_KEYS → config.connect.trustedProbeKeys → []. */
+export function resolveConnectProbeKeys(
+  config: PodiumConfig = loadConfig(),
+  env: EnvSource = process.env,
+): string[] {
+  return resolveSetting('connectProbeKeys', config, env).value
 }
 
 /**

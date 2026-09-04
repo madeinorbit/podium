@@ -42,6 +42,9 @@ applied by `apps/server`. Today that is `transcriptLake` — see below.
 | `PODIUM_ALLOWED_ORIGINS` | `allowedOrigins` | `[]` | `resolveAllowedOrigins()` |
 | `PODIUM_UPDATE_SCOPE` | `updateScope` | `all` | `resolveUpdateScope()` |
 | `PODIUM_TRANSCRIPT_LAKE` | `transcriptLake` | the Settings toggle, else `on` | `resolveTranscriptLake()` |
+| `PODIUM_CONNECT` | `connect.enabled` | `on` | `resolveConnectEnabled()` |
+| `PODIUM_CONNECT_URL` | `connect.baseUrl` | `https://connect.meetpodium.com` | `resolveConnectBaseUrl()` |
+| `PODIUM_CONNECT_PROBE_KEYS` | `connect.trustedProbeKeys` | `[]` | `resolveConnectProbeKeys()` |
 
 Every one is optional. With none set, an install behaves exactly as it did
 before any of them existed.
@@ -141,6 +144,28 @@ either layer, the toggle renders locked **at the value the deployment chose**,
 naming the layer: a disabled control that is also wrong would be worse than no
 control at all.
 
+### `PODIUM_CONNECT`, `PODIUM_CONNECT_URL`, `PODIUM_CONNECT_PROBE_KEYS`
+
+Podium Connect is the small service at `connect.meetpodium.com` that lets a client
+find where this installation is reachable **today** — the URL a quick tunnel handed
+out this morning, or the new server after a transfer — and that checks, from the
+public internet, whether the public URL you typed actually works.
+
+`PODIUM_CONNECT` is `on` (default) or `off`. While on, a server with a public URL
+registers its installation id and public key once, then publishes its public URL on
+start, whenever that URL changes, after a transfer, and daily. Nothing is sent before
+a public URL exists, and nothing identifying beyond the id and the URL is ever sent.
+`off` clears the published record and stops. Every request is signed with the key in
+`<stateDir>/installation.json`, which moves with the installation on a server transfer.
+
+`PODIUM_CONNECT_URL` points the server at another Connect — a development stage on
+`workers.dev`, or a local worker on `http://localhost`. It must be a bare origin.
+
+`PODIUM_CONNECT_PROBE_KEYS` is a comma-separated list of extra `ed25519:` keys whose
+signed reachability probes `GET /.well-known/podium` will answer, beyond the built-in
+Podium Cloud key. A probe by any other key gets a 404, so the installation key never
+signs for a stranger.
+
 ## `uiUrl` — the client-side mirror of `appUrl`
 
 `appUrl` is what a **server** advertises. `uiUrl` is what a **joined machine or
@@ -221,6 +246,7 @@ PODIUM_ALLOWED_ORIGINS=https://app.example.com
 PODIUM_UPDATE_SCOPE=fleet-only    # CI deploys the server
 PODIUM_UPDATE_CHANNEL=stable      # locks the fleet default
 PODIUM_TRANSCRIPT_LAKE=off
+PODIUM_CONNECT=off
 PODIUM_TELEMETRY=off
 ```
 

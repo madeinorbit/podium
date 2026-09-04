@@ -20,6 +20,9 @@ export type ForcedSettingKey =
   | 'allowedOrigins'
   | 'updateScope'
   | 'transcriptLake'
+  | 'connectEnabled'
+  | 'connectBaseUrl'
+  | 'connectProbeKeys'
 
 /**
  * A DISCRIMINATED UNION, so `env` is a string exactly where it is meaningful:
