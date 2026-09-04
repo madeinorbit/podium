@@ -1558,3 +1558,34 @@ WHAT GENUINELY CHANGES, and it is accepted rather than papered over: a caller th
 commit"). The rollback it actually tests still works; only the message moved. A conversion commit may
 not modify an assertion, so the COORDINATOR updates that one to assert on the cause — it is a real and
 accepted behaviour change at the boundary, not a wave's bookkeeping.
+
+### Rule 39 — a conversion may not WIDEN a projection; count the columns, do not spread them
+
+[POD-3396, 2026-09-04, found by running rule 36's print rather than by reading. No test could have
+caught it. Every wave that used a `getTableColumns` spread for an AD-HOC select has the same exposure.]
+
+Spreading `getTableColumns(table)` into a select is exact for a MAPPER shape, because a hand-written
+mapper select names exactly its table's columns — POD-3396 proved that for five of its shapes by
+derivation, 25/25, 16/16, 15/15, 11/11, 12/12. It is NOT exact for an ad-hoc projection that named a
+subset. Two of POD-3396's did:
+
+    manifest authority read   named 19 of 25 columns   spread read 25   -> 6 extra
+    member read               named 10 of 12 columns   spread read 12   -> 2 extra
+
+WHY NO TEST CATCHES IT. Both readers build an explicit object from named fields, so the extra columns
+are read, returned, and ignored. Nothing observable changes. The row count is right, the values are
+right, every assertion passes.
+
+WHY IT IS NOT HARMLESS. This is the epic's own criterion: on a remote driver those are bytes over a
+network, on every row of every call. It is also simply not the literal conversion the method asks for
+— §5.1 says behaviour-preserving, and reading six columns nobody asked for is a change made silently
+under cover of a mechanical pass.
+
+THE RULE. Before spreading `getTableColumns`, COUNT the columns the original statement named and
+compare with the table's column count. Equal — spread, and state the derivation (n/n) in your handoff,
+as POD-3396 did. Unequal — name the columns explicitly, column by column, and verify by PRINTING the
+emitted SQL rather than by reading the builder.
+
+This is the second thing on one file that printing found and reading could not, which is rule 36's
+argument arriving from a different direction: `toSQL()` is not only for the qualifier bug. Print any
+projection a conversion touched.
