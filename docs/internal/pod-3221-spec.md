@@ -1589,3 +1589,36 @@ emitted SQL rather than by reading the builder.
 This is the second thing on one file that printing found and reading could not, which is rule 36's
 argument arriving from a different direction: `toSQL()` is not only for the qualifier bug. Print any
 projection a conversion touched.
+
+### Rule 40 — never `reset --hard` the integration branch; trial-merge in a detached worktree
+
+[Coordinator error, 2026-09-04. Caught and absorbed by POD-3398, which is the only reason it cost one
+wave an hour instead of several waves a day.]
+
+WHAT I DID. I merged POD-3393 onto the integration branch to evaluate it, found the merge textually
+clean and semantically wrong, and backed it out with `git reset --hard HEAD^`. I reasoned that this
+was safe because the merge had never been PUSHED.
+
+WHY THAT REASONING IS WRONG, and it is the part worth keeping. Every wave's worktree on this machine
+shares ONE object store and ONE set of refs with the coordinator's. The moment I committed the merge,
+`issue/3221-…` pointed at it for every session simultaneously — no push required. POD-3398 rebased onto
+it in that window. When I reset, four commits vanished from under a branch that had already replayed
+onto them. Push has nothing to do with visibility here; local IS shared.
+
+HOW IT SURFACED, which is the dangerous part: POD-3398's branch went red with EIGHT typecheck errors in
+`store.ts`, every one on ANOTHER WAVE's constructor lines and none on its own. The obvious way to make
+your branch green in that situation is to "fix" the other wave's lines — the exact cross-wave edit rule
+29 exists to forbid. It reported instead, which is the right move and the only one that keeps this
+recoverable.
+
+THE RULE.
+- To EVALUATE a merge, do it in a detached scratch worktree: `git worktree add --detach <path> <tip>`,
+  merge there, run the gates, throw it away. The shared branch never moves.
+- To UNDO something already on the shared branch, `git revert`. It moves the branch FORWARD, so a
+  worktree that rebased onto the old tip still has a valid base.
+- `reset --hard` on a branch other sessions rebase onto is a history rewrite for all of them,
+  regardless of push state.
+
+FOR WAVES, the general form: if your branch goes red on lines you did not write, do not fix them.
+Check whether your base moved (`git log <tip>..HEAD` should be your commits and nothing else) and mail
+the coordinator. A red on someone else's line is a base problem, not a code problem.
