@@ -173,6 +173,31 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
 
+A MECHANICAL PASS MUST BE IDEMPOTENT, AND A CLEAN MERGE OF ONE IS THE DANGEROUS CASE (POD-3262,
+2026-09-04). Two corrections from the regeneration, both from the worker, both against my own rules.
+
+IDEMPOTENCE IS THE ORACLE. Re-running the pass over its own output must be a no-op, so any diff is a
+finding. POD-3262 found a real defect that way, in a version I had already verified and would have
+landed: two awaits can begin at the SAME character — a helper call needing `(await ...)` because it
+is a receiver, and a store call needing `await ...` — and applied in the wrong order the statement
+await lands inside the parentheses, awaiting the helper twice and leaving the store call un-awaited.
+Typecheck-clean, lane-green, and INVISIBLE to a normalization check, because stripping await and
+async makes both forms identical. B1's codemod must carry the property outright.
+
+When reproducing an idempotence check, confirm the tool is actually looking: my first attempt passed
+a pass name from a stale header comment, did nothing, reported zero, and read like confirmation. Move
+the quantity — remove one await and watch the count change by one — before believing a zero.
+
+A CLEAN MERGE OF A MECHANICAL PASS IS MORE DANGEROUS THAN A CONFLICTING ONE. The rule above says the
+loser regenerates when a generated pass CONFLICTS. That is too narrow. POD-3336 added a store call
+inside a helper in the one file where its diff overlapped this pass, and `git merge-tree` reports
+that merge CLEAN — the result would have carried an un-awaited store call in a file the pass had
+already finished, breaking the exact invariant the commit exists to establish, with nothing asking
+anyone to look. So: a broad mechanical pass regenerates against the tip whether or not it conflicts,
+and the tip should be STILL while it lands. The two costs are asymmetric — regenerating was 25
+minutes, verifying was 90 — and a pass that must be re-verified faster than it can be verified never
+lands at all.
+
 A DECISION MARKER MUST NAME AN OPEN ISSUE (R1 finding, 2026-09-04). The rule was "every marker must
 have a filed issue", and it was satisfied in letter and void in substance. POD-3325 answered the half
 of its site that had no semantic question and ESCALATED the other half to R3; it was then closed as
