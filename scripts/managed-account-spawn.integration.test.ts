@@ -293,8 +293,8 @@ describe('managed account -> real spawned process env (#216)', () => {
   it('an oauth credential rides the same path as CLAUDE_CODE_OAUTH_TOKEN', async () => {
     const db = openAccountsDatabase()
     const queries = createBunStoreExecutor({ database: db }).syncQueries
-  if (!queries) throw new Error('the probe database is not bun-backed')
-  const accounts = new AccountsRepository(queries)
+    if (!queries) throw new Error('the probe database is not bun-backed')
+    const accounts = new AccountsRepository(queries)
     accounts.upsert({
       id: asAccountId('managed:claude-oauth'),
       provider: 'anthropic',
