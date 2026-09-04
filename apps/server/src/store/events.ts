@@ -126,12 +126,16 @@ export class EventsRepository {
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
 
-  /** The drizzle half of the query capability. `activateJanitorSteward` uses the
-   *  other half — one read-decide-write that must not be separable by a crash. */
+  /** The query layer. `SyncQueries` is wiring and is named in the constructor
+   *  and nowhere else (spec rule 34), so a call site reads as a query. */
   private readonly db: SyncDrizzle
+  /** The transaction port. `activateJanitorSteward` is the one read-decide-write
+   *  here that must not be separable by a crash. */
+  private readonly transact: SyncQueries['transact']
 
-  constructor(private readonly queries: SyncQueries) {
+  constructor(queries: SyncQueries) {
     this.db = queries.db
+    this.transact = queries.transact
   }
 
   /** Install the post-append announcement. One listener: this is the feed's
@@ -609,7 +613,7 @@ export class EventsRepository {
    * cannot leave a new cursor without its ownership watermark (or vice versa).
    */
   activateJanitorSteward(): number | undefined {
-    return this.queries.transact(() => {
+    return this.transact(() => {
       const ownershipKey = 'janitor-ownership-v1'
       const owned = this.db
         .select({ present: sql<number>`1` })
