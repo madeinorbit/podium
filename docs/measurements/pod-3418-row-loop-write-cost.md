@@ -1,6 +1,17 @@
 # POD-3418 — What a row-by-row write loop costs after the drizzle conversion
 
-Measured 2026-09-04 on the epic's integration tip (`9d7925519`), bun 1.3.14, one box.
+Measured 2026-09-04 on the epic's integration tip (`9d7925519`), bun 1.3.14, on `flatblock`.
+
+**Box conditions.** `flatblock` is shared and has 8 cores. Every number below was taken at a
+one-minute load average of 2.6–3.0, with the long-running acceptance rigs and daemons up
+(`server-transfer/machine-supervisor`, three `cli.ts daemon --takeover`, the local server and
+daemon) and **no test suite running**. The earlier in-memory pass overlapped a window in which
+POD-3415 held `test:heavy`, so the box was busier for it; the on-disk pass below did not, and
+the two agree in ordering and magnitude. The headline comparison was repeated at 9 repetitions
+(medians within 4% of the 5-repetition pass) and every figure is reported as
+median [min–max] rather than a single number. **The HEAD and control distributions do not
+overlap**: HEAD's fastest 1663-row sweep (428 ms) is still six times the slowest control sample
+(68 ms). That is what makes this survive the box's noise; a 20% effect measured here would not.
 
 ## What was asked, and what the answer is
 
@@ -58,14 +69,14 @@ re-running the same harness, so every arm is the same call through the same seam
 - **drizzle `.prepare()`** — the same drizzle builder, with `sql.placeholder` values,
   `.prepare()`d once per site and `.run(values)` per row.
 
-On-disk WAL database (what self-hosted Podium actually runs), median of 5:
+On-disk WAL database (what self-hosted Podium actually runs), median of 9:
 
 | | n | HEAD | raw prepared | drizzle `.prepare()` |
 |---|---|---|---|---|
 | `conversations.upsert` (no-op rows) | 250 | **82.5 ms** | 3.9 ms | 4.1 ms |
-| `conversations.upsert` (no-op rows) | **1663** | **487.5 ms** | 12.8 ms | 15.9 ms |
+| `conversations.upsert` (no-op rows) | **1663** | **468.7 ms** [428–576] | 13.2 ms [6.6–17.2] | 15.2 ms [8.8–68.3] |
 | `sync.appendChanges` | 250 | **30.3 ms** | 8.7 ms | 8.9 ms |
-| `sync.appendChanges` | **1663** | **180.7 ms** | 50.0 ms | 54.0 ms |
+| `sync.appendChanges` | **1663** | **179.3 ms** [161–204] | 47.6 ms [39–55] | 54.8 ms [44–69] |
 
 In-memory database, median of 7, same ordering: `conversations.upsert` n=1663 is
 542.2 ms / 9.3 ms / 13.9 ms. **Disk does not hide it** — the cost is CPU, and a real
@@ -76,15 +87,14 @@ n=250), which is what says the harness is measuring the same thing they were.
 
 ### Per-row cost is not a constant
 
-The coordinator's minimal case gave ~0.06 ms per row. The real worst site is **~0.29 ms per
+The coordinator's minimal case gave ~0.06 ms per row. The real worst site is **~0.27 ms per
 row** — five times that. The difference is statement complexity: the conversation upsert's
 `setWhere` guard is an eleven-clause `sql` template with thirty-odd interpolated column
 references, and every row rebuilds and re-serialises all of it. **The overhead scales with
 how complicated the statement is**, so a microbenchmark on a simple upsert is a floor, not an
 estimate.
 
-At n=1663, **97% of the 488 ms is builder construction** (488 → 13 with the statement
-hoisted).
+At n=1663, **97% of the 469 ms is builder construction** (469 → 15 with the statement hoisted).
 
 ### The arms write the same thing
 
@@ -92,6 +102,12 @@ An equivalence oracle runs a scripted sequence through the real repository — i
 identical re-offer that the guard must skip, a changed field, a null-bearing row, a re-offer
 with nulls that must not erase, a parent link, a delete — and digests the table. All three
 arms are **identical**.
+
+**The harness was canaried too** (spec rule 44 — a check whose pass is silence proves nothing
+until its silence has been shown to break). Injecting 0.2 ms of busy CPU per row into the real
+upsert loop moved the on-disk n=250 figure from 82.5 ms to 136.5 ms — a 54 ms rise against the
+50 ms injected. The harness reports slow when the code is slow, so its fast readings are worth
+something.
 
 The oracle was **canaried**: dropping one `COALESCE` from the raw arm's SET list at first
 produced an identical digest, because every null-bearing re-offer in the original sequence
@@ -135,8 +151,8 @@ The brief's arithmetic holds for `appendChanges`: 253 statements × 3–5 ms is 
 Turso round trips, against which 28 ms of CPU is 2–4%. But two things do not follow.
 
 1. **At the conversations site the ratio is worse.** 1663 statements is 5–8 s of network
-   against 488 ms of CPU — 6–10%, not 2%.
-2. **Network time is awaited; builder time is not.** Those 488 ms are synchronous JavaScript.
+   against 469 ms of CPU — 6–10%, not 2%.
+2. **Network time is awaited; builder time is not.** Those 469 ms are synchronous JavaScript.
    They block the event loop, so on a shared server they are paid by *every* concurrent
    request, while the network wait costs the requester alone. This is not hypothetical at
    this exact site: POD-1931's comment in `conversations/index.ts` records 1650 of these
@@ -153,8 +169,8 @@ event loop.**
 **Do not accept it at the two worst sites; do accept it everywhere else.**
 
 - **Fix `conversations/index.ts` `upsert` and `sync-repository.ts`
-  `applyLatestChangeStates`** by hoisting a `.prepare()`d builder per site. Measured: 488 ms
-  → 16 ms and 181 ms → 54 ms, table contents identical under a canaried oracle. This needs no
+  `applyLatestChangeStates`** by hoisting a `.prepare()`d builder per site. Measured: 469 ms
+  → 15 ms and 179 ms → 55 ms, table contents identical under a canaried oracle. This needs no
   exemption, no raw handle and no second code path — it stays inside drizzle and inside the
   seam, so nothing about the epic's boundary rules changes. It is also within a few percent
   of the raw statement, so the "named exemption like POD-3404's" option buys nothing over it
@@ -176,3 +192,14 @@ event loop.**
 exercised here on two sites and its output digested against HEAD's, but it has not been run
 against the full suite, and B1's async flip changes what `.prepare()` returns. Whoever
 implements it owns that; this issue owns the measurement.
+
+**No test lane was run, and that is a gap, not an omission by design.** This is a measurement
+task that converts nothing, and the working tree was restored and `diff`-verified against
+`git show HEAD:` after every arm — so nothing needed a lane to protect it. But two attempts to
+run the focused conversation suites failed for environment reasons (`vitest` directly hits the
+node ESM loader on `bun:sqlite`; `scripts/test.ts` routes file arguments to turbo as task
+names), and rather than spend the heavy lease on fixing that, the arms were checked with the
+canaried equivalence oracle instead. `PODIUM_TEST_WORKERS` was therefore **not set, and no
+gate figure is claimed here**. The implementer of the `.prepare()` fix must run the focused
+lane; the oracle is evidence that the shape is equivalent on the paths it exercises, not that
+the suite is green.
