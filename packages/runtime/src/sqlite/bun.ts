@@ -96,6 +96,7 @@ function wrap(db: BunDb): SqlDatabase {
           return row === null ? undefined : row
         },
         all: (...p) => st.all(...p),
+        values: (...p) => (st as unknown as { values(...a: unknown[]): unknown[][] }).values(...p),
       }
     },
     exec: (sql) => db.exec(sql),

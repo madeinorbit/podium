@@ -75,6 +75,11 @@ export function attributeQueries(db: SqlDatabase, enabled: boolean = ENABLED): S
             () => st.all(...p),
             (rows) => rows.length,
           ),
+        values: (...p: SqlParam[]) =>
+          timed(
+            () => st.values(...p),
+            (rows) => rows.length,
+          ),
       }
     },
     exec: (sql) => db.exec(sql),

@@ -34,7 +34,7 @@
  * derives intent from the emitted SQL and fails where the two disagree.
  */
 
-import { bunSqliteClient, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 
 /** drizzle's own name for bun:sqlite's `Database`, taken off its signature rather
@@ -44,8 +44,44 @@ type DrizzleBunClient = Extract<Parameters<typeof drizzle>[0], { client: unknown
 /** The synchronous drizzle database Stage A repositories query through. */
 export type SyncDrizzle = ReturnType<typeof buildSyncDrizzle>
 
-function buildSyncDrizzle(client: DrizzleBunClient) {
-  return drizzle({ client })
+/**
+ * The client drizzle sees: OUR INSTRUMENTED WRAPPER, never the raw handle.
+ *
+ * POD-3395 measured why this matters. `bunSqliteClient()` returns the raw
+ * `bun:sqlite` Database out of the WeakMap, and BOTH query probes patch the
+ * SqlDatabase WRAPPER — `observeLegacyHandle` patches `holder.db.prepare` in
+ * place, `attributeQueries` returns a delegating wrapper. A drizzle instance
+ * built over the raw handle issues statements past both of them, so every
+ * converted repository becomes INVISIBLE to the query-count feeds. The hot-path
+ * gate's budget is "no increase", so counts falling toward zero as waves land
+ * read as an improvement and the gate cannot fail. Silent, and in the direction
+ * that looks like success.
+ *
+ * Drizzle's bun session calls exactly three things on a client — `exec`, `query`
+ * and `transaction` — so routing it through the wrapper costs one small adapter
+ * and leaves both probes working untouched.
+ *
+ * `transaction` REFUSES on purpose. Drizzle's own transaction keeps its own
+ * nesting state, while `SessionStore.transact` and this seam share the depth
+ * counter in `@podium/runtime/sqlite`; two registries over one connection
+ * corrupt each other, and drizzle would emit BEGIN inside an open span. Refusing
+ * here makes the wrong call impossible rather than merely discouraged.
+ */
+function clientOverWrapper(database: SqlDatabase): DrizzleBunClient {
+  return {
+    exec: (sql: string) => database.exec(sql),
+    query: (sql: string) => database.prepare(sql),
+    transaction: () => {
+      throw new Error(
+        'drizzle.transaction() is not available on the store seam: it keeps its own nesting ' +
+          'state and would BEGIN inside a span the store already opened. Use the injected span.',
+      )
+    },
+  } as unknown as DrizzleBunClient
+}
+
+function buildSyncDrizzle(database: SqlDatabase) {
+  return drizzle({ client: clientOverWrapper(database) })
 }
 
 /**
@@ -57,9 +93,8 @@ function buildSyncDrizzle(client: DrizzleBunClient) {
  * have not been converted yet. A repository that needs this asserts it at its own
  * constructor, so the failure names the repository rather than the store.
  */
-export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle | undefined {
-  const client = bunSqliteClient(database)
-  return client === undefined ? undefined : buildSyncDrizzle(client as DrizzleBunClient)
+export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle {
+  return buildSyncDrizzle(database)
 }
 
 /**
@@ -104,7 +139,6 @@ export interface SyncQueries {
 }
 
 /** The synchronous query capability over `database`, or undefined when it is not bun-backed. */
-export function syncQueriesOver(database: SqlDatabase): SyncQueries | undefined {
-  const db = syncDrizzleOver(database)
-  return db === undefined ? undefined : { db, transact: (fn) => transaction(database, fn) }
+export function syncQueriesOver(database: SqlDatabase): SyncQueries {
+  return { db: syncDrizzleOver(database), transact: (fn) => transaction(database, fn) }
 }

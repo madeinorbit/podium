@@ -103,6 +103,15 @@ export function observeLegacyHandle(
           () => statement.all(...p),
           (rows) => rows.length,
         ),
+      // Counted as an `all`: drizzle's session reaches for `values` on the same
+      // statements it would otherwise read as rows, and a seam that omitted it
+      // would leave every converted repository invisible to this feed (POD-3395).
+      values: (...p: SqlParam[]) =>
+        timed(
+          'all',
+          () => statement.values(...p),
+          (rows) => rows.length,
+        ),
     }
   }
   handle.prepare = patched

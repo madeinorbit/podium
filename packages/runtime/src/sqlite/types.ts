@@ -19,6 +19,14 @@ export interface SqlStatement {
   /** First matching row, or `undefined` when there is none. */
   get(...params: SqlParam[]): unknown
   all(...params: SqlParam[]): unknown[]
+  /**
+   * Rows as positional arrays rather than objects. Present because drizzle's
+   * session reaches for it; every shim must offer it so that a drizzle instance
+   * can be built over the INSTRUMENTED wrapper rather than over a raw handle
+   * (POD-3395: a statement issued past the wrapper is invisible to both query
+   * probes, and a count that falls to zero reads as an improvement).
+   */
+  values(...params: SqlParam[]): unknown[][]
 }
 
 export interface SqlDatabase {

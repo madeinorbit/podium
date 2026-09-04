@@ -27,6 +27,10 @@ function counting(db: SqlDatabase, counts: Map<string, number>): SqlDatabase {
           bump(sql)
           return statement.all(...params)
         },
+        values: (...params: SqlParam[]) => {
+          bump(sql)
+          return statement.values(...params)
+        },
       }
     },
     exec: (sql) => db.exec(sql),
