@@ -18,6 +18,7 @@
  */
 
 import { type Client, createClient } from '@libsql/client/web'
+import { unprefixedTableUse } from './namespace'
 
 /** A live count of HTTP requests issued by one client. */
 export interface RoundTripCounter {
@@ -45,12 +46,57 @@ export function normalizeTursoUrl(url: string): string {
   return url.startsWith('turso://') ? `libsql://${url.slice('turso://'.length)}` : url
 }
 
+/**
+ * The namespace guard, run over the body of every outgoing request [POD-3358].
+ *
+ * THE PREFIX IS ENFORCED AT THE TRANSPORT BECAUSE THAT IS THE ONLY PLACE THAT
+ * SEES EVERY STATEMENT. The slice builds most of its SQL through drizzle, where
+ * the table object carries the namespace and a missed site is impossible — but
+ * not all of it: the proof script and the integration test issue raw statements
+ * that spell `changes` in a template string, and one of them keys a
+ * `sqlite_sequence` lookup on the literal 'changes'. Those are hand-written, so
+ * one of them can be forgotten, and a forgotten one silently rejoins the shared
+ * table that this whole change exists to get out of. Checking here means such a
+ * statement throws before it is sent rather than corrupting a neighbour's run.
+ *
+ * Skipped when the prefix is empty, which is the deliberate pre-fix arrangement
+ * the POD-3358 control run uses — there, bare names are the point.
+ */
+async function assertNamespaced(
+  prefix: string,
+  input: Parameters<typeof globalThis.fetch>[0],
+  init: Parameters<typeof globalThis.fetch>[1],
+): Promise<void> {
+  if (prefix === '') return
+  // THE STATEMENT IS IN THE `Request`, NOT IN `init.body`, and finding that out
+  // is the reason this function is async. `@libsql/client/web` builds a
+  // `Request` and passes it as the sole argument, so a guard that read
+  // `init.body` saw `undefined` on every call and passed everything — which is
+  // exactly how it behaved when first written, and why the mutation test that
+  // caught it is worth more than the guard itself.
+  const body =
+    input instanceof Request
+      ? await input.clone().text()
+      : typeof init?.body === 'string'
+        ? init.body
+        : undefined
+  if (body === undefined) return
+  const leaked = unprefixedTableUse(body)
+  if (leaked === undefined) return
+  throw new Error(
+    `spike statement names the unprefixed table \`${leaked}\` (namespace \`${prefix}\`). ` +
+      'Every table this slice touches must be spelled through the run prefix, or ' +
+      'concurrent runs share it again — see namespace.ts [POD-3358].',
+  )
+}
+
 /** Wrap `fetch` so every HTTP request the client makes increments a counter. */
-function countingFetch(): { fetch: typeof globalThis.fetch; counter: RoundTripCounter } {
+function countingFetch(prefix: string): { fetch: typeof globalThis.fetch; counter: RoundTripCounter } {
   let requests = 0
-  const wrapped: typeof globalThis.fetch = (input, init) => {
+  const wrapped: typeof globalThis.fetch = async (input, init) => {
+    await assertNamespaced(prefix, input, init)
     requests += 1
-    return globalThis.fetch(input, init)
+    return await globalThis.fetch(input, init)
   }
   return {
     fetch: wrapped,
@@ -77,8 +123,8 @@ export interface BackendConfig {
  * against one database and has to attribute requests to the writer that made
  * them, which a process-wide counter could not do.
  */
-export function createCountedClient(config: BackendConfig): CountedClient {
-  const { fetch, counter } = countingFetch()
+export function createCountedClient(config: BackendConfig, prefix = ''): CountedClient {
+  const { fetch, counter } = countingFetch(prefix)
   const client = createClient({
     url: normalizeTursoUrl(config.url),
     ...(config.authToken === undefined ? {} : { authToken: config.authToken }),
