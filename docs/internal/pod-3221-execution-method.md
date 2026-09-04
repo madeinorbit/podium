@@ -173,6 +173,18 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
 
+AN UNHANDLED REJECTION IS ATTRIBUTED BY ITS OWN STACK, NEVER BY THE TEST VITEST NAMES (POD-3386,
+2026-09-04). Vitest's "the last test to run before this error" is not an attribution, it is a
+TIMESTAMP: for a detached continuation it names whichever test happened to be running when the throw
+landed. That heuristic has now produced two wrong causes on this epic — POD-3368 followed it into a
+neighbouring test's frame for cause 14, and POD-3380 concluded a rejection was the blocking send
+outliving a killed test when POD-3386 showed it present BYTE FOR BYTE in both arms.
+
+RULE: attribute a rejection by its own stack, and if you believe a change removes one, the before and
+after arms must show it LEAVING. A green failing-test-NAME delta does not establish it, because a
+rejection is not a named test failure — state its presence separately. POD-3386's byte-identical
+both-arms evidence is what turned a closed note into POD-3390.
+
 THE STASH IS SHARED, AND THE DANGER IS THE WINDOW RATHER THAN THE ADDRESSING (POD-3386, 2026-09-04).
 Every worktree of this repo shares one stash stack, typically fifteen to twenty entries deep and
 mostly other sessions'. POD-3386's control arm ran a bare `git stash pop` and took POD-3387's
