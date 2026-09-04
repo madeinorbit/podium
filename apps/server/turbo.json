@@ -865,6 +865,7 @@
         "src/modules/issues/service/composition.test.ts",
         "src/modules/issues/service/core.ts",
         "src/modules/issues/service/crud.ts",
+        "src/modules/issues/service/hard-delete-fold.test.ts",
         "src/modules/issues/service/hierarchy.ts",
         "src/modules/issues/service/index.ts",
         "src/modules/issues/service/integration.ts",

@@ -290,8 +290,13 @@ export class IssueStore {
   /** Write straight through to the committed map. */
   private applyRow(id: string, row: IssueRow | null): void {
     const committed = this.requireHydrated().rows
-    if (row === null) committed.delete(id)
-    else committed.set(id, row)
+    if (row === null) {
+      committed.delete(id)
+      // A purged issue's memo would otherwise outlive its row. `hydrate` used to
+      // prune these by dropping the whole map [POD-723]; a targeted removal has
+      // to say so.
+      this.wireCache.delete(id)
+    } else committed.set(id, row)
   }
 
   /**
