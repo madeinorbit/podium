@@ -43,25 +43,44 @@ coordinator.
 The wave-6 sites, so a rule can be applied to them: `issues.ts` 393, 411, 415 and the writes at
 278, 286, 289; `events.ts` 48, 49, 51 and the writes at 528, 529, 531, 556.
 
-### F2 — `INSERT OR IGNORE` is wider than `onConflictDoNothing()`
+### F2 — `INSERT OR IGNORE` is wider than `onConflictDoNothing()` — CORRECTED, and the three sites are equivalent
 
-Four sites use `INSERT OR IGNORE`:
+Three sites used `INSERT OR IGNORE`: `events.ts` `markDelivered` on
+`subscription_deliveries`, and `issues.ts` `setIssueLabels` on `issue_labels` and `addIssueDep` on
+`issue_deps`.
 
-    events.ts:580   subscription_deliveries   (subscription_id, event_id)
-    issues.ts:839   issue_labels              (issue_id, label)
-    issues.ts:879   issue_deps                (from_id, to_id, type)
+**WHAT I FIRST WROTE HERE WAS WRONG, and the error is worth keeping visible.** I claimed `OR IGNORE`
+suppresses every constraint violation *including the foreign key* onto `issues(id)`, and that
+`onConflictDoNothing()` would let that foreign key throw. That is not what SQLite does: the
+ON CONFLICT algorithm does not apply to foreign keys at all, so **neither** form suppresses one. I
+reasoned it from the documentation's phrase "every constraint" instead of measuring it, and the
+coordinator's own measurement (spec rule 31) is what corrected it.
 
-`OR IGNORE` suppresses EVERY constraint violation on the statement, including the FOREIGN KEY onto
-`issues` that all three of these carry. drizzle's `.onConflictDoNothing()` emits
-`ON CONFLICT DO NOTHING`, which suppresses only a uniqueness conflict and lets the foreign-key
-violation throw.
+Measured here on the SHIPPED tables, `PRAGMA` against a migrated database rather than a read of
+`schema.ts`:
 
-Which behaviour is wanted is a decision, not a mechanical choice, and it cuts both ways: today
-`addIssueDep` on a non-existent issue silently does nothing, and after a literal conversion it
-would throw. `markDelivered` is the sharp one, because its RETURN VALUE is the steward's
-exactly-once guard — it returns `changes > 0`, so under `OR IGNORE` a delivery against a pruned
-event returns false (not delivered, no error) and under `DO NOTHING` it raises. Raised with the
-coordinator rather than decided here.
+    OR IGNORE + FOREIGN KEY violation   -> THREW: FOREIGN KEY constraint failed
+    plain     + FOREIGN KEY violation   -> THREW: FOREIGN KEY constraint failed
+    OR IGNORE + PRIMARY KEY conflict    -> suppressed
+    OR IGNORE + NOT NULL violation      -> suppressed
+
+**So the real test is rule 31's**: the two forms are equivalent at a site if and only if no `NOT NULL`
+and no `CHECK` violation is reachable there. All three of my sites pass it, so all three are plain
+conversions and carry no marker.
+
+| Table | CHECK | Foreign keys | NOT NULL columns | Reachable NOT NULL violation |
+| --- | --- | --- | --- | --- |
+| `subscription_deliveries` | none | none | `subscription_id`, `event_id` | No — `steward.ts` passes a subscription id and an event id, both non-nullable |
+| `issue_labels` | none | `issue_id -> issues(id)` CASCADE | `issue_id`, `label` | No — `issueId` is required and `setIssueLabels` filters `clean` to non-empty strings before inserting |
+| `issue_deps` | none | `from_id`, `to_id` -> `issues(id)` CASCADE | `from_id`, `to_id`, `type` | No — both ids required; `type` has a parameter default AND a column default of `'blocks'`, so an omitted value takes the same value either way |
+
+The `markDelivered` return value (`changes > 0`, the steward's exactly-once guard) therefore keeps
+its exact meaning: the primary-key conflict is the only thing `OR IGNORE` was suppressing there.
+
+ONE EDGE WORTH STATING, because it is a real difference between the forms and not this one: under
+drizzle an `undefined` field is OMITTED from the INSERT rather than bound as NULL, so a column with
+no default would take a NOT NULL violation where the raw form threw at bind time. That is the
+mechanism the enumeration above rules out, column by column, rather than a hazard I am waving away.
 
 `INSERT OR REPLACE` appears once, at `events.ts:480` on `steward_state`. That table is
 `(key PRIMARY KEY, value NOT NULL)` and nothing else, so the checklist's "name every column"

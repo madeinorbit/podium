@@ -684,14 +684,15 @@ export class EventsRepository {
    *  NEWLY inserted — a replay (or a same-poll double-match) returns false so the
    *  steward delivers exactly once. */
   markDelivered(subscriptionId: string, eventId: number): boolean {
-    // DECISION POD-3403 — `INSERT OR IGNORE` before the conversion. Marked
-    // because the RETURN VALUE is the steward's exactly-once guard and the
-    // coordinator is deciding that separately, not because the two spellings
-    // differ here: `subscription_deliveries` is `PRIMARY KEY (subscription_id,
-    // event_id)` with no foreign key in the baseline migration or in schema.ts,
-    // so the primary-key conflict is the only thing OR IGNORE could suppress and
-    // this conversion is exact. Left converted for the same reason as the two
-    // sites in issues.ts: leaving it raw would keep the file on the ledger.
+    // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here (spec rule
+    // 31), which matters because this RETURN VALUE is the steward's
+    // exactly-once guard. The forms differ only on NOT NULL and CHECK:
+    // `subscription_deliveries` is `(subscription_id TEXT NOT NULL, event_id
+    // INTEGER NOT NULL, PRIMARY KEY (subscription_id, event_id))` with no CHECK
+    // and no foreign key, and its one production caller (`steward.ts`) passes a
+    // subscription id and an event id that are both non-nullable. So the
+    // primary-key conflict is the only thing OR IGNORE could have suppressed,
+    // and `changes > 0` keeps meaning exactly what it meant.
     const r = this.db
       .insert(subscriptionDeliveries)
       .values({ subscriptionId, eventId })

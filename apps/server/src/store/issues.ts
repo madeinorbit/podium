@@ -944,14 +944,12 @@ export class IssuesRepository {
     )
     this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
     for (const l of clean) {
-      // DECISION POD-3403 — `INSERT OR IGNORE` before the conversion. OR IGNORE
-      // suppressed EVERY constraint violation including the foreign key onto
-      // issues(id); ON CONFLICT DO NOTHING suppresses only the (issue_id, label)
-      // conflict and lets the foreign key raise. The ruling is to leave such a
-      // site unconverted, and that is not executable here: leaving it means
-      // keeping `.prepare()`, which means keeping the raw handle, which keeps
-      // this file on STAGE_A_UNCONVERTED. Converted literally and marked instead;
-      // the difference is visible only for a label naming a missing issue.
+      // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here (spec
+      // rule 31). The two forms differ only where OR IGNORE suppresses
+      // something DO NOTHING does not, which is NOT NULL and CHECK — a foreign
+      // key is suppressed by neither, measured on the shipped table. This one
+      // has no CHECK, and both NOT NULL columns come from non-nullable sources:
+      // `issueId` is required, and `clean` above admits only non-empty strings.
       this.db.insert(issueLabels).values({ issueId, label: l }).onConflictDoNothing().run()
     }
   }
@@ -995,8 +993,11 @@ export class IssuesRepository {
   // ---- deps ----
 
   addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): void {
-    // DECISION POD-3403 — see setIssueLabels: `INSERT OR IGNORE` also swallowed
-    // the foreign key onto issues(id), and ON CONFLICT DO NOTHING does not.
+    // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here for the
+    // reason setIssueLabels states (spec rule 31). No CHECK on `issue_deps`, and
+    // all three NOT NULL columns are non-nullable at every caller: `fromId` and
+    // `toId` are required, and `type` has both a parameter default and a column
+    // default of 'blocks', so an omitted value takes the same value either way.
     this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
   }
 
