@@ -159,6 +159,47 @@ describe('SessionStore event log', () => {
         .map((row) => row.payload),
     ).toEqual([{ count: 2 }, { count: 5 }, { count: 3 }])
   })
+
+  /**
+   * POD-3363. This per-subject read is the ONLY thing that serves the Flight
+   * Deck waterfall, and two of its properties are what bound the POD-3331
+   * double-write residue: it is scoped to ONE kind (so rows the pre-fix
+   * recorder left under `session.phase` are simply not part of the answer) and
+   * it reaches past `since` for at most ONE row (so a row stops being
+   * reachable one window after it was written, bar that single carried-in
+   * edge). Both are asserted here against the real SQL rather than a fake,
+   * because the bound is the reason those rows are left alone.
+   */
+  it('scopes the per-subject window to one kind and carries in at most one prior row', async () => {
+    const store = await openTestStore(':memory:')
+    const since = '2026-08-31T12:00:00.000Z'
+    for (const row of [
+      // Two candidates for the carried-in slot — only the newest may come back.
+      { ts: '2026-08-29T09:00:00.000Z', kind: 'session.phase_sample' },
+      { ts: '2026-08-30T09:00:00.000Z', kind: 'session.phase_sample' },
+      // Residue: the pre-fix recorder's sample, in window, under the old kind.
+      { ts: '2026-08-31T13:00:00.000Z', kind: 'session.phase' },
+      { ts: '2026-08-31T14:00:00.000Z', kind: 'session.phase_sample' },
+    ]) {
+      await store.events.appendEvent({ ...row, subject: 's1', payload: { phase: 'idle' } })
+    }
+    // Same kind, same window, a different session — must not leak in.
+    await store.events.appendEvent({
+      ts: '2026-08-31T13:30:00.000Z',
+      kind: 'session.phase_sample',
+      subject: 's2',
+      payload: { phase: 'working' },
+    })
+
+    expect(
+      (await store.events.listKindSubjectSinceWithPrior('session.phase_sample', 's1', since)).map(
+        (row) => `${row.ts} ${row.kind} ${row.subject}`,
+      ),
+    ).toEqual([
+      '2026-08-30T09:00:00.000Z session.phase_sample s1',
+      '2026-08-31T14:00:00.000Z session.phase_sample s1',
+    ])
+  })
 })
 
 describe('SessionStore event log retention', () => {

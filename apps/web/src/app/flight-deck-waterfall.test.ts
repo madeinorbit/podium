@@ -188,6 +188,24 @@ describe('waterfall viewport', () => {
     expect(flung.end).toBeLessThanOrEqual(NOW + (viewport.end - viewport.start) * 0.6)
   })
 
+  /**
+   * POD-3363. The backward reach is a hard floor, not just the default fit: no
+   * pan and no zoom can bring anything older than the window plus its margin
+   * into the frame. That floor is what puts an expiry on how long a stale row
+   * in the event log can matter to this panel.
+   */
+  it('cannot be flown further back than the window and its margin', () => {
+    const floor = NOW - WATERFALL_MAX_WINDOW_MS * 1.05
+    const viewport = { start: NOW - 60 * 60_000, end: NOW }
+    const month = 30 * 24 * 60 * 60_000
+
+    expect(panWaterfallViewport(viewport, -month, NOW).start).toBe(floor)
+    // Zooming all the way out and then flying back cannot get past it either.
+    const widest = zoomWaterfallViewport(viewport, 1_000, 0, NOW)
+    expect(widest.start).toBeGreaterThanOrEqual(floor)
+    expect(panWaterfallViewport(widest, -month, NOW).start).toBe(floor)
+  })
+
   it('projects bars through the viewport and reports clipping honestly', () => {
     const viewport = { start: NOW - 60 * 60_000, end: NOW }
     const inside = waterfallBarGeometry(NOW - 30 * 60_000, NOW - 15 * 60_000, viewport)
