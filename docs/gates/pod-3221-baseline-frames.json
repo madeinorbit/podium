@@ -1,0 +1,22 @@
+{
+  "suite": "frames",
+  "at": "2026-09-04T08:52:20.590Z",
+  "scale": {
+    "sessions": 50,
+    "issues": 30
+  },
+  "metrics": {
+    "bootReconcile.framesPerBurst": {
+      "value": 1,
+      "control": 60,
+      "controlOf": "entity changes the boot reconcile published",
+      "unit": "frames-per-burst"
+    },
+    "bindStorm.framesPerBurst": {
+      "value": 2,
+      "control": 50,
+      "controlOf": "entity changes the bind storm published",
+      "unit": "frames-per-burst"
+    }
+  }
+}

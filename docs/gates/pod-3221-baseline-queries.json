@@ -1,0 +1,49 @@
+{
+  "suite": "queries",
+  "at": "2026-09-04T08:51:55.849Z",
+  "scale": {
+    "sessions": 50,
+    "issues": 30
+  },
+  "metrics": {
+    "feedBootstrap.queriesPerRequest": {
+      "value": 44,
+      "control": 1,
+      "controlOf": "feedBootstrap frames the served connection received",
+      "unit": "queries-per-request"
+    },
+    "issueFrameReads.queriesPerRequest": {
+      "value": 253,
+      "control": 80,
+      "controlOf": "issue rows the frame actually resolved",
+      "unit": "queries-per-request"
+    }
+  },
+  "breakdown": {
+    "feedBootstrap.queriesPerRequest": {
+      "SELECT id, name, hostname, created_at, last_seen_at, inventory_json, owner_user_id, app_version, wire_schema_digest, install_kind, delivery_caps_json, supervised, build_reported_at, podium_managed, update_channel_override, components_json FROM machines WHERE id = ?": 27,
+      "SELECT * FROM grants WHERE resource_kind = ? AND resource_id = ? ORDER BY created_at ASC": 9,
+      "SELECT * FROM approval_requests WHERE status = 'pending' ORDER BY created_at": 1,
+      "SELECT seq, entity, entity_id, payload FROM change_latest ORDER BY seq": 1,
+      "SELECT seq FROM sqlite_sequence WHERE name = 'changes'": 1,
+      "SELECT * FROM issues WHERE id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)": 1,
+      "SELECT id, owner_user_id, agent_kind, model, effort, requested_model, requested_effort, account_id, login_harness, cwd, title, name, name_source, origin_kind, conversation_id,\n                resume_kind,\n                resume_value, selected_driver_id, requested_driver_id, conversation_binding, status, exit_code, spawn_failure, durable_label, created_at, last_active_at,\n                terminal_cols, terminal_rows, working_ms_total, input_count, output_count, activity_count,\n                archived, work_state, machine_id, last_output_at, last_input_at, last_resumed_at,\n                spawned_by, headless, issue_id, stopped_at, stop_reason, oom_killed_at, deleted_at, deletion_source,\n                deleted_by_issue_id, workflow_run_id, workflow_step_id, execution_profile_id,\n                ref_issue_id, ref_letter, ref_draft,\n                created_by_actor_kind, created_by_actor_id, created_by_on_behalf_of\n         FROM sessions WHERE id IN (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ORDER BY created_at ASC, rowid ASC": 1,
+      "SELECT feed_id, epoch FROM feed_identity WHERE singleton = 1": 1,
+      "INSERT INTO feed_identity (singleton, feed_id, epoch, minted_at) VALUES (1, ?, ?, ?) ON CONFLICT(singleton) DO UPDATE SET feed_id = excluded.feed_id, epoch = excluded.epoch, minted_at = excluded.minted_at": 1,
+      "SELECT MIN(seq) AS seq FROM changes": 1
+    },
+    "issueFrameReads.queriesPerRequest": {
+      "SELECT issue_id, COUNT(*) AS n FROM issue_comments GROUP BY issue_id": 1,
+      "SELECT issue_id, label FROM issue_labels ORDER BY issue_id ASC, label ASC": 1,
+      "SELECT from_id, to_id, type FROM issue_deps ORDER BY from_id ASC, to_id ASC, type ASC": 1,
+      "SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC": 50,
+      "SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC": 100,
+      "SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC": 50,
+      "SELECT COUNT(*) AS n FROM issue_comments WHERE issue_id = ?": 50
+    }
+  },
+  "observations": {
+    "distinctStatementTexts": 17,
+    "rssBytesAfterBootstrap": 219910144
+  }
+}
