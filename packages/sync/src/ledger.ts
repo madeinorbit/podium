@@ -256,6 +256,41 @@ export class Ledger {
    * appended wire rows (empty if fully deduped). A throw from `write`, `changes`,
    * or the append rolls everything back and leaves the baseline untouched.
    *
+   * `apply(result)` is where a caller's own PROJECTION INSTALL goes — the map
+   * write, the cache bump, the "this is now the committed state" assignment
+   * that used to sit on the statement after this call returned [POD-3366]. It
+   * runs as a commit application (spec §3.3 mechanism 1) of the OUTERMOST
+   * commit: registered through {@link LedgerDeps.applyCommit} when a span is
+   * open, run inline when none is.
+   *
+   * WHY THE ARM EXISTS AT ALL, AND WHY THE STATEMENT AFTER THE CALL IS WRONG.
+   * This method runs its body inside `transact()`, and when the caller already
+   * has a span open that `transact` is a SAVEPOINT. A savepoint release is not
+   * a commit: the enclosing span can still roll back and take these rows with
+   * it. So the statement after `commit()` returns runs on the success path of
+   * something that has not necessarily succeeded, and an install placed there
+   * records a fact the database may throw away. Thirteen of twenty-two audited
+   * call sites did exactly that (POD-3328, POD-3361, and the audit attached to
+   * POD-3361). The arm is how the caller says "after it is durable" without
+   * having to know whether it is nested — which it cannot see.
+   *
+   * IT CANNOT LIVE IN `Authority.finalize`, where the baseline fold lives, and
+   * that is not an accident of layering: `finalize` returns early when every
+   * declared change deduped away, and a fully-deduped commit still made the
+   * durable write whose install the caller owes. So the arm hangs off the
+   * COMMIT, not off the appended rows.
+   *
+   * ORDER. With a span open the baseline fold registers first (inside
+   * `authority.commit`) and this registers second, so the ledger's own baseline
+   * is folded before the caller's projection reads it — the same order as the
+   * inline path, where `finalize` applies the fold before this line is reached.
+   *
+   * NO ABORT ARM, deliberately. A rollback is not reported; work that never
+   * became durable is dropped on the way IN, by whoever stages it, when it next
+   * finds no span open. That is what makes the design hold under a crash and
+   * not merely under a caught exception, and an abort hook would put a
+   * must-not-forget obligation back where this arm just removed one.
+   *
    * The optional arbitration request is a compatibility bridge for production
    * feature writers that still consume this facade. The decision is delegated to
    * the SAME Authority instance; this class does not compare revisions itself.
@@ -263,6 +298,7 @@ export class Ledger {
   commit<T>(op: {
     write: () => T
     changes: (result: T) => EntityChangeSpec[]
+    apply?: (result: T) => void
     arbitrate?: AuthorityCommit<T>['arbitrate']
   }): {
     result: T
@@ -275,6 +311,18 @@ export class Ledger {
     })
     if (outcome.outcome !== 'committed') {
       throw new AuthorityArbitrationRejected(outcome.reason, outcome.detail)
+    }
+    if (op.apply) {
+      // Asked AFTER the commit, when `spanOpen()` answers about the CALLER's
+      // span rather than this commit's own — the same moment, and the same
+      // question, `Authority.finalize` asks of the baseline fold.
+      const apply = op.apply
+      const fold = this.deps.applyCommit
+      if (fold?.spanOpen()) {
+        fold.onCommit(() => apply(outcome.result), 'ledger-commit-application')
+      } else {
+        apply(outcome.result)
+      }
     }
     return { result: outcome.result, changes: outcome.changes.map(toWireChange) }
   }
