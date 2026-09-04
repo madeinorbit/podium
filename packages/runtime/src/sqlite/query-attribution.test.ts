@@ -23,6 +23,9 @@ function fakeDatabase(rowsPerAll = 3): SqlDatabase & { prepared: string[] } {
         run: () => ({ changes: 1, lastInsertRowid: 1 }),
         get: () => ({ id: 1 }),
         all: () => Array.from({ length: rowsPerAll }, (_, i) => ({ id: i })),
+        // `values` is what a drizzle BUILDER read decodes through [POD-3395]; a
+        // fake without it is a statement the probe can no longer observe.
+        values: () => Array.from({ length: rowsPerAll }, (_, i) => [i]),
       }
     },
     exec: () => {},
@@ -72,6 +75,9 @@ describe('attributeQueries', () => {
           throw new Error('constraint failed')
         },
         get: () => undefined,
+        values: () => {
+          throw new Error('constraint failed')
+        },
         all: () => [],
       }),
       exec: () => {},

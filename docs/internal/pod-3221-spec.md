@@ -1702,3 +1702,27 @@ the question is whether ANY converted read returns more columns than the stateme
 reported 16 bare `.select()` sites each replacing an original `SELECT *` (exact by construction) and 38
 explicit projections all n/n, widest 5/5. That is the shape of a complete answer: a checked negative
 with its denominator, not "the rule does not apply to me".
+
+### Rule 41 — the coordinator regenerates the shard manifest at LAND time, every time
+
+[POD-3392 found three of POD-3398's golden test files in no lane at all, at the tip, AFTER I had
+landed and closed that wave. 2026-09-04.]
+
+`apps/server/test-shards.json` is an explicit file list that `vitest.shard.ts` reads. A test file
+missing from it RUNS NOWHERE and the lane still reports green. POD-3398 added
+`store/{messages,sessions,workflows}-golden.test.ts` — 103 tests — and none of the three was in the
+manifest at the tip. Its own lane runs were real, and my landing verification was real because I named
+the three files explicitly, but in the LANES those 103 tests did not exist.
+
+THE RULE. Landing a wave includes `bun scripts/server-test-shards.ts --write`, in the landing commit,
+every time, whether or not the wave says it regenerated. NEVER hand-merge the manifest: a textual merge
+drops entries silently and a short shard cannot fail.
+
+WHY IT IS THE COORDINATOR'S AND NOT THE WAVE'S: the manifest is one shared generated file that every
+wave's branch touches, so it conflicts on every merge and each wave regenerates against a base that
+does not yet contain the other waves. Only the landing sees the union. A wave regenerating it is not
+wrong; it is just not sufficient, and this is exactly the case where a clean merge is not a correct one.
+
+VERIFY BY COUNTING, not by regenerating and assuming. After the write, grep the manifest for each test
+file the wave added and assert a non-zero count — the same discipline as rule 32's instruments, and for
+the same reason: absence is what a broken manifest looks like.
