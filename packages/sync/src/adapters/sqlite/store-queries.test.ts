@@ -35,7 +35,8 @@ describe('the sync adapter query port', () => {
   })
 
   it('runs its statements inside a span the CALLER opened, as a savepoint', () => {
-    // The property the port's `transact` exists for: `SessionStore.transact`
+    // The property the port's `createOrJoinTransaction` exists for:
+    // `SessionStore.transact`
     // wraps an `appendChanges`, and the inner span must degrade to a savepoint
     // rather than open a second transaction on the same connection. Asserted by
     // ROLLING THE OUTER SPAN BACK — if the repository had opened a transaction of
@@ -45,7 +46,7 @@ describe('the sync adapter query port', () => {
     const repo = new SyncRepository(queries, testSyncServerTables)
 
     expect(() =>
-      queries.transact(() => {
+      queries.createOrJoinTransaction(() => {
         repo.appendChanges([{ entity: 'issue', entityId: 'i1', op: 'upsert', payload: '{}' }], 1)
         expect(repo.maxChangeSeq()).toBe(1)
         throw new Error("roll the caller's span back")

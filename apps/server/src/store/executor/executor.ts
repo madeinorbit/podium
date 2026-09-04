@@ -26,7 +26,7 @@
  * scope-bound.
  */
 
-import type { SyncQueries } from './sync-drizzle'
+import type { StoreQueries } from './sync-drizzle'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import {
   ALWAYS_ALIVE,
@@ -78,7 +78,7 @@ export interface StoreExecutor<TClient = QueryClient> {
    * B1 moves repositories from this pair to that one; the query bodies are the same
    * either way, which is what makes the existing suite the flip's oracle.
    */
-  readonly syncQueries: SyncQueries | undefined
+  readonly syncQueries: StoreQueries | undefined
   readonly context: StoreContext
   transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
   read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
@@ -120,7 +120,7 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
 
 export interface StoreExecutorOptions<TClient> {
   /** The synchronous query capability; see {@link StoreExecutor.syncQueries}. */
-  syncQueries?: SyncQueries
+  syncQueries?: StoreQueries
   driver: StoreDriver<TClient>
   /** The raw handle, for repositories not yet converted. Transitional. */
   legacy?: SqlDatabase

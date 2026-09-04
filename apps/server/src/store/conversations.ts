@@ -7,7 +7,7 @@ import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
 import { ConversationRegistryRepository } from './conversations/registry'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries } from './executor/sync-drizzle'
 
 export class ConversationsRepository {
   readonly index: ConversationIndexRepository
@@ -16,7 +16,7 @@ export class ConversationsRepository {
   readonly transcriptIndex: TranscriptIndexRepository
 
   constructor(
-    queries: SyncQueries,
+    queries: StoreQueries,
     /** This host's minted machine id — the machine a row this composition has to
      *  CONJURE belongs to (POD-318). See {@link ConversationIndexRepository.setMeta}. */
     hostMachineId: MachineId,

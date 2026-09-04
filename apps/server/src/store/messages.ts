@@ -42,7 +42,7 @@ import {
   messageWakeCooldowns,
   sessions as sessionsTable,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
 /** A message recipient principal: `issue`/`session` carry an id; `operator` has none. */
@@ -164,10 +164,16 @@ const boundedLimit = (limit: number | undefined, fallback: number, ceiling: numb
 export class MessagesRepository {
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * Only `db` is exposed: this aggregate opens no span of its own, so binding a
-   * `transact` here would be a member nothing reads.
+   * This aggregate opens no span today, but both members are retained so adding
+   * one later does not change constructor arity or the composition root.
    */
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
@@ -176,7 +182,7 @@ export class MessagesRepository {
    * B1 changes this one line rather than 39 fields.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
 
   addMessage(m: MessageRow): void {

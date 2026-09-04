@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { SyncServerTables } from './server-tables'
-import type { SyncDrizzle, SyncQueries } from './store-queries'
+import type { SyncDrizzle, StoreQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -100,21 +100,21 @@ export function createTestSyncRepository(): SyncRepository {
  * no probe, so it hands drizzle the same three-method shape over the wrapper
  * without the refusal stub.
  */
-export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): SyncQueries {
+export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): StoreQueries {
   const client = {
     exec: (statement: string) => db.exec(statement),
     query: (statement: string) => db.prepare(statement),
     transaction: () => {
       throw new Error(
         'the fixture drizzle instance has no transaction of its own: it keeps its own nesting ' +
-          'state and would open a span the store does not know about. Use `transact` ' +
+          'state and would open a span the store does not know about. Use `createOrJoinTransaction` ' +
           '(POD-3221 spec rule 7).',
       )
     },
   }
   return {
-    db: drizzle({ client: client as never }) as SyncDrizzle,
-    transact: createTestTransact(db),
+    rootDb: drizzle({ client: client as never }) as SyncDrizzle,
+    createOrJoinTransaction: createTestTransact(db),
   }
 }
 

@@ -283,7 +283,8 @@ export class SessionStore {
     /**
      * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
      * converted repository takes THIS OBJECT in the constructor slot its
-     * `SqlDatabase` occupied — `{ db, transact }` together, because they are one
+     * `SqlDatabase` occupied — `{ rootDb, createOrJoinTransaction }` together,
+     * because they are one
      * capability — so it carries no branch for a case its own constructor cannot
      * produce and no repository names the executor at all.
      *
@@ -325,7 +326,7 @@ export class SessionStore {
     this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
     // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it
     // takes the narrow port the PACKAGE declares and `this.queries` satisfies
-    // structurally — `SyncQueries`, the same inversion `syncServerTables` uses one
+    // structurally — `StoreQueries`, the same inversion `syncServerTables` uses one
     // line's worth of reasoning away (POD-3338, spec §6 rule 20). Converted at
     // POD-3416, so the argument is the same capability object every line above
     // and below passes; the seam's undefined-check is the one asserted above,

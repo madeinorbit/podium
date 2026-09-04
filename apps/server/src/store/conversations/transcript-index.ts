@@ -1,7 +1,7 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { conversationSegments } from '../../migrations/schema'
-import type { SyncQueries } from '../executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -18,7 +18,13 @@ export interface TranscriptSearchCandidate {
 /** Mirror-fed transcript FTS rows and their durable byte cursors. */
 export class TranscriptIndexRepository {
   private available = false
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b], and
@@ -27,18 +33,9 @@ export class TranscriptIndexRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncQueries['db'] {
-    return this.queries.db
+  private get db(): SyncDrizzle {
+    return this.rootDb
   }
-
-  /**
-   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
-   * The straight assignment works today only because `syncQueriesOver` returns a
-   * closure over the handle; it breaks the moment the implementation uses `this`
-   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
-   * detached method. One closure per instance is the price.
-   */
-  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Create the transcript FTS5 table. Called at boot only when the
@@ -106,7 +103,7 @@ export class TranscriptIndexRepository {
     indexedBytes: number,
   ): void {
     if (!this.available) return
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const row of rows) {
         // `transcript_fts` is the virtual table this port owns; there is no
         // schema model to build against, so the statement stays whole.
@@ -137,7 +134,7 @@ export class TranscriptIndexRepository {
     expected: { mirroredBytes: number; indexedBytes: number },
   ): boolean {
     let reset = false
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       const result = this.db
         .update(conversationSegments)
         .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })

@@ -60,7 +60,7 @@ import {
   shipTrainManifests,
   shipTrainMembers,
 } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 const TRAIN_MANIFEST_PREFIX = 'shipping-train:v1:'
 
@@ -471,7 +471,13 @@ export interface RootIntegrationReceiptStore {
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder, read fresh on every access (rule 34a).
@@ -481,21 +487,9 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * instance, and ambient routing needs the enclosing transaction resolved per
    * access. B1 changes the body of this getter and nothing else in the file.
    */
-  protected get db(): SyncQueries['db'] {
-    return this.queries.db
+  protected get db(): SyncDrizzle {
+    return this.rootDb
   }
-
-  /**
-   * The span, so a call site reads `this.transact(() => …)`.
-   *
-   * AN ARROW FIELD RATHER THAN A STRAIGHT ASSIGNMENT: `syncQueriesOver` returns
-   * an arrow closing over the handle, so `this.transact = queries.transact`
-   * happens to work today and stops working — silently, as a detached method —
-   * the moment an implementation uses `this`, which is what rule 35's adapter
-   * does. It dereferences `this.queries` only when CALLED, so it does not depend
-   * on field-initialisation order either.
-   */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * The lane-revision upsert, which two call sites carried verbatim.
@@ -780,7 +774,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     if (order.state !== 'queued') {
       throw new Error(`ship order ${order.id} must be created queued`)
     }
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const existing = this.getOrder(order.id)
       if (existing) {
         if (JSON.stringify(existing) === JSON.stringify(order)) return existing
@@ -869,7 +863,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     created: boolean
   } {
     const candidate = ShipOrder.parse(input)
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const active = this.activeOrderForIssue(candidate.issueId)
       if (active) {
         if (sameFrozenShipOrder(active, candidate)) {
@@ -1013,7 +1007,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     manifest: ShipTrainManifestValue
     claimed: { order: ShipOrderValue; attempt: ShipAttemptValue }[]
   } {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const requestedIds = [...new Set(input.members.map((member) => member.orderId))]
       if (requestedIds.length === 0 || requestedIds.length !== input.members.length) {
         throw new Error('ship train claim requires unique non-empty order ids')
@@ -1518,7 +1512,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   }
 
   releaseTrain(trainId: ShipTrainManifestValue['id'], releasedAt: string, reason: string): void {
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       const row = this.db
         .select({
           releasedAt: shipTrainManifests.releasedAt,
@@ -1563,7 +1557,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     isolatedAt: string
     detail: string
   }): void {
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       const manifest = this.claimedTrainForOrder(input.leaderOrderId)
       if (
         !manifest ||
@@ -1702,7 +1696,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     lowerOrderId: ShipOrderValue['id']
     recordedAt: string
   }): void {
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       const upper = this.getOrder(input.upperOrderId)
       const lower = this.getOrder(input.lowerOrderId)
       if (!upper || !lower || upper.id === lower.id) throw new Error('invalid native stack edge')
@@ -1792,7 +1786,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     machineId: ShipAttemptValue['machineId']
     startedAt: string
   }): { order: ShipOrderValue; attempt: ShipAttemptValue } {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(input.orderId)
       if (!order) throw new Error(`unknown ship order ${input.orderId}`)
       if (order.state !== input.expectedState) {
@@ -1864,7 +1858,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     effectKey: string
     operation: ShipStepValue['kind']
   }): void {
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       const order = this.getOrder(input.orderId)
       const attempt = this.latestAttemptForOrder(input.orderId)
       const step = this.latestStepForEffect(input.attemptId, input.effectKey)
@@ -1920,7 +1914,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
           attemptFinishedAt: string
         }
   }): ShipOrderValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(input.orderId)
       const latestAttempt = this.latestAttemptForOrder(input.orderId)
       if (
@@ -2015,7 +2009,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     hold: ShipHoldValue
     attemptFinishedAt: string
   }): ShipOrderValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(input.orderId)
       const latestAttempt = this.latestAttemptForOrder(input.orderId)
       const intent = this.latestStepForEffect(input.attemptId, input.intentKey)
@@ -2068,7 +2062,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     hold: ShipHoldValue
     attemptFinishedAt: string
   }): ShipOrderValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(input.orderId)
       const latestAttempt = this.latestAttemptForOrder(input.orderId)
       if (
@@ -2168,7 +2162,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
       terminalSteps: ShipStepValue[]
     },
   ): ShipOrderValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(orderId)
       if (!order || order.state !== expectedState) {
         throw new Error(
@@ -2245,7 +2239,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     planned: ShipStepValue
     running: ShipStepValue
   }): ShipStepValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       if (
         !this.hasAttemptCustody({
           orderId: input.orderId,
@@ -2412,7 +2406,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
   raiseHold(input: ShipHoldValue): ShipHoldValue {
     const hold = ShipHold.parse(input)
     if (hold.resolvedAt || hold.resolution) throw new Error(`new ship hold ${hold.id} is resolved`)
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(hold.orderId)
       if (!order) throw new Error(`unknown ship order ${hold.orderId}`)
       if (isTerminalShipOrderState(order.state)) {
@@ -2504,7 +2498,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     resolvedAt: string,
     repairCandidate?: StoredShippingRepairCandidate,
   ): ShipHoldValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const hold = this.openHoldForOrder(orderId)
       if (!hold || hold.generation !== expectedGeneration) {
         throw new Error(
@@ -2626,7 +2620,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     const effectKey = `${request.jobId}:${request.requestDigest}`
     const requestJson = JSON.stringify(request)
     const resultJson = JSON.stringify(result)
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const existing = this.db
         .select({
           requestJson: shipEffectEnvelopes.requestJson,
@@ -2672,7 +2666,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     effectEnvelopeKey: string,
   ): DeliveryReceiptValue {
     const receipt = DeliveryReceipt.parse(input)
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(receipt.orderId)
       const covering = this.getOrder(coveringOrderId)
       const coveringReceipt = this.receiptForOrder(coveringOrderId)
@@ -2800,7 +2794,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
     invalidations?: ShipHoldValue[]
     release?: { trainId: ShipTrainManifestValue['id']; releasedAt: string; reason: string }
   }): ShipOrderValue {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const leader = this.commitEffectResult(input.leader)
       for (const covered of input.covered) {
         this.completeCoveredOrder(
@@ -2822,7 +2816,7 @@ export class ShippingRepository implements RootIntegrationReceiptStore {
    * finished attempt's tested/landed/destination facts. */
   completeVerifiedOrder(input: DeliveryReceiptValue): DeliveryReceiptValue {
     const receipt = DeliveryReceipt.parse(input)
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const order = this.getOrder(receipt.orderId)
       if (!order) throw new Error(`unknown ship order ${receipt.orderId}`)
       const existing = this.receiptForOrder(receipt.orderId)

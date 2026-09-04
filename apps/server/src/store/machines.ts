@@ -16,7 +16,7 @@ import {
 import type { PeerBuild } from '@podium/protocol'
 import { asc, eq, sql } from 'drizzle-orm'
 import { machines } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import type { MachineRecord } from './types'
 
 /** Defensive parse of a stored inventory blob → undefined on any failure. Goes
@@ -188,7 +188,13 @@ export const MACHINE_ID_SITES: readonly string[] = [
 ]
 
 export class MachinesRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -199,7 +205,7 @@ export class MachinesRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /**

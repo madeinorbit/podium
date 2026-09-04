@@ -1,7 +1,7 @@
 import type { IssueId } from '@podium/model'
 import { and, eq, gte, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm'
 import { notificationFacts } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -16,7 +16,13 @@ interface FactClaim {
 
 /** Durable atomic claims behind the steward's notification arbiter [spec:SP-ba61]. */
 export class NotificationFactsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b], and
@@ -25,8 +31,8 @@ export class NotificationFactsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncQueries['db'] {
-    return this.queries.db
+  private get db(): SyncDrizzle {
+    return this.rootDb
   }
 
   /**

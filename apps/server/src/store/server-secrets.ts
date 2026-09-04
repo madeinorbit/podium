@@ -41,7 +41,7 @@ import type { PortableCredentialBundle as PortableCredentialBundleValue } from '
 import { PortableCredentialBundle } from '@podium/protocol'
 import { eq } from 'drizzle-orm'
 import { serverSecrets } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
@@ -49,12 +49,18 @@ function nativeLoginTransferKey(principalUserId: UserId, transferId: string): st
 }
 
 export class ServerSecretsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /**

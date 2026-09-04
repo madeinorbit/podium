@@ -10,7 +10,7 @@
 import { type AccountId, asAccountId } from '@podium/model'
 import { asc, eq } from 'drizzle-orm'
 import { accounts } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export interface ManagedAccountRow {
   id: AccountId
@@ -47,12 +47,18 @@ function toRow(r: typeof accounts.$inferSelect): ManagedAccountRow {
 }
 
 export class AccountsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   list(): ManagedAccountRow[] {

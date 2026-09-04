@@ -19,12 +19,12 @@
  */
 
 import { createBunStoreExecutor } from '../store/executor'
-import type { SyncQueries } from '../store/executor/sync-drizzle'
+import type { StoreQueries } from '../store/executor/sync-drizzle'
 
 type BunBackedDatabase = Parameters<typeof createBunStoreExecutor>[0]['database']
 
 /** The capability over `database`, refusing loudly rather than handing back undefined. */
-export function stageASeam(database: BunBackedDatabase): SyncQueries {
+export function stageASeam(database: BunBackedDatabase): StoreQueries {
   const queries = createBunStoreExecutor({ database }).syncQueries
   if (!queries) {
     throw new Error(

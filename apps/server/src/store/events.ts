@@ -17,7 +17,7 @@ import {
   subscriptionDeliveries,
   subscriptions,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { afterCommit } from './executor/synchronous-span'
 import type { Subscription } from './types'
 
@@ -126,10 +126,16 @@ export class EventsRepository {
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
 
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
-   * The query layer. `SyncQueries` is wiring and is named here and nowhere else
+   * The query layer. `StoreQueries` is wiring and is named here and nowhere else
    * (spec rule 34), so a call site reads as a query.
    *
    * A GETTER, not a field (rule 34a): once transaction routing is ambient
@@ -137,19 +143,8 @@ export class EventsRepository {
    * field frozen at construction could never do that. B1 changes this one line.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /**
-   * The transaction port. `activateJanitorSteward` is the one read-decide-write
-   * here that must not be separable by a crash.
-   *
-   * An ARROW FIELD rather than an assignment of `queries.transact`: that works
-   * today only because `syncQueriesOver` returns an arrow closing over the
-   * handle, and it would break SILENTLY, as a detached method, the moment the
-   * implementation uses `this` — which rule 35's adapter does.
-   */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** Install the post-append announcement. One listener: this is the feed's
    *  seam, not a general event bus (the orchestrator already has one). */
@@ -626,7 +621,7 @@ export class EventsRepository {
    * cannot leave a new cursor without its ownership watermark (or vice versa).
    */
   activateJanitorSteward(): number | undefined {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const ownershipKey = 'janitor-ownership-v1'
       const owned = this.db
         .select({ present: sql<number>`1` })

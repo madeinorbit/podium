@@ -35,7 +35,7 @@ import type { MachineId, UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { eq } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 export class SettingsRepository {
@@ -44,17 +44,21 @@ export class SettingsRepository {
    *  resolver that lived above them both would be a third place that knows which
    *  tier a key is in. */
   readonly userPreferences: UserPreferencesRepository
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
    * `UserPreferencesRepository` is composed HERE rather than by `SessionStore`,
    * so it takes this file's capability directly.
    *
    * This construction was the POD-3392 / POD-3393 deadlock: wave 1 converted the
-   * repository to take `SyncQueries` while this file, wave 2's, still passed it a
+   * repository to take `StoreQueries` while this file, wave 2's, still passed it a
    * raw handle — so neither branch typechecked alone. Both landed in one window
    * and this line is the join.
    */
-  constructor(private readonly queries: SyncQueries) {
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.userPreferences = new UserPreferencesRepository(queries)
   }
 
@@ -64,7 +68,7 @@ export class SettingsRepository {
    * change at B1 and no call site does.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
 
   /**

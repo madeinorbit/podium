@@ -11,11 +11,11 @@
  * pattern this epic already set one file away: `./server-tables.ts` injected the
  * two server-owned tables for exactly this reason.
  *
- * WHY THE TYPES ARE STRUCTURAL AND NOT `typeof SyncQueries`. Naming the server's
+ * WHY THE TYPES ARE STRUCTURAL AND NOT `typeof StoreQueries`. Naming the server's
  * binding is the import this file exists to avoid — the same reasoning
  * `./server-tables.ts` records, and it is the whole reason the shapes below are
- * spelled out rather than referenced. `apps/server`'s `SyncQueries`
- * (`store/executor/sync-drizzle.ts`) satisfies {@link SyncQueries} structurally,
+ * spelled out rather than referenced. `apps/server`'s `StoreQueries`
+ * (`store/executor/sync-drizzle.ts`) satisfies {@link StoreQueries} structurally,
  * so a member this adapter depends on cannot be dropped from the seam without a
  * compile error at the composition root.
  *
@@ -38,7 +38,8 @@
  *
  * WHAT B1 DOES TO IT. The asynchronous pair satisfies the same two-member shape,
  * so the flip replaces what fills it and leaves this declaration's SHAPE alone —
- * `db` becomes the async instance and `transact` returns a promise. That is what
+ * `rootDb` becomes the async instance and `createOrJoinTransaction` returns a
+ * promise. That is what
  * makes the existing suite the flip's oracle.
  *
  * This type is the ADAPTER's and it stays here: `check-boundaries` rule 11 keeps
@@ -68,7 +69,7 @@ export interface SyncRunResult {
  * `transaction` IS OMITTED DELIBERATELY, so `this.db.transaction(...)` is a
  * COMPILE ERROR rather than a convention [spec rule 45]. Drizzle's own
  * transaction keeps its own nesting state and would issue a fresh BEGIN inside a
- * span the store already opened; {@link SyncQueries.transact} is the only
+ * span the store already opened; {@link StoreQueries.createOrJoinTransaction} is the only
  * boundary, and it is the same omission `apps/server`'s `SyncDrizzle` makes.
  *
  * `'sync'` is the result kind — every terminal method returns its value rather
@@ -87,7 +88,8 @@ export type SyncDrizzle = Omit<
  * query can also open a span, and splitting them into two constructor parameters
  * made the construction line read as if it were handing over a bare handle.
  *
- * `transact` is NOT a method on the drizzle instance, and that is deliberate
+ * `createOrJoinTransaction` is NOT a method on the drizzle instance, and that
+ * is deliberate
  * twice over. Drizzle's own `db.transaction()` exists on this driver, but it
  * opens a span the EXECUTOR does not know about — lane selection and the
  * post-commit mechanisms would not see it, and the span lint's opener list is by
@@ -99,9 +101,11 @@ export type SyncDrizzle = Omit<
  * composition root's own spans run on, so a `SessionStore.transact` wrapping an
  * `appendChanges` still degrades the inner span to a savepoint.
  */
-export interface SyncQueries {
-  /** The drizzle instance a repository queries through. */
-  readonly db: SyncDrizzle
-  /** A transaction, with the savepoint semantics of the runtime helper it replaces. */
-  transact<T>(fn: () => T): T
+export type TransactionRunner = <T>(fn: () => T) => T
+
+export interface StoreQueries {
+  /** The root drizzle instance a repository queries through. */
+  readonly rootDb: SyncDrizzle
+  /** Creates a root transaction or joins the enclosing transaction when nested. */
+  readonly createOrJoinTransaction: TransactionRunner
 }

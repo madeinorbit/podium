@@ -1,7 +1,11 @@
 import { isTerminalOperationState, type Operation, parseOperation } from '@podium/protocol'
 import { desc, eq } from 'drizzle-orm'
 import { operations } from '../../migrations/schema'
-import type { SyncQueries } from '../../store/executor/sync-drizzle'
+import type {
+  StoreQueries,
+  SyncDrizzle,
+  TransactionRunner,
+} from '../../store/executor/sync-drizzle'
 
 /**
  * Persistence for durable operations (POD-2097) — the `operations` table and
@@ -104,7 +108,13 @@ export const DEFAULT_OPERATION_HISTORY_LIMIT = 20
 export const DEFAULT_RETENTION = 20
 
 export class OperationStore {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -115,7 +125,7 @@ export class OperationStore {
    * line; no call site moves.
    */
   private get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   insert(operation: PersistedOperation): void {

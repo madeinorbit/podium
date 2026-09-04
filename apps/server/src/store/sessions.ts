@@ -26,7 +26,7 @@ import {
   snoozes as snoozesTable,
   tabOrder,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import type {
   OfferMap,
@@ -45,16 +45,22 @@ const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 type SessionSelect = typeof sessionsTable.$inferSelect
 
 export class SessionsRepository {
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
   /**
    * The capability is WIRING and is named here and nowhere else [spec rule 34].
-   * Only `db` is exposed: this aggregate opens no span of its own —
-   * `purgeSession` runs inside its caller's — so binding a `transact` here would
-   * be a member nothing reads.
+   * This aggregate opens no span today — `purgeSession` runs inside its caller —
+   * but both members are retained so adding one later does not change constructor
+   * arity or the composition root.
    */
   constructor(
-    private readonly queries: SyncQueries,
+    queries: StoreQueries,
     private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
-  ) {}
+  ) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * A GETTER, NOT A FIELD [spec rule 34a]. A field assigned in the constructor
@@ -63,7 +69,7 @@ export class SessionsRepository {
    * B1 changes this one line rather than 39 fields.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
 
   // ---- sessions ----

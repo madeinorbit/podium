@@ -9,15 +9,21 @@ import type { SessionId } from '@podium/model'
 import { and, eq } from 'drizzle-orm'
 import { recapWatermarks } from '../migrations/schema'
 import type { ReaderRef } from '../modules/sessions/read-toolkit'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export class ReadWatermarksRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /** `null` and not `undefined` when absent: the caller distinguishes the two,

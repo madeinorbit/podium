@@ -34,7 +34,7 @@ import {
 } from '@podium/model'
 import { and, eq } from 'drizzle-orm'
 import { userReadPosition } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
@@ -43,17 +43,19 @@ export interface StoredReadPosition {
 }
 
 export class UserReadPositionRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /** An arrow field rather than an assignment, so the span helper keeps its `this`
-   *  when rule 35's adapter starts using one [POD-3221 spec rule 34a]. */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** One person's position in every stream they have read. Absent key = never. */
   getSnapshot(userId: UserId): ReadPositionSnapshot {
@@ -108,7 +110,7 @@ export class UserReadPositionRepository {
         `'${streamId}' is not a known event stream (POD-1380 / isReadStreamId), so it has no cursor row`,
       )
     }
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const current = this.get(userId, streamId)
       const next = advanceReadPosition(current, {
         lastEventId: proposed.lastEventId,

@@ -47,7 +47,7 @@ import type { RedactionReport } from '@podium/commands'
 import { asc } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
 import { settingsAuditEvents } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -119,12 +119,18 @@ export function settingsAuditRow(input: {
 }
 
 export class SettingsAuditRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /**

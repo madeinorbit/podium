@@ -111,7 +111,7 @@ export * from './adapters/sqlite/server-tables'
  * POD-3416 for what it carries; spec §6 rule 20), by the same reasoning and one
  * step further: the seam lives in `apps/server` too, so the package declares the
  * two members the adapter uses — a drizzle instance and a transaction — and the
- * server's `SyncQueries` satisfies them structurally.
+ * server's `StoreQueries` satisfies them structurally.
  */
 export * from './adapters/sqlite/store-queries'
 /**

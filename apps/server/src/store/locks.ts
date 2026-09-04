@@ -8,7 +8,7 @@
 import type { IssueId, RepoId, SessionId } from '@podium/model'
 import { and, asc, eq, lte, sql } from 'drizzle-orm'
 import { locks, lockWaiters } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
 export const OPERATOR_LOCK_SESSION = 'operator'
@@ -81,7 +81,13 @@ export interface LockWaiterRow {
 const asColumnSession = (key: LockSessionKey): SessionId => key as SessionId
 
 export class LocksRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -92,7 +98,7 @@ export class LocksRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   getLock(repoId: RepoId, name: string): LockRow | null {

@@ -19,7 +19,7 @@ import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
 import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
 import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export interface UserAccountRow {
   id: string
@@ -49,7 +49,13 @@ export interface UserCredentialRow {
 }
 
 export class UsersRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * Rule 34a — `db` RESOLVES on every access rather than being frozen at
@@ -57,15 +63,8 @@ export class UsersRepository {
    * change at B1 and no call site does.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /**
-   * Rule 34a — an arrow FIELD, not `this.transact = queries.transact`. The
-   * straight assignment works only while the implementation ignores `this`, and
-   * it stops working silently the moment it does not.
-   */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * THE FRAME READ CACHE [POD-1931].
@@ -185,7 +184,7 @@ export class UsersRepository {
     // sees the account rather than the "no account" this scope had cached.
     currentReadScope().clear(this.accountsSlot)
     try {
-      this.transact(() => {
+      this.createOrJoinTransaction(() => {
         this.db
           .insert(users)
           .values({

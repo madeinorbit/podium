@@ -19,7 +19,7 @@
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
 import { and, count, gt, inArray, isNotNull, max, sql } from 'drizzle-orm'
 import { transcriptCosts } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -93,7 +93,13 @@ const toCost = (row: Row): TranscriptCost => ({
 })
 
 export class TranscriptCostsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b], and
@@ -102,18 +108,9 @@ export class TranscriptCostsRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncQueries['db'] {
-    return this.queries.db
+  private get db(): SyncDrizzle {
+    return this.rootDb
   }
-
-  /**
-   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
-   * The straight assignment works today only because `syncQueriesOver` returns a
-   * closure over the handle; it breaks the moment the implementation uses `this`
-   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
-   * detached method. One closure per instance is the price.
-   */
-  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Bank one harvest. Transactional over the whole batch: a walk is one
@@ -122,7 +119,7 @@ export class TranscriptCostsRepository {
    */
   record(records: TranscriptCostRecord[], nowIso: string): void {
     if (records.length === 0) return
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const r of records) {
         this.db
           .insert(transcriptCosts)
