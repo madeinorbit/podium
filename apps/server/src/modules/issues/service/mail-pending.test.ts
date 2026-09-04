@@ -143,17 +143,33 @@ describe('countContextAwarePendingMail', () => {
         senders: ['session:peer-session-2', 'issue:iss_peer'],
       })
 
+      // BOTH SPELLINGS [POD-3221 spec rule 32]. Drizzle emits lowercase keywords
+      // and quoted identifiers, so the hand-written text this used to match no
+      // longer occurs: `select "from_kind", …, count(*) from "messages"`, with no
+      // `AS n`. Widened rather than replaced, because a caller that has not been
+      // converted still emits the old form and a builder-only matcher would go
+      // blind on it.
+      const norm = (sql: string): string =>
+        sql.replace(/"/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+
       const groupedReads = [...counts].filter(([sql]) =>
-        sql.includes('SELECT from_kind, from_issue, from_session, COUNT(*) AS n'),
+        norm(sql).includes('from_kind, from_issue, from_session, count(*)'),
       )
+      // Also the canary for this whole assertion: a probe that observed nothing
+      // reports 0 here and fails loudly, rather than letting the negative check
+      // below pass at 0 === 0 (rule 44).
       expect(groupedReads).toHaveLength(1)
       expect(groupedReads[0]?.[1]).toBe(1)
 
-      const oldSeparateReads = [...counts].filter(
-        ([sql]) =>
-          sql.includes('SELECT DISTINCT from_kind, from_issue, from_session') ||
-          sql.includes('SELECT COUNT(*) AS n FROM messages'),
-      )
+      const oldSeparateReads = [...counts].filter(([sql]) => {
+        const q = norm(sql)
+        // `startsWith` on the count arm, because the GROUPED read also contains
+        // `count(*) from messages` and an `includes` would match it here.
+        return (
+          q.startsWith('select distinct from_kind, from_issue, from_session') ||
+          q.startsWith('select count(*)')
+        )
+      })
       expect(oldSeparateReads).toHaveLength(0)
     } finally {
       store.close()
