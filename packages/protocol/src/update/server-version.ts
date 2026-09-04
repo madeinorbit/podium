@@ -58,6 +58,8 @@ export const ServerVersion = z
     minSupportedVersion: z.number().int().optional(),
     wireSchemaDigest: z.string().optional(),
     instanceId: z.string().optional(),
+    /** The installation's durable identity (PDM-51); absent on older servers. */
+    installationId: z.string().optional(),
     feedScoping: z.string().optional(),
     target: UpdateTarget.optional().catch(undefined),
     mobileWeb: MobileWebIdentity.optional().catch(undefined),

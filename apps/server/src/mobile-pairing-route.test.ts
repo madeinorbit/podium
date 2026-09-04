@@ -14,6 +14,8 @@ import { AuthRepository } from './store/auth'
 import { openMigratedTestDatabase } from './test-support/migrated-database'
 
 const AUTH_TOKEN = 'browser-session-token-abcdefghijklmnopqrstuvwxyz'
+const INSTALLATION_ID = `pdm_${'a'.repeat(43)}`
+const INSTALLATION_KEY = `ed25519:${'B'.repeat(43)}`
 const SECRET = Buffer.alloc(32, 11)
 const CLAIM_HASH = createHash('sha256').update(SECRET).digest('hex')
 const HTTPS = {
@@ -51,6 +53,8 @@ beforeEach(() => {
     serverIdentity: () => ({
       publicUrl: 'https://podium.example',
       instanceId: 'instance-one',
+      installationId: INSTALLATION_ID,
+      installationPublicKey: INSTALLATION_KEY,
     }),
     loginRequired: () => true,
     resolveUserId: (headers) => resolveClientCredential(store, headers)?.session.userId,
@@ -76,6 +80,8 @@ describe('mobile pairing routes', () => {
       mode: 'pair',
       serverUrl: 'https://podium.example',
       instanceId: 'instance-one',
+      installationId: INSTALLATION_ID,
+      installationPublicKey: INSTALLATION_KEY,
     })
     expect(started).toMatchObject({ canonicalOrigin: 'https://podium.example' })
     if (envelope.v !== 2 || envelope.mode !== 'pair') throw new Error('wrong envelope')

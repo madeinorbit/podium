@@ -25,6 +25,7 @@ import {
   loadConfig,
   resolveAllowedOrigins,
   resolveAppUrl,
+  resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
   resolveInstanceId,
   resolveMode,
@@ -32,6 +33,11 @@ import {
   resolveTranscriptLake,
   resolveUpdateScope,
 } from '@podium/runtime/config'
+import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
+import {
+  installationPublicKeyWire,
+  readOrCreateInstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -144,6 +150,7 @@ import {
   servedWebIdentity,
   servedWebSourceDigest,
 } from './web-bundle-stamp'
+import { registerWellKnownRoute } from './well-known-route'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -267,6 +274,9 @@ export function registerVersionRoute(
   deps: {
     /** Deployment identity resolved once by the process entry point. */
     instanceId: string
+    /** The installation's durable identity (PDM-51). Optional so a route
+     *  assembled without one (the version-route suite) answers as before. */
+    installationId?: string
     /**
      * The grade of the visibility policy this server actually runs (POD-376).
      *
@@ -431,6 +441,7 @@ export function registerVersionRoute(
       ...(sourceDigest ? { sourceDigest } : {}),
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
+      ...(deps.installationId ? { installationId: deps.installationId } : {}),
       ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
@@ -553,6 +564,10 @@ export async function startServer(
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
     allowCreate: !hasEnrollmentHistory(stateDir()),
   })
+  // WHO THIS INSTALLATION IS, wherever it runs (PDM-51). Minted once, moves with
+  // a server transfer, signs everything this server says to Podium Connect.
+  const installation = readOrCreateInstallationIdentity(stateDir())
+  const installationPublicKey = installationPublicKeyWire(installation)
   reconcileSafeServerTransferBoot(stateDir())
   assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
@@ -1008,6 +1023,16 @@ export async function startServer(
   app.get('/health', (c) =>
     targetsResolvedOnBoot ? c.text('ok') : c.text('resolving update targets', 503),
   )
+  // The reachability answer for Podium Connect (PDM-51). Before auth, CORS and
+  // the readiness boundary: it has to work during setup, which is when the
+  // operator is asking whether their public URL is reachable.
+  registerWellKnownRoute(app, {
+    identity: () => installation,
+    trustedProbeKeys: () => [
+      ...PODIUM_CONNECT_PROBE_KEYS,
+      ...resolveConnectProbeKeys(loadConfig(), process.env),
+    ],
+  })
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
@@ -1030,6 +1055,7 @@ export async function startServer(
   app.use('/version', cors())
   registerVersionRoute(app, {
     instanceId,
+    installationId: installation.installationId,
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
@@ -1156,6 +1182,8 @@ export async function startServer(
       publicUrl: resolvePublicUrl(loadConfig(), process.env),
       appUrl: resolveAppUrl(loadConfig(), process.env),
       instanceId,
+      installationId: installation.installationId,
+      installationPublicKey,
     }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's
