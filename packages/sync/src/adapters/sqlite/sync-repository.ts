@@ -56,6 +56,32 @@ const sqliteSequence = sqliteTable('sqlite_sequence', {
   seq: integer().notNull(),
 })
 
+const prepareLatestChangeStateUpsert = (db: SyncDrizzle) =>
+  db
+    .insert(changeLatest)
+    .values({
+      entity: sql.placeholder('entity'),
+      entityId: sql.placeholder('entityId'),
+      seq: sql.placeholder('seq'),
+      payload: sql.placeholder('payload'),
+    })
+    .onConflictDoUpdate({
+      target: [changeLatest.entity, changeLatest.entityId],
+      set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
+    })
+    .prepare()
+
+const prepareLatestChangeStateDelete = (db: SyncDrizzle) =>
+  db
+    .delete(changeLatest)
+    .where(
+      and(
+        eq(changeLatest.entity, sql.placeholder('entity')),
+        eq(changeLatest.entityId, sql.placeholder('entityId')),
+      ),
+    )
+    .prepare()
+
 /**
  * Map a selected `changes` row onto the composed lifecycle read shape.
  *
@@ -109,6 +135,12 @@ export class SyncRepository {
   private readonly queuedMessages: QueuedMessagesTable
   private readonly upstreamOutbox: UpstreamOutboxTable
   private readonly rootDb: SyncDrizzle
+  private preparedLatestStateUpsertValue:
+    | ReturnType<typeof prepareLatestChangeStateUpsert>
+    | undefined
+  private preparedLatestStateDeleteValue:
+    | ReturnType<typeof prepareLatestChangeStateDelete>
+    | undefined
   protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
@@ -122,6 +154,19 @@ export class SyncRepository {
    */
   private get db() {
     return this.rootDb
+  }
+
+  /**
+   * These are bound to the ambient root client rather than a `this.db` result.
+   * B1 therefore keeps resolving the current transaction per execution while
+   * each row reuses the SQL Drizzle constructed on first access.
+   */
+  private get preparedLatestStateUpsert(): ReturnType<typeof prepareLatestChangeStateUpsert> {
+    return (this.preparedLatestStateUpsertValue ??= prepareLatestChangeStateUpsert(this.rootDb))
+  }
+
+  private get preparedLatestStateDelete(): ReturnType<typeof prepareLatestChangeStateDelete> {
+    return (this.preparedLatestStateDeleteValue ??= prepareLatestChangeStateDelete(this.rootDb))
   }
 
   constructor(queries: StoreQueries, tables: SyncServerTables) {
@@ -211,24 +256,14 @@ export class SyncRepository {
         // constraint — checked with `pragma index_list` on the migrated table, so
         // no conflict can arrive on a constraint this target does not cover
         // [spec rule 31a].
-        this.db
-          .insert(changeLatest)
-          .values({
-            entity: row.entity,
-            entityId: row.entityId,
-            seq: firstSeq + i,
-            payload: row.payload,
-          })
-          .onConflictDoUpdate({
-            target: [changeLatest.entity, changeLatest.entityId],
-            set: { seq: sql`excluded.seq`, payload: sql`excluded.payload` },
-          })
-          .run()
+        this.preparedLatestStateUpsert.run({
+          entity: row.entity,
+          entityId: row.entityId,
+          seq: firstSeq + i,
+          payload: row.payload,
+        })
       } else {
-        this.db
-          .delete(changeLatest)
-          .where(and(eq(changeLatest.entity, row.entity), eq(changeLatest.entityId, row.entityId)))
-          .run()
+        this.preparedLatestStateDelete.run({ entity: row.entity, entityId: row.entityId })
       }
     }
   }
