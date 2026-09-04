@@ -1,6 +1,7 @@
 import { isTerminalOperationState, type Operation, parseOperation } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from '../../store/executor'
+import { desc, eq } from 'drizzle-orm'
+import { operations } from '../../migrations/schema'
+import type { SyncQueries } from '../../store/executor/sync-drizzle'
 
 /**
  * Persistence for durable operations (POD-2097) — the `operations` table and
@@ -50,19 +51,33 @@ export interface OperationRow {
   operation: Operation | null
 }
 
-function toRow(r: Record<string, unknown>): OperationRow {
-  const payload = r.payload as string
+/**
+ * The stored row as this module's shape.
+ *
+ * WHAT WENT WITH THE CONVERSION [spec §6 rule 6]: the per-field casts and the
+ * `Number(...)` coercions. Every one of them existed because the raw handle
+ * returned `Record<string, unknown>` — the columns are TEXT and INTEGER and
+ * always were, and drizzle's execution path applies the schema's declared types,
+ * so the casts were re-stating what the schema already says.
+ *
+ * WHAT STAYED, because it is a decision and not a cast: the `finished_at`
+ * normalisation and {@link parseStored}. The column is nullable and the domain
+ * type is `number | null`; the parse is the downgrade tolerance this whole file
+ * is built around.
+ */
+type StoredRow = typeof operations.$inferSelect
+
+function toRow(r: StoredRow): OperationRow {
   return {
-    id: r.id as string,
-    kind: r.kind as string,
-    exclusionGroup: r.exclusion_group as string,
-    state: r.state as string,
-    createdAt: Number(r.created_at),
-    updatedAt: Number(r.updated_at),
-    finishedAt:
-      r.finished_at === null || r.finished_at === undefined ? null : Number(r.finished_at),
-    payload,
-    operation: parseStored(payload),
+    id: r.id,
+    kind: r.kind,
+    exclusionGroup: r.exclusionGroup,
+    state: r.state,
+    createdAt: r.createdAt,
+    updatedAt: r.updatedAt,
+    finishedAt: r.finishedAt ?? null,
+    payload: r.payload,
+    operation: parseStored(r.payload),
   }
 }
 
@@ -89,20 +104,22 @@ export const DEFAULT_OPERATION_HISTORY_LIMIT = 20
 export const DEFAULT_RETENTION = 20
 
 export class OperationStore {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  private get db() {
+    return this.queries.db
   }
 
   insert(operation: PersistedOperation): void {
-    this.db
-      .prepare(
-        `INSERT INTO operations
-           (id, kind, exclusion_group, state, created_at, updated_at, finished_at, payload)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(...values(operation))
+    this.db.insert(operations).values(rowFor(operation)).run()
   }
 
   /**
@@ -112,14 +129,10 @@ export class OperationStore {
    * successor's field would be dropped on the first progress event.
    */
   update(operation: PersistedOperation): void {
-    this.db
-      .prepare(
-        `UPDATE operations
-            SET kind = ?, exclusion_group = ?, state = ?, created_at = ?, updated_at = ?,
-                finished_at = ?, payload = ?
-          WHERE id = ?`,
-      )
-      .run(...values(operation).slice(1), operation.id)
+    // `id` is the key and is deliberately not in the SET list, exactly as the
+    // statement this replaces had it: seven columns set, matched on the eighth.
+    const { id, ...rest } = rowFor(operation)
+    this.db.update(operations).set(rest).where(eq(operations.id, id)).run()
   }
 
   /**
@@ -134,15 +147,18 @@ export class OperationStore {
    * governs every other read here.
    */
   markTerminal(id: string, state: string, at: number): void {
+    // THREE COLUMNS, and `payload` is not one of them — see above. A `set` names
+    // exactly the columns it lists, so the bytes are left untouched rather than
+    // rewritten with a value this binary may not have been able to read.
     this.db
-      .prepare('UPDATE operations SET state = ?, updated_at = ?, finished_at = ? WHERE id = ?')
-      .run(state, at, at, id)
+      .update(operations)
+      .set({ state, updatedAt: at, finishedAt: at })
+      .where(eq(operations.id, id))
+      .run()
   }
 
   get(id: string): OperationRow | undefined {
-    const r = this.db.prepare('SELECT * FROM operations WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
+    const r = this.db.select().from(operations).where(eq(operations.id, id)).get()
     return r ? toRow(r) : undefined
   }
 
@@ -156,8 +172,11 @@ export class OperationStore {
    */
   activeByGroup(group: string): OperationRow | undefined {
     const rows = this.db
-      .prepare('SELECT * FROM operations WHERE exclusion_group = ? ORDER BY created_at DESC')
-      .all(group) as Record<string, unknown>[]
+      .select()
+      .from(operations)
+      .where(eq(operations.exclusionGroup, group))
+      .orderBy(desc(operations.createdAt))
+      .all()
     return rows.map(toRow).find((row) => !isTerminalOperationState(row.state))
   }
 
@@ -170,21 +189,25 @@ export class OperationStore {
    * operation nothing will ever drive.
    */
   active(): OperationRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM operations ORDER BY created_at DESC')
-      .all() as Record<string, unknown>[]
+    const rows = this.db.select().from(operations).orderBy(desc(operations.createdAt)).all()
     return rows.map(toRow).filter((row) => !isTerminalOperationState(row.state))
   }
 
   /** Newest first — what Settings → Updates lists (§3.7). */
   history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): OperationRow[] {
-    const rows = (
+    // The two arms stay two statements rather than one with a conditional
+    // predicate: an absent `kind` means EVERY kind here, not a kind that is
+    // null, and folding them would make that distinction a runtime accident.
+    const rows =
       kind === undefined
-        ? this.db.prepare('SELECT * FROM operations ORDER BY created_at DESC LIMIT ?').all(limit)
+        ? this.db.select().from(operations).orderBy(desc(operations.createdAt)).limit(limit).all()
         : this.db
-            .prepare('SELECT * FROM operations WHERE kind = ? ORDER BY created_at DESC LIMIT ?')
-            .all(kind, limit)
-    ) as Record<string, unknown>[]
+            .select()
+            .from(operations)
+            .where(eq(operations.kind, kind))
+            .orderBy(desc(operations.createdAt))
+            .limit(limit)
+            .all()
     return rows.map(toRow)
   }
 
@@ -195,30 +218,49 @@ export class OperationStore {
    * turn a full history into a lost update.
    */
   sweepRetention(kind: string, keep: number = DEFAULT_RETENTION): number {
-    const finished = (
-      this.db
-        .prepare('SELECT id, state FROM operations WHERE kind = ? ORDER BY created_at DESC')
-        .all(kind) as Record<string, unknown>[]
-    ).filter((r) => isTerminalOperationState(r.state as string))
+    // TWO COLUMNS, named rather than spread [spec rule 39]: the statement this
+    // replaces read `id, state` out of the eight, and a sweep that dragged the
+    // payload of every finished operation back with it would read seven columns
+    // nobody asked for, on every row, on every sweep.
+    const finished = this.db
+      .select({ id: operations.id, state: operations.state })
+      .from(operations)
+      .where(eq(operations.kind, kind))
+      .orderBy(desc(operations.createdAt))
+      .all()
+      .filter((r) => isTerminalOperationState(r.state))
     const doomed = finished.slice(keep)
     for (const row of doomed) {
-      this.db.prepare('DELETE FROM operations WHERE id = ?').run(row.id as string)
+      this.db.delete(operations).where(eq(operations.id, row.id)).run()
     }
     return doomed.length
   }
 }
 
-function values(
-  operation: PersistedOperation,
-): [string, string, string, string, number, number, number | null, string] {
-  return [
-    operation.id,
-    operation.kind,
-    operation.exclusionGroup,
-    operation.state,
-    operation.createdAt,
-    operation.updatedAt,
-    operation.finishedAt ?? null,
-    JSON.stringify(operation),
-  ]
+/**
+ * The eight columns of a row, from the operation the engine stamped.
+ *
+ * NAMED RATHER THAN POSITIONAL. The tuple this replaces was shared by the
+ * insert and the update, which took it and dropped its first element — so the
+ * update's column list and the insert's were the same list minus one, expressed
+ * as an offset. Named fields say that directly, and the update destructures the
+ * key it matches on rather than counting past it.
+ *
+ * EVERY COLUMN IS SUPPLIED, which is why rule 43 cannot bite here: the original
+ * INSERT named all eight, so there is no column the conversion newly binds. And
+ * `operations` declares no DEFAULT on any of its eight (verified with
+ * `pragma table_info` against the migrated table), so there is no default for an
+ * explicit null to override even in principle.
+ */
+function rowFor(operation: PersistedOperation): typeof operations.$inferInsert {
+  return {
+    id: operation.id,
+    kind: operation.kind,
+    exclusionGroup: operation.exclusionGroup,
+    state: operation.state,
+    createdAt: operation.createdAt,
+    updatedAt: operation.updatedAt,
+    finishedAt: operation.finishedAt ?? null,
+    payload: JSON.stringify(operation),
+  }
 }

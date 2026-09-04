@@ -354,7 +354,7 @@ export class SessionStore {
     this.maintenance = new MaintenanceRepository(this.queries)
     this.automations = new AutomationsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
-    this.operations = new OperationStore(this.executor)
+    this.operations = new OperationStore(this.queries)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
 
     // Per-boot runtime steps (environment-conditional FTS objects, the identity

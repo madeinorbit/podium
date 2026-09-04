@@ -4,7 +4,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
-import { createBunStoreExecutor } from '../../store/executor'
+import { syncQueriesOver } from '../../store/executor/sync-drizzle'
 import {
   ADOPTION_FAILED_ERROR_CODE,
   DEFAULT_WAITING_GRACE_MS,
@@ -66,7 +66,7 @@ function fakeClock() {
 function harness() {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const store = new OperationStore(createBunStoreExecutor({ database: db }))
+  const store = new OperationStore(syncQueriesOver(db))
   const registry = new OperationKindRegistry()
   const clock = fakeClock()
   let minted = 0
@@ -76,7 +76,11 @@ function harness() {
     clock: clock.clock,
     newId: () => `op_${++minted}`,
   })
-  return { store, registry, engine, clock }
+  // `db` is returned (POD-3415) for the one test that must write a payload
+  // this binary cannot parse: a converted store holds a drizzle instance and
+  // no handle, so the test keeps the database it opened rather than digging
+  // one out of the object under test. Same database either way.
+  return { store, registry, engine, clock, db }
 }
 
 const done = async (): Promise<StepOutcome> => ({ state: 'done' })
@@ -765,12 +769,10 @@ describe('adoption after a restart (P3, §3.4)', () => {
   })
 
   it('frees the group without rewriting a payload it cannot read', async () => {
-    const { store, registry } = harness()
+    const { store, registry, db } = harness()
     await store.insert(midFlight())
     const opaque = '{"id":"op_1","kind":"test","state":"quiescing"}'
-    ;(store as unknown as { db: { prepare(s: string): { run(...a: unknown[]): void } } }).db
-      .prepare('UPDATE operations SET payload = ? WHERE id = ?')
-      .run(opaque, 'op_1')
+    db.prepare('UPDATE operations SET payload = ? WHERE id = ?').run(opaque, 'op_1')
     registry.register(testKind())
 
     await successor(store, registry).adoptOnBoot(() => ({}))
@@ -1495,7 +1497,7 @@ describe('observers', () => {
   it('announces every persisted transition, and only after it is persisted', async () => {
     const db = openDatabase(':memory:')
     runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-    const store = new OperationStore(createBunStoreExecutor({ database: db }))
+    const store = new OperationStore(syncQueriesOver(db))
     const registry = new OperationKindRegistry()
     registry.register(testKind())
     const seen: string[] = []

@@ -9,7 +9,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { runDrizzleMigrations } from '../../migrations'
 import { DRIZZLE_MIGRATIONS } from '../../migrations/drizzle-manifest.generated'
-import { createBunStoreExecutor } from '../../store/executor'
+import { syncQueriesOver } from '../../store/executor/sync-drizzle'
 import {
   DEFAULT_WAITING_GRACE_MS,
   type OperationClock,
@@ -1249,7 +1249,7 @@ interface HarnessOptions {
 function harness(options: HarnessOptions = {}) {
   const db = openDatabase(':memory:')
   runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
-  const store = new OperationStore(createBunStoreExecutor({ database: db }))
+  const store = new OperationStore(syncQueriesOver(db))
   const clock = fakeClock()
   const sent: Array<{ machineId: string; message: UpdateGrantMessage }> = []
   const fleet = options.machines ?? [machine({ id: 'vmi' })]
