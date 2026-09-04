@@ -21,6 +21,7 @@ import {
   disposeOracles,
   MUST_NOT_CHANGE,
   makeOracle,
+  paintOracleTui,
   PASTE_END,
   PASTE_START,
   ptyFrames,
@@ -493,38 +494,6 @@ describe('oracle: sendText / resumeAndSend', () => {
     expect(ptyFrames(o.daemon)).toEqual([{ inputOrigin: 'controller', data: '\x1b' }])
   })
 
-  /**
-   * Paint the TUI for half a second, then go quiet — what a real CLI does after
-   * a bind, and what lets `inbox.ts` call the composer ready from the SETTLE
-   * heuristic (`READY_QUIET_MS` of silence past a `READY_FLOOR_MS` floor) in
-   * about a second, rather than waiting out the ceiling a terminal that never
-   * paints falls back to.
-   *
-   * SPREAD OVER TIME, NOT DUMPED IN ONE GO, and the difference is load-bearing:
-   * the drain captures a BASELINE output timestamp on its first poll and asks
-   * whether output has arrived SINCE. A burst that all lands before that poll
-   * moves the baseline with it, so the session reads as one that never painted
-   * and the check sits out the full ceiling — which is what a synchronous
-   * five-frame loop here did.
-   *
-   * Purely an accelerator. If the host is loaded enough that the frames miss
-   * their window, readiness falls back to the ceiling and the predicate wait
-   * below simply returns later; nothing about what is asserted depends on it.
-   */
-  const paintTui = (o: ReturnType<typeof makeOracle>, sessionId: SessionId): void => {
-    let seq = 0
-    const painter = setInterval(() => {
-      o.reg.gateway.routeDaemonFrame(o.reg.sessionStore.hostMachineId, {
-        type: 'agentFrame',
-        sessionId,
-        seq: seq++,
-        data: 'eA==',
-      })
-      if (seq >= 5) clearInterval(painter)
-    }, 100)
-    painter.unref?.()
-  }
-
   /** Generous because it is a PREDICATE wait: it returns as soon as the row is typed. */
   const READINESS_TIMEOUT_MS = 20_000
 
@@ -603,7 +572,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     // Accepted and HELD — the queue is the contract for this session, so the
     // call returning is not the bytes being on the wire.
     expect(inputs(o.daemon)).toEqual([])
-    paintTui(o, sessionId)
+    paintOracleTui(o, sessionId)
     // Operator chat rides the messaging substrate (#237 / POD-729) but stamps
     // inputOrigin 'controller' — person-origin, so standing offers clear and
     // causal turns attribute as user input (POD-552). Agent mail stays 'mail'
@@ -638,7 +607,7 @@ describe('oracle: sendText / resumeAndSend', () => {
     // Held, not refused: the gating question is answered at ACCEPT time, and
     // the queue is only where the accepted send waits for the composer.
     expect(inputs(o.daemon)).toEqual([])
-    paintTui(o, sessionId)
+    paintOracleTui(o, sessionId)
     expect(await framesWhenTyped(o, 'the gated-around send to reach the PTY')).toEqual([
       { inputOrigin: 'controller', data: `${PASTE_START}still lands${PASTE_END}` },
     ])
