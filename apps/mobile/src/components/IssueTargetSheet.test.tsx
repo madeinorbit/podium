@@ -37,8 +37,9 @@ vi.mock('react-native', async (importOriginal) => {
   return { ...actual, FlatList: CapturingFlatList as ComponentType<FlatListProps> }
 })
 
-const { IssueTargetSheet, filterIssueTargets, issueTargetFooterPadding } =
-  await import('./IssueTargetSheet')
+const { IssueTargetSheet, filterIssueTargets, issueTargetFooterPadding } = await import(
+  './IssueTargetSheet'
+)
 
 afterEach(() => {
   captured = undefined
@@ -65,7 +66,7 @@ const candidate = (index: number): IssueWire =>
     childDoneCount: 0,
     parentBranch: 'main',
     archived: false,
-  }) as IssueWire
+  }) as unknown as IssueWire
 
 describe('IssueTargetSheet scale boundary', () => {
   it('hands hundreds of variable-height candidates to a bounded virtualized list', () => {

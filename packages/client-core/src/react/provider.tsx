@@ -167,6 +167,8 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   onlineEvents?: OnlineEvents
   isOnline?: () => boolean
   heartbeatIntervalMs?: number
+  /** Platform-owned persistence/navigation for a promoted server endpoint. */
+  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** False for a trusted local-only boot whose remote identity has not yet been
    *  revalidated. The runtime opens the replica but starts no socket, boot read,
    *  or outbox drain until its replacement provider enables networking. */
@@ -196,6 +198,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   onlineEvents,
   isOnline,
   heartbeatIntervalMs,
+  onServerRelocation,
   networkEnabled,
   routerWindow,
   engineOverrides,
@@ -264,6 +267,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         onlineEvents,
         isOnline,
         heartbeatIntervalMs,
+        onServerRelocation,
         networkEnabled,
         routerWindow,
         ...engineOverrides,

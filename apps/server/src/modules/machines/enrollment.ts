@@ -66,10 +66,16 @@ export function sha256(s: string): string {
  * returning a boolean is sufficient. The client-facing reason is byte-identical
  * in every denial so none of this is an existence oracle.
  */
+export interface DaemonAuthenticationOptions {
+  /** Authenticate existing durable identity without mutating its projection. */
+  readonly verifyOnly?: boolean
+  readonly source?: 'supervisor' | 'legacy-daemon'
+}
+
 export function authenticateDaemon(
   host: EnrollmentHost,
   frame: DaemonHandshake,
-  source: 'supervisor' | 'legacy-daemon' = 'legacy-daemon',
+  options: DaemonAuthenticationOptions = {},
 ):
   | {
       ok: true
@@ -83,6 +89,10 @@ export function authenticateDaemon(
   | { ok: false; reason: string } {
   const deps = host.deps
   if (frame.type === 'pair') {
+    // Recovery-only holds a query-only database. Pairing necessarily redeems a
+    // code, appends enrollment, and creates a row, so verify-only fails closed
+    // before any of those effects can begin.
+    if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
     // No pairing manager = node role: this server is not a rendezvous point,
     // so new machines can't join it. Returning daemons (`hello`) still work.
     if (!deps.pairing) return { ok: false, reason: 'pairing is disabled on this server' }
@@ -132,13 +142,16 @@ export function authenticateDaemon(
       logVerdict(host, 'revoked', frame.machineId)
       return { ok: false, reason: HELLO_DENIED_REASON }
     }
-    if (source === 'supervisor' || !host.hasSupervisor(frame.machineId)) {
+    const row = deps.store.machines.getMachine(frame.machineId)
+    if (!row) return { ok: false, reason: HELLO_DENIED_REASON }
+    if (
+      !options.verifyOnly &&
+      (options.source === 'supervisor' || !host.hasSupervisor(frame.machineId))
+    ) {
       deps.store.machines.touchMachine(frame.machineId, frame.hostname)
+      host.invalidateMachineCache()
     }
-    host.invalidateMachineCache()
-    const name =
-      deps.store.machines.listMachines().find((m) => m.id === frame.machineId)?.name ??
-      frame.hostname
+    const name = row.name ?? frame.hostname
     const updatePubkey = deps.updatePubkey?.()
     const updateKeyRotations = deps.updateKeyRotations?.()
     return {
@@ -150,6 +163,8 @@ export function authenticateDaemon(
     }
   }
   // Row missing — D19.4 verdict algorithm (pairing root → revoke serial → re-enrol).
+  // Verify-only may authenticate durable reality but may not reconstruct it.
+  if (options.verifyOnly) return { ok: false, reason: HELLO_DENIED_REASON }
   return helloMissingRow(host, frame)
 }
 
@@ -167,6 +182,23 @@ function mintEnrolledToken(
   if (!ledger) return randomUUID()
   const serial = ledger.nextSerial(machineId)
   const token = mintPairingToken(ledger.pairingRoot, { machineId, serial })
+  appendEnrollment(host, machineId, serial, ownerUserId)
+  return token
+}
+
+/**
+ * The one enrollment commit path for paired and server-host machines. Keeping
+ * the append here makes ledger provenance mean the same thing regardless of
+ * which trusted credential provisioner established it.
+ */
+function appendEnrollment(
+  host: EnrollmentHost,
+  machineId: MachineId,
+  serial: number,
+  ownerUserId: UserId | null,
+): void {
+  const ledger = host.deps.enrollment
+  if (!ledger) return
   // Ledger append is the enrollment commit point (D19.4d). Failure aborts pair.
   const ok = ledger.appendEnroll({
     id: newLedgerTxnId(),
@@ -176,7 +208,41 @@ function mintEnrolledToken(
     at: new Date().toISOString(),
   })
   if (!ok) throw new Error('enrollment ledger refused the enroll append')
-  return token
+}
+
+/**
+ * Establish durable enrollment provenance for the trusted server host.
+ *
+ * A fresh host appends through the same commit path as pairing. A promoted
+ * host already has active pairing provenance and keeps its recorded owner.
+ * Reboot is a no-op. Revocation wins permanently until an explicit re-pair
+ * appends a newer serial; boot must never turn an old enroll line (or a forged
+ * database row with no enroll line) into fresh authority.
+ */
+export function ensureHostEnrollment(
+  host: EnrollmentHost,
+  machineId: MachineId,
+  initialOwnerUserId: UserId | null,
+): UserId | null {
+  const ledger = host.deps.enrollment
+  if (!ledger) return initialOwnerUserId
+
+  if (ledger.isActivelyEnrolled(machineId)) {
+    const recordedOwner = ledger.recordedOwner(machineId)
+    if (recordedOwner === undefined) {
+      throw new Error(`host machine '${machineId}' has enrollment without an owner record`)
+    }
+    return resolveOwnerForRecovery(host, recordedOwner)
+  }
+
+  // Any prior serial or revoke is durable negative evidence. In particular, a
+  // revoke-without-row must not be bypassed by ordinary server boot.
+  if (ledger.nextSerial(machineId) > 1 || ledger.revokeSerial(machineId) !== undefined) {
+    throw new Error(`host machine '${machineId}' enrollment is revoked`)
+  }
+
+  appendEnrollment(host, machineId, 1, initialOwnerUserId)
+  return resolveOwnerForRecovery(host, initialOwnerUserId)
 }
 
 function isTokenRevoked(host: EnrollmentHost, machineId: MachineId, token: string): boolean {

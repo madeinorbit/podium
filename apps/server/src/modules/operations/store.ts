@@ -173,6 +173,25 @@ export class OperationStore {
     return rows.map(toRow).filter((row) => !isTerminalOperationState(row.state))
   }
 
+  /** Terminal rows whose kind cleanup still needs an idempotent retry. */
+  pendingCleanup(): OperationRow[] {
+    const rows = this.db
+      .prepare('SELECT * FROM operations ORDER BY updated_at ASC')
+      .all() as Record<string, unknown>[]
+    return rows.map(toRow).filter((row) => {
+      if (!isTerminalOperationState(row.state) || !row.operation) return false
+      const details = row.operation.details
+      if (!details || typeof details !== 'object') return false
+      const cleanup = details.cleanup
+      return (
+        typeof cleanup === 'object' &&
+        cleanup !== null &&
+        'status' in cleanup &&
+        cleanup.status === 'pending'
+      )
+    })
+  }
+
   /** Newest first — what Settings → Updates lists (§3.7). */
   history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): OperationRow[] {
     const rows = (

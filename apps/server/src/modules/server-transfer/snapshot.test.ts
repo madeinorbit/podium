@@ -20,6 +20,7 @@ describe('portable server snapshot', () => {
   it('canonicalizes sorted entries and excludes the digest from its own hash', () => {
     const body: ServerTransferManifest = {
       formatVersion: 1 as const,
+      operationId: 'operation-1',
       transferId: '00000000-0000-4000-8000-000000000001',
       sourceInstanceId: 'instance-1',
       sourceMachineId: 'source-1',
@@ -57,6 +58,7 @@ describe('portable server snapshot', () => {
     roots.push(root)
     await writeFile(join(root, 'podium.db'), 'db')
     await writeFile(join(root, 'enrollment.ledger'), 'ledger')
+    await writeFile(join(root, 'update-signing-key.json'), 'server-key')
     await mkdir(join(root, 'transcripts'))
     await symlink(join(root, 'podium.db'), join(root, 'transcripts', 'linked.db'))
     const checkpoint = vi.fn()
@@ -65,6 +67,7 @@ describe('portable server snapshot', () => {
       createPortableSnapshot({
         stateRoot: root,
         packageDir: join(root, '.server-transfer', 'snapshot'),
+        operationId: 'operation-1',
         transferId: 'transfer-1',
         sourceInstanceId: 'instance-1',
         sourceMachineId: asMachineId('source-1'),

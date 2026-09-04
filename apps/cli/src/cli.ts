@@ -1024,10 +1024,10 @@ export function daemonOptionsForPlan(
   plan: ModePlan,
   serverPort: number,
   localBootstrapToken?: string,
-  /** This host's minted id (`<stateDir>/machine.id`). Defaulted rather than required so
-   *  the argv-shaped tests keep calling this with three arguments; the same file the
-   *  server read is the same file read here, because it is the same host. */
-  hostMachineId: MachineId = readOrCreateLocalMachineId(),
+  /** This host's minted id (`<stateDir>/machine.id`), when already known. */
+  hostMachineId?: MachineId,
+  /** Injected only so tests can prove remote planning never touches local identity. */
+  readHostMachineId: () => MachineId = readOrCreateLocalMachineId,
 ): DaemonStartOptions {
   const serverUrl = plan.mode === 'daemon' ? plan.serverUrl : localServerWsUrl(serverPort)
   if (!serverUrl)
@@ -1037,7 +1037,10 @@ export function daemonOptionsForPlan(
     if (plan.mode !== 'all-in-one') return {}
     if (!localBootstrapToken)
       throw new Error('podium all-in-one daemon needs local bootstrap token')
-    return { bootstrapToken: localBootstrapToken, machineId: hostMachineId }
+    return {
+      bootstrapToken: localBootstrapToken,
+      machineId: hostMachineId ?? readHostMachineId(),
+    }
   })()
 
   return {
@@ -1103,6 +1106,7 @@ export interface HostModules {
     /** In-process daemon channel [POD-196] — passed to the all-in-one daemon
      *  so per-frame traffic skips the loopback WebSocket entirely. */
     localDaemonLink?: LocalDaemonLink
+    recoveryOnly: boolean
   }>
   isAddressInUseError(err: unknown): boolean
   startDaemon(
@@ -1198,6 +1202,7 @@ async function runInProcess(
   let serverPort = port
   let localBootstrapToken: string | undefined
   let localDaemonLink: LocalDaemonLink | undefined
+  let recoveryOnly = false
   const host = roles.server || roles.daemon ? await loadHost() : undefined
   if (roles.server && host) {
     const { startServer, isAddressInUseError } = host
@@ -1217,13 +1222,14 @@ async function runInProcess(
     serverPort = server.port
     localBootstrapToken = server.bootstrapToken
     localDaemonLink = server.localDaemonLink
+    recoveryOnly = server.recoveryOnly
     console.log(`podium server up on ${localServerUrl(serverPort)}`)
     if (plan.showSetupHint) {
       console.log(`\n  → Open setup:  ${localServerUrl(serverPort)}/\n`)
       console.log('  → …or run: podium setup   (configure here in the terminal)')
     }
   }
-  if (roles.daemon && host) {
+  if (roles.daemon && host && !recoveryOnly) {
     let daemonOptions: DaemonStartOptions
     if (plan.daemonAuth === 'local-split') {
       // `podium daemon --local` — see DaemonAuthKind: authenticate as the LOCAL machine
@@ -1534,9 +1540,9 @@ export async function main(
       return
     }
     case 'server-transfer-promote': {
-      const { promoteTargetServerRole } = await import('./role-reconcile')
+      const { requestParentTopology } = await import('@podium/runtime/parent-control')
       try {
-        await promoteTargetServerRole({ transferId: plan.transferId })
+        await requestParentTopology({ children: ['server', 'daemon'], health: 'server' })
       } catch (error) {
         console.error((error as Error).message)
         process.exit(2)
@@ -1544,8 +1550,8 @@ export async function main(
       return
     }
     case 'server-transfer-retire-daemon': {
-      const { retireTargetDaemon } = await import('./role-reconcile')
-      await retireTargetDaemon({ acknowledged: true })
+      const { requestParentTopology } = await import('@podium/runtime/parent-control')
+      await requestParentTopology({ children: ['server'], health: 'none' })
       return
     }
     case 'parent': {

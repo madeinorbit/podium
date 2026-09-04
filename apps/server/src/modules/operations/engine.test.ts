@@ -15,6 +15,7 @@ import {
   UNKNOWN_KIND_ERROR_CODE,
 } from './engine'
 import {
+  ADOPTION_DEFERRED,
   type OperationKindDefinition,
   OperationKindRegistry,
   type StepOutcome,
@@ -615,7 +616,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
     await run(engine, 'test')
 
-    expect(engine.cancel('op_1')).toMatchObject({ canceled: true })
+    expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
     expect(store.get('op_1')?.state).toBe('canceled')
     expect(store.get('op_1')?.finishedAt).not.toBeNull()
   })
@@ -625,7 +626,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
     await run(engine, 'test')
 
-    expect(engine.cancel('op_1')).toEqual({
+    expect(await engine.cancel('op_1')).toEqual({
       canceled: false,
       refused: 'irreversible',
       step: 'first',
@@ -640,22 +641,22 @@ describe('cancel is gated on reversibility (§3.2)', () => {
       testKind({ runners: { first: runner(blocks, undefined), second: runner(done) } }),
     )
     await run(engine, 'test')
-    expect(engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
+    expect(await engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
   })
 
   it('refuses an operation that never existed, or already ended', async () => {
     const { registry, engine } = harness()
     registry.register(testKind())
-    expect(engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
+    expect(await engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
     await run(engine, 'test')
-    expect(engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
+    expect(await engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
   })
 
   it('frees the group once canceled', async () => {
     const { registry, engine } = harness()
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
     await run(engine, 'test')
-    engine.cancel('op_1')
+    await engine.cancel('op_1')
     expect(await run(engine, 'test')).toMatchObject({ started: true })
   })
 })
@@ -704,6 +705,45 @@ describe('adoption after a restart (P3, §3.4)', () => {
     expect(first).not.toHaveBeenCalled()
     expect(adopted[0]?.state).toBe('done')
     expect(store.get('op_1')?.state).toBe('done')
+  })
+
+  it('defers adoption without a row write or runner, then persists one final retry', async () => {
+    const { store, registry } = harness()
+    store.insert(midFlight())
+    const before = store.get('op_1')
+    const ensure = vi.fn(done)
+    let final = false
+    registry.register(
+      testKind({
+        reconcile: (operation) =>
+          final
+            ? {
+                ...operation,
+                state: 'done',
+                finishedAt: 20,
+                steps: (operation.steps ?? []).map((item) => ({
+                  ...item,
+                  state: 'done' as const,
+                })),
+              }
+            : ADOPTION_DEFERRED,
+        runners: { first: runner(ensure), second: runner(ensure) },
+      }),
+    )
+
+    const engine = successor(store, registry)
+    await engine.adoptOnBoot(() => ({ state: 'promoting' }))
+
+    expect(store.get('op_1')).toEqual(before)
+    expect(ensure).not.toHaveBeenCalled()
+    expect(engine.isAdoptionDeferred('op_1')).toBe(true)
+
+    final = true
+    const settled = await engine.resumeDeferredAdoption('op_1', { state: 'promoted' })
+    expect(settled?.state).toBe('done')
+    expect(store.get('op_1')?.state).toBe('done')
+    expect(engine.isAdoptionDeferred('op_1')).toBe(false)
+    expect(ensure).not.toHaveBeenCalled()
   })
 
   it('re-runs the step reality says is still outstanding', async () => {

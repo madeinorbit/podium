@@ -93,11 +93,19 @@ import { registerMaintenanceRoute } from './modules/maintenance/route'
 import { MaintenanceService } from './modules/maintenance/service'
 import { MessagingService } from './modules/messaging'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
+import { serverMoveAuthorization } from './modules/server-transfer/authorization'
 import {
   assertWritableServerBoot,
+  legacyTransferInProgress,
   reconcileSafeServerTransferBoot,
+  serverTransferBootMode,
 } from './modules/server-transfer/journal'
+import { serverMoveFaultHook } from './modules/server-transfer/operation'
 import { PortableStateFence } from './modules/server-transfer/portable-fence'
+import {
+  readNewestTargetPromotionMetadata,
+  readPromotedTargetMetadata,
+} from './modules/server-transfer/target-status'
 import { SuperagentService } from './modules/superagent'
 import { DEVELOPMENT_SOURCE_ROOT, fleetHeadlessPlatforms } from './modules/updates/dev-bundle'
 import {
@@ -192,6 +200,8 @@ export interface ServerHandle {
   instanceId: string
   port: number
   registry: SessionRegistry
+  /** True when this process exposes only durable server-move recovery APIs. */
+  recoveryOnly: boolean
   /**
    * The persistent same-host shared secret the bundled local daemon presents (as its
    * `hello` token) to authenticate as the local machine. Exposed so the in-process
@@ -521,7 +531,12 @@ export async function startServer(
   } = {},
 ): Promise<ServerHandle> {
   const config = loadConfig()
-  const host = resolveBindHost(opts)
+  // A promoted server's durable listen contract outranks the target daemon's
+  // process environment; an explicit caller option still wins.
+  const host = resolveBindHost({
+    ...opts,
+    ...(opts.host === undefined ? { host: config.bindHost } : {}),
+  })
   const configuredProxyHops = resolveTrustedProxyHops(opts.trustedProxyHops, process.env, host)
   if (
     !Number.isSafeInteger(configuredProxyHops) ||
@@ -559,17 +574,25 @@ export async function startServer(
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
     allowCreate: !hasEnrollmentHistory(stateDir()),
   })
-  reconcileSafeServerTransferBoot(stateDir())
-  assertWritableServerBoot(stateDir())
+  const transferBootMode = serverTransferBootMode(stateDir())
+  const recoveryOnly = transferBootMode === 'recovery-only'
+  if (!recoveryOnly) assertWritableServerBoot(stateDir())
   const portableStateFence = new PortableStateFence()
-  const store = new SessionStore(undefined, asMachineId(hostMachineId))
+  if (recoveryOnly) await portableStateFence.acquire()
+  const store = new SessionStore(undefined, asMachineId(hostMachineId), { queryOnly: recoveryOnly })
+  const activeServerMove = store.operations
+    .active()
+    .find((row) => row.kind === 'server-move')?.operation
+  reconcileSafeServerTransferBoot(stateDir(), activeServerMove)
   // RETIRING THE INSTANCE PASSWORD (POD-1554), before anything can serve a login and
   // before the open-exposure check below. Order matters between these two: the legacy
   // hash in auth.json is the operator's REAL password and wins, so it is moved into the
   // first admin's credential first; the PODIUM_PASSWORD seam then finds a credential and
   // stays the no-op it has always been on an instance that already has one.
-  await retireInstancePassword({ users: store.users })
-  await applyEnvFirstAdminPassword({ users: store.users })
+  if (!recoveryOnly) {
+    await retireInstancePassword({ users: store.users })
+    await applyEnvFirstAdminPassword({ users: store.users })
+  }
   // IS LOGIN REQUIRED — composed ONCE and passed to every gate, so the guard, the login
   // route, the status route and the exposure warning cannot answer it differently.
   const credentialsRequired = (): boolean =>
@@ -578,23 +601,28 @@ export async function startServer(
   // Readiness gate [spec:SP-c29e]: a bloated change log is fully pruned in
   // bounded, yielding units before SessionRegistry constructs its Ledger and
   // folds/reconciles the retained rows. The server does not listen meanwhile.
-  const bootPrune = await prepareLedgerBoot({
-    repo: store.sync,
-    now: Date.now,
-    onPruneMetrics: (metrics) => {
-      perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs, DEPLOYMENT)
-      perf.record(
-        'phase',
-        'changeLogPrune.boot.maxSlice',
-        metrics.maxUninterruptedSliceMs,
-        DEPLOYMENT,
-      )
-    },
-  })
-  if (bootPrune.metrics.exceededPlacementThreshold) {
-    log.warn('boot retention exceeded the placement threshold — candidate for janitor placement', {
-      durationMs: bootPrune.metrics.totalDurationMs,
+  if (!recoveryOnly) {
+    const bootPrune = await prepareLedgerBoot({
+      repo: store.sync,
+      now: Date.now,
+      onPruneMetrics: (metrics) => {
+        perf.record('phase', 'changeLogPrune.boot.total', metrics.totalDurationMs, DEPLOYMENT)
+        perf.record(
+          'phase',
+          'changeLogPrune.boot.maxSlice',
+          metrics.maxUninterruptedSliceMs,
+          DEPLOYMENT,
+        )
+      },
     })
+    if (bootPrune.metrics.exceededPlacementThreshold) {
+      log.warn(
+        'boot retention exceeded the placement threshold — candidate for janitor placement',
+        {
+          durationMs: bootPrune.metrics.totalDurationMs,
+        },
+      )
+    }
   }
   // The Settings toggle is the bottom layer; env and config.json sit above it.
   // Read at boot because the lake's presence decides how the registry is built —
@@ -637,6 +665,7 @@ export async function startServer(
   const registry: SessionRegistry = new SessionRegistry(store, undefined, {
     instanceId,
     devChannelFeed: () => devChannelFeed?.(),
+    recoveryOnly,
     // The server's baked product label is the Phase 1 target identity. The richer
     // release-manifest descriptor remains an optional /version publication seam.
     targetVersion: () => appVersion,
@@ -649,7 +678,7 @@ export async function startServer(
     // Enrollment ledger (POD-1114, D19.4): pairing root + append-only enrollment,
     // owner and revocation at the state-root tier, outside podium.db. Opened
     // before service construction so pair/hello/revoke share one durability domain.
-    enrollment: openEnrollmentLedger(stateDir(), portableStateFence),
+    ...(!recoveryOnly ? { enrollment: openEnrollmentLedger(stateDir(), portableStateFence) } : {}),
     // Inbound daemon pairing is a HUB capability, injected here (the composition
     // root) so core (relay/machines) never imports hub/pairing — see roles.ts.
     // Node role = no manager = `pair` handshakes rejected, minting throws; the
@@ -693,7 +722,7 @@ export async function startServer(
   // local daemon reads the SAME file (or, in-process, gets this value via ServerHandle)
   // and presents it as its `hello` token — so the local daemon authenticates with no
   // pairing step and no per-boot token race.
-  const bootstrapToken = readOrCreateDaemonSecret()
+  const bootstrapToken = recoveryOnly ? '' : readOrCreateDaemonSecret()
   // Provision THIS HOST as a machine NOW, at startup: register it under the id read
   // above with the server-owned credential (sha256 of the shared secret), and fold any
   // pre-POD-318 rows onto that id in one transaction. Rows are therefore attributed
@@ -710,7 +739,8 @@ export async function startServer(
       throw new Error('invalid parent-supplied machine service assignment', { cause: error })
     }
   }
-  registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken, bootstrapAssignment)
+  if (!recoveryOnly)
+    registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken, bootstrapAssignment)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -721,7 +751,7 @@ export async function startServer(
   // Anything an operator had QUEUED in `upstream_outbox` when this build lands is
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
-  reportParkedUpstreamMutations(store.sync, store.events)
+  if (!recoveryOnly) reportParkedUpstreamMutations(store.sync, store.events)
   // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
   // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
   // so this collects NOTHING until a tier is explicitly on — and takes effect
@@ -788,7 +818,7 @@ export async function startServer(
     // user that bound it, or to nobody and is refused (ADR 3 Amendment 1 D22).
     telegramBindings: store.telegramBindings,
   })
-  messaging.configure()
+  if (!recoveryOnly) messaging.configure()
   const cloud = createCloudRuntimeProviderFromEnv()
   const devArtifactToken = readOrCreateDevArtifactToken()
   let boundPort = opts.port ?? 0
@@ -869,6 +899,7 @@ export async function startServer(
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
     process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
+    !recoveryOnly &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&
     prepareCoordinatorUpdate &&
@@ -920,9 +951,11 @@ export async function startServer(
       ? 'this deployment owns the server binary (updateScope=fleet-only)'
       : developmentRuntime.runningFromSource
         ? 'this coordinator runs from source'
-        : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
-          ? 'the local participant is disabled for this run'
-          : 'no supervising parent is discoverable in the run registry'
+        : recoveryOnly
+          ? 'the coordinator is fenced in recovery-only mode'
+          : process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT === '1'
+            ? 'the local participant is disabled for this run'
+            : 'no supervising parent is discoverable in the run registry'
     const note = `this machine will not report its build or appear online in its own fleet: ${why}`
     if (fleetOnly) log.info(note)
     else if (developmentRuntime.runningFromSource) log.debug(note)
@@ -973,6 +1006,7 @@ export async function startServer(
         registry.sessionStore.verifiedSnapshotBeforeUpdate(from, target),
       latestDatabaseSnapshot: () => registry.sessionStore.latestDatabaseSnapshot(),
       ...(prepareCoordinatorUpdate ? { prepareCoordinatorUpdate } : {}),
+      legacyTransferActive: () => legacyTransferInProgress(stateDir()),
       ...(requestCoordinatorRestart ? { requestCoordinatorRestart } : {}),
       ...(devPublisher.requestWebRebuild
         ? { requestWebRebuild: devPublisher.requestWebRebuild }
@@ -989,28 +1023,203 @@ export async function startServer(
   // bare await here is safe by the engine's own contract rather than by a catch
   // at this call site. The server that cannot boot is the one that has to apply
   // the update that fixes it.
-  //
-  // THE PARENT'S NOTE, READ ONCE (POD-2505). A rollback leaves this server on
-  // the version the update was meant to replace, so adoption is about to fail
-  // the `server` step for coming back on the wrong version — which is true, and
-  // on its own reads as an unexplained failure. The parent's own sentence is
-  // what turns it into a report the user can act on, and decision 4 requires it
-  // when rollback was refused. Cleared afterwards: the note is about THIS boot.
+  // Preserve the parent supervisor's rollback/refusal context for update adoption.
   const parentReport = readParentOutcome()?.why
-  await registry.modules.operations.engine.adoptOnBoot(
-    () => ({
-      appVersion,
-      servedWebDigest: websiteDigestReader(
-        () => servedWebSourceDigest(desktopWebDir()),
-        () => servedWebIdentity(phoneWebDir()),
-      )?.(),
-      machineDirectory: registry.modules.updates.fleet(),
-      ...(parentReport ? { parentReport } : {}),
-      now: Date.now(),
-    }),
-    updateOperationBoot,
-  )
-  if (parentReport) clearParentOutcome()
+  const durableUsers = registry.sessionStore.users
+  const serverMoveCrash = serverMoveFaultHook()
+  const bootTargetPromotion = readNewestTargetPromotionMetadata(stateDir())
+  if (!recoveryOnly)
+    await registry.modules.operations.engine.adoptOnBoot(
+      (row) => {
+        if (row.kind === 'server-move') {
+          const details = row.operation?.details
+          const targetMachineId =
+            details && typeof details === 'object' && typeof details.targetMachineId === 'string'
+              ? details.targetMachineId
+              : undefined
+          return {
+            promoted: bootTargetPromotion?.state === 'promoted' ? bootTargetPromotion : null,
+            promoting: bootTargetPromotion?.state === 'promoting' ? bootTargetPromotion : null,
+            journal: registry.modules.serverTransfer.status(),
+            machineId: hostMachineId,
+            targetOnline:
+              targetMachineId !== undefined &&
+              registry.modules.machines.hasDaemon(asMachineId(targetMachineId)),
+            now: Date.now(),
+          }
+        }
+        return {
+          appVersion,
+          servedWebDigest: websiteDigestReader(
+            () => servedWebSourceDigest(desktopWebDir()),
+            () => servedWebIdentity(phoneWebDir()),
+          )?.(),
+          machineDirectory: registry.modules.updates.fleet(),
+          ...(parentReport ? { parentReport } : {}),
+          now: Date.now(),
+        }
+      },
+
+      (row) => {
+        if (row.kind !== 'server-move') return updateOperationBoot()
+        const details = row.operation?.details
+        if (!details || typeof details !== 'object') return undefined
+        const targetMachineId = details.targetMachineId
+        const publicUrl = details.publicUrl
+        const bindHost = details.bindHost
+        const port = details.port
+        const transferId = details.transferId
+        const authorizedBy = details.authorizedBy
+        if (
+          typeof targetMachineId !== 'string' ||
+          typeof publicUrl !== 'string' ||
+          (bindHost !== '127.0.0.1' && bindHost !== '0.0.0.0') ||
+          typeof port !== 'number' ||
+          typeof transferId !== 'string' ||
+          typeof authorizedBy !== 'string'
+        )
+          return undefined
+        return {
+          service: registry.modules.serverTransfer,
+          engine: registry.modules.operations.engine,
+          input: {
+            targetMachineId: asMachineId(targetMachineId),
+            publicUrl,
+            bindHost,
+            port,
+            confirmation: 'TRANSFER SERVER' as const,
+          },
+          authorization: serverMoveAuthorization({
+            authorizedBy,
+            targetMachineId,
+            machines: registry.modules.machines,
+            roleOf: (userId) => durableUsers.roleOf(userId),
+          }),
+          authorizedBy,
+          transferId,
+          sourceMachineId: registry.modules.serverTransfer.sourceMachineId(),
+          publicUrl,
+          bindHost,
+          port,
+          ...(serverMoveCrash ? { crash: serverMoveCrash } : {}),
+        }
+      },
+    )
+  if (!recoveryOnly && parentReport) clearParentOutcome()
+
+  const deferredSourceJournal = registry.modules.serverTransfer.status()
+  const deferredSourceMove =
+    deferredSourceJournal &&
+    ['preparing', 'staged', 'validated', 'fence-pending'].includes(deferredSourceJournal.state) &&
+    deferredSourceJournal.record.sourceMachineId === hostMachineId &&
+    registry.modules.operations.engine.isAdoptionDeferred(deferredSourceJournal.record.operationId)
+      ? {
+          operationId: deferredSourceJournal.record.operationId,
+          transferId: deferredSourceJournal.record.transferId,
+          targetMachineId: deferredSourceJournal.record.targetMachineId,
+        }
+      : undefined
+
+  const deferredPromotion =
+    bootTargetPromotion?.state === 'promoting' &&
+    registry.modules.operations.engine.isAdoptionDeferred(bootTargetPromotion.operationId)
+      ? bootTargetPromotion
+      : undefined
+  let serverMoveDataPlaneDeferred = deferredPromotion !== undefined
+  let stopDeferredPromotionPoll = (): void => {}
+  if (deferredPromotion) {
+    let settling = false
+    const settle = async (): Promise<void> => {
+      if (settling || !serverMoveDataPlaneDeferred) return
+      const promoted = readPromotedTargetMetadata(stateDir(), deferredPromotion.transferId)
+      if (!promoted || promoted.operationId !== deferredPromotion.operationId) return
+      settling = true
+      try {
+        const operation = await registry.modules.operations.engine.resumeDeferredAdoption(
+          deferredPromotion.operationId,
+          {
+            promoted,
+            machineId: hostMachineId,
+            journal: registry.modules.serverTransfer.status(),
+            now: Date.now(),
+          },
+        )
+        if (!registry.modules.operations.engine.isAdoptionDeferred(deferredPromotion.operationId)) {
+          stopDeferredPromotionPoll()
+          // Only exact promoted proof opens traffic. A final mismatched verdict
+          // remains health-only and is durably visible as handoff-orphaned.
+          if (operation?.state === 'done') serverMoveDataPlaneDeferred = false
+        }
+      } catch (error) {
+        log.warn('deferred server move adoption retry failed', {
+          operationId: deferredPromotion.operationId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        settling = false
+      }
+    }
+    const poll = setInterval(() => {
+      void settle()
+    }, 50)
+    poll.unref?.()
+    stopDeferredPromotionPoll = () => clearInterval(poll)
+    // Read immediately, then keep retrying while deferred. This closes both the
+    // write-before-poll window and a transient reconciliation failure.
+    void settle()
+  }
+
+  let startDeferredSourceMovePoll = (): void => {}
+  let stopDeferredSourceMovePoll = (): void => {}
+  if (deferredSourceMove) {
+    let poll: ReturnType<typeof setInterval> | undefined
+    let settling = false
+    let stopped = false
+    const settle = async (): Promise<void> => {
+      if (settling || stopped) return
+      if (!registry.modules.operations.engine.isAdoptionDeferred(deferredSourceMove.operationId)) {
+        stopDeferredSourceMovePoll()
+        return
+      }
+      const targetOnline = registry.modules.machines.hasDaemon(deferredSourceMove.targetMachineId)
+      if (!targetOnline) return
+      settling = true
+      try {
+        await registry.modules.operations.engine.resumeDeferredAdoption(
+          deferredSourceMove.operationId,
+          {
+            journal: registry.modules.serverTransfer.status(),
+            machineId: hostMachineId,
+            targetOnline,
+            now: Date.now(),
+          },
+        )
+        if (!registry.modules.operations.engine.isAdoptionDeferred(deferredSourceMove.operationId))
+          stopDeferredSourceMovePoll()
+      } catch (error) {
+        log.warn('deferred source server move adoption retry failed', {
+          operationId: deferredSourceMove.operationId,
+          transferId: deferredSourceMove.transferId,
+          error: error instanceof Error ? error.message : String(error),
+        })
+      } finally {
+        settling = false
+      }
+    }
+    startDeferredSourceMovePoll = () => {
+      if (poll || stopped) return
+      poll = setInterval(() => {
+        void settle()
+      }, 50)
+      poll.unref?.()
+      void settle()
+    }
+    stopDeferredSourceMovePoll = () => {
+      stopped = true
+      if (poll) clearInterval(poll)
+      poll = undefined
+    }
+  }
 
   // Reconcile the recovery-snapshot catalogue with what is actually on disk and,
   // if anything is unproved, queue ONE background verifier (POD-3068). Not
@@ -1021,21 +1230,50 @@ export async function startServer(
   registry.sessionStore.discoverDatabaseSnapshots()
 
   const requestPeerAddresses = new WeakMap<Request, string>()
-  const readiness = createServerReadiness({
+  const configuredReadiness = createServerReadiness({
     bootConfig: config,
     hasLiveAgentMachine: () => registry.modules.machines.onlineMachineIds().length > 0,
     // An env-set mode is this process's mode, and the file cannot contradict it.
     ...(envMode ? { envMode } : {}),
   })
-  let targetsResolvedOnBoot = false
+  const readiness = () =>
+    serverMoveDataPlaneDeferred
+      ? ({
+          state: 'activation_pending',
+          reason: 'restart_required',
+          dataPlane: 'blocked',
+        } as const)
+      : configuredReadiness()
+  let targetsResolvedOnBoot = recoveryOnly
   const app = new Hono()
   // The dev resolver pulls this server's own feed. The listener must therefore
   // exist before the boot resolve, but it must not report healthy in that narrow
   // window or a supervisor (and the packaged restart gate) could observe the
   // exact empty fleet state boot is about to repair.
   app.get('/health', (c) =>
-    targetsResolvedOnBoot ? c.text('ok') : c.text('resolving update targets', 503),
+    serverMoveDataPlaneDeferred || targetsResolvedOnBoot
+      ? c.text('ok')
+      : c.text('resolving update targets', 503),
   )
+  app.use('*', async (c, next) => {
+    if (!serverMoveDataPlaneDeferred || c.req.path === '/health') return next()
+    return c.json({ error: 'server_not_ready', readiness: readiness() }, 503)
+  })
+
+  if (recoveryOnly) {
+    const allowedRecoveryProcedures = new Set([
+      '/health',
+      '/trpc/operations.active',
+      '/trpc/operations.history',
+      '/trpc/operations.settleAsk',
+      '/trpc/operations.action',
+    ])
+    app.use('*', async (c, next) => {
+      if (allowedRecoveryProcedures.has(c.req.path)) return next()
+      return c.notFound()
+    })
+  }
+
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let janitorHostClosing = false
@@ -1149,7 +1387,7 @@ export async function startServer(
     readiness,
     // A source launcher is not enough on its own: PODIUM_HOST=0.0.0.0 is an explicit
     // reachability choice, so that server must retain password/reachability setup.
-    localSetupDefault: shouldAdvertiseLocalSetupDefault(opts),
+    localSetupDefault: shouldAdvertiseLocalSetupDefault({ ...opts, host }),
   })
   // Human-client login (web/desktop UI). Same cross-origin reason as /setup: the desktop
   // webview's origin differs from the server in the all-in-one case. Login itself is
@@ -1409,6 +1647,8 @@ export async function startServer(
     const failListen = (err: unknown): void => {
       if (settled) return
       settled = true
+      stopDeferredPromotionPoll()
+      stopDeferredSourceMovePoll()
       messaging.stop()
       registry.dispose()
       // THE SECOND CLOSE PATH (POD-2148). Boot adoption has already run by
@@ -1416,6 +1656,7 @@ export async function startServer(
       // the store about to close — and a port-in-use start, the routine outcome
       // with a stale backend on :18787, takes exactly this path. Same call and
       // same order as the shutdown persist list below.
+      registry.modules.operations.cleanupJanitor.stop()
       registry.modules.operations.engine.stop()
       store.close()
       reject(
@@ -1474,7 +1715,11 @@ export async function startServer(
         async fetch(request, nativeServer) {
           const peerAddress = nativeServer.requestIP?.(request)?.address
           if (peerAddress) requestPeerAddresses.set(request, peerAddress)
-          const upgrade = ws.handleRequest(request, nativeServer as never)
+          const upgrade = serverMoveDataPlaneDeferred
+            ? null
+            : recoveryOnly && new URL(request.url).pathname !== '/daemon'
+              ? null
+              : ws.handleRequest(request, nativeServer as never)
           if (upgrade !== null) return upgrade
           const headers = new Headers(request.headers)
           if (peerAddress) headers.set('x-podium-peer-address', peerAddress)
@@ -1483,6 +1728,7 @@ export async function startServer(
           return compressHttpResponse(request, await app.fetch(observedRequest))
         },
       })
+      startDeferredSourceMovePoll()
     } catch (err) {
       void ws.close()
       failListen(err)
@@ -1627,6 +1873,7 @@ export async function startServer(
         const acceptor = createDaemonAcceptor({
           machines: registry.modules.machines,
           connectionId: `local-daemon-${randomUUID()}`,
+          verifyOnly: registry.recoveryOnly,
         })
         const outcome = receiveDaemonFrame(acceptor, JSON.stringify(hello))
         if (outcome.kind !== 'established') {
@@ -1653,11 +1900,13 @@ export async function startServer(
           0,
           DEPLOYMENT,
         )
-        recordHelloBuild(registry.modules.machines, outcome.machineId, {
-          build: outcome.build,
-          caps: outcome.offeredCaps,
-          at: new Date().toISOString(),
-        })
+        if (!registry.recoveryOnly) {
+          recordHelloBuild(registry.modules.machines, outcome.machineId, {
+            build: outcome.build,
+            caps: outcome.offeredCaps,
+            at: new Date().toISOString(),
+          })
+        }
         const send = (msg: ControlMessage): void => queueMicrotask(() => deliver(msg))
         const transport = {
           send,
@@ -1689,7 +1938,12 @@ export async function startServer(
             })
           },
         }
-        registry.gateway.attachDaemon(principal, transport, outcome.acceptedCaps)
+        if (registry.recoveryOnly) {
+          registry.modules.machines.attach(principal.machine, send)
+          registry.modules.machines.flushQueued(principal.machine)
+        } else {
+          registry.gateway.attachDaemon(principal, transport, outcome.acceptedCaps)
+        }
         return {
           established: true as const,
           reply: PeerHelloReply.parse(outcome.reply),
@@ -1697,7 +1951,15 @@ export async function startServer(
           // `inventoryReport` used to be special-cased at both socket call
           // sites; it is a row in the gateway's routing table now, so this
           // link routes the WHOLE daemon union through one seam.
-          deliver: (msg) => queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg)),
+          deliver: (msg) => {
+            if (
+              registry.recoveryOnly &&
+              msg.type !== 'serverTransferResult' &&
+              msg.type !== 'serverEndpointResult'
+            )
+              return
+            queueMicrotask(() => registry.gateway.routeDaemonFrame(principal, msg))
+          },
           deliverOutput: (batch) => {
             perf.record(
               'phase',
@@ -1708,28 +1970,39 @@ export async function startServer(
             )
             queueMicrotask(() => registry.gateway.routeDaemonOutput(principal, batch))
           },
-          close: () => registry.gateway.detachDaemon(principal, transport),
+          close: () => {
+            if (registry.recoveryOnly) registry.modules.machines.detach(principal.machine, send)
+            else registry.gateway.detachDaemon(principal, transport)
+          },
         }
       },
     }
-    void refreshTargetsOnBoot({
-      refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-    }).then(() => {
-      // Adoption and target hydration are both complete: recover a lost settle sweep.
-      registry.modules.updatesReconciler?.onBoot()
+    void (
+      recoveryOnly
+        ? Promise.resolve()
+        : refreshTargetsOnBoot({
+            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+          })
+    ).then(() => {
+      // Recovery-only transfer boots must remain read-only. Normal boots recover
+      // a lost settle sweep after operation adoption and target hydration.
+      if (!recoveryOnly) registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.
-      const targetRefresh = startTargetRefresh({
-        refresh: (channel) => registry.modules.updates.refreshTarget(channel),
-        operationActive: (channel) => registry.modules.updates.operationActive(channel),
-        schedule: timerSchedule,
-      })
+      const targetRefresh = recoveryOnly
+        ? { stop: () => {} }
+        : startTargetRefresh({
+            refresh: (channel) => registry.modules.updates.refreshTarget(channel),
+            operationActive: (channel) => registry.modules.updates.operationActive(channel),
+            schedule: timerSchedule,
+          })
       targetsResolvedOnBoot = true
       resolve({
         port: server.port,
         instanceId,
         registry,
+        recoveryOnly,
         bootstrapToken,
         localDaemonLink,
         // Deterministic fast shutdown (POD-611): terminate WS intake, persist
@@ -1745,6 +2018,8 @@ export async function startServer(
             server,
             persist: [
               ['messaging.stop', () => messaging.stop()],
+              ['serverMove.stopDeferredPromotionPoll', stopDeferredPromotionPoll],
+              ['serverMove.stopDeferredSourceMovePoll', stopDeferredSourceMovePoll],
               // An armed refresh timer that outlives the server would resolve a
               // target against a service whose store is already closed.
               ['updates.stopTargetRefresh', () => targetRefresh.stop()],
@@ -1754,7 +2029,13 @@ export async function startServer(
               // to persist a stall against it. Operations are durable, so losing
               // the timer costs nothing — the successor adopts the operation and
               // re-derives it from reality, which is the stronger answer anyway.
-              ['operations.stopTimers', () => registry.modules.operations.engine.stop()],
+              [
+                'operations.stopTimers',
+                () => {
+                  registry.modules.operations.cleanupJanitor.stop()
+                  registry.modules.operations.engine.stop()
+                },
+              ],
               // Stop the flush timer + unsubscribe. Deliberately NOT awaiting a
               // final network flush: shutdown is a user-visible latency path
               // (POD-611 made it deterministic and fast), and a report is worth

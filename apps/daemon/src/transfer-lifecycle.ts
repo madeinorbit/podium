@@ -1,46 +1,14 @@
-import { type ChildProcess, spawn } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
-
-async function waitForWorker(child: ChildProcess): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      child.kill('SIGTERM')
-      reject(new Error('server promotion worker timed out'))
-    }, 45_000)
-    child.once('error', (error) => {
-      clearTimeout(timer)
-      reject(error)
-    })
-    child.once('exit', (code, signal) => {
-      clearTimeout(timer)
-      if (code === 0) resolve()
-      else reject(new Error(`server promotion worker exited ${code ?? signal ?? 'unknown'}`))
-    })
-  })
-}
+import { requestParentTopology, signalParentTopology } from '@podium/runtime/parent-control'
 
 export interface TargetLifecycleDeps {
-  spawnProcess?: typeof spawn
+  requestTopology?: typeof requestParentTopology
 }
 
 export interface TargetRetirementDeps extends TargetLifecycleDeps {
+  signalTopology?: typeof signalParentTopology
   /** Injected by tests; production uses a short response-flush delay. */
   schedule?: (callback: () => void, delayMs: number) => void
   flushDelayMs?: number
-}
-
-function lifecycleInvocation(
-  subcommand: string,
-  args: string[] = [],
-): { cmd: string; args: string[] } {
-  if (import.meta.url.includes('/$bunfs/')) {
-    return { cmd: process.execPath, args: [subcommand, ...args] }
-  }
-  const cliPath = fileURLToPath(new URL('../../../scripts/cli.ts', import.meta.url))
-  return {
-    cmd: process.execPath,
-    args: ['--conditions=@podium/source', cliPath, subcommand, ...args],
-  }
 }
 
 /**
@@ -49,16 +17,11 @@ function lifecycleInvocation(
  * result is lost.
  */
 export async function restartAsServer(
-  input: { transferId: string },
+  _input: { transferId: string },
   deps: TargetLifecycleDeps = {},
 ): Promise<void> {
-  const spawnProcess = deps.spawnProcess ?? spawn
-  const promote = lifecycleInvocation('server-transfer-promote', [input.transferId])
-  const child = spawnProcess(promote.cmd, promote.args, {
-    stdio: 'ignore',
-    env: { ...process.env },
-  })
-  await waitForWorker(child)
+  const reconcile = deps.requestTopology ?? requestParentTopology
+  await reconcile({ children: ['server', 'daemon'], health: 'server' })
   // Deliberately retain this daemon after local serving proof. A timer cannot prove that the
   // promote reply reached the source; retaining the control channel makes a lost reply retryable.
   // Promotion disarms managed resurrection, and an explicit post-ack seam retires this process.
@@ -71,16 +34,11 @@ export async function restartAsServer(
  * detached retirement worker stops it.
  */
 export function retireTargetDaemonAfterAcknowledgement(deps: TargetRetirementDeps = {}): void {
-  const spawnProcess = deps.spawnProcess ?? spawn
+  const signal = deps.signalTopology ?? signalParentTopology
   const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
   schedule(() => {
-    const retire = lifecycleInvocation('server-transfer-retire-daemon')
-    const worker = spawnProcess(retire.cmd, retire.args, {
-      detached: true,
-      stdio: 'ignore',
-      env: { ...process.env },
-    })
-    worker.unref()
-    worker.once('error', () => {})
+    const posted = signal({ children: ['server'], health: 'none' })
+    if (!posted.ok)
+      console.error('podium: target daemon remains live because no parent supervisor is registered')
   }, deps.flushDelayMs ?? 50)
 }

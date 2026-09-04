@@ -10,7 +10,13 @@ import {
   type ServerTransferManifestEntry,
 } from '@podium/protocol'
 
-const ROOT_FILES = ['podium.db', 'enrollment.ledger'] as const
+/**
+ * The server update-signing key is an explicit portable secret: unlike config,
+ * machine credentials, and runtime files it belongs to the transferred server
+ * authority. It travels only through this authenticated server-transfer channel,
+ * never through the generic file RPC.
+ */
+const ROOT_FILES = ['podium.db', 'enrollment.ledger', 'update-signing-key.json'] as const
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
 export const TRANSFER_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
@@ -158,9 +164,7 @@ export function manifestWithDigest(
   const normalized = { ...body, files }
   return {
     ...normalized,
-    digest: createHash('sha256')
-      .update(canonicalServerTransferManifest(normalized))
-      .digest('hex'),
+    digest: createHash('sha256').update(canonicalServerTransferManifest(normalized)).digest('hex'),
   }
 }
 
@@ -193,6 +197,7 @@ export async function assertSnapshotCapacity(
 export async function createPortableSnapshot(input: {
   stateRoot: string
   packageDir: string
+  operationId: string
   transferId: string
   sourceInstanceId: string
   sourceMachineId: MachineId
@@ -216,6 +221,7 @@ export async function createPortableSnapshot(input: {
   await syncDirectory(input.packageDir)
   return manifestWithDigest({
     formatVersion: SERVER_TRANSFER_FORMAT_VERSION,
+    operationId: input.operationId,
     transferId: input.transferId,
     sourceInstanceId: input.sourceInstanceId,
     sourceMachineId: input.sourceMachineId,

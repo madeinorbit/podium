@@ -106,6 +106,7 @@ export type SpawnChildFn = (
 
 export type HealthProbeFn = (port: number) => Promise<HandoverHealthProbe>
 export type DaemonHealthProbeFn = () => Promise<DaemonHandoverHealthProbe>
+export type ServerReadyProbeFn = (port: number) => Promise<boolean>
 
 export interface ParentProcessDeps {
   installDir?: string
@@ -126,6 +127,8 @@ export interface ParentProcessDeps {
   spawn?: SpawnChildFn
   /** Probe used for boot readiness and handover health (disposition 24). */
   probeHealth?: HealthProbeFn
+  /** Recovery-compatible GET /health probe used during server-role promotion. */
+  probeServerReady?: ServerReadyProbeFn
   /** Daemon-only readiness proof from the remote connection + boot reconciliation record. */
   probeDaemonHealth?: DaemonHealthProbeFn
   /**
@@ -240,6 +243,14 @@ export function installInvocation(
  * `components.daemon` as a bare string is gone: the server emits an object
  * (`{state: 'connected'}`), so that branch was dead and the declared type lied.
  */
+async function defaultProbeServerReady(port: number): Promise<boolean> {
+  try {
+    return (await fetch(`http://127.0.0.1:${port}/health`)).ok
+  } catch {
+    return false
+  }
+}
+
 async function defaultProbeHealth(port: number): Promise<HandoverHealthProbe> {
   const down: HandoverHealthProbe = {
     serverRunning: false,
@@ -296,11 +307,20 @@ const sleep = (ms: number): Promise<void> => new Promise<void>((r) => setTimeout
 export class ParentProcess {
   private snap: ParentSnapshot
   private readonly childProcs = new Map<SupervisedChild, ChildProcess>()
-  private readonly childOrder: readonly SupervisedChild[]
+  private readonly topologyStops = new Set<SupervisedChild>()
+  private childOrder: SupervisedChild[]
+  private daemonLocal: boolean
   private readonly deps: Required<
     Pick<
       ParentProcessDeps,
-      'port' | 'spawn' | 'probeHealth' | 'probeDaemonHealth' | 'notify' | 'now' | 'sleep'
+      | 'port'
+      | 'spawn'
+      | 'probeHealth'
+      | 'probeServerReady'
+      | 'probeDaemonHealth'
+      | 'notify'
+      | 'now'
+      | 'sleep'
     >
   > &
     ParentProcessDeps
@@ -326,12 +346,14 @@ export class ParentProcess {
     this.env = { ...(deps.env ?? process.env) }
     this.installDir = deps.installDir ?? resolveInstallDir(this.env)
     this.installBinary = deps.installBinary ?? defaultInstallBinary(this.installDir, this.env)
-    this.childOrder = deps.children ?? CHILD_START_ORDER
+    this.childOrder = [...(deps.children ?? CHILD_START_ORDER)]
+    this.daemonLocal = this.childOrder.includes('server')
     this.deps = {
       ...deps,
       port: deps.port,
       spawn: deps.spawn ?? spawn,
       probeHealth: deps.probeHealth ?? defaultProbeHealth,
+      probeServerReady: deps.probeServerReady ?? defaultProbeServerReady,
       probeDaemonHealth: deps.probeDaemonHealth ?? defaultProbeDaemonHealth,
       notify: deps.notify ?? sdNotify,
       now: deps.now ?? Date.now,
@@ -507,6 +529,10 @@ export class ParentProcess {
           await this.runSwapRequest(request)
           return
         }
+        if (request.kind === 'topology') {
+          await this.runTopologyRequest(request)
+          return
+        }
         // A remote packaged daemon performs its own artifact swap, so this old
         // parent did not run `runSwapRequest` and cannot learn the migration
         // fact anywhere else. Preserve UNKNOWN: only an explicit publisher-
@@ -524,6 +550,104 @@ export class ParentProcess {
       }
     })()
     await this.handoverInFlight
+  }
+
+  private async runTopologyRequest(request: ParentRequest): Promise<void> {
+    const answer = (ok: boolean, error?: string): void => {
+      writeParentResult({
+        requestId: request.requestId,
+        kind: request.kind,
+        ok,
+        ...(error ? { error } : {}),
+        completedAt: new Date(this.deps.now()).toISOString(),
+      })
+      clearParentRequest()
+    }
+    try {
+      if (!request.children) throw new Error('topology request carried no child set')
+      await this.reconcileTopology(
+        request.children,
+        request.topologyHealth ?? 'none',
+        request.restartDaemon === true,
+      )
+      answer(true)
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      log.error('parent topology reconciliation failed', { err: error })
+      answer(false, message)
+    }
+  }
+
+  async reconcileTopology(
+    requested: readonly SupervisedChild[],
+    health: 'server' | 'daemon' | 'none',
+    restartDaemon = false,
+  ): Promise<void> {
+    const desired = CHILD_START_ORDER.filter((child) => requested.includes(child))
+    if (desired.length !== requested.length || new Set(requested).size !== requested.length) {
+      throw new Error('topology request carried an invalid child set')
+    }
+    const previous = [...this.childOrder]
+    this.childOrder = desired
+    if (desired.includes('daemon') && (restartDaemon || !previous.includes('daemon'))) {
+      this.daemonLocal = desired.includes('server')
+    }
+    const toStop = [...previous]
+      .reverse()
+      .filter(
+        (child) =>
+          !desired.includes(child) ||
+          (child === 'daemon' && restartDaemon && desired.includes(child)),
+      )
+    for (const child of toStop) await this.stopChildForTopology(child)
+    for (const child of desired) {
+      if (!this.childProcs.has(child)) await this.spawnChild(child)
+    }
+    const deadline = this.deps.now() + 45_000
+    while (health !== 'none' && this.deps.now() < deadline) {
+      const healthy =
+        health === 'server'
+          ? await this.deps.probeServerReady(this.deps.port)
+          : (await this.deps.probeDaemonHealth()).connected
+      if (healthy) {
+        this.snap = {
+          ...this.snap,
+          phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
+        }
+        this.publish()
+        return
+      }
+      await this.deps.sleep(200)
+    }
+    if (health !== 'none') throw new Error('topology health gate timed out')
+    this.snap = {
+      ...this.snap,
+      phase: Object.keys(this.snap.refusals).length > 0 ? 'degraded' : 'running',
+    }
+    this.publish()
+  }
+
+  private async stopChildForTopology(child: SupervisedChild): Promise<void> {
+    const proc = this.childProcs.get(child)
+    if (proc && proc.exitCode === null) {
+      this.topologyStops.add(child)
+      try {
+        proc.kill('SIGTERM')
+        const deadline = this.deps.now() + 5_000
+        while (this.deps.now() < deadline && this.childProcs.has(child)) {
+          await this.deps.sleep(50)
+        }
+        if (this.childProcs.has(child) && proc.exitCode === null) proc.kill('SIGKILL')
+      } finally {
+        this.childProcs.delete(child)
+        this.topologyStops.delete(child)
+      }
+    }
+    this.snap = {
+      ...this.snap,
+      children: { ...this.snap.children, [child]: { status: 'stopped' } },
+    }
+    this.publish()
   }
 
   /**
@@ -762,7 +886,7 @@ export class ParentProcess {
       // A parent with no server is a joined fleet member. `--local` there would
       // manufacture a host secret the remote source has never seen and turn a
       // legitimate pair code into `peerHelloRejected auth-failed`.
-      localDaemon: this.childOrder.includes('server'),
+      localDaemon: this.daemonLocal,
     })
     const childEnv: NodeJS.ProcessEnv = {
       ...this.env,
@@ -799,7 +923,7 @@ export class ParentProcess {
     }
     proc.once('exit', (code, signal) => {
       this.childProcs.delete(child)
-      if (this.stopping || this.terminating) return
+      if (this.stopping || this.terminating || this.topologyStops.has(child)) return
       // Outgoing handover: the successor reclaims children via --takeover. Do not
       // treat those exits as crashes or schedule restarts that race the new parent.
       if (this.snap.phase === 'handover_outgoing') return

@@ -17,6 +17,7 @@ import {
 } from '../operations/engine'
 import { OperationKindRegistry } from '../operations/kinds'
 import { OperationStore } from '../operations/store'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import { DevBundleUnavailableError } from './dev-bundle'
 import { ARTIFACT_ORIGIN_UNCONFIGURED_REASON } from './dev-publisher-wiring'
 import {
@@ -27,7 +28,6 @@ import {
   describeUpdateOperationFailure,
   describeUpdateWaitingExpiry,
   exclusiveUpdateVersion,
-  LIFECYCLE_EXCLUSION_GROUP,
   mergedWaveRounds,
   planUpdateOperation,
   RELOAD_SURFACES_ASK,
@@ -1309,6 +1309,7 @@ interface HarnessOptions {
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
+  legacyTransferActive?: () => boolean
   preparation?: () => { webReady: boolean; bundleReady: boolean; failureDetail?: string }
   hostMachineId?: string
   /** POD-2101: how often a watched step says it is still there. */
@@ -1387,6 +1388,7 @@ function harness(options: HarnessOptions = {}) {
       ? { prepareVerifiedDatabaseSnapshot: options.prepareVerifiedDatabaseSnapshot }
       : {}),
     latestDatabaseSnapshot: options.latestDatabaseSnapshot ?? (() => undefined),
+    ...(options.legacyTransferActive ? { legacyTransferActive: options.legacyTransferActive } : {}),
     recordOperationDetails: (id, patch) => {
       driver().recordDetails(id, patch)
     },
@@ -1724,6 +1726,27 @@ describe('the step runners', () => {
     expect(operation.error?.code).toBe('preparation-failed')
     expect(operation.error?.message).toContain('The website has not been built for HEAD')
     expect(operation.error?.message).not.toContain('internal diagnostic')
+  })
+
+  it('prepare: refuses a legacy transfer before packaging or machine delivery', async () => {
+    const requestDestBundle = vi.fn(() => Promise.resolve())
+    const h = harness({
+      machines: [machine({ id: 'vmi', deliveryCaps: FEED_CAPS })],
+      appVersion: 'dev+abc1234',
+      servedWebDigest: () => WEB_DIGEST,
+      requestDestBundle,
+      legacyTransferActive: () => true,
+    })
+
+    await h.engine.start(UPDATE_OPERATION_KIND, h.context())
+    await h.engine.whenSettled('op_1')
+
+    expect(h.read()).toMatchObject({
+      state: 'failed',
+      error: { code: 'legacy-transfer-in-progress' },
+    })
+    expect(requestDestBundle).not.toHaveBeenCalled()
+    expect(h.sent).toEqual([])
   })
 
   it('server: records a durable snapshot path BEFORE the restart is requested', async () => {
@@ -2385,7 +2408,7 @@ describe('the step runners', () => {
     await h.engine.whenSettled('op_1')
     expect(h.sent).toHaveLength(1)
 
-    expect(h.engine.cancel('op_1').canceled).toBe(true)
+    expect((await h.engine.cancel('op_1')).canceled).toBe(true)
     await h.engine.whenSettled('op_1')
     h.updates.withdrawAuthorization()
     expect(

@@ -53,6 +53,8 @@ export const gatewayCapabilityMinter = {
 export interface DaemonAcceptorDeps {
   readonly machines: MachineAuthenticator
   readonly connectionId: string
+  /** Recovery-only authenticates durable rows without refreshing them. */
+  readonly verifyOnly?: boolean
 }
 
 /**
@@ -72,7 +74,7 @@ export interface DaemonAcceptorDeps {
 export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({
     registry: createDefaultAuthRegistry({
-      machines: createMachineDirectory(deps.machines),
+      machines: createMachineDirectory(deps.machines, deps.verifyOnly ? { verifyOnly: true } : {}),
       mint: gatewayCapabilityMinter,
     }),
     supportedCaps: [
@@ -94,7 +96,7 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
 export const createMachineSupervisorAcceptor = (deps: DaemonAcceptorDeps): HandshakeAcceptor =>
   createHandshakeAcceptor({
     registry: createDefaultAuthRegistry({
-      machines: createMachineDirectory(deps.machines, 'supervisor'),
+      machines: createMachineDirectory(deps.machines, { source: 'supervisor' }),
       mint: gatewayCapabilityMinter,
     }),
     supportedCaps: [],

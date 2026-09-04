@@ -1,3 +1,4 @@
+import { Database } from 'bun:sqlite'
 import {
   existsSync,
   mkdirSync,
@@ -7,10 +8,10 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import { saveConfig } from '@podium/runtime/config'
 import { applyMode } from '@podium/runtime/setup'
-import { Database } from 'bun:sqlite'
 
-type Role = 'source' | 'target'
+type Role = 'source' | 'target' | 'observer'
 
 interface ProcessEvidence {
   role: Role
@@ -34,8 +35,8 @@ interface ProcessEvidence {
 }
 
 const role = process.argv[2] as Role | undefined
-if (role !== 'source' && role !== 'target')
-  throw new Error('usage: machine-supervisor.ts source|target')
+if (role !== 'source' && role !== 'target' && role !== 'observer')
+  throw new Error('usage: machine-supervisor.ts source|target|observer')
 
 const stateRoot = process.env.PODIUM_STATE_DIR
 if (!stateRoot || stateRoot === '/' || stateRoot.includes('.podium')) {
@@ -125,7 +126,7 @@ async function writeEvidence(): Promise<void> {
     connectivity: readJson(join(stateRoot, 'connectivity.json')),
     sourceJournal: readJson(join(stateRoot, '.server-transfer', 'journal.json')),
     transferStages: transferStages(),
-    issueTitles: issueTitles(),
+    issueTitles: health ? issueTitles() : [],
     machineId: existsSync(join(stateRoot, 'machine.id'))
       ? readFileSync(join(stateRoot, 'machine.id'), 'utf8').trim()
       : null,
@@ -145,7 +146,7 @@ async function writeEvidence(): Promise<void> {
 }
 
 async function waitForPairCode(): Promise<string> {
-  const path = join(coordRoot, 'pair-code')
+  const path = join(coordRoot, role === 'observer' ? 'observer-pair-code' : 'pair-code')
   const deadline = Date.now() + 60_000
   while (Date.now() < deadline) {
     if (existsSync(path)) {
@@ -157,26 +158,23 @@ async function waitForPairCode(): Promise<string> {
   throw new Error('target timed out waiting for the source pairing code')
 }
 
+if (role === 'target' || role === 'observer') {
+  saveConfig({
+    mode: 'daemon',
+    serverUrl:
+      role === 'target'
+        ? (process.env.PODIUM_TRANSFER_SOURCE_URL ?? 'ws://control-proxy:18789')
+        : 'ws://source:18787',
+    pairCode: await waitForPairCode(),
+  })
+}
+
 const evidenceTimer = setInterval(() => void writeEvidence(), 100)
 evidenceTimer.unref()
 await writeEvidence()
 
 const cli = join('/workspace', 'scripts', 'cli.ts')
-const args =
-  role === 'source'
-    ? [process.execPath, '--conditions=@podium/source', cli, 'all']
-    : [
-        process.execPath,
-        '--conditions=@podium/source',
-        cli,
-        'daemon',
-        '--server',
-        'ws://control-proxy:18789',
-        '--pair',
-        await waitForPairCode(),
-        '--name',
-        'transfer-target',
-      ]
+const args = [process.execPath, '--conditions=@podium/source', cli, 'parent', '--takeover']
 
 primary = Bun.spawn(args, {
   cwd: repoRoot,
@@ -186,7 +184,18 @@ primary = Bun.spawn(args, {
   stderr: 'inherit',
 })
 
+let restartRequested = false
+const restartTimer = setInterval(() => {
+  if (role === 'source' && !restartRequested && existsSync(join(coordRoot, 'restart-source'))) {
+    restartRequested = true
+    writeFileSync(join(coordRoot, 'restart-source-ack'), String(Date.now()) + '\n')
+    primary?.kill('SIGKILL')
+  }
+}, 25)
+restartTimer.unref()
+
 const terminate = (): void => {
+  clearInterval(restartTimer)
   clearInterval(evidenceTimer)
   try {
     primary?.kill('SIGTERM')
@@ -199,37 +208,45 @@ process.on('SIGINT', terminate)
 process.on('SIGTERM', terminate)
 
 const exitCode = await primary.exited
+clearInterval(restartTimer)
 primaryExited = true
 await writeEvidence()
 console.log(`[transfer-fixture:${role}] primary exited ${exitCode}`)
 
-if (role === 'source' || role === 'target') {
-  const config = readJson(join(stateRoot, 'config.json'))
-  const serverUrl =
-    (role === 'source' && config?.mode === 'daemon') ||
-    (role === 'target' && config?.mode === 'server')
-      ? config.serverUrl
-      : undefined
-  if (typeof serverUrl === 'string' && serverUrl.length > 0) {
-    primary = Bun.spawn(
-      [
-        process.execPath,
-        '--conditions=@podium/source',
-        cli,
-        'daemon',
-        '--server',
-        serverUrl,
-        '--takeover',
-      ],
-      { cwd: repoRoot, env: process.env, stdin: 'ignore', stdout: 'inherit', stderr: 'inherit' },
-    )
-    await writeEvidence()
-    console.log(`[transfer-fixture:${role}] relaunched daemon → ${serverUrl}`)
-    const daemonExitCode = await primary.exited
-    primaryExited = true
-    await writeEvidence()
-    console.log(`[transfer-fixture:${role}] replacement daemon exited ${daemonExitCode}`)
-  }
+const interruptedJournal = readJson(join(stateRoot, '.server-transfer', 'journal.json'))
+const interruptedState = interruptedJournal?.state
+if (
+  role === 'source' &&
+  typeof interruptedState === 'string' &&
+  [
+    'preparing',
+    'staged',
+    'validated',
+    'fence-pending',
+    'source-fenced',
+    'committing',
+    'commit-uncertain',
+  ].includes(interruptedState)
+) {
+  primaryExited = false
+  primary = Bun.spawn(
+    [process.execPath, '--conditions=@podium/source', cli, 'parent', '--takeover'],
+    {
+      cwd: repoRoot,
+      env: process.env,
+      stdin: 'ignore',
+      stdout: 'inherit',
+      stderr: 'inherit',
+    },
+  )
+  await writeEvidence()
+  console.log(
+    '[transfer-fixture:' + role + '] relaunched parent for ' + interruptedState + ' recovery',
+  )
+  const recoveryExitCode = await primary.exited
+  primaryExited = true
+  await writeEvidence()
+  console.log(`[transfer-fixture:${role}] recovery process exited ${recoveryExitCode}`)
 }
 
 console.log(`[transfer-fixture:${role}] supervisor retaining container`)

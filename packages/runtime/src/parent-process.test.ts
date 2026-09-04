@@ -148,6 +148,77 @@ describe('ParentProcess', () => {
     expect(parent.snapshot().children.daemon.status).toBe('running')
   })
 
+  it('adds a server without stopping the promotion daemon', async () => {
+    const spawned: Array<{ role: string; child: FakeChild }> = []
+    let nextPid = 120
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        children: ['daemon'],
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: ((_cmd, args) => {
+          const child = new FakeChild(nextPid++)
+          spawned.push({ role: args[0] as string, child })
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeDaemonHealth: async () => daemonHealthy('1.0.0'),
+        probeHealth: async () => healthy('1.0.0'),
+        probeServerReady: async () => true,
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    const promotionDaemon = spawned[0]?.child
+
+    await parent.reconcileTopology(['server', 'daemon'], 'server')
+
+    expect(spawned.map((entry) => entry.role)).toEqual(['daemon', 'server'])
+    expect(promotionDaemon?.signalsReceived).toEqual([])
+  })
+
+  it('retires the source server and restarts its daemon under remote config', async () => {
+    const spawned: Array<{
+      role: string
+      args: readonly string[]
+      child: FakeChild
+      env?: NodeJS.ProcessEnv
+    }> = []
+    let nextPid = 140
+    const parent = track(
+      new ParentProcess({
+        port: 19099,
+        installBinary: '/opt/podium/podium',
+        env: { PODIUM_APP_VERSION: '1.0.0' },
+        spawn: ((_cmd, args, options) => {
+          const child = new FakeChild(nextPid++)
+          spawned.push({ role: args[0] as string, args, child, env: options.env })
+          return child as unknown as ReturnType<SpawnChildFn>
+        }) as SpawnChildFn,
+        probeHealth: async () => healthy('1.0.0'),
+        probeDaemonHealth: async () => daemonHealthy('1.0.0'),
+        notify: () => {},
+        sleep: async () => {},
+        now: () => 1_000,
+        exit: () => {},
+      }),
+    )
+    await parent.start()
+    const sourceServer = spawned.find((entry) => entry.role === 'server')?.child
+    const localDaemon = spawned.find((entry) => entry.role === 'daemon')?.child
+
+    await parent.reconcileTopology(['daemon'], 'daemon', true)
+
+    expect(sourceServer?.signalsReceived).toContain('SIGTERM')
+    expect(localDaemon?.signalsReceived).toContain('SIGTERM')
+    const replacement = spawned.at(-1)
+    expect(replacement?.args).toEqual(['daemon', '--takeover'])
+    expect(replacement?.env?.[PARENT_HAS_SERVER_ENV]).toBe('0')
+  })
+
   it('AUDIT NEGATIVE CONTROL: failed boot health must not claim ready ownership', async () => {
     const clock = fakeClock()
     const notifications: string[] = []
@@ -160,8 +231,7 @@ describe('ParentProcess', () => {
         installBinary: '/opt/podium/podium',
         env: { PODIUM_APP_VERSION: '1.0.0', [PARENT_SUCCESSOR_ENV]: '1' },
         children: ['server'],
-        spawn: (() =>
-          new FakeChild(125) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
+        spawn: (() => new FakeChild(125) as unknown as ReturnType<SpawnChildFn>) as SpawnChildFn,
         probeHealth: async () => {
           probeCount++
           return { serverRunning: false, serverVersion: null, daemonConnected: false }

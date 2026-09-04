@@ -29,6 +29,7 @@ import type {
   StepProgressPatch,
   StepRunner,
 } from '../operations/kinds'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import type { UpdatesService } from './service'
 import {
   IN_FLIGHT_STATES,
@@ -87,12 +88,6 @@ import {
  */
 
 export const UPDATE_OPERATION_KIND = 'update'
-
-/**
- * §3.0: `update` and a future `server-move` share one group, so the two can
- * never interleave. Named here because `update` is the kind that introduces it.
- */
-export const LIFECYCLE_EXCLUSION_GROUP = 'lifecycle'
 
 /** The update kind's own narration. See `operations/engine.ts` for the framework's. */
 const log = createLogger('server:updates')
@@ -210,6 +205,7 @@ export const UPDATE_ERROR_CODES = [
   'server-did-not-reach-target',
   'web-build-failed',
   'preparation-failed',
+  'legacy-transfer-in-progress',
 ] as const
 export type UpdateErrorCode = (typeof UPDATE_ERROR_CODES)[number]
 
@@ -326,6 +322,7 @@ export type UpdateFailure =
     }
   | { code: 'web-build-failed'; detail?: string }
   | { code: 'preparation-failed'; detail?: string }
+  | { code: 'legacy-transfer-in-progress'; detail?: string }
 
 /**
  * The §7 table's middle column, rendered from the union. Copy lives with the
@@ -564,6 +561,12 @@ export function describeUpdateOperationFailure(failure: UpdateFailure): Operatio
         code: failure.code,
         message:
           'The app rebuild failed on the server. Machines that already updated stay updated. Try again.',
+        ...(failure.detail ? { detail: failure.detail } : {}),
+      }
+    case 'legacy-transfer-in-progress':
+      return {
+        code: failure.code,
+        message: 'Finish or clear the previous server transfer, then update this machine.',
         ...(failure.detail ? { detail: failure.detail } : {}),
       }
     case 'preparation-failed':
@@ -1419,6 +1422,7 @@ export interface UpdateOperationContext {
   >
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
+  legacyTransferActive?: () => boolean
   /**
    * Synchronous because the path must be durable in the operation before the
    * restart request can terminate this process.
@@ -1639,6 +1643,12 @@ const prepareRunner: StepRunner<UpdateOperationContext> = {
   reversible: true,
   ensure: async ({ operation, context }) => {
     const details = updateOperationDetails(operation)
+    if (context.legacyTransferActive?.()) {
+      return {
+        state: 'failed',
+        error: describeUpdateOperationFailure({ code: 'legacy-transfer-in-progress' }),
+      }
+    }
     if (!details) return { state: 'failed', error: { code: 'preparation-failed' } }
     const published = context.updates.target(details.channel)
     if (published?.version === details.target.version && !needsDevelopmentBundle(published)) {
@@ -2059,7 +2069,7 @@ function settleMachines(
   operation: Operation,
   step: OperationStep,
   context: UpdateOperationContext,
-): StepOutcome | undefined {
+): (StepOutcome & { state: 'done' | 'failed' }) | undefined {
   const { places, progress } = projectMachines(operation, step, context)
   const failedPlaces = places.filter(
     (place) => place.state !== undefined && TERMINAL_STATES.has(place.state as never),

@@ -46,7 +46,7 @@ export interface MachineAuthenticator {
       hostname: string
       name?: string
     },
-    source?: 'supervisor' | 'legacy-daemon',
+    options?: { readonly verifyOnly?: boolean; readonly source?: 'supervisor' | 'legacy-daemon' },
   ):
     | {
         ok: true
@@ -81,9 +81,14 @@ const resolved = (
   ...(pairingGrant === undefined ? {} : { directoryContext: pairingGrant }),
 })
 
+export interface MachineDirectoryOptions {
+  readonly verifyOnly?: boolean
+  readonly source?: 'supervisor' | 'legacy-daemon'
+}
+
 export const createMachineDirectory = (
   machines: MachineAuthenticator,
-  source: 'supervisor' | 'legacy-daemon' = 'legacy-daemon',
+  options: MachineDirectoryOptions = {},
 ): MachineDirectory => ({
   /**
    * ADR 5 D5 row 2. The host machine's shared secret IS its stored credential
@@ -101,9 +106,11 @@ export const createMachineDirectory = (
         token: secret,
         hostname: observed?.hostname ?? machines.hostMachineId,
       },
-      source,
+      options,
     )
-    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
+    return auth.ok
+      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      : null
   },
 
   /**
@@ -127,9 +134,11 @@ export const createMachineDirectory = (
         token,
         hostname: observed?.hostname ?? machineHint,
       },
-      source,
+      options,
     )
-    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
+    return auth.ok
+      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      : null
   },
 
   /**
@@ -144,7 +153,7 @@ export const createMachineDirectory = (
     // A brand-new machine has no prior identity to authenticate, so it proposes
     // one. `MachinesService` decides what row results; this adapter passes the
     // proposal through and reports back whatever came out (or null on refuse).
-    if (request?.machineId === undefined) return null
+    if (options.verifyOnly || request?.machineId === undefined) return null
     const auth = machines.authenticateDaemon(
       {
         type: 'pair',
@@ -153,7 +162,7 @@ export const createMachineDirectory = (
         hostname: request.hostname ?? request.machineId,
         ...(request.name === undefined ? {} : { name: request.name }),
       },
-      source,
+      options,
     )
     if (!auth.ok || auth.token === undefined) return null
     return {

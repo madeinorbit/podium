@@ -1,12 +1,24 @@
 import type { MachineId } from '@podium/model'
-import type { ServerTransferManifest, ServerTransferResultMessage } from '@podium/protocol'
+import type {
+  ServerBindHost,
+  ServerTransferManifest,
+  ServerTransferResultMessage,
+} from '@podium/protocol'
 import type { ServerTransferRpc, ServerTransferRpcResult } from './types'
 
 type WireReply = Omit<ServerTransferResultMessage, 'type' | 'requestId'>
 
 interface WireOwnedRpc {
   serverTransferPrepare(
-    input: { transferId: string; manifest: ServerTransferManifest; manifestDigest: string },
+    input: {
+      transferId: string
+      manifest: ServerTransferManifest
+      manifestDigest: string
+      publicUrl: string
+      bindHost: ServerBindHost
+      port: number
+      reachabilityToken: string
+    },
     machineId: MachineId,
   ): Promise<WireReply>
   serverTransferChunk(
@@ -24,12 +36,17 @@ interface WireOwnedRpc {
     id: string,
     digest: string,
     publicUrl: string,
+    bindHost: ServerBindHost,
     machineId: MachineId,
-    port?: number,
+    port: number,
   ): Promise<WireReply>
-  serverTransferAbort(id: string, reason: string | undefined, machineId: MachineId): Promise<WireReply>
+  serverTransferAbort(
+    id: string,
+    reason: string | undefined,
+    machineId: MachineId,
+  ): Promise<WireReply>
   serverTransferAcknowledge(id: string, digest: string, machineId: MachineId): Promise<WireReply>
-  serverTransferStatus(
+  inspectServerTransfer(
     id: string | undefined,
     machineId: MachineId,
     digest?: string,
@@ -69,7 +86,15 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         manifest.files.map((entry) => entry.path),
       )
       const reply = await wire.serverTransferPrepare(
-        { transferId: input.transferId, manifest, manifestDigest: digest },
+        {
+          transferId: input.transferId,
+          manifest,
+          manifestDigest: digest,
+          publicUrl: input.publicUrl,
+          bindHost: input.bindHost,
+          port: input.port,
+          reachabilityToken: input.reachabilityToken,
+        },
         targetMachineId,
       )
       if (
@@ -92,6 +117,7 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         targetCapability: reply.targetCapability,
         buildVersion: reply.buildVersion,
         wireSchemaDigest: reply.wireSchemaDigest,
+        receivedBytes: reply.receivedBytes ?? 0,
         space: reply.space,
       }
     },
@@ -159,6 +185,7 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         input.transferId,
         input.manifestDigest,
         input.publicUrl,
+        input.bindHost,
         targetMachineId,
         input.port,
       )
@@ -222,8 +249,8 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
       }
     },
 
-    async serverTransferStatus(input, targetMachineId) {
-      const reply = await wire.serverTransferStatus(
+    async inspectServerTransfer(input, targetMachineId) {
+      const reply = await wire.inspectServerTransfer(
         input.transferId,
         targetMachineId,
         input.manifestDigest,
@@ -243,6 +270,8 @@ export function serverTransferRpcAdapter(wire: WireOwnedRpc): ServerTransferRpc 
         ...(reply.transferId ? { transferId: reply.transferId } : {}),
         ...(reply.manifestDigest ? { manifestDigest: reply.manifestDigest } : {}),
         ...(reply.servingProof ? { proof: reply.servingProof } : {}),
+        ...(reply.publicUrl ? { publicUrl: reply.publicUrl } : {}),
+        ...(reply.port ? { port: reply.port } : {}),
         sourceConnected: false,
       }
     },

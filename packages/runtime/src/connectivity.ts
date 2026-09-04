@@ -16,10 +16,18 @@ import { stateDir } from './config'
 export const DAEMON_BLOCKED_EXIT_CODE = 78
 
 export const ConnectivityStatus = z.object({
-  /** connected = helloOk seen on the live socket; disconnected = retrying with backoff;
+  /** connecting = opening the socket; awaiting-ack = hello sent but not acknowledged;
+   *  connected = helloOk seen on the live socket; disconnected = retrying with backoff;
    *  unauthorized = transport reached the server but auth failed (never retried);
    *  blocked = another terminal protocol/configuration refusal. */
-  state: z.enum(['connected', 'disconnected', 'unauthorized', 'blocked']),
+  state: z.enum([
+    'connecting',
+    'awaiting-ack',
+    'connected',
+    'disconnected',
+    'unauthorized',
+    'blocked',
+  ]),
   /** The server URL this status describes. */
   serverUrl: z.string().optional(),
   /** ISO time of the last successful handshake (survives disconnects — "last seen"). */

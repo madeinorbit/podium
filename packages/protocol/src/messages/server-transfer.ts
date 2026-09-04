@@ -14,6 +14,7 @@ export const ServerTransferManifestEntry = z.object({
 export type ServerTransferManifestEntry = z.infer<typeof ServerTransferManifestEntry>
 
 const transferId = z.string().uuid()
+const operationId = z.string().min(1).max(200)
 const requestId = z.string().min(1).max(200)
 const digest = z.string().regex(/^[a-f0-9]{64}$/)
 const machineId = z.string().min(1).max(200)
@@ -22,10 +23,12 @@ export const SERVER_TRANSFER_MAX_CHUNK_BYTES = 512 * 1024
 export const SERVER_TRANSFER_CAPACITY_MARGIN = 0.1
 
 export const SERVER_TRANSFER_FORMAT_VERSION = 1
+export const SERVER_MOVE_CAPABILITY = 'server-move.v1'
 
 /** Identity-bound portable package. Its canonical digest covers every field. */
 export const ServerTransferManifest = z.object({
   formatVersion: z.literal(SERVER_TRANSFER_FORMAT_VERSION),
+  operationId,
   transferId,
   sourceInstanceId: z.string().min(1).max(200),
   sourceMachineId: machineId,
@@ -76,8 +79,12 @@ export type ServerTransferSpaceProof = z.infer<typeof ServerTransferSpaceProof>
 export const ServerTransferTargetCapability = z.literal('server-only')
 export type ServerTransferTargetCapability = z.infer<typeof ServerTransferTargetCapability>
 
+export const ServerBindHost = z.enum(['127.0.0.1', '0.0.0.0'])
+export type ServerBindHost = z.infer<typeof ServerBindHost>
+
 /** Read-only evidence that the staged/imported instance matches the requested transfer. */
 export const ServerTransferProof = z.object({
+  operationId,
   transferId,
   manifestDigest: digest,
   targetMachineId: machineId,
@@ -90,6 +97,8 @@ export type ServerTransferProof = z.infer<typeof ServerTransferProof>
 /** Proof created only after the promoted server has passed its serving callback. */
 export const ServerTransferServingProof = ServerTransferProof.extend({
   publicUrl: z.string().min(1).max(2048),
+  bindHost: ServerBindHost,
+  port: z.number().int().positive().max(65_535),
   health: z.literal('serving'),
 })
 export type ServerTransferServingProof = z.infer<typeof ServerTransferServingProof>
@@ -100,6 +109,11 @@ export const ServerTransferPrepareRequestMessage = z.object({
   transferId,
   manifest: ServerTransferManifest,
   manifestDigest: digest,
+  publicUrl: z.string().min(1).max(2048),
+  bindHost: ServerBindHost,
+  port: z.number().int().positive().max(65_535),
+  /** Opaque bearer used only by the target's ping-only candidate listener. */
+  reachabilityToken: z.string().min(32).max(512),
 })
 export type ServerTransferPrepareRequestMessage = z.infer<
   typeof ServerTransferPrepareRequestMessage
@@ -137,7 +151,8 @@ export const ServerTransferPromoteRequestMessage = z.object({
   transferId,
   manifestDigest: digest,
   publicUrl: z.string().min(1).max(2048),
-  port: z.number().int().positive().max(65_535).optional(),
+  bindHost: ServerBindHost,
+  port: z.number().int().positive().max(65_535),
   targetMode: z.literal('server'),
   idempotencyKey: z.string().min(1).max(200),
 })
@@ -154,13 +169,15 @@ export const ServerTransferAbortRequestMessage = z.object({
 })
 export type ServerTransferAbortRequestMessage = z.infer<typeof ServerTransferAbortRequestMessage>
 
-export const ServerTransferStatusRequestMessage = z.object({
-  type: z.literal('serverTransferStatusRequest'),
+export const ServerTransferInspectRequestMessage = z.object({
+  type: z.literal('serverTransferInspectRequest'),
   requestId,
   transferId: transferId.optional(),
   manifestDigest: digest.optional(),
 })
-export type ServerTransferStatusRequestMessage = z.infer<typeof ServerTransferStatusRequestMessage>
+export type ServerTransferInspectRequestMessage = z.infer<
+  typeof ServerTransferInspectRequestMessage
+>
 export const ServerTransferAcknowledgeRequestMessage = z.object({
   type: z.literal('serverTransferAcknowledgeRequest'),
   requestId,
@@ -170,6 +187,61 @@ export const ServerTransferAcknowledgeRequestMessage = z.object({
 export type ServerTransferAcknowledgeRequestMessage = z.infer<
   typeof ServerTransferAcknowledgeRequestMessage
 >
+
+/** Source server -> connected daemon: prove the ping-only target is reachable, then buffer. */
+export const ServerEndpointProbeRequestMessage = z.object({
+  type: z.literal('serverEndpointProbeRequest'),
+  requestId,
+  transferId,
+  manifestDigest: digest,
+  publicUrl: z.string().min(1).max(2048),
+  reachabilityToken: z.string().min(32).max(512),
+  targetMachineId: machineId,
+})
+export type ServerEndpointProbeRequestMessage = z.infer<typeof ServerEndpointProbeRequestMessage>
+
+/** Source server -> quiesced daemon: authenticate the promoted server and durably switch to it. */
+export const ServerEndpointCommitRequestMessage = z.object({
+  type: z.literal('serverEndpointCommitRequest'),
+  requestId,
+  transferId,
+  publicUrl: z.string().min(1).max(2048),
+  targetMachineId: machineId,
+})
+export type ServerEndpointCommitRequestMessage = z.infer<typeof ServerEndpointCommitRequestMessage>
+
+/** Source server -> quiesced daemon: the pre-promotion move aborted; resume the old link. */
+export const ServerEndpointResumeRequestMessage = z.object({
+  type: z.literal('serverEndpointResumeRequest'),
+  requestId,
+  transferId,
+})
+export type ServerEndpointResumeRequestMessage = z.infer<typeof ServerEndpointResumeRequestMessage>
+
+export const ServerEndpointOperation = z.enum(['probe', 'commit', 'resume'])
+export type ServerEndpointOperation = z.infer<typeof ServerEndpointOperation>
+
+/** Connected daemon -> source server acknowledgement for endpoint handoff. */
+export const ServerEndpointResultMessage = z.object({
+  type: z.literal('serverEndpointResult'),
+  requestId,
+  transferId,
+  operation: ServerEndpointOperation,
+  ok: z.boolean(),
+  publicUrl: z.string().min(1).max(2048).optional(),
+  error: z.string().max(2_000).optional(),
+})
+export type ServerEndpointResultMessage = z.infer<typeof ServerEndpointResultMessage>
+
+/** Source server -> browser/native client: continue this exact client at the promoted origin. */
+export const ServerRelocationMessage = z.object({
+  type: z.literal('serverRelocation'),
+  transferId,
+  publicUrl: z.string().min(1).max(2048),
+  /** Short-lived one-shot browser claim. Sent only on the authenticated old socket. */
+  claimToken: z.string().min(32).max(512).optional(),
+})
+export type ServerRelocationMessage = z.infer<typeof ServerRelocationMessage>
 
 export const ServerTransferOperation = z.enum([
   'prepare',
@@ -205,6 +277,7 @@ export const ServerTransferResultMessage = z.object({
   manifestDigest: digest.optional(),
   sourceMachineId: machineId.optional(),
   publicUrl: z.string().min(1).max(2048).optional(),
+  port: z.number().int().positive().max(65_535).optional(),
   path: z.string().optional(),
   offset: z.number().int().nonnegative().optional(),
   receivedBytes: z.number().int().nonnegative().optional(),
@@ -230,6 +303,7 @@ export function canonicalServerTransferManifest(
     throw new TypeError('full identity-bound server transfer manifest is required')
   return JSON.stringify({
     formatVersion: manifest.formatVersion,
+    operationId: manifest.operationId,
     transferId: manifest.transferId,
     sourceInstanceId: manifest.sourceInstanceId,
     sourceMachineId: manifest.sourceMachineId,

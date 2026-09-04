@@ -1,8 +1,10 @@
 import { type ChildProcess, spawn } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
+import { signalParentTopology } from '@podium/runtime/parent-control'
 import { unsupervisedEnv } from '@podium/runtime/supervisor'
 
 interface SourceRetirementDeps {
+  signalTopology?: typeof signalParentTopology
   env?: Readonly<Record<string, string | undefined>>
   spawnProcess?: typeof spawn
   schedule?: (callback: () => void, delayMs: number) => void
@@ -23,6 +25,13 @@ export function retireSourceAfterTransfer(
   const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
   const exit = deps.exit ?? process.exit
   schedule(() => {
+    const posted = (deps.signalTopology ?? signalParentTopology)({
+      children: ['daemon'],
+      restartDaemon: true,
+      health: 'daemon',
+    })
+    if (posted.ok) return
+
     if ((deps.env ?? process.env).PODIUM_DESKTOP_SUPERVISED === '1') {
       exit(0)
       return
@@ -50,4 +59,13 @@ export function retireSourceAfterTransfer(
     child.once('error', () => {})
     schedule(() => exit(0), 50)
   }, deps.flushDelayMs ?? 250)
+}
+
+/** Restart after recovery changed the journal back to a writable boot posture. */
+export function restartSourceAfterRecovery(
+  deps: Pick<SourceRetirementDeps, 'schedule' | 'exit' | 'flushDelayMs'> = {},
+): void {
+  const schedule = deps.schedule ?? ((callback, delayMs) => void setTimeout(callback, delayMs))
+  const exit = deps.exit ?? process.exit
+  schedule(() => exit(0), deps.flushDelayMs ?? 250)
 }

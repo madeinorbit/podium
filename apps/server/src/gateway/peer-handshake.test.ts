@@ -7,6 +7,9 @@
  */
 
 import { createHash } from 'node:crypto'
+import { mkdtempSync, rmSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asMachineId, asSessionId, asUserId } from '@podium/model'
 import {
   BINARY_ENVELOPE_MAX_MESSAGE_BYTES,
@@ -19,8 +22,10 @@ import {
   machineUseAllowed,
   WIRE_VERSION,
 } from '@podium/protocol'
-import { describe, expect, it, vi } from 'vitest'
+import { afterAll, describe, expect, it, vi } from 'vitest'
+import { mintPairingToken, openEnrollmentLedger } from '../enrollment-ledger'
 import { PairingManager } from '../hub/pairing'
+import { MachinesService } from '../modules/machines/service'
 import { SessionRegistry } from '../relay'
 import { SessionStore } from '../store'
 import { wireDaemonSocket } from './daemon-socket'
@@ -28,6 +33,16 @@ import { createMachineDirectory } from './machine-directory'
 import { createDaemonAcceptor, receiveDaemonFrame } from './peer-handshake'
 
 const sha256 = (s: string): string => createHash('sha256').update(s).digest('hex')
+
+const handshakeTmpDirs: string[] = []
+const handshakeTmp = (): string => {
+  const dir = mkdtempSync(join(tmpdir(), 'podium-verify-only-'))
+  handshakeTmpDirs.push(dir)
+  return dir
+}
+afterAll(() => {
+  for (const dir of handshakeTmpDirs) rmSync(dir, { recursive: true, force: true })
+})
 
 function fakeWs() {
   const binarySent: Uint8Array[] = []
@@ -64,6 +79,76 @@ const registryWithMachine = (id = 'm1', token = 'tok', updatePubkey?: string) =>
     ...(updatePubkey === undefined ? {} : { updatePubkey: () => updatePubkey }),
   })
 }
+
+interface EnrollmentHandshakeWorldOptions {
+  readonly queryOnly?: boolean
+  readonly row?: boolean
+  readonly revoked?: boolean
+}
+
+const enrollmentHandshakeWorld = (options: EnrollmentHandshakeWorldOptions = {}) => {
+  const stateRoot = handshakeTmp()
+  const dbPath = join(stateRoot, 'podium.db')
+  const seeded = new SessionStore(dbPath)
+  const hostMachineId = seeded.hostMachineId
+  const machineId = asMachineId('remote-machine')
+  const enrollment = openEnrollmentLedger(stateRoot)
+  const token = mintPairingToken(enrollment.pairingRoot, { machineId, serial: 1 })
+  enrollment.appendEnroll({
+    id: 'enroll-remote',
+    machineId,
+    serial: 1,
+    ownerUserId: asUserId('user:sole'),
+    at: '2026-08-18T00:00:00.000Z',
+  })
+  if (options.revoked) {
+    enrollment.appendRevoke({
+      id: 'revoke-remote',
+      machineId,
+      serial: 1,
+      by: null,
+      at: '2026-08-18T00:01:00.000Z',
+    })
+  }
+  if (options.row !== false) {
+    seeded.machines.upsertMachine({
+      id: machineId,
+      name: 'Durable machine',
+      hostname: 'stored.local',
+      tokenHash: sha256(token),
+      ownerUserId: asUserId('user:sole'),
+    })
+  }
+  seeded.close()
+
+  const store = new SessionStore(dbPath, hostMachineId, {
+    queryOnly: options.queryOnly ?? true,
+  })
+  const pairing = new PairingManager()
+  const machines = new MachinesService({
+    instanceId: 'verify-only-test',
+    store,
+    hostMachineId,
+    pairing,
+    enrollment,
+    userExists: (id) => store.users.get(id) !== undefined,
+    sessionsChangedForMachine: () => {},
+    clients: () => [],
+    machinesForPrincipal: () => [],
+  })
+  return { dbPath, enrollment, hostMachineId, machineId, machines, pairing, store, token }
+}
+
+const receiveHello = (
+  machines: MachinesService,
+  machineId: string,
+  token: string,
+  verifyOnly: boolean,
+) =>
+  receiveDaemonFrame(
+    createDaemonAcceptor({ machines, connectionId: 'verify-only-test', verifyOnly }),
+    JSON.stringify({ type: 'hello', machineId, token, hostname: 'observed.local' }),
+  )
 
 const frame = (o: unknown): string => JSON.stringify(o)
 const binaryFrame = (metadata: unknown, payload = new Uint8Array()): Buffer => {
@@ -397,6 +482,103 @@ describe('handshake order at the real gateway', () => {
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ type: 'agentExit' }),
     )
+  })
+})
+
+describe('recovery-only daemon handshake verification', () => {
+  it('accepts an existing unrevoked token without touching or invalidating its row', () => {
+    const world = enrollmentHandshakeWorld()
+    const touch = vi.spyOn(world.store.machines, 'touchMachine')
+    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
+    try {
+      expect(receiveHello(world.machines, world.machineId, world.token, true)).toMatchObject({
+        kind: 'established',
+        machineId: world.machineId,
+        name: 'Durable machine',
+      })
+      expect(touch).not.toHaveBeenCalled()
+      expect(invalidate).not.toHaveBeenCalled()
+      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('stored.local')
+    } finally {
+      world.store.close()
+    }
+  })
+
+  it.each([
+    {
+      verdict: 'revoked token',
+      setup: () => {
+        const world = enrollmentHandshakeWorld({ revoked: true })
+        return { world, token: world.token }
+      },
+    },
+    {
+      verdict: 'invalid token',
+      setup: () => {
+        const world = enrollmentHandshakeWorld()
+        return { world, token: 'invalid-token' }
+      },
+    },
+    {
+      verdict: 'missing row',
+      setup: () => {
+        const world = enrollmentHandshakeWorld({ row: false })
+        return { world, token: world.token }
+      },
+    },
+  ])('rejects a $verdict without writing', ({ setup }) => {
+    const { world, token } = setup()
+    const touch = vi.spyOn(world.store.machines, 'touchMachine')
+    try {
+      expect(receiveHello(world.machines, world.machineId, token, true).kind).toBe('rejected')
+      expect(touch).not.toHaveBeenCalled()
+    } finally {
+      world.store.close()
+    }
+  })
+
+  it('rejects pairing before consuming its code', () => {
+    const world = enrollmentHandshakeWorld({ queryOnly: false })
+    const code = world.machines.mintPairingCode({ ownerUserId: asUserId('user:sole') })
+    const machineId = asMachineId('new-machine')
+    try {
+      const outcome = receiveDaemonFrame(
+        createDaemonAcceptor({
+          machines: world.machines,
+          connectionId: 'verify-only-pair',
+          verifyOnly: true,
+        }),
+        JSON.stringify({ type: 'pair', code, machineId, hostname: 'new.local' }),
+      )
+      expect(outcome.kind).toBe('rejected')
+      expect(world.store.machines.getMachine(machineId)).toBeUndefined()
+      expect(
+        world.machines.authenticateDaemon({
+          type: 'pair',
+          code,
+          machineId,
+          hostname: 'new.local',
+        }),
+      ).toMatchObject({ ok: true, machineId })
+    } finally {
+      world.store.close()
+    }
+  })
+
+  it('keeps ordinary handshake touch and cache invalidation', () => {
+    const world = enrollmentHandshakeWorld({ queryOnly: false })
+    const touch = vi.spyOn(world.store.machines, 'touchMachine')
+    const invalidate = vi.spyOn(world.machines, 'invalidateMachineCache')
+    try {
+      expect(receiveHello(world.machines, world.machineId, world.token, false).kind).toBe(
+        'established',
+      )
+      expect(touch).toHaveBeenCalledWith(world.machineId, 'observed.local')
+      expect(invalidate).toHaveBeenCalledOnce()
+      expect(world.store.machines.getMachine(world.machineId)?.hostname).toBe('observed.local')
+    } finally {
+      world.store.close()
+    }
   })
 })
 

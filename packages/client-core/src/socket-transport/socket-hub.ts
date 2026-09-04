@@ -120,6 +120,7 @@ export type SocketCloseCause =
   | { cause: 'heartbeat-timeout'; silentForMs: number }
   | { cause: 'wake' }
   | { cause: 'fresh-world' }
+  | { cause: 'server-relocation' }
   | { cause: 'suspend' }
 
 /** Best-effort read of the CloseEvent fields off the seam's `unknown` event —
@@ -262,6 +263,8 @@ export interface SocketHubOptions {
    * about to kill anyway.
    */
   heartbeatIntervalMs?: number
+  /** Called before this client leaves the old authority; web navigates its actual origin here. */
+  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
@@ -593,6 +596,8 @@ type AnyHubEventHandler = (...payload: never[]) => void
 /** One ws, multiplexed across N sessions. Owns the connection + server-assigned clientId. */
 export class SocketHub {
   private readonly opts: SocketHubOptions
+  /** Mutable because a server move deliberately changes the authority this client dials. */
+  private serverUrl: string
   private readonly makeSocket: (url: string) => WebSocketLike
   private readonly legacyFeed: LegacyFeedSinkPort | undefined
   private readonly scheduleFeedTask: (task: () => void) => void
@@ -769,6 +774,7 @@ export class SocketHub {
       throw new Error('SocketHub accepts one feed sink per connection')
     }
     this.opts = opts
+    this.serverUrl = opts.url
     this.subscriptionRegistry = new ClientSubscriptionRegistry(
       opts.feed !== undefined || opts.legacyFeed !== undefined,
     )
@@ -816,7 +822,7 @@ export class SocketHub {
 
     let socket: WebSocketLike
     try {
-      socket = this.makeSocket(this.opts.url)
+      socket = this.makeSocket(this.serverUrl)
     } catch (err) {
       // A constructor throw before first contact is a config problem (bad URL) —
       // surface it; once we have connected successfully, retry like any other drop.
@@ -2096,6 +2102,20 @@ export class SocketHub {
     },
     attentionEvent: (msg) => {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
+    },
+    serverRelocation: (msg) => {
+      if (this.opts.onServerRelocation) {
+        this.opts.onServerRelocation(msg.publicUrl, msg.transferId, msg.claimToken)
+        return
+      }
+      const endpoint = new URL(msg.publicUrl)
+      endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
+      endpoint.pathname = '/client'
+      endpoint.search = ''
+      endpoint.hash = ''
+      this.serverUrl = endpoint.toString()
+      if (this.socket !== undefined) this.forceClose({ cause: 'server-relocation' })
+      this.connectNow()
     },
     setLogLevel: (msg) => {
       // APPLIED HERE, not emitted for an app to wire (POD-1920). Every client

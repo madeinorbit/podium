@@ -10,6 +10,7 @@ import { fileHandlers } from './files'
 import { handoffHandlers } from './handoff'
 import { headlessHandlers } from './headless'
 import { inventoryHandlers } from './inventory'
+import { serverEndpointHandlers } from './server-endpoint'
 import { logHandlers } from './logs'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
@@ -41,6 +42,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...logHandlers,
   ...updateHandlers,
   ...serverTransferHandlers,
+  ...serverEndpointHandlers,
   ...shippingHandlers,
   agentRelayResult: (ctx, msg) => ctx.agentRelayHub.onResult(msg),
   updateGrant: (ctx, msg) => {

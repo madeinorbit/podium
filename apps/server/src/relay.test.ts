@@ -83,6 +83,44 @@ const bind = (sessionId: SessionId) =>
   }) as const
 
 describe('SessionRegistry', () => {
+  it('assembles recovery-only over a query-only store without running writable boot repairs', () => {
+    const file = join(trackTmp('podium-recovery-only-'), 'podium.db')
+    const nativeId = 'subagent-under-test'
+    const stalePath = '/project/subagents/stale-name.jsonl'
+    const seeded = new SessionStore(file, TEST_MACHINE)
+    const seededRegistry = new SessionRegistry(seeded, undefined, { instanceId: 'seed' })
+    const { sessionId } = seededRegistry.modules.sessions.createSession({
+      agentKind: 'codex',
+      cwd: '/project',
+    })
+    seeded.conversations.registry.ensure({
+      machineId: TEST_MACHINE,
+      nativeId,
+      providerId: 'codex',
+      path: stalePath,
+    })
+    expect(seeded.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    seededRegistry.dispose()
+    seeded.close()
+
+    const queryOnly = new SessionStore(file, TEST_MACHINE, { queryOnly: true })
+    expect(queryOnly.sessions.getSession(sessionId)).toBeDefined()
+    const recovery = new SessionRegistry(queryOnly, undefined, {
+      instanceId: 'recovery-only',
+      recoveryOnly: true,
+    })
+    expect(queryOnly.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBe(stalePath)
+    expect(recovery.modules.sessions.listSessions()).toEqual([])
+    recovery.dispose()
+    queryOnly.close()
+
+    const writable = new SessionStore(file, TEST_MACHINE)
+    const ordinary = new SessionRegistry(writable, undefined, { instanceId: 'writable' })
+    expect(writable.conversations.registry.segmentPath(TEST_MACHINE, nativeId)).toBeUndefined()
+    ordinary.dispose()
+    writable.close()
+  })
+
   it('create spawns via the daemon and lists the session as starting', () => {
     const reg = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     const daemon: ControlMessage[] = []
@@ -1807,6 +1845,40 @@ describe('SessionRegistry', () => {
     expect(spy).toHaveBeenCalled()
   })
 
+  it('queues semantic activity while the transfer fence is read-only, then flushes it', () => {
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
+    const { sessionId } = reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/a' })
+    reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+    const cid = attachTestClient(reg.clientGateway, sink().send)
+    reg.clientGateway.routeClientFrame(cid, { type: 'attach', sessionId })
+    // biome-ignore lint/suspicious/noExplicitAny: assert the coalesced terminal dirty bit
+    const session = (reg as any).modules.sessions.sessions.get(sessionId)
+    session.terminal.clearActivityDirty()
+    const spy = vi.spyOn(store.sessions, 'upsertSession')
+
+    store.beginTransferFence()
+    expect(() =>
+      reg.clientGateway.routeClientFrame(cid, {
+        type: 'input',
+        sessionId,
+        data: Buffer.from('ls\r').toString('base64'),
+      }),
+    ).not.toThrow()
+    expect(() => reg.modules.sessions.flushActivity()).not.toThrow()
+    expect(spy).not.toHaveBeenCalled()
+    expect(session.terminal.activityDirty).toBe(true)
+
+    store.endTransferFence()
+    reg.modules.sessions.flushActivity()
+    expect(spy).toHaveBeenCalledTimes(1)
+    expect(session.terminal.activityDirty).toBe(false)
+    session.terminal.stopOutput()
+    reg.dispose()
+    store.close()
+  })
+
   it('mints opaque durable session ids (uuid), not the s0 counter', () => {
     const reg = new SessionRegistry(new SessionStore(':memory:', TEST_MACHINE), undefined, {
       instanceId: 'default',
@@ -3505,6 +3577,80 @@ describe('hibernation', () => {
     })
     return sessionId
   }
+
+  it('defers daemon inventory and idle-pressure writes across the transfer fence', () => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-08-18T00:00:00.000Z'))
+    const store = new SessionStore(':memory:', TEST_MACHINE)
+    const reg = new SessionRegistry(store, undefined, { instanceId: 'default' })
+    try {
+      const daemon: ControlMessage[] = []
+      reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
+      store.settings.setSettings({
+        ...store.settings.getSettings(),
+        hibernation: {
+          enabled: true,
+          memoryPct: 80,
+          loadPerCore: null,
+          maxIdleSessions: null,
+          idleMinutes: 30,
+          idleShellMinutes: 1,
+          backstopMinutes: null,
+        },
+      })
+      const { sessionId } = reg.modules.sessions.createSession({
+        agentKind: 'shell',
+        cwd: '/w',
+      })
+      reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      vi.advanceTimersByTime(2 * 60_000)
+      const clearReadAt = vi.spyOn(store.sessions, 'clearAllReadAt')
+
+      store.beginTransferFence()
+      expect(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'inventoryReport',
+          machineId: reg.sessionStore.hostMachineId,
+          inventory: {
+            os: 'linux',
+            arch: 'x64',
+            podiumVersion: 'fenced-report',
+            agents: [],
+            tools: [],
+          },
+        }),
+      ).not.toThrow()
+      expect(() =>
+        reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+          type: 'hostMetrics',
+          hostname: 'box',
+          sampledAt: new Date().toISOString(),
+          memory: {
+            totalBytes: 100,
+            availableBytes: 90,
+            swapTotalBytes: 0,
+            swapFreeBytes: 0,
+          },
+        }),
+      ).not.toThrow()
+      expect(store.machines.getMachine(reg.sessionStore.hostMachineId)?.inventory).toBeUndefined()
+      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('live')
+      expect(clearReadAt).not.toHaveBeenCalled()
+
+      store.endTransferFence()
+      reg.modules.machines.resumeAfterTransferFence()
+      reg.modules.hosts.resumeAfterTransferFence()
+      expect(store.machines.getMachine(reg.sessionStore.hostMachineId)?.inventory).toMatchObject({
+        podiumVersion: 'fenced-report',
+      })
+      expect(reg.modules.sessions.listSessions()[0]?.status).toBe('hibernated')
+      expect(clearReadAt).toHaveBeenCalledOnce()
+    } finally {
+      reg.dispose()
+      store.close()
+      vi.useRealTimers()
+    }
+  })
 
   it('does not write the DB on every output frame — coalesces to the flush', () => {
     const store = new SessionStore(':memory:', TEST_MACHINE)

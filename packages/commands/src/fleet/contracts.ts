@@ -179,9 +179,10 @@ export const machineShareInput = z.object({
 export const machineUnshareInput = machineShareInput
 
 export const machineRevokeInput = z.object({ id: z.string() })
-export const machineTransferServerInput = z.object({
+export const machineMoveServerInput = z.object({
   targetMachineId: z.string().min(1).pipe(MachineIdField),
   publicUrl: z.string().min(1).max(2048),
+  bindHost: z.enum(['127.0.0.1', '0.0.0.0']),
   port: z.number().int().min(1).max(65535).optional(),
   confirmation: z.literal('TRANSFER SERVER'),
 })
@@ -841,11 +842,11 @@ export const machineRevokeContract = {
 } as const satisfies FleetCommandContract<typeof machineRevokeInput>
 
 /** Move the server authority and portable state to an already-paired machine. */
-export const machineTransferServerContract = {
-  name: 'machines.transferServer',
+export const machineMoveServerContract = {
+  name: 'machines.moveServer',
   version: 1,
   visibility: 'owned-compute',
-  input: machineTransferServerInput,
+  input: machineMoveServerInput,
   policy: {
     action: 'manage',
     roleFloor: 'admin',
@@ -874,7 +875,7 @@ export const machineTransferServerContract = {
   conflict: 'cmd',
   conflictRule:
     'One durable source journal and one source lock serialize transfers; promotion is idempotent, while an uncertain commit requires operator recovery rather than rollback.',
-} as const satisfies FleetCommandContract<typeof machineTransferServerInput>
+} as const satisfies FleetCommandContract<typeof machineMoveServerInput>
 /**
  * Mint a short-lived pairing code — THE ONE CONTRACT IN THIS FAMILY THAT IS NOT
  * `owned-compute`, and the classification the brief flagged as costly to guess.
@@ -1407,7 +1408,7 @@ export const FLEET_CONTRACTS = {
   'machines.adopt': machineAdoptContract,
   'machines.applyUpdate': machineApplyUpdateContract,
   'machines.revoke': machineRevokeContract,
-  'machines.transferServer': machineTransferServerContract,
+  'machines.moveServer': machineMoveServerContract,
   'machines.pairingCode': machinePairingCodeContract,
   'repos.add': repoAddContract,
   'repos.addMany': repoAddManyContract,

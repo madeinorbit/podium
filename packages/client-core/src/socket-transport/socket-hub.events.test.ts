@@ -102,6 +102,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     presenceRoomState: noop,
     presenceRoomDelta: noop,
     presenceRoomClosed: noop,
+    serverRelocation: noop,
     setLogLevel: noop,
   }
 
@@ -154,6 +155,28 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(viaSeam).toEqual([[m]])
     expect(viaSeam[0]).toBe(viaWrapper[1])
     expect(viaSeam[0]).toBe(hub.sessions())
+  })
+
+  it('delivers the promoted origin and one-time claim to the platform relocation boundary', () => {
+    const sock = new FakeSocket()
+    const relocations: Array<[string, string, string | undefined]> = []
+    const hub = new SocketHub({
+      url: 'ws://source.example/client',
+      makeSocket: () => sock,
+      onServerRelocation: (publicUrl, transferId, claimToken) =>
+        relocations.push([publicUrl, transferId, claimToken]),
+    })
+    hub.connect()
+    sock.open()
+    sock.recv({
+      type: 'serverRelocation',
+      transferId: '00000000-0000-4000-8000-000000000001',
+      publicUrl: 'https://target.example',
+      claimToken: 'c'.repeat(64),
+    })
+    expect(relocations).toEqual([
+      ['https://target.example', '00000000-0000-4000-8000-000000000001', 'c'.repeat(64)],
+    ])
   })
 
   it('carries multi-argument payloads (sessionDraft) to legacy subscribers unchanged', () => {

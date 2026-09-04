@@ -491,7 +491,7 @@ function placeSubject(places: readonly string[] | undefined): string | undefined
  */
 export function presentOperationError(
   error: Pick<OperationError, 'code' | 'message' | 'detail' | 'places'> | ActionError,
-  context: { operationId?: string } = {},
+  context: { operationId?: string; kind?: string } = {},
 ): ErrorPresentation {
   const code = error.code ?? ''
   const places = 'places' in error ? error.places : undefined
@@ -501,15 +501,23 @@ export function presentOperationError(
     context.operationId ? `operation: ${context.operationId}` : undefined,
   ].filter((line): line is string => typeof line === 'string' && line.length > 0)
   const detail = detailLines.length > 0 ? detailLines.join('\n') : undefined
-  const layers = errorCopy(code, error.message, places)
+  const layers = errorCopy(context.kind ?? 'update', code, error.message, places)
   return { ...layers, ...(detail ? { detail } : {}) }
 }
 
 function errorCopy(
+  kind: string,
   code: string,
   message: string | undefined,
   places: readonly string[] | undefined,
 ): { message: string; nextAction: string } {
+  if (kind !== 'update') {
+    return {
+      message: message ?? `The ${kind} operation failed.`,
+      nextAction: 'Try again, or check the server log.',
+    }
+  }
+
   /**
    * EVERY MACHINE FAILURE, FROM THE ONE TABLE (POD-2241).
    *

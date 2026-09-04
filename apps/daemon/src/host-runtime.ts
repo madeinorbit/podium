@@ -229,6 +229,14 @@ export async function createDaemonHostRuntime(args: {
   build: PeerBuild
   installDir: string | undefined
   send: (message: DaemonMessage) => void
+  endpointHandoff: Pick<
+    DaemonContext,
+    | 'probeServerTransferCandidate'
+    | 'quiesceServerEndpoint'
+    | 'resumeServerEndpoint'
+    | 'prepareServerEndpointCommit'
+    | 'activateServerEndpoint'
+  >
   sendOutput: (batch: DaemonPtyOutputBatch) => void
   acknowledgeQueueDrainReport: (reportId: string) => void
   acknowledgeRuntimeEvent: (deliveryId: string) => void
@@ -900,6 +908,7 @@ export async function createDaemonHostRuntime(args: {
         return expected
       }),
     retireAfterTransfer: opts.retireAfterTransfer ?? retireTargetDaemonAfterAcknowledgement,
+    ...args.endpointHandoff,
     applyUpdateGrant,
     runtimeContractEnabled,
   }

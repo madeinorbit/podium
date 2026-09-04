@@ -1,5 +1,6 @@
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId, type UpdateChannel } from '@podium/model'
+import { stateDir } from '@podium/runtime/config'
 import type { ConvergenceState, MobileWebIdentity, Operation, UpdateTarget } from '@podium/protocol'
 import { buildsDiffer, targetPlatforms } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
@@ -8,10 +9,11 @@ import { serverBuildSourceDigest, serverBuildVersion } from '../../build-version
 import { attributionOf } from '../../command-principal'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
+import { legacyTransferInProgress } from '../server-transfer/journal'
 import type { OperationsModule } from '../operations'
+import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import {
   fleetCanTakeTargetNow,
-  LIFECYCLE_EXCLUSION_GROUP,
   planInputFrom,
   planUpdateOperation,
   UPDATE_OPERATION_KIND,
@@ -293,6 +295,7 @@ export function updateOperationContext(input: {
   createDatabaseSnapshot: (fromVersion: string, targetVersion: string) => string | undefined
   prepareVerifiedDatabaseSnapshot?: UpdateOperationContext['prepareVerifiedDatabaseSnapshot']
   latestDatabaseSnapshot?: () => string | undefined
+  legacyTransferActive?: () => boolean
   requestCoordinatorRestart?: () => void
   requestWebRebuild?: () => void
   requestDestBundle?: () => Promise<unknown>
@@ -327,6 +330,7 @@ export function updateOperationContext(input: {
     ...(input.latestDatabaseSnapshot
       ? { latestDatabaseSnapshot: input.latestDatabaseSnapshot }
       : {}),
+    ...(input.legacyTransferActive ? { legacyTransferActive: input.legacyTransferActive } : {}),
     recordOperationDetails: (operationId, patch) => {
       input.operations.engine.recordDetails(operationId, patch)
     },
@@ -381,6 +385,7 @@ function contextFor(
     ...(options.includeDatabaseSnapshot
       ? { latestDatabaseSnapshot: () => state.store.latestDatabaseSnapshot() }
       : {}),
+    legacyTransferActive: () => legacyTransferInProgress(stateDir()),
     ...(ctx.servedWebDigest ? { servedWebDigest: ctx.servedWebDigest } : {}),
     ...(ctx.servedMobileWeb ? { servedMobileWeb: ctx.servedMobileWeb } : {}),
     ...(ctx.prepareCoordinatorUpdate

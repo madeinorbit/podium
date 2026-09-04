@@ -1,4 +1,7 @@
+import { asMachineId } from '@podium/model'
+import { TRPCError } from '@trpc/server'
 import { z } from 'zod'
+import { checkMachineVerb, ownershipFromMachines } from '../../machine-access'
 import { type Context, t } from '../../trpc'
 import { familyState } from '../derived-family'
 
@@ -17,14 +20,48 @@ import { familyState } from '../derived-family'
 
 const operationsModule = (ctx: Context) => familyState(ctx).modules.operations
 
+function assertActionAuthorized(ctx: Context, operationId: string): void {
+  const principal = ctx.principal
+  if (principal.kind !== 'system' && principal.capability.role !== 'admin') {
+    throw new TRPCError({
+      code: 'FORBIDDEN',
+      message: 'operation recovery requires an admin account',
+    })
+  }
+
+  const operation = operationsModule(ctx).engine.get(operationId)?.operation
+  const details: Record<string, unknown> =
+    operation?.details && typeof operation.details === 'object'
+      ? (operation.details as Record<string, unknown>)
+      : {}
+  const targetMachineId = details.targetMachineId
+  if (typeof targetMachineId !== 'string') return
+
+  const failure = checkMachineVerb(
+    principal,
+    asMachineId(targetMachineId),
+    ownershipFromMachines(familyState(ctx).modules.machines),
+    'manage',
+  )
+  if (!failure) return
+  throw new TRPCError({
+    code: failure === 'absent' ? 'NOT_FOUND' : 'FORBIDDEN',
+    message:
+      failure === 'absent'
+        ? `unknown machine '${targetMachineId}'`
+        : `you cannot manage machine '${targetMachineId}'`,
+  })
+}
+
 export function operationProcedures() {
   return {
     /** The one live operation, or null. Null is the ordinary answer. */
     active: t.procedure
       .input(z.object({ group: z.string().optional() }).optional())
-      .query(({ ctx, input }) => {
-        const row = operationsModule(ctx).engine.active(input?.group)
-        return row ? (JSON.parse(row.payload) as unknown) : null
+      .query(async ({ ctx, input }) => {
+        const engine = operationsModule(ctx).engine
+        const row = engine.active(input?.group)
+        return row ? await engine.project(row) : null
       }),
 
     /** The audit trail that today does not exist: "did last night's update finish?" */
@@ -51,6 +88,30 @@ export function operationProcedures() {
      */
     cancel: t.procedure
       .input(z.object({ id: z.string() }))
-      .mutation(({ ctx, input }) => operationsModule(ctx).engine.cancel(input.id)),
+      .mutation(async ({ ctx, input }) => operationsModule(ctx).engine.cancel(input.id)),
+
+    settleAsk: t.procedure
+      .input(z.object({ id: z.string(), actionId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        assertActionAuthorized(ctx, input.id)
+        return operationsModule(ctx).engine.dispatchAction(
+          input.id,
+          input.actionId,
+          ctx.principal,
+          { settleAsk: true },
+        )
+      }),
+
+    action: t.procedure
+      .input(z.object({ id: z.string(), actionId: z.string() }))
+      .mutation(async ({ ctx, input }) => {
+        assertActionAuthorized(ctx, input.id)
+        return operationsModule(ctx).engine.dispatchAction(
+          input.id,
+          input.actionId,
+          ctx.principal,
+          { settleAsk: false },
+        )
+      }),
   }
 }

@@ -71,6 +71,8 @@ export function validatePublicUrl(
   return { ok: true, normalized: u.toString().replace(/\/$/, '') }
 }
 
+export type ServerBindHost = '127.0.0.1' | '0.0.0.0'
+
 export function wssFrom(publicUrl: string): string {
   return publicUrl.replace(/^http(s?):\/\//, (_m, s) => (s ? 'wss://' : 'ws://')).replace(/\/$/, '')
 }
@@ -309,6 +311,7 @@ export function applySetup(input: {
   publicUrl: string
   mode?: 'all-in-one' | 'server'
   port?: number
+  bindHost?: ServerBindHost
   networkOption?: NetworkOption
   /** Acknowledge that replacing an already-set public URL strands joined machines. */
   confirmUrlChange?: boolean
@@ -349,6 +352,7 @@ export function applySetup(input: {
     publicUrl: input.publicUrl,
     ...(input.networkOption === undefined ? {} : { networkOption: input.networkOption }),
     ...(input.port === undefined ? {} : { port: input.port }),
+    ...(input.bindHost === undefined ? {} : { bindHost: input.bindHost }),
     // Web setup can't start the backend from inside the serving process (stopping
     // the old one would kill the request in flight), but it CAN record the
     // choice — and since POD-333 that is all there is to record. The next
@@ -395,6 +399,7 @@ export function applyJoin(
   const p = decodeJoin(token)
   const {
     publicUrl: _hostOnly,
+    bindHost: _hostBind,
     networkOption: _hostNetworkOption,
     pairCode: _stale,
     ...prev
