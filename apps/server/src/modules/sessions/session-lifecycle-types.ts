@@ -23,7 +23,12 @@ import type {
 import type {
   QueueDrainAbandonedReason,
 } from '@podium/protocol/daemon'
-import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
+import type {
+  EntityChangeSpec,
+  LedgerCommitOp,
+  LedgerCommitResult,
+  MutationLedgerPort,
+} from '@podium/sync'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { ClientConn } from '../../gateway/client-registry'
 import type { EventBus } from '../bus'
@@ -46,10 +51,7 @@ export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
  *  removes). Structurally satisfied by {@link @podium/sync.Ledger}; narrow so
  *  tests can fake it. */
 export interface SessionLedger {
-  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
-    result: T
-    changes: MetadataChange[]
-  }
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
   capture(specs: EntityChangeSpec[]): MetadataChange[]
   reconcile(entity: 'session', rows: { id: string; value: unknown }[]): MetadataChange[]
 }

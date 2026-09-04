@@ -5,6 +5,8 @@ import {
   AuthorityArbitrationRejected,
   type EntityChangeSpec,
   type Ledger,
+  type LedgerCommitOp,
+  type LedgerCommitResult,
 } from '@podium/sync'
 import { throwIssueRevisionConflict } from './conflict'
 
@@ -35,10 +37,7 @@ export class IssueAuthorityArbitration {
   private readonly scope = new AsyncLocalStorage<IssueArbitrationScope>()
 
   readonly ledger: {
-    commit<T>(op: {
-      write: () => T
-      changes: (result: T) => EntityChangeSpec[]
-    }): { result: T; changes: MetadataChange[] }
+    commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
     capture(specs: EntityChangeSpec[]): MetadataChange[]
     reconcile(
       entity: MetadataEntityKind,

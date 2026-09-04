@@ -7,7 +7,13 @@ import type {
   SessionId,
 } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
-import { type BaselineFoldPort, type EntityChangeSpec, StagedProjection } from '@podium/sync'
+import {
+  type BaselineFoldPort,
+  type EntityChangeSpec,
+  type LedgerCommitOp,
+  type LedgerCommitResult,
+  StagedProjection,
+} from '@podium/sync'
 import type { SessionStore } from '../../store'
 import type { DaemonRequestPort } from '../daemon-request'
 import { type LakeReadSession, TranscriptLake } from './lake'
@@ -19,10 +25,7 @@ export type { LakeReadSession } from './lake'
 export type { MemoryReader } from './types'
 
 export interface MemoryLedger {
-  commit<T>(operation: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
-    result: T
-    changes: MetadataChange[]
-  }
+  commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T>
   reconcile(entity: 'conversation', rows: { id: string; value: unknown }[]): MetadataChange[]
 }
 

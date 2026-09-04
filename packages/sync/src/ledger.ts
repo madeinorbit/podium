@@ -178,6 +178,37 @@ export class AuthorityArbitrationRejected extends Error {
   }
 }
 
+/**
+ * ONE SPELLING OF `Ledger.commit`'s OP, so a narrow port cannot omit an arm
+ * [POD-3366].
+ *
+ * Seven interfaces in `apps/server` declare a narrow ledger port for their own
+ * feature — `IssueLedger`, `SessionLedger`, `MemoryLedger`, `KillLedger`,
+ * `ShippingLedgerPort` and the two arbitration wrappers. Each of them restated
+ * `{ write, changes }` by hand, so adding the `apply` arm to the facade left
+ * every one of those ports unable to express it, and a call site that tried
+ * failed to typecheck with "'apply' does not exist in type". Seven hand-copies
+ * of one shape is the same failure this issue exists to remove, one layer up:
+ * the next arm would have to be remembered in seven places.
+ *
+ * Composed rather than restated from here on. A port that wants to REFUSE an
+ * arm now has to say so — `Omit<LedgerCommitOp<T>, 'apply'>` — which is a
+ * decision in the type instead of an omission nobody notices.
+ */
+export interface LedgerCommitOp<T> {
+  write: () => T
+  changes: (result: T) => EntityChangeSpec[]
+  /** Post-commit work, run on the OUTERMOST commit. See {@link Ledger.commit}. */
+  apply?: (result: T, changes: MetadataChange[]) => void
+  arbitrate?: AuthorityCommit<T>['arbitrate']
+}
+
+/** What {@link Ledger.commit} returns: the write's result and the appended rows. */
+export interface LedgerCommitResult<T> {
+  result: T
+  changes: MetadataChange[]
+}
+
 export class Ledger {
   /**
    * THE implementation, and the composition root's seam onto it.
@@ -256,12 +287,19 @@ export class Ledger {
    * appended wire rows (empty if fully deduped). A throw from `write`, `changes`,
    * or the append rolls everything back and leaves the baseline untouched.
    *
-   * `apply(result)` is where a caller's own PROJECTION INSTALL goes — the map
-   * write, the cache bump, the "this is now the committed state" assignment
-   * that used to sit on the statement after this call returned [POD-3366]. It
-   * runs as a commit application (spec §3.3 mechanism 1) of the OUTERMOST
-   * commit: registered through {@link LedgerDeps.applyCommit} when a span is
-   * open, run inline when none is.
+   * `apply(result, changes)` is where a caller's own PROJECTION INSTALL goes —
+   * the map write, the cache bump, the runtime teardown, the "this is now the
+   * committed state" assignment that used to sit on the statement after this
+   * call returned [POD-3366]. It runs as a commit application (spec §3.3
+   * mechanism 1) of the OUTERMOST commit: registered through
+   * {@link LedgerDeps.applyCommit} when a span is open, run inline when none is.
+   *
+   * IT TAKES THE APPENDED CHANGES AS WELL AS THE RESULT, because a site asked
+   * for them and closing over them is not safe: `const { changes } = commit(…)`
+   * is not assigned yet when the inline path calls `apply` from INSIDE the same
+   * call, so a closure over the destructured binding is a temporal-dead-zone
+   * error on exactly the path with no span open. The two arguments are what
+   * this commit produced, handed to the arm rather than reached for.
    *
    * WHY THE ARM EXISTS AT ALL, AND WHY THE STATEMENT AFTER THE CALL IS WRONG.
    * This method runs its body inside `transact()`, and when the caller already
@@ -295,15 +333,7 @@ export class Ledger {
    * feature writers that still consume this facade. The decision is delegated to
    * the SAME Authority instance; this class does not compare revisions itself.
    */
-  commit<T>(op: {
-    write: () => T
-    changes: (result: T) => EntityChangeSpec[]
-    apply?: (result: T) => void
-    arbitrate?: AuthorityCommit<T>['arbitrate']
-  }): {
-    result: T
-    changes: MetadataChange[]
-  } {
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T> {
     const outcome = this.authority.commit({
       ...(op.arbitrate === undefined ? {} : { arbitrate: op.arbitrate }),
       write: op.write,
@@ -312,6 +342,7 @@ export class Ledger {
     if (outcome.outcome !== 'committed') {
       throw new AuthorityArbitrationRejected(outcome.reason, outcome.detail)
     }
+    const changes = outcome.changes.map(toWireChange)
     if (op.apply) {
       // Asked AFTER the commit, when `spanOpen()` answers about the CALLER's
       // span rather than this commit's own — the same moment, and the same
@@ -319,12 +350,12 @@ export class Ledger {
       const apply = op.apply
       const fold = this.deps.applyCommit
       if (fold?.spanOpen()) {
-        fold.onCommit(() => apply(outcome.result), 'ledger-commit-application')
+        fold.onCommit(() => apply(outcome.result, changes), 'ledger-commit-application')
       } else {
-        apply(outcome.result)
+        apply(outcome.result, changes)
       }
     }
-    return { result: outcome.result, changes: outcome.changes.map(toWireChange) }
+    return { result: outcome.result, changes }
   }
 
   /**

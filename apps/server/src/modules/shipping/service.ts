@@ -30,7 +30,11 @@ import {
   shippingJobRequestFingerprint,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
-import type { BaselineFoldPort, EntityChangeSpec } from '@podium/sync'
+import type {
+  BaselineFoldPort,
+  EntityChangeSpec,
+  LedgerCommitOp,
+} from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import {
   type RootIntegrationReceiptStore,
@@ -166,7 +170,7 @@ export interface ShippingIssuePort {
 }
 
 export interface ShippingLedgerPort {
-  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): { result: T }
+  commit<T>(op: LedgerCommitOp<T>): { result: T }
   reconcile(entity: 'shipOrder', rows: { id: string; value: unknown }[]): unknown
 }
 

@@ -886,6 +886,7 @@
         "src/modules/layout/authz.ts",
         "src/modules/layout/service.ts",
         "src/modules/layout/trpc.ts",
+        "src/modules/lifecycle-runtime-fold.test.ts",
         "src/modules/lock/registry.test.ts",
         "src/modules/lock/registry.ts",
         "src/modules/lock/service.test.ts",
