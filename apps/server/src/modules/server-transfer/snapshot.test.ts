@@ -1,9 +1,9 @@
-import { asMachineId } from '@podium/model'
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { asMachineId } from '@podium/model'
 import { canonicalServerTransferManifest, type ServerTransferManifest } from '@podium/protocol'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   createPortableSnapshot,
   isSafeRelativePath,
@@ -50,6 +50,19 @@ describe('portable server snapshot', () => {
     'uploads',
   ])('rejects unsafe or non-portable path %s', (path) => {
     expect(isSafeRelativePath(path)).toBe(false)
+  })
+
+  it('carries installation.json, the identity that moves with the installation (PDM-51)', () => {
+    expect(isSafeRelativePath('installation.json')).toBe(true)
+    // What stays behind: the host's own identity and the update trust root.
+    for (const hostFile of [
+      'machine.id',
+      'daemon.secret',
+      'update-signing-key.json',
+      'config.json',
+    ]) {
+      expect(isSafeRelativePath(hostFile)).toBe(false)
+    }
   })
 
   it('checkpoints before snapshot and refuses symlinks', async () => {

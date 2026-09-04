@@ -1,8 +1,8 @@
-import type { MachineId } from '@podium/model'
 import { createHash } from 'node:crypto'
 import { constants, createReadStream } from 'node:fs'
 import { copyFile, lstat, mkdir, open, readdir, rename, rm, statfs } from 'node:fs/promises'
 import { dirname, join, posix, relative, sep } from 'node:path'
+import type { MachineId } from '@podium/model'
 import {
   canonicalServerTransferManifest,
   SERVER_TRANSFER_FORMAT_VERSION,
@@ -10,7 +10,12 @@ import {
   type ServerTransferManifestEntry,
 } from '@podium/protocol'
 
-const ROOT_FILES = ['podium.db', 'enrollment.ledger'] as const
+// `installation.json` is the installation's own identity (PDM-51): it names the
+// Podium, not the host, so it MOVES. machine.id, daemon.secret and the update
+// signing key name the host and deliberately do not.
+const ROOT_FILES = ['podium.db', 'enrollment.ledger', 'installation.json'] as const
+/** Root files a snapshot may lack: a source older than PDM-51 never minted one. */
+const OPTIONAL_ROOT_FILES: ReadonlySet<string> = new Set(['installation.json'])
 const ROOT_DIRECTORIES = ['transcripts', 'artifacts', 'uploads'] as const
 export const MAX_TRANSFER_BYTES = 512 * 1024 * 1024
 export const TRANSFER_SPACE_MARGIN_BYTES = 64 * 1024 * 1024
@@ -62,6 +67,7 @@ async function regularFiles(stateRoot: string): Promise<string[]> {
       result.push(name)
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        if (OPTIONAL_ROOT_FILES.has(name)) continue
         throw new Error(`portable state is missing required file: ${name}`)
       }
       throw error
@@ -158,9 +164,7 @@ export function manifestWithDigest(
   const normalized = { ...body, files }
   return {
     ...normalized,
-    digest: createHash('sha256')
-      .update(canonicalServerTransferManifest(normalized))
-      .digest('hex'),
+    digest: createHash('sha256').update(canonicalServerTransferManifest(normalized)).digest('hex'),
   }
 }
 

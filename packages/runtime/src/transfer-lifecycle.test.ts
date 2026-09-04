@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { loadConfig, saveConfig } from './config'
+import { readInstallationIdentity, readOrCreateInstallationIdentity } from './installation-identity'
 import type { RunRole } from './run-registry'
 import { applySetup } from './setup'
 import {
@@ -160,6 +161,31 @@ describe('server transfer lifecycle', () => {
       port: 20001,
     })
     expect(second).toMatchObject({ changed: false, previousConfig: before })
+  })
+
+  it('bumps the installation generation once per promotion, never on a replay (PDM-51)', () => {
+    // The snapshot restored installation.json before promotion; the target now
+    // hosts that installation, so its generation moves on and the demoted source
+    // is refused by Connect.
+    const restored = readOrCreateInstallationIdentity(root)
+    expect(restored.generation).toBe(1)
+    saveConfig({ mode: 'daemon', serverUrl: 'wss://source.example', persistence: 'detached' })
+
+    applyTargetServerPromotion({ transferId: TRANSFER_ONE, publicUrl: 'https://target.example' })
+    expect(readInstallationIdentity(root)?.generation).toBe(2)
+
+    applyTargetServerPromotion({ transferId: TRANSFER_ONE, publicUrl: 'https://target.example' })
+    expect(readInstallationIdentity(root)?.generation).toBe(2)
+  })
+
+  it('promotes a target whose snapshot carried no identity', () => {
+    saveConfig({ mode: 'daemon', serverUrl: 'wss://source.example', persistence: 'detached' })
+    const result = applyTargetServerPromotion({
+      transferId: TRANSFER_ONE,
+      publicUrl: 'https://target.example',
+    })
+    expect(result.changed).toBe(true)
+    expect(readInstallationIdentity(root)).toBeUndefined()
   })
 
   it('backs up the original daemon config through the current restartAfterTransfer call path', () => {
