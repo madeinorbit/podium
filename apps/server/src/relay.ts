@@ -239,7 +239,12 @@ interface SessionRegistryOptions {
    * a virtual clock instead of 25 real seconds: pair a `sleep` that advances
    * {@link SessionRegistryOptions.now} with a `pollMs` above the budget, and the
    * whole wait resolves in one step with no timer. It never shortens the budget
-   * itself — that constant is production policy.
+   * itself — that constant is production policy, and whether 25s is the RIGHT
+   * policy is POD-3388's question rather than this seam's.
+   *
+   * POD-3386 and POD-3387 added this independently, hours apart, because the
+   * boundary lane had read that 25-second wait as a HANG for a week [POD-3380].
+   * Two fixtures needed the same seam to stop paying it in real time.
    */
   mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
