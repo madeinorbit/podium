@@ -72,6 +72,27 @@ it('round-trips mobile device metadata, activity, and owner-scoped row revocatio
   ).toBe('mobile-a')
 })
 
+it('re-pairing a mobile session replaces its old token', async () => {
+  const sessionId = 'session-aaaaaaaaaaaa'
+  await repo.createClientSession('mobile-old', FIRST_ADMIN_USER_ID, FUTURE, 'mobile', {
+    sessionId,
+    deviceId: 'device-a',
+    deviceName: 'Old pairing',
+    platform: 'ios',
+  })
+  await repo.createClientSession('mobile-new', FIRST_ADMIN_USER_ID, FUTURE, 'mobile', {
+    sessionId,
+    deviceId: 'device-a',
+    deviceName: 'New pairing',
+    platform: 'ios',
+  })
+
+  expect(await repo.getClientSession('mobile-old')).toBeUndefined()
+  expect(await repo.listMobileClientSessions(FIRST_ADMIN_USER_ID)).toMatchObject([
+    { tokenHash: 'mobile-new', sessionId, deviceName: 'New pairing' },
+  ])
+})
+
 // REMOVED, not ported: 'labels an upstream provisioning token as upstream'.
 // It called `mintUpstreamTokenInto` (main, 1d11ae43 "feat(auth): give the operator
 // CLI a credential it can mint"), and this branch has no such function to call:

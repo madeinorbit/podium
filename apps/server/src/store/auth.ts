@@ -82,17 +82,14 @@ export class AuthRepository {
     label = 'login',
     metadata: ClientSessionMetadata = {},
   ): void {
-    // DECISION POD-3403 — NOT converted. `client_sessions` carries a second
-    // uniqueness constraint (`idx_client_sessions_session_id`) besides its
-    // primary key, and `INSERT OR REPLACE` resolves a conflict on EITHER of
-    // them. drizzle offers only `onConflictDoUpdate`, which names ONE target and
-    // raises on the other: measured on bun:sqlite, a re-pair that reuses a
-    // `session_id` under a new `token_hash` replaces the row today and would
-    // throw after the conversion. That is a behaviour change on the auth path,
-    // so the statement stays raw until the rule lands.
+    // `client_sessions` carries a second uniqueness constraint
+    // (`idx_client_sessions_session_id`) besides its primary key. `INSERT OR
+    // REPLACE` resolves a conflict on EITHER, while drizzle's targeted
+    // `onConflictDoUpdate` raises on the other. Rule 31b therefore preserves
+    // this atomic statement instead of changing mobile re-pair behaviour on the
+    // auth path.
     this.db.run(
-      // DECISION POD-3403 — genuinely open: two uniqueness constraints, and
-      // onConflictDoUpdate names one and throws on the other.
+      // PRESERVED-REPLACE POD-3403 — exact path + token + SQL shape exemption.
       sql`INSERT OR REPLACE INTO client_sessions
             (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
           VALUES (${tokenHash}, ${userId}, ${new Date().toISOString()}, ${expiresAt}, ${label},
