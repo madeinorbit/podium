@@ -28,7 +28,7 @@ import {
 /**
  * SPEC-6 item 15: the managed podium-host build — builds when missing or stale,
  * publishes atomically, serialises concurrent builders, and an explicit
- * PODIUM_HOST override that does not run fails loudly. Mirrors the R1 and C9
+ * PODIUM_HOST_BIN override that does not run fails loudly. Mirrors the R1 and C9
  * suites of abduco-bin.test.ts.
  */
 
@@ -55,12 +55,12 @@ function fakeForeign(dir: string): string {
 
 describe('podium-host binary resolution', () => {
   const savedState = process.env.PODIUM_STATE_DIR
-  const savedExplicit = process.env.PODIUM_HOST
+  const savedExplicit = process.env.PODIUM_HOST_BIN
   afterEach(() => {
     if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
     else process.env.PODIUM_STATE_DIR = savedState
-    if (savedExplicit === undefined) delete process.env.PODIUM_HOST
-    else process.env.PODIUM_HOST = savedExplicit
+    if (savedExplicit === undefined) delete process.env.PODIUM_HOST_BIN
+    else process.env.PODIUM_HOST_BIN = savedExplicit
     resolveHostBin({ fresh: true })
   })
 
@@ -70,16 +70,16 @@ describe('podium-host binary resolution', () => {
     expect(managedHostDir()).toBe(`/x/state/bin/podium-host-v${HOST_FEATURES}`)
   })
 
-  it('an explicit PODIUM_HOST that does not run FAILS resolution (no silent fallback)', () => {
-    process.env.PODIUM_HOST = '/nonexistent/podium-host'
+  it('an explicit PODIUM_HOST_BIN that does not run FAILS resolution (no silent fallback)', () => {
+    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
   })
 
-  it('an explicit PODIUM_HOST that runs but is not a podium-host FAILS resolution', () => {
+  it('an explicit PODIUM_HOST_BIN that runs but is not a podium-host FAILS resolution', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-host-foreign-'))
     try {
-      process.env.PODIUM_HOST = fakeForeign(dir)
-      expect(hostBinFeatures(process.env.PODIUM_HOST)).toBe(0)
+      process.env.PODIUM_HOST_BIN = fakeForeign(dir)
+      expect(hostBinFeatures(process.env.PODIUM_HOST_BIN)).toBe(0)
       expect(resolveHostBin({ fresh: true })).toBeUndefined()
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -89,7 +89,7 @@ describe('podium-host binary resolution', () => {
   it('memoizes; { fresh: true } re-resolves', () => {
     process.env.PODIUM_STATE_DIR = mkdtempSync(join(tmpdir(), 'podium-host-memo-'))
     const first = resolveHostBin({ fresh: true })
-    process.env.PODIUM_HOST = '/nonexistent/podium-host'
+    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
     expect(resolveHostBin()).toBe(first)
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
     rmSync(process.env.PODIUM_STATE_DIR, { recursive: true, force: true })
@@ -107,9 +107,9 @@ describe('podium-host on Windows', () => {
   })
   it('resolves to nothing and refuses to build', () => {
     stubPlatform('win32')
-    process.env.PODIUM_HOST = '/nonexistent/podium-host'
+    process.env.PODIUM_HOST_BIN = '/nonexistent/podium-host'
     expect(resolveHostBin({ fresh: true })).toBeUndefined()
-    delete process.env.PODIUM_HOST
+    delete process.env.PODIUM_HOST_BIN
     expect(buildVendoredHost(join(tmpdir(), 'never-built'))).toBeUndefined()
   })
 })

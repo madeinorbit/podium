@@ -29,15 +29,19 @@ import {
 } from '@podium/protocol/daemon'
 import {
   abducoHasSession,
+  hostHasSession,
   isAbducoAvailable,
+  isHostAvailable,
   killAbducoSession,
+  killHostSession,
+  listLiveHostLabels,
   reapAbducoTestSessions,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
-import type { DaemonContext } from './control/context'
+import type { DaemonContext, DurableBackend } from './control/context'
 import { launchServerDriverSession, sessionHandlers } from './control/session'
 import {
   controlFrameByteLength,
@@ -79,6 +83,12 @@ afterAll(async () => {
   // Before the tmp rm below: unlinking a socket dir orphans its master forever.
   if (isAbducoAvailable()) {
     await reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
+  }
+  if (isHostAvailable()) {
+    for (const label of await listLiveHostLabels()) {
+      const m = /^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/.exec(label)
+      if (m && Number(m[1]) === process.pid) await killHostSession(label)
+    }
   }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
@@ -1800,7 +1810,22 @@ describe('durable backend resolution', () => {
   })
 })
 
-describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
+
+/**
+ * SPEC-6 items 13–14: the survival suite runs against whichever durable host
+ * `PODIUM_DURABLE_BACKEND` names — abduco by default, our own podium-host when
+ * set to `host`. The claims differ where the hosts differ and say so inline.
+ */
+const DURABLE_BACKEND: Exclude<DurableBackend, 'none'> =
+  process.env.PODIUM_DURABLE_BACKEND === 'host' ? 'host' : 'abduco'
+const durableAvailable = (): boolean =>
+  DURABLE_BACKEND === 'host' ? isHostAvailable() : isAbducoAvailable()
+const hasDurable = (label: string): Promise<boolean> =>
+  DURABLE_BACKEND === 'host' ? hostHasSession(label) : abducoHasSession(label)
+const killDurable = (label: string): Promise<void> =>
+  DURABLE_BACKEND === 'host' ? killHostSession(label) : killAbducoSession(label)
+
+describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
   it('keeps the abduco session alive after the daemon closes, reattaches, and fails for a missing label', async () => {
     const sessionId = asSessionId(`ab-survive-${process.pid}`)
     const label = `podium-${sessionId}`
@@ -1823,7 +1848,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      backend: 'abduco',
+      backend: DURABLE_BACKEND,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -1842,7 +1867,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -1855,16 +1880,27 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         lastKnownGeometry: G,
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
-      // so frames flow again from the re-attached client.
-      await waitFor(() =>
+      const framesFlow = (): boolean =>
         received.some(
           (m) =>
             m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
             m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        ),
-      )
+        )
+      if (DURABLE_BACKEND === 'host') {
+        // SPEC-6 item 13: the bind after the re-bind carries the program's real
+        // size (the stage 5 record). The fresh-daemon case below is where the
+        // host's size-neutral reattach itself is pinned; this daemon still holds
+        // the bridge, and that path repaints as it always has.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.geometry).toEqual(G)
+      }
+      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
+      // so frames flow again from the re-attached client.
+      await waitFor(framesFlow)
 
       // A reattach for a label no backend knows → reattachFailed.
       const goneId = `ab-gone-${process.pid}`
@@ -1883,10 +1919,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Closing the daemon only kills the attach client — the session survives.
       daemonClosed = true
       await daemon.close()
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
     } finally {
       if (!daemonClosed) await daemon.close()
-      await killAbducoSession(label)
+      await killDurable(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
@@ -1923,7 +1959,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
       agentRelay: { port: 0 },
-      backend: 'abduco' as const,
+      backend: DURABLE_BACKEND,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind: unknown, opts: { cwd: string }) => ({
         cmd: process.execPath,
@@ -1961,9 +1997,9 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
 
-      // The daemon dies; the agent keeps running in its own abduco master.
+      // The daemon dies; the agent keeps running in its own durable host.
       await first.close()
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
 
       received.length = 0
       connected = nextConnection()
@@ -1993,7 +2029,10 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       const reattachBind = received.find(
         (m) => m.type === 'bind' && m.sessionId === sessionId,
       ) as Extract<DaemonMessage, { type: 'bind' }>
-      expect(reattachBind).not.toHaveProperty('geometry')
+      // …except that the host can READ the size the program is at, and says so:
+      // the real size, never the stale belief (SPEC-6 item 13).
+      if (DURABLE_BACKEND === 'host') expect(reattachBind.geometry).toEqual(G)
+      else expect(reattachBind).not.toHaveProperty('geometry')
 
       // The first viewport request is what moves it — and, because the master
       // signals the program on every resize packet, is also what repaints it.
@@ -2002,12 +2041,103 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       await waitFor(() => painted().includes('cols=120 rows=45'))
     } finally {
       await (second ?? first).close()
-      await killAbducoSession(label)
+      await killDurable(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 40000)
 
-  it('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
+  it.skipIf(!isAbducoAvailable() || !isHostAvailable())(
+    'MIXED FLEET (SPEC-6 item 14): a session created under abduco reattaches after a restart onto the host backend',
+    async () => {
+      const sessionId = asSessionId(`ab-mixed-${process.pid}`)
+      const label = `podium-${sessionId}`
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const port = (wss.address() as { port: number }).port
+      const received: DaemonMessage[] = []
+      let serverSocket!: WS
+      const nextConnection = (): Promise<void> =>
+        new Promise<void>((r) => {
+          wss.once('connection', (ws) => {
+            serverSocket = ws
+            handshakeAndCollect(ws, received)
+            r()
+          })
+        })
+      const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+        const startedAt = Date.now()
+        while (!fn()) {
+          if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+          await new Promise((r) => setTimeout(r, 20))
+        }
+      }
+      const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+      const painted = (): string =>
+        received
+          .filter(
+            (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+              m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+          )
+          .flatMap((m) => m.frames.map((f) => decode(f)))
+          .join('')
+      const base = {
+        serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
+        agentRelay: { port: 0 },
+        discovery: { background: false, cachePath: ':memory:' },
+        hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+        launch: (_kind: unknown, opts: { cwd: string }) => ({
+          cmd: process.execPath,
+          args: [FIXTURE],
+          cwd: opts.cwd,
+        }),
+      }
+      let connected = nextConnection()
+      const first = await startDaemon({ ...base, backend: 'abduco' })
+      await connected
+      let second: Awaited<ReturnType<typeof startDaemon>> | undefined
+      try {
+        send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+        await first.close()
+        expect(await abducoHasSession(label)).toBe(true)
+
+        // The machine switched hosts while the session was alive under abduco.
+        received.length = 0
+        connected = nextConnection()
+        second = await startDaemon({ ...base, backend: 'host' })
+        await connected
+        send({
+          type: 'reattach',
+          sessionId,
+          durableLabel: label,
+          agentKind: 'claude-code',
+          cwd: '/tmp',
+          lastKnownGeometry: G,
+        })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+        // It came back through abduco's adapter — and behaves as an abduco session.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.cmd).toContain('abduco -a')
+        expect(bind).not.toHaveProperty('geometry')
+        received.length = 0
+        send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+        await waitFor(() => painted().includes('cols=120 rows=45'))
+      } finally {
+        await (second ?? first).close()
+        await killAbducoSession(label)
+        await new Promise<void>((r) => wss.close(() => r()))
+      }
+    },
+    40000,
+  )
+
+  it.skipIf(DURABLE_BACKEND === 'host')('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
     // Regression: a backend restart (disposeAll), a user detach, or a client crash
     // all kill a session's abduco ATTACH CLIENT. The master + agent live on in
     // their own scope, so the daemon must stay silent — a stray agentExit makes

@@ -16,7 +16,7 @@ import { asSessionId, FIRST_ADMIN_USER_ID, type MachineId, type SessionId } from
 import type { DaemonPtyInputMetadata, DaemonPtyOutputBatch, PeerBuild } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import type { AgentSession } from '@podium/pty'
-import { killAbducoSession, listLiveAbducoLabels, reapStaleAbducoBindTemps } from '@podium/pty'
+import { reapStaleAbducoBindTemps } from '@podium/pty'
 import {
   loadConfig,
   resolveAgentHomeDir,
@@ -53,6 +53,7 @@ import {
 } from './convergence'
 import type { DaemonOptions } from './daemon-options'
 import { createDiscoveryLoop, DEFAULT_DISCOVERY_SCAN_INTERVAL_MS } from './discovery-loop'
+import { createDurable } from './control/durable'
 import { selectDurableBackend } from './durable-backend'
 import { createFrameGuard, type FrameGuard } from './frame-guards'
 import { createFrameSink } from './frame-sink'
@@ -283,7 +284,8 @@ export async function createDaemonHostRuntime(args: {
   })
   const config = loadConfig()
   const launch = opts.launch ?? agentLaunchCommand
-  const backend = selectDurableBackend(opts)
+  const { backend, available: durableAvailable } = selectDurableBackend(opts)
+  const durable = backend === 'none' ? undefined : createDurable(backend, durableAvailable)
   const identityStateDir = opts.identityDir ?? stateDir()
   const identity = loadIdentity({ dir: identityStateDir })
   const machineId = opts.machineId ?? identity.machineId
@@ -823,6 +825,8 @@ export async function createDaemonHostRuntime(args: {
     durableLabels: new Map<SessionId, string>(),
     durableLabelFor: (sessionId) => durableSessionLabel(sessionId, instance.instanceId),
     backend,
+    ...(durable ? { durable } : {}),
+    durableSeqs: new Map<SessionId, () => bigint | undefined>(),
     launch,
     ...(harnessRuntime ? { harnessRuntime } : {}),
     settingsDir: instance.settingsDir,
@@ -902,6 +906,17 @@ export async function createDaemonHostRuntime(args: {
         : Promise.resolve(process.env),
     ...(homeDir ? { homeDir } : {}),
     instanceUuid: instance.instanceUuid,
+    // The client terminal is a durable session like any other: it lives under
+    // whichever host this daemon selected, and is found/reclaimed through the
+    // same object (SPEC-6).
+    ...(durable
+      ? {
+          spawn: (opts) => durable.spawn(opts),
+          reclaim: (label) => durable.kill(label),
+          hasMaster: (label) =>
+            durable.hasMasterSync(label, homeDir ? { ...process.env, HOME: homeDir } : process.env),
+        }
+      : {}),
   })
   ctx.clientTerminals = clientTerminals
 
@@ -1170,11 +1185,15 @@ export async function createDaemonHostRuntime(args: {
     // needs it before the connect handler returns — the server repairs whatever
     // the census names, whenever it lands.
     const timer = setTimeout(() => {
-      try {
-        send({ type: 'durableSessionCensus', labels: listLiveAbducoLabels() })
-      } catch (err) {
-        log.warn('could not census the durable sessions', { err })
-      }
+      void (async () => {
+        try {
+          // Both hosts: a session created under abduco before the switch is
+          // still a live session this machine holds.
+          send({ type: 'durableSessionCensus', labels: (await durable?.list()) ?? [] })
+        } catch (err) {
+          log.warn('could not census the durable sessions', { err })
+        }
+      })()
     }, 0)
     timer.unref?.()
   }
@@ -1232,9 +1251,9 @@ export async function createDaemonHostRuntime(args: {
     const reapSessions = closeOpts?.reapSessions ?? false
     for (const [sessionId, session] of ctx.bridges) {
       session.dispose()
-      if (reapSessions && backend !== 'none') {
+      if (reapSessions && durable) {
         const label = ctx.durableLabels.get(sessionId) ?? ctx.durableLabelFor(sessionId)
-        durableReaps.push(killAbducoSession(label))
+        durableReaps.push(durable.kill(label))
       }
     }
     ctx.bridges.clear()

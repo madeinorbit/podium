@@ -26,13 +26,10 @@ import {
 import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import {
   type AgentSession,
-  abducoHasSession,
-  attachAbducoAgent,
-  killAbducoSession,
   shellQuote,
-  spawnAbducoAgent,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
+import { createDurable, type Durable } from './control/durable.js'
 import { harnessChildStripEnv, harnessInstanceEnv } from './control/session-env.js'
 import {
   buildHeadlessExec,
@@ -611,6 +608,9 @@ export function runDurableHeadlessTurn(
   spec: HeadlessTurnSpec,
   emit: HeadlessEmit,
   snapshot: ResolvedHarnessInventory,
+  /** The daemon's durable host (SPEC-6): the shell running the harness lives under
+   *  it. Defaults to abduco for callers that predate the object. */
+  durable: Durable = createDurable('abduco', { host: false, abduco: true }),
 ): HeadlessTurnHandle {
   const identity: DurableIdentity = {
     sessionId,
@@ -728,16 +728,20 @@ export function runDurableHeadlessTurn(
       // its journal before deciding that a vanished abduco socket is a failure.
       collect()
       if (settled || disposed) return
-      if (await abducoHasSession(label)) {
+      const located = await durable.locate(label, process.env)
+      if (located && (await located.adapter.has(label))) {
         // Reattaching to a harness that is already running: this attach must not
         // push a size onto the live process [spec:SP-6144]. Nothing measured this
         // harness's geometry — it has no viewer — so the downgrade fallback is
         // the same spawn default the create below uses.
-        attachment = attachAbducoAgent({
-          label,
-          sizeNeutral: true,
-          fallbackGeometry: HEADLESS_GEOMETRY,
-        })
+        attachment = (
+          await located.adapter.attach({
+            label,
+            socketPath: located.socketPath,
+            hardRepaint: false,
+            lastKnownGeometry: HEADLESS_GEOMETRY,
+          })
+        ).session
       } else if (existsSync(paths.running)) {
         // Close the race where the process writes its exit journal between the
         // first collect() and the socket check.
@@ -751,7 +755,7 @@ export function runDurableHeadlessTurn(
         return
       } else {
         emit({ kind: 'status', status: 'starting' })
-        attachment = await spawnAbducoAgent({
+        attachment = await durable.spawn({
           label,
           cmd: '/bin/sh',
           args: [paths.script],
@@ -788,7 +792,7 @@ export function runDurableHeadlessTurn(
   const remaining = Math.max(1, (spec.timeoutMs ?? 600_000) - (Date.now() - createdAt))
   timeout = setTimeout(() => {
     void (async () => {
-      await killAbducoSession(label)
+      await durable.kill(label)
     })()
     finish({
       ok: false,
@@ -803,7 +807,7 @@ export function runDurableHeadlessTurn(
     done,
     interrupt() {
       void (async () => {
-        await killAbducoSession(label)
+        await durable.kill(label)
       })()
       finish({
         ok: false,

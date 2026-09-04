@@ -16,7 +16,8 @@
 import { randomUUID } from 'node:crypto'
 import { readFile } from 'node:fs/promises'
 import type { AttachmentStager } from '@podium/agent-runtime'
-import { abducoHasSession, scopeUnitName } from '@podium/pty'
+import { scopeUnitName } from '@podium/pty'
+import { durableFor } from '../control/durable'
 import type { DaemonContext } from '../control/context'
 import { launchSpawn, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
@@ -47,7 +48,7 @@ export function daemonRuntimeHost(
     // Absent on macOS, and honestly so: there is no transient scope there, and a
     // fabricated unit name would make `health()` report a cgroup nothing owns.
     scopeUnit: (label) => (process.platform === 'linux' ? scopeUnitName(label) : undefined),
-    durableHostAlive: async (label) => await abducoHasSession(label),
+    durableHostAlive: async (label) => (await durableFor(ctx)?.has(label)) ?? false,
     stopSession: (input) => stopSessionProcess(ctx, input),
     launch: (msg) => launchSpawn(ctx, msg),
     readTranscript: async (session, range) => {

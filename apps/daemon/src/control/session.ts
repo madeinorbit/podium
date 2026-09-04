@@ -23,14 +23,7 @@ import {
 import type { ControlMessage } from '@podium/protocol/daemon'
 import {
   type AgentSession,
-  abducoHasSession,
-  abducoSocketPath,
-  attachAbducoAgent,
-  killAbducoSession,
-  reapStaleAbducoBindTemps,
-  spawnAbducoAgent,
   spawnAgent,
-  waitForAbducoSocket,
 } from '@podium/pty'
 import type { SessionBindingTransitionOutcome } from '../binding-store'
 import { countFrame } from '../loop-attribution'
@@ -64,6 +57,7 @@ import { beginServerDriverReap } from '../runtime/server-reap'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import { removeSessionUploads } from '../session-uploads'
 import { appliedGeometryFor, bindFrame, geometryAppliedFrame } from './applied-geometry'
+import { type Durable, type DurableAttachment, durableFor } from './durable'
 import type { ControlHandlers, DaemonContext } from './context'
 import { harnessChildStripEnv, harnessCompatEnv, harnessInstanceEnv, spawnEnv } from './session-env'
 
@@ -464,6 +458,16 @@ function reportGeometryApplied(ctx: DaemonContext, sessionId: SessionId): void {
  * told. The two are the same fact stated twice: callers that need the number
  * (the headless screens) read the return; the bind reads the record.
  */
+/**
+ * Keep a way to read the host connection's resume point after the session is
+ * gone: the host adapter's session exposes its connection, and `lastSeq` on it
+ * survives the socket closing. Other backends record nothing.
+ */
+function rememberDurableSeq(ctx: DaemonContext, sessionId: SessionId, session: AgentSession): void {
+  const conn = (session as { connection?: { lastSeq?: bigint } }).connection
+  if (conn) ctx.durableSeqs?.set(sessionId, () => conn.lastSeq)
+}
+
 export function wireBridge(
   ctx: DaemonContext,
   sessionId: SessionId,
@@ -554,7 +558,7 @@ export function wireBridge(
     // reaps the socket as it lists, so a just-exited master reads as gone.)
     const label = durableLabel
     void (async () => {
-      if (ctx.backend === 'abduco' && (await abducoHasSession(label))) return
+      if (await durableFor(ctx)?.has(label)) return
       // The agent has truly exited (master is gone). Uploads are one-shot prompt
       // inputs that were already consumed before the agent finished processing
       // them, so it's safe to remove the per-session upload dir on any real exit
@@ -718,8 +722,9 @@ export async function launchSpawn(
       // environment" instead.
       stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
     }
-    const session =
-      ctx.backend === 'abduco' ? await spawnAbducoAgent(spawnOpts) : spawnAgent(spawnOpts)
+    const durable = durableFor(ctx)
+    const session = durable ? await durable.spawn(spawnOpts) : spawnAgent(spawnOpts)
+    rememberDurableSeq(ctx, msg.sessionId, session)
     driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
       adopted: session.adopted,
     })
@@ -757,7 +762,7 @@ export async function launchSpawn(
     ctx.send(
       bindFrame(appliedGeometryFor(ctx), {
         sessionId: msg.sessionId,
-        cmd: session.adopted ? `abduco -a ${label}` : cmd.cmd,
+        cmd: session.adopted ? (durable as Durable).primary.attachCommand(label) : cmd.cmd,
         cwd: cmd.cwd,
         agentKind: msg.agentKind,
         ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
@@ -1892,7 +1897,7 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     }
     await bindRuntimeContract(ctx, msg, true)
     const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    const cmd = `abduco -a ${msg.durableLabel}`
+    const cmd = durableFor(ctx)?.primary.attachCommand(msg.durableLabel) ?? msg.durableLabel
     // Draft Sync v2 (POD-859): ensure the engine is running if flagged (idempotent —
     // covers a runtime flag flip since the original spawn).
     if (msg.draftSync) {
@@ -1997,47 +2002,34 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // on resize, so only shells take the hard path. The abduco attach below is
     // size-neutral, so it repaints nothing on its own — the first viewport
     // request does — but a shell still gets this Ctrl-L, as it does today.
-    let found: { session: AgentSession; cmd: string } | undefined
-    let socketPath: string | undefined
-    if (ctx.backend !== 'none') {
-      reapStaleAbducoBindTemps()
-      const abducoEnv = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
-      socketPath = abducoSocketPath(msg.durableLabel, abducoEnv)
-      if (socketPath === undefined) {
+    let found: DurableAttachment | undefined
+    const durable = durableFor(ctx)
+    if (durable) {
+      const env = ctx.homeDir ? { ...process.env, HOME: ctx.homeDir } : process.env
+      // HOST FIRST, THEN ABDUCO, whatever this daemon spawns with: a session
+      // created under abduco before the switch lives there until it exits.
+      const located = await durable.locate(msg.durableLabel, env, { waitMs: 1500 })
+      if (located) {
         try {
-          socketPath = await waitForAbducoSocket(msg.durableLabel, abducoEnv, { timeoutMs: 1500 })
-        } catch {
-          // The durable host may be absent; `found` stays undefined and the
-          // reattach fails below.
+          found = await located.adapter.attach({
+            label: msg.durableLabel,
+            socketPath: located.socketPath,
+            hardRepaint: msg.agentKind === 'shell',
+            lastKnownGeometry: msg.lastKnownGeometry,
+            ...(ctx.durableSeqs?.get(msg.sessionId)?.() !== undefined
+              ? { lastSeq: ctx.durableSeqs?.get(msg.sessionId)?.() as bigint }
+              : {}),
+          })
+        } catch (err) {
+          log.warn('durable reattach failed', { err, sessionId: msg.sessionId, label: msg.durableLabel })
         }
-      }
-    }
-    if (socketPath) {
-      found = {
-        // The agent has been running all along at a size of its own, and
-        // `msg.lastKnownGeometry` is only what the server last KNEW — after a
-        // daemon restart it can be stale. A reattach is not a viewer asking for a size,
-        // so it neither resizes nor signals the agent; the first viewport request
-        // after reconnect is what moves it [spec:SP-6144].
-        session: attachAbducoAgent({
-          label: msg.durableLabel,
-          socketPath,
-          hardRepaint: msg.agentKind === 'shell',
-          sizeNeutral: true,
-          // Read ONLY if this machine has no `-N` abduco build and the attach
-          // downgrades to one that does announce a size. Last-known is then the
-          // only size that keeps the agent and every viewer's render agreeing;
-          // the session reports it back as `appliedGeometry`.
-          fallbackGeometry: msg.lastKnownGeometry,
-        }),
-        cmd: `abduco -a ${socketPath}`,
       }
     }
     if (!found) {
       ctx.send({
         type: 'reattachFailed',
         sessionId: msg.sessionId,
-        reason: ctx.backend === 'none' ? 'durable backend unavailable' : 'session not found',
+        reason: durable ? 'session not found' : 'durable backend unavailable',
       })
       return
     }
@@ -2058,9 +2050,15 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
     // applied, so rule 1 rev 4 lets the bind report it — AN APPLY SITE
     // (POD-3290), and the only one the daemon learns about after the fact
     // rather than by dispatching it.
-    const downgraded = held ? undefined : found.session.appliedGeometry
+    //
+    // THE HOST READS THE SIZE BACK (SPEC-6, stage 5 record). Its WELCOME carries
+    // the kernel's TIOCGWINSZ for the running program — not a belief, the size it
+    // IS at — so the bind after a restart reports it and the `unknown` window
+    // closes at reattach. abduco's attach reports nothing here.
+    const downgraded = held ? undefined : (found.readGeometry ?? found.session.appliedGeometry)
     if (downgraded) appliedGeometryFor(ctx).apply(msg.sessionId, downgraded.cols, downgraded.rows)
     const applied = held ?? downgraded
+    rememberDurableSeq(ctx, msg.sessionId, found.session)
     // The settings file from the original spawn still points at our fixed port,
     // so a reattached agent keeps reporting. A fresh daemon (post-redeploy) lost
     // all in-memory per-session state — rebuild it via the same path spawn uses.
@@ -2113,10 +2111,12 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
         ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
       }),
     )
-    // attachAbducoAgent nudges the PTY before the bridge is wired, so that
-    // initial repaint can be lost. Nudge once more after bind to make a fresh
-    // daemon reattach paint native view reliably.
-    found.session.redraw()
+    // abduco keeps no output history, so a reattach asks the program to repaint
+    // (attachAbducoAgent nudged before the bridge was wired, and that paint can
+    // be lost). The host replays its ring instead — nothing is owed when this
+    // daemon knew where it left off; a fresh daemon still nudges (see
+    // DurableAttachment.redrawOnReattach).
+    if (found.redrawOnReattach) found.session.redraw()
   })
 }
 
@@ -2221,13 +2221,14 @@ async function reapDurableHost(
   sessionId: SessionId,
   durableLabel: string,
 ): Promise<void> {
-  const stillRunning = async (): Promise<boolean> => await abducoHasSession(durableLabel)
+  const durable = durableFor(ctx)
+  const stillRunning = async (): Promise<boolean> => (await durable?.has(durableLabel)) ?? false
   try {
-    await killAbducoSession(durableLabel)
+    await durable?.kill(durableLabel)
     let alive = await stillRunning()
     if (alive) {
       log.warn('the durable host survived a kill — retrying', { sessionId, durableLabel })
-      await killAbducoSession(durableLabel)
+      await durable?.kill(durableLabel)
       alive = await stillRunning()
     }
     if (alive) {

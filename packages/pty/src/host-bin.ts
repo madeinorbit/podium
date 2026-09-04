@@ -21,7 +21,7 @@ import { stateDir } from '@podium/runtime/config'
  * podium-host binary resolution — the managed build of our own durable process
  * host (vendor/podium-host/host.c, SPEC-6). Mirrors abduco-bin.ts one for one so
  * the two adapters are operated the same way. Order:
- *   1. $PODIUM_HOST — explicit binary path; if it doesn't run or is not a
+ *   1. $PODIUM_HOST_BIN — explicit binary path; if it doesn't run or is not a
  *      podium-host at the required feature level, resolution FAILS (no silent
  *      fallback past operator intent).
  *   2. The managed build at $PODIUM_STATE_DIR/bin/podium-host-v<features>/,
@@ -313,11 +313,11 @@ export function resolveHostBin(opts?: { fresh?: boolean }): string | undefined {
 
 function locate(): string | undefined {
   if (!hostSupported()) return undefined
-  const explicit = process.env.PODIUM_HOST
+  const explicit = process.env.PODIUM_HOST_BIN
   if (explicit) {
     if (hostBinFeatures(explicit) >= HOST_FEATURES) return explicit
     console.error(
-      `[podium] PODIUM_HOST=${explicit} does not run as a podium-host at feature level ${HOST_FEATURES}. Refusing to fall back — unset it or point it at a podium-host build.`,
+      `[podium] PODIUM_HOST_BIN=${explicit} does not run as a podium-host at feature level ${HOST_FEATURES}. Refusing to fall back — unset it or point it at a podium-host build.`,
     )
     return undefined
   }

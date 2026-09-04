@@ -101,13 +101,13 @@ function rawCreate(args: string[]): { status: number | null; stderr: string } {
 beforeAll(() => {
   if (!hasCompiler) return
   root = mkdtempSync(join(tmpdir(), 'podium-host-it-'))
-  for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST']) {
+  for (const k of ['PODIUM_STATE_DIR', 'PODIUM_HOST_SOCKET_DIR', 'PODIUM_NO_SCOPE', 'PODIUM_HOST_BIN']) {
     saved[k] = process.env[k]
   }
   process.env.PODIUM_STATE_DIR = join(root, 'state')
   process.env.PODIUM_HOST_SOCKET_DIR = join(root, 'sock')
   process.env.PODIUM_NO_SCOPE = '1' // the scope is abduco's test, not the host's
-  delete process.env.PODIUM_HOST
+  delete process.env.PODIUM_HOST_BIN
   bin = resolveHostBin({ fresh: true }) as string
   countingFixture = join(root, 'counting.mjs')
   writeFileSync(countingFixture, COUNTING_SRC)

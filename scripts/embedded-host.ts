@@ -11,11 +11,11 @@ import { defaultHostCachePath, hostSupported } from '../packages/pty/src/host-bi
  * the resolver's cache path ($PODIUM_STATE_DIR/bin/podium-host) on first start.
  * An EMPTY embedded file (a cross build that shipped no host, or Windows) is a
  * "no host here" placeholder and materializes nothing: the daemon falls back to
- * abduco. A pre-existing cache or $PODIUM_HOST wins.
+ * abduco. A pre-existing cache or $PODIUM_HOST_BIN wins.
  */
 export async function materializeEmbeddedHost(): Promise<void> {
   if (!hostSupported()) return
-  if (process.env.PODIUM_HOST) return
+  if (process.env.PODIUM_HOST_BIN) return
   const cache = defaultHostCachePath()
   if (existsSync(cache)) return
   try {
