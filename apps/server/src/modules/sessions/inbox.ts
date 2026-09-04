@@ -291,6 +291,10 @@ export interface SessionInboxDeps {
     mutate: (draft: SessionDurableState) => void,
     options?: { cancelTerminalCandidate?: boolean },
   ): void
+  /** A draft, for the site that must ask whether anything changed at all before
+   *  deciding to write [POD-3330]. */
+  draft(session: Session): SessionDurableState
+  persistDraft(session: Session, draft: SessionDurableState): void
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
   usesRawFirstTurn(agentKind: AgentKind): boolean
@@ -981,20 +985,21 @@ export class SessionInbox {
        * this pair is: a configure to the model the session is already on changes
        * nothing, and a write plus a fan-out per no-op is cost with no news in it.
        */
-      // NOT YET DRAFTED [POD-3330], and the reason is a test rather than an
-      // argument: `inbox.test.ts` pins this site's durable write by asserting
-      // on `persist` being called with the session (and on it NOT being called
-      // in the two refusal arms, which a rename would make pass vacuously).
-      // Spec rule 21 says a conversion commit does not rewrite an existing
-      // assertion, so this site waits on the coordinator's ruling. It is the
-      // ONLY session write path left assigning a durable field to the live
-      // object before its commit.
-      const changed = session.setRequestedModel({
-        ...(input.model !== undefined ? { model: input.model } : {}),
-        ...(input.effort !== undefined ? { effort: input.effort } : {}),
-      })
+      // THE ASK HAPPENS ON THE DRAFT [POD-3330]. The setter answers whether the
+      // request actually moves anything, and that answer is computed against a
+      // copy — so a configure that changes nothing leaves the live session
+      // untouched exactly as it did before, and one that does becomes visible
+      // in memory only once its row says so.
+      const draft = this.deps.draft(session)
+      const changed = session.setRequestedModel(
+        {
+          ...(input.model !== undefined ? { model: input.model } : {}),
+          ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        },
+        draft,
+      )
       if (changed) {
-        this.deps.persist(session)
+        this.deps.persistDraft(session, draft)
         this.deps.broadcast()
       }
     }

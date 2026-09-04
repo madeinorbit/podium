@@ -20,7 +20,7 @@ import {
 } from '../../harness-manifest'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { type InboxPrincipalReference, type QueuedInboxMessage, SessionInbox } from './inbox'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 
 const SID = asSessionId('session-target')
 const ALICE = asUserId('user:alice')
@@ -83,6 +83,12 @@ function harness(
   const contractInterrupts: SessionId[] = []
   const contractConfigures: { sessionId: SessionId; model?: string; effort?: string }[] = []
   const persist = vi.fn()
+  // The draft seam [POD-3330]. A real `persistDraft` commits the draft and then
+  // installs it on the session, so a fixture reproduces the pair: the write is
+  // observable, and what it wrote is on the session afterwards.
+  const persistDraft = vi.fn((target: Session, draft: SessionDurableState) => {
+    Object.assign(target, draft)
+  })
   const broadcast = vi.fn()
   const resurrections: Array<{ sessionId: SessionId; principal: InboxPrincipalReference }> = []
   const rejected: unknown[] = []
@@ -209,6 +215,8 @@ function harness(
     // routed through `persist`: the assertions below distinguish the durable
     // write this method makes from the ones its callees make.
     write: (session, mutate) => mutate(session as never),
+    draft: (session) => ({ ...session }) as never,
+    persistDraft,
     broadcast,
     // THE REAL MANIFEST LOOKUPS, NOT STUBS — for these three as well now
     // (POD-2823). The comment below has always said a stubbed table lets the
@@ -282,6 +290,7 @@ function harness(
     contractInterrupts,
     contractConfigures,
     persist,
+    persistDraft,
     broadcast,
     resurrections,
     rejected,
@@ -2626,7 +2635,7 @@ describe('configureSession', () => {
      * pushes a session list, so the control the operator just used looks like it
      * did nothing.
      */
-    expect(h.persist).toHaveBeenCalledWith(h.session)
+    expect(h.persistDraft).toHaveBeenCalledWith(h.session, expect.anything())
     expect(h.broadcast).toHaveBeenCalled()
   })
 
@@ -2646,7 +2655,7 @@ describe('configureSession', () => {
     expect(h.contractConfigures).toHaveLength(1)
     // But the write and the fan-out are guarded on the setter's return, like
     // every other caller of this pair: neither carries any news.
-    expect(h.persist).not.toHaveBeenCalled()
+    expect(h.persistDraft).not.toHaveBeenCalled()
     expect(h.broadcast).not.toHaveBeenCalled()
   })
 
@@ -2661,7 +2670,7 @@ describe('configureSession', () => {
 
     // A durable record of a change that did not happen is worse than no record:
     // it outlives the process that invented it.
-    expect(h.persist).not.toHaveBeenCalled()
+    expect(h.persistDraft).not.toHaveBeenCalled()
     expect(h.broadcast).not.toHaveBeenCalled()
   })
 

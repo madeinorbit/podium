@@ -455,6 +455,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
           ? () => bag.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
       ),
+    draft: (session) => bag.repository.draft(session),
+    persistDraft: (session, draft) => bag.repository.persistDraft(session, draft),
     broadcast: () => bag.broadcastSessions(),
     needsSubmitVerification: harnessNeedsSubmitVerification,
     usesRawFirstTurn: harnessUsesRawFirstTurn,

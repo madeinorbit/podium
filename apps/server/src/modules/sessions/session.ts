@@ -192,7 +192,7 @@ export interface SessionDurableState {
   archived: boolean
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
-  lastOomKillAt: string | undefined
+  oomKilledAt: string | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -333,10 +333,23 @@ export class Session {
    * table rebuild — so what survives a restart is the kill's TIME, and the
    * conclusion is re-derived from it on hydrate exactly as it was live.
    */
-  /** The kernel OOM stamp. PUBLIC rather than private since POD-3330, for the
-   *  reason {@link workingMsTotal} is: a durable projection answers it from a
-   *  DRAFT too. Written by {@link recordOomKill} and by a durable restore. */
-  lastOomKillAt: string | undefined
+  /**
+   * The kernel OOM stamp.
+   *
+   * NAMED FOR THE DURABLE FIELD, not for the class's own history [POD-3330,
+   * coordinator ruling]. It was `lastOomKillAt` here and `oomKilledAt` in
+   * {@link SessionDurableState} and in the row; one of the two had to move for
+   * the class to satisfy {@link SessionDurableFields}, and moving the CLASS is
+   * what keeps the durable constraint's field set exactly as POD-3259 shipped
+   * it. Renaming the bag's member instead would have made the assignment fit by
+   * taking the field OUT of the constraint that exists to prove the durable set
+   * is complete.
+   *
+   * PUBLIC rather than private for the same reason the compute totals are: a
+   * durable projection has to answer it from a DRAFT, which is a plain bag.
+   * Written by {@link recordOomKill} and by a durable restore.
+   */
+  oomKilledAt: string | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -520,10 +533,10 @@ export class Session {
     if (init.archived) this.archived = init.archived
     this.stoppedAt = init.stoppedAt ?? undefined
     this.stopReason = init.stopReason ?? undefined
-    this.lastOomKillAt = init.oomKilledAt ?? undefined
+    this.oomKilledAt = init.oomKilledAt ?? undefined
     // A row read back as `exited` with a kill beside it is an OOM death; the
     // window check is the same one the live path applies.
-    if (this.lastOomKillAt) this.recordOomKill(this.lastOomKillAt)
+    if (this.oomKilledAt) this.recordOomKill(this.oomKilledAt)
     if (init.workState) this.workState = init.workState
     this.onUnreadRearm = init.onUnreadRearm
   }
@@ -586,7 +599,7 @@ export class Session {
    */
   recordOomKill(at: string, d: SessionDurableFields = this): void {
     const observed = Date.parse(at)
-    d.lastOomKillAt = Number.isFinite(observed) ? at : new Date().toISOString()
+    d.oomKilledAt = Number.isFinite(observed) ? at : new Date().toISOString()
     if (this.status !== 'exited' || this.stopReason !== 'exited') return
     if (this.oomExplainsExit(Date.parse(this.stoppedAt ?? ''))) this.stopReason = 'oom'
   }
@@ -594,8 +607,8 @@ export class Session {
   /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its
    *  cause? Absorbing in both directions — see {@link recordOomKill}. */
   private oomExplainsExit(exitedAtMs: number, d: SessionDurableFields = this): boolean {
-    if (!d.lastOomKillAt) return false
-    const killed = Date.parse(d.lastOomKillAt)
+    if (!d.oomKilledAt) return false
+    const killed = Date.parse(d.oomKilledAt)
     if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
     return Math.abs(exitedAtMs - killed) <= OOM_ATTRIBUTION_WINDOW_MS
   }
@@ -879,7 +892,7 @@ export class Session {
       archived: this.archived,
       stoppedAt: this.stoppedAt,
       stopReason: this.stopReason,
-      lastOomKillAt: this.lastOomKillAt,
+      oomKilledAt: this.oomKilledAt,
       workState: this.workState,
       cmd: this.cmd,
       status: this.status,
@@ -958,7 +971,7 @@ export class Session {
     this.archived = state.archived
     this.stoppedAt = state.stoppedAt
     this.stopReason = state.stopReason
-    this.lastOomKillAt = state.lastOomKillAt
+    this.oomKilledAt = state.oomKilledAt
     this.workState = state.workState
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
@@ -1039,7 +1052,7 @@ export class Session {
       refDraft: d.refDraft,
       stoppedAt: d.stoppedAt ?? null,
       stopReason: d.stopReason ?? null,
-      oomKilledAt: d.lastOomKillAt ?? null,
+      oomKilledAt: d.oomKilledAt ?? null,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,

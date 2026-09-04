@@ -60,6 +60,8 @@ describe('SessionInbox.sweepQueuedInputs single-flight (POD-3258)', () => {
       // draft and installs it on the session when the commit returns, so the
       // in-memory effect a fixture has to reproduce is the mutation landing.
       write: (session, mutate) => mutate(session as never),
+      draft: (session) => ({ ...session }) as never,
+      persistDraft: vi.fn(),
       broadcast: vi.fn(),
       needsSubmitVerification: harnessNeedsSubmitVerification,
       usesRawFirstTurn: harnessUsesRawFirstTurn,
