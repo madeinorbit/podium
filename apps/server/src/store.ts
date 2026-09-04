@@ -320,7 +320,7 @@ export class SessionStore {
       this.hostMachineId,
       this.tableWrites,
     )
-    this.approvals = new ApprovalsRepository(this.executor)
+    this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
     // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
@@ -330,17 +330,20 @@ export class SessionStore {
     // still an UNCONVERTED repository: it reads `legacy` through the port and
     // stays on `STAGE_A_UNCONVERTED` until its own conversion wave.
     this.sync = new SyncRepository(this.executor, syncServerTables)
-    this.auth = new AuthRepository(this.executor)
+    this.auth = new AuthRepository(this.queries)
     this.superagent = new SuperagentRepository(this.queries)
-    this.settings = new SettingsRepository(this.executor)
-    this.layout = new UserLayoutRepository(this.executor)
+    this.settings = // `legacy` is passed for ONE thing: settings.ts composes wave 1's
+    // `UserPreferencesRepository`, which still takes the raw handle. Removed in
+    // the commit that lands wave 1 beside this one [POD-3393 / POD-3392].
+    new SettingsRepository(this.queries, this.db)
+    this.layout = new UserLayoutRepository(this.queries)
     this.readPositions = new UserReadPositionRepository(this.executor)
     this.secrets = new ServerSecretsRepository(this.executor)
     this.settingsAudit = new SettingsAuditRepository(this.executor)
     this.accounts = new AccountsRepository(this.executor)
     this.machines = new MachinesRepository(this.queries)
-    this.grants = new GrantsRepository(this.executor)
-    this.users = new UsersRepository(this.executor)
+    this.grants = new GrantsRepository(this.queries)
+    this.users = new UsersRepository(this.queries)
     this.telegramBindings = new TelegramBindingsRepository(this.executor)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.queries)

@@ -25,8 +25,9 @@
  */
 
 import type { UserId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, desc, eq, lte, sql } from 'drizzle-orm'
+import { clientSessions } from '../migrations/schema'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export interface ClientSessionMetadata {
   sessionId?: string
@@ -50,10 +51,15 @@ export interface ClientSessionRow {
 }
 
 export class AuthRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
@@ -70,58 +76,53 @@ export class AuthRepository {
     label = 'login',
     metadata: ClientSessionMetadata = {},
   ): void {
-    this.db
-      .prepare(
-        `INSERT OR REPLACE INTO client_sessions
-          (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        tokenHash,
-        userId,
-        new Date().toISOString(),
-        expiresAt,
-        label,
-        metadata.sessionId ?? null,
-        metadata.deviceId ?? null,
-        metadata.deviceName ?? null,
-        metadata.platform ?? null,
-        metadata.lastSeenAt ?? null,
-      )
+    // DECISION POD-3403 — NOT converted. `client_sessions` carries a second
+    // uniqueness constraint (`idx_client_sessions_session_id`) besides its
+    // primary key, and `INSERT OR REPLACE` resolves a conflict on EITHER of
+    // them. drizzle offers only `onConflictDoUpdate`, which names ONE target and
+    // raises on the other: measured on bun:sqlite, a re-pair that reuses a
+    // `session_id` under a new `token_hash` replaces the row today and would
+    // throw after the conversion. That is a behaviour change on the auth path,
+    // so the statement stays raw until the rule lands.
+    this.db.run(
+      sql`INSERT OR REPLACE INTO client_sessions
+            (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
+          VALUES (${tokenHash}, ${userId}, ${new Date().toISOString()}, ${expiresAt}, ${label},
+                  ${metadata.sessionId ?? null}, ${metadata.deviceId ?? null}, ${metadata.deviceName ?? null},
+                  ${metadata.platform ?? null}, ${metadata.lastSeenAt ?? null})`,
+    )
   }
 
   /** Every session row, newest first — the read behind `podium auth sessions`. Returns
    *  hashes, never tokens: the plaintext is not stored and cannot be recovered. */
   listClientSessions(): ClientSessionRow[] {
     const rows = this.db
-      .prepare(
-        `SELECT token_hash, user_id, created_at, expires_at, label, session_id,
-                device_id, device_name, platform, last_seen_at
-           FROM client_sessions ORDER BY created_at DESC`,
-      )
-      .all() as {
-      token_hash: string
-      user_id: UserId
-      created_at: string
-      expires_at: string
-      label: string
-      session_id: string | null
-      device_id: string | null
-      device_name: string | null
-      platform: string | null
-      last_seen_at: string | null
-    }[]
+      .select({
+        tokenHash: clientSessions.tokenHash,
+        userId: clientSessions.userId,
+        createdAt: clientSessions.createdAt,
+        expiresAt: clientSessions.expiresAt,
+        label: clientSessions.label,
+        sessionId: clientSessions.sessionId,
+        deviceId: clientSessions.deviceId,
+        deviceName: clientSessions.deviceName,
+        platform: clientSessions.platform,
+        lastSeenAt: clientSessions.lastSeenAt,
+      })
+      .from(clientSessions)
+      .orderBy(desc(clientSessions.createdAt))
+      .all()
     return rows.map((r) => ({
-      tokenHash: r.token_hash,
-      userId: r.user_id,
-      createdAt: r.created_at,
-      expiresAt: r.expires_at,
+      tokenHash: r.tokenHash,
+      userId: r.userId,
+      createdAt: r.createdAt,
+      expiresAt: r.expiresAt,
       label: r.label,
-      ...(r.session_id ? { sessionId: r.session_id } : {}),
-      ...(r.device_id ? { deviceId: r.device_id } : {}),
-      ...(r.device_name ? { deviceName: r.device_name } : {}),
+      ...(r.sessionId ? { sessionId: r.sessionId } : {}),
+      ...(r.deviceId ? { deviceId: r.deviceId } : {}),
+      ...(r.deviceName ? { deviceName: r.deviceName } : {}),
       ...(r.platform ? { platform: r.platform } : {}),
-      ...(r.last_seen_at ? { lastSeenAt: r.last_seen_at } : {}),
+      ...(r.lastSeenAt ? { lastSeenAt: r.lastSeenAt } : {}),
     }))
   }
 
@@ -129,39 +130,38 @@ export class AuthRepository {
    *  Returns how many rows went. */
   deleteClientSessionsByLabel(label: string): number {
     // `changes` is number|bigint across the two drivers; the count here is always small.
-    return Number(this.db.prepare('DELETE FROM client_sessions WHERE label = ?').run(label).changes)
+    return Number(
+      this.db.delete(clientSessions).where(eq(clientSessions.label, label)).run().changes,
+    )
   }
 
   getClientSession(
     tokenHash: string,
   ): Omit<ClientSessionRow, 'tokenHash' | 'createdAt'> | undefined {
     const row = this.db
-      .prepare(
-        `SELECT user_id, expires_at, label, session_id, device_id, device_name, platform, last_seen_at
-           FROM client_sessions WHERE token_hash = ?`,
-      )
-      .get(tokenHash) as
-      | {
-          user_id: UserId
-          expires_at: string
-          label: string
-          session_id: string | null
-          device_id: string | null
-          device_name: string | null
-          platform: string | null
-          last_seen_at: string | null
-        }
-      | undefined
+      .select({
+        userId: clientSessions.userId,
+        expiresAt: clientSessions.expiresAt,
+        label: clientSessions.label,
+        sessionId: clientSessions.sessionId,
+        deviceId: clientSessions.deviceId,
+        deviceName: clientSessions.deviceName,
+        platform: clientSessions.platform,
+        lastSeenAt: clientSessions.lastSeenAt,
+      })
+      .from(clientSessions)
+      .where(eq(clientSessions.tokenHash, tokenHash))
+      .get()
     return row
       ? {
-          userId: row.user_id as UserId,
-          expiresAt: row.expires_at,
+          userId: row.userId,
+          expiresAt: row.expiresAt,
           label: row.label,
-          ...(row.session_id ? { sessionId: row.session_id } : {}),
-          ...(row.device_id ? { deviceId: row.device_id } : {}),
-          ...(row.device_name ? { deviceName: row.device_name } : {}),
+          ...(row.sessionId ? { sessionId: row.sessionId } : {}),
+          ...(row.deviceId ? { deviceId: row.deviceId } : {}),
+          ...(row.deviceName ? { deviceName: row.deviceName } : {}),
           ...(row.platform ? { platform: row.platform } : {}),
-          ...(row.last_seen_at ? { lastSeenAt: row.last_seen_at } : {}),
+          ...(row.lastSeenAt ? { lastSeenAt: row.lastSeenAt } : {}),
         }
       : undefined
   }
@@ -169,14 +169,18 @@ export class AuthRepository {
   /** Push out an existing session's expiry (sliding/rolling renewal). No-op if absent. */
   extendClientSession(tokenHash: string, expiresAt: string): void {
     this.db
-      .prepare('UPDATE client_sessions SET expires_at = ? WHERE token_hash = ?')
-      .run(expiresAt, tokenHash)
+      .update(clientSessions)
+      .set({ expiresAt })
+      .where(eq(clientSessions.tokenHash, tokenHash))
+      .run()
   }
 
   touchClientSession(tokenHash: string, lastSeenAt: string): void {
     this.db
-      .prepare('UPDATE client_sessions SET last_seen_at = ? WHERE token_hash = ?')
-      .run(lastSeenAt, tokenHash)
+      .update(clientSessions)
+      .set({ lastSeenAt })
+      .where(eq(clientSessions.tokenHash, tokenHash))
+      .run()
   }
 
   listMobileClientSessions(userId: UserId): ClientSessionRow[] {
@@ -187,13 +191,19 @@ export class AuthRepository {
 
   deleteOwnedMobileClientSession(sessionId: string, userId: UserId): string | undefined {
     const row = this.db
-      .prepare(
-        "SELECT token_hash FROM client_sessions WHERE session_id = ? AND user_id = ? AND label = 'mobile'",
+      .select({ tokenHash: clientSessions.tokenHash })
+      .from(clientSessions)
+      .where(
+        and(
+          eq(clientSessions.sessionId, sessionId),
+          eq(clientSessions.userId, userId),
+          eq(clientSessions.label, 'mobile'),
+        ),
       )
-      .get(sessionId, userId) as { token_hash: string } | undefined
+      .get()
     if (!row) return undefined
-    this.db.prepare('DELETE FROM client_sessions WHERE token_hash = ?').run(row.token_hash)
-    return row.token_hash
+    this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, row.tokenHash)).run()
+    return row.tokenHash
   }
 
   /** True iff the session exists and has not expired as of `nowIso`. */
@@ -203,16 +213,16 @@ export class AuthRepository {
   }
 
   deleteClientSession(tokenHash: string): void {
-    this.db.prepare('DELETE FROM client_sessions WHERE token_hash = ?').run(tokenHash)
+    this.db.delete(clientSessions).where(eq(clientSessions.tokenHash, tokenHash)).run()
   }
 
   /** Revoke every client login session ("sign out everywhere"). */
   deleteAllClientSessions(): void {
-    this.db.prepare('DELETE FROM client_sessions').run()
+    this.db.delete(clientSessions).run()
   }
 
   /** Housekeeping: drop sessions whose expiry has passed. */
   deleteExpiredClientSessions(nowIso: string): void {
-    this.db.prepare('DELETE FROM client_sessions WHERE expires_at <= ?').run(nowIso)
+    this.db.delete(clientSessions).where(lte(clientSessions.expiresAt, nowIso)).run()
   }
 }

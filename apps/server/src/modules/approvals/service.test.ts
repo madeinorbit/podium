@@ -19,9 +19,11 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
   const clock = { ms: 1_000_000 }
   /** A service over the SAME durable store. Called twice, it models a server restart:
    *  the rows survive, every in-memory field (the stall clock) does not. */
-  const build = () =>
-    new ApprovalService({
-      store: new ApprovalsRepository(createBunStoreExecutor({ database: db })),
+  const build = () => {
+    const stage = createBunStoreExecutor({ database: db }).syncQueries
+    if (!stage) throw new Error('the test database is not bun-backed')
+    return new ApprovalService({
+      store: new ApprovalsRepository(stage),
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
       hasDaemon: () => daemon.attached,
@@ -34,6 +36,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
       notifyIssue: (_issueId, body) => mails.push(body),
       ...(executeServerOp ? { executeServerOp } : {}),
     })
+  }
   return { svc: build(), restart: build, sent, broadcasts, events, mails, daemon, clock }
 }
 

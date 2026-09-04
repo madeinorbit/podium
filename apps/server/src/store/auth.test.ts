@@ -8,7 +8,9 @@ let repo: AuthRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  repo = new AuthRepository(createBunStoreExecutor({ database: db }))
+  const stage = createBunStoreExecutor({ database: db }).syncQueries
+  if (!stage) throw new Error('the test database is not bun-backed')
+  repo = new AuthRepository(stage)
 })
 
 const FUTURE = '2999-01-01T00:00:00.000Z'

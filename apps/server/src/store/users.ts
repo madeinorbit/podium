@@ -16,9 +16,10 @@
 
 import type { CredentialSource, UserId, UserRole } from '@podium/model'
 import { asUserId, CREDENTIAL_SOURCES, USER_ROLES } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { and, asc, eq, isNotNull, sql } from 'drizzle-orm'
+import { userCredentials, users } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export interface UserAccountRow {
   id: string
@@ -48,11 +49,23 @@ export interface UserCredentialRow {
 }
 
 export class UsersRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
+
+  /**
+   * Rule 34a — an arrow FIELD, not `this.transact = queries.transact`. The
+   * straight assignment works only while the implementation ignores `this`, and
+   * it stops working silently the moment it does not.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * THE FRAME READ CACHE [POD-1931].
@@ -82,9 +95,7 @@ export class UsersRepository {
    * `undefined` is cached as an answer too, because "no account" is the verdict
    * every caller acts on.
    */
-  private readonly accountsSlot = readScopeSlot(
-    () => new Map<string, UserAccountRow | undefined>(),
-  )
+  private readonly accountsSlot = readScopeSlot(() => new Map<string, UserAccountRow | undefined>())
 
   private frameCache(): Map<string, UserAccountRow | undefined> {
     return currentReadScope().slot(this.accountsSlot)
@@ -108,19 +119,17 @@ export class UsersRepository {
   }
 
   private read(userId: UserId): UserAccountRow | undefined {
-    const r = this.db.prepare('SELECT * FROM users WHERE id = ?').get(userId) as
-      | Record<string, unknown>
-      | undefined
+    const r = this.db.select().from(users).where(eq(users.id, userId)).get()
     if (!r) return undefined
     const role = parseRole(r.role)
     if (role === undefined) return undefined
-    const disabledAt = (r.disabled_at as string | null | undefined) ?? null
+    const disabledAt = r.disabledAt
     if (disabledAt !== null) return undefined
     return {
-      id: r.id as string,
-      displayName: r.display_name as string,
+      id: r.id,
+      displayName: r.displayName,
       role,
-      createdAt: r.created_at as string,
+      createdAt: r.createdAt,
       disabledAt,
     }
   }
@@ -131,40 +140,43 @@ export class UsersRepository {
   }
 
   list(): UserAccountRow[] {
-    const rows = this.db.prepare('SELECT id FROM users ORDER BY created_at ASC').all() as {
-      id: string
-    }[]
+    const rows = this.db.select({ id: users.id }).from(users).orderBy(asc(users.createdAt)).all()
     return rows.flatMap((row) => {
-      const account = this.get(asUserId(row.id))
+      const account = this.get(row.id)
       return account ? [account] : []
     })
   }
 
   credentialFor(userId: UserId): UserCredentialRow | undefined {
     if (!this.get(userId)) return undefined
-    const row = this.db.prepare('SELECT * FROM user_credentials WHERE user_id = ?').get(userId) as
-      | Record<string, unknown>
-      | undefined
+    const row = this.db
+      .select()
+      .from(userCredentials)
+      .where(eq(userCredentials.userId, userId))
+      .get()
     if (!row) return undefined
     // Source parsing FAILS CLOSED for the same reason `parseRole` does, and it is
     // load-bearing here rather than defensive: a leftover `'instance-password'` row from
     // before POD-1554 must read as NO CREDENTIAL, never as one this build might verify
     // against. The SQL migration deletes those rows; this is what happens if one survives.
-    if (!(CREDENTIAL_SOURCES as readonly string[]).includes(row.source as string)) return undefined
+    if (!(CREDENTIAL_SOURCES as readonly string[]).includes(row.source)) return undefined
     return {
-      userId: row.user_id as UserId,
+      userId: row.userId,
       source: row.source as CredentialSource,
-      passwordHash: (row.password_hash as string | null | undefined) ?? null,
-      updatedAt: row.updated_at as string,
+      passwordHash: row.passwordHash,
+      updatedAt: row.updatedAt,
     }
   }
 
   hasPerUserCredentials(): boolean {
     const row = this.db
-      .prepare(
-        "SELECT 1 AS present FROM user_credentials WHERE source = 'per-user-scrypt' AND password_hash IS NOT NULL LIMIT 1",
+      .select({ present: sql<number>`1` })
+      .from(userCredentials)
+      .where(
+        and(eq(userCredentials.source, 'per-user-scrypt'), isNotNull(userCredentials.passwordHash)),
       )
-      .get() as { present?: number } | undefined
+      .limit(1)
+      .get()
     return row?.present === 1
   }
 
@@ -173,17 +185,26 @@ export class UsersRepository {
     // sees the account rather than the "no account" this scope had cached.
     currentReadScope().clear(this.accountsSlot)
     try {
-      transaction(this.db, () => {
+      this.transact(() => {
         this.db
-          .prepare(
-            'INSERT INTO users (id, display_name, role, created_at, disabled_at) VALUES (?, ?, ?, ?, NULL)',
-          )
-          .run(account.id, account.displayName, account.role, account.createdAt)
+          .insert(users)
+          .values({
+            id: asUserId(account.id),
+            displayName: account.displayName,
+            role: account.role,
+            createdAt: account.createdAt,
+            disabledAt: null,
+          })
+          .run()
         this.db
-          .prepare(
-            "INSERT INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, 'per-user-scrypt', ?, ?)",
-          )
-          .run(account.id, passwordHash, account.createdAt)
+          .insert(userCredentials)
+          .values({
+            userId: asUserId(account.id),
+            source: 'per-user-scrypt',
+            passwordHash,
+            updatedAt: account.createdAt,
+          })
+          .run()
       })
     } finally {
       // And again on the way out — in a `finally`, because the case that needs
@@ -196,9 +217,12 @@ export class UsersRepository {
   setPasswordHash(userId: UserId, passwordHash: string, updatedAt: string): void {
     if (!this.get(userId)) throw new Error(`unknown user: ${userId}`)
     this.db
-      .prepare(
-        "INSERT INTO user_credentials (user_id, source, password_hash, updated_at) VALUES (?, 'per-user-scrypt', ?, ?) ON CONFLICT(user_id) DO UPDATE SET source = excluded.source, password_hash = excluded.password_hash, updated_at = excluded.updated_at",
-      )
-      .run(userId, passwordHash, updatedAt)
+      .insert(userCredentials)
+      .values({ userId, source: 'per-user-scrypt', passwordHash, updatedAt })
+      .onConflictDoUpdate({
+        target: userCredentials.userId,
+        set: { source: 'per-user-scrypt', passwordHash, updatedAt },
+      })
+      .run()
   }
 }

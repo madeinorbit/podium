@@ -23,20 +23,28 @@
  */
 
 import { isLayoutKey, type LayoutSnapshot, type UserId } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
-
-interface LayoutRow {
-  key: string
-  value: string
-}
+import { and, asc, eq } from 'drizzle-orm'
+import { userLayout } from '../migrations/schema'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export class UserLayoutRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
+
+  /**
+   * Rule 34a — an arrow FIELD, not `this.transact = queries.transact`. The
+   * straight assignment works only while the implementation ignores `this`, and
+   * it stops working silently the moment it does not.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * One person's layout snapshot — every key they have set, as a plain map.
@@ -45,8 +53,10 @@ export class UserLayoutRepository {
    */
   getSnapshot(userId: UserId): LayoutSnapshot {
     const rows = this.db
-      .prepare('SELECT key, value FROM user_layout WHERE user_id = ?')
-      .all(userId) as LayoutRow[]
+      .select({ key: userLayout.key, value: userLayout.value })
+      .from(userLayout)
+      .where(eq(userLayout.userId, userId))
+      .all()
     const out: LayoutSnapshot = {}
     for (const row of rows) {
       try {
@@ -61,8 +71,10 @@ export class UserLayoutRepository {
   /** One key's value, or `undefined` when never set. */
   get(userId: UserId, key: string): unknown {
     const row = this.db
-      .prepare('SELECT value FROM user_layout WHERE user_id = ? AND key = ?')
-      .get(userId, key) as { value: string } | undefined
+      .select({ value: userLayout.value })
+      .from(userLayout)
+      .where(and(eq(userLayout.userId, userId), eq(userLayout.key, key)))
+      .get()
     if (!row) return undefined
     try {
       return JSON.parse(row.value)
@@ -81,11 +93,7 @@ export class UserLayoutRepository {
         `'${key}' is not a replicated layout key (POD-1350 / isLayoutKey), so it has no server row`,
       )
     }
-    this.db
-      .prepare(
-        'INSERT OR REPLACE INTO user_layout (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
-      )
-      .run(userId, key, JSON.stringify(value ?? null), updatedAt)
+    this.write(userId, key, value, updatedAt)
   }
 
   /** Apply a multi-key patch. Refuses the whole batch if any key is inadmissible. */
@@ -97,32 +105,53 @@ export class UserLayoutRepository {
         )
       }
     }
-    const stmt = this.db.prepare(
-      'INSERT OR REPLACE INTO user_layout (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
-    )
-    transaction(this.db, () => {
+    this.transact(() => {
       for (const [key, value] of Object.entries(values)) {
-        stmt.run(userId, key, JSON.stringify(value ?? null), updatedAt)
+        this.write(userId, key, value, updatedAt)
       }
     })
   }
 
+  /**
+   * The one layout write, shared by {@link set} and {@link setMany}.
+   *
+   * `user_layout` carries its `(user_id, key)` primary key and NO second
+   * uniqueness constraint, so `ON CONFLICT` on that key is `INSERT OR REPLACE`
+   * exactly (checklist item 1, as amended: every column is named).
+   */
+  private write(userId: UserId, key: string, value: unknown, updatedAt: string): void {
+    const encoded = JSON.stringify(value ?? null)
+    this.db
+      .insert(userLayout)
+      .values({ userId, key, value: encoded, updatedAt })
+      .onConflictDoUpdate({
+        target: [userLayout.userId, userLayout.key],
+        set: { value: encoded, updatedAt },
+      })
+      .run()
+  }
+
   /** Forget one key — the client falls back to its default. */
   clear(userId: UserId, key: string): void {
-    this.db.prepare('DELETE FROM user_layout WHERE user_id = ? AND key = ?').run(userId, key)
+    this.db
+      .delete(userLayout)
+      .where(and(eq(userLayout.userId, userId), eq(userLayout.key, key)))
+      .run()
   }
 
   clearMany(userId: UserId, keys: readonly string[]): void {
-    const stmt = this.db.prepare('DELETE FROM user_layout WHERE user_id = ? AND key = ?')
-    transaction(this.db, () => {
-      for (const key of keys) stmt.run(userId, key)
+    this.transact(() => {
+      for (const key of keys) this.clear(userId, key)
     })
   }
 
   keysFor(userId: UserId): string[] {
     const rows = this.db
-      .prepare('SELECT key FROM user_layout WHERE user_id = ? ORDER BY key')
-      .all(userId) as { key: string }[]
+      .select({ key: userLayout.key })
+      .from(userLayout)
+      .where(eq(userLayout.userId, userId))
+      .orderBy(asc(userLayout.key))
+      .all()
     return rows.map((r) => r.key)
   }
 }
