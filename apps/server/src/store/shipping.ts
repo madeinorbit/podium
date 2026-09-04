@@ -151,13 +151,53 @@ const stepColumns = {
   ...getTableColumns(shipSteps),
   inputFence: sql<string>`${shipSteps.inputFence}`,
 }
+/**
+ * THE TWO AD-HOC PROJECTIONS ARE NAMED COLUMN BY COLUMN, not spread from the
+ * table, and that is the difference between them and the five above.
+ *
+ * The five mapper shapes may spread because each hand-written select named
+ * EXACTLY its table's columns — derived, 25/25, 16/16, 15/15, 11/11, 12/12 — so
+ * the whole table IS the old projection. These two never did: the manifest
+ * authority read named 19 of 25 columns and the member read 10 of 12. Spreading
+ * them widened both reads, which surfaced only when rule 36 made me PRINT the
+ * emitted SQL rather than reason about it.
+ *
+ * Nothing observable changed while they were wide — both readers build an
+ * explicit object from named fields, so the extra columns were ignored — but a
+ * conversion that reads six columns the original did not is not the literal
+ * conversion, and on the remote driver those are bytes over a network.
+ */
 const trainManifestColumns = {
-  ...getTableColumns(shipTrainManifests),
+  id: shipTrainManifests.id,
+  canonicalJson: shipTrainManifests.canonicalJson,
+  canonicalDigest: shipTrainManifests.canonicalDigest,
+  repoId: shipTrainManifests.repoId,
+  repoPath: shipTrainManifests.repoPath,
+  machineId: shipTrainManifests.machineId,
+  laneKey: shipTrainManifests.laneKey,
+  laneRevision: shipTrainManifests.laneRevision,
+  targetBranch: shipTrainManifests.targetBranch,
+  expectedTargetSha: shipTrainManifests.expectedTargetSha,
+  destination: shipTrainManifests.destination,
   providerRef: sql<string | null>`${shipTrainManifests.providerRef}`,
+  policyId: shipTrainManifests.policyId,
   validationProfile: sql<string>`${shipTrainManifests.validationProfile}`,
+  validationProfileDigest: shipTrainManifests.validationProfileDigest,
+  memberCount: shipTrainManifests.memberCount,
+  leaderOrderId: shipTrainManifests.leaderOrderId,
+  leaderAttemptId: shipTrainManifests.leaderAttemptId,
+  leaderGeneration: shipTrainManifests.leaderGeneration,
 }
 const trainMemberColumns = {
-  ...getTableColumns(shipTrainMembers),
+  ordinal: shipTrainMembers.ordinal,
+  issueId: shipTrainMembers.issueId,
+  orderId: shipTrainMembers.orderId,
+  attemptId: shipTrainMembers.attemptId,
+  generation: shipTrainMembers.generation,
+  machineId: shipTrainMembers.machineId,
+  sourceBranch: shipTrainMembers.sourceBranch,
+  approvedBaseSha: shipTrainMembers.approvedBaseSha,
+  approvedHeadSha: shipTrainMembers.approvedHeadSha,
   deliveryDependsOn: sql<string>`${shipTrainMembers.deliveryDependsOn}`,
 }
 

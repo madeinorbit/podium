@@ -302,3 +302,33 @@ twice, because drizzle has no builder form for a correlated subquery in a projec
   a second fence behind `invalidateActiveLane`, which releases the affected trains explicitly, so
   no public path separates the two mechanisms.
 - **`bun run audit:hidden-reads` is green**, "Shipping code — must be empty (0)".
+
+## Rule 36: what the queries actually emit
+
+Rule 36 says print, do not reason, for any `sql` fragment in a SELECT list. This file has seven such
+fragments and printing all of them found something reading could not.
+
+| Query | Fragment | Emitted |
+|---|---|---|
+| `getOrder`, `stepById`, `normalizedMembers` | the text re-projections, 1 table | bare `"validation_profile"` etc. — harmless, no inner FROM to capture the name |
+| `trainManifestForAttempt` | the text re-projections, JOIN | fully qualified |
+| `activeTrainForOrder` | `activeClaimCount`, JOIN | `c.train_id = "ship_train_manifests"."id"` |
+| `completeVerifiedTrain` | `activeClaimCount`, **1 table** | `c.train_id = "ship_train_manifests"."id"` — the hand-written qualifier holding |
+| `highestHoldGeneration` | `COALESCE(MAX(…), 0)`, 1 table | bare `"generation"` — harmless, no inner FROM |
+| `hasNativeStackEdge` | the literal `1` | no column to strip |
+| `latestStepForEffect` | the `CASE`, in ORDER BY | qualified — `buildSelection` never sees the ORDER BY |
+
+**AND IT CAUGHT A WIDENING IN MY OWN WORK.** The two ad-hoc projections were spread from
+`getTableColumns`, which was right for the five mapper shapes and wrong for these: each hand-written
+mapper select named EXACTLY its table's columns (the 25/25, 16/16, 15/15, 11/11, 12/12 above), so
+the whole table IS the old projection there. These two never did — the manifest authority read named
+**19 of 25** columns and the member read **10 of 12**. Spreading them read six columns and two
+columns the originals did not.
+
+Nothing observable changed while they were wide: both readers build an explicit object from named
+fields, so the extra columns were ignored, and no test could have caught it. But a conversion that
+reads columns the original did not is not the literal conversion, and on the remote driver those are
+bytes over a network. Both are now named column by column, and the emitted SQL is back to 19 and 10.
+
+That is the second thing on this file that only printing found — the first being the bare identifier
+— and neither was visible in the builder source.
