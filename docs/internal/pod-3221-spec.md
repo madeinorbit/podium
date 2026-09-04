@@ -1395,3 +1395,52 @@ WHAT LEGITIMATELY REMAINS IN THE ADAPTER, four things, each with a reason:
 THE COST, stated plainly because it is real: the compiler cannot see which connection a statement goes
 to. A `this.db` captured into a variable and used after an `await` that left the span silently gets the
 root. That is narrow enough to lint for and the lint is owed before the flip.
+
+### Rule 36 — a `sql` fragment in the SELECT LIST of a join-free query loses its table qualifier
+
+[Found by POD-3398 converting workflows.ts. Independently reproduced with a WRONG VALUE by POD-3397.
+Trigger isolated by POD-3396. Verified by the coordinator against drizzle's source and all six
+positions, after a first attempt that tested the WRONG position and found nothing. The most dangerous
+class in this epic: silent, valid SQL, plausible answer.]
+
+THE TRIGGER IS POSITION, not correlation and not "one FROM table" on its own. Measured, same fragment
+in six shapes:
+
+    a  projection / 1 table / no subquery   select "id" from "parent"
+    b  projection / 1 table / SUBQUERY      select (... where c.parent_id = "id") from "parent"   <-- BUG
+    c  projection / 2 tables / subquery     select (... where c.parent_id = "parent"."id") ...    safe
+    d  WHERE / 1 table / subquery           select "id" from "parent" where (... "parent"."id")   safe
+    f  b's fragment COMPOSED one level deep select (... where c.parent_id = "parent"."id")        safe
+    e  fix, sql.identifier                  select (... where c.parent_id = "parent"."id")        safe
+
+THE MECHANISM, named: `sqlite-core/dialect.js`. `isSingleTable = !joins || joins.length === 0`, and
+`buildSelection` — ONLY `buildSelection` — then does
+
+    query.queryChunks.map((c) => is(c, Column) ? sql.identifier(c.name) : c)
+
+a blind map that replaces every Column with a BARE identifier. It does not know some chunks sit inside
+a nested FROM, so it strips the qualifier off the OUTER query's column while it sits in a subquery
+whose own table is the first thing that name now resolves against. The WHERE clause never goes through
+this code, which is why (d) is safe — and why my first reproduction attempt, which used a WHERE clause,
+found nothing and nearly produced a rule naming the wrong trigger.
+
+(a) IS THE SAME REWRITE AND IS HARMLESS, because there is no inner FROM for the bare name to bind to.
+The harm needs the fragment to carry its own FROM. Trigger and harm are different conditions.
+
+WHY YOU CANNOT ANSWER THIS BY READING. `queryChunks.map` walks only the TOP LEVEL. A Column one level
+deeper — a fragment built from a fragment — is never a top-level chunk and is never rewritten. So (b)
+and (f) are the SAME logical fragment: broken written inline, silently correct when composed. Knowing
+the rule and eyeballing your fragments will still miss it.
+
+THE RULE.
+- PRINT, do not look. `toSQL()` on every query with a `sql` fragment in its projection. Nothing else
+  shows this, and composing the fragment differently changes the answer.
+- FIX with `sql.identifier` for the outer table and column: identifier chunks are not Column chunks, so
+  the map leaves them alone. Caveat from POD-3397: `sql.identifier` of an out-of-scope table throws at
+  prepare — loud, where the bare form is silent, which is the trade you want.
+- SEVERITY, from POD-3396's site: the bare form was CORRECT until someone adds a column.
+  `ship_train_active_claims` has no `id`, so the bare name fell through to the outer query and counted
+  right. Give that table an `id` and the same code counts 0 — measured, bare 0 against qualified 2. No
+  error, no log, a plausible number, and every train reads as unclaimed. POD-3398's site was already
+  wrong: every workflow reported `latestVersion` 0.
+- Neither typecheck nor the intent lint can see any of it. The SQL is valid and it reads correctly.
