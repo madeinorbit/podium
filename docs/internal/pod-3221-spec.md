@@ -1933,3 +1933,36 @@ type has no behaviour to collide with.
 KEEP the `store-transaction-port` lint: it still catches the raw handle and the migration paths, which
 are not typed through `SyncDrizzle`. Verify the `Omit` does not disturb builder chaining before landing
 it.
+
+### Rule 46 — a grant is read PER PASS, under the lease that applies or publishes the answer
+
+[POD-3365's recommendation, accepted by the coordinator 2026-09-04. Three marked sites: relay.ts (two)
+and modules/accounts/native-login.ts (one).]
+
+RULED: per pass. All grant-dependent checks within one pass use the snapshot taken under the lease that
+applies or publishes the authorization result; the next pass re-reads.
+
+WHY THIS DOES NOT WEAKEN ADR 9 D2 RULE 4, which is the whole question. That rule exists to answer one
+named risk, stated in the ADR's own table: "grants frozen at ISSUE TIME survive the granter's
+revocation." The mitigation is that grants evaluate LIVE. A per-pass snapshot is not the thing that
+rule forbids — it is frozen for the milliseconds of one operation, not for the lifetime of an issued
+credential. So this amendment says HOW live, not WHETHER.
+
+WHAT PER PASS BUYS: one coherent linearization point for one externally observed answer. Under
+per-decision, a single logical operation can authorize step A against the old grants and step B against
+the new ones, and afterwards nobody can say which state the operation ran under. That is worse to
+reason about than a snapshot with a stated boundary.
+
+WHAT IT COSTS, stated so the trade is on the record: a revocation committed DURING a pass is not seen
+by that pass. A revocation committed before the lease is acquired IS seen, and a later one governs the
+next apply. Independent applies still take independent leases.
+
+MECHANISM: B0.6's read scope already supports either shape — machine grant reads stay outside slots,
+and a site may opt into one snapshot slot per pass. So this is a site opting in, not new machinery.
+
+CARRY-OVER: the ADR 9 D2 rule 4 wording is amended by POD-3266, which already owns this epic's ADR
+amendments. The three markers come off when the sites opt in; that is R3-side work, not Stage A's.
+
+REVERSIBLE. If the operator prefers per-decision, keep those reads outside slots and name the amended
+rule at each site — POD-3365 established that both shapes are supported, so this is a choice rather
+than a constraint.
