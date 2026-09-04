@@ -567,20 +567,46 @@ export class IssueGitWorkflowModule {
     id: string,
     kind: 'rebase' | 'pr' | 'merge',
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.store.draftOrThrow(id)
-    if (!row.worktreePath || !row.branch) throw new Error('issue not started')
+    /**
+     * NO DRAFT SPANS A GIT OP HERE [POD-3375].
+     *
+     * A draft is a copy pinned to the revision it was cut from and may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). `merge` runs up to four
+     * `repoOp` round trips before it writes the landing stamp, each a 35s-timeout
+     * request to another machine; once the store is async, every one of them is a
+     * point where another request commits this row. A draft cut at the top and
+     * persisted at the bottom would revert every field this action does not set, and
+     * its stale pin would make `upsertIssue`'s expectedRevision precondition refuse
+     * the write outright.
+     *
+     * Handled by HOISTING rather than by re-cutting: nothing between here and the
+     * stamp needs a draft at all. The git ops need five field VALUES, which are read
+     * once into the plan below, and the two writes (`prUrl`, `landedAt`/`landedSha`)
+     * cut their draft where they happen. Reading the plan once is also what keeps the
+     * merge coherent — the parent-branch guard and the merge itself must be talking
+     * about the same branch, not about whatever the row said at each separate read.
+     *
+     * The plan reads the committed row directly. The model forbids MUTATING the
+     * map's object, not reading it, and taking a draft to read five strings would
+     * put back the very thing this removed: an unpersisted copy in scope while the
+     * awaits run, for a later reader to mistake for the write's subject.
+     */
+    const planned = this.store.rowOrThrow(id)
+    if (!planned.worktreePath || !planned.branch) throw new Error('issue not started')
+    const worktreePath = planned.worktreePath
+    const branch = planned.branch
+    const { parentBranch, repoPath } = planned
+    const machineId = planned.machineId ?? undefined
+    /** The issue as COMMITTED right now, for the report. A read wants no draft. */
+    const issueNow = (): IssueWire => this.store.toWire(this.store.rowOrThrow(id))
     const gw = this.store.d.getSettings().gitWorkflow
     if (kind === 'rebase') {
-      const r = await this.store.d.repoOp('rebase', row.worktreePath, {
-        parentBranch: row.parentBranch,
-      })
-      return { ...r, issue: this.store.toWire(row) }
+      const r = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
+      return { ...r, issue: issueNow() }
     }
     if (kind === 'pr') {
-      const r = await this.store.d.repoOp('prCreate', row.worktreePath, {
-        branch: row.branch,
-        parentBranch: row.parentBranch,
-      })
+      const r = await this.store.d.repoOp('prCreate', worktreePath, { branch, parentBranch })
+      const row = this.store.draftOrThrow(id)
       if (r.ok) {
         const url = r.output.match(/https?:\/\/\S+/)?.[0]
         if (url) row.prUrl = url
@@ -589,10 +615,8 @@ export class IssueGitWorkflowModule {
     }
     // merge
     if (gw.autoRebaseBeforeMerge) {
-      const rb = await this.store.d.repoOp('rebase', row.worktreePath, {
-        parentBranch: row.parentBranch,
-      })
-      if (!rb.ok) return { ...rb, issue: this.store.toWire(row) }
+      const rb = await this.store.d.repoOp('rebase', worktreePath, { parentBranch })
+      if (!rb.ok) return { ...rb, issue: issueNow() }
     }
     // mergeFfOnly runs on the repo root (parent-branch checkout), NOT the worktree.
     // The daemon's `git merge --ff-only <branch>` merges into whatever branch the repo
@@ -600,13 +624,13 @@ export class IssueGitWorkflowModule {
     // repo root is the LIVE deployment-source checkout and switching its branch can
     // crash-loop the backend. Instead, GUARD: only merge if the root is already on the
     // parent branch; otherwise fail clearly without merging.
-    const st = await this.store.d.repoOp('status', row.repoPath)
+    const st = await this.store.d.repoOp('status', repoPath)
     const current = this.parseCurrentBranch(st.output)
-    if (current !== row.parentBranch) {
+    if (current !== parentBranch) {
       return {
         ok: false,
-        output: `repo root at ${row.repoPath} is on '${current}', not the parent branch '${row.parentBranch}'. Check out ${row.parentBranch} there before merging.`,
-        issue: this.store.toWire(row),
+        output: `repo root at ${repoPath} is on '${current}', not the parent branch '${parentBranch}'. Check out ${parentBranch} there before merging.`,
+        issue: issueNow(),
       }
     }
     // The tip we are about to land, read BEFORE the merge — afterwards the
@@ -615,10 +639,11 @@ export class IssueGitWorkflowModule {
     // fail a merge that otherwise succeeded, so `landedAt` (the fact) is
     // independent of `landedSha` (the evidence).
     const tip = await this.store.d
-      .repoOp('revParseVerify', row.repoPath, { ref: row.branch }, row.machineId ?? undefined)
+      .repoOp('revParseVerify', repoPath, { ref: branch }, machineId)
       .catch(() => ({ ok: false, output: '' }))
-    const r = await this.store.d.repoOp('mergeFfOnly', row.repoPath, { branch: row.branch })
+    const r = await this.store.d.repoOp('mergeFfOnly', repoPath, { branch })
     if (r.ok) {
+      const row = this.store.draftOrThrow(id)
       // Landing stamp [POD-1085]. Record that WE landed this, before anything
       // else can rewrite history under it. `merge-base --is-ancestor` answers
       // "is this sha reachable from main", which a later rebase of main makes
@@ -634,7 +659,7 @@ export class IssueGitWorkflowModule {
       void this.refreshGitState(id).catch(() => {})
       return { ...r, issue }
     }
-    return { ...r, issue: this.store.toWire(row) }
+    return { ...r, issue: issueNow() }
   }
 
   /**
@@ -657,26 +682,45 @@ export class IssueGitWorkflowModule {
    * A caller with a human behind it (CLI stop) has no job to name and keeps
    * `stop`, which is the only path that ever meant it.
    */
-  private isRegisteredRepoRoot(row: IssueRow, path: string): boolean {
+  /** Takes the machine id rather than the row: it reads nothing else, and the
+   *  callers that used to hand it their draft no longer hold one [POD-3375]. */
+  private isRegisteredRepoRoot(machineId: MachineId | undefined, path: string): boolean {
     return this.store.d.store.repos
-      .listRepos(row.machineId ?? undefined)
+      .listRepos(machineId)
       .some((repo) => sameWorktreePath(repo.path, path))
   }
 
+  /**
+   * ADDRESSED BY ID, AND IT OWNS THE ONE DRAFT IT WRITES [POD-3375].
+   *
+   * This used to take the CALLER'S draft and, after awaiting `worktreeList`, assign
+   * `row.branch` onto it and persist it. That made it a second writer of the caller's
+   * own row from inside the caller's await — the shape POD-3373 fixed in `start()`.
+   * It survived only by accident of implementation: it wrote the SAME object rather
+   * than an independent draft, and `installDraft` re-pins a persisted draft, so the
+   * caller's next write still carried a true precondition. Neither property is
+   * something a caller can see or rely on, and neither survives another writer
+   * committing this row during the await once the store is async.
+   *
+   * So the caller passes an id and keeps no draft across this call. The branch
+   * backfill below cuts its own draft, at the point it writes, from what is committed
+   * after the probe.
+   */
   private async inspectRemovableWorktree(
-    row: IssueRow,
+    id: string,
     worktreePath: string,
   ): Promise<
     { ok: true; branch: string | null; head: string | null } | { ok: false; output: string }
   > {
-    if (this.isRegisteredRepoRoot(row, worktreePath)) {
+    const { machineId: pinned, repoPath } = this.store.rowOrThrow(id)
+    const machineId = pinned ?? undefined
+    if (this.isRegisteredRepoRoot(machineId, worktreePath)) {
       return {
         ok: false,
         output: `refusing removal: ${worktreePath} is a registered repository root`,
       }
     }
-    const machineId = row.machineId ?? undefined
-    const listed = await this.store.d.repoOp('worktreeList', row.repoPath, undefined, machineId)
+    const listed = await this.store.d.repoOp('worktreeList', repoPath, undefined, machineId)
     if (!listed.ok) {
       return {
         ok: false,
@@ -699,11 +743,16 @@ export class IssueGitWorkflowModule {
       }
     }
 
-    if (!row.branch && registered.branch) {
+    // Read AFTER the probe, so the decision is made against what is committed now
+    // rather than against a value the `worktreeList` round trip outlived.
+    const recorded = this.store.rowOrThrow(id).branch
+    if (!recorded && registered.branch) {
+      const row = this.store.draftOrThrow(id)
       row.branch = registered.branch
       this.store.persistRow(row)
+      return { ok: true, branch: registered.branch, head: registered.head }
     }
-    if (row.branch) return { ok: true, branch: row.branch, head: registered.head }
+    if (recorded) return { ok: true, branch: recorded, head: registered.head }
 
     if (!registered.detached || !registered.head) {
       return {
@@ -746,36 +795,54 @@ export class IssueGitWorkflowModule {
     principal: CommandPrincipal,
     opts?: { force?: boolean },
   ): Promise<{ ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean }> {
-    const row = this.store.draftOrThrow(id)
+    /**
+     * NO DRAFT SPANS THE INSPECTION [POD-3375].
+     *
+     * A draft is a copy pinned to the revision it was cut from and may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). Freeing runs a status
+     * probe, a worktree-registry inspection and a `worktree remove` — three round
+     * trips to another machine — before it clears `worktreePath`. Once the store is
+     * async each is a point where another request commits this row, and a draft cut
+     * here and persisted at the end would revert what that request wrote and be
+     * refused by `upsertIssue`'s expectedRevision precondition besides.
+     *
+     * The whole prelude is a read, so it reads: the three values the git ops need are
+     * taken once, and the two paths that clear the path of record cut their draft at
+     * the point they write. `refuse` likewise reports the issue as COMMITTED at the
+     * moment it gives up, which is also what it always meant to say.
+     */
+    const at = this.store.rowOrThrow(id)
     const job = principal.kind === 'system' ? principal.job : 'stop'
     const refuse = (
       output: string,
     ): { ok: boolean; output: string; issue: IssueWire; worktreeFreed: boolean } => ({
       ok: false,
       output,
-      issue: this.store.toWire(row),
+      issue: this.store.toWire(this.store.rowOrThrow(id)),
       worktreeFreed: false,
     })
-    if (!row.worktreePath) {
+    if (!at.worktreePath) {
       return {
         ok: true,
-        output: row.branch
-          ? `no worktree on disk; branch '${row.branch}' kept`
+        output: at.branch
+          ? `no worktree on disk; branch '${at.branch}' kept`
           : 'no worktree/branch recorded',
-        issue: this.store.toWire(row),
+        issue: this.store.toWire(at),
         worktreeFreed: false,
       }
     }
-    const worktreePath = row.worktreePath
-    const machineId = row.machineId ?? undefined
+    const worktreePath = at.worktreePath
+    const machineId = at.machineId ?? undefined
+    const repoPath = at.repoPath
     // Always route git ops to the issue's machine — a remote-owned worktree must
-    if (this.isRegisteredRepoRoot(row, worktreePath)) {
+    if (this.isRegisteredRepoRoot(machineId, worktreePath)) {
       return refuse(`refusing free: ${worktreePath} is a registered repository root`)
     }
     // not be inspected/removed against the hub's local path [spec:SP-9904].
     const st = await this.store.d.repoOp('status', worktreePath, undefined, machineId)
     // Already gone on disk — clear the path of record, keep the branch.
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
+      const row = this.store.draftOrThrow(id)
       row.worktreePath = null
       this.store.persistRow(row)
       this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
@@ -791,7 +858,7 @@ export class IssueGitWorkflowModule {
     if (!st.ok) {
       return refuse(`refusing free: cannot inspect worktree: ${st.output}`)
     }
-    const authority = await this.inspectRemovableWorktree(row, worktreePath)
+    const authority = await this.inspectRemovableWorktree(id, worktreePath)
     if (!authority.ok) return refuse(`refusing free: ${authority.output}`)
     const branch = authority.branch
     const kept = branch
@@ -806,7 +873,7 @@ export class IssueGitWorkflowModule {
     }
     const wr = await this.store.d.repoOp(
       'worktreeRemove',
-      row.repoPath,
+      repoPath,
       {
         path: worktreePath,
         ...(opts?.force ? { force: '1' } : {}),
@@ -814,6 +881,7 @@ export class IssueGitWorkflowModule {
       machineId,
     )
     if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
+    const row = this.store.draftOrThrow(id)
     row.worktreePath = null
     this.store.persistRow(row)
     this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
@@ -879,15 +947,32 @@ export class IssueGitWorkflowModule {
     id: string,
     requestedMachineId?: MachineId,
   ): Promise<{ ok: boolean; output: string; worktreePath: string | null; issue: IssueWire }> {
-    const row = this.store.draftOrThrow(id)
-    if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
+    /**
+     * NO DRAFT SPANS THE WORKTREE BUILD [POD-3375].
+     *
+     * A draft is a copy pinned to the revision it was cut from and may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). This method is the
+     * awaited callee POD-3373 caught `start()` on, and it has the same shape
+     * internally: a status probe, a `worktree add`, and an adoption re-probe, then a
+     * write of repoPath/machineId/worktreePath. Once the store is async each probe is
+     * a point where another request commits this row, so a draft cut at the top would
+     * both revert that request's fields and be refused by `upsertIssue`'s
+     * expectedRevision precondition.
+     *
+     * The prelude is a read, so it reads. The two writes below — the adoption-evidence
+     * machine stamp and the final establishment — cut their own draft where they
+     * happen, and the `output` strings deliberately quote the branch the operation
+     * RAN against rather than re-reading it, so the sentence describes what was done.
+     */
+    const at = this.store.rowOrThrow(id)
+    if (isIssueStage(at.stage) && isSystemOwnedIssueStage(at.stage)) {
       throw new Error('shipping stage is system-owned and cannot create an issue worktree')
     }
     // Preserve an explicit request/pin as-is. An unpinned operation is resolved at
     // its actual cwd immediately before the operation, then that exact id is reused
     // for routing and persisted if the operation establishes a worktree.
-    const pinnedMachineId = requestedMachineId ?? row.machineId ?? undefined
-    const repoPath = this.repoPathOnMachine(row.repoPath, pinnedMachineId)
+    const pinnedMachineId = requestedMachineId ?? at.machineId ?? undefined
+    const repoPath = this.repoPathOnMachine(at.repoPath, pinnedMachineId)
     // A worktree path is machine-local. It is reusable only when the issue is
     // already homed on the requested machine AND its repository resolves to the
     // same checkout there. Otherwise it is a stale source-machine path and the
@@ -901,9 +986,9 @@ export class IssueGitWorkflowModule {
     // — `fatal: ... already exists`.
     const homeMatches =
       requestedMachineId === undefined ||
-      (row.machineId === requestedMachineId &&
-        this.repoPathOnMachine(row.repoPath, row.machineId) === repoPath)
-    const recordedWorktreePath = homeMatches ? row.worktreePath : null
+      (at.machineId === requestedMachineId &&
+        this.repoPathOnMachine(at.repoPath, at.machineId) === repoPath)
+    const recordedWorktreePath = homeMatches ? at.worktreePath : null
     if (recordedWorktreePath) {
       const statusMachineId = this.store.resolveWorktreeMachine(
         pinnedMachineId,
@@ -917,16 +1002,19 @@ export class IssueGitWorkflowModule {
       )
       if (st.ok) {
         // Confirming a recorded checkout is adoption evidence: persist the exact
-        // machine that successfully inspected the path.
-        if (row.machineId === null) {
-          row.machineId = statusMachineId
-          this.store.persistRow(row)
+        // machine that successfully inspected the path. Drafted here, after the
+        // probe, and the null test re-read with it — another writer may have homed
+        // this issue while the status ran, and its answer is the one that counts.
+        const confirmed = this.store.draftOrThrow(id)
+        if (confirmed.machineId === null) {
+          confirmed.machineId = statusMachineId
+          this.store.persistRow(confirmed)
         }
         return {
           ok: true,
           output: 'worktree already present',
           worktreePath: recordedWorktreePath,
-          issue: this.store.toWire(row),
+          issue: this.store.toWire(confirmed),
         }
       }
       // Path recorded but missing — fall through to recreate at the same path
@@ -936,16 +1024,19 @@ export class IssueGitWorkflowModule {
           ok: false,
           output: `cannot inspect worktree: ${st.output}`,
           worktreePath: recordedWorktreePath,
-          issue: this.store.toWire(row),
+          issue: this.store.toWire(this.store.rowOrThrow(id)),
         }
       }
     }
-    if (!row.branch) {
+    // Re-read after the probe above: a `start()` in the gap may have minted the
+    // branch this recreate needs, and the copy taken before it would not show it.
+    const branch = this.store.rowOrThrow(id).branch
+    if (!branch) {
       return {
         ok: false,
         output: 'no branch recorded — cannot recreate worktree',
         worktreePath: null,
-        issue: this.store.toWire(row),
+        issue: this.store.toWire(this.store.rowOrThrow(id)),
       }
     }
     // The repository is on the PINNED machine at that machine's path, which is not
@@ -953,29 +1044,30 @@ export class IssueGitWorkflowModule {
     // guard — and run the recreate itself against the resolved path, since `git -C
     // <source path>` on the target names a directory that is not there.
     const worktreeMachineId = this.store.resolveWorktreeMachine(pinnedMachineId, repoPath)
-    const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, row.branch)
+    const path = recordedWorktreePath ?? this.worktreePathFor(repoPath, branch)
     // Keep the old implicit behavior: only explicit requests/pins use this pre-flight.
     // A repo-affine/default selection used to flow straight through repoOp.
     if (pinnedMachineId) this.store.d.requireMachineForRepo?.(pinnedMachineId, repoPath)
     const res = await this.store.d.repoOp(
       'worktreeAddExisting',
       repoPath,
-      { path, branch: row.branch },
+      { path, branch },
       worktreeMachineId,
     )
     // `already exists` is not a failure when what exists IS this issue's worktree on
     // this issue's branch (POD-1898): adopt it rather than refusing a resume over a
     // working copy that is right there. Anything else at that path still fails.
     const adopted =
-      !res.ok && (await this.worktreeAlreadyThere(res.output, path, row.branch, worktreeMachineId))
+      !res.ok && (await this.worktreeAlreadyThere(res.output, path, branch, worktreeMachineId))
     if (!res.ok && !adopted) {
       return {
         ok: false,
         output: `worktree recreate failed: ${res.output}`,
         worktreePath: null,
-        issue: this.store.toWire(row),
+        issue: this.store.toWire(this.store.rowOrThrow(id)),
       }
     }
+    const row = this.store.draftOrThrow(id)
     row.repoPath = repoPath
     row.machineId = asMachineId(worktreeMachineId)
     row.worktreePath = path
@@ -984,8 +1076,8 @@ export class IssueGitWorkflowModule {
     return {
       ok: true,
       output: adopted
-        ? `worktree already present at ${path} on branch '${row.branch}'`
-        : `recreated worktree ${path} from branch '${row.branch}'`,
+        ? `worktree already present at ${path} on branch '${branch}'`
+        : `recreated worktree ${path} from branch '${branch}'`,
       worktreePath: path,
       issue: this.store.toWire(row),
     }
@@ -1027,55 +1119,80 @@ export class IssueGitWorkflowModule {
     id: string,
     principal: CommandPrincipal,
   ): Promise<{ ok: boolean; output: string; issue: IssueWire }> {
-    const row = this.store.draftOrThrow(id)
-    const machineId = row.machineId ?? undefined
+    /**
+     * NO DRAFT SPANS A CLEANUP STEP [POD-3375].
+     *
+     * A draft is a copy pinned to the revision it was cut from and may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). Cleanup is the longest
+     * sequence in this module — up to five round trips to another machine, with a
+     * partial-state write between them so the columns match reality if a later step
+     * refuses.
+     *
+     * That repeated write is why this site LOOKED safe: `installDraft` re-pins a
+     * persisted draft, so one draft written four times carries a true precondition
+     * each time. But it is only true against ITSELF. Once the store is async, any of
+     * the awaits between two of those writes is a point where another request commits
+     * this row, and the re-pin from the previous step is then stale — the second write
+     * reverts that request's fields and `upsertIssue`'s expectedRevision precondition
+     * refuses it. Re-pinning answers "did MY last write land", not "is this row still
+     * the one I read".
+     *
+     * So the prelude reads, every write cuts its draft where it happens, and `refuse`
+     * reports the issue as committed at the moment it gives up.
+     */
+    const at = this.store.rowOrThrow(id)
+    const rowId = at.id
+    const seq = at.seq
+    const machineId = at.machineId ?? undefined
+    const { repoPath, parentBranch } = at
     const refuse = (output: string): { ok: boolean; output: string; issue: IssueWire } => ({
       ok: false,
       output,
-      issue: this.store.toWire(row),
+      issue: this.store.toWire(this.store.rowOrThrow(id)),
     })
     // (a) only closed issues are cleanable.
-    if (!this.store.isClosed(row)) {
-      return refuse(`refusing cleanup: issue #${row.seq} is still open (close it first)`)
+    if (!this.store.isClosed(at)) {
+      return refuse(`refusing cleanup: issue #${seq} is still open (close it first)`)
     }
     // (b) nothing recorded → nothing to do. Branch-only state (worktree already
     //     removed, branch delete previously refused — the partial-failure retry)
     //     is VALID: fall through to the worktree-less delete path below.
-    if (!row.worktreePath && !row.branch) {
+    if (!at.worktreePath && !at.branch) {
       return refuse('nothing to clean up: no worktree/branch recorded on this issue')
     }
-    if (!row.worktreePath && row.branch) {
+    if (!at.worktreePath && at.branch) {
       // Retry path after a partial cleanup: re-verify ancestry, then delete.
-      const branch = row.branch
+      const branch = at.branch
       const merged = await this.store.d.repoOp(
         'isMergedInto',
-        row.repoPath,
-        { branch, parentBranch: row.parentBranch },
+        repoPath,
+        { branch, parentBranch },
         machineId,
       )
       if (!merged.ok) {
         return refuse(
-          `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
+          `refusing cleanup: branch '${branch}' is not fully merged into '${parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
         )
       }
-      const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch }, machineId)
-      if (!bd.ok) return refuse(this.branchDeleteRefusal(branch, row.parentBranch, bd.output))
+      const bd = await this.store.d.repoOp('branchDelete', repoPath, { branch }, machineId)
+      if (!bd.ok) return refuse(this.branchDeleteRefusal(branch, parentBranch, bd.output))
+      const row = this.store.draftOrThrow(id)
       row.branch = null
       this.store.persistRow(row)
       const issue = this.commentsMail().addComment(
-        row.id,
+        rowId,
         'system:cleanup',
         `cleanup: deleted merged branch '${branch}' (worktree was already removed)`,
         principal,
       )
-      this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath: null, branch })
+      this.store.emitEvent('issue.cleaned', rowId, { seq, worktreePath: null, branch })
       return { ok: true, output: `deleted branch ${branch}`, issue }
     }
-    const worktreePath = row.worktreePath as string
-    if (this.isRegisteredRepoRoot(row, worktreePath)) {
+    const worktreePath = at.worktreePath as string
+    if (this.isRegisteredRepoRoot(machineId, worktreePath)) {
       return refuse(`refusing cleanup: ${worktreePath} is a registered repository root`)
     }
-    const recordedBranch = row.branch
+    const recordedBranch = at.branch
     // (c) worktree gone on disk (deleted out-of-band) → reconcile the columns
     //     and report; nothing destructive to run. STRICT ENOENT match only:
     //     `git -C <missing>` fails "cannot change to '<p>': No such file or
@@ -1083,18 +1200,19 @@ export class IssueGitWorkflowModule {
     //     (files still on disk) must REFUSE, not clear a live worktree's columns.
     const st = await this.store.d.repoOp('status', worktreePath, undefined, machineId)
     if (!st.ok && /cannot change to .*: no such file or directory/i.test(st.output)) {
+      const row = this.store.draftOrThrow(id)
       row.worktreePath = null
       row.branch = null
       this.store.persistRow(row)
-      this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
+      this.store.d.onWorktreesChanged?.(repoPath, machineId)
       const issue = this.commentsMail().addComment(
-        row.id,
+        rowId,
         'system:cleanup',
         `cleanup: worktree ${worktreePath} already gone; cleared recorded worktree/branch (${recordedBranch ?? 'none'})`,
         principal,
       )
-      this.store.emitEvent('issue.cleaned', row.id, {
-        seq: row.seq,
+      this.store.emitEvent('issue.cleaned', rowId, {
+        seq,
         worktreePath,
         branch: recordedBranch,
         alreadyGone: true,
@@ -1107,7 +1225,7 @@ export class IssueGitWorkflowModule {
         : ''
       return refuse(`refusing cleanup: cannot inspect worktree: ${st.output}${hint}`)
     }
-    const authority = await this.inspectRemovableWorktree(row, worktreePath)
+    const authority = await this.inspectRemovableWorktree(id, worktreePath)
     if (!authority.ok) return refuse(`refusing cleanup: ${authority.output}`)
     const branch = authority.branch
 
@@ -1117,13 +1235,13 @@ export class IssueGitWorkflowModule {
     if (branch) {
       const merged = await this.store.d.repoOp(
         'isMergedInto',
-        row.repoPath,
-        { branch, parentBranch: row.parentBranch },
+        repoPath,
+        { branch, parentBranch },
         machineId,
       )
       if (!merged.ok) {
         return refuse(
-          `refusing cleanup: branch '${branch}' is not fully merged into '${row.parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
+          `refusing cleanup: branch '${branch}' is not fully merged into '${parentBranch}'${merged.output ? ` (${merged.output})` : ''}`,
         )
       }
     }
@@ -1135,23 +1253,24 @@ export class IssueGitWorkflowModule {
     // Remove the worktree (non-forcing; git may still refuse and we surface it).
     const wr = await this.store.d.repoOp(
       'worktreeRemove',
-      row.repoPath,
+      repoPath,
       { path: worktreePath },
       machineId,
     )
     if (!wr.ok) return refuse(`worktree remove failed: ${wr.output}`)
-    row.worktreePath = null
-    this.store.persistRow(row) // columns reflect reality even if branch delete refuses below
-    this.store.d.onWorktreesChanged?.(row.repoPath, machineId)
+    const removed = this.store.draftOrThrow(id)
+    removed.worktreePath = null
+    this.store.persistRow(removed) // columns reflect reality even if branch delete refuses below
+    this.store.d.onWorktreesChanged?.(repoPath, machineId)
     if (!branch) {
       const issue = this.commentsMail().addComment(
-        row.id,
+        rowId,
         'system:cleanup',
         `cleanup: removed detached worktree ${worktreePath}; HEAD ${authority.head} remains reachable from another ref`,
         principal,
       )
-      this.store.emitEvent('issue.cleaned', row.id, {
-        seq: row.seq,
+      this.store.emitEvent('issue.cleaned', rowId, {
+        seq,
         worktreePath,
         branch: null,
         detachedHead: authority.head,
@@ -1163,11 +1282,11 @@ export class IssueGitWorkflowModule {
       }
     }
     // Delete the branch (-d only; git refuses unmerged as a belt-and-braces guard).
-    const bd = await this.store.d.repoOp('branchDelete', row.repoPath, { branch }, machineId)
+    const bd = await this.store.d.repoOp('branchDelete', repoPath, { branch }, machineId)
     if (!bd.ok) {
-      const why = this.branchDeleteRefusal(branch, row.parentBranch, bd.output)
+      const why = this.branchDeleteRefusal(branch, parentBranch, bd.output)
       const issue = this.commentsMail().addComment(
-        row.id,
+        rowId,
         'system:cleanup',
         `cleanup: removed worktree ${worktreePath}; branch '${branch}' NOT deleted: ${why}`,
         principal,
@@ -1178,15 +1297,19 @@ export class IssueGitWorkflowModule {
         issue,
       }
     }
-    row.branch = null
-    this.store.persistRow(row)
+    // A SECOND draft rather than `removed` again: the worktree-remove write above is
+    // what re-pinned that one, and the `branchDelete` round trip since is exactly the
+    // window this issue is about [POD-3375].
+    const deleted = this.store.draftOrThrow(id)
+    deleted.branch = null
+    this.store.persistRow(deleted)
     const issue = this.commentsMail().addComment(
-      row.id,
+      rowId,
       'system:cleanup',
       `cleanup: removed worktree ${worktreePath} and deleted merged branch '${branch}'`,
       principal,
     )
-    this.store.emitEvent('issue.cleaned', row.id, { seq: row.seq, worktreePath, branch })
+    this.store.emitEvent('issue.cleaned', rowId, { seq, worktreePath, branch })
     return { ok: true, output: `removed ${worktreePath}; deleted branch ${branch}`, issue }
   }
 
