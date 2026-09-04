@@ -1022,8 +1022,24 @@ export class IssueCrudModule {
      *  than assigned onto the map's row beforehand because a row a caller
      *  mutates before this method's commit is the exact shape POD-3259 removes.
      *  Widening `IssuePatch` instead would let the router move an issue between
-     *  repositories, which is a different decision. */
-    opts?: { actorSessionId?: SessionId; cascadeArchive?: boolean; repoPath?: string },
+     *  repositories, which is a different decision.
+     *
+     *  `clearSuggestion` is INTERNAL for the same reason and answers the same
+     *  question: only {@link applySuggestion} and {@link dismissSuggestion} may
+     *  retire the assistant's suggestion, so it is not in {@link IssuePatch} —
+     *  putting it there would let the router and the CLI write the field the
+     *  assistant owns. It exists because applySuggestion has to clear the
+     *  suggestion AND move the stage as ONE write: clearing it on a draft of its
+     *  own and then delegating the stage here cut a SECOND draft from the
+     *  committed row, and the cleared fields went with the discarded first one
+     *  (POD-3373). Two writes instead would publish the halfway row — suggestion
+     *  gone, stage not yet moved — and burn a revision on it. */
+    opts?: {
+      actorSessionId?: SessionId
+      cascadeArchive?: boolean
+      repoPath?: string
+      clearSuggestion?: boolean
+    },
   ): IssueWire {
     const row = this.store.draft(this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
@@ -1038,6 +1054,10 @@ export class IssueCrudModule {
       throw new Error('shipping stage is system-owned and cannot be changed by an issue update')
     }
     if (opts?.repoPath !== undefined) row.repoPath = opts.repoPath
+    if (opts?.clearSuggestion) {
+      row.suggestedStage = null
+      row.suggestedReason = null
+    }
     const prevStage = row.stage
     const wasClosed = this.store.isClosed(row)
     if (patch.stage === 'review' && row.stage !== 'review') {
@@ -1623,13 +1643,21 @@ export class IssueCrudModule {
       throw new Error('shipping stage is system-owned and cannot apply an issue suggestion')
     }
     const stage = row.suggestedStage
-    row.suggestedStage = null
-    row.suggestedReason = null
     // Route the stage move through update() so the #24 closed-state normalization
     // (and its closed/reopened event flips) applies — a suggested reopen must not
-    // recreate the stage-only bimodal state. update() persists the cleared
-    // suggestion fields along with the stage.
-    if (stage) return this.update(row.id, { stage })
+    // recreate the stage-only bimodal state.
+    //
+    // The clearing rides along as `clearSuggestion` rather than being assigned to
+    // `row` first, because update() cuts its OWN draft from the committed row: a
+    // field written here would be discarded with this draft, and the user would
+    // see the stage move while the suggestion and its reason stayed on screen
+    // (POD-3373). Under the pre-draft shared-row model the assignment was visible
+    // to update() through the shared object, which is why this read as correct.
+    if (stage) return this.update(row.id, { stage }, { clearSuggestion: true })
+    // No suggested stage to apply: there is nothing for update() to do, so this
+    // draft is the only writer and clears the reason on its own.
+    row.suggestedStage = null
+    row.suggestedReason = null
     return this.store.persistRow(row)
   }
   dismissSuggestion(id: string): IssueWire {
