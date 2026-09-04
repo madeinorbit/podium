@@ -361,3 +361,244 @@ holding after the conversion.
 **The other two rulings in the same message are also no-ops here.** `INSERT OR IGNORE`: zero
 occurrences in the six files. `markDelivered`: not a wave 2 method. Both checked by search, not by
 recollection.
+
+## 9. Rebase onto the moving tip, and the four rules that landed after this wave converted
+
+Rebased from `57691d712` onto `f97080fa9` (rules 29–40). The rebase was clean: no conflict in any
+file, and `git log f97080fa9..HEAD` is this wave's commits and nothing else, which is the check rule 40
+now asks for.
+
+### 9.1 Rule 34a — the shape every repository was renamed to
+
+Wave 2 converted while the capability was still SPLIT across constructor arguments: `(db)` for
+`auth` / `grants` / `approvals`, `(db, transact)` for `users` / `user-layout`, `(db, legacy)` for
+`settings`. Rules 34 and 34a landed afterwards and rule 34a is the operative one — `db` must be a
+GETTER, because a field assigned in the constructor freezes the ROOT drizzle instance and rule 35's
+ambient routing can then never resolve the enclosing transaction through it.
+
+All six now read:
+
+```ts
+constructor(private readonly queries: SyncQueries) {}
+protected get db(): SyncDrizzle { return this.queries.db }
+protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
+```
+
+No method body changed. The six `store.ts` construction lines pass `this.queries` — the one
+capability object — under rule 29's narrow exemption; they are lines 323, 333, 338, 339, 345 and 346,
+and nothing else in that file was touched. Nine test constructions were re-pointed the same way, all
+of them setup, no assertion edited; they are listed in the commit.
+
+### 9.2 Rule 39 — no projection in this wave widened, derived by PRINTING every statement
+
+Rule 39 is the one that could not be answered by reading, so it was answered by printing. A temporary
+probe wrapped the store's `SqlDatabase` in a recording proxy — which is the exact object
+`clientOverWrapper` prepares against, so what it records is what drizzle actually emitted — and drove
+every read and every write in the six files. Every statement is reproduced in §9.5.
+
+The comparison, against `PRAGMA table_info` on the MIGRATED database rather than against
+`schema.ts`:
+
+| Site | Original named | Emitted | Table has | Verdict |
+| --- | --- | --- | --- | --- |
+| `users.get` | `SELECT *` | 5 | 5 | exact, 5/5 |
+| `users.credentialFor` | `SELECT *` | 4 | 4 | exact, 4/4 |
+| `grants.listForResource` / `listForResources` / `listForKind` | `SELECT *` | 10 | 10 | exact, 10/10 |
+| `approvals.get` / `listPending` / `listExecuting` | `SELECT *` | 11 | 11 | exact, 11/11 |
+| `auth.listClientSessions` | 10 named | 10 | 10 | exact, same set |
+| `auth.getClientSession` | 8 named | 8 | 10 | exact, same 8 |
+| `auth.deleteOwnedMobileClientSession` | `token_hash` | 1 | 10 | exact |
+| `users.list` | `id` | 1 | 5 | exact |
+| `users.hasPerUserCredentials` | `1 AS present` | `select 1` | — | exact |
+| `layout.getSnapshot` / `get` / `keysFor` | 2 / 1 / 1 | 2 / 1 / 1 | 4 | exact |
+| `settings.getSettings` / `getModelCatalog` | `value` | 1 | 2 | exact |
+
+**No wave 2 select spreads `getTableColumns`,** so rule 39's stated failure mode has no site here; the
+`SELECT *` sites convert to a bare `.select()`, and for each of those four tables the schema declares
+exactly the columns the shipped table has, so the emitted list is the same set `*` expanded to. Zero
+extra columns and zero missing ones.
+
+### 9.3 Rule 36 — the qualifier bug has no site in this wave
+
+Two `sql` fragments appear in a SELECT LIST — `users.hasPerUserCredentials`'s `sql<number>\`1\`` and
+`grants.remove`'s `count()`. Neither names a COLUMN, so the trigger rule 36 measured (a bare
+identifier in a select-list fragment resolving against the wrong table) cannot fire. Confirmed in the
+printed SQL: `select 1 from "user_credentials" …` and `select count(*) from "grants" …`. The one
+fragment that does name columns — `approvals.transition`'s two `COALESCE` set clauses — is in an
+UPDATE's SET clause and emits fully qualified: `COALESCE("approval_requests"."decided_at", ?)`.
+
+### 9.4 Rule 31a — the constraint census, and why POD-3403's marker stays
+
+Derived from the migrated database (`PRAGMA index_list`, `PRAGMA foreign_key_list`, and a scan of
+every table's `foreign_key_list` for INBOUND edges), not from `schema.ts`:
+
+| Table | Uniqueness constraints | Inbound FKs | CHECK | Converted form |
+| --- | --- | --- | --- | --- |
+| `users` | 1 (pk) | none | no | plain insert |
+| `user_credentials` | 1 (pk) | none | no | `onConflictDoUpdate` |
+| `user_layout` | 1 (pk) | none | no | `onConflictDoUpdate` |
+| `meta` | 1 (pk) | none | no | `onConflictDoUpdate` |
+| `grants` | 1 (pk) | none | no | `onConflictDoUpdate` |
+| `approval_requests` | 1 (pk) + 1 NON-unique index | none | **yes** | plain insert |
+| `client_sessions` | **2** — pk on `token_hash` AND `idx_client_sessions_session_id` | none | no | **NOT converted, POD-3403** |
+
+Four `INSERT OR REPLACE` sites converted; each is on a single-uniqueness-constraint table with no
+inbound foreign key, so neither of OR REPLACE's two divergences from DO UPDATE can reach them — the
+untargeted-conflict throw (rule 31a) or the delete-and-reinsert cascade. Each also names EVERY column
+of its table in the insert, checked in the printed SQL, so the column-reversion difference is a no-op
+as well.
+
+**THE `NOT NULL` LEG, which rule 31a's OR REPLACE row does not spell out and which does divide the two
+forms.** `INSERT OR REPLACE` resolves a NOT NULL violation by substituting the column's DEFAULT, and
+ABORTS only when the column has no default; `onConflictDoUpdate` throws either way. So the two forms
+diverge at a site where a NOT NULL column both can receive a null AND has a default. Checked against
+the shipped DDL for the four converted sites:
+
+| Table | NOT NULL columns with a DEFAULT | Can a null reach one? |
+| --- | --- | --- |
+| `grants` | none (`migration.sql` 20260730173834: eight NOT NULL, no DEFAULT clause) | n/a |
+| `user_credentials` | none (same migration) | n/a |
+| `user_layout` | none (20260802095200) | n/a |
+| `meta` | none (`CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)`) | n/a |
+
+Zero of the four has a default on a NOT NULL column, so OR REPLACE's substitution branch is
+unreachable at every converted site and both forms abort identically. Worth recording that
+`client_sessions` DOES have one — `label text DEFAULT 'login' NOT NULL` (20260802111446) — so the
+site that stayed raw is also the only one where this second divergence is live. That belongs in
+POD-3403 alongside the two-constraint argument.
+
+`client_sessions` is the one table with two uniqueness constraints, which is exactly rule 31a's
+"real defect" row, so the marker on `auth.createClientSession` is a genuinely open question and stays.
+`approval_requests` carries a CHECK constraint, but its insert is a plain one — no `OR IGNORE` and no
+`OR REPLACE` — so rule 31's CHECK test does not govern it. Wave 2 has zero `INSERT OR IGNORE` sites.
+
+### 9.5 Every statement the six files emit
+
+```
+users.get
+    select "id", "display_name", "role", "created_at", "disabled_at" from "users" where "users"."id" = ?
+users.list
+    select "id" from "users" order by "users"."created_at" asc
+users.credentialFor
+    select "user_id", "source", "password_hash", "updated_at" from "user_credentials" where "user_credentials"."user_id" = ?
+users.hasPerUserCredentials
+    select 1 from "user_credentials" where (("user_credentials"."source" = ?) and (("user_credentials"."password_hash" is not null))) limit ?
+users.create
+    insert into "users" ("id", "display_name", "role", "created_at", "disabled_at") values (?, ?, ?, ?, ?)
+users.create
+    insert into "user_credentials" ("user_id", "source", "password_hash", "updated_at") values (?, ?, ?, ?)
+users.setPasswordHash
+    select "id", "display_name", "role", "created_at", "disabled_at" from "users" where "users"."id" = ?
+users.setPasswordHash
+    insert into "user_credentials" ("user_id", "source", "password_hash", "updated_at") values (?, ?, ?, ?) on conflict ("user_credentials"."user_id") do update set "source" = ?, "password_hash" = ?, "updated_at" = ?
+auth.createClientSession
+    INSERT OR REPLACE INTO client_sessions
+            (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
+          VALUES (?, ?, ?, ?, ?,
+                  ?, ?, ?,
+                  ?, ?)
+auth.createClientSession
+    INSERT OR REPLACE INTO client_sessions
+            (token_hash, user_id, created_at, expires_at, label, session_id, device_id, device_name, platform, last_seen_at)
+          VALUES (?, ?, ?, ?, ?,
+                  ?, ?, ?,
+                  ?, ?)
+auth.listClientSessions
+    select "token_hash", "user_id", "created_at", "expires_at", "label", "session_id", "device_id", "device_name", "platform", "last_seen_at" from "client_sessions" order by "client_sessions"."created_at" desc
+auth.getClientSession
+    select "user_id", "expires_at", "label", "session_id", "device_id", "device_name", "platform", "last_seen_at" from "client_sessions" where "client_sessions"."token_hash" = ?
+auth.isClientSessionValid
+    select "user_id", "expires_at", "label", "session_id", "device_id", "device_name", "platform", "last_seen_at" from "client_sessions" where "client_sessions"."token_hash" = ?
+auth.deleteOwnedMobileClientSession
+    select "token_hash" from "client_sessions" where (("client_sessions"."session_id" = ?) and ("client_sessions"."user_id" = ?) and ("client_sessions"."label" = ?))
+auth.extendClientSession
+    update "client_sessions" set "expires_at" = ? where "client_sessions"."token_hash" = ?
+auth.touchClientSession
+    update "client_sessions" set "last_seen_at" = ? where "client_sessions"."token_hash" = ?
+auth.deleteClientSessionsByLabel
+    delete from "client_sessions" where "client_sessions"."label" = ?
+auth.deleteClientSession
+    delete from "client_sessions" where "client_sessions"."token_hash" = ?
+auth.deleteExpiredClientSessions
+    delete from "client_sessions" where "client_sessions"."expires_at" <= ?
+auth.deleteAllClientSessions
+    delete from "client_sessions"
+grants.upsert
+    insert into "grants" ("resource_kind", "resource_id", "grantee", "verb", "owner", "visibility", "created_at", "actor_kind", "actor_id", "on_behalf_of") values (?, ?, ?, ?, ?, null, ?, null, null, null) on conflict ("grants"."resource_kind", "grants"."resource_id", "grants"."grantee", "grants"."verb") do update set "owner" = ?, "created_at" = ?
+grants.listForResource
+    select "resource_kind", "resource_id", "grantee", "verb", "owner", "visibility", "created_at", "actor_kind", "actor_id", "on_behalf_of" from "grants" where (("grants"."resource_kind" = ?) and ("grants"."resource_id" = ?)) order by "grants"."created_at" asc
+grants.listForResources
+    select "resource_kind", "resource_id", "grantee", "verb", "owner", "visibility", "created_at", "actor_kind", "actor_id", "on_behalf_of" from "grants" where (("grants"."resource_kind" = ?) and ("grants"."resource_id" in (?, ?))) order by "grants"."created_at" asc
+grants.listForKind
+    select "resource_kind", "resource_id", "grantee", "verb", "owner", "visibility", "created_at", "actor_kind", "actor_id", "on_behalf_of" from "grants" where "grants"."resource_kind" = ? order by "grants"."created_at" asc
+grants.remove
+    select count(*) from "grants" where (("grants"."resource_kind" = ?) and ("grants"."resource_id" = ?) and ("grants"."grantee" = ?) and ("grants"."verb" = ?))
+grants.remove
+    delete from "grants" where (("grants"."resource_kind" = ?) and ("grants"."resource_id" = ?) and ("grants"."grantee" = ?) and ("grants"."verb" = ?))
+grants.removeAllForResource
+    delete from "grants" where (("grants"."resource_kind" = ?) and ("grants"."resource_id" = ?))
+approvals.insert
+    insert into "approval_requests" ("id", "machine_id", "session_id", "issue_id", "op_json", "status", "created_at", "actor", "on_behalf_of", "decided_at", "result_text") values (?, ?, ?, ?, ?, ?, ?, null, null, null, null)
+approvals.get
+    select "id", "machine_id", "session_id", "issue_id", "op_json", "status", "created_at", "actor", "on_behalf_of", "decided_at", "result_text" from "approval_requests" where "approval_requests"."id" = ?
+approvals.listPending
+    select "id", "machine_id", "session_id", "issue_id", "op_json", "status", "created_at", "actor", "on_behalf_of", "decided_at", "result_text" from "approval_requests" where "approval_requests"."status" = ? order by "approval_requests"."created_at" asc
+approvals.listExecuting
+    select "id", "machine_id", "session_id", "issue_id", "op_json", "status", "created_at", "actor", "on_behalf_of", "decided_at", "result_text" from "approval_requests" where "approval_requests"."status" = ? order by "approval_requests"."decided_at" asc
+approvals.transition
+    update "approval_requests" set "status" = ?, "decided_at" = COALESCE("approval_requests"."decided_at", ?), "result_text" = COALESCE(?, "approval_requests"."result_text") where (("approval_requests"."id" = ?) and ("approval_requests"."status" = ?))
+layout.set
+    insert into "user_layout" ("user_id", "key", "value", "updated_at") values (?, ?, ?, ?) on conflict ("user_layout"."user_id", "user_layout"."key") do update set "value" = ?, "updated_at" = ?
+layout.setMany
+    insert into "user_layout" ("user_id", "key", "value", "updated_at") values (?, ?, ?, ?) on conflict ("user_layout"."user_id", "user_layout"."key") do update set "value" = ?, "updated_at" = ?
+layout.getSnapshot
+    select "key", "value" from "user_layout" where "user_layout"."user_id" = ?
+layout.get
+    select "value" from "user_layout" where (("user_layout"."user_id" = ?) and ("user_layout"."key" = ?))
+layout.keysFor
+    select "key" from "user_layout" where "user_layout"."user_id" = ? order by "user_layout"."key" asc
+layout.clear
+    delete from "user_layout" where (("user_layout"."user_id" = ?) and ("user_layout"."key" = ?))
+layout.clearMany
+    delete from "user_layout" where (("user_layout"."user_id" = ?) and ("user_layout"."key" = ?))
+settings.getSettings
+    select "value" from "meta" where "meta"."key" = ?
+settings.setSettings
+    select "value" from "meta" where "meta"."key" = ?
+settings.setSettings
+    insert into "meta" ("key", "value") values (?, ?) on conflict ("meta"."key") do update set "value" = ?
+settings.getModelCatalog
+    select "value" from "meta" where "meta"."key" = ?
+settings.setModelCatalog
+    insert into "meta" ("key", "value") values (?, ?) on conflict ("meta"."key") do update set "value" = ?
+```
+
+`grants.upsert` threw on the probe's own fixture, not on the code: the probe passed a partial
+`GrantRow` with no `visibility` and no `actor_kind`, and both are `NOT NULL` on the shipped table. The
+statement is emitted before the driver rejects it, which is what this section records.
+
+### 9.6 A gap in the DECISION-marker mechanism, found while re-checking POD-3403's site
+
+The boundary lint now matches the raw-statement ban over the WHOLE source and reports the line where
+the CALL STARTS (`scripts/check-boundaries.ts:1458-1471`), while `decisionMarkedLines` exempts by
+LINE. For a statement that does not fit on one line — POD-3403's is ten lines of SQL — those two are
+never the same line, and they cannot be made the same line: biome moves a trailing `// DECISION` off
+`this.db.run(` onto the next line, measured with `biome format`:
+
+```
+-    this.db.run( // DECISION POD-3403
++    this.db.run(
++      // DECISION POD-3403
+```
+
+**It bites nobody today and it will bite exactly once.** `auth.ts` is still listed in
+`STAGE_A_UNCONVERTED`, and a listed file's raw-handle violations are not raised at all
+(`check-boundaries.ts:1664`), so the marker is inert either way. The moment the coordinator prunes
+that entry, the site reports a `store-raw-handle` violation that no marker can exempt.
+
+Not fixed here: `check-boundaries.ts` is not a wave's file, and the two candidate fixes are judgements
+about the rule, not about this site — accept a marker in the comment block immediately preceding the
+call, or report the line the `sql` template starts on rather than the line the call starts on. Mailed
+to the coordinator. The workaround that must NOT be taken is hoisting the statement into a variable so
+`.run(statement)` stops matching the regex: that silences the ban AND makes the ledger report `auth.ts`
+as converted when it is not.
