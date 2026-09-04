@@ -1115,6 +1115,18 @@ const SEARCH_INDEX_PORT: ReadonlySet<string> = new Set([
  * landed (POD-3248, 5dce237f3) it is three, for the reason above; the count is
  * the only part that moved, not the shape.
  *
+ * `sync-drizzle.ts` IS THE FOURTH, and it is a seam rather than a holdover.
+ * Stage A's converted repositories run their statements through a drizzle
+ * instance built OVER the handle, and the adapter that builds it is the one
+ * place that must name both sides — that is the whole point of concentrating it
+ * in a single file. It cannot sit on {@link STAGE_A_UNCONVERTED} instead:
+ * entries there are files a wave converts and then deletes its own line for,
+ * and nothing ever converts this one. Absent from both lists it painted
+ * `lint:boundaries` red on the integration branch for every wave at once
+ * (POD-3394 measured it with its own changes reverted, so it predates the
+ * wave). If the seam's shape changes and this module goes, this line goes with
+ * it.
+ *
  * `executor.ts` IS DELIBERATELY ABSENT even though it imports `SqlDatabase`
  * today. That import is `readonly legacy: SqlDatabase | undefined` — the
  * executor's legacy field, which Stage A's exit gate deletes by name (method
@@ -1126,6 +1138,7 @@ const RAW_HANDLE_OWNERS: ReadonlySet<string> = new Set([
   'apps/server/src/store/executor/driver.ts',
   'apps/server/src/store/executor/bun-driver.ts',
   'apps/server/src/store/executor/harness.ts',
+  'apps/server/src/store/executor/sync-drizzle.ts',
 ])
 
 /**
