@@ -4,10 +4,61 @@ import { conversations } from '../../migrations/schema'
 import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
+const prepareConversationUpsert = (db: SyncDrizzle) =>
+  db
+    .insert(conversations)
+    .values({
+      id: sql.placeholder('id'),
+      agentKind: sql.placeholder('agentKind'),
+      title: sql.placeholder('title'),
+      projectPath: sql.placeholder('projectPath'),
+      providerId: sql.placeholder('providerId'),
+      resumeKind: sql.placeholder('resumeKind'),
+      resumeValue: sql.placeholder('resumeValue'),
+      createdAt: sql.placeholder('createdAt'),
+      updatedAt: sql.placeholder('updatedAt'),
+      messageCount: sql.placeholder('messageCount'),
+      machineId: sql.placeholder('machineId'),
+      parentConversationId: sql.placeholder('parentConversationId'),
+    })
+    .onConflictDoUpdate({
+      target: conversations.id,
+      set: {
+        agentKind: sql`excluded.agent_kind`,
+        providerId: sql`excluded.provider_id`,
+        machineId: sql`excluded.machine_id`,
+        title: sql`COALESCE(excluded.title,${conversations.title})`,
+        projectPath: sql`COALESCE(excluded.project_path,${conversations.projectPath})`,
+        resumeKind: sql`COALESCE(excluded.resume_kind,${conversations.resumeKind})`,
+        resumeValue: sql`COALESCE(excluded.resume_value,${conversations.resumeValue})`,
+        createdAt: sql`COALESCE(excluded.created_at,${conversations.createdAt})`,
+        updatedAt: sql`COALESCE(excluded.updated_at,${conversations.updatedAt})`,
+        messageCount: sql`COALESCE(excluded.message_count,${conversations.messageCount})`,
+        parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
+      },
+      // THE GUARD IS THE EXACT NEGATION OF THE SET LIST — each column
+      // compared against the effective value the SET would assign, `IS NOT`
+      // so NULL compares like any other value. A row that would change
+      // still changes; only a write with nothing to say is skipped.
+      setWhere: sql`${conversations.agentKind} IS NOT excluded.agent_kind
+         OR ${conversations.providerId} IS NOT excluded.provider_id
+         OR ${conversations.machineId} IS NOT excluded.machine_id
+         OR ${conversations.title} IS NOT COALESCE(excluded.title,${conversations.title})
+         OR ${conversations.projectPath} IS NOT COALESCE(excluded.project_path,${conversations.projectPath})
+         OR ${conversations.resumeKind} IS NOT COALESCE(excluded.resume_kind,${conversations.resumeKind})
+         OR ${conversations.resumeValue} IS NOT COALESCE(excluded.resume_value,${conversations.resumeValue})
+         OR ${conversations.createdAt} IS NOT COALESCE(excluded.created_at,${conversations.createdAt})
+         OR ${conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${conversations.updatedAt})
+         OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
+         OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
+    })
+    .prepare()
+
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
   private readonly rootDb: SyncDrizzle
+  private preparedUpsertValue: ReturnType<typeof prepareConversationUpsert> | undefined
   protected readonly createOrJoinTransaction: TransactionRunner
   constructor(
     queries: StoreQueries,
@@ -28,6 +79,15 @@ export class ConversationIndexRepository {
    */
   private get db(): SyncDrizzle {
     return this.rootDb
+  }
+
+  /**
+   * Prepared from the ambient ROOT client, never from `this.db`: after B1 each
+   * execution still resolves the enclosing transaction, while the expensive
+   * SQL construction happens once per repository instead of once per row.
+   */
+  private get preparedUpsert(): ReturnType<typeof prepareConversationUpsert> {
+    return (this.preparedUpsertValue ??= prepareConversationUpsert(this.rootDb))
   }
 
   /**
@@ -100,54 +160,20 @@ export class ConversationIndexRepository {
     if (rows.length === 0) return
     this.createOrJoinTransaction(() => {
       for (const row of rows) {
-        this.db
-          .insert(conversations)
-          .values({
-            id: row.id,
-            agentKind: row.agentKind,
-            title: row.title ?? null,
-            projectPath: row.projectPath ?? null,
-            providerId: row.providerId,
-            resumeKind: row.resumeKind ?? null,
-            resumeValue: row.resumeValue ?? null,
-            createdAt: row.createdAt ?? null,
-            updatedAt: row.updatedAt ?? null,
-            messageCount: row.messageCount ?? null,
-            machineId: row.machineId,
-            parentConversationId: row.parentConversationId ?? null,
-          })
-          .onConflictDoUpdate({
-            target: conversations.id,
-            set: {
-              agentKind: sql`excluded.agent_kind`,
-              providerId: sql`excluded.provider_id`,
-              machineId: sql`excluded.machine_id`,
-              title: sql`COALESCE(excluded.title,${conversations.title})`,
-              projectPath: sql`COALESCE(excluded.project_path,${conversations.projectPath})`,
-              resumeKind: sql`COALESCE(excluded.resume_kind,${conversations.resumeKind})`,
-              resumeValue: sql`COALESCE(excluded.resume_value,${conversations.resumeValue})`,
-              createdAt: sql`COALESCE(excluded.created_at,${conversations.createdAt})`,
-              updatedAt: sql`COALESCE(excluded.updated_at,${conversations.updatedAt})`,
-              messageCount: sql`COALESCE(excluded.message_count,${conversations.messageCount})`,
-              parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
-            },
-            // THE GUARD IS THE EXACT NEGATION OF THE SET LIST — each column
-            // compared against the effective value the SET would assign, `IS NOT`
-            // so NULL compares like any other value. A row that would change
-            // still changes; only a write with nothing to say is skipped.
-            setWhere: sql`${conversations.agentKind} IS NOT excluded.agent_kind
-         OR ${conversations.providerId} IS NOT excluded.provider_id
-         OR ${conversations.machineId} IS NOT excluded.machine_id
-         OR ${conversations.title} IS NOT COALESCE(excluded.title,${conversations.title})
-         OR ${conversations.projectPath} IS NOT COALESCE(excluded.project_path,${conversations.projectPath})
-         OR ${conversations.resumeKind} IS NOT COALESCE(excluded.resume_kind,${conversations.resumeKind})
-         OR ${conversations.resumeValue} IS NOT COALESCE(excluded.resume_value,${conversations.resumeValue})
-         OR ${conversations.createdAt} IS NOT COALESCE(excluded.created_at,${conversations.createdAt})
-         OR ${conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${conversations.updatedAt})
-         OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
-         OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
-          })
-          .run()
+        this.preparedUpsert.run({
+          id: row.id,
+          agentKind: row.agentKind,
+          title: row.title ?? null,
+          projectPath: row.projectPath ?? null,
+          providerId: row.providerId,
+          resumeKind: row.resumeKind ?? null,
+          resumeValue: row.resumeValue ?? null,
+          createdAt: row.createdAt ?? null,
+          updatedAt: row.updatedAt ?? null,
+          messageCount: row.messageCount ?? null,
+          machineId: row.machineId,
+          parentConversationId: row.parentConversationId ?? null,
+        })
       }
     })
   }

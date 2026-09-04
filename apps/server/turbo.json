@@ -655,6 +655,7 @@
         "src/store/notification-facts.ts",
         "src/store/observation-checkpoints.test.ts",
         "src/store/observation-checkpoints.ts",
+        "src/store/prepared-loop-scaling.test.ts",
         "src/store/quota-history.test.ts",
         "src/store/quota-history.ts",
         "src/store/read-watermarks.test.ts",
