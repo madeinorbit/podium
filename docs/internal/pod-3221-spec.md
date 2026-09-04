@@ -1112,3 +1112,24 @@ inference from SQL text, so rule 16 holds. POD-3391's lint derives intent from t
 fails where the two disagree.
 
 Building this instance is an executor edit and therefore the coordinator's, not a wave's.
+
+### Rule 27b — the seam is INJECTED, never referenced inside a repository
+
+[2026-09-04, prompted by the operator asking whether the seam made the flip harder. It did.]
+
+Rule 27a put the synchronous drizzle instance on `executor.stageA`. A repository that reads
+`this.stage.db.select()...` forces B1 to rewrite that receiver to `this.db` in all 39 files AND add
+the awaits — TWO mechanical passes over every file, where the whole justification for splitting Stage
+A from B1 is that the second pass is a single codemod.
+
+So a repository takes the drizzle instance in its CONSTRUCTOR, in the slot the `SqlDatabase` used to
+occupy, and calls `this.db`. `executor.stageA` then appears in exactly one place in the tree —
+`store.ts`, where repositories are constructed — and B1 changes that one line to pass the async
+instance.
+
+The difference inside a converted file across the flip is then exactly `async`, `await` and the return
+type. That is what makes the existing suite the flip's oracle, and it is what I claimed while the
+`stageA` path quietly made it false.
+
+The undefined-check moves with the construction: `store.ts` asserts the seam once, so no repository
+carries a branch for a case its own constructor cannot produce.
