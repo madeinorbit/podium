@@ -4,9 +4,10 @@
  */
 
 import type { IssueId, ThreadId } from '@podium/model'
-import { asIssueId, asThreadId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, eq } from 'drizzle-orm'
+import { messagingIssueTopics } from '../migrations/schema'
+import type { QueryClient, StoreExecutor } from './executor'
+import type { SyncDrizzle } from './executor/sync-drizzle'
 
 export interface MessagingIssueTopicRow {
   issueId: IssueId
@@ -17,63 +18,60 @@ export interface MessagingIssueTopicRow {
 }
 
 export class MessagingTopicsRepository {
-  private readonly db: SqlDatabase
+  private readonly db: SyncDrizzle
 
   constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+    // Stage A's synchronous seam, asserted HERE so a store built over a non-bun
+    // handle names the repository that needed it rather than failing at the
+    // first statement [spec rule 27a].
+    if (!executor.stageA) {
+      throw new Error("MessagingTopicsRepository needs the executor's Stage A drizzle instance")
+    }
+    this.db = executor.stageA.db
   }
 
   listForChat(chatId: string): MessagingIssueTopicRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT issue_id, chat_id, thread_ref, superagent_thread_id, updated_at
-         FROM messaging_issue_topics WHERE chat_id = ?`,
-      )
-      .all(chatId) as Record<string, unknown>[]
-    return rows.map((r) => this.map(r))
+    return this.db
+      .select()
+      .from(messagingIssueTopics)
+      .where(eq(messagingIssueTopics.chatId, chatId))
+      .all()
   }
 
   getByIssue(chatId: string, issueId: IssueId): MessagingIssueTopicRow | undefined {
-    const r = this.db
-      .prepare(
-        `SELECT issue_id, chat_id, thread_ref, superagent_thread_id, updated_at
-         FROM messaging_issue_topics WHERE chat_id = ? AND issue_id = ?`,
+    return this.db
+      .select()
+      .from(messagingIssueTopics)
+      .where(
+        and(eq(messagingIssueTopics.chatId, chatId), eq(messagingIssueTopics.issueId, issueId)),
       )
-      .get(chatId, issueId) as Record<string, unknown> | undefined
-    return r ? this.map(r) : undefined
+      .get()
   }
 
   getByThreadRef(chatId: string, threadRef: string): MessagingIssueTopicRow | undefined {
-    const r = this.db
-      .prepare(
-        `SELECT issue_id, chat_id, thread_ref, superagent_thread_id, updated_at
-         FROM messaging_issue_topics WHERE chat_id = ? AND thread_ref = ?`,
+    return this.db
+      .select()
+      .from(messagingIssueTopics)
+      .where(
+        and(eq(messagingIssueTopics.chatId, chatId), eq(messagingIssueTopics.threadRef, threadRef)),
       )
-      .get(chatId, threadRef) as Record<string, unknown> | undefined
-    return r ? this.map(r) : undefined
+      .get()
   }
 
   upsert(row: MessagingIssueTopicRow): void {
+    // A WRITE: `.run()` on an insert. The conflict target is the composite
+    // primary key, not `issue_id` alone — one issue has one binding PER CHAT.
     this.db
-      .prepare(
-        `INSERT INTO messaging_issue_topics
-           (issue_id, chat_id, thread_ref, superagent_thread_id, updated_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT (issue_id, chat_id) DO UPDATE SET
-           thread_ref = excluded.thread_ref,
-           superagent_thread_id = excluded.superagent_thread_id,
-           updated_at = excluded.updated_at`,
-      )
-      .run(row.issueId, row.chatId, row.threadRef, row.superagentThreadId, row.updatedAt)
-  }
-
-  private map(r: Record<string, unknown>): MessagingIssueTopicRow {
-    return {
-      issueId: asIssueId(r.issue_id as string),
-      chatId: r.chat_id as string,
-      threadRef: r.thread_ref as string,
-      superagentThreadId: asThreadId(r.superagent_thread_id as string),
-      updatedAt: r.updated_at as string,
-    }
+      .insert(messagingIssueTopics)
+      .values(row)
+      .onConflictDoUpdate({
+        target: [messagingIssueTopics.issueId, messagingIssueTopics.chatId],
+        set: {
+          threadRef: row.threadRef,
+          superagentThreadId: row.superagentThreadId,
+          updatedAt: row.updatedAt,
+        },
+      })
+      .run()
   }
 }
