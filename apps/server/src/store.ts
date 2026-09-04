@@ -311,8 +311,10 @@ export class SessionStore {
     this.sessions = new SessionsRepository(this.executor, (id) =>
       this.observationCheckpoints.purge(id),
     )
-    this.issues = new IssuesRepository(this.executor, (repoPath) =>
-      this.repos.resolveRepoIdForPath(repoPath),
+    this.issues = new IssuesRepository(
+      this.stage.db,
+      (repoPath) => this.repos.resolveRepoIdForPath(repoPath),
+      this.stage.spans,
     )
     this.repos = new ReposRepository(
       this.executor,
@@ -342,7 +344,7 @@ export class SessionStore {
     this.grants = new GrantsRepository(this.executor)
     this.users = new UsersRepository(this.executor)
     this.telegramBindings = new TelegramBindingsRepository(this.executor)
-    this.events = new EventsRepository(this.executor)
+    this.events = new EventsRepository(this.stage.db, this.stage.spans)
     this.notificationFacts = new NotificationFactsRepository(this.executor)
     this.quotaHistory = new QuotaHistoryRepository(this.executor)
     this.transcriptCosts = new TranscriptCostsRepository(this.executor)

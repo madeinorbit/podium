@@ -14,15 +14,37 @@ import {
   IssueStage,
   isIssueClosed,
   isIssueColorSlot,
-  type MachineId,
   type RepoId,
   type SessionId,
   type UserId,
 } from '@podium/model'
 import { letterForIndex } from '@podium/protocol'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import {
+  and,
+  asc,
+  count,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  max,
+  ne,
+  notInArray,
+  or,
+  sql,
+} from 'drizzle-orm'
+import {
+  issueComments,
+  issueDeps,
+  issueLabels,
+  issueMessages,
+  issueMessageUserState,
+  issueRefLetters,
+  issues,
+  issueUserState,
+} from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import type { SyncDrizzle, SyncSpans } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -70,15 +92,13 @@ export class IssuesRepository {
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
 
-  private readonly db: SqlDatabase
-
   constructor(
-    executor: StoreExecutor<QueryClient>,
+    private readonly db: SyncDrizzle,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
-  ) {
-    this.db = legacyHandle(executor)
-  }
+    /** The store's transaction port — the two read-decide-write spans below. */
+    private readonly spans: SyncSpans,
+  ) {}
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
    *  and whatever it had already cached is dropped.
@@ -170,9 +190,11 @@ export class IssuesRepository {
     // reconcile never reaches this method, so no revision burns on a no-op and
     // the ripple republishes under an unchanged revision — leaving in-flight
     // expectedRevision preconditions valid, which is the whole point of D3.
-    const current = this.db.prepare('SELECT revision FROM issues WHERE id = ?').get(row.id) as
-      | { revision: number | null }
-      | undefined
+    const current = this.db
+      .select({ revision: issues.revision })
+      .from(issues)
+      .where(eq(issues.id, row.id))
+      .get()
     if (opts) {
       const found = current?.revision ?? null
       if (found !== opts.expectedRevision) {
@@ -180,118 +202,143 @@ export class IssuesRepository {
       }
     }
     row.revision = (current?.revision ?? 0) + 1
+    // The column set is the schema's, and the two halves are deliberately
+    // different: `values` carries every column, `set` carries only the columns a
+    // SECOND write may change. The eight the update omits — id, owner_user_id,
+    // visibility, created_by_actor, created_by_on_behalf_of, repo_path, seq and
+    // created_at — are the row's identity and its provenance, and the upsert has
+    // never rewritten them.
+    const values = {
+      id: row.id,
+      ownerUserId: row.ownerUserId,
+      visibility: row.visibility,
+      createdByActor: row.createdByActor ?? row.ownerUserId,
+      createdByOnBehalfOf: row.createdByOnBehalfOf,
+      repoPath: row.repoPath,
+      repoId: row.repoId ?? (this.resolveRepoIdForPath(row.repoPath) as RepoId),
+      seq: row.seq,
+      title: row.title,
+      description: row.description,
+      brief: row.brief ?? null,
+      stage: row.stage,
+      worktreePath: row.worktreePath,
+      branch: row.branch,
+      parentBranch: row.parentBranch,
+      defaultAgent: row.defaultAgent,
+      defaultModel: row.defaultModel,
+      defaultEffort: row.defaultEffort,
+      machineId: row.machineId ?? null,
+      linearId: row.linearId,
+      linearIdentifier: row.linearIdentifier,
+      linearUrl: row.linearUrl,
+      activityNotes: row.activityNotes,
+      notesUpdatedAt: row.notesUpdatedAt,
+      suggestedStage: row.suggestedStage,
+      suggestedReason: row.suggestedReason,
+      blockedBy: JSON.stringify(blockedBy),
+      dependencyNote: row.dependencyNote,
+      prUrl: row.prUrl,
+      priority: row.priority,
+      type: row.type,
+      assignee: row.assignee,
+      parentId: row.parentId,
+      design: row.design,
+      acceptance: row.acceptance,
+      notes: row.notes,
+      dueAt: row.dueAt,
+      deferUntil: row.deferUntil,
+      closedReason: row.closedReason,
+      closedAt: row.closedAt ?? null,
+      landedAt: row.landedAt ?? null,
+      landedSha: row.landedSha ?? null,
+      supersededBy: row.supersededBy,
+      duplicateOf: row.duplicateOf,
+      sortKey: row.sortKey ?? null,
+      color: row.color ?? null,
+      estimateMin: row.estimateMin,
+      needsHuman: row.needsHuman,
+      humanQuestion: row.humanQuestion,
+      humanQuestionOptions: row.humanQuestionOptions?.length
+        ? JSON.stringify(row.humanQuestionOptions)
+        : null,
+      humanQuestionAskedBy: row.humanQuestionAskedBy ?? null,
+      humanQuestionAskedAt: row.humanQuestionAskedAt ?? null,
+      panel: row.panel ?? null,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+      archived: row.archived,
+      origin: row.origin ?? 'human',
+      audience: row.audience ?? 'human',
+      draft: row.draft ?? false,
+      deletedAt: row.deletedAt ?? null,
+      revision: row.revision,
+      coordinatorSessionId: row.coordinatorSessionId ?? null,
+      startedBySession: row.startedBySession ?? null,
+    }
     this.db
-      .prepare(
-        `INSERT INTO issues
-           (id, owner_user_id, visibility, created_by_actor, created_by_on_behalf_of, repo_path, repo_id, seq, title, description, brief, stage, worktree_path, branch, parent_branch,
-            default_agent, default_model, default_effort, machine_id,
-            linear_id, linear_identifier, linear_url, activity_notes, notes_updated_at,
-            suggested_stage, suggested_reason, blocked_by, dependency_note, pr_url,
-            priority, type, assignee, parent_id, design, acceptance, notes, due_at,
-            defer_until, closed_reason, closed_at, landed_at, landed_sha, superseded_by, duplicate_of, sort_key, color, estimate_min,
-            needs_human, human_question, human_question_options,
-            human_question_asked_by, human_question_asked_at, panel,
-            created_at, updated_at, archived, origin, audience, draft, deleted_at, revision,
-            coordinator_session_id, started_by_session)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           repo_id = excluded.repo_id,
-           title = excluded.title, description = excluded.description, brief = excluded.brief, stage = excluded.stage,
-           worktree_path = excluded.worktree_path, branch = excluded.branch,
-           parent_branch = excluded.parent_branch, default_agent = excluded.default_agent,
-           default_model = excluded.default_model, default_effort = excluded.default_effort,
-           machine_id = excluded.machine_id,
-           linear_id = excluded.linear_id, linear_identifier = excluded.linear_identifier,
-           linear_url = excluded.linear_url, activity_notes = excluded.activity_notes,
-           notes_updated_at = excluded.notes_updated_at, suggested_stage = excluded.suggested_stage,
-           suggested_reason = excluded.suggested_reason, blocked_by = excluded.blocked_by,
-           dependency_note = excluded.dependency_note, pr_url = excluded.pr_url,
-           priority = excluded.priority, type = excluded.type, assignee = excluded.assignee,
-           parent_id = excluded.parent_id, design = excluded.design,
-           acceptance = excluded.acceptance, notes = excluded.notes, due_at = excluded.due_at,
-           defer_until = excluded.defer_until, closed_reason = excluded.closed_reason,
-           closed_at = excluded.closed_at,
-           landed_at = excluded.landed_at, landed_sha = excluded.landed_sha,
-           superseded_by = excluded.superseded_by, duplicate_of = excluded.duplicate_of,
-           sort_key = excluded.sort_key, color = excluded.color,
-           estimate_min = excluded.estimate_min,
-           needs_human = excluded.needs_human, human_question = excluded.human_question,
-           human_question_options = excluded.human_question_options,
-           human_question_asked_by = excluded.human_question_asked_by,
-           human_question_asked_at = excluded.human_question_asked_at,
-           panel = excluded.panel,
-           updated_at = excluded.updated_at, archived = excluded.archived,
-           origin = excluded.origin, audience = excluded.audience,
-           draft = excluded.draft,
-           deleted_at = excluded.deleted_at, revision = excluded.revision,
-           coordinator_session_id = excluded.coordinator_session_id,
-           started_by_session = excluded.started_by_session`,
-      )
-      .run(
-        row.id,
-        row.ownerUserId,
-        row.visibility,
-        row.createdByActor ?? row.ownerUserId,
-        row.createdByOnBehalfOf,
-        row.repoPath,
-        row.repoId ?? this.resolveRepoIdForPath(row.repoPath),
-        row.seq,
-        row.title,
-        row.description,
-        row.brief ?? null,
-        row.stage,
-        row.worktreePath,
-        row.branch,
-        row.parentBranch,
-        row.defaultAgent,
-        row.defaultModel,
-        row.defaultEffort,
-        row.machineId ?? null,
-        row.linearId,
-        row.linearIdentifier,
-        row.linearUrl,
-        row.activityNotes,
-        row.notesUpdatedAt,
-        row.suggestedStage,
-        row.suggestedReason,
-        JSON.stringify(blockedBy),
-        row.dependencyNote,
-        row.prUrl,
-        row.priority,
-        row.type,
-        row.assignee,
-        row.parentId,
-        row.design,
-        row.acceptance,
-        row.notes,
-        row.dueAt,
-        row.deferUntil,
-        row.closedReason,
-        row.closedAt ?? null,
-        row.landedAt ?? null,
-        row.landedSha ?? null,
-        row.supersededBy,
-        row.duplicateOf,
-        row.sortKey ?? null,
-        row.color ?? null,
-        row.estimateMin,
-        row.needsHuman ? 1 : 0,
-        row.humanQuestion,
-        row.humanQuestionOptions?.length ? JSON.stringify(row.humanQuestionOptions) : null,
-        row.humanQuestionAskedBy ?? null,
-        row.humanQuestionAskedAt ?? null,
-        row.panel ?? null,
-        row.createdAt,
-        row.updatedAt,
-        row.archived ? 1 : 0,
-        row.origin ?? 'human',
-        row.audience ?? 'human',
-        row.draft ? 1 : 0,
-        row.deletedAt ?? null,
-        row.revision,
-        row.coordinatorSessionId ?? null,
-        row.startedBySession ?? null,
-      )
+      .insert(issues)
+      .values(values)
+      .onConflictDoUpdate({
+        target: issues.id,
+        set: {
+          repoId: values.repoId,
+          title: values.title,
+          description: values.description,
+          brief: values.brief,
+          stage: values.stage,
+          worktreePath: values.worktreePath,
+          branch: values.branch,
+          parentBranch: values.parentBranch,
+          defaultAgent: values.defaultAgent,
+          defaultModel: values.defaultModel,
+          defaultEffort: values.defaultEffort,
+          machineId: values.machineId,
+          linearId: values.linearId,
+          linearIdentifier: values.linearIdentifier,
+          linearUrl: values.linearUrl,
+          activityNotes: values.activityNotes,
+          notesUpdatedAt: values.notesUpdatedAt,
+          suggestedStage: values.suggestedStage,
+          suggestedReason: values.suggestedReason,
+          blockedBy: values.blockedBy,
+          dependencyNote: values.dependencyNote,
+          prUrl: values.prUrl,
+          priority: values.priority,
+          type: values.type,
+          assignee: values.assignee,
+          parentId: values.parentId,
+          design: values.design,
+          acceptance: values.acceptance,
+          notes: values.notes,
+          dueAt: values.dueAt,
+          deferUntil: values.deferUntil,
+          closedReason: values.closedReason,
+          closedAt: values.closedAt,
+          landedAt: values.landedAt,
+          landedSha: values.landedSha,
+          supersededBy: values.supersededBy,
+          duplicateOf: values.duplicateOf,
+          sortKey: values.sortKey,
+          color: values.color,
+          estimateMin: values.estimateMin,
+          needsHuman: values.needsHuman,
+          humanQuestion: values.humanQuestion,
+          humanQuestionOptions: values.humanQuestionOptions,
+          humanQuestionAskedBy: values.humanQuestionAskedBy,
+          humanQuestionAskedAt: values.humanQuestionAskedAt,
+          panel: values.panel,
+          updatedAt: values.updatedAt,
+          archived: values.archived,
+          origin: values.origin,
+          audience: values.audience,
+          draft: values.draft,
+          deletedAt: values.deletedAt,
+          revision: values.revision,
+          coordinatorSessionId: values.coordinatorSessionId,
+          startedBySession: values.startedBySession,
+        },
+      })
+      .run()
   }
 
   /** Internal Shipping custody seam. Ordinary issue CRUD never calls this.
@@ -310,13 +357,20 @@ export class IssuesRepository {
       throw new Error(`illegal shipping issue-stage transition ${expectedStage} → ${nextStage}`)
     }
     this.invalidateRowCache()
+    // ONE statement, and it stays one: the fence (`stage = expectedStage` plus
+    // `deleted_at IS NULL`) and the write are the compare-and-swap. Splitting the
+    // read out would turn the CAS into a race. `revision` is bumped from its own
+    // stored value, so the expression references the column rather than a bound
+    // parameter.
     const result = this.db
-      .prepare(
-        `UPDATE issues
-         SET stage = ?, updated_at = ?, revision = COALESCE(revision, 0) + 1
-         WHERE id = ? AND stage = ? AND deleted_at IS NULL`,
-      )
-      .run(nextStage, updatedAt, id, expectedStage)
+      .update(issues)
+      .set({
+        stage: nextStage,
+        updatedAt,
+        revision: sql`COALESCE(${issues.revision}, 0) + 1`,
+      })
+      .where(and(eq(issues.id, id), eq(issues.stage, expectedStage), isNull(issues.deletedAt)))
+      .run()
     if (result.changes !== 1) {
       throw new Error(`issue ${id} shipping stage fence failed: expected ${expectedStage}`)
     }
@@ -332,10 +386,10 @@ export class IssuesRepository {
    * string re-enters the branded id space. Casts here are NOT POD-361 adapter
    * casts; above this function every issue id is branded.
    */
-  private mapIssueRow(r: Record<string, unknown>): IssueRow {
+  private mapIssueRow(r: typeof issues.$inferSelect): IssueRow {
     return {
-      id: r.id as IssueId,
-      ownerUserId: r.owner_user_id as UserId,
+      id: r.id,
+      ownerUserId: r.ownerUserId,
       visibility:
         r.visibility === 'deployment-substrate' ||
         r.visibility === 'owned-compute' ||
@@ -343,82 +397,86 @@ export class IssuesRepository {
         r.visibility === 'secret'
           ? r.visibility
           : 'personal',
-      createdByActor: r.created_by_actor as string,
-      createdByOnBehalfOf: (r.created_by_on_behalf_of as UserId | null) ?? null,
-      repoPath: r.repo_path as string,
-      repoId: (r.repo_id as RepoId | null) ?? null,
-      seq: r.seq as number,
-      title: r.title as string,
-      description: (r.description as string) ?? '',
-      brief: (r.brief as string | null) ?? null,
-      stage: r.stage as string,
-      worktreePath: (r.worktree_path as string | null) ?? null,
-      branch: (r.branch as string | null) ?? null,
-      parentBranch: r.parent_branch as string,
-      defaultAgent: r.default_agent as string,
-      defaultModel: (r.default_model as string | null) ?? 'auto',
-      defaultEffort: (r.default_effort as string | null) ?? 'auto',
-      // SERIALIZATION EDGE: the column is untyped coming back from sqlite, so the
-      // machine id re-enters its id space here — one decode site, as with every other
-      // branded id on this row (POD-362).
-      machineId: (r.machine_id as MachineId | null) ?? null,
-      linearId: (r.linear_id as string | null) ?? null,
-      linearIdentifier: (r.linear_identifier as string | null) ?? null,
-      linearUrl: (r.linear_url as string | null) ?? null,
-      activityNotes: (r.activity_notes as string | null) ?? null,
-      notesUpdatedAt: (r.notes_updated_at as string | null) ?? null,
-      suggestedStage: (r.suggested_stage as string | null) ?? null,
-      suggestedReason: (r.suggested_reason as string | null) ?? null,
-      blockedBy: parseStringArray(r.blocked_by, `issue ${String(r.id)} blocked_by`),
-      dependencyNote: (r.dependency_note as string | null) ?? null,
-      prUrl: (r.pr_url as string | null) ?? null,
-      priority: (r.priority as number) ?? 2,
-      type: (r.type as string) ?? 'task',
+      createdByActor: r.createdByActor,
+      // SERIALIZATION EDGE: `created_by_on_behalf_of` carries no `$type` in the
+      // schema, so the brand cannot flow from the column and re-enters here.
+      createdByOnBehalfOf: (r.createdByOnBehalfOf as UserId | null) ?? null,
+      repoPath: r.repoPath,
+      repoId: r.repoId,
+      seq: r.seq,
+      title: r.title,
+      description: r.description,
+      brief: r.brief,
+      stage: r.stage,
+      worktreePath: r.worktreePath,
+      branch: r.branch,
+      parentBranch: r.parentBranch,
+      defaultAgent: r.defaultAgent,
+      defaultModel: r.defaultModel,
+      defaultEffort: r.defaultEffort,
+      machineId: r.machineId,
+      linearId: r.linearId,
+      linearIdentifier: r.linearIdentifier,
+      linearUrl: r.linearUrl,
+      activityNotes: r.activityNotes,
+      notesUpdatedAt: r.notesUpdatedAt,
+      suggestedStage: r.suggestedStage,
+      suggestedReason: r.suggestedReason,
+      blockedBy: parseStringArray(r.blockedBy, `issue ${String(r.id)} blocked_by`),
+      dependencyNote: r.dependencyNote,
+      prUrl: r.prUrl,
+      priority: r.priority,
+      type: r.type,
+      // SERIALIZATION EDGE, as above: `assignee` carries no `$type`.
       assignee: (r.assignee as UserId | null) ?? null,
-      parentId: (r.parent_id as IssueId | null) ?? null,
-      design: (r.design as string | null) ?? null,
-      acceptance: (r.acceptance as string | null) ?? null,
-      notes: (r.notes as string | null) ?? null,
-      dueAt: (r.due_at as string | null) ?? null,
-      deferUntil: (r.defer_until as string | null) ?? null,
-      closedReason: (r.closed_reason as string | null) ?? null,
-      closedAt: (r.closed_at as string | null) ?? null,
-      landedAt: (r.landed_at as string | null) ?? null,
-      landedSha: (r.landed_sha as string | null) ?? null,
-      supersededBy: (r.superseded_by as IssueId | null) ?? null,
-      duplicateOf: (r.duplicate_of as IssueId | null) ?? null,
-      sortKey: (r.sort_key as string | null) ?? null,
+      parentId: r.parentId,
+      design: r.design,
+      acceptance: r.acceptance,
+      notes: r.notes,
+      dueAt: r.dueAt,
+      deferUntil: r.deferUntil,
+      closedReason: r.closedReason,
+      closedAt: r.closedAt,
+      landedAt: r.landedAt,
+      landedSha: r.landedSha,
+      supersededBy: r.supersededBy,
+      duplicateOf: r.duplicateOf,
+      sortKey: r.sortKey,
       color: isIssueColorSlot(r.color) ? r.color : null,
-      estimateMin: (r.estimate_min as number | null) ?? null,
-      needsHuman: r.needs_human === 1,
-      humanQuestion: (r.human_question as string | null) ?? null,
+      estimateMin: r.estimateMin,
+      needsHuman: r.needsHuman,
+      humanQuestion: r.humanQuestion,
       // Options self-quarantine like blocked_by, but to null (= no chips) so a
       // corrupt blob degrades to the free-form question rather than [] chips.
-      humanQuestionOptions: r.human_question_options
+      humanQuestionOptions: r.humanQuestionOptions
         ? (() => {
             const v = parseStringArray(
-              r.human_question_options,
+              r.humanQuestionOptions,
               `issue ${String(r.id)} human_question_options`,
             )
             return v.length > 0 ? v : null
           })()
         : null,
-      humanQuestionAskedBy: (r.human_question_asked_by as SessionId | null) ?? null,
-      humanQuestionAskedAt: (r.human_question_asked_at as string | null) ?? null,
-      panel: (r.panel as string | null) ?? null,
-      createdAt: r.created_at as string,
-      updatedAt: r.updated_at as string,
-      archived: r.archived === 1,
-      deletedAt: (r.deleted_at as string | null) ?? null,
-      origin: (r.origin as string | null) ?? 'human',
-      audience: (r.audience as string | null) ?? 'human',
-      draft: r.draft === 1,
+      // SERIALIZATION EDGE, as above: `human_question_asked_by` carries no `$type`.
+      humanQuestionAskedBy: (r.humanQuestionAskedBy as SessionId | null) ?? null,
+      humanQuestionAskedAt: r.humanQuestionAskedAt,
+      panel: r.panel,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      archived: r.archived,
+      deletedAt: r.deletedAt,
+      origin: r.origin,
+      audience: r.audience,
+      draft: r.draft,
       // ADR 2 D3. `?? 1` is defence in depth, not an expected path: the column
       // is `DEFAULT 1 NOT NULL` and the migration materialized 1 into every
       // pre-existing row, so a null here would mean a hand-mangled database.
-      revision: (r.revision as number | null) ?? 1,
-      coordinatorSessionId: (r.coordinator_session_id as SessionId | null) ?? null,
-      startedBySession: (r.started_by_session as SessionId | null) ?? null,
+      revision: r.revision ?? 1,
+      coordinatorSessionId: r.coordinatorSessionId,
+      // SERIALIZATION EDGE, as above: `started_by_session` carries no `$type`
+      // either, so this is the fourth column whose brand cannot flow from the
+      // schema.
+      startedBySession: (r.startedBySession as SessionId | null) ?? null,
     }
   }
 
@@ -426,9 +484,11 @@ export class IssuesRepository {
     const cache = this.frameRows()
     const hit = cache?.get(id)
     if (hit !== undefined) return hit === null ? null : { ...hit }
-    const r = this.db.prepare('SELECT * FROM issues WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
+    const r = this.db
+      .select()
+      .from(issues)
+      .where(eq(issues.id, asIssueId(id)))
+      .get()
     const mapped = r ? this.mapIssueRow(r) : null
     cache?.set(id, mapped)
     return mapped === null ? null : { ...mapped }
@@ -461,10 +521,16 @@ export class IssuesRepository {
     archived: boolean
   }[] {
     const rows = this.db
-      .prepare(
-        'SELECT id, repo_path, worktree_path, deleted_at, archived FROM issues ORDER BY repo_path ASC, seq ASC',
-      )
-      .all() as Record<string, unknown>[]
+      .select({
+        id: issues.id,
+        repoPath: issues.repoPath,
+        worktreePath: issues.worktreePath,
+        deletedAt: issues.deletedAt,
+        archived: issues.archived,
+      })
+      .from(issues)
+      .orderBy(asc(issues.repoPath), asc(issues.seq))
+      .all()
     const out: {
       id: IssueId
       repoPath: string
@@ -475,13 +541,13 @@ export class IssuesRepository {
     for (const r of rows) {
       // Same structural quarantine listIssueRows applies: a NULL id or repo_path
       // is a corrupt row, and it must not reach a cwd decision.
-      if (typeof r.id !== 'string' || typeof r.repo_path !== 'string') continue
+      if (typeof r.id !== 'string' || typeof r.repoPath !== 'string') continue
       out.push({
-        id: r.id as IssueId,
-        repoPath: r.repo_path,
-        worktreePath: (r.worktree_path as string | null | undefined) ?? null,
-        deletedAt: (r.deleted_at as string | null | undefined) ?? null,
-        archived: !!r.archived,
+        id: r.id,
+        repoPath: r.repoPath,
+        worktreePath: r.worktreePath,
+        deletedAt: r.deletedAt,
+        archived: r.archived,
       })
     }
     return out
@@ -503,16 +569,22 @@ export class IssuesRepository {
    */
   closedIssueIds(): Set<string> {
     const rows = this.db
-      .prepare('SELECT id, stage, closed_reason, deleted_at FROM issues')
-      .all() as Record<string, unknown>[]
+      .select({
+        id: issues.id,
+        stage: issues.stage,
+        closedReason: issues.closedReason,
+        deletedAt: issues.deletedAt,
+      })
+      .from(issues)
+      .all()
     const out = new Set<string>()
     for (const r of rows) {
       if (typeof r.id !== 'string') continue
       const closed =
-        r.deleted_at != null ||
+        r.deletedAt != null ||
         isIssueClosed({
           stage: typeof r.stage === 'string' ? r.stage : '',
-          closedReason: (r.closed_reason as string | null | undefined) ?? null,
+          closedReason: r.closedReason,
         })
       if (closed) out.add(r.id)
     }
@@ -553,8 +625,10 @@ export class IssuesRepository {
     for (let i = 0; i < wanted.length; i += CHUNK) {
       const chunk = wanted.slice(i, i + CHUNK)
       const rows = this.db
-        .prepare(`SELECT * FROM issues WHERE id IN (${chunk.map(() => '?').join(',')})`)
-        .all(...chunk) as Record<string, unknown>[]
+        .select()
+        .from(issues)
+        .where(inArray(issues.id, chunk.map(asIssueId)))
+        .all()
       for (const r of rows) {
         try {
           if (typeof r.id !== 'string') continue
@@ -594,12 +668,11 @@ export class IssuesRepository {
     // walk folds a costed task's spend into a parent the operator deleted and
     // can see nowhere else in the app (POD-1858 review).
     const rows = this.db
-      .prepare('SELECT id, parent_id FROM issues WHERE deleted_at IS NULL')
-      .all() as {
-      id: IssueId
-      parent_id: IssueId | null
-    }[]
-    return rows.map((r) => ({ id: r.id, parentId: r.parent_id ?? null }))
+      .select({ id: issues.id, parentId: issues.parentId })
+      .from(issues)
+      .where(isNull(issues.deletedAt))
+      .all()
+    return rows.map((r) => ({ id: r.id, parentId: r.parentId }))
   }
 
   listIssueRows(repoPath?: string): IssueRow[] {
@@ -608,17 +681,19 @@ export class IssuesRepository {
     // (or an issue filed under a sub-path of the root) list together. The
     // NULL-repo_id fallback keeps legacy rows the boot heal hasn't stamped yet
     // visible under their exact path.
-    const rows = (
-      repoPath
-        ? this.db
-            .prepare(
-              `SELECT * FROM issues
-               WHERE repo_id = ? OR (repo_id IS NULL AND repo_path = ?)
-               ORDER BY seq ASC`,
-            )
-            .all(this.resolveRepoIdForPath(repoPath), repoPath)
-        : this.db.prepare('SELECT * FROM issues ORDER BY repo_path ASC, seq ASC').all()
-    ) as Record<string, unknown>[]
+    const rows = repoPath
+      ? this.db
+          .select()
+          .from(issues)
+          .where(
+            or(
+              eq(issues.repoId, this.resolveRepoIdForPath(repoPath) as RepoId),
+              and(isNull(issues.repoId), eq(issues.repoPath, repoPath)),
+            ),
+          )
+          .orderBy(asc(issues.seq))
+          .all()
+      : this.db.select().from(issues).orderBy(asc(issues.repoPath), asc(issues.seq)).all()
     const out: IssueRow[] = []
     this.quarantinedRowCount = 0
     for (const r of rows) {
@@ -628,7 +703,7 @@ export class IssuesRepository {
         // every downstream consumer — quarantine it instead of mapping it.
         if (
           typeof r.id !== 'string' ||
-          typeof r.repo_path !== 'string' ||
+          typeof r.repoPath !== 'string' ||
           typeof r.stage !== 'string' ||
           typeof r.title !== 'string'
         ) {
@@ -658,9 +733,15 @@ export class IssuesRepository {
     // here that points at an issue without a constraint must be scrubbed by hand
     // or it outlives the row, and the comment above will read as if it were
     // covered.
-    this.db.prepare('DELETE FROM issue_ref_letters WHERE issue_id = ?').run(id)
+    this.db
+      .delete(issueRefLetters)
+      .where(eq(issueRefLetters.issueId, asIssueId(id)))
+      .run()
     this.invalidateRowCache()
-    this.db.prepare('DELETE FROM issues WHERE id = ?').run(id)
+    this.db
+      .delete(issues)
+      .where(eq(issues.id, asIssueId(id)))
+      .run()
   }
 
   /** Per-boot heal (POD-1926): drop letter counters whose issue is already gone —
@@ -668,10 +749,11 @@ export class IssuesRepository {
    *  counter exists so a letter is never reused WITHIN an issue, so once the issue
    *  is deleted it protects nothing. Returns the number of rows dropped. */
   pruneOrphanRefLetters(): number {
-    const stmt = this.db.prepare(
-      'DELETE FROM issue_ref_letters WHERE issue_id NOT IN (SELECT id FROM issues)',
-    )
-    return Number(stmt.run().changes)
+    const result = this.db
+      .delete(issueRefLetters)
+      .where(notInArray(issueRefLetters.issueId, this.db.select({ id: issues.id }).from(issues)))
+      .run()
+    return Number(result.changes)
   }
 
   /** Next human-facing issue number, allocated per LOGICAL repo — scoped by the
@@ -680,10 +762,12 @@ export class IssuesRepository {
    *  colliding numbers. Callers resolve the path to a repo_id (resolveRepoIdForPath)
    *  before allocating. UNIQUE(repo_id, seq) enforces the invariant at the SQL layer. */
   nextIssueSeq(repoId: RepoId): number {
-    const r = this.db.prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_id = ?').get(repoId) as {
-      m: number | null
-    }
-    return (r.m ?? 0) + 1
+    const r = this.db
+      .select({ m: max(issues.seq) })
+      .from(issues)
+      .where(eq(issues.repoId, repoId))
+      .get()
+    return (r?.m ?? 0) + 1
   }
 
   /**
@@ -701,25 +785,26 @@ export class IssuesRepository {
    */
   renumberCollidingIssueSeqs(): number {
     const rows = this.db
-      .prepare('SELECT id, repo_id, repo_path, seq, created_at FROM issues')
-      .all() as {
-      id: string
-      repo_id: RepoId | null
-      repo_path: string
-      seq: number
-      created_at: string
-    }[]
+      .select({
+        id: issues.id,
+        repoId: issues.repoId,
+        repoPath: issues.repoPath,
+        seq: issues.seq,
+        createdAt: issues.createdAt,
+      })
+      .from(issues)
+      .all()
     const byRepo = new Map<string, typeof rows>()
     for (const r of rows) {
-      const rid = r.repo_id ?? this.resolveRepoIdForPath(r.repo_path)
+      const rid = r.repoId ?? this.resolveRepoIdForPath(r.repoPath)
       const g = byRepo.get(rid)
       if (g) g.push(r)
       else byRepo.set(rid, [r])
     }
-    const updates: { id: string; seq: number }[] = []
+    const updates: { id: IssueId; seq: number }[] = []
     for (const group of byRepo.values()) {
       const counts = new Map<string, number>()
-      for (const r of group) counts.set(r.repo_path, (counts.get(r.repo_path) ?? 0) + 1)
+      for (const r of group) counts.set(r.repoPath, (counts.get(r.repoPath) ?? 0) + 1)
       const canonPath = [...counts.entries()].sort(
         (a, b) => b[1] - a[1] || a[0].localeCompare(b[0]),
       )[0]![0]
@@ -734,8 +819,8 @@ export class IssuesRepository {
         if (clash.length < 2) continue
         const ordered = [...clash].sort(
           (a, b) =>
-            (a.repo_path === canonPath ? 0 : 1) - (b.repo_path === canonPath ? 0 : 1) ||
-            a.created_at.localeCompare(b.created_at) ||
+            (a.repoPath === canonPath ? 0 : 1) - (b.repoPath === canonPath ? 0 : 1) ||
+            a.createdAt.localeCompare(b.createdAt) ||
             a.id.localeCompare(b.id),
         )
         for (const loser of ordered.slice(1)) updates.push({ id: loser.id, seq: ++maxSeq })
@@ -743,9 +828,13 @@ export class IssuesRepository {
     }
     if (updates.length === 0) return 0
     this.invalidateRowCache()
-    const stmt = this.db.prepare('UPDATE issues SET seq = ? WHERE id = ?')
-    transaction(this.db, () => {
-      for (const u of updates) stmt.run(u.seq, u.id)
+    // The span covers the UPDATE loop only. The read and the planning above are
+    // deliberately outside it, which is what keeps the write window short; a
+    // conversion must not widen the span to cover them.
+    this.spans.transact(() => {
+      for (const u of updates) {
+        this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).run()
+      }
     })
     return updates.length
   }
@@ -757,27 +846,40 @@ export class IssuesRepository {
    *  already taken in the target bucket is renumbered to the next free seq
    *  (oldest row first keeps its number), loudly logged. */
   assignRepoIdToIssuesUnder(repoId: RepoId, repoPath: string): void {
+    // `LIKE ? || '/%'` matches at a PATH BOUNDARY: `/rootless` merely shares a
+    // text prefix with `/root` and must not be swept in. The `rowid` tie-break is
+    // load-bearing on equal `created_at`, and `rowid` is not a schema column, so
+    // both stay as fragments.
     const rows = this.db
-      .prepare(
-        `SELECT id, seq FROM issues
-         WHERE (repo_path = ? OR repo_path LIKE ? || '/%')
-           AND (repo_id IS NULL OR repo_id != ?)
-         ORDER BY created_at ASC, rowid ASC`,
+      .select({ id: issues.id, seq: issues.seq })
+      .from(issues)
+      .where(
+        and(
+          or(eq(issues.repoPath, repoPath), sql`${issues.repoPath} LIKE ${repoPath} || '/%'`),
+          or(isNull(issues.repoId), ne(issues.repoId, repoId)),
+        ),
       )
-      .all(repoPath, repoPath, repoId) as { id: string; seq: number }[]
+      .orderBy(asc(issues.createdAt), sql`rowid asc`)
+      .all()
     if (rows.length === 0) return
-    const max = this.db
-      .prepare('SELECT MAX(seq) AS m FROM issues WHERE repo_id = ?')
-      .get(repoId) as { m: number | null }
-    let next = (max.m ?? 0) + 1
-    const taken = this.db.prepare('SELECT id FROM issues WHERE repo_id = ? AND seq = ?')
+    const highest = this.db
+      .select({ m: max(issues.seq) })
+      .from(issues)
+      .where(eq(issues.repoId, repoId))
+      .get()
+    let next = (highest?.m ?? 0) + 1
+    const taken = (seq: number) =>
+      this.db
+        .select({ id: issues.id })
+        .from(issues)
+        .where(and(eq(issues.repoId, repoId), eq(issues.seq, seq)))
+        .get()
     this.invalidateRowCache()
-    const upd = this.db.prepare('UPDATE issues SET repo_id = ?, seq = ? WHERE id = ?')
     for (const r of rows) {
       let seq = r.seq
-      const holder = taken.get(repoId, seq) as { id: string } | undefined
+      const holder = taken(seq)
       if (holder && holder.id !== r.id) {
-        while (taken.get(repoId, next)) next += 1
+        while (taken(next)) next += 1
         seq = next
         next += 1
         log.warn(
@@ -790,7 +892,7 @@ export class IssuesRepository {
           },
         )
       }
-      upd.run(repoId, seq, r.id)
+      this.db.update(issues).set({ repoId, seq }).where(eq(issues.id, r.id)).run()
     }
   }
 
@@ -802,17 +904,21 @@ export class IssuesRepository {
    * allocations can never mint the same `POD-13-A`.
    */
   allocateSessionLetter(issueId: IssueId): string {
-    return transaction(this.db, () => {
+    return this.spans.transact(() => {
       const row = this.db
-        .prepare('SELECT next_index FROM issue_ref_letters WHERE issue_id = ?')
-        .get(issueId) as { next_index: number } | undefined
-      const index = row?.next_index ?? 0
+        .select({ nextIndex: issueRefLetters.nextIndex })
+        .from(issueRefLetters)
+        .where(eq(issueRefLetters.issueId, issueId))
+        .get()
+      const index = row?.nextIndex ?? 0
       this.db
-        .prepare(
-          `INSERT INTO issue_ref_letters (issue_id, next_index) VALUES (?, ?)
-           ON CONFLICT(issue_id) DO UPDATE SET next_index = ?`,
-        )
-        .run(issueId, index + 1, index + 1)
+        .insert(issueRefLetters)
+        .values({ issueId, nextIndex: index + 1 })
+        .onConflictDoUpdate({
+          target: issueRefLetters.issueId,
+          set: { nextIndex: index + 1 },
+        })
+        .run()
       return letterForIndex(index)
     })
   }
@@ -821,11 +927,8 @@ export class IssuesRepository {
    *  writer cannot produce one (`upsertIssue` resolves a repo_id before it
    *  inserts), so a non-zero answer means a database from before POD-1360. */
   issuesMissingRepoId(): number {
-    return (
-      this.db.prepare('SELECT COUNT(*) AS c FROM issues WHERE repo_id IS NULL').get() as {
-        c: number
-      }
-    ).c
+    const r = this.db.select({ c: count() }).from(issues).where(isNull(issues.repoId)).get()
+    return r?.c ?? 0
   }
 
   // ---- labels ----
@@ -834,59 +937,77 @@ export class IssuesRepository {
     const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
       l.trim(),
     )
-    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
-    const ins = this.db.prepare(
-      'INSERT OR IGNORE INTO issue_labels (issue_id, label) VALUES (?, ?)',
-    )
-    for (const l of clean) ins.run(issueId, l)
+    this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
+    for (const l of clean) {
+      // DECISION POD-3403 — `INSERT OR IGNORE` before the conversion. OR IGNORE
+      // suppressed EVERY constraint violation including the foreign key onto
+      // issues(id); ON CONFLICT DO NOTHING suppresses only the (issue_id, label)
+      // conflict and lets the foreign key raise. The ruling is to leave such a
+      // site unconverted, and that is not executable here: leaving it means
+      // keeping `.prepare()`, which means keeping the raw handle, which keeps
+      // this file on STAGE_A_UNCONVERTED. Converted literally and marked instead;
+      // the difference is visible only for a label naming a missing issue.
+      this.db.insert(issueLabels).values({ issueId, label: l }).onConflictDoNothing().run()
+    }
   }
 
   getIssueLabels(issueId: IssueId): string[] {
-    return (
-      this.db
-        .prepare('SELECT label FROM issue_labels WHERE issue_id = ? ORDER BY label ASC')
-        .all(issueId) as { label: string }[]
-    ).map((r) => r.label)
+    return this.db
+      .select({ label: issueLabels.label })
+      .from(issueLabels)
+      .where(eq(issueLabels.issueId, issueId))
+      .orderBy(asc(issueLabels.label))
+      .all()
+      .map((r) => r.label)
   }
 
   /** Labels for every issue in one ordered read — list serializers use this to
    * avoid preparing and running one query per issue at live board sizes. */
   listIssueLabelsByIssue(): Map<string, string[]> {
     const rows = this.db
-      .prepare('SELECT issue_id, label FROM issue_labels ORDER BY issue_id ASC, label ASC')
-      .all() as { issue_id: IssueId; label: string }[]
+      .select({ issueId: issueLabels.issueId, label: issueLabels.label })
+      .from(issueLabels)
+      .orderBy(asc(issueLabels.issueId), asc(issueLabels.label))
+      .all()
     const byIssue = new Map<string, string[]>()
     for (const row of rows) {
-      const labels = byIssue.get(row.issue_id)
+      const labels = byIssue.get(row.issueId)
       if (labels) labels.push(row.label)
-      else byIssue.set(row.issue_id, [row.label])
+      else byIssue.set(row.issueId, [row.label])
     }
     return byIssue
   }
 
   listAllLabels(): string[] {
-    return (
-      this.db.prepare('SELECT DISTINCT label FROM issue_labels ORDER BY label ASC').all() as {
-        label: string
-      }[]
-    ).map((r) => r.label)
+    return this.db
+      .selectDistinct({ label: issueLabels.label })
+      .from(issueLabels)
+      .orderBy(asc(issueLabels.label))
+      .all()
+      .map((r) => r.label)
   }
 
   // ---- deps ----
 
   addIssueDep(fromId: IssueId, toId: IssueId, type = 'blocks'): void {
-    this.db
-      .prepare('INSERT OR IGNORE INTO issue_deps (from_id, to_id, type) VALUES (?, ?, ?)')
-      .run(fromId, toId, type)
+    // DECISION POD-3403 — see setIssueLabels: `INSERT OR IGNORE` also swallowed
+    // the foreign key onto issues(id), and ON CONFLICT DO NOTHING does not.
+    this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
   }
 
   removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): void {
     if (type) {
       this.db
-        .prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ? AND type = ?')
-        .run(fromId, toId, type)
+        .delete(issueDeps)
+        .where(
+          and(eq(issueDeps.fromId, fromId), eq(issueDeps.toId, toId), eq(issueDeps.type, type)),
+        )
+        .run()
     } else {
-      this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? AND to_id = ?').run(fromId, toId)
+      this.db
+        .delete(issueDeps)
+        .where(and(eq(issueDeps.fromId, fromId), eq(issueDeps.toId, toId)))
+        .run()
     }
   }
 
@@ -894,13 +1015,12 @@ export class IssuesRepository {
    *  re-declares the id space they were stored under. `type` is a dep KIND, not
    *  an id, and stays a free string. */
   listIssueDeps(fromId: IssueId): { toId: IssueId; type: string }[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT to_id, type FROM issue_deps WHERE from_id = ? ORDER BY to_id ASC, type ASC',
-        )
-        .all(fromId) as { to_id: IssueId; type: string }[]
-    ).map((r) => ({ toId: r.to_id, type: r.type }))
+    return this.db
+      .select({ toId: issueDeps.toId, type: issueDeps.type })
+      .from(issueDeps)
+      .where(eq(issueDeps.fromId, fromId))
+      .orderBy(asc(issueDeps.toId), asc(issueDeps.type))
+      .all()
   }
 
   /** EVERY dep edge, for the ledger's full-truth reconcile of the 'issueDep'
@@ -908,61 +1028,56 @@ export class IssuesRepository {
    *  diffs by id, but a stable order keeps the change log's appends readable and
    *  the tests' expectations deterministic. */
   listAllIssueDeps(): { fromId: IssueId; toId: IssueId; type: string }[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT from_id, to_id, type FROM issue_deps ORDER BY from_id ASC, to_id ASC, type ASC',
-        )
-        .all() as { from_id: string; to_id: string; type: string }[]
-    ).map((r) => ({
-      fromId: r.from_id as IssueId,
-      toId: r.to_id as IssueId,
-      type: r.type,
-    }))
+    return this.db
+      .select({ fromId: issueDeps.fromId, toId: issueDeps.toId, type: issueDeps.type })
+      .from(issueDeps)
+      .orderBy(asc(issueDeps.fromId), asc(issueDeps.toId), asc(issueDeps.type))
+      .all()
   }
 
   listDependents(toId: IssueId): { fromId: IssueId; type: string }[] {
-    return (
-      this.db
-        .prepare(
-          'SELECT from_id, type FROM issue_deps WHERE to_id = ? ORDER BY from_id ASC, type ASC',
-        )
-        .all(toId) as { from_id: IssueId; type: string }[]
-    ).map((r) => ({ fromId: r.from_id, type: r.type }))
+    return this.db
+      .select({ fromId: issueDeps.fromId, type: issueDeps.type })
+      .from(issueDeps)
+      .where(eq(issueDeps.toId, toId))
+      .orderBy(asc(issueDeps.fromId), asc(issueDeps.type))
+      .all()
   }
 
   // ---- comments ----
 
   addIssueComment(c: IssueCommentRow): void {
     this.db
-      .prepare(
-        'INSERT INTO issue_comments (id, issue_id, author, body, created_at, actor, on_behalf_of) VALUES (?, ?, ?, ?, ?, ?, ?)',
-      )
-      .run(c.id, c.issueId, c.author, c.body, c.createdAt, c.actor ?? null, c.onBehalfOf ?? null)
+      .insert(issueComments)
+      .values({
+        id: c.id,
+        issueId: c.issueId,
+        author: c.author,
+        body: c.body,
+        createdAt: c.createdAt,
+        actor: c.actor ?? null,
+        onBehalfOf: c.onBehalfOf ?? null,
+      })
+      .run()
   }
 
   listIssueComments(issueId: IssueId): IssueCommentRow[] {
-    return (
-      this.db
-        .prepare('SELECT * FROM issue_comments WHERE issue_id = ? ORDER BY created_at ASC, id ASC')
-        .all(issueId) as Record<string, unknown>[]
-    ).map((r) => ({
-      id: r.id as string,
-      issueId: r.issue_id as IssueId,
-      author: r.author as string,
-      body: r.body as string,
-      createdAt: r.created_at as string,
-      actor: (r.actor as string | null | undefined) ?? null,
-      onBehalfOf: (r.on_behalf_of as string | null | undefined) ?? null,
-    }))
+    return this.db
+      .select()
+      .from(issueComments)
+      .where(eq(issueComments.issueId, issueId))
+      .orderBy(asc(issueComments.createdAt), asc(issueComments.id))
+      .all()
   }
 
   /** Comment count for ONE issue — the single-issue toWire path (#175). */
   countIssueComments(issueId: IssueId): number {
     const r = this.db
-      .prepare('SELECT COUNT(*) AS n FROM issue_comments WHERE issue_id = ?')
-      .get(issueId) as { n: number }
-    return r.n
+      .select({ n: count() })
+      .from(issueComments)
+      .where(eq(issueComments.issueId, issueId))
+      .get()
+    return r?.n ?? 0
   }
 
   /** Comment counts for ALL issues in one GROUP BY (#175) — list serializations
@@ -971,9 +1086,11 @@ export class IssuesRepository {
    *  are simply absent (read as 0). */
   countIssueCommentsByIssue(): Map<string, number> {
     const rows = this.db
-      .prepare('SELECT issue_id, COUNT(*) AS n FROM issue_comments GROUP BY issue_id')
-      .all() as { issue_id: IssueId; n: number }[]
-    return new Map(rows.map((r) => [r.issue_id, r.n]))
+      .select({ issueId: issueComments.issueId, n: count() })
+      .from(issueComments)
+      .groupBy(issueComments.issueId)
+      .all()
+    return new Map(rows.map((r) => [r.issueId, r.n]))
   }
 
   /** Substring match over issue comment bodies — comments have no FTS (bounded
@@ -985,49 +1102,67 @@ export class IssuesRepository {
     const q = query.trim()
     if (!q) return []
     const escaped = '%' + q.replace(/[%_]/g, (c) => '\\' + c) + '%'
-    const base = `SELECT issue_id, body, created_at FROM issue_comments
-      WHERE body LIKE ? ESCAPE '\\' ORDER BY created_at DESC`
-    const rows = (
-      limit === null
-        ? this.db.prepare(base).all(escaped)
-        : this.db.prepare(`${base} LIMIT ?`).all(escaped, Math.min(200, Math.max(1, limit)))
-    ) as Record<string, unknown>[]
-    return rows.map((r) => ({
-      issueId: asIssueId(r.issue_id as string),
-      body: r.body as string,
-      createdAt: r.created_at as string,
-    }))
+    // The ESCAPE clause is what makes `%` and `_` in a user's query LITERAL.
+    // drizzle's `like()` emits no ESCAPE, so this stays a fragment; dropping it
+    // would make a query of `100%` match every comment.
+    const base = this.db
+      .select({
+        issueId: issueComments.issueId,
+        body: issueComments.body,
+        createdAt: issueComments.createdAt,
+      })
+      .from(issueComments)
+      .where(sql`${issueComments.body} LIKE ${escaped} ESCAPE '\\'`)
+      .orderBy(desc(issueComments.createdAt))
+    return limit === null ? base.all() : base.limit(Math.min(200, Math.max(1, limit))).all()
   }
 
   // ---- issue mail (issue #103) ----
 
-  private mapIssueMessage(r: Record<string, unknown>): IssueMessageRow {
+  /** SERIALIZATION EDGE: every field but one now arrives typed. `status` is a
+   *  free TEXT column narrowed to the domain's union — a decision, not a driver
+   *  artefact — and the projection drops `actor`/`on_behalf_of`, which the row
+   *  type does not carry. */
+  private mapIssueMessage(r: {
+    id: string
+    issueId: IssueId
+    fromAuthor: string
+    body: string
+    createdAt: string
+    status: string
+    claimedBy: string | null
+    claimedAt: string | null
+  }): IssueMessageRow {
     return {
-      id: r.id as string,
-      issueId: r.issue_id as IssueId,
-      fromAuthor: r.from_author as string,
-      body: r.body as string,
-      createdAt: r.created_at as string,
+      id: r.id,
+      issueId: r.issueId,
+      fromAuthor: r.fromAuthor,
+      body: r.body,
+      createdAt: r.createdAt,
       status: r.status as IssueMessageRow['status'],
-      claimedBy: (r.claimed_by as string | null) ?? null,
-      claimedAt: (r.claimed_at as string | null) ?? null,
+      claimedBy: r.claimedBy,
+      claimedAt: r.claimedAt,
     }
   }
 
   addIssueMessage(m: IssueMessageRow): void {
     this.db
-      .prepare(
-        `INSERT INTO issue_messages
-           (id, issue_id, from_author, body, created_at, status, claimed_by, claimed_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(m.id, m.issueId, m.fromAuthor, m.body, m.createdAt, m.status, m.claimedBy, m.claimedAt)
+      .insert(issueMessages)
+      .values({
+        id: m.id,
+        issueId: m.issueId,
+        fromAuthor: m.fromAuthor,
+        body: m.body,
+        createdAt: m.createdAt,
+        status: m.status,
+        claimedBy: m.claimedBy,
+        claimedAt: m.claimedAt,
+      })
+      .run()
   }
 
   getIssueMessage(id: string): IssueMessageRow | null {
-    const r = this.db.prepare('SELECT * FROM issue_messages WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
+    const r = this.db.select().from(issueMessages).where(eq(issueMessages.id, id)).get()
     return r ? this.mapIssueMessage(r) : null
   }
 
@@ -1035,27 +1170,26 @@ export class IssuesRepository {
     issueId: IssueId,
     opts?: { status?: IssueMessageRow['status'] },
   ): IssueMessageRow[] {
-    const rows = (
-      opts?.status
-        ? this.db
-            .prepare(
-              'SELECT * FROM issue_messages WHERE issue_id = ? AND status = ? ORDER BY created_at ASC, id ASC',
-            )
-            .all(issueId, opts.status)
-        : this.db
-            .prepare(
-              'SELECT * FROM issue_messages WHERE issue_id = ? ORDER BY created_at ASC, id ASC',
-            )
-            .all(issueId)
-    ) as Record<string, unknown>[]
+    const rows = this.db
+      .select()
+      .from(issueMessages)
+      .where(
+        opts?.status
+          ? and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, opts.status))
+          : eq(issueMessages.issueId, issueId),
+      )
+      .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
+      .all()
     return rows.map((r) => this.mapIssueMessage(r))
   }
 
   countUnreadIssueMessages(issueId: IssueId): number {
     const r = this.db
-      .prepare("SELECT COUNT(*) AS n FROM issue_messages WHERE issue_id = ? AND status = 'unread'")
-      .get(issueId) as { n: number }
-    return r.n
+      .select({ n: count() })
+      .from(issueMessages)
+      .where(and(eq(issueMessages.issueId, issueId), eq(issueMessages.status, 'unread')))
+      .get()
+    return r?.n ?? 0
   }
 
   /**
@@ -1071,17 +1205,28 @@ export class IssuesRepository {
    */
   markIssueMessagesRead(userId: UserId, issueId: IssueId, ids: string[], readAt: string): void {
     requireUserId(userId)
-    const upd = this.db.prepare(
-      `UPDATE issue_messages SET status = 'read'
-       WHERE issue_id = ? AND id = ? AND status = 'unread'`,
-    )
-    const mark = this.db.prepare(
-      `INSERT INTO issue_message_user_state (user_id, issue_message_id, read_at) VALUES (?, ?, ?)
-       ON CONFLICT(user_id, issue_message_id) DO UPDATE SET read_at = excluded.read_at`,
-    )
     for (const id of ids) {
-      upd.run(issueId, id)
-      mark.run(userId, id, readAt)
+      // Only `unread` flips, so a `claimed` message never regresses to `read`.
+      this.db
+        .update(issueMessages)
+        .set({ status: 'read' })
+        .where(
+          and(
+            eq(issueMessages.issueId, issueId),
+            eq(issueMessages.id, id),
+            eq(issueMessages.status, 'unread'),
+          ),
+        )
+        .run()
+      // Written for EVERY named message, not only the unread ones.
+      this.db
+        .insert(issueMessageUserState)
+        .values({ userId, issueMessageId: id, readAt })
+        .onConflictDoUpdate({
+          target: [issueMessageUserState.userId, issueMessageUserState.issueMessageId],
+          set: { readAt },
+        })
+        .run()
     }
   }
 
@@ -1089,10 +1234,15 @@ export class IssuesRepository {
   listIssueMessageReadAt(userId: UserId): Record<string, string | null> {
     requireUserId(userId)
     const rows = this.db
-      .prepare('SELECT issue_message_id, read_at FROM issue_message_user_state WHERE user_id = ?')
-      .all(userId) as { issue_message_id: string; read_at: string | null }[]
+      .select({
+        issueMessageId: issueMessageUserState.issueMessageId,
+        readAt: issueMessageUserState.readAt,
+      })
+      .from(issueMessageUserState)
+      .where(eq(issueMessageUserState.userId, userId))
+      .all()
     const out: Record<string, string | null> = {}
-    for (const r of rows) out[r.issue_message_id] = r.read_at
+    for (const r of rows) out[r.issueMessageId] = r.readAt
     return out
   }
 
@@ -1109,18 +1259,18 @@ export class IssuesRepository {
   listIssueUserState(userId: UserId): Map<string, StoredIssueUserState> {
     requireUserId(userId)
     const rows = this.db
-      .prepare(
-        'SELECT issue_id, read_at, tucked_at, pinned_at FROM issue_user_state WHERE user_id = ?',
-      )
-      .all(userId) as {
-      issue_id: IssueId
-      read_at: string | null
-      tucked_at: string | null
-      pinned_at: string | null
-    }[]
+      .select({
+        issueId: issueUserState.issueId,
+        readAt: issueUserState.readAt,
+        tuckedAt: issueUserState.tuckedAt,
+        pinnedAt: issueUserState.pinnedAt,
+      })
+      .from(issueUserState)
+      .where(eq(issueUserState.userId, userId))
+      .all()
     const out = new Map<string, StoredIssueUserState>()
     for (const r of rows) {
-      out.set(r.issue_id, { readAt: r.read_at, tuckedAt: r.tucked_at, pinnedAt: r.pinned_at })
+      out.set(r.issueId, { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt })
     }
     return out
   }
@@ -1128,13 +1278,15 @@ export class IssuesRepository {
   getIssueUserState(userId: UserId, issueId: IssueId): StoredIssueUserState | undefined {
     requireUserId(userId)
     const r = this.db
-      .prepare(
-        'SELECT read_at, tucked_at, pinned_at FROM issue_user_state WHERE user_id = ? AND issue_id = ?',
-      )
-      .get(userId, issueId) as
-      | { read_at: string | null; tucked_at: string | null; pinned_at: string | null }
-      | undefined
-    return r ? { readAt: r.read_at, tuckedAt: r.tucked_at, pinnedAt: r.pinned_at } : undefined
+      .select({
+        readAt: issueUserState.readAt,
+        tuckedAt: issueUserState.tuckedAt,
+        pinnedAt: issueUserState.pinnedAt,
+      })
+      .from(issueUserState)
+      .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
+      .get()
+    return r ? { readAt: r.readAt, tuckedAt: r.tuckedAt, pinnedAt: r.pinnedAt } : undefined
   }
 
   /**
@@ -1160,48 +1312,56 @@ export class IssuesRepository {
     }
     if (next.readAt === null && next.tuckedAt === null && next.pinnedAt === null) {
       this.db
-        .prepare('DELETE FROM issue_user_state WHERE user_id = ? AND issue_id = ?')
-        .run(userId, issueId)
+        .delete(issueUserState)
+        .where(and(eq(issueUserState.userId, userId), eq(issueUserState.issueId, issueId)))
+        .run()
       return
     }
     this.db
-      .prepare(
-        `INSERT INTO issue_user_state (user_id, issue_id, read_at, tucked_at, pinned_at)
-         VALUES (?, ?, ?, ?, ?)
-         ON CONFLICT(user_id, issue_id) DO UPDATE SET
-           read_at = excluded.read_at, tucked_at = excluded.tucked_at,
-           pinned_at = excluded.pinned_at`,
-      )
-      .run(userId, issueId, next.readAt, next.tuckedAt, next.pinnedAt)
+      .insert(issueUserState)
+      .values({
+        userId,
+        issueId,
+        readAt: next.readAt,
+        tuckedAt: next.tuckedAt,
+        pinnedAt: next.pinnedAt,
+      })
+      .onConflictDoUpdate({
+        target: [issueUserState.userId, issueUserState.issueId],
+        set: { readAt: next.readAt, tuckedAt: next.tuckedAt, pinnedAt: next.pinnedAt },
+      })
+      .run()
   }
 
   /** Drop every user's per-user rows for an issue. Called from the issue's own
    *  purge path: the rows are not the issue's (they follow the USER), but a
    *  hard-deleted issue leaves them addressing nothing. */
   purgeIssueUserState(issueId: IssueId): void {
-    this.db.prepare('DELETE FROM issue_user_state WHERE issue_id = ?').run(issueId)
+    this.db.delete(issueUserState).where(eq(issueUserState.issueId, issueId)).run()
   }
 
   /** Atomic claim: exactly one caller wins; a second claim on the same message
    *  returns false. Single UPDATE guarded on status, so there is no read-then-write race. */
   claimIssueMessage(id: string, claimedBy: string, claimedAt: string): boolean {
     const r = this.db
-      .prepare(
-        `UPDATE issue_messages SET status = 'claimed', claimed_by = ?, claimed_at = ?
-         WHERE id = ? AND status != 'claimed'`,
-      )
-      .run(claimedBy, claimedAt, id)
+      .update(issueMessages)
+      .set({ status: 'claimed', claimedBy, claimedAt })
+      .where(and(eq(issueMessages.id, id), ne(issueMessages.status, 'claimed')))
+      .run()
     return r.changes === 1
   }
 
   deleteIssueMessagesForIssue(issueId: IssueId): void {
-    this.db.prepare('DELETE FROM issue_messages WHERE issue_id = ?').run(issueId)
+    this.db.delete(issueMessages).where(eq(issueMessages.issueId, issueId)).run()
   }
 
   deleteIssueChildRows(issueId: IssueId): void {
-    this.db.prepare('DELETE FROM issue_labels WHERE issue_id = ?').run(issueId)
-    this.db.prepare('DELETE FROM issue_deps WHERE from_id = ? OR to_id = ?').run(issueId, issueId)
-    this.db.prepare('DELETE FROM issue_comments WHERE issue_id = ?').run(issueId)
+    this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
+    this.db
+      .delete(issueDeps)
+      .where(or(eq(issueDeps.fromId, issueId), eq(issueDeps.toId, issueId)))
+      .run()
+    this.db.delete(issueComments).where(eq(issueComments.issueId, issueId)).run()
     this.deleteIssueMessagesForIssue(issueId)
   }
 }

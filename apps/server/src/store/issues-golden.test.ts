@@ -171,6 +171,72 @@ describe('IssuesRepository: the revision precondition (POD-3373)', () => {
   })
 })
 
+describe('IssuesRepository: the mode: boolean columns (spec rule 28)', () => {
+  // `archived`, `needs_human` and `draft` are integer({ mode: 'boolean' }) in
+  // schema.ts, so a converted read returns true/false rather than 1/0 and a
+  // mapper that compared against 1 would report EVERY row as false. The default
+  // value proves nothing — false is what a broken mapper also returns — so each
+  // column is asserted in BOTH states.
+  it('round-trips archived in both states', async () => {
+    const store = await openTestStore(':memory:')
+    await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true })
+    await seed(store, { id: asIssueId('iss_off'), seq: 2, archived: false })
+    expect((await store.issues.getIssue('iss_on'))?.archived).toBe(true)
+    expect((await store.issues.getIssue('iss_off'))?.archived).toBe(false)
+    store.close()
+  })
+
+  it('round-trips needsHuman in both states', async () => {
+    const store = await openTestStore(':memory:')
+    await seed(store, { id: asIssueId('iss_on'), seq: 1, needsHuman: true })
+    await seed(store, { id: asIssueId('iss_off'), seq: 2, needsHuman: false })
+    expect((await store.issues.getIssue('iss_on'))?.needsHuman).toBe(true)
+    expect((await store.issues.getIssue('iss_off'))?.needsHuman).toBe(false)
+    store.close()
+  })
+
+  it('round-trips draft in both states', async () => {
+    const store = await openTestStore(':memory:')
+    await seed(store, { id: asIssueId('iss_on'), seq: 1, draft: true })
+    await seed(store, { id: asIssueId('iss_off'), seq: 2, draft: false })
+    expect((await store.issues.getIssue('iss_on'))?.draft).toBe(true)
+    expect((await store.issues.getIssue('iss_off'))?.draft).toBe(false)
+    store.close()
+  })
+
+  it('carries archived through the projection as well as the row map', async () => {
+    const store = await openTestStore(':memory:')
+    // `listIssueCwdRows` reads the column directly rather than through
+    // `mapIssueRow`, so it is a second decode site and needs its own true case.
+    await seed(store, { id: asIssueId('iss_on'), seq: 1, archived: true })
+    expect((await store.issues.listIssueCwdRows())[0]?.archived).toBe(true)
+    store.close()
+  })
+
+  it('round-trips the whole row through a second write', async () => {
+    const store = await openTestStore(':memory:')
+    // The write side matters too: a boolean has to survive being read back and
+    // written again, which is what every update path does.
+    const row = await seed(store, {
+      id: asIssueId('iss_1'),
+      archived: true,
+      needsHuman: true,
+      draft: true,
+    })
+    const read = await store.issues.getIssue('iss_1')
+    if (!read) throw new Error('seeded row missing')
+    await store.issues.upsertIssue({ ...read, title: 'second' })
+    const again = await store.issues.getIssue('iss_1')
+    expect({
+      archived: again?.archived,
+      needsHuman: again?.needsHuman,
+      draft: again?.draft,
+    }).toEqual({ archived: true, needsHuman: true, draft: true })
+    expect(row.id).toBe('iss_1')
+    store.close()
+  })
+})
+
 describe('IssuesRepository: purgeIssueUserState (no test executes this today)', () => {
   it('drops the rows of every user for one issue and leaves other issues alone', async () => {
     const store = await openTestStore(':memory:')

@@ -31,10 +31,22 @@ import { openTestStore } from './test-support/open-test-store'
  * conversion. Today the store is unconverted and the two counts coincide, which
  * is exactly why this moves now rather than in a conversion commit.
  */
+/**
+ * SETUP ONLY [POD-3397]: the probe counts by SQL TEXT, and the drizzle
+ * conversion changed the text without changing the read. A hand-written
+ * statement said `FROM issues WHERE id`; the builder emits quoted, lower-case
+ * identifiers — `from "issues" where "issues"."id"`. Matching only the old
+ * spelling made this counter read zero and the assertions below fail LOUDLY,
+ * which is the right way for a text proxy to break; both spellings are matched
+ * so the counter measures the read rather than the era it was written in.
+ */
 const readProbe = (store: SessionStore): (() => number) => {
   let reads = 0
   probeLegacyStatements(store as unknown as LegacyHandleHolder, (observation) => {
-    if (observation.sql.includes('FROM issues WHERE id')) reads += 1
+    const sql = observation.sql
+    const rawById = sql.includes('FROM issues WHERE id')
+    const builderById = sql.includes('from "issues" where "issues"."id"')
+    if (rawById || builderById) reads += 1
   })
   return () => reads
 }

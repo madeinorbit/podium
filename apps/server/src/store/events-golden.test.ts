@@ -25,6 +25,7 @@ import type { ProviderCursor } from '@podium/protocol'
 import { describe, expect, it } from 'vitest'
 import { openTestStore } from '../test-support/open-test-store'
 import { RUNTIME_EVENT_LOG_KIND } from './events'
+import type { Subscription } from './types'
 
 const CURSOR: ProviderCursor = { segmentId: 'seg-1', components: { seq: 7 } }
 
@@ -355,6 +356,86 @@ describe('EventsRepository: announceEvent and the two append paths (POD-3331)', 
     await expect((async () => await store.events.announceEvent(9999))()).rejects.toThrow(
       /unknown podium event 9999/,
     )
+    store.close()
+  })
+})
+
+describe('EventsRepository: the mode: boolean columns (spec rule 28)', () => {
+  // `deliver_nudge`, `deliver_notify` and `enabled` are
+  // integer({ mode: 'boolean' }) in schema.ts. A mapper that read them with
+  // `Number(x) !== 0` would report every subscription as disabled after the
+  // conversion, so each is asserted in BOTH states rather than at its default.
+  function subscription(over: Partial<Subscription>): Subscription {
+    return {
+      id: 'sub_1',
+      subscriberKind: 'session',
+      subscriberId: 'ses_1',
+      event: 'issue.updated',
+      sourceKind: 'issue',
+      sourceRef: 'iss_1',
+      deliverNudge: false,
+      deliverNotify: false,
+      origin: 'custom',
+      enabled: false,
+      createdAt: 't',
+      ...over,
+    }
+  }
+
+  it('round-trips all three flags set', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(
+      subscription({ deliverNudge: true, deliverNotify: true, enabled: true }),
+    )
+    expect(await store.events.getSubscription('sub_1')).toMatchObject({
+      deliverNudge: true,
+      deliverNotify: true,
+      enabled: true,
+    })
+    store.close()
+  })
+
+  it('round-trips all three flags clear', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(subscription({}))
+    expect(await store.events.getSubscription('sub_1')).toMatchObject({
+      deliverNudge: false,
+      deliverNotify: false,
+      enabled: false,
+    })
+    store.close()
+  })
+
+  it('filters on enabled in SQL, not on a mapped value', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(subscription({ id: 'sub_on', enabled: true }))
+    await store.events.addSubscription(subscription({ id: 'sub_off', enabled: false }))
+    // `listEnabledSubscriptions` compares the column in the WHERE clause, so it
+    // is a second place the declared mode has to be honoured.
+    expect((await store.events.listEnabledSubscriptions()).map((s) => s.id)).toEqual(['sub_on'])
+    store.close()
+  })
+
+  it('setSubscriptionEnabled flips the stored flag both ways', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(subscription({ enabled: false }))
+    expect(await store.events.setSubscriptionEnabled('sub_1', true)).toBe(true)
+    expect((await store.events.getSubscription('sub_1'))?.enabled).toBe(true)
+    expect(await store.events.setSubscriptionEnabled('sub_1', false)).toBe(true)
+    expect((await store.events.getSubscription('sub_1'))?.enabled).toBe(false)
+    // No row: no update.
+    expect(await store.events.setSubscriptionEnabled('sub_missing', true)).toBe(false)
+    store.close()
+  })
+
+  it('listSubscriptions carries the flags too', async () => {
+    const store = await openTestStore(':memory:')
+    await store.events.addSubscription(
+      subscription({ deliverNudge: true, deliverNotify: false, enabled: true }),
+    )
+    expect(await store.events.listSubscriptions({ subscriberId: 'ses_1' })).toMatchObject([
+      { deliverNudge: true, deliverNotify: false, enabled: true },
+    ])
     store.close()
   })
 })
