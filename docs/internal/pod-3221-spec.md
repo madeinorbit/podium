@@ -1902,3 +1902,34 @@ THIS IS THE GENERAL FORM OF SEVEN FINDINGS IN THIS EPIC, and reading them togeth
 Every one is a mechanism whose failure output and whose success output are the SAME OUTPUT. The gate
 that can only say nothing cannot say no. Where a check reports by absence, the canary is not optional
 diligence — it is the only thing that distinguishes the two states.
+
+### Rule 45 — the throwing stub must DIE at B1, and be replaced by type-level removal
+
+[Found by the operator asking what we had done about hiding drizzle's transaction, 2026-09-04.
+Measured, not reasoned.]
+
+`clientOverWrapper` currently gives drizzle a client whose `transaction()` THROWS, to stop a repository
+calling `db.transaction(...)` and issuing BEGIN inside a span the store already opened. That works today
+only because `syncQueriesOver` uses the runtime savepoint helper and never reaches it.
+
+RULE 35'S ADAPTER CALLS DRIZZLE'S TRANSACTION. `root.transaction(fn, { behavior: 'immediate' })`
+delegates to `this.client.transaction(...)` — which is the stub. Measured with the seam's exact shape:
+
+    db.transaction((tx) => …, { behavior: 'immediate' })   ->  THREW: the seam refuses drizzle transactions
+
+So the stub does not merely become redundant at B1. IT BLOCKS THE CHOSEN DESIGN. Anyone implementing
+rule 35 without removing it first will conclude that drizzle's transaction cannot be used at all, and
+will rebuild our own savepoint machinery — the exact thing rule 35 deletes.
+
+THE REPLACEMENT IS STRONGER AND SITS OUT OF THE EXECUTION PATH:
+
+    export type SyncDrizzle = Omit<ReturnType<typeof buildSyncDrizzle>, 'transaction'>
+
+`this.db.transaction(...)` becomes a COMPILE ERROR rather than a lint finding plus a runtime throw. The
+adapter holds the un-omitted type internally, so it can still call it; repositories cannot see it. A
+name convention and a lint are both weaker than a member that does not exist — and unlike the stub, a
+type has no behaviour to collide with.
+
+KEEP the `store-transaction-port` lint: it still catches the raw handle and the migration paths, which
+are not typed through `SyncDrizzle`. Verify the `Omit` does not disturb builder chaining before landing
+it.
