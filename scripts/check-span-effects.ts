@@ -102,10 +102,6 @@ const ACCEPTED: readonly AcceptedFinding[] = [
     why: 'a control frame to a daemon, on the same machine-RPC path as the send above.',
   },
   {
-    key: 'apps/server/src/store/events.ts#EventAppendListener.EventAppendListener@apps/server/src/application/issue-attach-orchestrator.ts:26',
-    why: "IssueStore.persistManyWith announces its events AFTER its own span — the convention ledger §B records — but the attach orchestrator wraps the whole thing in an OUTER span, so the announcement lands inside a transaction that can still roll back. Ledger finding 3's shape, at the event log rather than the Authority.",
-  },
-  {
     key: 'packages/sync/src/authority/ports.ts#ChangeSubscriber.ChangeSubscriber@apps/server/src/application/issue-attach-orchestrator.ts:26',
     why: 'Authority.finalize publishes immediately when AuthorityDeps.postCommit is UNSET, and relay.ts sets it — ledger §A row 3. The immediate branch is real code the type system cannot tell is unreachable in the server, so the lint sees it and this line records why it stands.',
   },

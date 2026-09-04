@@ -58,7 +58,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     // agree. Nothing reloads between the rollback and this read, which is the
     // whole point: a reload would repopulate from the database and report a
     // pass for a map that was wrong.
-    expect(store.issues.listIssueRows().map((row) => row.id)).toContain(doomed.id)
+    expect((await store.issues.listIssueRows()).map((row) => row.id)).toContain(doomed.id)
     expect(registry.issues.get(doomed.id)).not.toBeNull()
   })
 
@@ -71,7 +71,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
     })
 
     expect(registry.issues.get(doomed.id)).toBeNull()
-    expect(store.issues.listIssueRows().map((row) => row.id)).not.toContain(doomed.id)
+    expect((await store.issues.listIssueRows()).map((row) => row.id)).not.toContain(doomed.id)
   })
 
   it('does not let a rolled-back purge take OTHER rows with it', async () => {
@@ -129,7 +129,7 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
 
     expect(registry.issues.get(child.id)?.parentId).toBe(parent.id)
     expect(
-      store.issues.listIssueRows().find((row) => row.id === child.id)?.parentId,
+      (await store.issues.listIssueRows()).find((row) => row.id === child.id)?.parentId,
     ).toBe(parent.id)
   })
 
@@ -149,8 +149,8 @@ describe('the hard delete waits for the outermost commit (POD-3366)', () => {
       .list()
       .map((issue) => issue.id)
       .sort()
-    const inDatabase = store.issues
-      .listIssueRows()
+    const inDatabase = (await store.issues
+      .listIssueRows())
       .map((row) => row.id)
       .sort()
     expect(inMemory).toEqual(inDatabase)

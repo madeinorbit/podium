@@ -54,7 +54,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     ).toThrow('enclosing span failed')
 
     // The tombstone rolled back, so the session row is live again…
-    expect(store.sessions.loadSessions().map((row) => row.id)).toContain(sessionId)
+    expect((await store.sessions.loadSessions()).map((row) => row.id)).toContain(sessionId)
     // …and the runtime must never have been torn down. Read with nothing
     // reloaded in between: `state.loadFromStore()` here would hide the defect
     // by rebuilding the map from the database that just rolled back.
@@ -73,7 +73,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     })
 
     expect(liveSessionIds(registry)).not.toContain(sessionId)
-    expect(store.sessions.loadSessions().map((row) => row.id)).not.toContain(sessionId)
+    expect((await store.sessions.loadSessions()).map((row) => row.id)).not.toContain(sessionId)
   })
 
   it('does not delete an issue in memory when the enclosing span rolls back (site 6)', async () => {
@@ -92,7 +92,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     ).toThrow('enclosing span failed')
 
     expect(registry.issues.get(issue.id)?.deletedAt).toBeFalsy()
-    expect(store.issues.listIssueRows().find((row) => row.id === issue.id)?.deletedAt).toBeFalsy()
+    expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeFalsy()
   })
 
   it('does not kill the issue\'s sessions when the enclosing span rolls back (site 6)', async () => {
@@ -123,7 +123,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       }),
     ).toThrow('enclosing span failed')
 
-    expect(store.sessions.loadSessions().map((row) => row.id)).toContain(sessionId)
+    expect((await store.sessions.loadSessions()).map((row) => row.id)).toContain(sessionId)
     expect(liveSessionIds(registry)).toContain(sessionId)
   })
 
@@ -160,7 +160,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
     ).toThrow('enclosing span failed')
 
     expect(registry.issues.get(issue.id)?.deletedAt).toBeTruthy()
-    expect(store.issues.listIssueRows().find((row) => row.id === issue.id)?.deletedAt).toBeTruthy()
+    expect((await store.issues.listIssueRows()).find((row) => row.id === issue.id)?.deletedAt).toBeTruthy()
   })
 
   it('does not install runtime sessions for a restore the enclosing span rolled back (site 7)', async () => {
@@ -189,7 +189,7 @@ describe('the lifecycle runtime tail waits for the outermost commit (POD-3366)',
       }),
     ).toThrow('enclosing span failed')
 
-    expect(store.sessions.loadSessions().map((row) => row.id)).not.toContain(sessionId)
+    expect((await store.sessions.loadSessions()).map((row) => row.id)).not.toContain(sessionId)
     expect(liveSessionIds(registry)).not.toContain(sessionId)
   })
 })

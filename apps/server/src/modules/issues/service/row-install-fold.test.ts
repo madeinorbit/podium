@@ -57,7 +57,7 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // …and the database rolled it back, so the map must hold the committed
     // title again. Read with nothing reloaded in between.
     expect(issues.get(created.id)?.title).toBe('original title')
-    expect(store.issues.listIssueRows().find((row) => row.id === created.id)?.title).toBe(
+    expect((await store.issues.listIssueRows()).find((row) => row.id === created.id)?.title).toBe(
       'original title',
     )
   })
@@ -131,8 +131,8 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     const titles = issues.list().map((issue) => issue.title)
     expect(titles).not.toContain('orphaned by the rollback')
     expect(titles.sort()).toEqual(
-      store.issues
-        .listIssueRows()
+      (await store.issues
+        .listIssueRows())
         .map((row) => row.title)
         .sort(),
     )
@@ -156,8 +156,8 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
       .list()
       .map((issue) => issue.title)
       .sort()
-    const inDatabase = store.issues
-      .listIssueRows()
+    const inDatabase = (await store.issues
+      .listIssueRows())
       .map((row) => row.title)
       .sort()
     expect(inMemory).toEqual(inDatabase)

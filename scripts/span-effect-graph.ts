@@ -464,6 +464,15 @@ export interface PortRule {
  * share a member name cannot collapse into one answer.
  */
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
+  'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
+    kind: 'contained',
+    why: 'a pure derivation: it maps the write\'s result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.',
+  },
+  /* --- POD-3366's shared staged layer -------------------------------------- */
+  'packages/sync/src/authority/staged-projection.ts#StagedOverlay.commit': {
+    kind: 'contained',
+    why: "the promotion step of the shared staged layer: it writes ONE already-committed entry into whatever in-memory projection its holder keeps. Constructor-injected, and every holder's implementation is a map write — change-log's baseline, the session repository's durable states, the issue row map. Nothing outside the process can tell it ran, and it runs only from a commit application, i.e. after the outermost commit has already happened.",
+  },
   /* --- POD-3328's baseline fold port -------------------------------------- */
   'packages/sync/src/authority/ports.ts#BaselineFoldPort.spanOpen': {
     kind: 'contained',
