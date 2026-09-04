@@ -334,6 +334,34 @@ export function afterCommit(step: PostCommitStep, label: string): void {
 }
 
 /**
+ * Register a DURABLE FOLLOW-UP (mechanism 2) from a tail that may already be
+ * outside the commit it follows.
+ *
+ * Like {@link afterCommit}, a caller inside an enclosing span registers on that
+ * span so a rollback discards the work and a commit drains it afterwards. When
+ * no span is open, the caller is already on the far side of its commit, so the
+ * step runs now. Unlike an external effect, its failure remains visible and is
+ * wrapped with the committed guarantee: retrying the original write would be
+ * wrong even though its follow-up failed.
+ */
+export function followUpAfterCommit(step: PostCommitStep, label: string): void {
+  const scope = currentScope()
+  if (scope.kind === 'transaction' && scope.frame.lane !== 'read' && addressable(scope.frame)) {
+    scope.frame.postCommit.followUp(step, label)
+    return
+  }
+  try {
+    runStep(step, label, 'durable follow-up')
+  } catch (error) {
+    throw new PostCommitError(
+      'follow-up',
+      `durable follow-up "${label}" failed after the transaction committed`,
+      error,
+    )
+  }
+}
+
+/**
  * Is a unit of work open whose COMMIT a fold must wait for [POD-3328]?
  *
  * The same predicate {@link afterCommit} applies, named so a caller can ask

@@ -25,6 +25,7 @@ import {
 import { resolveSpawnDefaults } from '@podium/runtime'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { IssueRow } from '../../../store'
+import { followUpAfterCommit } from '../../../store/executor/synchronous-span'
 import { type StoredIssue, toStorage } from '../../../store/issue-storage'
 import { findSessionById } from '../../sessions/session-by-id'
 import type { IssueStore } from './core'
@@ -662,10 +663,15 @@ export class IssueCrudModule {
 
   /** Dependents of `closed` that its close just unblocked (their ONLY open blocker
    *  was `closed`): open rows in the same repo with a `blocks` dep on it whose wire
-   *  `ready` is now true. Never throws — the close already persisted, and a sqlite
-   *  read error in this fanout must not make the succeeded mutation look failed. */
+   *  `ready` is now true.
+   *
+   *  The ready rows are one DURABLE FOLLOW-UP, not independent best-effort
+   *  appends. Every read completes before the event transaction begins, and all
+   *  events append in one transaction, so the durable fanout is all-or-nothing.
+   *  A failure is reported as a committed post-commit failure: the close stays
+   *  committed, while the caller is told that its ready fanout did not land. */
   private emitReadyAfterClose(closed: IssueRow, actorSessionId?: SessionId): void {
-    try {
+    followUpAfterCommit(() => {
       const commentCounts = this.store.deps.store.issues.countIssueCommentsByIssue()
       // One read of the deps and labels for the WHOLE repo, before the fanout.
       // This walks every open row in the repo and used to pay a `listIssueDeps`
@@ -674,20 +680,34 @@ export class IssueCrudModule {
       // `ready` is still computed against post-close state.
       const batch = this.store.wireBatch()
       const inScope = this.store.repoScopeFilter(closed.repoPath)
+      const ready: IssueRow[] = []
       for (const r of this.store.rows.values()) {
         if (r.id === closed.id || !inScope(r) || this.store.isClosed(r)) continue
         const blocksClosed = (batch.depsByFrom.get(r.id) ?? []).some(
           (d) => d.type === 'blocks' && d.toId === closed.id,
         )
         if (blocksClosed && this.store.toWire(r, commentCounts, batch).ready) {
-          this.store.emitEvent('issue.ready', r.id, {
-            seq: r.seq,
-            unblockedBy: closed.seq,
-            ...(actorSessionId ? { causedBySessionId: actorSessionId } : {}),
-          })
+          ready.push(r)
         }
       }
-    } catch {}
+      if (ready.length === 0) return
+
+      this.store.deps.store.transact(() => {
+        for (const r of ready) {
+          this.store.deps.store.events.appendEvent({
+            ts: this.store.now(),
+            kind: 'issue.ready',
+            subject: r.id,
+            repoPath: r.repoPath,
+            payload: {
+              seq: r.seq,
+              unblockedBy: closed.seq,
+              ...(actorSessionId ? { causedBySessionId: actorSessionId } : {}),
+            },
+          })
+        }
+      })
+    }, 'issue-ready-after-close')
   }
 
   /** Closing a parent retires its descendant progress record and stopped
@@ -1214,6 +1234,7 @@ export class IssueCrudModule {
         ...(opts?.actorSessionId ? { causedBySessionId: opts.actorSessionId } : {}),
       })
     }
+    let readyFanoutFailure: unknown
     if (!wasClosed && this.store.isClosed(row)) {
       this.store.emitEvent('issue.closed', row.id, {
         seq: row.seq,
@@ -1231,7 +1252,14 @@ export class IssueCrudModule {
         issueId: row.id,
       })
 
-      this.emitReadyAfterClose(row, opts?.actorSessionId)
+      try {
+        this.emitReadyAfterClose(row, opts?.actorSessionId)
+      } catch (error) {
+        // Keep running the rest of this already-committed tail. The durable
+        // follow-up error still reaches the caller below, after sibling cleanup
+        // and transition events have had their turn.
+        readyFanoutFailure = error
+      }
       this.archiveClosedSubtree(row.id)
     }
     // Attention-state transitions S3 renders (issue #124). Emit only on an actual
@@ -1256,6 +1284,7 @@ export class IssueCrudModule {
         this.store.emitEvent('issue.unsnoozed', row.id, { seq: row.seq })
       }
     }
+    if (readyFanoutFailure) throw readyFanoutFailure
     return wire
   }
 

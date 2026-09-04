@@ -128,6 +128,7 @@ export {
 } from './statement-probe'
 export {
   afterCommit,
+  followUpAfterCommit,
   restoreSpanEffectSinks,
   runSynchronousSpan,
   type SpanEffectSinks,
