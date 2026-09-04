@@ -42,7 +42,7 @@ import {
   messageWakeCooldowns,
   sessions as sessionsTable,
 } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import type { MessageRow, MessageStatus, MessageToKind } from './types'
 
 /** A message recipient principal: `issue`/`session` carry an id; `operator` has none. */
@@ -162,15 +162,21 @@ const boundedLimit = (limit: number | undefined, fallback: number, ceiling: numb
   Math.min(ceiling, Math.max(1, limit ?? fallback))
 
 export class MessagesRepository {
+  /** The query builder. A getter over the enclosing transaction after rule 35. */
+  private readonly db: SyncDrizzle
+
   /**
-   * The synchronous query capability, injected [spec rule 27b]. The ASYNC pair
-   * satisfies the same shape, so B1 refills this field and the query bodies
-   * below do not change.
+   * The capability is WIRING and is named here and nowhere else [spec rule 34].
+   * Only `db` is taken: this aggregate opens no span of its own. The ASYNC pair
+   * satisfies the same object, so B1 refills this field and the query bodies
+   * below change only by `async` and `await`.
    */
-  constructor(private readonly queries: SyncQueries) {}
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+  }
 
   addMessage(m: MessageRow): void {
-    this.queries.db
+    this.db
       .insert(messagesTable)
       .values({
         id: m.id,
@@ -214,7 +220,7 @@ export class MessagesRepository {
   }
 
   getMessage(id: string): MessageRow | null {
-    const r = this.queries.db.select().from(messagesTable).where(eq(messagesTable.id, id)).get()
+    const r = this.db.select().from(messagesTable).where(eq(messagesTable.id, id)).get()
     return r ? mapMessage(r) : null
   }
 
@@ -225,7 +231,7 @@ export class MessagesRepository {
   ): MessageRow[] {
     const where = addressedTo(to)
     if (opts?.status) where.push(eq(messagesTable.status, opts.status))
-    return this.queries.db
+    return this.db
       .select()
       .from(messagesTable)
       .where(and(...where))
@@ -237,7 +243,7 @@ export class MessagesRepository {
 
   /** Exact, unbounded safety projection of work still pending for one session. */
   pendingForSessionProof(sessionId: SessionId, now: string): MessageRow[] {
-    return this.queries.db
+    return this.db
       .select()
       .from(messagesTable)
       .where(
@@ -282,7 +288,7 @@ export class MessagesRepository {
       )
     }
     if (ors.length === 0) return []
-    return this.queries.db
+    return this.db
       .select()
       .from(messagesTable)
       .where(or(...ors))
@@ -313,13 +319,13 @@ export class MessagesRepository {
       isNull(messagesTable.injectedAt),
       target,
     )
-    const row = this.queries.db
+    const row = this.db
       .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
       .from(messagesTable)
       .where(and(eq(messagesTable.id, messageId), waiting))
       .get()
     if (!row?.createdAt || !row.id) return undefined
-    const ahead = this.queries.db
+    const ahead = this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(
@@ -343,7 +349,7 @@ export class MessagesRepository {
     const where = [...addressedTo(to), eq(messagesTable.status, 'queued')]
     if (opts.after) where.push(afterCursor(opts.after))
     if (opts.through) where.push(throughCursor(opts.through))
-    return this.queries.db
+    return this.db
       .select()
       .from(messagesTable)
       .where(and(...where))
@@ -355,7 +361,7 @@ export class MessagesRepository {
 
   /** Last queued row in stable delivery order; captures a finite scan snapshot. */
   pendingHighWater(to: MessagePrincipalRef): MessagePageCursor | null {
-    const row = this.queries.db
+    const row = this.db
       .select({ createdAt: messagesTable.createdAt, id: messagesTable.id })
       .from(messagesTable)
       .where(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
@@ -369,7 +375,7 @@ export class MessagesRepository {
    * `rowid` resolves sends accepted in the same clock tick; random message ids
    * do not encode creation order. */
   latestPendingOperatorForSession(sessionId: SessionId): MessageRow | undefined {
-    const row = this.queries.db
+    const row = this.db
       .select()
       .from(messagesTable)
       .where(
@@ -399,7 +405,7 @@ export class MessagesRepository {
   }
 
   countQueued(): number {
-    const row = this.queries.db
+    const row = this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(eq(messagesTable.status, 'queued'))
@@ -408,7 +414,7 @@ export class MessagesRepository {
   }
 
   countPending(to: MessagePrincipalRef): number {
-    const row = this.queries.db
+    const row = this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(and(...addressedTo(to), eq(messagesTable.status, 'queued')))
@@ -426,7 +432,7 @@ export class MessagesRepository {
 
   /** Record that `sessionId` has now seen `messageId` (idempotent). */
   recordRead(messageId: string, sessionId: SessionId, readAt: string): void {
-    this.queries.db
+    this.db
       .insert(messageReads)
       .values({ messageId, sessionId, readAt })
       // DO NOTHING, never DO UPDATE: the FIRST sighting is the one that happened.
@@ -451,7 +457,7 @@ export class MessagesRepository {
     const CHUNK = 500
     for (let i = 0; i < unique.length; i += CHUNK) {
       const chunk = unique.slice(i, i + CHUNK)
-      for (const r of this.queries.db
+      for (const r of this.db
         .select({ id: messagesTable.id })
         .from(messagesTable)
         .where(inArray(messagesTable.id, chunk))
@@ -465,7 +471,7 @@ export class MessagesRepository {
   /** Which of `messageIds` this session has already seen. */
   readReceipts(sessionId: SessionId, messageIds: string[]): Set<string> {
     if (messageIds.length === 0) return new Set()
-    const rows = this.queries.db
+    const rows = this.db
       .select({ messageId: messageReads.messageId })
       .from(messageReads)
       .where(
@@ -479,7 +485,7 @@ export class MessagesRepository {
    *  [POD-1379], the same notion of self delivery already applies. */
   selfSentIds(sessionId: SessionId, messageIds: string[]): Set<string> {
     if (messageIds.length === 0) return new Set()
-    const rows = this.queries.db
+    const rows = this.db
       .select({ id: messagesTable.id })
       .from(messagesTable)
       .where(and(eq(messagesTable.fromSession, sessionId), inArray(messagesTable.id, messageIds)))
@@ -504,7 +510,7 @@ export class MessagesRepository {
       inArray(messagesTable.status, ['queued', 'delivered', 'read']),
       or(isNull(messagesTable.fromSession), ne(messagesTable.fromSession, sessionId)),
       notExists(
-        this.queries.db
+        this.db
           .select({ one: sql`1` })
           .from(messageReads)
           .where(
@@ -535,7 +541,7 @@ export class MessagesRepository {
   }
 
   private pendingSummaryForPredicate(predicate: SQL | undefined): PendingMessageSummary {
-    const rows = this.queries.db
+    const rows = this.db
       .select({
         fromKind: messagesTable.fromKind,
         fromIssue: messagesTable.fromIssue,
@@ -563,7 +569,7 @@ export class MessagesRepository {
 
   /** The DISTINCT sender projection both queued-sender readers share. */
   private distinctSenders(predicate: SQL | undefined): PendingMessageSender[] {
-    return this.queries.db
+    return this.db
       .selectDistinct({
         fromKind: messagesTable.fromKind,
         fromIssue: messagesTable.fromIssue,
@@ -585,7 +591,7 @@ export class MessagesRepository {
   }
 
   countPendingForSession(issueId: IssueId, sessionId: SessionId): number {
-    const row = this.queries.db
+    const row = this.db
       .select({ n: count() })
       .from(messagesTable)
       .where(this.pendingForSession(issueId, sessionId))
@@ -604,7 +610,7 @@ export class MessagesRepository {
    *  proves the producer already acted — the steward's notice would just be a
    *  duplicate waiting to happen. */
   alreadyCommunicated(fromIssue: string, to: MessagePrincipalRef, sinceIso: string): boolean {
-    const row = this.queries.db
+    const row = this.db
       .select({ hit: sql<number>`1` })
       .from(messagesTable)
       .where(
@@ -625,7 +631,7 @@ export class MessagesRepository {
    *  transcript echo. A queued row that was injected but never echoed within the
    *  window is auto-requeued (clearInjected). Guarded on status='queued'. */
   markInjected(id: string, deliveredTo: SessionId | null, injectedAt: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ injectedAt, deliveredTo })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -657,7 +663,7 @@ export class MessagesRepository {
     at: string,
     reason: QueueDrainAbandonedReason,
   ): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({
         status: 'dead_letter',
@@ -698,13 +704,13 @@ export class MessagesRepository {
    * nothing and changes nothing.
    */
   retractOptimisticDelivery(id: string, deliveredTo: SessionId): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ status: 'queued', deliveredAt: null, injectedAt: null })
       .where(restingOnAPush(id, deliveredTo))
       .run()
     if (r.changes !== 1) return false
-    this.queries.db
+    this.db
       .delete(messageReads)
       .where(and(eq(messageReads.messageId, id), eq(messageReads.sessionId, deliveredTo)))
       .run()
@@ -736,7 +742,7 @@ export class MessagesRepository {
     at: string,
     reason: QueueDrainAbandonedReason,
   ): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({
         status: 'dead_letter',
@@ -754,7 +760,7 @@ export class MessagesRepository {
    *  does the ledger claim the agent has it in context. Guarded on status so a
    *  duplicate/late echo is a no-op (returns false). */
   markDelivered(id: string, deliveredTo: string | null, deliveredAt: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ status: 'delivered', deliveredAt, deliveredTo })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -769,7 +775,7 @@ export class MessagesRepository {
    * recipient. The queued-input drain re-reads this status immediately before
    * touching the PTY, so a cancelled row cannot be applied later. */
   markCancelled(id: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ status: 'cancelled' })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -786,7 +792,7 @@ export class MessagesRepository {
    *  correctly and landed in a transcript. That erase is why the delivery ledger
    *  could not be trusted to answer "did this reach anyone?". */
   markDeliveredByPull(id: string, reader: string | null, deliveredAt: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({
         status: 'delivered',
@@ -804,7 +810,7 @@ export class MessagesRepository {
    *  PULL path, [POD-834]). Distinct from delivered (push): `read` proves the
    *  agent pulled it. A delivered row can still be marked read if later pulled. */
   markRead(id: string, deliveredTo: string | null, readAt: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({
         status: 'read',
@@ -834,7 +840,7 @@ export class MessagesRepository {
   markDeadLetter(id: string, at: string, cause?: QueueDrainAbandonedReason): boolean {
     // TWO DIFFERENT WRITES, not one with nulls: without a cause the two
     // `delivery_deferred_*` columns are LEFT ALONE rather than cleared.
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set(
         cause
@@ -856,7 +862,7 @@ export class MessagesRepository {
    *  delivery attempt re-pushes. Guarded on status='queued' so a row that raced to
    *  delivered/read in the meantime is left alone. */
   clearInjected(id: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ injectedAt: null })
       .where(and(eq(messagesTable.id, id), eq(messagesTable.status, 'queued')))
@@ -873,7 +879,7 @@ export class MessagesRepository {
   listQueuedPage(opts: { after?: MessagePageCursor; limit?: number } = {}): MessageRow[] {
     const where: SQL[] = [eq(messagesTable.status, 'queued')]
     if (opts.after) where.push(afterCursor(opts.after))
-    return this.queries.db
+    return this.db
       .select()
       .from(messagesTable)
       .where(and(...where))
@@ -885,7 +891,7 @@ export class MessagesRepository {
 
   /** Persist a keyed wake attempt before its external side effect. */
   recordWakeCooldown(key: string, attemptedAt: string): void {
-    this.queries.db
+    this.db
       .insert(messageWakeCooldowns)
       .values({ key, attemptedAt })
       .onConflictDoUpdate({ target: messageWakeCooldowns.key, set: { attemptedAt } })
@@ -893,7 +899,7 @@ export class MessagesRepository {
   }
 
   getWakeCooldown(key: string): string | null {
-    const row = this.queries.db
+    const row = this.db
       .select({ attemptedAt: messageWakeCooldowns.attemptedAt })
       .from(messageWakeCooldowns)
       .where(eq(messageWakeCooldowns.key, key))
@@ -910,7 +916,7 @@ export class MessagesRepository {
     lifecycle: MessageRow['lifecycle']
     expiresAt: string | null
   }): boolean {
-    const result = this.queries.db
+    const result = this.db
       .update(messagesTable)
       .set({ status: 'expired' })
       .where(
@@ -933,7 +939,7 @@ export class MessagesRepository {
 
   /** Stamp the ack message id onto the original (first ack wins). */
   markAcked(id: string, ackedBy: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ ackedBy })
       .where(and(eq(messagesTable.id, id), isNull(messagesTable.ackedBy)))
@@ -950,7 +956,7 @@ export class MessagesRepository {
    *  both read this set (#237) [spec:SP-34d7 acks]. */
   listDeliveredUnacked(sessionId: SessionId, now: string): MessageRow[] {
     return (
-      this.queries.db
+      this.db
         .select()
         .from(messagesTable)
         // The agent has it either way — pushed (delivered) or pulled (read).
@@ -984,14 +990,14 @@ export class MessagesRepository {
    *  the marker. This is why the notice fires at most ONCE per requested response. */
   listSettleNotifiable(sessionId: SessionId, now: string): MessageRow[] {
     const notice = alias(messagesTable, 'n')
-    return this.queries.db
+    return this.db
       .select()
       .from(messagesTable)
       .where(
         and(
           this.unackedRequest(sessionId, now),
           notExists(
-            this.queries.db
+            this.db
               .select({ one: sql`1` })
               .from(notice)
               .where(and(eq(notice.kind, 'notification'), eq(notice.inReplyTo, messagesTable.id))),
@@ -1005,7 +1011,7 @@ export class MessagesRepository {
 
   /** Stamp the ONE stop-hook reminder (never repeats: guarded on NULL). */
   markReminded(id: string, at: string): boolean {
-    const r = this.queries.db
+    const r = this.db
       .update(messagesTable)
       .set({ remindedAt: at })
       .where(and(eq(messagesTable.id, id), isNull(messagesTable.remindedAt)))

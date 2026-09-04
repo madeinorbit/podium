@@ -26,7 +26,7 @@ import {
   snoozes as snoozesTable,
   tabOrder,
 } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import { requireUserId } from './helpers'
 import type {
   OfferMap,
@@ -45,15 +45,22 @@ const PIN_KINDS = new Set<PinKind>(['panel', 'worktree', 'repo'])
 type SessionSelect = typeof sessionsTable.$inferSelect
 
 export class SessionsRepository {
+  /** The query builder. A getter over the enclosing transaction after rule 35. */
+  private readonly db: SyncDrizzle
+
   /**
-   * The synchronous query capability, injected [spec rule 27b]. The ASYNC pair
-   * satisfies the same shape, so B1 refills this field and the query bodies
-   * below do not change.
+   * The capability is WIRING and is named here and nowhere else [spec rule 34].
+   * Only `db` is taken: this aggregate opens no span of its own — `purgeSession`
+   * runs inside its caller's. The ASYNC pair satisfies the same object, so B1
+   * refills this field and the query bodies below change only by `async` and
+   * `await`.
    */
   constructor(
-    private readonly queries: SyncQueries,
+    queries: SyncQueries,
     private readonly purgeObservationCheckpoint: (sessionId: SessionId) => void = () => {},
-  ) {}
+  ) {
+    this.db = queries.db
+  }
 
   // ---- sessions ----
   loadSessions(): SessionRow[] {
@@ -194,7 +201,7 @@ export class SessionsRepository {
    * declared once (see {@link findSessionByResumeValue}).
    */
   private readSessions(where: SQL | undefined): SessionRow[] {
-    return this.queries.db
+    return this.db
       .select()
       .from(sessionsTable)
       .where(where)
@@ -283,7 +290,7 @@ export class SessionsRepository {
       createdByActorId: createdBy ? createdBy.id : null,
       createdByOnBehalfOf: row.createdBy?.onBehalfOf ?? null,
     }
-    this.queries.db
+    this.db
       .insert(sessionsTable)
       .values(values)
       .onConflictDoUpdate({
@@ -370,7 +377,7 @@ export class SessionsRepository {
     deletedByIssueId: IssueId | null = null,
   ): void {
     for (const id of ids) {
-      this.queries.db
+      this.db
         .update(sessionsTable)
         .set({ deletedAt, deletionSource: source, deletedByIssueId })
         .where(and(eq(sessionsTable.id, id as SessionId), isNull(sessionsTable.deletedAt)))
@@ -385,7 +392,7 @@ export class SessionsRepository {
 
   /** Re-expose an issue's tombstoned sessions as honestly exited runtime records. */
   restoreDeletedForIssue(issueId: IssueId): void {
-    this.queries.db
+    this.db
       .update(sessionsTable)
       .set({
         deletedAt: null,
@@ -430,7 +437,7 @@ export class SessionsRepository {
    * ref it should now get.
    */
   detachTombstonesFromIssue(issueId: IssueId): void {
-    this.queries.db
+    this.db
       .update(sessionsTable)
       .set({
         issueId: sql`CASE WHEN ${sessionsTable.issueId} = ${issueId} THEN NULL ELSE ${sessionsTable.issueId} END`,
@@ -460,7 +467,7 @@ export class SessionsRepository {
     // than interpolated into the fragment.
     const danglingIssue = sql`${sessionsTable.issueId} IS NOT NULL AND ${sessionsTable.issueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
     const danglingRef = sql`${sessionsTable.refIssueId} IS NOT NULL AND ${sessionsTable.refIssueId} NOT IN (SELECT ${issuesTable.id} FROM ${issuesTable})`
-    const result = this.queries.db
+    const result = this.db
       .update(sessionsTable)
       .set({
         issueId: sql`CASE WHEN ${danglingIssue} THEN NULL ELSE ${sessionsTable.issueId} END`,
@@ -474,20 +481,17 @@ export class SessionsRepository {
 
   /** Irreversibly remove a session and its satellites. Internal maintenance only. */
   purgeSession(id: SessionId): void {
-    this.queries.db
-      .delete(runtimeEventCheckpoints)
-      .where(eq(runtimeEventCheckpoints.sessionId, id))
-      .run()
+    this.db.delete(runtimeEventCheckpoints).where(eq(runtimeEventCheckpoints.sessionId, id)).run()
     this.purgeObservationCheckpoint(id)
-    this.queries.db.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
-    this.queries.db
+    this.db.delete(sessionsTable).where(eq(sessionsTable.id, id)).run()
+    this.db
       .delete(pinsTable)
       .where(and(eq(pinsTable.kind, 'panel'), eq(pinsTable.id, id)))
       .run()
-    this.queries.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
-    this.queries.db.delete(snoozesTable).where(eq(snoozesTable.sessionId, id)).run()
-    this.queries.db.delete(sessionUserState).where(eq(sessionUserState.sessionId, id)).run()
-    this.queries.db.delete(offersTable).where(eq(offersTable.sessionId, id)).run() // [spec:SP-c7f1]
+    this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
+    this.db.delete(snoozesTable).where(eq(snoozesTable.sessionId, id)).run()
+    this.db.delete(sessionUserState).where(eq(sessionUserState.sessionId, id)).run()
+    this.db.delete(offersTable).where(eq(offersTable.sessionId, id)).run() // [spec:SP-c7f1]
     this.scrubTabOrders(id)
   }
 
@@ -500,7 +504,7 @@ export class SessionsRepository {
   // principal pass SOLE_USER_ID explicitly, which makes them greppable for
   // POD-1077 (the scoped feed that finally makes the broadcast per-principal).
   listPins(userId: UserId): PinState {
-    const rows = this.queries.db
+    const rows = this.db
       .select({ kind: pinsTable.kind, id: pinsTable.id })
       .from(pinsTable)
       .where(eq(pinsTable.userId, userId))
@@ -538,13 +542,13 @@ export class SessionsRepository {
       //               the `PIN_KINDS` membership throw, `id` by the empty-string
       //               throw on the trimmed value, and `pinned_at` is a freshly
       //               built ISO string.
-      this.queries.db
+      this.db
         .insert(pinsTable)
         .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
         .onConflictDoNothing()
         .run()
     } else {
-      this.queries.db
+      this.db
         .delete(pinsTable)
         .where(
           and(eq(pinsTable.userId, userId), eq(pinsTable.kind, kind), eq(pinsTable.id, cleanId)),
@@ -564,7 +568,7 @@ export class SessionsRepository {
    */
   listReadAt(userId: UserId): Record<string, string | null> {
     requireUserId(userId)
-    const rows = this.queries.db
+    const rows = this.db
       .select({ sessionId: sessionUserState.sessionId, readAt: sessionUserState.readAt })
       .from(sessionUserState)
       .where(eq(sessionUserState.userId, userId))
@@ -576,7 +580,7 @@ export class SessionsRepository {
 
   getReadAt(userId: UserId, sessionId: SessionId): string | null {
     requireUserId(userId)
-    const row = this.queries.db
+    const row = this.db
       .select({ readAt: sessionUserState.readAt })
       .from(sessionUserState)
       .where(
@@ -593,7 +597,7 @@ export class SessionsRepository {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('read-state session id is empty')
-    this.queries.db
+    this.db
       .insert(sessionUserState)
       .values({ userId, sessionId: asSessionId(id), readAt })
       .onConflictDoUpdate({
@@ -608,7 +612,7 @@ export class SessionsRepository {
    *  one fact acquires a second meaning nobody documented. */
   markSessionUnread(userId: UserId, sessionId: SessionId): void {
     requireUserId(userId)
-    this.queries.db
+    this.db
       .delete(sessionUserState)
       .where(
         and(
@@ -629,7 +633,7 @@ export class SessionsRepository {
    * ever sees another reader's state.
    */
   clearAllReadAt(sessionId: SessionId): void {
-    this.queries.db
+    this.db
       .delete(sessionUserState)
       .where(eq(sessionUserState.sessionId, asSessionId(sessionId.trim())))
       .run()
@@ -640,7 +644,7 @@ export class SessionsRepository {
    *  (the client clock also ignores lapsed ones at render time; this is just
    *  housekeeping). `null` snoozes (until-next-message) never lapse by time. */
   listSnoozes(userId: UserId, now: number = Date.now()): SnoozeMap {
-    const rows = this.queries.db
+    const rows = this.db
       .select({ sessionId: snoozesTable.sessionId, snoozedUntil: snoozesTable.snoozedUntil })
       .from(snoozesTable)
       .where(eq(snoozesTable.userId, userId))
@@ -657,7 +661,7 @@ export class SessionsRepository {
     // The lazy delete stays scoped to the reader: housekeeping on read must never
     // drop somebody else's row, even an expired one.
     for (const id of expired) {
-      this.queries.db
+      this.db
         .delete(snoozesTable)
         .where(and(eq(snoozesTable.userId, userId), eq(snoozesTable.sessionId, id)))
         .run()
@@ -671,7 +675,7 @@ export class SessionsRepository {
     requireUserId(userId)
     const id = sessionId.trim()
     if (!id) throw new Error('snooze session id is empty')
-    this.queries.db
+    this.db
       .insert(snoozesTable)
       .values({
         userId,
@@ -688,7 +692,7 @@ export class SessionsRepository {
 
   /** Un-snooze a session for one user (no-op if not snoozed). */
   clearSnooze(userId: UserId, sessionId: SessionId): void {
-    this.queries.db
+    this.db
       .delete(snoozesTable)
       .where(
         and(
@@ -701,7 +705,7 @@ export class SessionsRepository {
 
   hasAnySnooze(sessionId: SessionId): boolean {
     return (
-      this.queries.db
+      this.db
         .select({ present: sql<number>`1` })
         .from(snoozesTable)
         .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
@@ -712,7 +716,7 @@ export class SessionsRepository {
 
   /** Clear every viewer's independent snooze after a shared session event. */
   clearAllSnoozes(sessionId: SessionId): void {
-    this.queries.db
+    this.db
       .delete(snoozesTable)
       .where(eq(snoozesTable.sessionId, asSessionId(sessionId.trim())))
       .run()
@@ -722,7 +726,7 @@ export class SessionsRepository {
   /** Every live offer, keyed by session — replayed onto SessionMeta at boot. A
    *  row with corrupt JSON actions is dropped rather than failing the load. */
   listOffers(): OfferMap {
-    const rows = this.queries.db.select().from(offersTable).all()
+    const rows = this.db.select().from(offersTable).all()
     const out: OfferMap = {}
     for (const r of rows) {
       try {
@@ -763,7 +767,7 @@ export class SessionsRepository {
         offer.artifacts && offer.artifacts.length > 0 ? JSON.stringify(offer.artifacts) : null,
       createdAt: offer.createdAt,
     }
-    this.queries.db
+    this.db
       .insert(offersTable)
       .values(values)
       .onConflictDoUpdate({
@@ -782,7 +786,7 @@ export class SessionsRepository {
    *  guard a dismissal checks itself against — one row, not the whole table,
    *  because `listOffers` exists to rebuild every session at boot. */
   offerCreatedAt(sessionId: SessionId): string | undefined {
-    const row = this.queries.db
+    const row = this.db
       .select({ createdAt: offersTable.createdAt })
       .from(offersTable)
       .where(eq(offersTable.sessionId, asSessionId(sessionId.trim())))
@@ -792,7 +796,7 @@ export class SessionsRepository {
 
   /** Remove a session's offer (no-op if none). */
   clearOffer(sessionId: SessionId): void {
-    this.queries.db
+    this.db
       .delete(offersTable)
       .where(eq(offersTable.sessionId, asSessionId(sessionId.trim())))
       .run()
@@ -801,7 +805,7 @@ export class SessionsRepository {
   // ---- tab order ----
   /** Manual tab order per worktree path. Worktrees never reordered are absent. */
   listTabOrders(userId: UserId): Record<string, string[]> {
-    const rows = this.queries.db
+    const rows = this.db
       .select({ worktree: tabOrder.worktree, ids: tabOrder.ids })
       .from(tabOrder)
       .where(eq(tabOrder.userId, userId))
@@ -823,7 +827,7 @@ export class SessionsRepository {
     const cleanWorktree = worktree.trim()
     if (!cleanWorktree) throw new Error('worktree path is empty')
     if (sessionIds.length === 0) {
-      this.queries.db
+      this.db
         .delete(tabOrder)
         .where(and(eq(tabOrder.userId, userId), eq(tabOrder.worktree, cleanWorktree)))
         .run()
@@ -831,7 +835,7 @@ export class SessionsRepository {
     }
     const ids = JSON.stringify(sessionIds)
     const updatedAt = new Date().toISOString()
-    this.queries.db
+    this.db
       .insert(tabOrder)
       .values({ userId, worktree: cleanWorktree, ids, updatedAt })
       .onConflictDoUpdate({
@@ -849,7 +853,7 @@ export class SessionsRepository {
    * across owners, and it lands in the scope of what it acted on.
    */
   private scrubTabOrders(sessionId: SessionId): void {
-    const rows = this.queries.db.select().from(tabOrder).all()
+    const rows = this.db.select().from(tabOrder).all()
     for (const row of rows) {
       let ids: string[]
       try {
@@ -876,7 +880,7 @@ export class SessionsRepository {
   // a row would make either write clobber the other. The registry debounces the
   // writes here (see relay.ts) so SQLite isn't hit per keystroke.
   loadDrafts(): Record<SessionId, string> {
-    const rows = this.queries.db
+    const rows = this.db
       .select({ sessionId: sessionDrafts.sessionId, text: sessionDrafts.text })
       .from(sessionDrafts)
       .all()
@@ -889,7 +893,7 @@ export class SessionsRepository {
    *  to seed `Session.draftUpdatedAt` at boot so a draft lifts its session in the
    *  attention ordering after a restart. */
   loadDraftTimes(): Record<string, string> {
-    const rows = this.queries.db
+    const rows = this.db
       .select({ sessionId: sessionDrafts.sessionId, updatedAt: sessionDrafts.updatedAt })
       .from(sessionDrafts)
       .all()
@@ -906,14 +910,14 @@ export class SessionsRepository {
     if (!id) return undefined
     if (text) {
       const updatedAt = new Date().toISOString()
-      this.queries.db
+      this.db
         .insert(sessionDrafts)
         .values({ sessionId: asSessionId(id), text, updatedAt })
         .onConflictDoUpdate({ target: sessionDrafts.sessionId, set: { text, updatedAt } })
         .run()
       return updatedAt
     }
-    this.queries.db
+    this.db
       .delete(sessionDrafts)
       .where(eq(sessionDrafts.sessionId, asSessionId(id)))
       .run()
@@ -941,7 +945,7 @@ export class SessionsRepository {
    *  versioning columns existed reads back with `rev: 0`, `origin: null`, and an
    *  empty history. */
   loadDraftDocs(): Record<SessionId, StoredDraftDoc> {
-    const rows = this.queries.db.select().from(sessionDrafts).all()
+    const rows = this.db.select().from(sessionDrafts).all()
     const out: Record<string, StoredDraftDoc> = {}
     for (const r of rows) {
       out[r.sessionId] = {
@@ -963,7 +967,7 @@ export class SessionsRepository {
     const id = asSessionId(sessionId.trim())
     if (!id) return
     if (!doc.text) {
-      this.queries.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
+      this.db.delete(sessionDrafts).where(eq(sessionDrafts.sessionId, id)).run()
       return
     }
     const values = {
@@ -974,7 +978,7 @@ export class SessionsRepository {
       origin: doc.origin,
       history: JSON.stringify(doc.history),
     }
-    this.queries.db
+    this.db
       .insert(sessionDrafts)
       .values(values)
       .onConflictDoUpdate({
