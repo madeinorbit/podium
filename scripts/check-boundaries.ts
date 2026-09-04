@@ -1299,7 +1299,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   // gate as the executor's `legacy` field, by POD-3326. The permanent half
   // (`statement-probe.ts`) names no handle and needs no entry.
   'apps/server/src/store/executor/legacy-handle-probe.ts',
-  'apps/server/src/modules/operations/store.ts',
   'apps/server/src/store/executor/executor.ts',
 ]
 
