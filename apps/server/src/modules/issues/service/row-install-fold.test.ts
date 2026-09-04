@@ -112,8 +112,12 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     // write span open", so a staged row orphaned by a rollback and then read
     // from inside a LATER commit's own transaction sees `true` and survives.
     // This map has no entry point where a holder could ask on the way in — it is
-    // read from `toWire`'s scans inside `ledger.commit`'s own `write()` — so the
-    // unit IDENTITY on the fold port is the only thing that closes it.
+    // read from `toWire`'s scans inside `ledger.commit`'s own `write()`.
+    //
+    // POD-3366 read that as needing a unit IDENTITY on the fold port. It is
+    // LIVENESS that closes it [POD-3364]: identity cannot separate a savepoint
+    // that released from one that rolled back, because both close their frame,
+    // and only the registration knows which happened.
     const { store, issues } = await build()
     const survivor = seed(issues, 'the survivor')
 
@@ -162,5 +166,59 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
       .sort()
     expect(inMemory).toEqual(inDatabase)
     expect(inMemory).not.toContain('never committed')
+  })
+
+  it('still serves an in-window read what a RELEASED middle span staged', async () => {
+    // THE OTHER HALF OF THE FRAME RULE, and the reason it is keyed on the
+    // REGISTRATION rather than on the frame [POD-3364]. A savepoint that
+    // releases closes its frame exactly as one that rolls back does, so
+    // "is the frame that staged this still live" answers false for both. Its
+    // work is still pending in the parent's registry, though, and a reader in
+    // the outer span must still see it — a middle span whose release dropped
+    // its own staged row would be the lost-update this layer exists to stop.
+    const { store, issues } = await build()
+    const created = seed(issues, 'original title')
+    let seenInsideTheWindow: string | undefined
+
+    await store.transact(() => {
+      store.transact(() => {
+        issues.update(created.id, { title: 'staged by the middle span' })
+      })
+      seenInsideTheWindow = issues.get(created.id)?.title
+    })
+
+    expect(seenInsideTheWindow).toBe('staged by the middle span')
+    expect(issues.get(created.id)?.title).toBe('staged by the middle span')
+  })
+
+  it('does not shadow an in-window read with a row a MIDDLE span rolled back', async () => {
+    // THE RESIDUE POD-3328 LEFT AND POD-3366 CARRIED FORWARD [POD-3364]. The
+    // staged layer drops an orphan when NO span is open, and a middle span that
+    // rolls back inside a committing outer one never reaches that state:
+    // `spanOpen()` still answers true for the OUTER frame, so the entry the
+    // inner frame staged survives in the pending layer and shadows every read
+    // for the rest of the outer span.
+    //
+    // The assertion is INSIDE the outer span on purpose. Read after it commits
+    // and the next top-level operation has already freshened the orphan away —
+    // which is the self-healing fixture that hides exactly this state.
+    const { store, issues } = await build()
+    seed(issues, 'the survivor')
+    let seenInsideTheWindow: string[] = []
+
+    await store.transact(() => {
+      expect(() =>
+        store.transact(() => {
+          issues.create({ repoPath: '/repo', title: 'orphaned by the inner rollback', startNow: false })
+          throw new Error('inner span failed')
+        }),
+      ).toThrow('inner span failed')
+
+      // The outer span carries on and will COMMIT. A reader here decides against
+      // rows the database has already thrown away.
+      seenInsideTheWindow = issues.list().map((issue) => issue.title)
+    })
+
+    expect(seenInsideTheWindow).not.toContain('orphaned by the inner rollback')
   })
 })

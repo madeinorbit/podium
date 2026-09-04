@@ -157,6 +157,11 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     // inside a later commit's OWN transaction sees `true` and survives. The
     // read here happens inside `ledger.commit`'s span, in `changes()`, which is
     // where the issue row map and the session baselines are read for real.
+    //
+    // WHAT CLOSES IT NOW [POD-3364]: the staged entry carries its
+    // `CommitRegistration`, and the rollback that discarded the registry killed
+    // it. A dead registration is dead in any span, so the orphan goes on this
+    // read rather than surviving because a different span happens to be open.
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
 

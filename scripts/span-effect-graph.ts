@@ -478,6 +478,10 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "a predicate asking whether an enclosing unit of work is open. It reads the ambient span state and returns a boolean; it writes nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether the fold applies at once or waits for the outermost commit, which is the rule-19 judgement — but asking the question is not itself an effect.",
   },
+  'packages/sync/src/authority/ports.ts#CommitRegistration.live': {
+    kind: 'contained',
+    why: "a predicate asking whether ONE registered commit application is still going to run, which is `BaselineFoldPort.spanOpen` at frame granularity [POD-3364]. It reads a flag the registry cleared on the rollback path and returns a boolean; it writes nothing, registers nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether a staged entry is dropped on the way in — the same rule-19 judgement `spanOpen` carries, and asking the question is not itself an effect.",
+  },
   /* --- the sync adapter's narrow port over that same handle [POD-3338] ----- */
   'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlConnection.prepare': {
     kind: 'contained',
