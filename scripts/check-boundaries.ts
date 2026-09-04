@@ -1313,7 +1313,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/server-secrets.ts',
   'apps/server/src/store/settings-audit.ts',
   'apps/server/src/store/settings.ts',
-  'apps/server/src/store/shipping.ts',
   'apps/server/src/store/superagent.ts',
   'apps/server/src/store/telegram-bindings.ts',
   'apps/server/src/store/transcript-costs.ts',
