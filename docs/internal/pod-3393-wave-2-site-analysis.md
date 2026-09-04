@@ -7,7 +7,13 @@ Base: integration branch at `57691d712`. Written BEFORE any conversion, against 
 so the conversion that follows is mechanical and reviewable line by line. Every site is answered
 against the execution method's Stage A checklist (§3).
 
-## 0. Status — the conversion is not written, and why
+## 0. Status — CONVERTED. What follows was written before the conversion and is kept as the record
+
+All six files are converted and committed. Section 0 below is the state this document was written in
+— before a line was written — and it is left standing because the two blockers it names were both
+ruled on by the coordinator and both rulings changed what every wave did. Results are in §7.
+
+## 0a. The original status — the conversion is not written, and why
 
 Two things had to be ruled on before a line could be converted, both mailed to the coordinator.
 
@@ -216,3 +222,92 @@ The services lane is red on the base before this wave changes anything, which is
 measured as a failing-test-NAME SET and never as a count. All 36 are in `modules/sessions/*` — 26 in
 `oracle-handoff.test.ts`, the rest spread over seven files — and none of them touches a wave 2 file.
 The name set is kept as the control arm.
+
+
+## 7. Results
+
+### 7.1 What landed
+
+All six files query through the executor's synchronous drizzle seam (`executor.syncQueries`, giving
+`.db` and `.transact`). Five hold no raw handle at all, confirmed by the boundary lint rather than by
+my own grep: `store-boundary-ledger` now reports `users.ts`, `auth.ts`, `grants.ts`, `approvals.ts`
+and `user-layout.ts` as "listed in STAGE_A_UNCONVERTED but holds no raw handle — it is CONVERTED".
+`settings.ts` is deliberately still listed; see §4.
+
+Constructors changed, and the six `store.ts` lines that build them:
+
+| Repository | Now takes |
+| --- | --- |
+| `UsersRepository` | `(db, transact)` |
+| `UserLayoutRepository` | `(db, transact)` |
+| `AuthRepository` | `(db)` |
+| `GrantsRepository` | `(db)` |
+| `ApprovalsRepository` | `(db)` |
+| `SettingsRepository` | `(db, legacy)` — `legacy` only composes wave 1's `UserPreferencesRepository` |
+
+### 7.2 The lanes, by failing-test-NAME set
+
+`PODIUM_TEST_WORKERS` **was set, to 1**, for every run in this document.
+
+| Lane | Control | After | New failures | Fixed |
+| --- | --- | --- | --- | --- |
+| `server:store` | 68 files / 888 tests, 0 failures | 68 / 888, **0 failures** | none | none |
+| `server:services` | 129 / 2290, 36 failures | 129 / 2290, 36 failures | **none — name set identical** | none |
+| `server:boundary` | 120 / 2367, 51 failures | 120 / 2367, 52 failures | **one, see §7.4** | none |
+
+The services lane is the reason this is measured as a set: 36 before and 36 after is a stable count
+over an identical set, and the boundary lane's 51 → 52 is the case a count would have let through as
+noise.
+
+### 7.3 Mutation checks on the conversions that were not mechanical
+
+Two conversions changed shape rather than just spelling, so each was A/B'd against the pre-conversion
+SQL on the same fixture, and then the A/B itself was mutation-checked — an oracle that agrees on the
+first run has not been shown capable of disagreeing.
+
+**`approvals.transition`** — the `COALESCE` set clause became two `sql` fragments. A/B over three
+transitions (`pending→executing`, `executing→succeeded`, and a `pending→denied` that must not match)
+produced identical rows and identical `changes` counts. Mutation: `decidedAt` losing its `COALESCE` wrapper →
+`decidedAt: now`. Killed, and the message is the behaviour: `decided_at` reads `10:00` (the approve
+instant, preserved) in the original against `11:00` (overwritten by the later transition) in the
+mutant. That is the property the method's own comment names.
+
+**`grants.upsert`** — `INSERT OR REPLACE` became `onConflictDoUpdate`. A/B on a re-share by a NEW
+owner produced an identical row. Mutation: drop `owner` from the `set` list. Killed, and the message
+is again the property: `owner` stays `user:alice` (the previous granter) instead of being re-stamped
+to `user:carol`. That is the accountability rule the method's header states.
+
+### 7.4 The one new failure: a probe went dark, the cache did not
+
+`store-users-frame-cache.test.ts` fails at `expect(afterFirst).toBeGreaterThan(0)` — its read counter
+observes zero reads. **Two independent causes, either alone sufficient:**
+
+1. It counts through `probeLegacyStatements`, which observes the executor's LEGACY driver. A converted
+   repository goes through drizzle's own bun-sqlite driver and never reaches it.
+2. It matches the substring `FROM users WHERE id`. drizzle emits
+   `select "id", "display_name", "role", "created_at", "disabled_at" from "users" where "users"."id" = ?`
+   — so the match fails on case and on quoting even if the statement were observed.
+
+**The cache still works.** Counted at drizzle's own logger over a directly-constructed
+`UsersRepository`: the first `get` reads, two further calls in the same frame read zero more, and a
+call after a microtask turn reads again. POD-1931's behaviour is unchanged.
+
+No assertion was edited. This is the guard-going-dark class the coordinator asked every wave to report,
+and it is the good version of it: the test's own `toBeGreaterThan(0)` — added by POD-3281 precisely so
+"the probe cannot be dead" — turned a silent vacuous pass into a loud red. Without that line the probe
+would have returned 0 and the two cache assertions would have compared 0 to 0 and passed.
+
+### 7.5 Source-text scanners over wave 2 files: none
+
+Checked rather than assumed. The two source-reading guards in the tree pin their target with a literal
+path constant — `store-issues-row-cache-writers.test.ts` reads `store/issues.ts`,
+`store-repos-registry-cache-writers.test.ts` reads `store/repos.ts`. Neither scans a wave 2 file, so
+neither can go dark because of this conversion. Wave 6's finding has no wave 2 equivalent.
+
+### 7.6 A gate that cannot be green as things stand
+
+The boundary lint's `store-boundary-ledger` instructs: "Delete the line from
+scripts/check-boundaries.ts in the same commit as the conversion." The coordinator has ruled the
+opposite — it edits `STAGE_A_UNCONVERTED`, no wave does. Both cannot hold, and the lint is therefore
+red for every wave from the moment it converts until the coordinator removes its lines. Worth
+reconciling before "lint family green" is used as Phase A's exit gate.
