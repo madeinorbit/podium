@@ -657,6 +657,7 @@
         "src/store/observation-checkpoints.ts",
         "src/store/quota-history.test.ts",
         "src/store/quota-history.ts",
+        "src/store/read-watermarks.test.ts",
         "src/store/read-watermarks.ts",
         "src/store/repos-read-cost.test.ts",
         "src/store/repos-registry-golden.test.ts",
