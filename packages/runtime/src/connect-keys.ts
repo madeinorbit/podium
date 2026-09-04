@@ -11,5 +11,6 @@
  * https://connect.meetpodium.com/.well-known/podium-connect.
  */
 export const PODIUM_CONNECT_PROBE_KEYS: readonly string[] = [
-  // Pinned when the first cloud key is minted (podium-cloud PDM-51, Task 12).
+  // Minted 2026-09-04 for connect.meetpodium.com (podium-cloud PDM-51).
+  'ed25519:1NeWuL0xCi9ix9Ci1hHv-3yHfVt2EMU327bnsF6MyCE',
 ]
