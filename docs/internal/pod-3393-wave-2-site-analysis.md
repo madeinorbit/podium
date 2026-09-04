@@ -745,3 +745,67 @@ empty in the case where nothing was restored AND the paths happened to be unmodi
 complement is a POSITIVE marker: grep the built arm for one token that exists only in the treatment
 and require it ABSENT. Here that token is `SyncQueries` in `users.ts`. Same cost, and it fails loudly
 in the case where the arm was never applied at all.
+
+## 12. Rule 43 — explicit null versus omission. A CHECKED NEGATIVE for wave 2
+
+A drizzle insert names every column the schema knows and binds `null` for the ones the caller did not
+supply. An explicit null is not an omission: it defeats the DEFAULT clause. On a NOT NULL column with
+a default the write throws; on a NULLABLE column with a default it silently stores null where the
+original stored the default — no error, wrong value, no test to show it.
+
+### 12.1 The defaults, from the shipped tables
+
+`PRAGMA table_info` on the migrated database, not `schema.ts`. Seven tables, **two** defaulted columns
+in total:
+
+| Table | Columns | With a DEFAULT |
+| --- | --- | --- |
+| `users` | 5 | none |
+| `user_credentials` | 4 | none |
+| `grants` | 10 | none |
+| `user_layout` | 4 | none |
+| `meta` | 2 | none |
+| `approval_requests` | 11 | `status DEFAULT 'pending' NOT NULL` |
+| `client_sessions` | 10 | `label DEFAULT 'login' NOT NULL` |
+
+### 12.2 Both instances, resolved
+
+**`approval_requests.status`** — the ORIGINAL did not rely on the default either. It named the column
+with a literal: `INSERT INTO approval_requests (id, machine_id, session_id, issue_id, op_json,
+status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)`. The conversion passes `status: 'pending'`.
+The DEFAULT clause plays no part on either arm, so there is nothing for an explicit null to defeat.
+
+**`client_sessions.label`** — on the statement that did NOT convert (`auth.createClientSession`,
+`// DECISION POD-3403`). It is still the hand-written `INSERT OR REPLACE` naming all ten columns, and
+the method defaults the parameter in TypeScript (`label = 'login'`), so a null cannot reach the
+column. Unchanged by this wave in either direction. This is the same column §9.4 found from the other
+direction, when checking how OR REPLACE and DO UPDATE differ on a NOT NULL violation.
+
+### 12.3 The stronger property: no original omitted anything
+
+Rule 43's hazard needs a column the original OMITTED and the conversion now names. Wave 2 has none —
+every hand-written insert in the six files named every column of its target table, checked against
+the base:
+
+    users              (id, display_name, role, created_at, disabled_at)   5 of 5, disabled_at a literal NULL
+    user_credentials   (user_id, source, password_hash, updated_at)        4 of 4, twice
+    grants             all 10                                             10 of 10
+    approval_requests  (id, machine_id, session_id, issue_id, op_json, status, created_at)  7 named
+    user_layout        (user_id, key, value, updated_at)                   4 of 4, twice
+    meta               (key, value)                                        2 of 2, twice
+
+So the conversion adds a named column in exactly one place — `approval_requests`, where drizzle also
+names `actor`, `on_behalf_of`, `decided_at` and `result_text` as explicit nulls. All four are NULLABLE
+with **no default**, so an explicit null stores precisely what omission would have stored. That is the
+benign half of rule 43 and it is the only place the mechanism fires here.
+
+`users.create` keeps the original's hardcoded `NULL` for `disabled_at` (`disabledAt: null`, not
+`account.disabledAt`) — worth stating because the caller's row carries a `disabledAt` field that the
+original deliberately ignored, and passing it through would have been the natural-looking mistake.
+
+### 12.4 A note on reading §9.5's printed SQL
+
+The printed `grants.upsert` and `approvals.insert` statements show `null` literals in their VALUES
+lists. Those come from the PROBE's partial fixture, not from the code: `grants.upsert` supplies all
+ten columns from its `GrantRow` and `approvals.insert` supplies its seven. Checked by reading both
+method bodies against the base rather than by re-reading the printed statement.
