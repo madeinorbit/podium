@@ -54,6 +54,7 @@ import {
   startDaemon,
 } from './daemon'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { parseBackendArg } from './durable-backend'
 import {
   codexAppServerVersionProbe,
   resetCodexAppServerVersionProbe,
@@ -1793,6 +1794,21 @@ describe('durable backend resolution', () => {
   it('prefers abduco, then none', () => {
     expect(resolveDurableBackend({}, available)).toBe('abduco')
     expect(resolveDurableBackend({}, neither)).toBe('none')
+  })
+
+  it('SPEC-6: prefers the host when it can be built, and PODIUM_DURABLE_BACKEND overrides the probe', () => {
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, {})).toBe('host')
+    expect(resolveDurableBackend({}, { host: false, abduco: true }, {})).toBe('abduco')
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'abduco' })).toBe('abduco')
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'none' })).toBe('none')
+    // A misspelt value is ignored (and warned about), not silently taken as none.
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'tmux' })).toBe('host')
+    // An explicit option outranks the environment.
+    expect(resolveDurableBackend({ backend: 'abduco' }, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'host' })).toBe('abduco')
+    expect(parseBackendArg(['--backend', 'host'])).toBe('host')
+    expect(parseBackendArg(['--backend=none'])).toBe('none')
+    expect(parseBackendArg(['--port', '1'])).toBeUndefined()
+    expect(() => parseBackendArg(['--backend', 'screen'])).toThrow(/--backend/)
   })
 
   it('an explicit backend wins (operator intent, even over availability probes)', () => {

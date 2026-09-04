@@ -10,7 +10,7 @@ const BACKENDS: readonly DurableBackend[] = ['host', 'abduco', 'none']
 export function noDurableBackendWarning(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32'
     ? 'windows: sessions run on ConPTY without a durable host — they will not survive a daemon restart'
-    : 'neither podium-host nor abduco could be obtained — sessions will not survive a daemon restart'
+    : 'podium-host and abduco not found — sessions will not survive a daemon restart'
 }
 
 export function isDurableBackend(value: string | undefined): value is DurableBackend {

@@ -429,7 +429,7 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
     await new Promise<void>((r) => raw.once('connect', r))
     const decode = createHostFrameDecoder()
     const got: number[] = []
-    raw.on('data', (d) => {
+    raw.on('data', (d: Buffer) => {
       for (const f of decode(d)) got.push(f.type)
     })
     const hello = encodeHello('reader', HOST_TAIL)
