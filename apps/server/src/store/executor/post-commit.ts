@@ -38,19 +38,51 @@ import { PostCommitError, StoreUnhealthyError } from './errors'
 
 export type PostCommitStep = () => void | Promise<void>
 
+/**
+ * The liveness of ONE registration, handed back so a staged value can ask
+ * whether the unit of work that staged it is still going to commit [POD-3364].
+ *
+ * Declared here rather than imported from `@podium/sync`'s `CommitRegistration`
+ * — which it satisfies structurally — because the store executor does not
+ * depend on the sync kernel and this issue is not the place to start.
+ */
+export interface CommitRegistration {
+  /** Will this step still run? False once its registry was discarded. */
+  live(): boolean
+}
+
+/** Push one step and hand back the handle its liveness is read through. */
+function register(
+  into: RegisteredStep[],
+  step: PostCommitStep,
+  label: string,
+): CommitRegistration {
+  const entry: RegisteredStep = { step, label, alive: true }
+  into.push(entry)
+  return { live: () => entry.alive }
+}
+
 interface RegisteredStep {
   readonly step: PostCommitStep
   readonly label: string
+  /**
+   * Cleared by {@link PostCommitRegistry.discard}, which is the ROLLBACK path
+   * and only that: {@link PostCommitRegistry.mergeInto} moves the same objects
+   * into the parent and leaves them alive. That difference is the whole content
+   * of the handle a caller pulls on — see `CommitRegistration` in
+   * packages/sync's `ports.ts` [POD-3364].
+   */
+  alive: boolean
 }
 
 /** What a body sees. Obtained from the ambient scope with `postCommit()`. */
 export interface PostCommitRegistrar {
   /** Mechanism 1: ordered, not skippable, an invariant. */
-  applyCommit(step: PostCommitStep, label?: string): void
+  applyCommit(step: PostCommitStep, label?: string): CommitRegistration
   /** Mechanism 2: a durable write the outer promise waits for. */
-  followUp(step: PostCommitStep, label?: string): void
+  followUp(step: PostCommitStep, label?: string): CommitRegistration
   /** Mechanism 3: an external effect, isolated and not waited for. */
-  effect(step: PostCommitStep, label?: string): void
+  effect(step: PostCommitStep, label?: string): CommitRegistration
 }
 
 /**
@@ -63,16 +95,16 @@ export class PostCommitRegistry implements PostCommitRegistrar {
   readonly followUps: RegisteredStep[] = []
   readonly effects: RegisteredStep[] = []
 
-  applyCommit(step: PostCommitStep, label = 'commit-application'): void {
-    this.commitApplications.push({ step, label })
+  applyCommit(step: PostCommitStep, label = 'commit-application'): CommitRegistration {
+    return register(this.commitApplications, step, label)
   }
 
-  followUp(step: PostCommitStep, label = 'follow-up'): void {
-    this.followUps.push({ step, label })
+  followUp(step: PostCommitStep, label = 'follow-up'): CommitRegistration {
+    return register(this.followUps, step, label)
   }
 
-  effect(step: PostCommitStep, label = 'effect'): void {
-    this.effects.push({ step, label })
+  effect(step: PostCommitStep, label = 'effect'): CommitRegistration {
+    return register(this.effects, step, label)
   }
 
   get empty(): boolean {
@@ -83,14 +115,33 @@ export class PostCommitRegistry implements PostCommitRegistrar {
     )
   }
 
+  /**
+   * A savepoint RELEASED: the same step objects move up, still alive, because
+   * they are still going to run — whoever actually commits will run them. It
+   * must NOT go through {@link discard}, which is the rollback path and kills
+   * the handles a staged value reads [POD-3364].
+   */
   mergeInto(parent: PostCommitRegistry): void {
     parent.commitApplications.push(...this.commitApplications)
     parent.followUps.push(...this.followUps)
     parent.effects.push(...this.effects)
-    this.discard()
+    this.clear()
   }
 
+  /**
+   * A rollback: the steps are thrown away AND their handles are killed, so a
+   * staged value whose promotion just died finds that out by asking rather than
+   * by being told [POD-3364].
+   */
   discard(): void {
+    for (const entry of this.commitApplications) entry.alive = false
+    for (const entry of this.followUps) entry.alive = false
+    for (const entry of this.effects) entry.alive = false
+    this.clear()
+  }
+
+  /** Empty the lists without touching liveness. */
+  private clear(): void {
     this.commitApplications.length = 0
     this.followUps.length = 0
     this.effects.length = 0

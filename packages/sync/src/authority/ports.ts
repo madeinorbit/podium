@@ -134,11 +134,45 @@ export type PostCommitEffectPort = (step: () => void, label: string) => void
  * commit is a savepoint release, the rows are not durable yet, and the fold
  * waits for `onCommit`.
  */
+/**
+ * THE LIVENESS OF ONE REGISTRATION — what `spanOpen()` alone cannot answer
+ * [POD-3364].
+ *
+ * `spanOpen()` answers "is ANY write span open", which is top-level
+ * granularity. A MIDDLE span that rolls back inside a committing outer one
+ * never makes it answer false, so what that span staged used to survive in the
+ * pending layer and shadow every read for the rest of the outer span.
+ *
+ * This is the same fact at FRAME granularity, and it is a PULL, not a report: a
+ * registration is dead because the unit of work that made it discarded its
+ * registry, and the reader finds that out by asking. Nothing has to REMEMBER to
+ * announce a rollback, which is the asymmetry POD-3328 established and this
+ * keeps — the handle is killed by the same `discard()` that already throws the
+ * step away, on the unwind path that cannot be skipped.
+ *
+ * WHY NOT FRAME IDENTITY, which is the obvious shape: a savepoint that RELEASES
+ * closes its frame exactly as one that rolls back does, and its staged work is
+ * still legitimately pending in the parent's registry. "Which frame staged
+ * this" cannot separate those two; "is my registration still going to run" can,
+ * because release MOVES it and rollback DROPS it.
+ */
+export interface CommitRegistration {
+  /**
+   * Will this step still run? False once the unit of work that registered it
+   * rolled back — including a nested one whose enclosing span carries on.
+   */
+  live(): boolean
+}
+
 export interface BaselineFoldPort {
   /** Is an enclosing unit of work open whose commit the fold must wait for? */
   spanOpen(): boolean
-  /** Register a commit application to run after the OUTERMOST commit. */
-  onCommit(step: () => void, label: string): void
+  /**
+   * Register a commit application to run after the OUTERMOST commit, and hand
+   * back {@link CommitRegistration} so a staged value can ask whether the unit
+   * of work that staged it is still going to commit.
+   */
+  onCommit(step: () => void, label: string): CommitRegistration
 }
 
 /**

@@ -42,7 +42,7 @@ import {
   type TransactionFrame,
 } from './context'
 import { PostCommitError, StoreUnhealthyError } from './errors'
-import { PostCommitRegistry, type PostCommitStep } from './post-commit'
+import { type CommitRegistration, PostCommitRegistry, type PostCommitStep } from './post-commit'
 import type { Lease } from './scheduler'
 
 const log = createLogger('server:store')
@@ -355,7 +355,7 @@ export function spanOpen(): boolean {
  * happened; a caller with no span open has no commit to hang one off, and
  * {@link spanOpen} is how it finds that out before it stages the work.
  */
-export function applyAfterCommit(step: PostCommitStep, label: string): void {
+export function applyAfterCommit(step: PostCommitStep, label: string): CommitRegistration {
   const scope = currentScope()
   if (!spanOpen() || scope.kind !== 'transaction') {
     throw new Error(
@@ -363,7 +363,10 @@ export function applyAfterCommit(step: PostCommitStep, label: string): void {
         'nothing for it to follow (POD-3328).',
     )
   }
-  scope.frame.postCommit.applyCommit(step, label)
+  // The handle is what lets a staged value see a MIDDLE span's rollback while
+  // the outer span carries on: `spanOpen()` still answers true there, and only
+  // this registration knows its own registry was discarded [POD-3364].
+  return scope.frame.postCommit.applyCommit(step, label)
 }
 
 /** `assertAddressable` as a predicate: is this frame still the one to register on? */

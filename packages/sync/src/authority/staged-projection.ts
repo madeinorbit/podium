@@ -32,6 +32,32 @@
  * caught exception. A version that reintroduced a must-not-forget obligation
  * would be worse than the bug it fixes.
  *
+ * THE RULE HAS TWO HALVES, AND THE SECOND ONE IS WHY POD-3364 EXISTS. "No span
+ * is open" is TOP-LEVEL granularity, and it leaves a gap one frame down: a
+ * MIDDLE span that rolls back inside a committing outer one never makes
+ * `spanOpen()` answer false, so what it staged used to survive in the pending
+ * layer and shadow every read for the rest of the outer span. Nothing incorrect
+ * was ever made durable — the promotion died with the inner registry — but a
+ * dedup reading in that window decided against rows the database had thrown
+ * away.
+ *
+ * So a staged entry also carries its `CommitRegistration`, and freshen drops it
+ * when that registration is dead. This is the SAME asymmetry at frame
+ * granularity, not a fourth mechanism: the handle is killed by the same
+ * `discard()` that already throws the step away, on an unwind path that cannot
+ * be skipped, and the reader ASKS rather than being told. Nothing new has to
+ * remember anything.
+ *
+ * WHY NOT FRAME IDENTITY, which is the obvious shape and the one to reach for
+ * first: a savepoint that RELEASES closes its frame exactly as one that rolls
+ * back does, and its staged work is still legitimately pending in the parent's
+ * registry. "Which frame staged this" cannot separate the two. "Is my
+ * registration still going to run" can, because release MOVES it and rollback
+ * DROPS it — which is why `PostCommitRegistry.mergeInto` must not go through
+ * `discard`. The test "still shows a read what a RELEASED nested span staged"
+ * is that half, and it is the only thing standing between this and a fix that
+ * trades one bug for a lost update.
+ *
  * ---------------------------------------------------------------------------
  * THE PROMOTION CLOSES OVER ITS VALUE. THIS IS THE RULE, NOT A DETAIL.
  * ---------------------------------------------------------------------------
@@ -59,12 +85,28 @@
  * ONLY that test, with "expected 'before' to be 'after'": the install silently
  * lost. Do not delete it as redundant; it is the only thing standing between
  * this class and the bug it was written to end.
+ *
+ * POD-3364 DID NOT CHANGE WHAT M5 PINS. The promotion still closes over its
+ * value; the registration is read at FRESHEN time, never at drain time, so the
+ * drain-order argument above is untouched. The staged entry gained a field and
+ * the registration is taken BEFORE the entry is stored, which is the only
+ * ordering the new field imposes.
+ *
+ * The frame-granular half has its own mutants, and each kills one named test:
+ * dropping `registration.live()` from `StagedProjection.freshen` reds only
+ * "does not shadow a read with a value a MIDDLE span rolled back"
+ * ("expected 'after' to be 'before'"); dropping it from
+ * {@link StagedOverlay.freshen} reds the three keyed cases and the memo case;
+ * and omitting the `version_` bump on a drop reds ONLY
+ * "moves the version when a dead entry is dropped, so a memo rebuilds"
+ * ("expected [ 'a' ] to deeply equal []"), because a holder that memoises would
+ * otherwise keep serving the dropped row.
  */
 
-import type { BaselineFoldPort } from './ports'
+import type { BaselineFoldPort, CommitRegistration } from './ports'
 
 export class StagedProjection<S> {
-  private staged: { token: number; value: S } | undefined
+  private staged: { token: number; value: S; registration: CommitRegistration } | undefined
   private nextToken = 0
 
   /**
@@ -125,11 +167,13 @@ export class StagedProjection<S> {
       return
     }
     const token = ++this.nextToken
-    this.staged = { token, value }
-    this.fold.onCommit(() => {
+    // Registered FIRST, because the entry holds the handle its own liveness is
+    // read through [POD-3364].
+    const registration = this.fold.onCommit(() => {
       this.committed = value
       if (this.staged?.token === token) this.staged = undefined
     }, this.label)
+    this.staged = { token, value, registration }
   }
 
   /** Install a value derived from what a reader would see right now. */
@@ -138,9 +182,10 @@ export class StagedProjection<S> {
   }
 
   /** Drop what a rolled-back span left staged. See {@link StagedOverlay.freshen}
-   *  for the timing this cannot take off the caller. */
+   *  for both halves of the rule and for what each one alone cannot see. */
   private freshen(): void {
-    if (this.staged && !this.fold?.spanOpen()) this.staged = undefined
+    if (!this.staged) return
+    if (!this.fold?.spanOpen() || !this.staged.registration.live()) this.staged = undefined
   }
 }
 
@@ -176,7 +221,9 @@ export class StagedProjection<S> {
  * its entries rather than reading them back at drain time.
  */
 export class StagedOverlay<K, V> {
-  private staged: Map<K, { token: number; value: V | undefined }> | undefined
+  private staged:
+    | Map<K, { token: number; value: V | undefined; registration: CommitRegistration }>
+    | undefined
   private nextToken = 0
   private version_ = 0
 
@@ -256,12 +303,14 @@ export class StagedOverlay<K, V> {
       return
     }
     const token = ++this.nextToken
-    const staged = (this.staged ??= new Map())
-    for (const [key, value] of batch) staged.set(key, { token, value })
-    this.version_++
+    // Registered FIRST, because every entry in the batch holds the handle its
+    // own liveness is read through [POD-3364]. One batch, one registration: the
+    // rows of a single commit promote together or not at all, so they die
+    // together too.
+    //
     // CLOSES OVER `batch`. See the rule in this module's header: reading the
     // staged slot back here is the lost-write both hand-rolled layers had.
-    this.fold.onCommit(() => {
+    const registration = this.fold.onCommit(() => {
       for (const [key, value] of batch) {
         this.commit(key, value)
         const entry = this.staged?.get(key)
@@ -270,40 +319,62 @@ export class StagedOverlay<K, V> {
       if (this.staged?.size === 0) this.staged = undefined
       this.version_++
     }, this.label)
+    const staged = (this.staged ??= new Map())
+    for (const [key, value] of batch) staged.set(key, { token, value, registration })
+    this.version_++
   }
 
   /**
-   * Drop what a rolled-back span left staged. See the asymmetry above.
+   * Drop what a rolled-back span left staged. See the asymmetry above, BOTH
+   * halves: no span open at all, and — one frame down — a registration whose
+   * own unit of work rolled back while an outer span carries on [POD-3364].
    *
-   * PUBLIC, AND THE TIMING IS THE CALLER'S TO GET RIGHT — which is the one thing
-   * this class cannot take off them [POD-3366]. `spanOpen()` answers "is ANY
-   * write span open", not "is the span that staged this still open", so a
-   * caller whose own next act is to OPEN a span must ask before it does. Read
-   * lazily from inside that new span the answer is `true` and the orphans
-   * survive, which is a stale overlay serving rows a rollback threw away.
+   * PUBLIC, because a holder may want to ask on the way IN rather than lazily.
+   * It used to be the caller's job to get that timing right and it no longer
+   * is, which is worth stating because the reasoning is recorded above it:
    *
-   * I learned that by deleting `Authority.freshen()` during this retrofit,
-   * believing the lazy call was equivalent. POD-3328's own test said otherwise
-   * — "leaves a baseline that still dedups correctly after the rollback",
-   * `expected [] to deeply equal [ { id: 'c-rolled-back' } ]` — because the
-   * second commit opens its own transaction before it reads. The comment I had
-   * deleted said exactly this, and it was right.
+   * `spanOpen()` alone answers "is ANY write span open", not "is the span that
+   * staged this still open", so a caller whose own next act was to OPEN a span
+   * had to ask BEFORE it did. Read lazily from inside that new span the answer
+   * was `true` and the orphans survived, which was a stale overlay serving rows
+   * a rollback threw away. POD-3366 learned that by deleting
+   * `Authority.freshen()` during its retrofit and watching POD-3328's own test
+   * fail — "leaves a baseline that still dedups correctly after the rollback",
+   * `expected [] to deeply equal [ { id: 'c-rolled-back' } ]`.
    *
-   * A SPAN IDENTITY ON THE PORT WOULD REMOVE THE TIMING ENTIRELY — an overlay
-   * that knew which unit of work staged its entries could not mistake a new span
-   * for its own. I built that, and then could not make it earn its place: with
-   * the identity disabled every test still passed, because both holders happen
-   * to read their map BEFORE opening a span (`persistWith` takes its draft pin
-   * first, `Authority.commit` freshens first), so the boolean is never asked at
-   * the dangerous moment. An unexercised mechanism in a kernel port looks like
-   * coverage and is not, so it came back out and the hazard is FILED with the
-   * reasoning instead. Reinstate it when a holder without a pre-span read
-   * appears — that is the caller this cannot survive.
+   * A dead registration is dead in ANY span, so that orphan now goes on the
+   * next read wherever it happens, and the pre-span call is defence in depth
+   * rather than the only thing holding the invariant. The test
+   * "drops an orphan read lazily from inside a LATER span (the POD-3366
+   * hazard)" pins it; it fails on the pre-POD-3364 tree.
+   *
+   * POD-3366 ALSO BUILT A SPAN IDENTITY ON THE PORT for this and took it back
+   * out, because with the identity disabled every test still passed: both
+   * holders happen to read their map BEFORE opening a span, so the boolean was
+   * never asked at the dangerous moment, and an unexercised mechanism in a
+   * kernel port looks like coverage and is not. That judgement was right for
+   * what it had. What POD-3364 adds is not identity but LIVENESS, and it is
+   * exercised — remove either half and a named test reds.
    */
   freshen(): void {
     if (!this.staged) return
-    if (this.fold?.spanOpen()) return
-    this.staged = undefined
+    if (!this.fold?.spanOpen()) {
+      this.staged = undefined
+      this.version_++
+      return
+    }
+    // FRAME GRANULARITY [POD-3364]. A span IS open, so the top-level rule above
+    // has nothing to say — but it may be an OUTER span that is still going to
+    // commit while the middle span that staged these entries rolled back. Only
+    // the registration knows that, and it is asked, never told.
+    let dropped = false
+    for (const [key, entry] of this.staged) {
+      if (entry.registration.live()) continue
+      this.staged.delete(key)
+      dropped = true
+    }
+    if (!dropped) return
+    if (this.staged.size === 0) this.staged = undefined
     this.version_++
   }
 }
