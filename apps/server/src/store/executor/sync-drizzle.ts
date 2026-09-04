@@ -79,6 +79,23 @@ export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle | undefined 
  * Routing through the store's port keeps the call site's SHAPE the same across the
  * flip, which is the property that makes a wave's commit survive B1 unedited.
  */
+/**
+ * WHAT A REPOSITORY IS HANDED: a query builder and a transaction, together.
+ *
+ * The pair is one object because they are one capability — a repository that can
+ * query can also open a span, and splitting them into two constructor parameters
+ * made `store.ts` read as if it were handing over a bare handle.
+ *
+ * `transact` is NOT a method on the drizzle instance, and that is deliberate
+ * twice over. Drizzle's own `db.transaction()` exists on this driver, but it opens
+ * a span the EXECUTOR does not know about — lane selection and the post-commit
+ * mechanisms would not see it, and the span lint's opener list is by name. And
+ * wrapping drizzle to add a method would mean re-exposing its whole builder
+ * surface, which is the query-DSL we decided (POD-3242) not to own.
+ *
+ * THE ASYNC PAIR SATISFIES THIS SAME SHAPE, so the flip swaps what fills it and
+ * leaves every construction site alone.
+ */
 export interface SyncQueries {
   /** The synchronous drizzle instance a repository queries through. */
   readonly db: SyncDrizzle

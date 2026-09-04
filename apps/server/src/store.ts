@@ -123,7 +123,7 @@ export class SessionStore {
    */
   private readonly executor: RootStoreExecutor<QueryClient>
   /** The synchronous query capability, handed to converted repositories. */
-  private readonly syncQueries: NonNullable<RootStoreExecutor<QueryClient>['syncQueries']>
+  private readonly queries: NonNullable<RootStoreExecutor<QueryClient>['syncQueries']>
   /**
    * The store's per-table write announcement (POD-3247).
    *
@@ -282,13 +282,14 @@ export class SessionStore {
 
     /**
      * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
-     * converted repository takes `sync.db` — and `sync.transact` where it opens a
-     * transaction — in the constructor slot its `SqlDatabase` occupied, so it
-     * carries no branch for a case its own constructor cannot produce and no
-     * repository names the executor at all.
+     * converted repository takes THIS OBJECT in the constructor slot its
+     * `SqlDatabase` occupied — `{ db, transact }` together, because they are one
+     * capability — so it carries no branch for a case its own constructor cannot
+     * produce and no repository names the executor at all.
      *
-     * B1 passes the ASYNCHRONOUS pair here instead; the repositories' query bodies
-     * do not change, only their signatures.
+     * B1 fills this same field from the ASYNCHRONOUS pair. The construction sites
+     * below do not change and the repositories' query bodies do not change; only
+     * their signatures gain `async` and their calls gain `await`.
      *
      * Absent only on a non-bun handle. Every path that builds a SessionStore is
      * bun-backed; the restore path builds its own executor and does not come here.
@@ -300,7 +301,7 @@ export class SessionStore {
           'bun-backed, so converted repositories cannot be constructed (POD-3221 rule 27b).',
       )
     }
-    this.syncQueries = sync
+    this.queries = sync
 
     // Compose the per-aggregate repositories. The three cross-aggregate edges are
     // injected as late-bound lambdas, bound WITHIN the set being built: sessions
