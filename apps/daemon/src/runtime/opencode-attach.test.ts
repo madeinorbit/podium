@@ -1578,3 +1578,54 @@ describe('opening a client terminal is what records an applied size', () => {
     expect(appliedGeometry.applied(SESSION)).toBeUndefined()
   })
 })
+
+describe('under backend=host the client terminal lives in the host, not abduco (SPEC-6)', () => {
+  it('spawn, the master probe and reclaim all go to the daemon durable object', async () => {
+    const calls: string[] = []
+    const client = fakeClient()
+    const hostAdapter = {
+      kind: 'host' as const,
+      spawn: async (o: { label: string }) => {
+        calls.push(`spawn:host:${o.label}`)
+        return client
+      },
+      attach: async () => {
+        throw new Error('not used')
+      },
+      has: async () => true,
+      kill: async (label: string) => {
+        calls.push(`kill:host:${label}`)
+      },
+      list: async () => [],
+      socketPath: async () => undefined,
+      waitForSocket: async () => '',
+      hasMasterSync: (label: string) => {
+        calls.push(`probe:host:${label}`)
+        return true
+      },
+      attachCommand: (t: string) => `podium-host attach ${t}`,
+    }
+    const durable = {
+      backend: 'host' as const,
+      primary: hostAdapter,
+      all: [hostAdapter],
+      spawn: hostAdapter.spawn,
+      locate: async () => undefined,
+      has: hostAdapter.has,
+      kill: hostAdapter.kill,
+      list: hostAdapter.list,
+      hasMasterSync: hostAdapter.hasMasterSync,
+    }
+    const terminals = createOpencodeClientTerminals({
+      durable,
+      frames: () => {},
+      setTimer: () => 1,
+      clearTimer: () => {},
+    })
+    await terminals.attach({ sessionId: SESSION, target })
+    await terminals.close(SESSION) // a live record is reclaimed without a probe
+    terminals.adopt(SESSION) // an adoption holds no session and probes by label
+    const label = opencodeAttachLabel(SESSION)
+    expect(calls).toEqual([`spawn:host:${label}`, `kill:host:${label}`, `probe:host:${label}`])
+  })
+})

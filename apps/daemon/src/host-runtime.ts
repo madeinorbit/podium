@@ -909,14 +909,7 @@ export async function createDaemonHostRuntime(args: {
     // The client terminal is a durable session like any other: it lives under
     // whichever host this daemon selected, and is found/reclaimed through the
     // same object (SPEC-6).
-    ...(durable
-      ? {
-          spawn: (opts) => durable.spawn(opts),
-          reclaim: (label) => durable.kill(label),
-          hasMaster: (label) =>
-            durable.hasMasterSync(label, homeDir ? { ...process.env, HOME: homeDir } : process.env),
-        }
-      : {}),
+    ...(durable ? { durable } : {}),
   })
   ctx.clientTerminals = clientTerminals
 

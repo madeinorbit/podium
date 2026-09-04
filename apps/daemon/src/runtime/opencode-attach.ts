@@ -116,14 +116,9 @@ import {
 import { createLogger } from '@podium/logger'
 import type { Geometry, SessionId } from '@podium/model'
 import type { BuiltinHarnessKind } from '@podium/protocol'
-import {
-  type AbducoSpawnOptions,
-  type AgentSession,
-  abducoSocketPath,
-  killAbducoSession,
-  spawnAbducoAgent,
-} from '@podium/pty'
+import type { AbducoSpawnOptions, AgentSession } from '@podium/pty'
 import type { AppliedGeometryRecord } from '../control/applied-geometry'
+import { createDurable, type Durable } from '../control/durable'
 import {
   harnessChildStripEnv,
   harnessCompatEnv,
@@ -325,7 +320,15 @@ export interface OpencodeClientTerminalPorts {
   instanceUuid?: string
   /** Current machine command environment used to resolve the client executable. */
   commandEnvironment?: () => Promise<HarnessEnvironment>
-  /** Injection seams. The defaults are the real abduco. */
+  /**
+   * The daemon's durable host (SPEC-6). The three seams below default to IT —
+   * spawn on the selected backend, reclaim and the master probe across every
+   * adapter — so a client terminal under `backend=host` is created, found and
+   * reclaimed in the host's directory, not abduco's. Absent (older tests), the
+   * defaults are abduco alone.
+   */
+  durable?: Durable
+  /** Injection seams over `durable`. */
   spawn?(opts: AbducoSpawnOptions): Promise<AgentSession>
   reclaim?(label: string): Promise<void>
   /**
@@ -399,8 +402,9 @@ interface Attachment {
 export function createOpencodeClientTerminals(
   ports: OpencodeClientTerminalPorts,
 ): OpencodeClientTerminals {
-  const spawn = ports.spawn ?? spawnAbducoAgent
-  const reclaim = ports.reclaim ?? ((label: string) => killAbducoSession(label))
+  const durable = ports.durable ?? createDurable('abduco', { host: false, abduco: true })
+  const spawn = ports.spawn ?? ((opts: AbducoSpawnOptions) => durable.spawn(opts))
+  const reclaim = ports.reclaim ?? ((label: string) => durable.kill(label))
   /**
    * THE PROBE MUST LOOK WHERE THE SPAWN PUT IT (POD-2761).
    *
@@ -428,10 +432,10 @@ export function createOpencodeClientTerminals(
   const hasMaster =
     ports.hasMaster ??
     ((label: string) =>
-      abducoSocketPath(
+      durable.hasMasterSync(
         label,
         ports.homeDir ? { ...process.env, HOME: ports.homeDir } : process.env,
-      ) !== undefined)
+      ))
   const geometry = ports.geometry ?? DEFAULT_GEOMETRY
   const warmTtlMs = ports.warmTtlMs ?? WARM_TTL_MS
   const setTimer =
