@@ -1211,7 +1211,17 @@ const DRIZZLE_SPECIFIER = /^drizzle-orm(?:\/|$)/
 const STORE_BOUNDARY_DECISION_MARKER = /\/\/\s*DECISION POD-\d+/
 
 /** `.prepare(` — a prepared statement is a raw handle by definition. */
-const PREPARE_CALL = /\.\s*prepare\s*\(/
+// THE DISCRIMINATOR IS THE ARGUMENT, not the method — the same rule rule 1 uses
+// for `.all(sql`…`)` two definitions down. A raw connection prepare ALWAYS takes
+// the SQL: `database.prepare('SELECT …')`. Drizzle's builder prepare takes
+// NOTHING: `db.insert(t).values({…}).prepare()`. Matching `.prepare(` lexically
+// flagged the second, which is the FIX for POD-3419's row-loop cost — a hoisted
+// prepared statement is the thing that removes 98% of the per-call builder
+// overhead, so the rule was refusing the remedy. POD-3419 reported it rather than
+// marking it or moving the code, which is why this is a rule fix and not an
+// exemption. Verified: the empty-paren form appears in exactly one file in the
+// tree, and every raw prepare opens with a quote or a template.
+const PREPARE_CALL = /\.\s*prepare\s*\(\s*[^)\s]/
 
 /**
  * A WHOLE raw statement handed to one of drizzle's four raw-execution methods.
