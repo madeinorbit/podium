@@ -279,7 +279,7 @@ export function userRuntimeDir(): string | undefined {
 }
 
 /** Env for systemd-run/systemctl `--user` calls: they locate the user bus via XDG_RUNTIME_DIR. */
-function scopeEnv(base: NodeJS.ProcessEnv): Record<string, string> {
+export function scopeEnv(base: NodeJS.ProcessEnv): Record<string, string> {
   const dir = userRuntimeDir()
   return { ...base, ...(dir ? { XDG_RUNTIME_DIR: dir } : {}) } as Record<string, string>
 }
@@ -420,7 +420,7 @@ export function parseAbducoList(output: string): AbducoSessionEntry[] {
  * list) and would also miss any runtime env change in production. Always pass
  * the live map. [spec:SP-3f93]
  */
-function liveEnv(): NodeJS.ProcessEnv {
+export function liveEnv(): NodeJS.ProcessEnv {
   return { ...process.env }
 }
 
@@ -945,7 +945,11 @@ export interface AbducoSpawnOptions {
  * which inherits this fd, and waiting for pipe EOF would
  * block the create call until the whole agent session exited.
  */
-async function execCreate(file: string, args: string[], options: SpawnOptions): Promise<void> {
+export async function execCreate(
+  file: string,
+  args: string[],
+  options: SpawnOptions,
+): Promise<void> {
   const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-err-'))
   const errPath = join(dir, 'stderr')
   const fd = openSync(errPath, 'w')
