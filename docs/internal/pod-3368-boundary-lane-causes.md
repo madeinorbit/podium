@@ -19,6 +19,24 @@ The baseline arm is a detached worktree at `7b0d7924c` with its own `bun install
 config. Both arms produced a machine-readable failure list; the gate below is a set difference on
 failing test NAMES, not on counts.
 
+## How many of the 67 are ours: TWO
+
+**2 of 67 are the epic's. 65 are not.** That split is measured, not argued: it is the set
+difference below, computed on failing test NAMES between HEAD and baseline `7b0d7924c`. Every one
+of the other 65 fails on the baseline arm too.
+
+The 65 break down as 61 with a named introducing commit that `git merge-base --is-ancestor` places
+on `origin/dev/mw`, and 4 (causes 12–15) whose introducing commit I did not isolate — but those 4
+are still demonstrably not ours, because they appear in the baseline arm's failure set.
+
+The two that are ours are causes 16 and 17, both from `72d2b4718` (POD-3259). The coordinator
+verified this independently: `apps/server/src/issues.test.ts` runs 309 passed / 0 failed at
+`72d2b4718^` and 2 failed / 307 passed at the tip.
+
+**They are owned by POD-3373**, which is already started — not by POD-3259 (closed) and not by
+POD-3330 (that is the SESSION half of the draft model; these are the ISSUE half). Nobody should fix
+them ahead of POD-3373 reporting whether they share a root with POD-3330.
+
 ## The gate: the count is stable, the SET is not
 
 ```
@@ -205,6 +223,10 @@ thrown from `upsertIssue` under `workflow.ts` `start()`. The precondition is new
 the interleaving it detects is real, and under the old model the write silently overwrote. The
 regression is that a path which used to succeed now throws. It rolls back rather than corrupting,
 which is why I continued rather than stopping — but it is a write refusal in a core path.
+The coordinator has sharpened this: the user-visible effect is that starting an agent on such an
+issue **fails outright**. That is worse than a lost write in one respect — it is total rather than
+silent. The precondition is doing exactly what it was added to do; the question POD-3373 has to
+answer is why two revisions diverge on that path, not how to stop the guard firing.
 
 ## The remaining four (12, 13, 14, 15)
 
@@ -224,4 +246,5 @@ Two single-edit fixes, both listed in the commit message, together removing 10 f
   (cause 6, −1), after verifying the two assertions it unblocks pass.
 
 Nothing else in the lane was touched. Every other cause is filed as a sub-issue under POD-3221 with
-the diagnosis in its brief.
+the diagnosis in its brief. Causes 16 and 17 were filed as POD-3381 before the coordinator ruled on
+ownership; **POD-3373 owns them** and POD-3381 has been marked a duplicate of it.
