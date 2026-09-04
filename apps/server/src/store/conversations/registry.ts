@@ -2,11 +2,20 @@ import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
 import { and, eq, inArray, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
-import type { SyncDrizzle } from '../executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from '../executor/sync-drizzle'
 
 /** Stable Podium identities and the machine-native artifacts that evidence them. */
 export class ConversationRegistryRepository {
-  constructor(private readonly db: SyncDrizzle) {}
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. B1
+   * fills this same slot with the asynchronous pair, so the flip is `async`,
+   * `await` and the return type and no query body moves.
+   */
+  private readonly db: SyncDrizzle
+
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+  }
 
   repairSubagentSegmentPaths(): void {
     this.db

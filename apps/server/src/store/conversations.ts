@@ -7,7 +7,7 @@ import { ConversationIndexRepository } from './conversations/index'
 import { TranscriptMirrorRepository } from './conversations/mirror'
 import { ConversationRegistryRepository } from './conversations/registry'
 import { TranscriptIndexRepository } from './conversations/transcript-index'
-import type { QueryClient, StoreExecutor } from './executor'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 export class ConversationsRepository {
   readonly index: ConversationIndexRepository
@@ -16,23 +16,19 @@ export class ConversationsRepository {
   readonly transcriptIndex: TranscriptIndexRepository
 
   constructor(
-    executor: StoreExecutor<QueryClient>,
+    queries: SyncQueries,
     /** This host's minted machine id — the machine a row this composition has to
      *  CONJURE belongs to (POD-318). See {@link ConversationIndexRepository.setMeta}. */
     hostMachineId: MachineId,
   ) {
     // The sub-repositories of this aggregate are composed HERE and nowhere else,
-    // so the Stage A seam is unwrapped once and handed down rather than each of
-    // them taking the executor [POD-3254, spec rule 27a]. Asserted here for the
-    // same reason: the failure names this aggregate rather than the store.
-    if (!executor.stageA) {
-      throw new Error("ConversationsRepository needs the executor's Stage A drizzle instance")
-    }
-    const { db, spans } = executor.stageA
-    this.index = new ConversationIndexRepository(db, spans, hostMachineId)
-    this.registry = new ConversationRegistryRepository(db)
-    this.mirror = new TranscriptMirrorRepository(db, spans)
-    this.transcriptIndex = new TranscriptIndexRepository(db, spans)
+    // so the one query capability this aggregate is handed is passed straight
+    // down [POD-3254, spec rule 27b]. They take the same object for the same
+    // reason: B1 fills it with the asynchronous pair and none of them changes.
+    this.index = new ConversationIndexRepository(queries, hostMachineId)
+    this.registry = new ConversationRegistryRepository(queries)
+    this.mirror = new TranscriptMirrorRepository(queries)
+    this.transcriptIndex = new TranscriptIndexRepository(queries)
   }
 
   /**

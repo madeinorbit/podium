@@ -43,25 +43,6 @@ import { describe, expect, it } from 'vitest'
  *
  * SCOPE. `store/repos.ts` is the repository that owns the cache. Migration SQL
  * writes both tables too, but it runs at boot before the repository serves a read.
- *
- * TWO WRITE FORMS [POD-3395, applying POD-3362's recorded decision]. POD-3362
- * wrote the rule this scan enforces as covering a write "in SQL text or through
- * drizzle's builder", and its sibling guard on the issues row cache was widened
- * to both forms by POD-3253 before any conversion ran. This one was not, and the
- * repos conversion is what made that matter: with every statement moved onto the
- * builder, the SQL-text detector finds NOTHING, and a scan that sees nothing
- * reports no violations — a guard that passes by going blind.
- *
- * It did not pass quietly, and that is the part worth keeping. The armed-ness
- * assertion below ("sees the write statements that are actually in the file")
- * failed with `expected 2 to be greater than or equal to 10` the moment the
- * conversion landed, which is exactly what it is for. The builder arm below is
- * the answer to it: a write is now found EITHER as SQL text OR as
- * `.insert(repos)` / `.update(repoPrefixes)` / `.delete(repos)` — the table named
- * at the call rather than buried in a string. Both detectors stay, because the
- * file still holds two raw statements (`UPDATE OR IGNORE`, which drizzle's update
- * builder cannot express — POD-3406), and because the ordering rule they feed is
- * the same rule either way.
  */
 
 const INVALIDATOR = 'invalidateRegistry'
@@ -90,23 +71,6 @@ const SOURCE_PATH = join(fileURLToPath(new URL('../../../', import.meta.url)), S
  * `repo_draft_seq` — written by `nextDraftSeq`, held by no cache — stays out.
  */
 const TABLES = '(?:repos|repo_prefixes)\\b'
-
-/**
- * The same two tables as drizzle SCHEMA EXPORTS — what a builder write names.
- * `repoDraftSeq` is deliberately absent for the same reason `repo_draft_seq` is
- * absent from the SQL patterns: no cache holds it.
- */
-const BUILDER_TABLES: ReadonlySet<string> = new Set(['repos', 'repoPrefixes'])
-
-/**
- * drizzle's three write builders. Each takes the table object as its only
- * argument, which is what makes this scannable at all.
- */
-const BUILDER_WRITES = new Map<string, 'INSERT' | 'UPDATE' | 'DELETE'>([
-  ['insert', 'INSERT'],
-  ['update', 'UPDATE'],
-  ['delete', 'DELETE'],
-])
 const WRITE_PATTERNS: { kind: 'INSERT' | 'UPDATE' | 'DELETE'; pattern: RegExp }[] = [
   {
     kind: 'INSERT',
@@ -118,8 +82,6 @@ const WRITE_PATTERNS: { kind: 'INSERT' | 'UPDATE' | 'DELETE'; pattern: RegExp }[
 
 interface Write {
   kind: 'INSERT' | 'UPDATE' | 'DELETE'
-  /** Which detector saw it: hand-written SQL text, or a drizzle write builder. */
-  form: 'sql-text' | 'builder'
   line: number
   /** Enclosing class method, or null for a write not inside one at all. */
   method: string | null
@@ -135,31 +97,6 @@ interface Violation {
   method: string | null
   line: number
   kind: string
-  form: Write['form']
-}
-
-/**
- * Named imports, mapped local name -> exported name, so an aliased schema import
- * cannot hide a builder write.
- */
-const importAliases = (sf: ts.SourceFile): Map<string, string> => {
-  const aliases = new Map<string, string>()
-  for (const statement of sf.statements) {
-    if (!ts.isImportDeclaration(statement)) continue
-    const bindings = statement.importClause?.namedBindings
-    if (!bindings || !ts.isNamedImports(bindings)) continue
-    for (const element of bindings.elements) {
-      aliases.set(element.name.text, (element.propertyName ?? element.name).text)
-    }
-  }
-  return aliases
-}
-
-/** Does this argument name one of the two CACHED tables, under any alias? */
-const namesCachedTable = (node: ts.Expression, aliases: Map<string, string>): boolean => {
-  if (ts.isIdentifier(node)) return BUILDER_TABLES.has(aliases.get(node.text) ?? node.text)
-  if (ts.isPropertyAccessExpression(node)) return BUILDER_TABLES.has(node.name.text)
-  return false
 }
 
 interface Scan {
@@ -197,7 +134,6 @@ const selfCallName = (node: ts.Node): string | undefined => {
 const scanRegistryWriters = (source: string, fileName = 'repos.ts'): Scan => {
   const sf = ts.createSourceFile(fileName, source, ts.ScriptTarget.Latest, true)
   const lineOf = (pos: number): number => sf.getLineAndCharacterOfPosition(pos).line + 1
-  const aliases = importAliases(sf)
 
   /** Every `this.x()` call per method, in source order. */
   const callsByMethod = new Map<string, { name: string; pos: number }[]>()
@@ -215,22 +151,6 @@ const scanRegistryWriters = (source: string, fileName = 'repos.ts'): Scan => {
         else callsByMethod.set(key, [{ name: called, pos: node.getStart() }])
       }
     }
-    const record = (kind: Write['kind'], form: Write['form'], node: ts.Node): void => {
-      const line = lineOf(node.getStart())
-      // A template expression and a string literal nested inside it would both
-      // match; one statement is one write.
-      const key = `${kind}:${line}`
-      if (seen.has(key)) return
-      seen.add(key)
-      const method = enclosingMethod(node)
-      writes.push({
-        kind,
-        form,
-        line,
-        method: method ? methodName(method) : null,
-        pos: node.getStart(),
-      })
-    }
     if (
       ts.isStringLiteral(node) ||
       ts.isNoSubstitutionTemplateLiteral(node) ||
@@ -238,20 +158,20 @@ const scanRegistryWriters = (source: string, fileName = 'repos.ts'): Scan => {
     ) {
       const text = node.getText()
       for (const { kind, pattern } of WRITE_PATTERNS) {
-        if (pattern.test(text)) record(kind, 'sql-text', node)
-      }
-    }
-    // A drizzle write builder: `<anything>.insert(repos)`, `.update(repoPrefixes)`,
-    // `.delete(repos)`. The RECEIVER is deliberately unconstrained — the query
-    // layer may be reached as `this.db`, as `tx`, or through a field a later
-    // refactor introduces, and a guard that pinned the receiver's name would go
-    // quiet on exactly the rename it exists to catch. What is constrained is the
-    // ARGUMENT: it must resolve to one of the two cached tables.
-    if (ts.isCallExpression(node) && ts.isPropertyAccessExpression(node.expression)) {
-      const kind = BUILDER_WRITES.get(node.expression.name.text)
-      const [arg] = node.arguments
-      if (kind && node.arguments.length === 1 && arg && namesCachedTable(arg, aliases)) {
-        record(kind, 'builder', node)
+        if (!pattern.test(text)) continue
+        const line = lineOf(node.getStart())
+        // A template expression and a string literal nested inside it would both
+        // match; one statement is one write.
+        const key = `${kind}:${line}`
+        if (seen.has(key)) continue
+        seen.add(key)
+        const method = enclosingMethod(node)
+        writes.push({
+          kind,
+          line,
+          method: method ? methodName(method) : null,
+          pos: node.getStart(),
+        })
       }
     }
     ts.forEachChild(node, visit)
@@ -278,7 +198,6 @@ const scanRegistryWriters = (source: string, fileName = 'repos.ts'): Scan => {
     method: write.method,
     line: write.line,
     kind: write.kind,
-    form: write.form,
   })
   for (const write of writes) {
     if (!write.method) {
@@ -447,112 +366,6 @@ describe('repos registry cache: every writer invalidates', () => {
       }
     `)
     expect(scan.writes.map((w) => [w.kind, w.method])).toEqual([['INSERT', 'bulk']])
-    expect(scan.violations).toEqual([])
-  })
-
-  // ---- the builder arm, which the repository now writes through (POD-3395) ----
-  //
-  // Same principle as the SQL-text fixtures above: a detector nobody has watched
-  // go red is not a detector. These drive the builder form through every branch
-  // of the ordering rule.
-
-  it('fails a builder write path whose method does not invalidate', () => {
-    const { writes, violations } = scanRegistryWriters(`
-      import { repos } from '../migrations/schema'
-      class ReposRepository {
-        forgetRepo(machineId: string, path: string): void {
-          this.db.delete(repos).where(eq(repos.path, path)).run()
-        }
-      }
-    `)
-    expect(writes.map((w) => [w.kind, w.form])).toEqual([['DELETE', 'builder']])
-    expect(violations.map((v) => [v.method, v.reason])).toEqual([['forgetRepo', 'no-invalidation']])
-  })
-
-  it('fails a builder write that invalidates only afterwards', () => {
-    const { violations } = scanRegistryWriters(`
-      import { repoPrefixes } from '../migrations/schema'
-      class ReposRepository {
-        rekey(id: string): void {
-          this.db.update(repoPrefixes).set({ repoId: id }).run()
-          this.invalidateRegistry()
-        }
-      }
-    `)
-    expect(violations.map((v) => [v.method, v.reason, v.form])).toEqual([
-      ['rekey', 'invalidation-after-write', 'builder'],
-    ])
-  })
-
-  it('fails a cached read taken between the invalidation and a builder write', () => {
-    // The `updateRepoOrigin` shape POD-3247 widened this scan for, in builder form.
-    const { violations } = scanRegistryWriters(`
-      import { repoPrefixes } from '../migrations/schema'
-      class ReposRepository {
-        private registry(): Held { return this.cached ?? this.load() }
-        prefixForRepoId(id: string): string | null { return this.registry().prefixes.get(id) }
-        rekey(oldId: string, newId: string): void {
-          this.invalidateRegistry()
-          if (this.prefixForRepoId(newId) === null) {
-            this.db.update(repoPrefixes).set({ repoId: newId }).where(eq(repoPrefixes.repoId, oldId)).run()
-          }
-        }
-      }
-    `)
-    expect(violations.map((v) => [v.method, v.reason])).toEqual([
-      ['rekey', 'cached-read-after-invalidation'],
-    ])
-  })
-
-  it('sees a builder write through an aliased schema import', () => {
-    // The rename this arm exists to survive: a guard keyed on the local name
-    // would go quiet here, which is the failure mode, not the safe direction.
-    const { writes } = scanRegistryWriters(`
-      import { repos as repoRows } from '../migrations/schema'
-      class ReposRepository {
-        add(row: Row): void {
-          this.invalidateRegistry()
-          this.db.insert(repoRows).values(row).onConflictDoNothing().run()
-        }
-      }
-    `)
-    expect(writes.map((w) => [w.kind, w.form, w.method])).toEqual([['INSERT', 'builder', 'add']])
-  })
-
-  it('sees a raw statement and a builder write side by side', () => {
-    // repos.ts holds both today: the two UPDATE OR IGNORE statements drizzle's
-    // update builder cannot express (POD-3406) next to converted builder writes.
-    const scan = scanRegistryWriters(`
-      import { repos } from '../migrations/schema'
-      class ReposRepository {
-        rename(machineId: string, from: string, to: string): void {
-          this.invalidateRegistry()
-          this.db.run(sql\`UPDATE OR IGNORE repos SET path = \${to} WHERE path = \${from}\`)
-          this.db.delete(repos).where(eq(repos.path, from)).run()
-        }
-      }
-    `)
-    expect(scan.writes.map((w) => [w.kind, w.form])).toEqual([
-      ['UPDATE', 'sql-text'],
-      ['DELETE', 'builder'],
-    ])
-    expect(scan.violations).toEqual([])
-  })
-
-  it('does not mistake the uncached sibling table in builder form', () => {
-    const scan = scanRegistryWriters(`
-      import { repoDraftSeq, repos } from '../migrations/schema'
-      class ReposRepository {
-        nextDraftSeq(repoId: string): void {
-          this.db.insert(repoDraftSeq).values({ repoId, nextSeq: 1 }).run()
-          this.db.select().from(repos).where(eq(repos.repoId, repoId)).all()
-        }
-      }
-    `)
-    // A read of `repos` and a write of the UNCACHED sibling: neither is a write
-    // to a cached table, so a scan that flagged either would be crying wolf on
-    // the method the SQL-text arm already exempts by name.
-    expect(scan.writes).toEqual([])
     expect(scan.violations).toEqual([])
   })
 

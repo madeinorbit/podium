@@ -45,7 +45,6 @@ import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { runSynchronousSpan } from './store/executor/synchronous-span'
 import { SyncRepository } from '@podium/sync'
 import { isFeatureEnabled } from './features'
 import { backupDatabase } from './migrations/backup'
@@ -65,6 +64,7 @@ import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { createBunStoreExecutor, type QueryClient, type RootStoreExecutor } from './store/executor'
+import { runSynchronousSpan } from './store/executor/synchronous-span'
 import { GrantsRepository } from './store/grants'
 import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
@@ -322,7 +322,7 @@ export class SessionStore {
     )
     this.approvals = new ApprovalsRepository(this.executor)
     this.interactions = new InteractionsRepository(this.executor)
-    this.conversations = new ConversationsRepository(this.executor, this.hostMachineId)
+    this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
     // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
     // so it takes the narrow port the PACKAGE declares and this object satisfies
     // structurally — `SyncStoreExecutor`, the same inversion `syncServerTables`
@@ -331,7 +331,7 @@ export class SessionStore {
     // stays on `STAGE_A_UNCONVERTED` until its own conversion wave.
     this.sync = new SyncRepository(this.executor, syncServerTables)
     this.auth = new AuthRepository(this.executor)
-    this.superagent = new SuperagentRepository(this.executor)
+    this.superagent = new SuperagentRepository(this.queries)
     this.settings = new SettingsRepository(this.executor)
     this.layout = new UserLayoutRepository(this.executor)
     this.readPositions = new UserReadPositionRepository(this.executor)
@@ -343,9 +343,9 @@ export class SessionStore {
     this.users = new UsersRepository(this.executor)
     this.telegramBindings = new TelegramBindingsRepository(this.executor)
     this.events = new EventsRepository(this.queries)
-    this.notificationFacts = new NotificationFactsRepository(this.executor)
+    this.notificationFacts = new NotificationFactsRepository(this.queries)
     this.quotaHistory = new QuotaHistoryRepository(this.executor)
-    this.transcriptCosts = new TranscriptCostsRepository(this.executor)
+    this.transcriptCosts = new TranscriptCostsRepository(this.queries)
     this.messages = new MessagesRepository(this.executor)
     this.readWatermarks = new ReadWatermarksRepository(this.executor)
     this.workflows = new WorkflowsRepository(this.executor)
@@ -354,7 +354,7 @@ export class SessionStore {
     this.automations = new AutomationsRepository(this.executor)
     this.shipping = new ShippingRepository(this.executor)
     this.operations = new OperationStore(this.executor)
-    this.messagingTopics = new MessagingTopicsRepository(this.executor)
+    this.messagingTopics = new MessagingTopicsRepository(this.queries)
 
     // Per-boot runtime steps (environment-conditional FTS objects, the identity
     // refusals and the remaining data heals) — never schema DDL.

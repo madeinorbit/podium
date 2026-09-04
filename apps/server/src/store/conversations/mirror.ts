@@ -1,7 +1,7 @@
 import type { MachineId } from '@podium/model'
 import { and, desc, eq, isNotNull, isNull, max, ne, or, type SQL } from 'drizzle-orm'
 import { conversationSegmentIncarnations, conversationSegments } from '../../migrations/schema'
-import type { SyncDrizzle, SyncSpans } from '../executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from '../executor/sync-drizzle'
 
 export interface MirrorIncarnation {
   sequence: number
@@ -13,10 +13,18 @@ export interface MirrorIncarnation {
 
 /** Durable transcript-lake evidence and copy cursors. */
 export class TranscriptMirrorRepository {
-  constructor(
-    private readonly db: SyncDrizzle,
-    private readonly spans: SyncSpans,
-  ) {}
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. B1
+   * fills this same slot with the asynchronous pair, so the flip is `async`,
+   * `await` and the return type and no query body moves.
+   */
+  private readonly db: SyncDrizzle
+  private readonly transact: SyncQueries['transact']
+
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+    this.transact = queries.transact
+  }
 
   segmentsToMirror(
     machineId: MachineId,
@@ -159,7 +167,7 @@ export class TranscriptMirrorRepository {
     archivedBytes: number,
     at: string,
   ): void {
-    this.spans.transact(() => {
+    this.transact(() => {
       const active = this.activeIncarnation(machineId, nativeId)
       if (!active) {
         this.startIncarnation(machineId, nativeId, identity, at)

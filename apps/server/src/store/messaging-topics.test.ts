@@ -17,7 +17,7 @@
 import { asIssueId, asThreadId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { syncQueriesOver } from './executor/sync-drizzle'
 import { type MessagingIssueTopicRow, MessagingTopicsRepository } from './messaging-topics'
 
 let topics: MessagingTopicsRepository
@@ -32,9 +32,7 @@ const row = (over: Partial<MessagingIssueTopicRow> = {}): MessagingIssueTopicRow
 })
 
 beforeEach(() => {
-  topics = new MessagingTopicsRepository(
-    createBunStoreExecutor({ database: openMigratedTestDatabase() }),
-  )
+  topics = new MessagingTopicsRepository(syncQueriesOver(openMigratedTestDatabase()))
 })
 
 describe('MessagingTopicsRepository', () => {

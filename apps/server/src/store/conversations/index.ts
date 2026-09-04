@@ -1,19 +1,29 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { eq, isNotNull, or, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
-import type { SyncDrizzle, SyncSpans } from '../executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. B1
+   * fills this same slot with the asynchronous pair, so the flip is `async`,
+   * `await` and the return type and no query body moves.
+   */
+  private readonly db: SyncDrizzle
+  private readonly transact: SyncQueries['transact']
+
   constructor(
-    private readonly db: SyncDrizzle,
-    private readonly spans: SyncSpans,
+    queries: SyncQueries,
     /** This host's minted machine id — the machine a row this repository has to
      *  CONJURE belongs to. See {@link setMeta}. */
     private readonly hostMachineId: MachineId,
-  ) {}
+  ) {
+    this.db = queries.db
+    this.transact = queries.transact
+  }
 
   /**
    * Create the FTS5 index and the three triggers that keep it fed, then rebuild
@@ -83,7 +93,7 @@ export class ConversationIndexRepository {
    */
   upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): void {
     if (rows.length === 0) return
-    this.spans.transact(() => {
+    this.transact(() => {
       for (const row of rows) {
         this.db
           .insert(conversations)
@@ -139,7 +149,7 @@ export class ConversationIndexRepository {
 
   delete(ids: string[]): void {
     if (ids.length === 0) return
-    this.spans.transact(() => {
+    this.transact(() => {
       for (const id of ids) this.db.delete(conversations).where(eq(conversations.id, id)).run()
     })
   }

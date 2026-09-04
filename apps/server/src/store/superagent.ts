@@ -19,8 +19,7 @@ import {
   superagentQueuedInputs,
   superagentThreads,
 } from '../migrations/schema'
-import type { QueryClient, StoreExecutor } from './executor'
-import type { SyncDrizzle, SyncSpans } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
   PendingSuperagentTurnRow,
@@ -31,17 +30,18 @@ import type {
 } from './types'
 
 export class SuperagentRepository {
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. It
+   * fills the slot the raw handle used to occupy, and B1 fills that same slot
+   * with the ASYNCHRONOUS pair — so the flip is `async`, `await` and the return
+   * type, and not one line of the query bodies below.
+   */
   private readonly db: SyncDrizzle
-  private readonly spans: SyncSpans
+  private readonly transact: SyncQueries['transact']
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    // Stage A's synchronous seam, asserted HERE so a store built over a non-bun
-    // handle names the repository that needed it [spec rule 27a].
-    if (!executor.stageA) {
-      throw new Error("SuperagentRepository needs the executor's Stage A drizzle instance")
-    }
-    this.db = executor.stageA.db
-    this.spans = executor.stageA.spans
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+    this.transact = queries.transact
   }
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
@@ -321,7 +321,7 @@ export class SuperagentRepository {
     inputId: string,
     row: Omit<PendingSuperagentTurnRow, 'createdAt'>,
   ): PendingSuperagentTurnRow {
-    return this.spans.transact(() => {
+    return this.transact(() => {
       const pending = this.putPendingTurn(row)
       this.deleteQueuedInput(inputId)
       return pending

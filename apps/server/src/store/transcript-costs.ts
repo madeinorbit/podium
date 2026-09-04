@@ -19,8 +19,7 @@
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
 import { and, count, gt, inArray, isNotNull, max, sql } from 'drizzle-orm'
 import { transcriptCosts } from '../migrations/schema'
-import type { QueryClient, StoreExecutor } from './executor'
-import type { SyncDrizzle, SyncSpans } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -94,17 +93,18 @@ const toCost = (row: Row): TranscriptCost => ({
 })
 
 export class TranscriptCostsRepository {
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. It
+   * fills the slot the raw handle used to occupy, and B1 fills that same slot
+   * with the ASYNCHRONOUS pair — so the flip is `async`, `await` and the return
+   * type, and not one line of the query bodies below.
+   */
   private readonly db: SyncDrizzle
-  private readonly spans: SyncSpans
+  private readonly transact: SyncQueries['transact']
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    // Stage A's synchronous seam, asserted HERE so a store built over a non-bun
-    // handle names the repository that needed it [spec rule 27a].
-    if (!executor.stageA) {
-      throw new Error("TranscriptCostsRepository needs the executor's Stage A drizzle instance")
-    }
-    this.db = executor.stageA.db
-    this.spans = executor.stageA.spans
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+    this.transact = queries.transact
   }
 
   /**
@@ -114,7 +114,7 @@ export class TranscriptCostsRepository {
    */
   record(records: TranscriptCostRecord[], nowIso: string): void {
     if (records.length === 0) return
-    this.spans.transact(() => {
+    this.transact(() => {
       for (const r of records) {
         this.db
           .insert(transcriptCosts)

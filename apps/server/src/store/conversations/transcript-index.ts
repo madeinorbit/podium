@@ -1,7 +1,7 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { conversationSegments } from '../../migrations/schema'
-import type { SyncDrizzle, SyncSpans } from '../executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from '../executor/sync-drizzle'
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -18,10 +18,18 @@ export interface TranscriptSearchCandidate {
 /** Mirror-fed transcript FTS rows and their durable byte cursors. */
 export class TranscriptIndexRepository {
   private available = false
-  constructor(
-    private readonly db: SyncDrizzle,
-    private readonly spans: SyncSpans,
-  ) {}
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. B1
+   * fills this same slot with the asynchronous pair, so the flip is `async`,
+   * `await` and the return type and no query body moves.
+   */
+  private readonly db: SyncDrizzle
+  private readonly transact: SyncQueries['transact']
+
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
+    this.transact = queries.transact
+  }
 
   /**
    * Create the transcript FTS5 table. Called at boot only when the
@@ -89,7 +97,7 @@ export class TranscriptIndexRepository {
     indexedBytes: number,
   ): void {
     if (!this.available) return
-    this.spans.transact(() => {
+    this.transact(() => {
       for (const row of rows) {
         // `transcript_fts` is the virtual table this port owns; there is no
         // schema model to build against, so the statement stays whole.
@@ -120,7 +128,7 @@ export class TranscriptIndexRepository {
     expected: { mirroredBytes: number; indexedBytes: number },
   ): boolean {
     let reset = false
-    this.spans.transact(() => {
+    this.transact(() => {
       const result = this.db
         .update(conversationSegments)
         .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })

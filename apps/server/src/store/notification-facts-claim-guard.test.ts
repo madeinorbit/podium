@@ -24,7 +24,7 @@
 import type { IssueId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { syncQueriesOver } from './executor/sync-drizzle'
 import { NotificationFactsRepository } from './notification-facts'
 
 let facts: NotificationFactsRepository
@@ -45,9 +45,7 @@ const claim = (over: Partial<Parameters<NotificationFactsRepository['claim']>[0]
   })
 
 beforeEach(() => {
-  facts = new NotificationFactsRepository(
-    createBunStoreExecutor({ database: openMigratedTestDatabase() }),
-  )
+  facts = new NotificationFactsRepository(syncQueriesOver(openMigratedTestDatabase()))
 })
 
 describe('NotificationFactsRepository.claim', () => {

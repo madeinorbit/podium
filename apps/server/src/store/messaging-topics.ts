@@ -6,8 +6,7 @@
 import type { IssueId, ThreadId } from '@podium/model'
 import { and, eq } from 'drizzle-orm'
 import { messagingIssueTopics } from '../migrations/schema'
-import type { QueryClient, StoreExecutor } from './executor'
-import type { SyncDrizzle } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export interface MessagingIssueTopicRow {
   issueId: IssueId
@@ -18,16 +17,16 @@ export interface MessagingIssueTopicRow {
 }
 
 export class MessagingTopicsRepository {
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b]. It
+   * fills the slot the raw handle used to occupy, and B1 fills that same slot
+   * with the ASYNCHRONOUS pair — so the flip is `async`, `await` and the return
+   * type, and not one line of the query bodies below.
+   */
   private readonly db: SyncDrizzle
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    // Stage A's synchronous seam, asserted HERE so a store built over a non-bun
-    // handle names the repository that needed it rather than failing at the
-    // first statement [spec rule 27a].
-    if (!executor.stageA) {
-      throw new Error("MessagingTopicsRepository needs the executor's Stage A drizzle instance")
-    }
-    this.db = executor.stageA.db
+  constructor(queries: SyncQueries) {
+    this.db = queries.db
   }
 
   listForChat(chatId: string): MessagingIssueTopicRow[] {

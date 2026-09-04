@@ -18,7 +18,7 @@
 import type { CostModelTotalWire, MachineId, SessionId } from '@podium/model'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { syncQueriesOver } from './executor/sync-drizzle'
 import { type TranscriptCostRecord, TranscriptCostsRepository } from './transcript-costs'
 
 let costs: TranscriptCostsRepository
@@ -50,9 +50,7 @@ const record = (over: Partial<TranscriptCostRecord> = {}): TranscriptCostRecord 
 })
 
 beforeEach(() => {
-  costs = new TranscriptCostsRepository(
-    createBunStoreExecutor({ database: openMigratedTestDatabase() }),
-  )
+  costs = new TranscriptCostsRepository(syncQueriesOver(openMigratedTestDatabase()))
 })
 
 describe('TranscriptCostsRepository.costedSessionIds', () => {
