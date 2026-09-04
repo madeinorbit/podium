@@ -608,6 +608,34 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
 // 6. THE ROUND TRIP, over the real stack
 // ---------------------------------------------------------------------------
 
+/**
+ * Resolve once `sample()` has held the same value for `quietMs` — a settle, not
+ * a target. Used where a test needs the COMPLETE set of what a write produced
+ * but must not pin how big that set is: submit verification re-presses Enter a
+ * configured number of times, and waiting for a number would put the retry
+ * policy back into the test. A short window only observes fewer keystrokes; it
+ * can never make the assertions that follow hold when they otherwise would not.
+ */
+async function settled(
+  sample: () => number,
+  what: string,
+  quietMs = 2_000,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  let last = sample()
+  let quietSince = Date.now()
+  for (;;) {
+    await new Promise((resolve) => setTimeout(resolve, 25))
+    const current = sample()
+    if (current !== last) {
+      last = current
+      quietSince = Date.now()
+    } else if (Date.now() - quietSince >= quietMs) return
+    if (Date.now() > deadline) throw new Error(`timed out waiting for ${what} to settle`)
+  }
+}
+
 describe('mail e2e: send -> delivery -> reply, through the derived surfaces', () => {
   /**
    * The acceptance criterion asks for the whole loop, so this drives the REAL
@@ -622,7 +650,27 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
    * gate.
    */
   it('delivers an issue-addressed send to the live agent and threads its reply back', async () => {
-    const o = await makeOracle()
+    // An urgency-gated send BLOCKS until its row leaves `queued` or the delivery
+    // budget expires [spec:SP-cb9f]. Nothing in this fixture witnesses the turn,
+    // so the budget always runs out — 25 real seconds, past the lane's timeout.
+    // Spend it on a VIRTUAL clock instead: the injected `sleep` moves the
+    // registry's own `now`, which is what the gate measures the budget with, so
+    // a single step retires the whole wait and no timer runs. The production
+    // constant is deliberately untouched — whether 25s is the right budget is
+    // POD-3388's question, not this test's.
+    let clockSkewMs = 0
+    const o = await makeOracle({
+      now: () => Date.now() + clockSkewMs,
+      // A poll interval above any delivery budget, so the wait is exactly one
+      // sleep long however the budget is set.
+      mailAwait: {
+        pollMs: 1_000_000,
+        sleep: (ms) => {
+          clockSkewMs += ms
+          return Promise.resolve()
+        },
+      },
+    })
     const issue = o.reg.issues.create({ repoPath: '/r', title: 'Target', startNow: false })
     o.reg.issues.update(issue.id, { worktreePath: '/r/.worktrees/t' })
     const { sessionId } = await o.call.sessions.create({
@@ -658,18 +706,40 @@ describe('mail e2e: send -> delivery -> reply, through the derived surfaces', ()
     // DELIVERY — the body reaches the agent's PTY, byte-faithful inside the
     // server-rendered envelope.
     await waitFor(() => ptyFrames(o.daemon).length > 0, 'the message to reach the PTY')
+    await settled(() => ptyFrames(o.daemon).length, 'the delivery keystrokes')
     const frames = ptyFrames(o.daemon)
-    // Exactly one frame — a second would mean a duplicate delivery, which the
-    // joined-blob form of this assertion could not see.
-    expect(frames).toHaveLength(1)
+
+    // THE BODY IS TYPED EXACTLY ONCE — that, and not the number of frames, is
+    // what "no duplicate delivery" means. Delivery puts the body on the wire in
+    // ONE bracketed paste and then presses Enter; submit verification re-presses
+    // Enter while the transcript has not witnessed a new user turn. POD-2116
+    // stopped dropping the unconfirmed row, and this fixture has no agent to
+    // echo the turn, so the verifier presses its whole budget where a real
+    // harness is confirmed on the first press. HOW MANY bare carriage returns
+    // that produces is a retry policy and free to change; a second copy of the
+    // body would be a delivered-twice bug, and is not.
+    //
+    // The count is taken over the joined frames on purpose: a duplicate that
+    // rode along inside one frame is the same bug as a duplicate in a second
+    // frame, and counting frames could see neither.
+    const BODY = 'please confirm you got this'
+    const bodyCopies = frames.reduce((n, f) => n + f.data.split(BODY).length - 1, 0)
+    expect(bodyCopies).toBe(1)
+    // …and every OTHER frame is submit pressure rather than content: bare
+    // carriage returns, nothing printable. This is the half that stays true
+    // whatever the retry policy does, and it is what makes the extra frames
+    // legible instead of alarming.
+    expect(frames.filter((f) => !f.data.includes(BODY) && f.data.trim() !== '')).toEqual([])
+
+    // The body is byte-faithful (the copy count above reads the literal bytes).
+    // No envelope assertion here: an OPERATOR send lands unwrapped by design
+    // ([spec:SP-34d7] deliversUnwrapped), so the id is not in the frame — the
+    // reply below uses the id the SENDER was handed, which is the operator's
+    // real affordance.
+    //
     // Operator bodies ride the mail substrate after POD-729 but stamp as
     // controller so a standing offer clears and the turn is user-origin (POD-552).
-    expect(frames[0]?.inputOrigin).toBe('controller')
-    // The body is byte-faithful. No envelope assertion here: an OPERATOR send
-    // lands unwrapped by design ([spec:SP-34d7] deliversUnwrapped), so the id
-    // is not in the frame — the reply below uses the id the SENDER was handed,
-    // which is the operator's real affordance.
-    expect(frames[0]?.data).toContain('please confirm you got this')
+    expect(frames.find((f) => f.data.includes(BODY))?.inputOrigin).toBe('controller')
 
     // REPLY — the recipient answers over the RELAY, the agent seam, using the
     // message id it just read out of its own envelope.
