@@ -1439,19 +1439,31 @@ function rawHandleViolations(file: string, source: string): Violation[] {
     const line = lines.findIndex((l) => l.includes(ref.specifier)) + 1
     add(line || 1, ref.specifier, `imports '${ref.specifier}' — the raw SQLite handle.`)
   }
-  lines.forEach((line, i) => {
-    if (PREPARE_CALL.test(line)) {
-      add(i + 1, '.prepare(', 'prepares a statement on a raw connection.')
-    }
-    const rawExec = RAW_EXECUTION_CALL.exec(line)
-    if (rawExec) {
-      add(
-        i + 1,
-        `.${rawExec[1]}(sql\`…\`)`,
-        `hands a WHOLE raw statement to drizzle's \`.${rawExec[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port.`,
-      )
-    }
-  })
+  // MATCHED OVER THE WHOLE SOURCE, NOT PER LINE. Both patterns already allow
+  // `\s*` between their tokens, and `\s` spans newlines — but testing them one
+  // line at a time threw that away, so biome wrapping a long call across two
+  // lines made the rule see nothing:
+  //
+  //     this.db.run(            <- `.run(` ends the line, `sql` starts the next
+  //       sql`UPDATE OR IGNORE …`,
+  //     )
+  //
+  // POD-3395 found two such sites reporting clean and marked them anyway rather
+  // than take the free pass. A ban that a formatter can switch off is not a ban.
+  // The line reported is where the CALL STARTS, which is also the line a
+  // `// DECISION` marker has to sit on for `marked` to exempt it.
+  const stripped = lines.join('\n')
+  const lineAt = (index: number): number => stripped.slice(0, index).split('\n').length
+  for (const m of stripped.matchAll(new RegExp(PREPARE_CALL.source, 'g'))) {
+    add(lineAt(m.index ?? 0), '.prepare(', 'prepares a statement on a raw connection.')
+  }
+  for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
+    add(
+      lineAt(m.index ?? 0),
+      `.${m[1]}(sql\`…\`)`,
+      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port.`,
+    )
+  }
   return violations
 }
 
