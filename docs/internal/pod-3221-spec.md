@@ -1220,3 +1220,38 @@ CHOSEN design with two rejected alternatives, not a forced one — say it that w
 WHAT PODIUM'S OWN HELPER STILL EARNS, separately from nesting: `BEGIN IMMEDIATE` at depth 0 (drizzle
 defaults to `deferred`, which takes a read lock and cannot always upgrade it), and the thenable guard
 that refuses an async callback. Its savepoint nesting is redundant on bun:sqlite today.
+
+### Rule 31 — a DECISION marker is for a site you CANNOT answer, not one you have answered
+
+[POD-3394 asked, 2026-09-04. The same shape will reach waves 1, 6 and 7 on their OR IGNORE and
+OR REPLACE sites.]
+
+Wave 3 converted an `INSERT OR IGNORE` to `onConflictDoNothing`, proved the two equivalent for that
+table, and still marked the line `// DECISION POD-3403` because the earlier ruling said to. That
+marker is INERT — nothing flags a legal builder call — and it would have arrived at Stage A's
+zero-marker exit gate representing a question that had already been answered with evidence.
+
+THE RULE. A marker means "I could not decide this; a human must, before it ships." If you HAVE
+decided it and can show the reasoning, that is a conversion, not a decision: drop the marker and put
+the enumeration in the commit message and the handoff. Keep the marker only where the answer is
+genuinely open.
+
+THE EQUIVALENCE TEST for `INSERT OR IGNORE` to `onConflictDoNothing`, measured rather than reasoned
+(coordinator probe, bun:sqlite, `pragma foreign_keys = 1`):
+
+    INSERT OR IGNORE suppresses:  UNIQUE, PRIMARY KEY, NOT NULL, CHECK
+    INSERT OR IGNORE does NOT suppress:  FOREIGN KEY  (it throws, exactly as the plain form does)
+    onConflictDoNothing suppresses:  uniqueness conflicts only (UNIQUE / PRIMARY KEY)
+
+So the two are equivalent at a site IF AND ONLY IF no NOT NULL violation and no CHECK violation is
+reachable there. Foreign keys do not enter it: neither form suppresses them, so behaviour is
+unchanged either way. Establish it on the SHIPPED TABLE with `PRAGMA foreign_key_list`,
+`PRAGMA index_list` and the table's SQL — not by reading `schema.ts`, which is the map and not the
+territory — and show that every NOT NULL column in the statement is supplied from a non-nullable
+source. State that enumeration in your handoff. If any CHECK exists or any NOT NULL column can
+receive a null, the forms differ and the marker stays.
+
+REFINEMENT TO RULE 28, from the same wave. `Number(...)` is not itself the hazard; a comparison to a
+SPECIFIC NUMBER is. `Number(r.enabled) !== 0` is redundant after conversion but not wrong, because
+`Number(true) !== 0` holds. The defect shape is `=== 1`. Delete the redundant conversions when you
+see them, but do not report a surviving `Number(x) !== 0` mutation as a defect — classify it.
