@@ -17,6 +17,7 @@ import { PostCommitError, StoreUnhealthyError } from './errors'
 import { postCommit } from './executor'
 import {
   afterCommit,
+  followUpAfterCommit,
   restoreSpanEffectSinks,
   type SpanEffectSinks,
   runSynchronousSpan,
@@ -315,6 +316,25 @@ describe('a follow-up that commits re-entrantly', () => {
       }, 'outer')
     })
     expect(done).toEqual(['nested'])
+  })
+})
+
+describe('followUpAfterCommit inside a span', () => {
+  it('waits for the outer commit and is discarded with a rollback', () => {
+    const order: string[] = []
+    runSynchronousSpan(() => {
+      followUpAfterCommit(() => void order.push('follow-up'), 'f')
+      order.push('body')
+    })
+    expect(order).toEqual(['body', 'follow-up'])
+
+    expect(() =>
+      runSynchronousSpan(() => {
+        followUpAfterCommit(() => void order.push('rolled-back'), 'rolled-back')
+        throw new Error('body failed')
+      }),
+    ).toThrow('body failed')
+    expect(order).toEqual(['body', 'follow-up'])
   })
 })
 

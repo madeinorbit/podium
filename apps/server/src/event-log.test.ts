@@ -1,5 +1,5 @@
 import type { SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { normalizeSettings } from '@podium/runtime'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it, vi } from 'vitest'
@@ -9,6 +9,7 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
 import type { SessionStore } from './store'
+import { PostCommitError } from './store/executor'
 import { openTestStore } from './test-support/open-test-store'
 
 async function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
@@ -492,42 +493,80 @@ describe('IssueService event emission', () => {
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
   })
 
-  it('a fanout read error after the close persisted does not break close()', async () => {
+  it('a mid-fanout read failure reports the committed close and emits no ready events', async () => {
+    const { svc, store } = await harness()
+    const origin = 'https://example.test/shared.git'
+    await store.repos.addRepo('/clone/one', asMachineId('machine-one'), origin)
+    await store.repos.addRepo('/clone/two', asMachineId('machine-two'), origin)
+    const a = svc.create({ repoPath: '/clone/one', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/clone/one', title: 'B', startNow: false })
+    const c = svc.create({ repoPath: '/clone/two', title: 'C', startNow: false })
+    svc.addDep(b.id, a.id, 'blocks')
+    svc.addDep(c.id, a.id, 'blocks')
+
+    // Both dependents share a repo identity but use different paths, so toWire's
+    // batch needs two prefix lookups. Fail the second: before this regression
+    // fix B's issue.ready had already appended and C's never did.
+    const origAppend = store.events.appendEvent.bind(store.events)
+    const origPrefix = store.repos.prefixForPath.bind(store.repos)
+    let armed = false
+    let fanoutPrefixReads = 0
+    vi.spyOn(store.events, 'appendEvent').mockImplementation((event, options) => {
+      const id = origAppend(event, options)
+      if (event.kind === 'issue.closed') armed = true
+      return id
+    })
+    vi.spyOn(store.repos, 'prefixForPath').mockImplementation((repoPath) => {
+      if (armed && ++fanoutPrefixReads === 2) throw new Error('second prefix read failed')
+      return origPrefix(repoPath)
+    })
+
+    let caught: unknown
+    try {
+      svc.close(a.id)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(PostCommitError)
+    expect((caught as PostCommitError).committed).toBe(true)
+    expect((caught as PostCommitError).mechanism).toBe('follow-up')
+    expect((caught as PostCommitError).cause).toMatchObject({ message: 'second prefix read failed' })
+    expect(fanoutPrefixReads).toBe(2)
+    expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
+    expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
+  })
+
+  it('a second ready append failure rolls the whole durable fanout back', async () => {
     const { svc, store } = await harness()
     const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    const c = svc.create({ repoPath: '/r', title: 'C', startNow: false })
     svc.addDep(b.id, a.id, 'blocks')
-    // Arm the failure only once the issue.closed row landed, so persist/broadcast
-    // succeed and the throw hits exactly the ready fanout's read path.
-    // SETUP ONLY [POD-3397]: bound to the REPOSITORY, not to the store. These
-    // read `this.db`, and binding them to the store gave them the store's own
-    // `db` field — which used to be the raw SQLite handle the repositories also
-    // held, so the wrong receiver happened to work. It is a drizzle instance on
-    // the repository now, so the mistake became visible; the seam is unchanged.
+    svc.addDep(c.id, a.id, 'blocks')
+
     const origAppend = store.events.appendEvent.bind(store.events)
-    const origDeps = store.issues.listIssueDeps.bind(store.issues)
-    // SETUP ONLY (POD-3257): the fanout now reads every dep ONCE instead of
-    // per row, so the seam that arms the failure has to name that read too.
-    // Both are armed rather than swapped, so this pins "a read error in the
-    // fanout" and not which read the fanout happens to make.
-    const origAllDeps = store.issues.listAllIssueDeps.bind(store.issues)
-    let armed = false
-    vi.spyOn(store.events, 'appendEvent').mockImplementation((e) => {
-      const id = origAppend(e)
-      if (e.kind === 'issue.closed') armed = true
-      return id
+    let readyAppends = 0
+    vi.spyOn(store.events, 'appendEvent').mockImplementation((event, options) => {
+      if (event.kind === 'issue.ready' && ++readyAppends === 2) {
+        throw new Error('second ready append failed')
+      }
+      return origAppend(event, options)
     })
-    vi.spyOn(store.issues, 'listIssueDeps').mockImplementation((fromId) => {
-      if (armed) throw new Error('boom')
-      return origDeps(fromId)
-    })
-    vi.spyOn(store.issues, 'listAllIssueDeps').mockImplementation(() => {
-      if (armed) throw new Error('boom')
-      return origAllDeps()
-    })
-    expect(svc.close(a.id).stage).toBe('done')
+
+    let caught: unknown
+    try {
+      svc.close(a.id)
+    } catch (error) {
+      caught = error
+    }
+
+    expect(caught).toBeInstanceOf(PostCommitError)
+    expect((caught as PostCommitError).committed).toBe(true)
+    expect((caught as PostCommitError).cause).toMatchObject({ message: 'second ready append failed' })
+    expect(readyAppends).toBe(2)
     expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
-    expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
 
