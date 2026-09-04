@@ -1830,3 +1830,42 @@ THE SHIPPING RED IS THE ERROR WRAPPING, NOT THE NULL ID. `Failed query: insert i
 is DrizzleQueryError's message format; the trigger's 'event refused' is on `.cause`. That is rule 38
 and POD-3412, already filed, and it arrived with wave 6's events.ts as POD-3394 correctly determined
 by name set.
+
+### Rule 42a — PREVENT the unapplied arm, then prove it positively
+
+[POD-3394 supplied the prevention and the positive probe; POD-3393 supplied the marker form. 2026-09-04.
+Rule 42 only DETECTS the failure. These remove it.]
+
+PARTITION THE PATHS FIRST — POD-3394's fix, and it costs nothing:
+
+    while read -r f; do
+      if git cat-file -e "$BASE:$f" 2>/dev/null; then echo "$f" >> modified.txt
+      else echo "$f" >> added.txt; fi
+    done < changed.txt
+    xargs -a modified.txt git checkout $BASE --     # every path provably present
+    xargs -a added.txt rm -f                        # the rest removed instead
+
+`git checkout <base> -- <paths>` aborts the WHOLE checkout when any one path is absent. Partitioning
+means it is never handed one. On POD-3394's own branch that split 12 present against 6 added — the five
+golden tests plus a test-support file — which is exactly the set that would have aborted it as one list.
+
+THEN PROVE THE ARM POSITIVELY, because an empty diff is itself an absence. Assert a token that exists
+only in the TREATMENT is ABSENT from the control, and ideally that the OLD code is PRESENT.
+POD-3394's probe is the model:
+
+                                  treatment   control   restored
+    locks.ts .prepare( count           0         12          0
+    locks.ts 'protected get db'        1          0          1
+    golden test files present          5          0          5
+    ledger still lists locks.ts        0          1          0
+
+Four signals flipping in the direction the conversion goes, and flipping back on restore. A tree
+compared with itself cannot produce that table. POD-3393's lighter form is the same idea: grep the arm
+for one treatment-only token — `SyncQueries` in its case — and require it absent.
+
+AND ONE CONSISTENCY TELL, from POD-3394: if you ADD a test file to the lane you are measuring, then
+identical TOTALS across the two arms are themselves the tell, because the control should have run fewer
+tests. Its totals matched legitimately only because all five of its added files are in a different lane.
+
+THE STRANDED-FILE HALF only arises for a branch that DELETES a file the base has; `git diff
+--diff-filter=D <base>..HEAD` empty means it cannot happen to you. Check it rather than assume it.
