@@ -499,13 +499,18 @@ describe('IssueService event emission', () => {
     svc.addDep(b.id, a.id, 'blocks')
     // Arm the failure only once the issue.closed row landed, so persist/broadcast
     // succeed and the throw hits exactly the ready fanout's read path.
-    const origAppend = store.events.appendEvent.bind(store)
-    const origDeps = store.issues.listIssueDeps.bind(store)
+    // SETUP ONLY [POD-3397]: bound to the REPOSITORY, not to the store. These
+    // read `this.db`, and binding them to the store gave them the store's own
+    // `db` field — which used to be the raw SQLite handle the repositories also
+    // held, so the wrong receiver happened to work. It is a drizzle instance on
+    // the repository now, so the mistake became visible; the seam is unchanged.
+    const origAppend = store.events.appendEvent.bind(store.events)
+    const origDeps = store.issues.listIssueDeps.bind(store.issues)
     // SETUP ONLY (POD-3257): the fanout now reads every dep ONCE instead of
     // per row, so the seam that arms the failure has to name that read too.
     // Both are armed rather than swapped, so this pins "a read error in the
     // fanout" and not which read the fanout happens to make.
-    const origAllDeps = store.issues.listAllIssueDeps.bind(store)
+    const origAllDeps = store.issues.listAllIssueDeps.bind(store.issues)
     let armed = false
     vi.spyOn(store.events, 'appendEvent').mockImplementation((e) => {
       const id = origAppend(e)
