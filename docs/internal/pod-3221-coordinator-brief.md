@@ -89,6 +89,31 @@ must exist on that machine before the Turso items start.
 - No landing on `main` or `dev/mw` before the close checkpoint; no sub-issue started from any
   branch other than the integration branch.
 
+## The scratchpad root is shared; only the full session path is mine
+
+Added 2026-09-04, from POD-3386's finding and an audit of my own practice.
+
+/tmp/claude-1001 is SHARED between every session on this machine — 442 loose files sit at its root
+right now, including `after.json`, `after.txt`, `before.txt` and `after.log`, the exact basenames a
+before/after comparison reaches for. POD-3386's gate output collided with POD-3387's there and it
+nearly reported the other session's lane as its own gate. Two sessions write the same name, the second
+wins, and what you read back is a WELL-FORMED report of somebody else's run. It does not look like an
+error.
+
+I have been writing to that root all epic: mutation backups (`ah.orig.ts`, `aw.orig.ts`,
+`mailbox.orig.ts`) and capture files (`ctlA.log`, `b.after.txt`, `defeat.log`).
+
+WHAT SAVED THE MUTATION RESTORES was a habit adopted for a different reason: every restore is
+verified as `diff <(git show HEAD:<file>) <file>`, which compares against GIT rather than against the
+backup. A backup silently replaced by another session's file would have failed that diff. The
+capture-and-read files had no such protection; their window was one command wide, but it was a window.
+
+RULE: use the full per-session path from the system prompt for anything you will read back —
+/tmp/claude-1001/<project>/<session-id>/scratchpad — never a bare name under the root. And POD-3386's
+second tell is worth keeping: before trusting any captured report, assert that the paths INSIDE it
+name your own worktree. Its two clues were a failure stack pointing at a worktree that was not its
+own, and a duration showing a testTimeout it had not passed.
+
 ## NEVER write into a live worker's checkout, and a "finished" notification is not proof
 
 Added 2026-09-04, after I destroyed a worker's work in POD-3330.
