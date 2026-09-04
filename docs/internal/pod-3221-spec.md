@@ -1795,3 +1795,38 @@ next `git add -A` sweeps in. POD-3395 hit that twice in one sitting, with wave 6
 then wave 7's three.
 
 Related: rule 40 (the shared ref store is why the base keeps moving under you).
+
+### Rule 43 — a converted INSERT binds NULL where the original OMITTED; that overrides column DEFAULTs
+
+[POD-3394 spotted the shape; I measured it and the mechanism is not the one it guessed. 2026-09-04.]
+
+A drizzle insert NAMES EVERY COLUMN IT KNOWS and binds `null` for the ones you did not supply.
+POD-3394's machines upsert prints as 18 columns where the hand-written original named eight. That is
+harmless for a nullable column with no default, and it is NOT harmless otherwise. Measured:
+
+    create table d (id integer primary key, label text default 'login' not null, n integer)
+
+    insert into d (id, n)            values (1, 10)          -> label = 'login'      (the DEFAULT applies)
+    insert into d (id, label, n)     values (2, null, 20)    -> THREW: NOT NULL constraint failed
+
+AN EXPLICIT NULL IS NOT AN OMISSION. It defeats the DEFAULT clause: on a NOT NULL column with a default
+the write throws, and on a NULLABLE column with a default it silently stores NULL where the original
+stored the default. The second is the dangerous one — no error, wrong value.
+
+THE CHECK, on every converted INSERT: list the target table's columns that have a DEFAULT, and confirm
+the conversion still OMITS each one the original omitted. `pragma table_info` gives you the defaults
+from the shipped table. POD-3393 already found the one instance in its wave —
+`client_sessions.label text DEFAULT 'login' NOT NULL`, migration 20260802111446 — while checking a
+different rule.
+
+NOT A DEFECT, checked so nobody re-checks it: an explicit `null` into an INTEGER PRIMARY KEY
+AUTOINCREMENT behaves EXACTLY like omitting the column — both auto-assign. POD-3394 offered that as a
+lead for the shipping red and it is measured false:
+
+    insert into ev (ts)       values ('a')     -> id 1
+    insert into ev (id, ts)   values (null,'b')-> id 2
+
+THE SHIPPING RED IS THE ERROR WRAPPING, NOT THE NULL ID. `Failed query: insert into "podium_events" …`
+is DrizzleQueryError's message format; the trigger's 'event refused' is on `.cause`. That is rule 38
+and POD-3412, already filed, and it arrived with wave 6's events.ts as POD-3394 correctly determined
+by name set.
