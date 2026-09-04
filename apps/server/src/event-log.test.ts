@@ -493,6 +493,43 @@ describe('IssueService event emission', () => {
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
   })
 
+  it('a ready-fanout read failure leaves the close durably persisted', async () => {
+    const { svc, store } = await harness()
+    const a = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = svc.create({ repoPath: '/r', title: 'B', startNow: false })
+    svc.addDep(b.id, a.id, 'blocks')
+
+    // Arm the fault only after issue.closed lands, so this test distinguishes
+    // a committed close from the post-commit ready fanout that follows it.
+    const origAppend = store.events.appendEvent.bind(store.events)
+    const origAllDeps = store.issues.listAllIssueDeps.bind(store.issues)
+    let closedEventAppended = false
+    let fanoutReadFailed = false
+    vi.spyOn(store.events, 'appendEvent').mockImplementation((event, options) => {
+      const id = origAppend(event, options)
+      if (event.kind === 'issue.closed') closedEventAppended = true
+      return id
+    })
+    vi.spyOn(store.issues, 'listAllIssueDeps').mockImplementation(() => {
+      if (closedEventAppended) {
+        fanoutReadFailed = true
+        throw new Error('fanout read failed')
+      }
+      return origAllDeps()
+    })
+
+    try {
+      svc.close(a.id)
+    } catch {
+      // Error surfacing is pinned independently below; this oracle owns the
+      // durable state that remains after that post-commit failure.
+    }
+
+    expect(fanoutReadFailed).toBe(true)
+    expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
+    expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
+  })
+
   it('a mid-fanout read failure reports the committed close and emits no ready events', async () => {
     const { svc, store } = await harness()
     const origin = 'https://example.test/shared.git'
