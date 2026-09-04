@@ -31,8 +31,8 @@
 
 import { asIssueId, asRepoId, type SessionId } from '@podium/model'
 import { expect, it } from 'vitest'
-import { type LockRow, type LockSessionKey, OPERATOR_LOCK_SESSION } from './locks'
 import { openTestStore } from '../test-support/open-test-store'
+import { type LockRow, type LockSessionKey, OPERATOR_LOCK_SESSION } from './locks'
 
 const repo = asRepoId('repo-1')
 const other = asRepoId('repo-2')
@@ -65,7 +65,9 @@ it('reads a lock back exactly as it was written, and reports a missing one as nu
     // Absent optional columns come back as `null`, never `undefined`: the mapper
     // coalesces, and a conversion that returned the raw column would hand a
     // caller `undefined` for a lock the operator holds with no note.
-    store.locks.upsertLock(lock({ name: 'free', holderSessionId: null, holderIssueId: null, note: null }))
+    store.locks.upsertLock(
+      lock({ name: 'free', holderSessionId: null, holderIssueId: null, note: null }),
+    )
     const bare = store.locks.getLock(repo, 'free')
     expect(bare).not.toBeNull()
     expect(bare?.holderSessionId).toBeNull()
@@ -102,7 +104,10 @@ it('treats a lease expiring exactly at the sweep instant as expired, and one a m
 
     // BOTH EDGES, because the comparison is `<=` and a conversion to `lt` would
     // leave the boundary lock held forever by exactly one millisecond.
-    const expired = store.locks.listExpiredLocks(repo, now).map((l) => l.name).sort()
+    const expired = store.locks
+      .listExpiredLocks(repo, now)
+      .map((l) => l.name)
+      .sort()
     expect(expired).toEqual(['exactly', 'past'])
   } finally {
     store.close()

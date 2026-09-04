@@ -29,8 +29,8 @@
 import type { SessionId } from '@podium/model'
 import type { InteractionAnswer } from '@podium/protocol'
 import { expect, it } from 'vitest'
-import type { InteractionInsert } from './interactions'
 import { openTestStore } from '../test-support/open-test-store'
+import type { InteractionInsert } from './interactions'
 
 const session = 'sess-1' as SessionId
 const answer: InteractionAnswer = { kind: 'permission', decision: 'allow-once' }
@@ -78,13 +78,15 @@ it('re-asks after the first was resolved, because the dedupe index covers open r
   const store = await openTestStore(':memory:')
   try {
     store.interactions.insert(ask())
-    expect(store.interactions.answer({
-      id: 'int-1',
-      answer,
-      answeredBy: 'human',
-      deliveredVia: 'menu',
-      at: '2026-09-01T00:01:00.000Z',
-    })).toBe(true)
+    expect(
+      store.interactions.answer({
+        id: 'int-1',
+        answer,
+        answeredBy: 'human',
+        deliveredVia: 'menu',
+        at: '2026-09-01T00:01:00.000Z',
+      }),
+    ).toBe(true)
 
     // The same question again is a genuinely new ask — a long session hits the
     // same permission prompt repeatedly and each one needs its own answer.
@@ -110,9 +112,25 @@ it('answers exactly once, and records delivery only after the row was claimed', 
     expect(store.interactions.recordDelivery('int-1', 'structured')).toBe(false)
 
     const at = '2026-09-01T00:01:00.000Z'
-    expect(store.interactions.answer({ id: 'int-1', answer, answeredBy: 'human', deliveredVia: 'unverified', at })).toBe(true)
+    expect(
+      store.interactions.answer({
+        id: 'int-1',
+        answer,
+        answeredBy: 'human',
+        deliveredVia: 'unverified',
+        at,
+      }),
+    ).toBe(true)
     // The second answer loses the race and is told so.
-    expect(store.interactions.answer({ id: 'int-1', answer, answeredBy: 'policy', deliveredVia: 'menu', at })).toBe(false)
+    expect(
+      store.interactions.answer({
+        id: 'int-1',
+        answer,
+        answeredBy: 'policy',
+        deliveredVia: 'menu',
+        at,
+      }),
+    ).toBe(false)
 
     expect(store.interactions.recordDelivery('int-1', 'structured')).toBe(true)
     const row = store.interactions.get('int-1')
@@ -201,10 +219,18 @@ it('retires a claimed row that close cannot reach, and close reaches the open on
 it('closes every open ask on one session at once and returns exactly the ids that moved', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.interactions.insert(ask({ id: 'a', fingerprint: 'fp-a', askedAt: '2026-09-01T00:00:00.000Z' }))
-    store.interactions.insert(ask({ id: 'b', fingerprint: 'fp-b', askedAt: '2026-09-01T00:01:00.000Z' }))
-    store.interactions.insert(ask({ id: 'c', fingerprint: 'fp-c', askedAt: '2026-09-01T00:02:00.000Z' }))
-    store.interactions.insert(ask({ id: 'other', sessionId: 'sess-2' as SessionId, fingerprint: 'fp-a' }))
+    store.interactions.insert(
+      ask({ id: 'a', fingerprint: 'fp-a', askedAt: '2026-09-01T00:00:00.000Z' }),
+    )
+    store.interactions.insert(
+      ask({ id: 'b', fingerprint: 'fp-b', askedAt: '2026-09-01T00:01:00.000Z' }),
+    )
+    store.interactions.insert(
+      ask({ id: 'c', fingerprint: 'fp-c', askedAt: '2026-09-01T00:02:00.000Z' }),
+    )
+    store.interactions.insert(
+      ask({ id: 'other', sessionId: 'sess-2' as SessionId, fingerprint: 'fp-a' }),
+    )
     const at = '2026-09-01T00:03:00.000Z'
     store.interactions.answer({ id: 'b', answer, answeredBy: 'human', deliveredVia: 'menu', at })
 
@@ -227,10 +253,18 @@ it('closes every open ask on one session at once and returns exactly the ids tha
 it('enumerates open asks oldest first and a session’s history newest first', async () => {
   const store = await openTestStore(':memory:')
   try {
-    store.interactions.insert(ask({ id: 'a', fingerprint: 'fp-a', askedAt: '2026-09-01T00:02:00.000Z' }))
-    store.interactions.insert(ask({ id: 'b', fingerprint: 'fp-b', askedAt: '2026-09-01T00:01:00.000Z' }))
-    store.interactions.insert(ask({ id: 'c', fingerprint: 'fp-c', askedAt: '2026-09-01T00:03:00.000Z' }))
-    store.interactions.insert(ask({ id: 'z', sessionId: 'sess-2' as SessionId, fingerprint: 'fp-a' }))
+    store.interactions.insert(
+      ask({ id: 'a', fingerprint: 'fp-a', askedAt: '2026-09-01T00:02:00.000Z' }),
+    )
+    store.interactions.insert(
+      ask({ id: 'b', fingerprint: 'fp-b', askedAt: '2026-09-01T00:01:00.000Z' }),
+    )
+    store.interactions.insert(
+      ask({ id: 'c', fingerprint: 'fp-c', askedAt: '2026-09-01T00:03:00.000Z' }),
+    )
+    store.interactions.insert(
+      ask({ id: 'z', sessionId: 'sess-2' as SessionId, fingerprint: 'fp-a' }),
+    )
 
     expect(store.interactions.listOpen(session).map((r) => r.id)).toEqual(['b', 'a', 'c'])
     // No session argument means every session's open asks.
@@ -251,9 +285,21 @@ it('trims resolved rows by age and never trims an open ask, however old', async 
     store.interactions.insert(ask({ id: 'answered-old', fingerprint: 'fp-2', askedAt: old }))
     store.interactions.insert(ask({ id: 'closed-old', fingerprint: 'fp-3', askedAt: old }))
     store.interactions.insert(ask({ id: 'answered-new', fingerprint: 'fp-4', askedAt: old }))
-    store.interactions.answer({ id: 'answered-old', answer, answeredBy: 'human', deliveredVia: 'menu', at: '2026-02-01T00:00:00.000Z' })
+    store.interactions.answer({
+      id: 'answered-old',
+      answer,
+      answeredBy: 'human',
+      deliveredVia: 'menu',
+      at: '2026-02-01T00:00:00.000Z',
+    })
     store.interactions.close('closed-old', 'expired', '2026-02-01T00:00:00.000Z')
-    store.interactions.answer({ id: 'answered-new', answer, answeredBy: 'human', deliveredVia: 'menu', at: '2026-06-01T00:00:00.000Z' })
+    store.interactions.answer({
+      id: 'answered-new',
+      answer,
+      answeredBy: 'human',
+      deliveredVia: 'menu',
+      at: '2026-06-01T00:00:00.000Z',
+    })
 
     // The cutoff is compared against the resolution time, not the ask time —
     // COALESCE(answered_at, expired_at, asked_at) — so `answered-new` survives

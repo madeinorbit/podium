@@ -5,19 +5,20 @@
  * modules/automations/.
  */
 
-import {
-  type AutomationId,
-  type AutomationRunId,
-  type AutomationRunOutcome,
-  type AutomationRunWire,
-  type AutomationScheduleKind,
-  type AutomationSessionMode,
-  type AutomationWire,
-  type SessionId,
-  type UserId,
+import type {
+  AutomationId,
+  AutomationRunId,
+  AutomationRunOutcome,
+  AutomationRunWire,
+  AutomationScheduleKind,
+  AutomationSessionMode,
+  AutomationWire,
+  SessionId,
+  UserId,
 } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
+import { automationRuns, automations } from '../migrations/schema'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -30,66 +31,91 @@ export type AutomationRunRow = AutomationRunWire & {
   onBehalfOf: UserId
 }
 
-// SERIALIZATION EDGE (POD-362): sqlite hands back `Record<string, unknown>`, so
-// this is where a stored string re-enters its branded id space. The row type IS
-// the wire type here (`AutomationRow = AutomationWire`), which is exactly why the
-// brand has to be applied at the decode rather than carried in.
-function rowToAutomation(r: Record<string, unknown>): AutomationRow {
+/**
+ * WHAT STILL NEEDS MAPPING, AND WHY EACH LINE IS HERE [spec §6 rules 3 and 6].
+ *
+ * Drizzle's own execution path returns the schema's TypeScript names and its
+ * `$type` brands, so the per-column decode this file used to carry is gone —
+ * `id`, `targetSessionId`, `ownerUserId`, `enabled` (an `integer({ mode:
+ * 'boolean' })` column) and every plain string arrive correctly typed. What is
+ * left is the two places where the SCHEMA'S type is looser than the DOMAIN'S,
+ * and each is a decision rather than a driver artefact:
+ *
+ *   `cron` is `notNull` in the database and nullable in the domain. A
+ *   non-cron automation stores the empty string and reads back as null; the
+ *   write half of that pair is in {@link AutomationsRepository.update}. Neither
+ *   half means anything without the other.
+ *
+ *   `scheduleKind`, `sessionMode` and `outcome` are CHECK-constrained text in
+ *   the database and unions in the domain. The database enforces the values
+ *   (spec §6 rule 5), so this narrows what the constraint already guarantees.
+ */
+type AutomationSelect = typeof automations.$inferSelect
+type AutomationRunSelect = typeof automationRuns.$inferSelect
+
+function rowToAutomation(r: AutomationSelect): AutomationRow {
   return {
-    id: r.id as AutomationId,
-    name: r.name as string,
-    enabled: Number(r.enabled) !== 0,
-    repoPath: (r.repo_path as string | null) ?? null,
-    scheduleKind: (r.schedule_kind as AutomationScheduleKind) ?? 'cron',
-    cron: (r.cron as string) || null,
-    runAt: (r.run_at as string | null) ?? null,
-    targetSessionId: (r.target_session_id as SessionId | null) ?? null,
-    agentKind: r.agent_kind as string,
-    model: r.model as string,
-    effort: r.effort as string,
-    prompt: r.prompt as string,
-    sessionMode: (r.session_mode as AutomationSessionMode) ?? 'fresh',
-    nextRunAt: (r.next_run_at as string | null) ?? null,
-    lastRunAt: (r.last_run_at as string | null) ?? null,
-    createdAt: r.created_at as string,
-    ownerUserId: r.owner_user_id as UserId,
-    createdByActor: r.created_by_actor as string,
-    createdByOnBehalfOf: r.created_by_on_behalf_of as UserId,
+    id: r.id,
+    name: r.name,
+    enabled: r.enabled,
+    repoPath: r.repoPath,
+    scheduleKind: r.scheduleKind as AutomationScheduleKind,
+    cron: r.cron || null,
+    runAt: r.runAt,
+    targetSessionId: r.targetSessionId,
+    agentKind: r.agentKind,
+    model: r.model,
+    effort: r.effort,
+    prompt: r.prompt,
+    sessionMode: r.sessionMode as AutomationSessionMode,
+    nextRunAt: r.nextRunAt,
+    lastRunAt: r.lastRunAt,
+    createdAt: r.createdAt,
+    ownerUserId: r.ownerUserId,
+    createdByActor: r.createdByActor,
+    createdByOnBehalfOf: r.createdByOnBehalfOf as UserId,
   }
 }
 
-// SERIALIZATION EDGE: as above.
-function rowToRun(r: Record<string, unknown>): AutomationRunRow {
+function rowToRun(r: AutomationRunSelect): AutomationRunRow {
   return {
-    id: r.id as AutomationRunId,
-    automationId: r.automation_id as AutomationId,
-    firedAt: r.fired_at as string,
-    sessionId: (r.session_id as SessionId | null) ?? null,
+    id: r.id,
+    automationId: r.automationId,
+    firedAt: r.firedAt,
+    sessionId: r.sessionId,
     outcome: r.outcome as AutomationRunOutcome,
-    detail: (r.detail as string | null) ?? null,
-    actor: r.actor as string,
-    onBehalfOf: r.on_behalf_of as UserId,
+    detail: r.detail,
+    actor: r.actor,
+    onBehalfOf: r.onBehalfOf as UserId,
   }
 }
 
 export class AutomationsRepository {
-  private readonly db: SqlDatabase
+  private readonly db: SyncDrizzle
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  constructor(queries: SyncQueries) {
+    // Destructured rather than held as `this.queries`, so every query body below
+    // reads `this.db` — the receiver B1 keeps when it swaps in the async pair
+    // and adds the awaits [spec rule 27b].
+    this.db = queries.db
   }
 
   list(): AutomationRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM automations WHERE deleted_at IS NULL ORDER BY created_at ASC')
-      .all() as Record<string, unknown>[]
-    return rows.map(rowToAutomation)
+    return this.db
+      .select()
+      .from(automations)
+      .where(isNull(automations.deletedAt))
+      .orderBy(asc(automations.createdAt))
+      .all()
+      .map(rowToAutomation)
   }
 
   get(id: string): AutomationRow | undefined {
     const r = this.db
-      .prepare('SELECT * FROM automations WHERE id = ? AND deleted_at IS NULL')
-      .get(id) as Record<string, unknown> | undefined
+      .select()
+      .from(automations)
+      .where(and(eq(automations.id, id as AutomationId), isNull(automations.deletedAt)))
+      .get()
     return r ? rowToAutomation(r) : undefined
   }
 
@@ -107,86 +133,81 @@ export class AutomationsRepository {
    * NOT a general `getIncludingRemoved`: this returns an owner and nothing else,
    * so no caller can accidentally resurrect a deleted automation's payload by
    * reaching for a field that happens to still be in the row.
+   *
+   * THE ABSENT `isNull(deletedAt)` IS THE POINT, not an omission. Every other
+   * read in this file carries one; a conversion that made this file internally
+   * consistent would break the scoped feed silently.
    */
   ownerOf(id: string): UserId | undefined {
-    const r = this.db.prepare('SELECT owner_user_id FROM automations WHERE id = ?').get(id) as
-      | Record<string, unknown>
-      | undefined
-    return r ? (r.owner_user_id as UserId) : undefined
+    return this.db
+      .select({ ownerUserId: automations.ownerUserId })
+      .from(automations)
+      .where(eq(automations.id, id as AutomationId))
+      .get()?.ownerUserId
   }
 
   /** The owning user of a run's automation, through both tombstones. Same
    *  contract and the same reason as {@link ownerOf}. */
   runOwnerOf(id: string): UserId | undefined {
-    const r = this.db
-      .prepare(
-        `SELECT a.owner_user_id AS owner_user_id FROM automation_runs r
-           JOIN automations a ON a.id = r.automation_id
-          WHERE r.id = ?`,
-      )
-      .get(id) as Record<string, unknown> | undefined
-    return r ? (r.owner_user_id as UserId) : undefined
+    return this.db
+      .select({ ownerUserId: automations.ownerUserId })
+      .from(automationRuns)
+      .innerJoin(automations, eq(automations.id, automationRuns.automationId))
+      .where(eq(automationRuns.id, id as AutomationRunId))
+      .get()?.ownerUserId
   }
 
   insert(a: AutomationRow): void {
     this.db
-      .prepare(
-        `INSERT INTO automations
-           (id, name, enabled, repo_path, schedule_kind, cron, run_at, target_session_id,
-            agent_kind, model, effort, prompt, session_mode, next_run_at, last_run_at, created_at,
-            owner_user_id, created_by_actor, created_by_on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        a.id,
-        a.name,
-        a.enabled ? 1 : 0,
-        a.repoPath,
-        a.scheduleKind,
-        a.cron ?? '',
-        a.runAt,
-        a.targetSessionId,
-        a.agentKind,
-        a.model,
-        a.effort,
-        a.prompt,
-        a.sessionMode,
-        a.nextRunAt,
-        a.lastRunAt,
-        a.createdAt,
-        a.ownerUserId,
-        a.createdByActor,
-        a.createdByOnBehalfOf,
-      )
+      .insert(automations)
+      .values({
+        id: a.id,
+        name: a.name,
+        enabled: a.enabled,
+        repoPath: a.repoPath,
+        scheduleKind: a.scheduleKind,
+        cron: a.cron ?? '',
+        runAt: a.runAt,
+        targetSessionId: a.targetSessionId,
+        agentKind: a.agentKind,
+        model: a.model,
+        effort: a.effort,
+        prompt: a.prompt,
+        sessionMode: a.sessionMode,
+        nextRunAt: a.nextRunAt,
+        lastRunAt: a.lastRunAt,
+        createdAt: a.createdAt,
+        ownerUserId: a.ownerUserId,
+        createdByActor: a.createdByActor,
+        createdByOnBehalfOf: a.createdByOnBehalfOf,
+      })
+      .run()
   }
 
   /** Whole-row update (the service reads, patches, writes back). */
   update(a: AutomationRow): void {
     this.db
-      .prepare(
-        `UPDATE automations SET
-           name = ?, enabled = ?, repo_path = ?, schedule_kind = ?, cron = ?, run_at = ?,
-           target_session_id = ?, agent_kind = ?, model = ?, effort = ?, prompt = ?,
-           session_mode = ?, next_run_at = ?, last_run_at = ?
-         WHERE id = ?`,
-      )
-      .run(
-        a.name,
-        a.enabled ? 1 : 0,
-        a.repoPath,
-        a.scheduleKind,
-        a.cron ?? '',
-        a.runAt,
-        a.targetSessionId,
-        a.agentKind,
-        a.model,
-        a.effort,
-        a.prompt,
-        a.sessionMode,
-        a.nextRunAt,
-        a.lastRunAt,
-        a.id,
-      )
+      .update(automations)
+      .set({
+        name: a.name,
+        enabled: a.enabled,
+        repoPath: a.repoPath,
+        scheduleKind: a.scheduleKind,
+        // The write half of the null-cron pair; the read half is in
+        // `rowToAutomation`. The column is `notNull` and the domain is not.
+        cron: a.cron ?? '',
+        runAt: a.runAt,
+        targetSessionId: a.targetSessionId,
+        agentKind: a.agentKind,
+        model: a.model,
+        effort: a.effort,
+        prompt: a.prompt,
+        sessionMode: a.sessionMode,
+        nextRunAt: a.nextRunAt,
+        lastRunAt: a.lastRunAt,
+      })
+      .where(eq(automations.id, a.id))
+      .run()
   }
 
   /**
@@ -207,15 +228,22 @@ export class AutomationsRepository {
     const removed =
       Number(
         this.db
-          .prepare('UPDATE automations SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL')
-          .run(deletedAt, id).changes,
+          .update(automations)
+          .set({ deletedAt })
+          .where(and(eq(automations.id, id as AutomationId), isNull(automations.deletedAt)))
+          .run().changes,
       ) > 0
     if (removed) {
       this.db
-        .prepare(
-          'UPDATE automation_runs SET deleted_at = ? WHERE automation_id = ? AND deleted_at IS NULL',
+        .update(automationRuns)
+        .set({ deletedAt })
+        .where(
+          and(
+            eq(automationRuns.automationId, id as AutomationId),
+            isNull(automationRuns.deletedAt),
+          ),
         )
-        .run(deletedAt, id)
+        .run()
     }
     return removed
   }
@@ -224,26 +252,26 @@ export class AutomationsRepository {
 
   addRun(run: AutomationRunRow): void {
     this.db
-      .prepare(
-        `INSERT INTO automation_runs (id, automation_id, fired_at, session_id, outcome, detail, actor, on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        run.id,
-        run.automationId,
-        run.firedAt,
-        run.sessionId,
-        run.outcome,
-        run.detail,
-        run.actor,
-        run.onBehalfOf,
-      )
+      .insert(automationRuns)
+      .values({
+        id: run.id,
+        automationId: run.automationId,
+        firedAt: run.firedAt,
+        sessionId: run.sessionId,
+        outcome: run.outcome,
+        detail: run.detail,
+        actor: run.actor,
+        onBehalfOf: run.onBehalfOf,
+      })
+      .run()
   }
 
   getRun(id: string): AutomationRunRow | undefined {
     const r = this.db
-      .prepare('SELECT * FROM automation_runs WHERE id = ? AND deleted_at IS NULL')
-      .get(id) as Record<string, unknown> | undefined
+      .select()
+      .from(automationRuns)
+      .where(and(eq(automationRuns.id, id as AutomationRunId), isNull(automationRuns.deletedAt)))
+      .get()
     return r ? rowToRun(r) : undefined
   }
 
@@ -254,34 +282,37 @@ export class AutomationsRepository {
     patch: { sessionId: SessionId | null; outcome: AutomationRunOutcome; detail: string | null },
   ): void {
     this.db
-      .prepare(
-        `UPDATE automation_runs
-         SET session_id = ?, outcome = ?, detail = ?
-         WHERE id = ? AND deleted_at IS NULL`,
-      )
-      .run(patch.sessionId, patch.outcome, patch.detail, id)
+      .update(automationRuns)
+      .set({ sessionId: patch.sessionId, outcome: patch.outcome, detail: patch.detail })
+      .where(and(eq(automationRuns.id, id as AutomationRunId), isNull(automationRuns.deletedAt)))
+      .run()
   }
 
   /** Most recent runs first — the tab's "Recent runs" list. */
   listRuns(automationId: AutomationId, limit = 20): AutomationRunRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM automation_runs
-          WHERE automation_id = ? AND deleted_at IS NULL
-          ORDER BY fired_at DESC, rowid DESC LIMIT ?`,
-      )
-      .all(automationId, limit) as Record<string, unknown>[]
-    return rows.map(rowToRun)
+    return (
+      this.db
+        .select()
+        .from(automationRuns)
+        .where(and(eq(automationRuns.automationId, automationId), isNull(automationRuns.deletedAt)))
+        // The rowid tie-break makes the order TOTAL: two fires can share a
+        // timestamp, and without it the page is whatever the engine returns.
+        .orderBy(desc(automationRuns.firedAt), desc(sql`rowid`))
+        .limit(limit)
+        .all()
+        .map(rowToRun)
+    )
   }
 
   /** Full run truth for durable snapshots and boot reconciliation. */
   listAllRuns(): AutomationRunRow[] {
-    const rows = this.db
-      .prepare(
-        'SELECT * FROM automation_runs WHERE deleted_at IS NULL ORDER BY fired_at ASC, rowid ASC',
-      )
-      .all() as Record<string, unknown>[]
-    return rows.map(rowToRun)
+    return this.db
+      .select()
+      .from(automationRuns)
+      .where(isNull(automationRuns.deletedAt))
+      .orderBy(asc(automationRuns.firedAt), asc(sql`rowid`))
+      .all()
+      .map(rowToRun)
   }
 
   /** The session id of the LATEST spawned run, per automation — the overlap check's
@@ -291,18 +322,30 @@ export class AutomationsRepository {
    *  truth about which ran last. */
   lastSpawnedSessions(): Map<AutomationId, SessionId> {
     const rows = this.db
-      .prepare(
-        `SELECT automation_id, session_id FROM automation_runs r
-         WHERE outcome = 'spawned' AND session_id IS NOT NULL AND deleted_at IS NULL
-           AND rowid = (
-             SELECT MAX(rowid) FROM automation_runs x
-             WHERE x.automation_id = r.automation_id
-               AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
-               AND x.deleted_at IS NULL
-           )`,
+      .select({
+        automationId: automationRuns.automationId,
+        sessionId: automationRuns.sessionId,
+      })
+      .from(automationRuns)
+      .where(
+        and(
+          eq(automationRuns.outcome, 'spawned'),
+          isNotNull(automationRuns.sessionId),
+          isNull(automationRuns.deletedAt),
+          // A CORRELATED SUBQUERY ON `rowid`, which the builder has no vocabulary
+          // for, so it stays a `sql` fragment inside the builder query (rule 1).
+          // `rowid` and not `MAX(fired_at)`: see the doc comment above.
+          sql`rowid = (
+            SELECT MAX(rowid) FROM automation_runs x
+            WHERE x.automation_id = ${automationRuns.automationId}
+              AND x.outcome = 'spawned' AND x.session_id IS NOT NULL
+              AND x.deleted_at IS NULL
+          )`,
+        ),
       )
-      .all() as Record<string, unknown>[]
-    // SERIALIZATION EDGE: both columns re-enter their id spaces here.
-    return new Map(rows.map((r) => [r.automation_id as AutomationId, r.session_id as SessionId]))
+      .all()
+    return new Map(
+      rows.flatMap((r) => (r.sessionId === null ? [] : [[r.automationId, r.sessionId] as const])),
+    )
   }
 }

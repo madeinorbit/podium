@@ -1563,6 +1563,7 @@
         "src/test-support/migrated-database.ts",
         "src/test-support/open-test-store.ts",
         "src/test-support/pre-migrated-store.ts",
+        "src/test-support/stage-a-seam.ts",
         "src/title-filter.ts",
         "src/trpc.ts",
         "src/web-bundle-stamp.ts",

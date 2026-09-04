@@ -27,9 +27,9 @@
 
 import type { MaintenanceCommandReply } from '@podium/protocol'
 import { expect, it } from 'vitest'
-import type { MaintenanceLeaseRow } from './maintenance'
 import type { SessionStore } from '../store'
 import { openTestStore } from '../test-support/open-test-store'
+import type { MaintenanceLeaseRow } from './maintenance'
 
 /**
  * The raw connection, for planting a value no typed writer can produce.
@@ -173,7 +173,7 @@ it('throws rather than quarantining when a stored command reply is not a valid r
     // which is the point — only a hand-edited database or an older writer can
     // produce one, and this pins what happens when one does.
     rawDb(store)
-      .prepare("UPDATE maintenance_commands SET result_json = ? WHERE job_kind = ? AND run_key = ?")
+      .prepare('UPDATE maintenance_commands SET result_json = ? WHERE job_kind = ? AND run_key = ?')
       .run('{"status":"nonsense"}', 'message-expiry', 'run-1')
     expect(() => store.maintenance.getCommand('message-expiry', 'run-1')).toThrow()
   } finally {
