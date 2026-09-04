@@ -269,7 +269,9 @@ export class IssueGitWorkflowModule {
         machine: string
       }>
   > {
-    const row = this.store.draftOrThrow(id)
+    // `let`, because this draft does NOT survive the worktree phase below — see the
+    // re-draft after it (POD-3373).
+    let row = this.store.draftOrThrow(id)
     if (isIssueStage(row.stage) && isSystemOwnedIssueStage(row.stage)) {
       throw new Error('shipping stage is system-owned and cannot start issue work')
     }
@@ -317,19 +319,26 @@ export class IssueGitWorkflowModule {
         ...(opts?.forceUnknownModel ? { force: true } : {}),
       },
     )
-    // Accepted — commit the selection to the issue. `--model`/`--effort` PERSIST here
-    // (documented as such in `start --help`), matching `--agent` above: the issue's
+    // Accepted — the selection is what gets committed to the issue. `--model`/`--effort`
+    // PERSIST (documented as such in `start --help`), matching `--agent`: the issue's
     // profile is what add-session and every later respawn read, so a launch-only
     // override would give one issue two answers to "what does this run at".
-    row.defaultAgent = agent
-    row.defaultModel = opts?.model ?? stored.model
-    row.defaultEffort = opts?.effort ?? stored.effort
+    //
+    // Held as VALUES rather than assigned to `row` here, because the worktree phase
+    // below awaits and the draft in hand does not outlive it.
+    const profile = {
+      defaultAgent: agent,
+      defaultModel: opts?.model ?? stored.model,
+      defaultEffort: opts?.effort ?? stored.effort,
+    }
 
     // Branch preserved after free/archive (worktreePath null, branch set): attach the
     // existing branch — do NOT `worktree add -b`, which fails because the branch is
     // still there. Same rebuild as resume (`ensureWorktree` → worktreeAddExisting).
     // Fresh starts (no branch) take the create path below.
     let path: string
+    /** What the worktree phase established, applied to the draft cut AFTER it. */
+    const established: { branch?: string; machineId?: MachineId; repoPath?: string } = {}
     if (row.branch) {
       const ensured = await this.ensureWorktree(id)
       if (!ensured.ok || !ensured.worktreePath) {
@@ -399,9 +408,8 @@ export class IssueGitWorkflowModule {
       // POD-665: the daemon just created this worktree out from under connected
       // clients — nudge them to re-fetch repos rather than sit invisible until reload.
       this.store.d.onWorktreesChanged?.(row.repoPath, worktreeMachineId)
-      row.branch = branch
-      row.machineId = worktreeMachineId
-      row.worktreePath = path
+      established.branch = branch
+      established.machineId = worktreeMachineId
       /**
        * repoPath TRAVELS WITH the worktree (POD-1461).
        *
@@ -415,8 +423,39 @@ export class IssueGitWorkflowModule {
        * as one. This is the same move, so it obeys the same rule; the identity guard above
        * is rehome's, applied before anything was built.
        */
-      row.repoPath = startRepoPath
+      established.repoPath = startRepoPath
     }
+    /**
+     * RE-DRAFT: THE WORKTREE PHASE COMMITTED, SO THE DRAFT ABOVE IS SPENT [POD-3373].
+     *
+     * A draft is a copy pinned to the revision it was cut from, and it may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). The `row.branch` path
+     * above breaks that: `ensureWorktree` takes a SECOND, independent draft of this
+     * same issue and commits repoPath/machineId/worktreePath onto it. Continuing on
+     * the first draft was wrong in both directions — it carried none of the worktree
+     * fields that write established, so persisting it reverted worktreePath to the
+     * null the free left behind, and its pin was one revision stale, so
+     * `upsertIssue`'s expectedRevision precondition refused the write outright.
+     *
+     * The refusal is the precondition doing its job: this is the silently-lost write
+     * it was added to catch, and under the shared-row model start() only appeared to
+     * work because ensureWorktree's assignments landed on the very object start()
+     * held. NOT a race — one operation writing one row through two drafts — so the
+     * answer is neither a retry nor a wider precondition. It is to build on what the
+     * sub-operation committed, which is what re-cutting the draft here does: the new
+     * draft carries ensureWorktree's fields and is pinned to the revision it wrote.
+     *
+     * Unconditional rather than only on the `row.branch` path, because the rule is
+     * about the await, not about which branch took it: `prepareMachineStart` is a
+     * daemon-supplied callback on the other path, and a draft cut before it must not
+     * be the one that outlives it either.
+     */
+    row = this.store.draftOrThrow(id)
+    Object.assign(row, profile)
+    if (established.branch !== undefined) row.branch = established.branch
+    if (established.machineId !== undefined) row.machineId = established.machineId
+    if (established.repoPath !== undefined) row.repoPath = established.repoPath
+    row.worktreePath = path
     // Starting a CLOSED issue is an explicit reopen (#24): clear the closed
     // markers so the issue doesn't get a live worktree while staying
     // derived-closed (invisible to ready/open). Emitted as issue.reopened so
