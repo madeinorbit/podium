@@ -58,7 +58,7 @@ export const EXCLUDED_SUITES = new Set([
 /** The helper module itself constructs the store; it is not a caller to rewrite. */
 const NEVER_EDIT = new Set(['apps/server/src/test-support/open-test-store.ts'])
 
-interface Edit {
+export interface Edit {
   start: number
   end: number
   text: string
@@ -72,6 +72,105 @@ interface Edit {
    * call un-awaited. The wider expression must end up outermost.
    */
   span?: number
+}
+
+/**
+ * The span an ASI guard claims: wider than any expression, so the `;` sorts
+ * outside every await that begins at its offset instead of between two of them.
+ * A finite value, not `Infinity`, because `Infinity - Infinity` is `NaN` and a
+ * comparator that returns `NaN` orders nothing.
+ */
+const ASI_OUTERMOST = Number.MAX_SAFE_INTEGER
+
+/** One call the pass has decided to await, in the shape the emitter needs. */
+export interface AwaitSite {
+  start: number
+  end: number
+  /** `await x` binds tighter than `.y`, so a receiver has to be parenthesised. */
+  parenthesised: boolean
+  /** The call begins its statement, so a preceding line can run into it. */
+  atStatementStart: boolean
+}
+
+/**
+ * The text edits that await a file's call sites.
+ *
+ * Separate from the AST walk that finds them so the one thing that has gone
+ * wrong twice — what lands where when two awaits begin at the SAME offset — is
+ * checkable without building a program.
+ */
+export function awaitEdits(sites: AwaitSite[]): Edit[] {
+  const edits: Edit[] = []
+  /** Offsets that already carry an ASI guard, so a nested pair emits one `;`. */
+  const guarded = new Set<number>()
+  for (const { start, end, parenthesised, atStatementStart } of sites) {
+    if (!parenthesised) {
+      edits.push({ start, end: start, text: 'await ', why: 'await', span: end - start })
+      continue
+    }
+    edits.push({ start, end: start, text: '(await ', why: 'await', span: end - start })
+    edits.push({ start: end, end, text: ')', why: 'await' })
+    if (atStatementStart && !guarded.has(start)) {
+      // `foo()` newline `(await bar()).baz()` is one call expression to the
+      // JavaScript parser. The repo writes semicolons only where they are
+      // needed, so this is one of the places they are needed.
+      //
+      // Its own edit, not a `';(await '` lead, because another await can begin
+      // at this same offset — `openTestStore(f).sessions.get(x)` is a
+      // parenthesised helper await AND a statement-level store await. The guard
+      // belongs OUTSIDE both; carried on the lead it landed between them as
+      // `await ;(await …)`, which is TS1109 (POD-3382).
+      guarded.add(start)
+      edits.push({ start, end: start, text: ';', why: 'asi', span: ASI_OUTERMOST })
+    }
+  }
+  return edits
+}
+
+/**
+ * Rewrite `text` by every edit, and say which ones were applied so a caller can
+ * map an offset through them. `where` only names the file in an error.
+ */
+export function applyEdits(
+  text: string,
+  edits: Edit[],
+  where: string,
+): { text: string; applied: Edit[] } {
+  // A deletion can swallow an edit inside it (renaming the construction in a
+  // local wrapper that is itself being removed). Drop the contained edits,
+  // then refuse any pair that still overlaps rather than corrupting the file.
+  const deletions = edits.filter((e) => e.end > e.start && e.text === '')
+  const kept = edits.filter((e) => {
+    if (e.start === e.end) {
+      // An insertion anchored inside a range that is going away (the helper
+      // import anchored on the `SessionStore` import being dropped) moves to
+      // where that range started rather than vanishing with it.
+      const host = deletions.find((d) => e.start > d.start && e.start <= d.end)
+      if (host !== undefined) {
+        e.start = host.start
+        e.end = host.start
+      }
+      return true
+    }
+    return !deletions.some((d) => d !== e && e.start >= d.start && e.end <= d.end)
+  })
+  // Descending, so each application leaves earlier offsets untouched. At one
+  // offset the LAST applied ends up leftmost, so the widest expression sorts
+  // last and wraps the narrower ones.
+  kept.sort((a, b) => b.start - a.start || b.end - a.end || (a.span ?? 0) - (b.span ?? 0))
+  for (let i = 1; i < kept.length; i++) {
+    const here = kept[i]
+    const before = kept[i - 1]
+    if (here === undefined || before === undefined) continue
+    if (here.end > before.start) {
+      throw new Error(
+        `overlapping edits in ${where} at ${here.start}: ${here.why} vs ${before.why}`,
+      )
+    }
+  }
+  let out = text
+  for (const e of kept) out = out.slice(0, e.start) + e.text + out.slice(e.end)
+  return { text: out, applied: kept }
 }
 
 export interface Refusal {
@@ -583,21 +682,14 @@ export function run(opts: RunOptions): RunResult {
         : new Set<ts.SourceFile>()
   for (const sf of files) {
     const text = sf.getFullText()
-    const edits: Edit[] = []
-    for (const call of awaitSites.get(sf) ?? []) {
-      sites++
-      const start = call.getStart(sf)
-      if (parenSites.has(call)) {
-        // `foo()` newline `(await bar()).baz()` is one call expression to the
-        // JavaScript parser. The repo writes semicolons only where they are
-        // needed, so this is one of the places they are needed.
-        const lead = startsAStatement(call, sf) ? ';(await ' : '(await '
-        edits.push({ start, end: start, text: lead, why: 'await', span: call.getEnd() - start })
-        edits.push({ start: call.getEnd(), end: call.getEnd(), text: ')', why: 'await' })
-      } else {
-        edits.push({ start, end: start, text: 'await ', why: 'await', span: call.getEnd() - start })
-      }
-    }
+    const callSites = [...(awaitSites.get(sf) ?? [])].map((call) => ({
+      start: call.getStart(sf),
+      end: call.getEnd(),
+      parenthesised: parenSites.has(call),
+      atStatementStart: startsAStatement(call, sf),
+    }))
+    sites += callSites.length
+    const edits: Edit[] = awaitEdits(callSites)
     for (const fn of asyncSites.get(sf) ?? []) {
       // `async` goes after `export`/`static`, never before them.
       const mods = (fn as ts.HasModifiers).modifiers
@@ -632,41 +724,7 @@ export function run(opts: RunOptions): RunResult {
       edits.push({ start: ref.getEnd(), end: ref.getEnd(), text: '>', why: 'awaited type' })
     }
     if (opts.apply) {
-      // A deletion can swallow an edit inside it (renaming the construction in a
-      // local wrapper that is itself being removed). Drop the contained edits,
-      // then refuse any pair that still overlaps rather than corrupting the file.
-      const deletions = edits.filter((e) => e.end > e.start && e.text === '')
-      const kept = edits.filter((e) => {
-        if (e.start === e.end) {
-          // An insertion anchored inside a range that is going away (the helper
-          // import anchored on the `SessionStore` import being dropped) moves to
-          // where that range started rather than vanishing with it.
-          const host = deletions.find((d) => e.start > d.start && e.start <= d.end)
-          if (host !== undefined) {
-            e.start = host.start
-            e.end = host.start
-          }
-          return true
-        }
-        return !deletions.some((d) => d !== e && e.start >= d.start && e.end <= d.end)
-      })
-      // Descending, so each application leaves earlier offsets untouched. At one
-      // offset the LAST applied ends up leftmost, so the widest expression sorts
-      // last and wraps the narrower ones.
-      kept.sort((a, b) => b.start - a.start || b.end - a.end || (a.span ?? 0) - (b.span ?? 0))
-      for (let i = 1; i < kept.length; i++) {
-        const here = kept[i]
-        const before = kept[i - 1]
-        if (here === undefined || before === undefined) continue
-        if (here.end > before.start) {
-          throw new Error(
-            `overlapping edits in ${rel(sf.fileName)} at ${here.start}: ` +
-              `${here.why} vs ${before.why}`,
-          )
-        }
-      }
-      let out = text
-      for (const e of kept) out = out.slice(0, e.start) + e.text + out.slice(e.end)
+      const { text: out, applied: kept } = applyEdits(text, edits, rel(sf.fileName))
       writeFileSync(sf.fileName, out)
 
       // Where each newly-async function ENDS UP, so a compiler error in the
