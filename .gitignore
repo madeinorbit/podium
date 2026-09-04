@@ -68,3 +68,6 @@ verify-artifacts/
 
 # Cache-admission lane reports: attached to the issue, summarised in docs/agents (POD-2774).
 evidence/
+
+# vitest json reporter output (POD-3407 committed one by accident)
+.vitest/

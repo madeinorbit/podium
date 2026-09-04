@@ -514,6 +514,23 @@ export function compareAgainstBaseline(baseline: Report, measured: Report): stri
       failures.push(`${name}: control is 0 — ${after.controlOf}. Nothing was measured.`)
       continue
     }
+    // A ZERO WHERE THE BASELINE HAS A NUMBER IS A BLIND INSTRUMENT, NOT A WIN
+    // [POD-3407]. The control above cannot catch this: it is measured from the
+    // FRAMES AND ROWS the window produced, not from the probe, so a probe that
+    // observes nothing still reports a healthy control and a value of 0 — which
+    // the budget below reads as the largest possible improvement. POD-3397 is
+    // exactly that, and POD-3407 reproduced it by counting the same two windows
+    // through a drizzle logger: 0 and 0 against 44 and 253, controls 1 and 80,
+    // verdict "budget held". Gated on `before.value > 0` so a metric that is
+    // legitimately zero in the baseline stays comparable.
+    if (after.value === 0 && before.value > 0) {
+      failures.push(
+        `${name}: measured 0 against a baseline of ${before.value} (${after.unit}) — ` +
+          `the control held (${after.control} ${after.controlOf}), so the window ran and the ` +
+          'instrument saw nothing. That is a dead probe, not a win.',
+      )
+      continue
+    }
     if (after.value > before.value) {
       failures.push(`${name}: ${before.value} → ${after.value} (${after.unit}) — increased`)
     }

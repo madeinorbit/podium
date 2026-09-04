@@ -64,6 +64,10 @@ describe('account frame read cache', () => {
     const reads = readProbe(store)
     expect(store.users.get(asUserId('user-nobody'))).toBeUndefined()
     const afterFirst = reads()
+    // PAIRED WITH THE BOUND BELOW [POD-3407]. See the sibling test in
+    // store-issues-frame-cache.test.ts: 0 === 0 passes, so without this the
+    // assertion below certifies a cache it never observed.
+    expect(afterFirst).toBeGreaterThan(0)
     expect(store.users.get(asUserId('user-nobody'))).toBeUndefined()
     expect(store.users.roleOf(asUserId('user-nobody'))).toBeUndefined()
     expect(reads()).toBe(afterFirst)

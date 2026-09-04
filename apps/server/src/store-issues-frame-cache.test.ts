@@ -201,6 +201,11 @@ describe('issue frame read cache', () => {
     const reads = readProbe(store)
     expect(store.issues.getIssues(['iss_missing']).size).toBe(0)
     const afterFirst = reads()
+    // PAIRED WITH THE BOUND BELOW [POD-3407]. `toBe(afterFirst)` is 0 === 0 under
+    // an instrument that sees nothing, so on its own it reports a perfect cache
+    // for a probe that went dead — which is exactly what POD-3397 found. The miss
+    // above DID go to the table, so this number is never legitimately zero.
+    expect(afterFirst).toBeGreaterThan(0)
     expect(store.issues.getIssues(['iss_missing']).size).toBe(0)
     expect(store.issues.getIssue('iss_missing')).toBeNull()
     expect(reads()).toBe(afterFirst)
