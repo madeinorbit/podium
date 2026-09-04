@@ -97,6 +97,22 @@ export interface StatementObservation {
   readonly batchIndex: number
   /** Which seam saw it. `legacy-handle` disappears with the executor's `legacy` field. */
   readonly seam: 'driver' | 'legacy-handle'
+  /**
+   * The RAW stack captured where the statement entered the driver, present only
+   * while a probe asked for it ({@link StatementProbeHub.captureIssueSites}).
+   *
+   * WHY IT IS CAPTURED HERE AND NOT IN THE PROBE. A probe runs in the `finally`
+   * AFTER the driver call was awaited, and by then the caller's frames are gone:
+   * an audit that builds its own stack sees the executor and nothing above it.
+   * The entry to `execute` is still on the caller's synchronous frame, so this is
+   * the last place the call site exists at all.
+   *
+   * IT IS RAW AND UNPARSED on purpose. Which frame is "the call site" is the
+   * consumer's question — the intent audit wants the first frame outside
+   * `store/executor/`, a future profiler may want the repository method — and
+   * this module has no business deciding it for them.
+   */
+  readonly issueStack?: string
 }
 
 /** The one injectable seam. Everything else in this module is plumbing. */
@@ -114,6 +130,7 @@ export type StatementProbe = (observation: StatementObservation) => void
  */
 export class StatementProbeHub {
   private probes: StatementProbe[] = []
+  private siteRequests = 0
 
   /**
    * Where a throwing probe is reported. Injectable rather than rethrown,
@@ -133,13 +150,32 @@ export class StatementProbeHub {
     return this.probes.length > 0
   }
 
-  /** Register a probe. Returns its detach; detaching twice is a no-op. */
-  attach(probe: StatementProbe): () => void {
+  /**
+   * True while some probe asked for {@link StatementObservation.issueStack}.
+   *
+   * OPT-IN BECAUSE IT IS NOT FREE: building a stack costs far more than the
+   * statement's own bookkeeping, so a profiler counting round trips must not pay
+   * for an attribution it never reads. The audit that does read it asks, and the
+   * cost lands only where somebody wanted the answer.
+   */
+  get captureIssueSites(): boolean {
+    return this.siteRequests > 0
+  }
+
+  /**
+   * Register a probe. Returns its detach; detaching twice is a no-op.
+   *
+   * `wantsIssueSite` is refcounted rather than a flag, so two probes asking and
+   * one detaching does not silently stop attributing for the other.
+   */
+  attach(probe: StatementProbe, options: { wantsIssueSite?: boolean } = {}): () => void {
     this.probes.push(probe)
+    if (options.wantsIssueSite) this.siteRequests += 1
     let detached = false
     return () => {
       if (detached) return
       detached = true
+      if (options.wantsIssueSite) this.siteRequests -= 1
       const at = this.probes.indexOf(probe)
       if (at >= 0) this.probes.splice(at, 1)
     }
@@ -214,17 +250,20 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
   return {
     async execute(statement) {
       if (!hub.active) return session.execute(statement)
+      // BEFORE the await: see StatementObservation.issueStack.
+      const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
       const startedAt = performance.now()
       let result: StatementResult | undefined
       try {
         result = await session.execute(statement)
         return result
       } finally {
-        hub.emit(observationOf(statement, result, performance.now() - startedAt, 1, 0))
+        hub.emit(observationOf(statement, result, performance.now() - startedAt, 1, 0, issueStack))
       }
     },
     async executeBatch(statements) {
       if (!hub.active) return session.executeBatch(statements)
+      const issueStack = hub.captureIssueSites ? new Error('statement issued').stack : undefined
       const startedAt = performance.now()
       let results: readonly StatementResult[] | undefined
       try {
@@ -236,7 +275,16 @@ function observeSession(session: DriverSession, hub: StatementProbeHub): DriverS
         // batch is atomic, so none of it applied, and a probe counting round
         // trips still needs to see the call that was made.
         statements.forEach((statement, index) => {
-          hub.emit(observationOf(statement, results?.[index], durationMs, statements.length, index))
+          hub.emit(
+            observationOf(
+              statement,
+              results?.[index],
+              durationMs,
+              statements.length,
+              index,
+              issueStack,
+            ),
+          )
         })
       }
     },
@@ -256,6 +304,7 @@ function observationOf(
   durationMs: number,
   batchSize: number,
   batchIndex: number,
+  issueStack?: string,
 ): StatementObservation {
   return {
     sql: statement.sql,
@@ -271,5 +320,6 @@ function observationOf(
     batchSize,
     batchIndex,
     seam: 'driver',
+    ...(issueStack === undefined ? {} : { issueStack }),
   }
 }
