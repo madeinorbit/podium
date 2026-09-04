@@ -315,7 +315,7 @@ export class SessionStore {
       this.repos.resolveRepoIdForPath(repoPath),
     )
     this.repos = new ReposRepository(
-      this.executor,
+      this.queries,
       (repoId, repoPath) => this.issues.assignRepoIdToIssuesUnder(repoId, repoPath),
       this.hostMachineId,
       this.tableWrites,

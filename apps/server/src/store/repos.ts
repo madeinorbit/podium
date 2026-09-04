@@ -7,17 +7,26 @@
  * repository and injected here as `assignRepoIdToIssuesUnder`.
  */
 
-import { asMachineId, type MachineId, type RepoId } from '@podium/model'
+import type { MachineId, RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { and, count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
+import { repoDraftSeq, repoPrefixes, repos } from '../migrations/schema'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import type { SyncQueries } from './executor/sync-drizzle'
 import type { TableWrites } from './table-writes'
 
 export function normalizeRepoPath(path: string): string {
   const trimmed = path.trim()
   if (/^\/+$/u.test(trimmed)) return '/'
   return trimmed.replace(/\/+$/u, '')
+}
+
+/** The four columns the held registry read materializes, as drizzle returns them. */
+interface RegistryRow {
+  machineId: MachineId
+  path: string
+  originUrl: string | null
+  repoId: RepoId | null
 }
 
 export class ReposRepository {
@@ -68,14 +77,12 @@ export class ReposRepository {
    * than a guarantee.
    */
   private cached: {
-    rows: Record<string, unknown>[]
+    rows: RegistryRow[]
     prefixes: Map<string, string>
   } | null = null
 
-  private readonly db: SqlDatabase
-
   constructor(
-    executor: StoreExecutor<QueryClient>,
+    private readonly queries: SyncQueries,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
@@ -86,15 +93,33 @@ export class ReposRepository {
      *  this class. */
     tableWrites: TableWrites,
   ) {
-    // The RAW handle, and no second one. The wrapper this replaces forced a second
-    // field: `transaction()` keys nesting depth on the database OBJECT IDENTITY, so
-    // a boundary opened on the wrapper read depth 0 inside an already-open
-    // transaction and issued `BEGIN IMMEDIATE` within one. With no wrapper there is
-    // one object, and it is the one every other repository and the store facade use.
-    this.db = legacyHandle(executor)
     for (const table of ['repos', 'repo_prefixes'])
       tableWrites.subscribe(table, () => this.invalidateRegistry())
   }
+
+  /**
+   * ONE query capability and no second one, for the reason the wrapper this
+   * replaced taught: a span keys nesting depth on the connection, so a boundary
+   * opened on a second object read depth 0 inside an already-open transaction
+   * issued `BEGIN IMMEDIATE` within one. The pair arrives together, so there is
+   * one [spec rule 27b].
+   *
+   * READ THROUGH A GETTER, never frozen into a field [rule 34a]: ambient routing
+   * (rule 35) resolves the enclosing transaction on every access, and a field
+   * assigned once in a constructor cannot. B1 changes the line inside this getter
+   * and nothing below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
+  }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`,
+   * and it breaks SILENTLY, as a detached method.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Drop the held registry read.
@@ -127,18 +152,26 @@ export class ReposRepository {
    * issue per call — rather than as finished objects, so the machine-scoped
    * variant filters the same materialization instead of forcing a second query.
    */
-  private registry(): { rows: Record<string, unknown>[]; prefixes: Map<string, string> } {
+  private registry(): { rows: RegistryRow[]; prefixes: Map<string, string> } {
     if (this.cached) return this.cached
     const rows = this.db
-      .prepare('SELECT machine_id, path, origin_url, repo_id FROM repos ORDER BY rowid ASC')
-      .all() as Record<string, unknown>[]
+      .select({
+        machineId: repos.machineId,
+        path: repos.path,
+        originUrl: repos.originUrl,
+        repoId: repos.repoId,
+      })
+      .from(repos)
+      // ROWID ORDER IS THE CONTRACT, not an incidental ordering: repo discovery
+      // documents that it depends on the insertion order this gives.
+      .orderBy(sql`rowid ASC`)
+      .all()
     const prefixes = new Map(
-      (
-        this.db.prepare('SELECT repo_id, prefix FROM repo_prefixes').all() as {
-          repo_id: RepoId
-          prefix: string
-        }[]
-      ).map((r) => [r.repo_id, r.prefix] as const),
+      this.db
+        .select({ repoId: repoPrefixes.repoId, prefix: repoPrefixes.prefix })
+        .from(repoPrefixes)
+        .all()
+        .map((r) => [r.repoId, r.prefix] as const),
     )
     this.cached = { rows, prefixes }
     return this.cached
@@ -156,18 +189,14 @@ export class ReposRepository {
     // Same rows, same `ORDER BY rowid ASC` order, filtered in memory: the
     // machine-scoped statement this replaces read the same table with the same
     // ordering, and repo-discovery documents that it depends on that order.
-    const rows = machineId ? allRows.filter((r) => r.machine_id === machineId) : allRows
-    return rows.map((r) => {
-      // SERIALIZATION EDGE: an untyped column re-entering the repo id space.
-      const repoId = (r.repo_id as RepoId | null) ?? null
-      return {
-        machineId: asMachineId(r.machine_id as string),
-        path: r.path as string,
-        originUrl: (r.origin_url as string | null) ?? null,
-        repoId,
-        prefix: (repoId ? prefixes.get(repoId) : undefined) ?? null,
-      }
-    })
+    const rows = machineId ? allRows.filter((r) => r.machineId === machineId) : allRows
+    return rows.map((r) => ({
+      machineId: r.machineId,
+      path: r.path,
+      originUrl: r.originUrl,
+      repoId: r.repoId,
+      prefix: (r.repoId ? prefixes.get(r.repoId) : undefined) ?? null,
+    }))
   }
 
   // ---- human-facing prefixes (#474) ----
@@ -179,7 +208,7 @@ export class ReposRepository {
 
   /** All prefixes currently in use server-wide (for collision-free derivation). */
   private takenPrefixes(): Set<string> {
-    const rows = this.db.prepare('SELECT prefix FROM repo_prefixes').all() as { prefix: string }[]
+    const rows = this.db.select({ prefix: repoPrefixes.prefix }).from(repoPrefixes).all()
     return new Set(rows.map((r) => r.prefix))
   }
 
@@ -209,15 +238,19 @@ export class ReposRepository {
 
   /** The registered repo owning `prefix` (its repoId + a representative path). */
   repoForPrefix(prefix: string): { repoId: RepoId; path: string } | null {
-    const row = this.db.prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?').get(prefix) as
-      | { repo_id: RepoId }
-      | undefined
+    const row = this.db
+      .select({ repoId: repoPrefixes.repoId })
+      .from(repoPrefixes)
+      .where(eq(repoPrefixes.prefix, prefix))
+      .get()
     if (!row) return null
     const pathRow = this.db
-      .prepare('SELECT path FROM repos WHERE repo_id = ? LIMIT 1')
-      .get(row.repo_id) as { path: string } | undefined
-    // SERIALIZATION EDGE: an untyped column re-entering the repo id space.
-    return { repoId: row.repo_id as RepoId, path: pathRow?.path ?? '' }
+      .select({ path: repos.path })
+      .from(repos)
+      .where(eq(repos.repoId, row.repoId))
+      .limit(1)
+      .get()
+    return { repoId: row.repoId, path: pathRow?.path ?? '' }
   }
 
   /** Ensure the logical repo `repoId` has a prefix; derive+persist one if not.
@@ -227,9 +260,16 @@ export class ReposRepository {
     if (existing) return existing
     const prefix = this.derivePrefixFor(repoName)
     this.invalidateRegistry()
-    this.db
-      .prepare('INSERT OR IGNORE INTO repo_prefixes (repo_id, prefix) VALUES (?, ?)')
-      .run(repoId, prefix)
+    // CONVERTED under rule 31a, and the constraint COUNT is what turned out not
+    // to matter. A bare `onConflictDoNothing()` emits `on conflict do nothing`,
+    // which SQLite applies to ANY uniqueness conflict — measured on this exact
+    // shape, primary key AND separate UNIQUE, both suppressed either way. So the
+    // test is rule 31's and nothing else: no NOT NULL and no CHECK reachable.
+    //   NOT NULL: repo_id and prefix, both supplied non-null — `prefix` is
+    //     derived by `derivePrefixFor` here and validated by `isValidPrefix` on
+    //     the other path, so neither can be null by the time it arrives.
+    //   CHECK: none on this table. Foreign keys: none, and they would not count.
+    this.db.insert(repoPrefixes).values({ repoId, prefix }).onConflictDoNothing().run()
     return this.prefixForRepoId(repoId) ?? prefix
   }
 
@@ -245,18 +285,19 @@ export class ReposRepository {
     }
     const repoId = this.resolveRepoIdForPath(normalizeRepoPath(path))
     const owner = this.db
-      .prepare('SELECT repo_id FROM repo_prefixes WHERE prefix = ?')
-      .get(prefix) as { repo_id: RepoId } | undefined
-    if (owner && owner.repo_id !== repoId) {
+      .select({ repoId: repoPrefixes.repoId })
+      .from(repoPrefixes)
+      .where(eq(repoPrefixes.prefix, prefix))
+      .get()
+    if (owner && owner.repoId !== repoId) {
       throw new Error(`prefix ${prefix} is already used by another repo`)
     }
     this.invalidateRegistry()
     this.db
-      .prepare(
-        `INSERT INTO repo_prefixes (repo_id, prefix) VALUES (?, ?)
-         ON CONFLICT(repo_id) DO UPDATE SET prefix = excluded.prefix`,
-      )
-      .run(repoId, prefix)
+      .insert(repoPrefixes)
+      .values({ repoId, prefix })
+      .onConflictDoUpdate({ target: repoPrefixes.repoId, set: { prefix: sql`excluded.prefix` } })
+      .run()
   }
 
   /**
@@ -267,17 +308,18 @@ export class ReposRepository {
    * ordinal.
    */
   nextDraftSeq(repoId: RepoId): number {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const row = this.db
-        .prepare('SELECT next_seq FROM repo_draft_seq WHERE repo_id = ?')
-        .get(repoId) as { next_seq: number } | undefined
-      const next = row?.next_seq ?? 1
+        .select({ nextSeq: repoDraftSeq.nextSeq })
+        .from(repoDraftSeq)
+        .where(eq(repoDraftSeq.repoId, repoId))
+        .get()
+      const next = row?.nextSeq ?? 1
       this.db
-        .prepare(
-          `INSERT INTO repo_draft_seq (repo_id, next_seq) VALUES (?, ?)
-           ON CONFLICT(repo_id) DO UPDATE SET next_seq = ?`,
-        )
-        .run(repoId, next + 1, next + 1)
+        .insert(repoDraftSeq)
+        .values({ repoId, nextSeq: next + 1 })
+        .onConflictDoUpdate({ target: repoDraftSeq.repoId, set: { nextSeq: next + 1 } })
+        .run()
       return next
     })
   }
@@ -292,11 +334,29 @@ export class ReposRepository {
     const repoName = normalizedPath.split('/').pop() ?? null
     const repoId = deriveRepoId({ originUrl: origin, machineId, path: normalizedPath })
     this.invalidateRegistry()
+    // CONVERTED, and the enumeration is why [POD-3403 rule 31]. The two forms
+    // agree exactly when no NOT NULL and no CHECK violation is reachable here,
+    // and neither is. Enumerated against the live DDL, which is the table as
+    // 20260802035017_drop-local-machine-defaults rebuilt it:
+    //   NOT NULL columns: machine_id, path and added_at — all three supplied
+    //     non-null below. origin_url, repo_name and repo_id are NULLABLE, so the
+    //     nulls this passes are legal values rather than violations.
+    //   CHECK constraints: none on this table anywhere in the migration chain.
+    //   Foreign keys: none, and they would not count in any case.
+    // What stays reachable is the (machine_id, path) primary-key conflict, which
+    // is the reason the statement is OR IGNORE and which both forms swallow.
     this.db
-      .prepare(
-        'INSERT OR IGNORE INTO repos (machine_id, path, origin_url, repo_name, repo_id, added_at) VALUES (?, ?, ?, ?, ?, ?)',
-      )
-      .run(machineId, normalizedPath, origin ?? null, repoName, repoId, new Date().toISOString())
+      .insert(repos)
+      .values({
+        machineId,
+        path: normalizedPath,
+        originUrl: origin ?? null,
+        repoName,
+        repoId,
+        addedAt: new Date().toISOString(),
+      })
+      .onConflictDoNothing()
+      .run()
     // Assign the human-facing prefix for this logical repo (#474). An explicit,
     // validated override wins over derivation; a sibling checkout already sharing
     // this repo_id keeps its prefix.
@@ -307,9 +367,9 @@ export class ReposRepository {
         }
         if (this.isPrefixTaken(prefix)) throw new Error(`prefix ${prefix} is already in use`)
         this.invalidateRegistry()
-        this.db
-          .prepare('INSERT OR IGNORE INTO repo_prefixes (repo_id, prefix) VALUES (?, ?)')
-          .run(repoId, prefix)
+        // Same statement and the same enumeration as `ensurePrefixForRepoId`;
+        // `prefix` reached here through `isValidPrefix` above.
+        this.db.insert(repoPrefixes).values({ repoId, prefix }).onConflictDoNothing().run()
       } else {
         this.ensurePrefixForRepoId(repoId, repoName ?? normalizedPath)
       }
@@ -325,9 +385,10 @@ export class ReposRepository {
   updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): void {
     const normalizedPath = normalizeRepoPath(path)
     const rows = this.db
-      .prepare('SELECT path, repo_id FROM repos WHERE machine_id = ?')
-      // SERIALIZATION EDGE: untyped columns; repo_id re-enters its id space.
-      .all(machineId) as { path: string; repo_id: RepoId | null }[]
+      .select({ path: repos.path, repoId: repos.repoId })
+      .from(repos)
+      .where(eq(repos.machineId, machineId))
+      .all()
     const row = rows.find((r) => normalizeRepoPath(r.path) === normalizedPath)
     if (!row) return
     // Ahead of the branches rather than in each: this method writes `repos` on
@@ -337,33 +398,33 @@ export class ReposRepository {
 
     const newId = deriveRepoId({ originUrl, machineId, path: normalizedPath })
     const upgrade =
-      isPathFallbackRepoId(row.repo_id, machineId, row.path) ||
-      isPathFallbackRepoId(row.repo_id, machineId, normalizedPath)
-    const repoId = upgrade ? newId : row.repo_id
+      isPathFallbackRepoId(row.repoId, machineId, row.path) ||
+      isPathFallbackRepoId(row.repoId, machineId, normalizedPath)
+    const repoId = upgrade ? newId : row.repoId
 
     let targetPath = row.path
     if (row.path !== normalizedPath) {
-      const result = this.db
-        .prepare('UPDATE OR IGNORE repos SET path = ? WHERE machine_id = ? AND path = ?')
-        .run(normalizedPath, machineId, row.path) as { changes?: number }
-      if ((result.changes ?? 0) > 0) {
+      // OR IGNORE, because the destination path may already have a row: the
+      // rename then does nothing and the duplicate is deleted below instead —
+      // the `changes === 0` branch under this one is that case. drizzle's UPDATE
+      // builder carries no conflict clause (only INSERT does), so this is the
+      // most literal form available and the rule is open.
+      const result = this.db.run(
+        // DECISION POD-3406
+        sql`UPDATE OR IGNORE repos SET path = ${normalizedPath} WHERE machine_id = ${machineId} AND path = ${row.path}`,
+      )
+      if (Number(result.changes ?? 0) > 0) {
         targetPath = normalizedPath
       } else {
-        this.db
-          .prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
-          .run(machineId, row.path)
+        this.db.delete(repos).where(this.at(machineId, row.path)).run()
         targetPath = normalizedPath
       }
     }
 
-    this.db
-      .prepare('UPDATE repos SET origin_url = ?, repo_id = ? WHERE machine_id = ? AND path = ?')
-      .run(originUrl, repoId, machineId, targetPath)
+    this.db.update(repos).set({ originUrl, repoId }).where(this.at(machineId, targetPath)).run()
     for (const duplicate of rows) {
       if (duplicate.path !== targetPath && normalizeRepoPath(duplicate.path) === normalizedPath) {
-        this.db
-          .prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
-          .run(machineId, duplicate.path)
+        this.db.delete(repos).where(this.at(machineId, duplicate.path)).run()
       }
     }
     if (upgrade) {
@@ -371,15 +432,19 @@ export class ReposRepository {
         this.assignRepoIdToIssuesUnder(newId, repoPath)
       // Re-key the human-facing prefix from the path-fallback id onto the stable
       // origin-derived id (#474), unless the target already owns one.
-      if (row.repo_id && row.repo_id !== newId && this.prefixForRepoId(newId) === null) {
+      if (row.repoId && row.repoId !== newId && this.prefixForRepoId(newId) === null) {
         // Again, because the condition above READ the prefix map and so re-held it:
         // the drop at the top of this method is already spent by the time this
         // statement runs. Invalidating before every write is not enough on its own —
         // it has to be before every write with no cached read taken since.
         this.invalidateRegistry()
-        this.db
-          .prepare('UPDATE OR IGNORE repo_prefixes SET repo_id = ? WHERE repo_id = ?')
-          .run(newId, row.repo_id)
+        // Same OR IGNORE as above and the same open rule: the target may already
+        // own a prefix row, and then this re-key must do nothing rather than
+        // throw. See POD-3406.
+        this.db.run(
+          // DECISION POD-3406
+          sql`UPDATE OR IGNORE repo_prefixes SET repo_id = ${newId} WHERE repo_id = ${row.repoId}`,
+        )
       }
     }
   }
@@ -440,13 +505,16 @@ export class ReposRepository {
 
   removeRepo(path: string, machineId: MachineId): void {
     const normalizedPath = normalizeRepoPath(path)
-    const rows = this.db.prepare('SELECT path FROM repos WHERE machine_id = ?').all(machineId) as {
-      path: string
-    }[]
+    const rows = this.db
+      .select({ path: repos.path })
+      .from(repos)
+      .where(eq(repos.machineId, machineId))
+      .all()
     this.invalidateRegistry()
-    const remove = this.db.prepare('DELETE FROM repos WHERE machine_id = ? AND path = ?')
     for (const row of rows) {
-      if (normalizeRepoPath(row.path) === normalizedPath) remove.run(machineId, row.path)
+      if (normalizeRepoPath(row.path) === normalizedPath) {
+        this.db.delete(repos).where(this.at(machineId, row.path)).run()
+      }
     }
   }
 
@@ -464,13 +532,29 @@ export class ReposRepository {
    * zero would only reintroduce the heal this replaced.
    */
   legacyRepoResidue(): { repoIdsMissing: number; prefixesMissing: number } {
-    const count = (sql: string): number => (this.db.prepare(sql).get() as { c: number }).c
-    return {
-      repoIdsMissing: count('SELECT COUNT(*) AS c FROM repos WHERE repo_id IS NULL'),
-      prefixesMissing: count(
-        `SELECT COUNT(DISTINCT repo_id) AS c FROM repos
-          WHERE repo_id IS NOT NULL AND repo_id NOT IN (SELECT repo_id FROM repo_prefixes)`,
-      ),
-    }
+    const repoIdsMissing = this.db
+      .select({ c: count() })
+      .from(repos)
+      .where(isNull(repos.repoId))
+      .get()
+    const prefixesMissing = this.db
+      .select({ c: countDistinct(repos.repoId) })
+      .from(repos)
+      .where(
+        and(
+          isNotNull(repos.repoId),
+          notInArray(
+            repos.repoId,
+            this.db.select({ repoId: repoPrefixes.repoId }).from(repoPrefixes),
+          ),
+        ),
+      )
+      .get()
+    return { repoIdsMissing: repoIdsMissing?.c ?? 0, prefixesMissing: prefixesMissing?.c ?? 0 }
+  }
+
+  /** One repo row, by its primary key. */
+  private at(machineId: MachineId, path: string) {
+    return and(eq(repos.machineId, machineId), eq(repos.path, path))
   }
 }

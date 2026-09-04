@@ -31,7 +31,8 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor, probeLegacyStatements } from './executor'
+import { probeLegacyStatements } from './executor'
+import { syncQueriesOver } from './executor/sync-drizzle'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
 
@@ -44,7 +45,13 @@ let counts: Map<string, number>
 /** Executions of the registry's own `repos` read. */
 const registryReads = (): number =>
   [...counts].reduce(
-    (n, [sql, c]) => (sql.startsWith('SELECT') && sql.includes('FROM repos') ? n + c : n),
+    // BOTH SPELLINGS [POD-3221 rule 32]. Same widening as repos-read-cost.test.ts:
+    // drizzle emits lowercase keywords and quoted identifiers, so the
+    // hand-written form no longer occurs, and an unconverted caller still emits it.
+    (n, [sql, c]) => {
+      const q = sql.replace(/"/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+      return q.startsWith('select') && q.includes('from repos') ? n + c : n
+    },
     0,
   )
 
@@ -54,12 +61,7 @@ beforeEach(() => {
   probeLegacyStatements({ db: rawDb }, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
-  repos = new ReposRepository(
-    createBunStoreExecutor({ database: rawDb }),
-    () => {},
-    HOST,
-    new TableWrites(),
-  )
+  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, HOST, new TableWrites())
 })
 
 describe('ReposRepository.invalidateRegistry', () => {

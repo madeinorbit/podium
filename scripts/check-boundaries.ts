@@ -1292,7 +1292,6 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/executor/legacy-handle-probe.ts',
   'apps/server/src/modules/operations/store.ts',
   'apps/server/src/store/executor/executor.ts',
-  'apps/server/src/store/repos.ts',
   'packages/sync/src/adapters/sqlite/sync-repository.ts',
   'packages/sync/src/adapters/sqlite/test-support.ts',
 ]

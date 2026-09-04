@@ -31,7 +31,8 @@ import { asMachineId } from '@podium/model'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor, probeLegacyStatements } from './executor'
+import { probeLegacyStatements } from './executor'
+import { syncQueriesOver } from './executor/sync-drizzle'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
 
@@ -47,7 +48,15 @@ let rawDb: SqlDatabase
 /** Executions of any statement reading the `repos` or `repo_prefixes` tables. */
 const tableReads = (table: string): number =>
   [...counts].reduce(
-    (n, [sql, c]) => (sql.includes(`FROM ${table}`) && sql.startsWith('SELECT') ? n + c : n),
+    // BOTH SPELLINGS [POD-3221 rule 32]. Drizzle emits lowercase keywords and
+    // quoted identifiers — `select "x" from "repos"` — so the hand-written form
+    // no longer occurs. Widened rather than replaced: an unconverted caller still
+    // emits the old one. POD-3395 reported this and declined to edit it, because
+    // the predicate decides what four assertions MEAN.
+    (n, [sql, c]) => {
+      const q = sql.replace(/"/g, '').replace(/\s+/g, ' ').trim().toLowerCase()
+      return q.startsWith('select') && q.includes(`from ${table}`) ? n + c : n
+    },
     0,
   )
 
@@ -61,12 +70,7 @@ beforeEach(async () => {
   // The probe patches `prepare` ON `rawDb` IN PLACE, and the executor's legacy
   // field is that same object, so the repository's statements are still observed
   // through the constructor change [POD-3281, POD-3254].
-  repos = new ReposRepository(
-    createBunStoreExecutor({ database: rawDb }),
-    () => {},
-    asMachineId(HOST),
-    tableWrites,
-  )
+  repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, asMachineId(HOST), tableWrites)
   await repos.addRepo('/home/u/alpha', asMachineId(HOST), undefined, 'AL')
   await repos.addRepo('/home/u/beta', asMachineId(HOST), undefined, 'BE')
   counts.clear()
