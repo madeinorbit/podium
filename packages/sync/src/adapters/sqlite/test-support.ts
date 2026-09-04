@@ -1,8 +1,9 @@
 import { openDatabase, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { sql } from 'drizzle-orm'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { SyncServerTables } from './server-tables'
-import { type SyncStoreExecutor, syncStoreExecutorOver } from './store-executor'
+import type { SyncDrizzle, SyncQueries } from './store-queries'
 import { SyncRepository } from './sync-repository'
 
 /**
@@ -78,19 +79,43 @@ export const testSyncServerTables: SyncServerTables = {
  * this fixture did not have them.
  */
 export function createTestSyncRepository(): SyncRepository {
-  return new SyncRepository(createTestSyncExecutor(), testSyncServerTables)
+  return new SyncRepository(createTestSyncQueries(), testSyncServerTables)
 }
 
 /**
- * The EXECUTOR PORT over a fresh fixture database (POD-3338).
+ * THE QUERY CAPABILITY over a fresh fixture database (POD-3338 for the port,
+ * POD-3416 for what it now carries).
  *
- * `SyncRepository` takes the store's executor narrowed to what it uses
- * (`./store-executor.ts`), and this package's tests have no store to build one
- * from — so they hand it the same one-field object the backup/restore path
- * does, over a connection from {@link createTestSyncDatabase}.
+ * `SyncRepository` takes the store's drizzle instance and its transaction,
+ * narrowed to what it uses (`./store-queries.ts`), and this package's tests have
+ * no store to build one from — so the fixture assembles the same two-member
+ * object over a connection from {@link createTestSyncDatabase}.
+ *
+ * IT MIRRORS `apps/server`'s `syncQueriesOver` rather than importing it, because
+ * a package may not import an app — the same reason `./store-queries.ts` declares
+ * the port structurally instead of naming the server's binding. The one
+ * difference is deliberate and is the instrumentation the server's seam carries:
+ * `clientOverWrapper` routes drizzle through the `SqlDatabase` WRAPPER so the
+ * query-count probes keep seeing converted statements (POD-3395). A fixture feeds
+ * no probe, so it hands drizzle the same three-method shape over the wrapper
+ * without the refusal stub.
  */
-export function createTestSyncExecutor(): SyncStoreExecutor {
-  return syncStoreExecutorOver(createTestSyncDatabase())
+export function createTestSyncQueries(db: SqlDatabase = createTestSyncDatabase()): SyncQueries {
+  const client = {
+    exec: (statement: string) => db.exec(statement),
+    query: (statement: string) => db.prepare(statement),
+    transaction: () => {
+      throw new Error(
+        'the fixture drizzle instance has no transaction of its own: it keeps its own nesting ' +
+          'state and would open a span the store does not know about. Use `transact` ' +
+          '(POD-3221 spec rule 7).',
+      )
+    },
+  }
+  return {
+    db: drizzle({ client: client as never }) as SyncDrizzle,
+    transact: createTestTransact(db),
+  }
 }
 
 /** The bare in-memory DB behind {@link createTestSyncRepository}, for tests

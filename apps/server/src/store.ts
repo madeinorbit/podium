@@ -323,13 +323,14 @@ export class SessionStore {
     this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
-    // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
-    // so it takes the narrow port the PACKAGE declares and this object satisfies
-    // structurally — `SyncStoreExecutor`, the same inversion `syncServerTables`
-    // uses one line's worth of reasoning away (POD-3338, spec §6 rule 20). It is
-    // still an UNCONVERTED repository: it reads `legacy` through the port and
-    // stays on `STAGE_A_UNCONVERTED` until its own conversion wave.
-    this.sync = new SyncRepository(this.executor, syncServerTables)
+    // `SyncRepository` lives in `@podium/sync` and cannot import this seam, so it
+    // takes the narrow port the PACKAGE declares and `this.queries` satisfies
+    // structurally — `SyncQueries`, the same inversion `syncServerTables` uses one
+    // line's worth of reasoning away (POD-3338, spec §6 rule 20). Converted at
+    // POD-3416, so the argument is the same capability object every line above
+    // and below passes; the seam's undefined-check is the one asserted above,
+    // once, for the whole set (spec §6 rule 27b).
+    this.sync = new SyncRepository(this.queries, syncServerTables)
     this.auth = new AuthRepository(this.queries)
     this.superagent = new SuperagentRepository(this.queries)
     this.settings = new SettingsRepository(this.queries)

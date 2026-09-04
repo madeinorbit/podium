@@ -69,7 +69,8 @@ import { randomUUID } from 'node:crypto'
 import { copyFileSync, existsSync, renameSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
 import { openDatabase } from '@podium/runtime/sqlite'
-import { FeedIdentityRegistry, SyncRepository, syncStoreExecutorOver } from '@podium/sync'
+import { FeedIdentityRegistry, SyncRepository } from '@podium/sync'
+import { syncQueriesOver } from '../store/executor/sync-drizzle'
 import { freeDiskBytes } from './backup'
 import { syncServerTables } from './sync-server-tables'
 
@@ -253,9 +254,11 @@ function remintRestoredEpoch(
   // code path to hook (a restore is `cp podium.db`), so the recorded cause is the
   // only evidence afterwards about which generation is which.
   // The restore path opens a database of its own and has no store, so there is
-  // no executor to hand over: it supplies the port's one field directly
-  // (POD-3338). The store's own construction passes its executor.
-  const repo = new SyncRepository(syncStoreExecutorOver(db), syncServerTables)
+  // no executor to take the query capability off: it builds the same synchronous
+  // seam the executor would have built, over its own connection (POD-3338 for the
+  // port, POD-3416 for what the port carries). The store's own construction
+  // passes `this.queries`.
+  const repo = new SyncRepository(syncQueriesOver(db), syncServerTables)
   const registry = new FeedIdentityRegistry(
     {
       readIdentity: () => repo.readFeedIdentity(),

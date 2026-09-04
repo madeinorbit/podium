@@ -259,6 +259,19 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'MessagesDeps.transact',
   },
   {
+    // The sync adapter's port over the store's transaction [POD-3338 for the
+    // port, POD-3416 for what it carries]. It IS an opener: the server fills it
+    // with the nesting-safe runtime helper over the executor's connection, so a
+    // body handed to it runs inside a unit of work — or inside a savepoint when
+    // a caller already opened one. Declared here rather than in
+    // NOT_A_SPAN_OPENER because a package cannot name the server's binding, so
+    // this declaration is the only place the call site can be recognised from.
+    file: 'packages/sync/src/adapters/sqlite/store-queries.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'SyncQueries.transact',
+  },
+  {
     file: 'packages/sync/src/authority/ports.ts',
     symbol: 'TransactPort',
     body: 'arg0',
@@ -482,26 +495,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
     kind: 'contained',
     why: "a predicate asking whether ONE registered commit application is still going to run, which is `BaselineFoldPort.spanOpen` at frame granularity [POD-3364]. It reads a flag the registry cleared on the rollback path and returns a boolean; it writes nothing, registers nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether a staged entry is dropped on the way in — the same rule-19 judgement `spanOpen` carries, and asking the question is not itself an effect.",
   },
-  /* --- the sync adapter's narrow port over that same handle [POD-3338] ----- */
-  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlConnection.prepare': {
+  /* --- the sync adapter's narrow port over the store's query capability
+         [POD-3338 for the port, POD-3416 for what it carries] --------------- */
+  'packages/sync/src/adapters/sqlite/store-queries.ts#SyncQueries.transact': {
     kind: 'contained',
-    why: "the sync adapter's port over the store's legacy connection. Structurally the same handle SqlDatabase.prepare names, declared separately only because a package may not import an app; it is a SQL statement and nothing outside the process can tell it ran. It stops being a port member when the adapter's own conversion wave lands.",
-  },
-  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlStatement.run': {
-    kind: 'contained',
-    why: 'a SQL statement, through the port above.',
-  },
-  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlStatement.get': {
-    kind: 'contained',
-    why: 'a SQL statement, through the port above.',
-  },
-  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlStatement.all': {
-    kind: 'contained',
-    why: 'a SQL statement, through the port above.',
-  },
-  'packages/sync/src/adapters/sqlite/store-executor.ts#SyncSqlConnection.exec': {
-    kind: 'contained',
-    why: 'a SQL statement, through the port above.',
+    why: "the sync adapter's port over the store's transaction. The server's implementation is the nesting-safe runtime helper over the SAME connection the composition root's own spans run on, so this OPENS a unit of work or degrades to a savepoint inside one; it performs no effect of its own and nothing outside the process can tell it ran until the outermost commit. Declared separately from the server's `SyncQueries` only because a package may not import an app.",
   },
   /* --- the raw SQLite handle, still in place until the flip ---------------- */
   'packages/runtime/src/sqlite/types.ts#SqlStatement.run': {

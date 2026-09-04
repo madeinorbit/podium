@@ -107,12 +107,13 @@ export * from './adapters/sqlite/sync-repository'
  */
 export * from './adapters/sqlite/server-tables'
 /**
- * The narrow port for the store's EXECUTOR (POD-3338, spec §6 rule 20), by the
- * same reasoning and one step further: the executor lives in `apps/server` too,
- * so the package declares the one member the adapter uses and the server's
- * executor satisfies it structurally.
+ * The narrow port for the store's QUERY CAPABILITY (POD-3338 for the port,
+ * POD-3416 for what it carries; spec §6 rule 20), by the same reasoning and one
+ * step further: the seam lives in `apps/server` too, so the package declares the
+ * two members the adapter uses — a drizzle instance and a transaction — and the
+ * server's `SyncQueries` satisfies them structurally.
  */
-export * from './adapters/sqlite/store-executor'
+export * from './adapters/sqlite/store-queries'
 /**
  * The WEB replica storage adapter (POD-374) — ADR 6 D1's transactional
  * IndexedDB, as a sibling of the SQLite adapter and held to the same rule 11:
