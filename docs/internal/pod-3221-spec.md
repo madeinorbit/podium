@@ -1869,3 +1869,36 @@ tests. Its totals matched legitimately only because all five of its added files 
 
 THE STRANDED-FILE HALF only arises for a branch that DELETES a file the base has; `git diff
 --diff-filter=D <base>..HEAD` empty means it cannot happen to you. Check it rather than assume it.
+
+### Rule 44 — a check whose PASS is SILENCE must be shown to fail before its silence counts
+
+[POD-3394, 2026-09-04. The seventh absence-read-as-answer finding in this epic, and the one that names
+the class. It applies to every other one.]
+
+POD-3394 wrote a typecheck probe to prove no nullable field feeds a default-bearing column. It printed
+nothing, which is what success looks like. It had actually refused to run: invoked outside the package,
+tsgo reported `TS5112: tsconfig.json is present but will not be loaded if files are specified on
+commandline` and did no work at all.
+
+IT CAUGHT THIS WITH A CANARY: it fed the probe `a.repoPath`, a field that IS nullable and therefore
+MUST error. It did not. Moved inside `apps/server` the canary errors correctly
+(`TS2322: 'string | null' is not assignable to 'string'`), and only THEN did the real run's silence
+mean anything.
+
+THE RULE. Before you accept a silent pass as evidence, feed the check a case it MUST reject and watch
+it reject that case. A tool that errored out before doing the work is silent in exactly the same way as
+a tool that did the work and found nothing, and nothing downstream can tell the two apart.
+
+THIS IS THE GENERAL FORM OF SEVEN FINDINGS IN THIS EPIC, and reading them together is the point:
+
+  the probe that observed a converted repository at 0            (POD-3397)
+  the two cache assertions passing at 0 === 0                    (POD-3397)
+  the widened projection no test could see                       (POD-3396)
+  the bash script truncated mid-run, exit 0, control skipped     (POD-3396)
+  the control arm that was never applied and agreed with itself  (POD-3395)
+  the defeat test that could not fail because a join re-qualifies (POD-3395, before it was built)
+  the typecheck probe that refused to run                        (POD-3394)
+
+Every one is a mechanism whose failure output and whose success output are the SAME OUTPUT. The gate
+that can only say nothing cannot say no. Where a check reports by absence, the canary is not optional
+diligence — it is the only thing that distinguishes the two states.
