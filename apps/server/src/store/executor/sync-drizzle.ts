@@ -1,0 +1,88 @@
+/**
+ * THE SYNCHRONOUS DRIZZLE INSTANCE STAGE A CONVERTS ONTO [POD-3221 spec rule 27a].
+ *
+ * WHY THIS EXISTS. Stage A converts 39 repositories off raw prepared statements
+ * while their methods stay SYNCHRONOUS — the flip that makes them async is B1,
+ * and doing both at once would mean converting and re-awaiting every production
+ * call site in one commit. But the executor's own {@link QueryClient} is fully
+ * async, so there was nothing for a synchronous repository to convert onto. Four
+ * waves found that within minutes of Stage A opening; rule 20 had recorded it a
+ * day earlier.
+ *
+ * WHY THE EXECUTOR OWNS IT RATHER THAN EACH REPOSITORY. A repository that builds
+ * its own drizzle instance needs the raw handle, and a file holding a raw handle
+ * has not converted: rule 13 bans the import, and STAGE_A_UNCONVERTED's own
+ * definition is that a file is unconverted until no raw handle survives in it.
+ * Building it here means a repository imports `drizzle-orm` and the schema and
+ * nothing else, so its ledger line comes off honestly rather than by exemption.
+ *
+ * WHY DRIZZLE'S OWN DRIVER RATHER THAN A HAND-ROLLED SYNCHRONOUS CLIENT. A
+ * five-verb client over SQL text would force every repository through
+ * `builder -> toSQL() -> client`, and drizzle's builder emits PHYSICAL column
+ * names — so rows would come back keyed `snake_case` with none of the schema's
+ * TypeScript names and none of the `$type` brands, and all seven waves would
+ * hand-write mappers that B1 would then unpick. Drizzle's own execution path
+ * does that mapping.
+ *
+ * WHAT B1 DOES TO IT. Rebinds this one field to the asynchronous driver and lets
+ * the await pass add the awaits. The query BODIES do not change, which is what
+ * makes the existing suite the flip's oracle.
+ *
+ * INTENT is declared by the terminal method — `.get()`/`.all()` on a select read;
+ * `.run()`/`.returning()` on insert/update/delete write. That is a declaration at
+ * the call site, not inference from SQL text, so rule 16 holds. POD-3391's lint
+ * derives intent from the emitted SQL and fails where the two disagree.
+ */
+
+import { bunSqliteClient, type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { drizzle } from 'drizzle-orm/bun-sqlite'
+
+/** drizzle's own name for bun:sqlite's `Database`, taken off its signature rather
+ *  than imported from `bun:sqlite`, which does not resolve without @types/bun. */
+type DrizzleBunClient = Extract<Parameters<typeof drizzle>[0], { client: unknown }>['client']
+
+/** The synchronous drizzle database Stage A repositories query through. */
+export type SyncDrizzle = ReturnType<typeof buildSyncDrizzle>
+
+function buildSyncDrizzle(client: DrizzleBunClient) {
+  return drizzle({ client })
+}
+
+/**
+ * Build the synchronous drizzle instance over `database`, or return undefined
+ * when the handle is not bun-backed.
+ *
+ * UNDEFINED IS NOT AN ERROR HERE. The same store runs over a non-bun handle in
+ * some tests and in the restore path, and those callers hold repositories that
+ * have not been converted yet. A repository that needs this asserts it at its own
+ * constructor, so the failure names the repository rather than the store.
+ */
+export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle | undefined {
+  const client = bunSqliteClient(database)
+  return client === undefined ? undefined : buildSyncDrizzle(client as DrizzleBunClient)
+}
+
+/**
+ * THE SYNCHRONOUS SPAN Stage A repositories open [POD-3398 raised the gap].
+ *
+ * A repository that has given up its raw handle also gives up
+ * `transaction(this.db, fn)` — and `executor.transact` is async, which Stage A may
+ * not call. So the same seam carries the span: same savepoint semantics as the
+ * runtime helper it replaces (it IS that helper, over the handle the executor
+ * holds), synchronous, and retired at B1 when the call site becomes
+ * `await executor.transact(...)`.
+ *
+ * WHY NOT drizzle's own `db.transaction(fn)`, which is synchronous on this driver:
+ * the executor would not know the span exists, so lane selection and the
+ * post-commit mechanisms would not see it — and the span lint's opener list is
+ * by name, so a repository opening one reads as an UNNAMED transaction opener.
+ * Routing through the store's port keeps the call site's SHAPE the same across the
+ * flip, which is the property that makes a wave's commit survive B1 unedited.
+ */
+export interface SyncSpans {
+  transact<T>(fn: () => T): T
+}
+
+export function syncSpansOver(database: SqlDatabase): SyncSpans {
+  return { transact: (fn) => transaction(database, fn) }
+}
