@@ -29,7 +29,8 @@ the fields a write changes live on that draft rather than on the shared
    the paths that change nothing durable, and is now literally `persistDraft`
    with a fresh capture, so there is one body and one commit tail.
 4. **The install's preserve set is the volatile work that landed DURING the
-   write**, not the pending entry the write inherited: a sweep that marked
+   write** — the coordinator's ruling calls this the fourth different answer this
+   epic has needed to the in-window-reader question, not the pending entry the write inherited: a sweep that marked
    `status`/`machineId`/`handoffTarget` dirty while the commit was in flight
    knows something newer than this draft about those fields. Nothing suspends
    today, so the version cannot move and the whole draft installs — which is
@@ -105,7 +106,7 @@ row column the durable bag does not carry) and `persist` restates it;
 | 45 | `inbox` interrupt / cancel / drain head | `queuedMessageCount` | D | the `=== 0` check reads the DRAFT: it asks what the count will be |
 | 46 | `inbox` enqueue | `queuedMessageCount` | D | |
 | 47 | `inbox` prompt-failed keep | — | S-live | |
-| 48 | `inbox.configureSession` | `requestedModel`, `requestedEffort` | **deferred** | see below |
+| 48 | `inbox.configureSession` | `requestedModel`, `requestedEffort` | D | converted under spec rule 21 — see below |
 | 49 | `superagent/headless.setHeadlessResume` | `resume` | D | through `setResume`, on the path whose mint-site comment says this is what promotes the binding |
 | 50 | `superagent/headless` turn activity | `agentState`, compute totals | D | |
 | 51 | `superagent/headless` mint | — | S-live | a session created one statement earlier |
@@ -113,37 +114,74 @@ row column the durable bag does not carry) and `persist` restates it;
 | 53 | `repository.loadFromStore` / `installStoredSession` | offer, binding, queued counts, checkpoint re-seed | S-nospan | the boot install; nothing is in flight because the row is where these came from |
 | 54 | `repository` ref backfill | ref triple | D-txn | same as 39 |
 
-## The one deferred site, and why
+## The site that needed spec rule 21, and the three conditions
 
-`SessionInbox.configureSession` still assigns `requestedModel`/`requestedEffort`
-to the live session before its `persist`. It is the only session write path left
-doing so.
+`SessionInbox.configureSession` asks the driver first and writes the requested
+model only after the grant. Converting it moves the write from `persist` to
+`persistDraft`, and `inbox.test.ts` pins that write BY PORT NAME at three sites:
+one positive arm (`expect(h.persist).toHaveBeenCalledWith(h.session)`) and two
+negative arms (`expect(h.persist).not.toHaveBeenCalled()`).
 
-`inbox.test.ts` pins that write with `expect(h.persist).toHaveBeenCalledWith(h.session)`
-and, in the two refusal arms, with `expect(h.persist).not.toHaveBeenCalled()`.
-Converting the site renames the port the fixture observes: the first assertion
-fails and — worse — the other two start passing VACUOUSLY, which is the shape
-this programme keeps warning about. Spec rule 21 says a conversion commit does
-not rewrite an existing assertion, so the site waits on a ruling rather than on
-an opinion. The change is three lines in the test and two in `inbox.ts`.
+The positive arm fails under any conversion. The negative arms are why this
+stopped for a ruling rather than proceeding: an assertion naming a port nothing
+calls any more does not fail — it stops guarding, silently, and reads as green
+forever. The coordinator approved the edit, with one precision in its favour:
+both negative arms ALSO assert `expect(h.broadcast).not.toHaveBeenCalled()`, and
+that half stays valid whatever happens to the port, so the exposure was one
+guard per arm rather than a whole arm.
 
-## Two gaps this audit found and did not close
+Rule 21's three conditions, and what satisfies each here:
 
-**The row has durable columns the durable bag does not.** `selectedDriverId`,
-`requestedDriverId`, `accountId`, `loginHarness`, `model`/`effort` and the
-workflow ids are `SessionRow` columns with no `SessionDurableState` field. They
-are written on the live object and persisted, a rollback does not restore them
-today either, and `toRow` reads them from the session rather than from the draft
-— which is why the conversion leaves them working exactly as they did. The
-honest description is that the durable bag is a SUBSET of the row, and nothing
-says so anywhere. Widening it is a behaviour change (a rollback would start
-restoring them), so it is named here rather than done.
+1. **The replacement pins the DECISION, not the mechanism.** The decision
+   recorded first is the draft model; what it falsifies is WHICH PORT the write
+   goes through, not what the three assertions state — a granted change is
+   durable, a no-op writes nothing, a refusal writes nothing. Each assertion
+   still states exactly that, against `persistDraft`.
+2. **Mutation-checked, with the mutation named.** The table below.
+3. **The owning issue is told.** These three assertions came out of POD-3081's
+   review (their own comments say so); it has been told.
 
-**Two live paths mutate durable fields with no write span at all** (38 and 11
-above). They are not in-flight state — nothing is committing — but they do leave
-a durable field on the shared object that the next writer's draft will pick up
-and commit. That is the pre-existing behaviour in both cases and converting
-either would mean adding a durable write that does not exist today.
+| Mutation, by line in `inbox.ts` | Arm it must redden | Result |
+|---|---|---|
+| `if (changed) {` → `if (true) {` | the no-op arm | × `does NOT store or announce when the session was already on that value` |
+| `if ('ok' in result) {` → `if (true) {` | the refusal arm | × `stores NOTHING when the driver refused`, and × `records NOTHING when the driver refused, and reports the typed reason` |
+| delete `this.deps.persistDraft(session, draft)` | the positive arm | × `STORES and ANNOUNCES a granted change, not just the in-memory field` |
+
+Each mutant was restored and diffed byte-identical. A guard that has never been
+seen to fail after being moved is indistinguishable from one that was deleted,
+which is why this table exists rather than a claim that the rename was safe.
+
+## The row is a superset of the durable bag, and here is the whole of it
+
+`SessionRow` carries nine columns `SessionDurableState` does not:
+`selectedDriverId`, `requestedDriverId`, `accountId`, `loginHarness`, `model`,
+`effort`, `workflowRunId`, `workflowStepId`, `executionProfileId`. Listing them
+is not a classification, so each was checked for the only question that decides
+anything: **is it written inside a span that can roll back?**
+
+**Seven cannot be.** `model`, `effort`, `accountId`, `loginHarness`,
+`workflowRunId`, `workflowStepId` and `executionProfileId` are `readonly` on the
+class (`session.ts:237-245`) and assigned only in the constructor. They are
+immutable launch identity: no span writes them, so nothing about them can be
+left standing by a failed commit.
+
+**Two can, at four sites**, all on the driver-selection path:
+`driverSelected`'s assignment immediately before its persist; `bind`'s
+`selectedDriverId` and `requestedDriverId` assignments one statement before the
+drafted write; and `markSpawnError`'s clear of `selectedDriverId`, which runs on
+the LIVE object from inside a drafted write's own callback. `toRow` reads all
+four off the session rather than the draft — deliberately, because the draft has
+no field for them — so their behaviour is unchanged by this conversion, and a
+failed commit leaves them standing exactly as it did before it.
+
+Converting them is a BEHAVIOUR change (a rollback would start restoring them),
+so it is filed as **POD-3389** with this evidence rather than done here.
+
+**Two live paths mutate durable fields with no write span at all** (rows 38 and
+11). They are not in-flight state — nothing is committing — but they do leave a
+durable field on the shared object that the next writer's draft will pick up and
+commit. That is the pre-existing behaviour in both cases, and converting either
+would mean adding a durable write that does not exist today.
 
 ## Why `hibernateSession` still re-derives from the live session
 
@@ -179,6 +217,7 @@ Every mutant was restored and the tree diffed byte-for-byte afterwards.
 | M10 | the spawn's ref allocation assigns the live object | 4 (`sessions.refs.test.ts`, boundary) |
 | M11 | `finishResurrect` does not write the ensured cwd | **nothing** — see below |
 | M12–M18 | the park/hibernate/enqueue/naming/archive sites write the live object | not run individually: M3 already kills every one of them, because a site that writes the live object writes a row built from the draft |
+| P1–P3 | `configureSession`'s three guards, after they moved to `persistDraft` | each named in the rule 21 table above |
 
 **M11 is an uncovered site and is reported rather than papered over.** Deleting
 the cwd write in `finishResurrect` fails no test in either lane. The line is a
@@ -186,6 +225,17 @@ hoist of the same value the instruction preparation and the spawn frame already
 read, so the conversion cannot change it — and the coverage gap is not new: the
 assignment it replaced (`session.cwd = ensured.cwd`) is the same line with the
 same tests around it, so nothing distinguished it before either.
+
+**The `oomKilledAt` field never left the durable constraint.** An earlier draft
+renamed `SessionDurableState.oomKilledAt` to `lastOomKillAt` to match the class's
+private field, and the coordinator refused it: a field must not leave
+`Omit<SessionDurableState, 'terminal'>` as a side effect of making a signature
+fit. The refusal's premise was a misread — `session.ts:140` is `SessionInit`'s
+optional input, not the class field, so the obstacle was the NAME and the
+`private` modifier rather than nullability — but the requirement is right either
+way, and the reconciliation now goes the other direction: the CLASS field is
+renamed to `oomKilledAt`, the bag keeps the member POD-3259 shipped, and the
+drizzle property and its migration are untouched.
 
 **M8 is why the facts change is in this issue at all.** It survived both lanes
 until `terminal-hibernation-proof.test.ts` gained an arm that observes a
