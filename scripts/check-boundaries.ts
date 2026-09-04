@@ -83,8 +83,9 @@
  *
  * 13. The STORE BOUNDARY family (POD-3252, epic POD-3221): four rules over the
  *     repositories — no raw SQLite handle (`@podium/runtime/sqlite`,
- *     `.prepare(`, a whole raw statement on `db.all/get/run/values`), no
- *     `PRAGMA`/`sqlite_master`/`ATTACH` inside a `sql` body, no drizzle
+ *     `.prepare(`, a whole raw statement on `db.all/get/run/values` except the
+ *     marked UPDATE-conflict builder gap), no `PRAGMA`/`sqlite_master`/`ATTACH`
+ *     inside a `sql` body, no drizzle
  *     transaction outside the store's `transact` port, drizzle imported only
  *     from persistence, and no `sql.raw` of a non-literal. Before the drizzle
  *     conversion they are Stage A's COMPLETENESS PROOF, gated by the shrinking
@@ -1065,11 +1066,19 @@ export function checkSessionBindingFieldAccess(file: string, source: string): Vi
 // column" check stays a REVIEWER rule — it is a property of the column list
 // against the schema, which source text cannot see.
 //
-// THE ONLY SITE-LEVEL ALLOWLIST is a line carrying `// DECISION POD-<n>`
-// (method §4). A worker that meets a site no rule covers converts it in the
-// most literal form, marks the line, and files the decision issue; Stage A's
-// exit gate requires zero markers, so every marker is a filed question rather
-// than a permanent excuse. {@link STORE_BOUNDARY_DECISION_MARKER}.
+// THE ONLY UNANSWERED SITE-LEVEL ALLOWLIST is a line carrying
+// `// DECISION POD-<n>` (method §4). A worker that meets a site no rule covers
+// converts it in the most literal form, marks the line, and files the decision
+// issue; Stage A's exit gate requires zero markers, so every decision marker is
+// a filed question rather than a permanent excuse.
+//
+// One ANSWERED statement-shape exception also exists: drizzle's SQLite UPDATE
+// builder cannot express SQLite's `OR <conflict-algorithm>` clause. A whole raw
+// UPDATE carrying that clause is allowed only when its call span carries the
+// permanent `UPDATE-CONFLICT STATEMENT POD-3406` token. The lint checks BOTH the
+// token and the statement shape, so copying the token cannot excuse another raw
+// query. {@link STORE_BOUNDARY_DECISION_MARKER} and
+// {@link UPDATE_CONFLICT_STATEMENT_MARKER}.
 // ---------------------------------------------------------------------------
 
 /**
@@ -1210,6 +1219,15 @@ const DRIZZLE_SPECIFIER = /^drizzle-orm(?:\/|$)/
  */
 const STORE_BOUNDARY_DECISION_MARKER = /\/\/\s*DECISION POD-\d+/
 
+/**
+ * Rule 1's one permanent whole-statement builder-gap token (POD-3406).
+ *
+ * This is deliberately not a `DECISION` marker: the policy is answered and
+ * Stage A's exit gate counts unanswered markers to zero. The statement still
+ * has to match {@link UPDATE_CONFLICT_SQL}; the token alone grants nothing.
+ */
+const UPDATE_CONFLICT_STATEMENT_MARKER = /^\s*\/\/\s*UPDATE-CONFLICT STATEMENT POD-3406\b/
+
 /** `.prepare(` — a prepared statement is a raw handle by definition. */
 // THE DISCRIMINATOR IS THE ARGUMENT, not the method — the same rule rule 1 uses
 // for `.all(sql`…`)` two definitions down. A raw connection prepare ALWAYS takes
@@ -1236,6 +1254,14 @@ const PREPARE_CALL = /\.\s*prepare\s*\(\s*[^)\s]/
 // past it. Found by defeat-testing the four spellings rather than by review
 // (POD-3404); only the bare one was caught.
 const RAW_EXECUTION_CALL = /\.\s*(all|get|run|values)\s*(?:<[^<>()]*>)?\s*\(\s*sql\s*`/
+
+/**
+ * The SQLite UPDATE conflict clause drizzle's update builder cannot express.
+ * All five algorithms are one grammar feature and therefore one policy; the
+ * two current sites use IGNORE. Anchoring at the template body's first token
+ * prevents a later `UPDATE OR ...` fragment from laundering another statement.
+ */
+const UPDATE_CONFLICT_SQL = /^\s*UPDATE\s+OR\s+(?:ROLLBACK|ABORT|FAIL|IGNORE|REPLACE)\b/i
 
 /**
  * Constructs banned INSIDE a `sql` template body. Each belongs to the driver or
@@ -1284,8 +1310,8 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
  * on the integration branch until the last wave lands.
  *
  * WHAT IT IS NOT. It is not an allowlist of VIOLATIONS, and it does not
- * weaken the "the only allowlist is `// DECISION POD-<n>`" rule (method §4),
- * which is about SITES. It is the Stage A worklist expressed as code: a file
+ * weaken the "the only unanswered allowlist is `// DECISION POD-<n>`" rule
+ * (method §4), which is about SITES. It is the Stage A worklist expressed as code: a file
  * in it is not yet converted and is checked by rules 14-16 and by rule 13's
  * `sql`-body clause but not by rule 13's raw-handle clauses; a file out of it
  * is held to the whole family. Nothing here excuses a construct — it names a
@@ -1599,7 +1625,7 @@ function rawHandleViolations(file: string, source: string): Violation[] {
   // only remaining way to silence the rule would be to hoist the statement into
   // a variable so `.run(statement)` stops matching — which silences the BAN and
   // lets the ledger call the file converted when it is not.
-  const spanIsMarked = (start: number): boolean => {
+  const spanLines = (start: number): readonly [number, number] => {
     let depth = 0
     let i = start
     for (; i < stripped.length; i++) {
@@ -1610,18 +1636,31 @@ function rawHandleViolations(file: string, source: string): Violation[] {
         if (depth === 0) break
       }
     }
-    const from = lineAt(start)
-    const to = lineAt(Math.min(i, stripped.length - 1))
+    return [lineAt(start), lineAt(Math.min(i, stripped.length - 1))]
+  }
+  const spanIsDecisionMarked = (start: number): boolean => {
+    const [from, to] = spanLines(start)
     for (let line = from; line <= to; line++) if (marked.has(line)) return true
     return false
   }
+  const spanHasUpdateConflictMarker = (start: number): boolean => {
+    const [from, to] = spanLines(start)
+    const sourceLines = source.split('\n')
+    for (let line = from; line <= to; line++) {
+      if (UPDATE_CONFLICT_STATEMENT_MARKER.test(sourceLines[line - 1] ?? '')) return true
+    }
+    return false
+  }
   for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
-    const at = lineAt(m.index ?? 0)
-    if (spanIsMarked(m.index ?? 0)) continue
+    const start = m.index ?? 0
+    const at = lineAt(start)
+    if (spanIsDecisionMarked(start)) continue
+    const statementBody = stripped.slice(start + m[0].length)
+    if (UPDATE_CONFLICT_SQL.test(statementBody) && spanHasUpdateConflictMarker(start)) continue
     add(
       at,
       `.${m[1]}(sql\`…\`)`,
-      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port.`,
+      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token.`,
     )
   }
   return violations
@@ -1956,8 +1995,9 @@ export function checkDrizzleImportHome(file: string, source: string): Violation[
 /**
  * WHOLE STATEMENTS WHOSE IDENTIFIERS ARE PROGRAM CONSTANTS — rule 33's exemption.
  *
- * Rule 1 allows a whole raw statement only behind the search port. POD-3404 is a
- * site that is genuinely a whole statement and genuinely not a search: a boot
+ * Apart from rule 1's marked UPDATE-conflict builder gap, rule 1 allows a whole
+ * raw statement only behind the search port. POD-3404 is a site that is genuinely
+ * a whole statement and genuinely not a search: a boot
  * integrity scan built as a UNION ALL of one EXISTS arm per entry in a SOURCE
  * CONSTANT. Rewriting it as one statement per table turns ONE round trip into
  * FOURTEEN at boot, which rule 24 says is the finding rather than the fix.
