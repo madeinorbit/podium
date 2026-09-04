@@ -35,6 +35,7 @@
     "./time-budget": "./src/time-budget.ts",
     "./local-machine": "./src/local-machine.ts",
     "./installation-identity": "./src/installation-identity.ts",
+    "./connect-keys": "./src/connect-keys.ts",
     "./auth-store": "./src/auth-store.ts",
     "./session-mint": "./src/session-mint.ts",
     "./earliest-admin": "./src/earliest-admin.ts",

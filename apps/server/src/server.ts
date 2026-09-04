@@ -36,6 +36,7 @@ import {
   resolveAuthMode,
   resolveAuthSignInUrl,
   resolveAppUrl,
+  resolveConnectProbeKeys,
   resolveDevArtifactOrigin,
   resolveInstanceId,
   resolveMode,
@@ -45,6 +46,11 @@ import {
   resolveTranscriptLake,
   resolveUpdateScope,
 } from '@podium/runtime/config'
+import { PODIUM_CONNECT_PROBE_KEYS } from '@podium/runtime/connect-keys'
+import {
+  installationPublicKeyWire,
+  readOrCreateInstallationIdentity,
+} from '@podium/runtime/installation-identity'
 import { ensureInstanceStateIdentity } from '@podium/runtime/instance'
 import {
   readOrCreateDaemonSecret,
@@ -184,6 +190,7 @@ import {
   servedWebIdentity,
   servedWebSourceDigest,
 } from './web-bundle-stamp'
+import { registerWellKnownRoute } from './well-known-route'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -319,6 +326,9 @@ export function registerVersionRoute(
     instanceId: string
     /** Stable hosted workspace registry identity, when this server is workspace-bound. */
     workspaceId?: () => string | undefined
+    /** The installation's durable identity (PDM-51). Optional so a route
+     *  assembled without one (the version-route suite) answers as before. */
+    installationId?: string
     /**
      * The grade of the visibility policy this server actually runs (POD-376).
      * ON THE PRE-BOOT PROBE, and that placement is the decision. The client must
@@ -483,6 +493,7 @@ export function registerVersionRoute(
       ...(deps.installKind ? { installKind: deps.installKind() } : {}),
       instanceId: deps.instanceId,
       ...(deps.workspaceId?.() ? { workspaceId: deps.workspaceId() } : {}),
+      ...(deps.installationId ? { installationId: deps.installationId } : {}),
       ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
@@ -619,6 +630,9 @@ export async function startServer(
   const transferBootMode = serverTransferBootMode(stateDir())
   const recoveryOnly = transferBootMode === 'recovery-only'
   if (!recoveryOnly) assertWritableServerBoot(stateDir())
+  // The installation identity follows server authority across transfers.
+  const installation = readOrCreateInstallationIdentity(stateDir())
+  const installationPublicKey = installationPublicKeyWire(installation)
   const portableStateFence = new PortableStateFence()
   if (recoveryOnly) await portableStateFence.acquire()
   const store = await SessionStore.open(undefined, asMachineId(hostMachineId), {
@@ -1343,6 +1357,15 @@ export async function startServer(
     })
   }
 
+  // The reachability answer for Podium Connect (PDM-51). After transfer recovery guards, before auth and CORS, so setup can
+  // check reachability without exposing a retired or recovering server.
+  registerWellKnownRoute(app, {
+    identity: () => installation,
+    trustedProbeKeys: () => [
+      ...PODIUM_CONNECT_PROBE_KEYS,
+      ...resolveConnectProbeKeys(loadConfig(), process.env),
+    ],
+  })
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let syncWorker: SyncWorkerClient | undefined
@@ -1368,6 +1391,7 @@ export async function startServer(
   registerVersionRoute(app, {
     workspaceId: () => opts.workspaceId,
     instanceId,
+    installationId: installation.installationId,
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,
@@ -1615,6 +1639,8 @@ export async function startServer(
       appUrl: resolveAppUrl(loadConfig(), process.env),
       instanceId,
       workspaceId: opts.workspaceId,
+      installationId: installation.installationId,
+      installationPublicKey,
     }),
     loginRequired: credentialsRequired,
     // Pairing and device management require a real credential. Open-mode's

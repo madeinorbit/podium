@@ -153,6 +153,10 @@ export interface MobilePairingRouteOptions {
     instanceId: string
     /** Immutable hosted workspace registry identity, absent for self-hosted installs. */
     workspaceId?: string
+    /** The installation's durable identity (PDM-51): what a client stores to find
+     *  this server again through Podium Connect and to verify it is the same one. */
+    installationId?: string
+    installationPublicKey?: string
   }
   loginRequired: () => boolean | Promise<boolean>
   /** Resolve real credentials only; open-mode authorization must not grant session control. */
@@ -194,6 +198,19 @@ function isBrowserRequest(c: Context): boolean {
   return c.req.header('origin') !== undefined
 }
 
+/** Both or neither: a key without its id, or the reverse, is not an identity. */
+function installationFields(identity: {
+  installationId?: string
+  installationPublicKey?: string
+}): { installationId: string; installationPublicKey: string } | Record<never, never> {
+  return identity.installationId && identity.installationPublicKey
+    ? {
+        installationId: identity.installationId,
+        installationPublicKey: identity.installationPublicKey,
+      }
+    : {}
+}
+
 export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteOptions): void {
   const now = opts.now ?? (() => Date.now())
   const maxFailures = opts.throttle?.maxFailures ?? 12
@@ -227,6 +244,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
         ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
         transport: transportReadiness(serverUrl),
         instanceId: identity.instanceId,
+        ...installationFields(identity),
       })
     }
 
@@ -245,6 +263,7 @@ export function registerMobilePairingRoutes(app: Hono, opts: MobilePairingRouteO
       ...(identity.workspaceId ? { workspaceId: identity.workspaceId } : {}),
       expiresAt: grant.expiresAt,
       instanceId: identity.instanceId,
+      ...installationFields(identity),
     }
     const envelope = encodePairingEnvelope(payload)
     return c.json({

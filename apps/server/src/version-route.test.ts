@@ -47,6 +47,14 @@ describe('GET /version', () => {
     expect(body.instanceId).toBe('default')
   })
 
+  it('names the installation when the server has one, and omits it otherwise (PDM-51)', async () => {
+    const app = new Hono()
+    registerVersionRoute(app, { instanceId: 'default', installationId: `pdm_${'a'.repeat(43)}` })
+    const body = (await (await app.request('/version')).json()) as { installationId?: string }
+    expect(body.installationId).toBe(`pdm_${'a'.repeat(43)}`)
+    expect((await fetchVersion()).body).not.toHaveProperty('installationId')
+  })
+
   it('reports the baked PODIUM_APP_VERSION as appVersion', async () => {
     process.env.PODIUM_APP_VERSION = '9.9.9'
     const { status, body } = await fetchVersion()

@@ -36,6 +36,11 @@ const httpOrigin = z
     }
   })
 
+/** `pdm_` + base64url of 32 random bytes; the Podium Connect lookup key. */
+export const InstallationIdField = z.string().regex(/^pdm_[A-Za-z0-9_-]{43}$/)
+/** `ed25519:` + base64url of the raw 32-byte public key. */
+export const InstallationPublicKeyField = z.string().regex(/^ed25519:[A-Za-z0-9_-]{43}$/)
+
 export const MobilePairEnvelope = z
   .object({
     v: z.literal(2),
@@ -49,6 +54,9 @@ export const MobilePairEnvelope = z
     instanceId: z.string().min(1).max(256),
     /** Immutable hosted workspace registry id; absent for legacy self-hosted pairing. */
     workspaceId: z.string().min(1).max(256).optional(),
+    /** The installation's durable identity (PDM-51). Optional: older servers send none. */
+    installationId: InstallationIdField.optional(),
+    installationPublicKey: InstallationPublicKeyField.optional(),
   })
   .strict()
 export type MobilePairEnvelope = z.infer<typeof MobilePairEnvelope>
@@ -62,6 +70,8 @@ export const MobileOpenEnvelope = z
     workspaceId: z.string().min(1).max(256).optional(),
     serverUrl: httpOrigin,
     instanceId: z.string().min(1).max(256),
+    installationId: InstallationIdField.optional(),
+    installationPublicKey: InstallationPublicKeyField.optional(),
   })
   .strict()
 export type MobileOpenEnvelope = z.infer<typeof MobileOpenEnvelope>

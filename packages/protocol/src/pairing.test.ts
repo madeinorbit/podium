@@ -7,7 +7,7 @@ import {
   MobilePairClaimRequest,
   NativeClientLoginRequest,
   parseMobilePairingUrl,
-  type MobilePairEnvelope,
+  MobilePairEnvelope,
 } from './pairing'
 
 const pair: MobilePairEnvelope = {
@@ -19,6 +19,20 @@ const pair: MobilePairEnvelope = {
   expiresAt: '2026-08-13T12:02:00.000Z',
   instanceId: 'instance-one',
 }
+
+describe('installation identity on the mobile envelopes (PDM-51)', () => {
+  const installationId = `pdm_${'a'.repeat(43)}`
+  const installationPublicKey = `ed25519:${'B'.repeat(43)}`
+  it('round-trips both fields and keeps parsing without them', () => {
+    const withIdentity = { ...pair, installationId, installationPublicKey }
+    expect(decodePairingEnvelope(encodePairingEnvelope(withIdentity))).toEqual(withIdentity)
+    expect(decodePairingEnvelope(encodePairingEnvelope(pair))).toEqual(pair)
+  })
+  it('refuses a malformed id or key rather than carrying it', () => {
+    expect(() => MobilePairEnvelope.parse({ ...pair, installationId: 'pdm_short' })).toThrow()
+    expect(() => MobilePairEnvelope.parse({ ...pair, installationPublicKey: 'rsa:x' })).toThrow()
+  })
+})
 
 describe('pairing envelope codec', () => {
   it('round-trips v1 without Buffer and preserves the legacy encoding', () => {
