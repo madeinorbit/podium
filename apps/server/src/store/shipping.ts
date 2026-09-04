@@ -471,20 +471,31 @@ export interface RootIntegrationReceiptStore {
  * admission, scheduling, machine effects, and lifecycle orchestration live above
  * this repository. */
 export class ShippingRepository implements RootIntegrationReceiptStore {
-  /** The query builder, in the field this file's `SqlDatabase` used to occupy. */
-  private readonly db: SyncQueries['db']
-  /** The span, beside it, so a call site reads `this.transact(...)` (rule 34). */
-  private readonly transact: SyncQueries['transact']
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
-    // Wrapped rather than assigned straight across, so the field cannot depend
-    // on how the capability happens to be built today: `syncQueriesOver` returns
-    // an arrow that closes over the handle, but a later implementation — the
-    // async pair at B1 — is free to use `this`, and a detached method would
-    // break silently there rather than here.
-    this.transact = (fn) => queries.transact(fn)
+  /**
+   * The query builder, read fresh on every access (rule 34a).
+   *
+   * A GETTER RATHER THAN A FIELD, and the difference is the whole of rule 35: a
+   * field assigned in the constructor freezes this repository to the ROOT
+   * instance, and ambient routing needs the enclosing transaction resolved per
+   * access. B1 changes the body of this getter and nothing else in the file.
+   */
+  protected get db(): SyncQueries['db'] {
+    return this.queries.db
   }
+
+  /**
+   * The span, so a call site reads `this.transact(() => …)`.
+   *
+   * AN ARROW FIELD RATHER THAN A STRAIGHT ASSIGNMENT: `syncQueriesOver` returns
+   * an arrow closing over the handle, so `this.transact = queries.transact`
+   * happens to work today and stops working — silently, as a detached method —
+   * the moment an implementation uses `this`, which is what rule 35's adapter
+   * does. It dereferences `this.queries` only when CALLED, so it does not depend
+   * on field-initialisation order either.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * The lane-revision upsert, which two call sites carried verbatim.
