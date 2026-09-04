@@ -3,7 +3,7 @@ import { sql } from 'drizzle-orm'
 import { drizzle } from 'drizzle-orm/bun-sqlite'
 import { check, index, integer, sqliteTable, text } from 'drizzle-orm/sqlite-core'
 import type { SyncServerTables } from './server-tables'
-import type { SyncDrizzle, StoreQueries } from './store-queries'
+import type { StoreQueries, SyncDrizzle } from './store-queries'
 import { SyncRepository } from './sync-repository'
 
 /**
