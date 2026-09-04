@@ -1027,3 +1027,28 @@ ADR amendments this epic lands: ADR 2 D10 and D12.6 (the scheduler's write lane 
 post-commit tail as the single-writer and publication mechanism; the Turso multi-writer answer),
 ADR 6 D5.3 (drizzle is the query layer), ADR 9 D2 rule 4 (live means read under the lease that
 applies or publishes).
+
+### Rule 26 — a draft may not outlive a suspension it will be persisted after
+
+[POD-3375 / POD-3373, ruled 2026-09-04.] Two workers disagreed and the broader rule wins.
+
+POD-3373 established that a draft is stranded when the awaited callee cuts its OWN draft and commits
+it: the caller's draft is then stale AND missing the fields the callee established, so persisting it
+silently writes them back to their previous values. That is the worst case.
+
+POD-3375 showed it is not the whole case. Its counter-example needs no such callee: a draft pinned at
+revision 5, a suspension, a THIRD party committing revision 6, and the caller's persist refused. The
+re-pin `installDraft` performs (core.ts:307) records `row.revision` as of that write, so it answers
+"did my last write land", not "is this row still the one I read". Nothing serialises issue writes and
+the suspensions here are cross-machine round trips with a 35-second timeout.
+
+SO THE RULE IS: a draft may not outlive a suspension after which it is persisted. Cut it after the
+await, or hoist the VALUES the suspended work needs and cut the draft at the write — POD-3375 used
+hoisting at five of its seven sites, because the git operations needed values rather than a row.
+
+The shape distinction survives as a description of CONSEQUENCE rather than of licence: a callee that
+cuts its own draft loses fields SILENTLY; a third-party commit THROWS. Both are defects and only one
+is loud, which is the wrong reason to treat the quiet one as the only one.
+
+Corollary, from POD-3373: a draft living across a public sub-operation is the long-lived mutable
+object this model exists to remove. That argument never depended on who writes in the gap.
