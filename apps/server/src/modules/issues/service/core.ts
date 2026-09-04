@@ -380,16 +380,29 @@ export class IssueStore {
   /**
    * Install a committed draft.
    *
-   * What goes into the map is a SNAPSHOT of the draft, not the draft itself, and
-   * that is load-bearing rather than defensive copying. Several paths persist
-   * one draft more than once — `cleanup()` writes it four times as each git step
-   * settles, and `inspectRemovableWorktree` writes its caller's row before
-   * handing control back. If the caller's object became the map's object, the
-   * second write would be a mutation of shared state again, and every write
-   * after the first would be refused by {@link refuseMapOwnedRow}. Snapshotting
-   * keeps the caller's row private for its whole sequence; re-pinning it to the
-   * revision just committed is what lets its next write carry a precondition
-   * that is true rather than three writes stale.
+   * What goes into the map is a SNAPSHOT of the draft, not the draft itself. If
+   * the caller's object became the map's object, a second write of the same
+   * draft would be a mutation of shared state and {@link refuseMapOwnedRow}
+   * would refuse it; snapshotting keeps the caller's row private, and re-pinning
+   * it to the revision just committed is what lets its next write carry a
+   * precondition that is true rather than several writes stale.
+   *
+   * THE TWO EXAMPLES THIS COMMENT USED TO GIVE ARE GONE [POD-3384]. It named
+   * `cleanup()` writing one draft four times as each git step settled, and
+   * `inspectRemovableWorktree` writing its caller's row before handing control
+   * back. POD-3375 removed both: spec rule 26 forbids a draft outliving a
+   * suspension it is persisted after, so `cleanup()` hoists the values its git
+   * steps need and cuts its draft at the write, and `inspectRemovableWorktree`
+   * takes an id and owns the draft it writes. A per-function scan of this module
+   * found no remaining path that persists one draft repeatedly.
+   *
+   * So the snapshot is now DEFENCE IN DEPTH rather than a response to a live
+   * caller, and saying so is the point of this paragraph: a justification that
+   * names paths which no longer exist reads as evidence and is not. It stays
+   * because rule 26 is a rule about what callers may do, not a guarantee the
+   * type system enforces, and `refuseMapOwnedRow` plus
+   * issue-registry-model.test.ts's "refuses the map-owned row outright" are what
+   * still exercise the boundary.
    */
   private installDraft(row: IssueRow, pin: number | null | undefined): void {
     this.installRow(row.id, this.draftOf(row))
