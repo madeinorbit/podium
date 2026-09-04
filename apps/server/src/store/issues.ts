@@ -44,7 +44,7 @@ import {
   issueUserState,
 } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { SyncDrizzle, SyncSpans } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -92,13 +92,18 @@ export class IssuesRepository {
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
 
+  /** The query capability: the drizzle instance and the transaction port. Both
+   *  halves come from one object so the flip swaps what fills it and leaves this
+   *  construction site alone. */
+  private readonly db: SyncDrizzle
+
   constructor(
-    private readonly db: SyncDrizzle,
+    private readonly queries: SyncQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
-    /** The store's transaction port — the two read-decide-write spans below. */
-    private readonly spans: SyncSpans,
-  ) {}
+  ) {
+    this.db = queries.db
+  }
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
    *  and whatever it had already cached is dropped.
@@ -831,7 +836,7 @@ export class IssuesRepository {
     // The span covers the UPDATE loop only. The read and the planning above are
     // deliberately outside it, which is what keeps the write window short; a
     // conversion must not widen the span to cover them.
-    this.spans.transact(() => {
+    this.queries.transact(() => {
       for (const u of updates) {
         this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).run()
       }
@@ -904,7 +909,7 @@ export class IssuesRepository {
    * allocations can never mint the same `POD-13-A`.
    */
   allocateSessionLetter(issueId: IssueId): string {
-    return this.spans.transact(() => {
+    return this.queries.transact(() => {
       const row = this.db
         .select({ nextIndex: issueRefLetters.nextIndex })
         .from(issueRefLetters)

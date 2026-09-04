@@ -17,7 +17,7 @@ import {
   subscriptionDeliveries,
   subscriptions,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncSpans } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import { afterCommit } from './executor/synchronous-span'
 import type { Subscription } from './types'
 
@@ -126,12 +126,13 @@ export class EventsRepository {
    *  boot bookkeeping nobody is connected to see. */
   private appendListener: EventAppendListener | undefined
 
-  constructor(
-    private readonly db: SyncDrizzle,
-    /** The store's transaction port. `activateJanitorSteward` is the one
-     *  read-decide-write here that must not be separable by a crash. */
-    private readonly spans: SyncSpans,
-  ) {}
+  /** The drizzle half of the query capability. `activateJanitorSteward` uses the
+   *  other half — one read-decide-write that must not be separable by a crash. */
+  private readonly db: SyncDrizzle
+
+  constructor(private readonly queries: SyncQueries) {
+    this.db = queries.db
+  }
 
   /** Install the post-append announcement. One listener: this is the feed's
    *  seam, not a general event bus (the orchestrator already has one). */
@@ -608,7 +609,7 @@ export class EventsRepository {
    * cannot leave a new cursor without its ownership watermark (or vice versa).
    */
   activateJanitorSteward(): number | undefined {
-    return this.spans.transact(() => {
+    return this.queries.transact(() => {
       const ownershipKey = 'janitor-ownership-v1'
       const owned = this.db
         .select({ present: sql<number>`1` })
