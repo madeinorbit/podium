@@ -47,20 +47,31 @@ export class SuperagentRepository {
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
   seedGlobalThread(ownerUserId: UserId = FIRST_ADMIN_USER_ID): void {
     const saNow = new Date().toISOString()
-    // NOT CONVERTED, and not because the builder cannot express it [POD-3403].
-    // `INSERT OR IGNORE` suppresses EVERY constraint violation on the statement,
-    // a FOREIGN KEY included; drizzle's `onConflictDoNothing()` suppresses only
-    // the uniqueness conflict and lets a foreign key throw. So the obvious
-    // conversion changes behaviour in both directions, and the ruling is to
-    // leave the statement literal and mark it rather than decide it here.
-    //
-    // CHECKED FOR THIS TABLE, because the answer narrows the rule if you want it
-    // narrowed: `superagent_threads` has ONE constraint — the `id` primary key —
-    // and no foreign key, so here the two forms would in fact agree. The marker
-    // stands anyway; that is your call to make once, not mine to make per site.
-    this.db.run(
-      sql`INSERT OR IGNORE INTO superagent_threads (id, owner_user_id, kind, created_at, updated_at) VALUES ('global', ${ownerUserId}, 'global', ${saNow}, ${saNow})`,
-    ) // DECISION POD-3403
+    // CONVERTED, and the enumeration is why [POD-3403 rule 31]. `INSERT OR IGNORE`
+    // suppresses UNIQUE, PRIMARY KEY, NOT NULL and CHECK; `onConflictDoNothing()`
+    // suppresses the uniqueness conflict alone. So the two agree exactly when no
+    // NOT NULL and no CHECK violation is reachable at this site, and here neither
+    // is. Enumerated against the live DDL rather than assumed:
+    //   NOT NULL columns: id, kind, created_at, updated_at (all supplied
+    //     non-null above), owner_user_id (supplied; its parameter defaults to
+    //     FIRST_ADMIN_USER_ID) and archived (not supplied, so its DEFAULT 0
+    //     applies). Nothing reaching this statement can be null.
+    //   CHECK constraints: none on this table anywhere in the migration chain.
+    //   Foreign keys: none — and they would not count anyway, because OR IGNORE
+    //     throws on a foreign key exactly as the plain form does (measured).
+    // What is left reachable is the `id` primary-key conflict, which is the whole
+    // point of the statement and which both forms swallow identically.
+    this.db
+      .insert(superagentThreads)
+      .values({
+        id: asThreadId('global'),
+        ownerUserId,
+        kind: 'global',
+        createdAt: saNow,
+        updatedAt: saNow,
+      })
+      .onConflictDoNothing()
+      .run()
   }
 
   loadSuperagentMessages(threadId = 'global', limit = 200): SuperagentMessageRow[] {
