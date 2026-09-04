@@ -71,7 +71,8 @@ neither of which may open a raw transaction, and two fixtures pin both edges of 
 | `backend.ts` | starts a real `sqld` on a free port over a persistent directory |
 | `fixture.ts` | one appended-to database on whichever backend the caller names |
 | `turso-append.integration.test.ts` | 17 assertions, CI-runnable against local `sqld` |
-| `run-proofs.ts` | the same proofs against the hosted database — what produced this document |
+| `run-proofs.ts` | the same proofs against the hosted database — what produced this document, and since POD-3357 a gate: 54 asserted invariants, verdict in the exit code |
+| `defeat-check.ts` | the proof that `run-proofs.ts` can fail — 11 deliberate breaks, each shown going red at the right invariant [POD-3357] |
 
 **Round trips are counted at the transport, not at the call site.** `@libsql/client` takes a
 `fetch` in its config, so the counter wraps that and counts actual HTTP requests. Counting
@@ -377,11 +378,50 @@ bun run setup:worktree
 bun --bun node_modules/vitest/vitest.mjs run --config vitest.integration.config.ts \
   apps/server/src/store/spike/turso-append/turso-append.integration.test.ts
 
-# the measurements — `local`, `remote` or `both`
+# the measurements AND the hosted gate — `local`, `remote` or `both`
 set -a; . ./.env; set +a
 bun --conditions=@podium/source \
   apps/server/src/store/spike/turso-append/run-proofs.ts remote
+
+# the proof that the gate above can say NO — 11 deliberate breaks
+bun --conditions=@podium/source \
+  apps/server/src/store/spike/turso-append/defeat-check.ts remote
 ```
+
+### The hosted run is a gate, not a transcript [POD-3357]
+
+Every result in the tables above is now an ASSERTION in `run-proofs.ts`, and the run carries its
+verdict in its exit status rather than in the reader's attention. Until POD-3357 the file had no
+`expect`, no `assert` and no `process.exit`: it printed `contiguous from 1  false` exactly as
+readably as `true` and returned 0 either way, so the numbers rule 7 and rule 24 rest on were
+kept true by nobody.
+
+| Exit | Meaning |
+|---:|---|
+| `0` | every invariant the backend can observe held (54 on hosted, 57 on local) |
+| `1` | an invariant failed — the run names which, and what it got |
+| `3` | the backend did NOT run: no credentials, or another run holds the hosted lease [POD-3358] |
+
+**A skip is 3 rather than 0 or 1, deliberately.** Exiting 0 would let the hosted proofs stop
+running altogether with every board still green, which is the defect POD-3357 was filed to
+remove. Collapsing it into 1 would make an honest, frequent, self-healing "someone else is using
+the database" indistinguishable from the rare and important "a landed rule turned false" — and a
+caller that cannot tell them apart learns to ignore the loud one. A CI job can retry 3 and page
+on 1.
+
+**Round-trip COUNTS are asserted; milliseconds are not.** The counts are a property of the shape
+and identical on both engines. The latencies above were measured from Germany; in production Fly
+IAD sits in the same metro as the `aws-us-east-1` database, where a statement costs roughly
+3–5 ms rather than the ~95 ms shown here. Asserting on them would gate the epic on the
+operator's location.
+
+**`defeat-check.ts` is what makes the assertions evidence.** It breaks each invariant on purpose
+— burning a seq between chunks, committing before the deliberate rollback, widening an idle gap
+past the server's budget, releasing a savepoint instead of rolling it back — and demands the run
+go red at the named invariant with exit 1, against a control that must come back green and a
+negative control proving that an injection which fails to apply is reported rather than passing.
+All 11 injections are defeated on both engines. Three invariants that could NOT be defeated by
+injection are listed by the tool itself, with the reason, rather than left looking checked.
 
 Credentials come from the gitignored `.env` (`TURSO_SPIKE_URL`, `TURSO_SPIKE_TOKEN`); the
 `turso://` scheme is rewritten to `libsql://` in `client.ts`, since the client refuses the

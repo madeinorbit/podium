@@ -1963,6 +1963,11 @@ const CONSOLE_EXEMPT_FILES: ReadonlySet<string> = new Set([
   // verdict it prints — two runs at once, namespaced and then deliberately
   // shared — which is evidence a human reads, not a log a service emits.
   'apps/server/src/store/spike/turso-append/namespace-check.ts',
+  // The same spike's DEFEAT check (POD-3357). Its product is the defeat list it
+  // prints: for each invariant `run-proofs.ts` asserts, the same proof run again
+  // with that invariant deliberately broken, shown going red. A human reads the
+  // table to decide whether the hosted gate is evidence or decoration.
+  'apps/server/src/store/spike/turso-append/defeat-check.ts',
 ])
 
 /**
