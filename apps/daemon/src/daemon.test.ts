@@ -2012,6 +2012,8 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+      // The program's last screen before the restart: the highest paint counter seen.
+      const lastPaintBefore = Math.max(...[...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1])))
 
       // The daemon dies; the agent keeps running in its own durable host.
       await first.close()
@@ -2049,6 +2051,22 @@ describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
       // the real size, never the stale belief (SPEC-6 item 13).
       if (DURABLE_BACKEND === 'host') expect(reattachBind.geometry).toEqual(G)
       else expect(reattachBind).not.toHaveProperty('geometry')
+
+      if (DURABLE_BACKEND === 'host') {
+        // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server's log is empty after
+        // a deploy that restarted both halves, so it sends redraw{replayRequired}.
+        // The host replays its ring: the daemon emits the program's LAST SCREEN
+        // as it was before the restart — same paint counter, so the program was
+        // not signalled into painting a new one — and nothing else.
+        received.length = 0
+        send({ type: 'redraw', sessionId, replayRequired: true })
+        await waitFor(() => painted().includes(`paint=${lastPaintBefore} `))
+        await new Promise((r) => setTimeout(r, 500))
+        const paints = [...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1]))
+        expect(Math.max(...paints)).toBe(lastPaintBefore)
+        expect(painted()).toContain(`cols=${G.cols} rows=${G.rows}`)
+        received.length = 0
+      }
 
       // The first viewport request is what moves it — and, because the master
       // signals the program on every resize packet, is also what repaints it.

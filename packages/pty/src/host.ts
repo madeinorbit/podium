@@ -49,6 +49,7 @@ export const HostFrame = {
   SIGNAL: 0x06,
   DETACH: 0x07,
   KILL: 0x08,
+  REPLAY: 0x09,
   WELCOME: 0x81,
   DATA: 0x82,
   GAP: 0x83,
@@ -58,6 +59,8 @@ export const HostFrame = {
   WRITTEN: 0x87,
   EXITED: 0x88,
   LEASE_LOST: 0x89,
+  REPLAYING: 0x8a,
+  REPLAYED: 0x8b,
   ERR: 0x8f,
 } as const
 
@@ -138,6 +141,7 @@ export class HostError extends Error {
 
 type Pending = { kind: 'resize' | 'size' | 'status'; resolve: (v: unknown) => void; reject: (e: Error) => void }
 type PendingWrite = { id: number; resolve: (bytes: number) => void; reject: (e: Error) => void }
+type PendingReplay = { resolve: (r: { from: bigint; bytes: number }) => void; reject: (e: Error) => void }
 
 /**
  * One connection to a host: framing, request/response correlation and events.
@@ -150,6 +154,8 @@ export class HostConnection {
   private readonly decode = createHostFrameDecoder()
   private readonly pending: Pending[] = []
   private readonly pendingWrites: PendingWrite[] = []
+  private readonly pendingReplays: PendingReplay[] = []
+  private replaying: { from: bigint; bytes: number } | undefined
   private nextWriteId = 1
   private welcomed: HostWelcome | undefined
   private resolveWelcome!: (w: HostWelcome) => void
@@ -190,6 +196,7 @@ export class HostConnection {
     if (!this.welcomed) this.rejectWelcome(e)
     for (const p of this.pending.splice(0)) p.reject(e)
     for (const w of this.pendingWrites.splice(0)) w.reject(e)
+    for (const r of this.pendingReplays.splice(0)) r.reject(e)
     for (const cb of [...this.closeCbs]) cb(err)
   }
 
@@ -214,8 +221,21 @@ export class HostConnection {
       case HostFrame.DATA: {
         const seq = p.readBigUInt64BE(0)
         const data = p.subarray(8)
-        this.lastSeq = seq + BigInt(data.length)
+        // A replay re-sends old bytes with their ORIGINAL seqs: lastSeq is a
+        // max, so the resume point never moves backwards.
+        const end = seq + BigInt(data.length)
+        if (this.lastSeq === undefined || end > this.lastSeq) this.lastSeq = end
+        if (this.replaying) this.replaying.bytes += data.length
         for (const cb of [...this.dataCbs]) cb(seq, data)
+        return
+      }
+      case HostFrame.REPLAYING:
+        this.replaying = { from: p.readBigUInt64BE(0), bytes: 0 }
+        return
+      case HostFrame.REPLAYED: {
+        const done = this.replaying ?? { from: 0n, bytes: 0 }
+        this.replaying = undefined
+        this.pendingReplays.shift()?.resolve(done)
         return
       }
       case HostFrame.GAP: {
@@ -313,6 +333,22 @@ export class HostConnection {
 
   status(): Promise<HostStatus> {
     return this.request<HostStatus>('status', encodeHostFrame(HostFrame.STATUS))
+  }
+
+  /**
+   * Ask the host to re-send the last `tailBytes` of its ring on this connection
+   * (SPEC-6 REPLAY). The bytes arrive as ordinary DATA with their original seqs,
+   * so `onData` listeners see them like live output; the child is not touched.
+   * Resolves with where the replay started and how many bytes it carried.
+   */
+  replay(tailBytes: number): Promise<{ from: bigint; bytes: number }> {
+    if (this.closed) return Promise.reject(new Error('podium-host connection closed'))
+    const p = Buffer.alloc(4)
+    p.writeUInt32BE(Math.max(0, Math.min(0xffff_ffff, Math.floor(tailBytes))), 0)
+    return new Promise((resolve, reject) => {
+      this.pendingReplays.push({ resolve, reject })
+      this.sock.write(encodeHostFrame(HostFrame.REPLAY, p))
+    })
   }
 
   signal(signo: number): void {
@@ -594,6 +630,13 @@ export interface HostAgentSession extends AgentSession {
   readonly connection: HostConnection
   /** Kernel-reported size after the last RESIZED (or WELCOME); undefined until then. */
   readonly appliedGeometry: Geometry | undefined
+  /**
+   * Replay the last `tailBytes` of the host's ring through `onFrame` — what a
+   * viewer needs after a joint server+daemon restart, when the server's log is
+   * empty and this daemon knows no seq. Nothing reaches the program (no signal,
+   * no resize), unlike `redraw()`.
+   */
+  replay(tailBytes: number): Promise<void>
 }
 
 /**
@@ -668,6 +711,11 @@ export function attachHostAgent(opts: HostAttachOptions): HostAgentSession {
     ...session,
     ready,
     connection: conn,
+    async replay(tailBytes) {
+      if (disposed) return
+      await ready
+      await conn.replay(tailBytes)
+    },
     get pid() {
       return childPid
     },

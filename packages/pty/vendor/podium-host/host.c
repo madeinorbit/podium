@@ -62,6 +62,7 @@ enum {
   C_SIGNAL = 0x06,
   C_DETACH = 0x07,
   C_KILL = 0x08,
+  C_REPLAY = 0x09,
 
   H_WELCOME = 0x81,
   H_DATA = 0x82,
@@ -72,6 +73,8 @@ enum {
   H_WRITTEN = 0x87,
   H_EXITED = 0x88,
   H_LEASE_LOST = 0x89,
+  H_REPLAYING = 0x8A,
+  H_REPLAYED = 0x8B,
   H_ERR = 0x8F,
 };
 
@@ -81,7 +84,8 @@ enum { MODE_WRITER = 1, MODE_READER = 2 };
 
 #define MAX_FRAME (1u << 20)      /* a client frame larger than this is malformed */
 #define DATA_CHUNK (32u * 1024u)   /* bytes per DATA frame */
-#define MAX_OUTBUF (4u << 20)      /* a client this far behind on control frames is dropped */
+/* A client whose control queue holds more than a whole ring replay plus slack is not reading. */
+#define MAX_OUTBUF_SLACK (1u << 20)
 #define MAX_CLIENTS 64
 #define KILL_GRACE_MS 5000
 #define TAIL_ONLY UINT64_MAX
@@ -546,6 +550,32 @@ static void handle_frame(client_t *c, uint8_t type, const uint8_t *p, uint32_t n
       client_release_lease(c);
       c->closing = true;
       return;
+    case C_REPLAY: {
+      /* Re-send the last `tail` bytes of the ring ON THIS CONNECTION with their
+       * original seqs, bracketed by REPLAYING/REPLAYED. Independent of the
+       * client's live cursor; touches the child in no way. */
+      if (n != 4) goto bad;
+      uint32_t tail = rd_u32(p);
+      uint64_t low = seq_low();
+      uint64_t from = (H.seq_high - low > tail) ? H.seq_high - tail : low;
+      size_t at = frame_begin(&c->out, H_REPLAYING);
+      buf_u64(&c->out, from);
+      frame_end(&c->out, at);
+      for (uint64_t seq = from; seq < H.seq_high;) {
+        uint64_t avail = H.seq_high - seq;
+        size_t len = avail > DATA_CHUNK ? DATA_CHUNK : (size_t)avail;
+        at = frame_begin(&c->out, H_DATA);
+        buf_u64(&c->out, seq);
+        buf_reserve(&c->out, len);
+        ring_copy(seq, c->out.p + c->out.len, len);
+        c->out.len += len;
+        frame_end(&c->out, at);
+        seq += len;
+      }
+      at = frame_begin(&c->out, H_REPLAYED);
+      frame_end(&c->out, at);
+      return;
+    }
     case C_KILL:
       if (!c->writer) {
         send_err(c, ERR_NOT_WRITER, "not the writer");
@@ -1022,7 +1052,7 @@ static void event_loop(void) {
         client_close(c);
         continue;
       }
-      if (c->out.len > MAX_OUTBUF) client_close(c);
+      if (c->out.len > H.ring_size + MAX_OUTBUF_SLACK) client_close(c);
     }
   }
 }

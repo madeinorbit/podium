@@ -458,6 +458,9 @@ function reportGeometryApplied(ctx: DaemonContext, sessionId: SessionId): void {
  * told. The two are the same fact stated twice: callers that need the number
  * (the headless screens) read the return; the bind reads the record.
  */
+/** How much of the host's ring a `replayRequired` redraw replays: several screens of a TUI. */
+const HOST_REPLAY_TAIL_BYTES = 256 * 1024
+
 /**
  * Keep a way to read the host connection's resume point after the session is
  * gone: the host adapter's session exposes its connection, and `lastSeq` on it
@@ -2435,8 +2438,22 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    if (!ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired))
-      ctx.bridges.get(msg.sessionId)?.redraw()
+    if (ctx.clientTerminals?.redraw(msg.sessionId, msg.replayRequired)) return
+    const bridge = ctx.bridges.get(msg.sessionId)
+    if (!bridge) return
+    // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server sends `replayRequired`
+    // when a client attaches against an EMPTY log — a server restart, or a deploy
+    // that restarted both server and daemon. abduco can only ask the program to
+    // repaint. The host keeps the output, so it replays its tail instead: the
+    // viewer gets the last screen, and the program is not touched at all.
+    const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> }).replay
+    if (msg.replayRequired && replay) {
+      void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) =>
+        log.warn('host replay failed; falling back to a repaint', { err, sessionId: msg.sessionId }),
+      )
+      return
+    }
+    bridge.redraw()
   },
   agentObservationAck: (ctx, msg) => {
     ctx.observers.onObservationAck(msg)

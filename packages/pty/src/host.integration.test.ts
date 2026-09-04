@@ -293,6 +293,70 @@ describe.skipIf(!hasCompiler)('podium-host: SPEC-6 acceptance', () => {
     old.destroy()
   }, 40_000)
 
+  it('REPLAY: the last N bytes come back with their original seqs, bracketed, and the child sees nothing', async () => {
+    const s = await spawn('replay', process.execPath, [countingFixture], 80, 24)
+    await s.ready
+    let all = ''
+    s.onFrame((f) => {
+      all += Buffer.from(f.data).toString('utf8')
+    })
+    await waitFor(() => all.length > 30_000, 'some output')
+    s.dispose()
+    await wait(200)
+
+    // A fresh client from the tail knows nothing; REPLAY hands it the last 10 000 bytes.
+    const c = connectHost(hostSocketPath(labels[0] as string), { mode: 'writer', fromSeq: HOST_TAIL })
+    const got: Array<{ seq: bigint; data: Buffer }> = []
+    c.onData((seq, d) => got.push({ seq, data: Buffer.from(d) }))
+    const w = await c.welcome
+    const before = w.seqHigh
+    // Pause the child so seqHigh is stable while we compare (SIGSTOP is not SIGWINCH).
+    c.signal(19)
+    await wait(100)
+    const st = await c.status()
+    const r = await c.replay(10_000)
+    expect(r.from).toBe(st.seqHigh - 10_000n)
+    expect(r.bytes).toBe(10_000)
+    const replayed = got.filter((g) => g.seq >= r.from && g.seq < st.seqHigh)
+    expect(replayed[0]?.seq).toBe(r.from)
+    // Contiguous, original seqs.
+    for (let i = 1; i < replayed.length; i++) {
+      const prev = replayed[i - 1] as { seq: bigint; data: Buffer }
+      expect(replayed[i]?.seq).toBe(prev.seq + BigInt(prev.data.length))
+    }
+    const text = Buffer.concat(replayed.map((g) => g.data)).toString('utf8')
+    // The line numbers in the replayed tail are the ones that were current: they
+    // continue exactly into the live stream's next line.
+    const lines = text.split('\n').filter(Boolean)
+    const first = Number((lines[1] as string).slice(1)) // lines[0] may be a partial line
+    for (let i = 2; i < lines.length - 1; i++) expect(Number((lines[i] as string).slice(1))).toBe(first + i - 1)
+    // lastSeq is a max: the replay did not move the resume point backwards.
+    expect(c.lastSeq).toBeGreaterThanOrEqual(before)
+    c.signal(18)
+    c.destroy()
+
+    // Bigger than the ring: everything from seqLow, and the child sees no SIGWINCH.
+    const l = label('replay-ring')
+    const sock = hostSocketPath(l)
+    expect(
+      rawCreate(['--socket', sock, '--ring-bytes', '4096', '--cols', '80', '--rows', '24', '--', process.execPath, WINSIZE_FIXTURE]).status,
+    ).toBe(0)
+    const c2 = connectHost(sock, { mode: 'writer', fromSeq: 0n })
+    let out = ''
+    c2.onData((_s, d) => {
+      out += d.toString()
+    })
+    await c2.welcome
+    await waitFor(() => /WINSZ /.test(out), 'startup')
+    const st2 = await c2.status()
+    const r2 = await c2.replay(1 << 30)
+    expect(r2.from).toBe(st2.seqLow)
+    expect(BigInt(r2.bytes)).toBe(st2.seqHigh - st2.seqLow)
+    await wait(400)
+    expect(winches(out)).toHaveLength(0)
+    c2.destroy()
+  }, 40_000)
+
   it('6. exit: the real code reaches every client; STATUS during linger returns it; after linger the socket and host are gone', async () => {
     const l = label('exit')
     const sock = hostSocketPath(l)
