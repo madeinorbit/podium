@@ -521,16 +521,27 @@ export class SessionsRepository {
     const cleanId = id.trim()
     if (!cleanId) throw new Error('pin id is empty')
     if (pinned) {
-      // `INSERT OR IGNORE` on a table whose ONLY constraint is the composite
-      // primary key (user_id, kind, id) — checked against schema.ts and the
-      // migrations, no UNIQUE index — so an untargeted DO NOTHING resolves the
-      // same single conflict it always did (spec §6 rule 1, as amended by
-      // POD-3403's multi-constraint check).
-      this.queries.db
-        .insert(pinsTable)
-        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
-        .onConflictDoNothing()
-        .run()
+      // NOT CONVERTED, by ruling (POD-3403, spec §6): `INSERT OR IGNORE` is not
+      // `onConflictDoNothing()`. `OR IGNORE` suppresses EVERY constraint
+      // violation on the statement — foreign key, NOT NULL and CHECK included —
+      // while drizzle's `DO NOTHING` suppresses only the uniqueness conflict and
+      // lets the rest throw. So the literal conversion changes behaviour in both
+      // directions, and the rule is to leave the statement as it stands.
+      //
+      // FOR THIS TABLE the two are in fact equivalent, and the evidence is in
+      // the handoff rather than acted on here: `pins` as actually built carries
+      // exactly one constraint, the composite primary key
+      // (user_id, kind, id) — no foreign key and no UNIQUE index, in the
+      // baseline and in the per-user-state rebuild alike. The ruling is a
+      // category rule and I am not making a per-site exception to it.
+      //
+      // Written through the drizzle instance rather than a raw handle: this file
+      // is converted and holds no connection, so the statement keeps its exact
+      // text while the file keeps its ledger line off.
+      this.queries.db.run(
+        // DECISION POD-3403
+        sql`INSERT OR IGNORE INTO ${pinsTable} (user_id, kind, id, pinned_at) VALUES (${userId}, ${kind}, ${cleanId}, ${new Date().toISOString()})`,
+      )
     } else {
       this.queries.db
         .delete(pinsTable)
