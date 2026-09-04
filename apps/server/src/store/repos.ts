@@ -404,9 +404,10 @@ export class ReposRepository {
       // rename then does nothing and the duplicate is deleted below instead —
       // the `changes === 0` branch under this one is that case. drizzle's UPDATE
       // builder carries no conflict clause (only INSERT does), so this is the
-      // most literal form available and the rule is open.
+      // most literal form available. Rule 1 keeps it as one atomic statement;
+      // a pre-read would become a race when the query layer turns async.
       const result = this.db.run(
-        // DECISION POD-3406
+        // UPDATE-CONFLICT STATEMENT POD-3406
         sql`UPDATE OR IGNORE repos SET path = ${normalizedPath} WHERE machine_id = ${machineId} AND path = ${row.path}`,
       )
       if (Number(result.changes ?? 0) > 0) {
@@ -434,11 +435,11 @@ export class ReposRepository {
         // statement runs. Invalidating before every write is not enough on its own —
         // it has to be before every write with no cached read taken since.
         this.invalidateRegistry()
-        // Same OR IGNORE as above and the same open rule: the target may already
+        // Same OR IGNORE as above and the same settled rule: the target may already
         // own a prefix row, and then this re-key must do nothing rather than
-        // throw. See POD-3406.
+        // throw. Rule 1's UPDATE-conflict exception preserves that behavior.
         this.db.run(
-          // DECISION POD-3406
+          // UPDATE-CONFLICT STATEMENT POD-3406
           sql`UPDATE OR IGNORE repo_prefixes SET repo_id = ${newId} WHERE repo_id = ${row.repoId}`,
         )
       }

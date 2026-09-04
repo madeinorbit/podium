@@ -468,10 +468,12 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
   only entry points and run through the scheduler.
 - No `PRAGMA`, `sqlite_master` or `ATTACH` in a repository query body; no raw handle; no
   drizzle transaction outside the store's port; a boundaries lint enforces it with a fixture
-  proving it fires. The `// DECISION POD-<n>` marker is its only allowlist and must be zero at
-  Stage A exit.
+  proving it fires. The `// DECISION POD-<n>` marker is its only unanswered-site allowlist and
+  must be zero at Stage A exit; rule 1's permanent UPDATE-conflict token is accepted only with
+  the matching statement shape.
 - Full-text search sits behind a `SearchIndex` port with the FTS5 implementation; whole raw
-  statements are allowed there only, with parameters bound.
+  statements are allowed there with parameters bound. The only repository-side exception is
+  rule 1's marked SQLite UPDATE conflict clause, which drizzle's update builder cannot express.
 
   OUT OF SCOPE FOR THIS EPIC (human decision, 2026-09-03). Full-text search is treated as
   unsupported on the cloud version for now, and the CLOUD epic is putting it behind a flag. This
@@ -515,8 +517,17 @@ work and the measurements, and replan. The exact steps, gates and issue tree are
 ## 6. Working rules for the conversion
 
 1. **drizzle is the default, not a religion.** Builder queries by default; `sql` fragments inside
-   builder queries anywhere; whole raw statements only behind the search port, parameters bound,
-   never `sql.raw` of user input. The lint bans the constructs in §2.7, not the `sql` tag.
+   builder queries anywhere; whole raw statements behind the search port, parameters bound,
+   never `sql.raw` of user input. The one repository-side exception is an SQLite
+   `UPDATE OR <conflict-algorithm>` clause, because drizzle's SQLite update builder exposes no
+   conflict clause: keep the whole update atomic through the query layer, write every identifier
+   literally, interpolate every runtime value as a bound parameter, and mark the call span
+   `// UPDATE-CONFLICT STATEMENT POD-3406`. The lint requires both that token and a statement whose
+   first tokens are `UPDATE OR ROLLBACK|ABORT|FAIL|IGNORE|REPLACE`; the token cannot exempt another
+   raw statement. Do not replace the conflict clause with a read-then-write guard: the first await
+   introduced at the async flip would open a race between them. Inserts still use
+   `onConflictDoNothing` / `onConflictDoUpdate`; this exception is for the update-builder gap only.
+   (POD-3406, decided 2026-09-05.) The lint bans the constructs in §2.7, not the `sql` tag.
 2. **drizzle stays inside persistence.** Imported only from the store, the operations store,
    the migrations and the sync SQLite adapter; repositories return the domain row types in
    `store/types.ts`.

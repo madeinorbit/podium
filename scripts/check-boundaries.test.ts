@@ -1105,6 +1105,35 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
     ).toEqual([])
   })
 
+  it('allows only a marked whole UPDATE with the builder-missing SQLite conflict clause', () => {
+    for (const algorithm of ['ROLLBACK', 'ABORT', 'FAIL', 'IGNORE', 'REPLACE']) {
+      const source = [
+        'const result = db.run(',
+        '  // UPDATE-CONFLICT STATEMENT POD-3406',
+        `  sql\`UPDATE OR ${algorithm} widgets SET value = \${value} WHERE id = \${id}\`,`,
+        ')',
+      ].join('\n')
+      expect(checkStoreRawHandles(REPO, source)).toEqual([])
+    }
+
+    const unmarked = `const result = db.run(sql\`UPDATE OR IGNORE widgets SET value = \${value}\`)\n`
+    expect(checkStoreRawHandles(REPO, unmarked)).toHaveLength(1)
+
+    for (const statement of [
+      'UPDATE widgets SET value = 1',
+      'SELECT * FROM widgets',
+      'DELETE FROM widgets',
+    ]) {
+      const falselyMarked = [
+        'const result = db.run(',
+        '  // UPDATE-CONFLICT STATEMENT POD-3406',
+        `  sql\`${statement}\`,`,
+        ')',
+      ].join('\n')
+      expect(checkStoreRawHandles(REPO, falselyMarked)).toHaveLength(1)
+    }
+  })
+
   it('flags PRAGMA, sqlite_master and ATTACH inside a `sql` BODY, not just in an import line', () => {
     const constructs = [
       'PRAGMA table_info(sessions)',

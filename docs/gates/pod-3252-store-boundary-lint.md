@@ -21,7 +21,7 @@ on, or what belongs to the driver and the migrations alone — and the hosted se
 
 | Rule | What it refuses | Where |
 |---|---|---|
-| `store-raw-handle` | An import of `@podium/runtime/sqlite`; `.prepare(`; a WHOLE raw statement handed to `db.all/get/run/values(sql\`…\`)`; `PRAGMA`, `sqlite_master` or `ATTACH` inside a `sql` template body | `apps/server/src/store/**`, `apps/server/src/modules/operations/store.ts`, `packages/sync/src/adapters/sqlite/**` |
+| `store-raw-handle` | An import of `@podium/runtime/sqlite`; `.prepare(`; a WHOLE raw statement handed to `db.all/get/run/values(sql\`…\`)` except the marked UPDATE-conflict builder gap below; `PRAGMA`, `sqlite_master` or `ATTACH` inside a `sql` template body | `apps/server/src/store/**`, `apps/server/src/modules/operations/store.ts`, `packages/sync/src/adapters/sqlite/**` |
 | `store-transaction-port` | drizzle's own `db.transaction` / `tx.transaction` — the store's `transact` port is the only transaction boundary | anywhere under `apps/` or `packages/` a drizzle handle can reach |
 | `drizzle-import-home` | `drizzle-orm` imported outside persistence | everywhere under `apps/` or `packages/` except the store, the operations store, `apps/server/src/migrations/**` and `packages/sync/src/adapters/sqlite/**` |
 | `sql-raw-literal` | `sql.raw` of anything that is not a string literal written down in full | everywhere under `apps/` or `packages/` except the SearchIndex port |
@@ -37,11 +37,19 @@ REPLACE`, `INSERT OR IGNORE`, `ON CONFLICT`, `RETURNING`, `GLOB`, `lastInsertRow
 functions. None of them is a portability problem and none is flagged; a fixture pins that.
 
 The `sql` TAG is not banned either. Spec §6 rule 1 says fragments inside builder queries are fine
-anywhere — `.where(sql\`…\`)` is the epic's own idiom. Only a whole statement handed to a
-raw-execution method is refused, and the fixtures pin both sides of that line.
+anywhere — `.where(sql\`…\`)` is the epic's own idiom. A whole statement handed to a raw-execution
+method is refused unless it meets the UPDATE-conflict exception below, and the fixtures pin both
+sides of both lines.
 
 The per-site "an `OR REPLACE` conversion must name every column" check stays a **reviewer** rule.
 It is a property of the column list against the schema, which source text cannot see.
+
+Drizzle's SQLite update builder has no conflict clause. Rule 1 therefore keeps a whole
+`UPDATE OR <conflict-algorithm>` statement on the query layer when the call span carries
+`// UPDATE-CONFLICT STATEMENT POD-3406`: identifiers are written literally and runtime values are
+bound through `sql` interpolation. The rule accepts all five SQLite algorithms because they are one
+missing builder feature, but it checks the SQL begins with that exact grammar; the token on a plain
+UPDATE, SELECT or DELETE still fails. Inserts continue to use the builder's conflict methods.
 
 `scripts/` is out of scope for all four rules. It is the build tier for every other rule in this
 file, `scripts/new-migration.ts` and `scripts/build-drizzle-manifest.ts` are exactly the tooling
@@ -72,8 +80,9 @@ and Phase 0's own exit gate is `bun run lint:boundaries` green.
 So the family ships with a ledger: `STAGE_A_UNCONVERTED`, one exact path per line, listing the
 files that have not been converted yet. A file on it is exempt from the rule's raw-handle clauses
 and from nothing else. **It is not an allowlist of violations** — it excuses no construct, it
-names a file that has not been started, and the "only allowlist is a `// DECISION POD-<n>` line"
-rule (method §4) is about sites and is unchanged.
+names a file that has not been started, and the "only unanswered-site allowlist is a
+`// DECISION POD-<n>` line" rule (method §4) is unchanged. The answered UPDATE-conflict token
+requires its matching statement shape and is not a ledger exemption.
 
 Three checks in `checkStoreBoundaryLedger` stop it rotting:
 
