@@ -1838,6 +1838,7 @@
         "src/steward.single-flight.test.ts",
         "src/steward.test.ts",
         "src/steward.ts",
+        "src/store-construction.test.ts",
         "src/store-database.ts",
         "src/store-issues-frame-cache.test.ts",
         "src/store-issues-row-cache-writers.test.ts",
