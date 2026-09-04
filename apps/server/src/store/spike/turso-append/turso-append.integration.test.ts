@@ -1,12 +1,21 @@
 /**
  * The change-log append contract, asserted against a real libsql server [POD-3250].
  *
- * WHAT THIS FILE IS FOR. `run-proofs.ts` measures; this asserts. Everything here
- * runs against a local `sqld` the test starts itself — the same server
- * `turso dev` runs — so CI can keep the contract honest without credentials.
- * The hosted database agreed with every assertion below when the results were
- * taken (`docs/internal/pod-3250-turso-append-proof.md`); where the two engines
- * differ, the document says so and the difference is a number, not a verdict.
+ * WHAT THIS FILE IS FOR. Everything here runs against a local `sqld` the test
+ * starts itself — the same server `turso dev` runs — so CI can keep the contract
+ * honest without credentials.
+ *
+ * WHAT IT DOES NOT COVER, stated precisely because this header used to overstate
+ * it [POD-3357]. It said the hosted database "agreed with every assertion below
+ * when the results were taken", which is a person reading a transcript, not a
+ * gate: nothing in this file has ever executed against the hosted backend, and
+ * nothing here would notice if the hosted engine stopped agreeing. The hosted
+ * arm is `run-proofs.ts remote`, which since POD-3357 asserts its own invariants
+ * and carries its verdict in its EXIT CODE (0 held / 1 an invariant failed / 3
+ * did not run), and `defeat-check.ts`, which proves those assertions can fail by
+ * breaking each one on purpose. Where the two engines differ,
+ * `docs/internal/pod-3250-turso-append-proof.md` says so and the difference is a
+ * number, not a verdict.
  *
  * WHY NOT A FAKE DRIVER. Every assertion here is about the engine and the
  * transport: whether `lastInsertRowid` arriving over hrana names this
