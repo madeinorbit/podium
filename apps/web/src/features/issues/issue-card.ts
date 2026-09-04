@@ -1,4 +1,9 @@
-import { ISSUE_STAGE_LABELS } from '@podium/client-core/viewmodels'
+import {
+  ISSUE_STAGE_LABELS,
+  rankedTaskStateSlots,
+  taskAheadCount,
+  taskStateWord,
+} from '@podium/client-core/viewmodels'
 import type { IssueStage } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueViewModel } from '@/app/store'
@@ -99,18 +104,6 @@ export type CardStateSlot =
 export const CARD_LABEL_DOTS = 3
 
 /**
- * Agents actually computing on this issue right now.
- *
- * `sessionSummary.byPhase` is keyed by `AgentPhase`, and 'working' is the only
- * one that means a machine is burning tokens for you — DESIGN.md's motion
- * grammar gates the spinner on exactly that. An issue with five attached
- * sessions and none working is still, and stillness is the signal.
- */
-export function liveAgentCount(issue: IssueViewModel): number {
-  return issue.sessionSummary?.byPhase?.working ?? 0
-}
-
-/**
  * Commits waiting to land, or 0.
  *
  * Read off `gitState.ahead`, which the probe leaves ABSENT on a shared checkout
@@ -118,7 +111,7 @@ export function liveAgentCount(issue: IssueViewModel): number {
  * `?? 0` is the correct reading of that absence, not a missing value.
  */
 export function aheadCount(issue: IssueViewModel): number {
-  return issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
+  return taskAheadCount(issue)
 }
 
 export function issueCardStateSlots(
@@ -127,33 +120,17 @@ export function issueCardStateSlots(
     badges,
     stageCounts,
     progress,
+    workingAgents,
   }: {
     badges: IssuesDisplay['badges']
     stageCounts?: { stage: IssueStage; count: number }[]
     progress?: EpicProgress | null
+    /** Canonical count resolved from the member session rows. */
+    workingAgents: number
   },
 ): CardStateSlot[] {
   const model = issueCardModel(issue)
-  const slots: CardStateSlot[] = []
-  if (issue.deletedAt) slots.push({ kind: 'deleted' })
-  if (model.needsHuman) slots.push({ kind: 'needs-human' })
-  if (model.isBlocked) slots.push({ kind: 'blocked' })
-  if (model.isBlocking) slots.push({ kind: 'blocking' })
-
-  // An epic reports its SUBTREE's live agents; a leaf reports its own. Both
-  // answer "how much is moving under this card", which is the question — and
-  // taking the larger of the two means an epic whose own sessions are working
-  // never reads as quieter than one of its children.
-  const live = Math.max(liveAgentCount(issue), progress?.liveAgents ?? 0)
-  if (live > 0) slots.push({ kind: 'live', count: live })
-
-  const ahead = aheadCount(issue)
-  if (ahead > 0) slots.push({ kind: 'merge', ahead })
-
-  const subtree = progress ?? (model.subProgress ? { ...model.subProgress, liveAgents: 0 } : null)
-  if (subtree && subtree.total > 0) {
-    slots.push({ kind: 'subtree', done: subtree.done, total: subtree.total })
-  }
+  const slots: CardStateSlot[] = [...rankedTaskStateSlots(issue, { workingAgents, progress })]
   if (stageCounts && stageCounts.length > 0) slots.push({ kind: 'stages', counts: stageCounts })
 
   if (badges.labels && model.labels.length > 0) {
@@ -181,29 +158,9 @@ export function issueCardStateSlots(
  */
 export function issueStateWord(
   issue: IssueViewModel,
+  workingAgents: number,
 ): { text: string; tone: 'attention' | 'alert' | 'live' | 'quiet' } | null {
-  const [top] = issueCardStateSlots(issue, {
-    badges: { labels: false, type: false, estimate: false, due: false, sessions: false },
-  })
-  if (!top) return null
-  switch (top.kind) {
-    case 'deleted':
-      return { text: 'deleted', tone: 'alert' }
-    case 'needs-human':
-      return { text: 'needs you', tone: 'attention' }
-    case 'blocked':
-      return { text: 'blocked', tone: 'alert' }
-    case 'blocking':
-      return { text: 'blocking', tone: 'alert' }
-    case 'live':
-      return { text: `${top.count} working`, tone: 'live' }
-    case 'merge':
-      return { text: `↑${top.ahead} to land`, tone: 'attention' }
-    case 'subtree':
-      return { text: `${top.done}/${top.total}`, tone: 'quiet' }
-    default:
-      return null
-  }
+  return taskStateWord(issue, workingAgents)
 }
 
 /** A short, stable age stamp for the card's top row (`12h`, `3d`, `6w`). The

@@ -1,0 +1,85 @@
+{
+  "cell": "A8",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a8",
+  "at": "2026-08-28T14:32:31.107Z",
+  "pin": {
+    "cell": "A8",
+    "at": "2026-08-28T14:32:31.185Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b7da1db",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1434135",
+    "daemonPid": "1453628",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18698204 kB",
+      "SwapFree": "41118756 kB"
+    },
+    "rootFreeKiB": 83265940,
+    "load1m": 9.67,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "the logged-out condition was never established: the session answered a live turn, so it is authenticated. The isolated agent home has no credential, but the SDK authenticates from the daemon's own HOME, and creating a logged-out condition there would mean touching the operator credential, which this rig may not do.",
+  "control": {
+    "fired": true,
+    "what": "the product itself reporting whether the session is logged out — a live reply means it is not",
+    "detail": "probe reply=true in 4079ms; isolatedCredential=absent; loginPathText=false"
+  },
+  "evidence": [
+    "AUTH PROBE        replied=true in 4079ms",
+    "SCREEN            \"\"",
+    "LOGIN PATH        false",
+    "CLASS             {\"errorClass\":\"none\",\"retryable\":null}",
+    "STATUS            {\"sessionId\":\"18db2cff-39a6-4079-86cd-899ed4e245f6\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
+  ],
+  "data": {
+    "sid": "18db2cff-39a6-4079-86cd-899ed4e245f6",
+    "loginPath": false,
+    "class": {
+      "errorClass": "none",
+      "retryable": null
+    },
+    "isolatedCredential": false,
+    "authenticated": true,
+    "probeMs": 4079
+  }
+}

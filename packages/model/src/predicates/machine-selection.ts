@@ -15,7 +15,12 @@
  * 4, its `use` decision) as INPUT and stay pure; they never resolve a principal,
  * and no type in this file grows an owner field.
  */
-import type { MachineComponent, MachineUseDecision } from '../entities/machine'
+import {
+  type AgentProbeError,
+  type MachineComponent,
+  type MachineUseDecision,
+  probeTimeoutDescription,
+} from '../entities/machine'
 import type { MachineId } from '../ids/brands'
 
 export interface RepoMachines {
@@ -134,7 +139,12 @@ export function onlineMachinesForRepoOrClone<M extends SelectableMachine>(
  */
 export interface HandoffMachine extends SelectableMachine {
   inventory?: {
-    agents: { kind: string; installed: boolean; login: { state: 'in' | 'out' | 'unknown' } }[]
+    agents: {
+      kind: string
+      installed: boolean | null
+      probeError?: AgentProbeError
+      login: { state: 'in' | 'out' | 'unknown' }
+    }[]
   }
   /**
    * INHERITED from {@link SelectableMachine} since POD-2700; the contract is
@@ -174,15 +184,24 @@ export interface HandoffMachine extends SelectableMachine {
  *    the exact lie that pinned the repo screen to it — "bring it online" is
  *    advice that can never be taken.
  *  - `offline` — we DON'T know: the daemon is unreachable, so nothing about the
- *    harness there is currently knowable. `harness-missing` is a PROBED fact and
- *    therefore only meaningful while reachable. A logged-out harness is a
- *    startable session condition, not a capability refusal.
+ *    harness there is currently knowable. A logged-out harness is a startable
+ *    session condition, not a capability refusal.
+ *  - `inventory-unavailable` — reachable, but no inventory report has arrived
+ *    yet, so no install claim can be made.
+ *  - `harness-probe-timed-out` — reachable and inventoried, but this harness's
+ *    bounded version probe expired. Retrying may produce a definitive answer.
  *  - `harness-missing` — reachable, and this harness is not installed there. Also
  *    the answer for a `HarnessId` this build has never heard of: an unknown
  *    harness is simply absent from the machine's inventory, which degrades to
  *    "cannot run it here" rather than throwing or guessing another CLI.
  */
-export type AgentCapabilityRejection = 'unauthorized' | 'no-daemon' | 'offline' | 'harness-missing'
+export type AgentCapabilityRejection =
+  | 'unauthorized'
+  | 'no-daemon'
+  | 'offline'
+  | 'inventory-unavailable'
+  | 'harness-probe-timed-out'
+  | 'harness-missing'
 
 /** A condition that can be reported for a session after it starts. */
 export type AgentLoginCondition = 'logged-out'
@@ -277,10 +296,22 @@ export function structuralRejection<M extends SelectableMachine>(
 export function harnessRejection<M extends HandoffMachine>(
   machine: M,
   agentKind: string,
-): 'harness-missing' | undefined {
+): 'inventory-unavailable' | 'harness-probe-timed-out' | 'harness-missing' | undefined {
   if (agentKind === 'shell') return undefined
-  const harness = machine.inventory?.agents.find((agent) => agent.kind === agentKind)
-  return harness?.installed === true ? undefined : 'harness-missing'
+  if (!machine.inventory) return 'inventory-unavailable'
+  const harness = machine.inventory.agents.find((agent) => agent.kind === agentKind)
+  if (harness?.installed === null) return 'harness-probe-timed-out'
+  if (harness?.installed !== true) return 'harness-missing'
+  return undefined
+}
+
+/** The observed timeout attached to one harness, formatted for any refusal surface. */
+export function agentProbeTimeoutDescription(
+  machine: Pick<HandoffMachine, 'inventory'>,
+  agentKind: string,
+): string {
+  const error = machine.inventory?.agents.find((agent) => agent.kind === agentKind)?.probeError
+  return probeTimeoutDescription(error)
 }
 
 /** Online machines that can run `agentKind` according to their latest inventory. */

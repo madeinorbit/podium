@@ -1,0 +1,1252 @@
+import { compareProviderCursor } from '@podium/harness/metadata'
+import type { SessionId } from '@podium/model'
+import { isRuntimeFineEvent } from '@podium/protocol/daemon'
+import { describe, expect, it } from 'vitest'
+import type { AgentSessionHandle } from '../../driver.js'
+import type { RuntimeEvent } from '../../events.js'
+import { PERMITTED_FAILURES } from '../../permitted-failures.js'
+// The assertion, not a copy of it: the refusal worlds below are judged by the
+// same corpus function the run judges its endpoint arm with. From the module
+// rather than the `testing/` barrel, which is the corpus's surface to curate.
+import {
+  assertAttachHonoursOneControlLease,
+  expectTypedRefusal,
+} from '../../testing/conformance/suite.js'
+import type { ConformanceControl, ConformanceTarget } from '../../testing/index.js'
+import { runConformance } from '../../testing/index.js'
+import { createGrokAcpClient } from './client.js'
+import {
+  createGrokAcpRuntime,
+  type GrokAcpEndpoint,
+  type GrokAcpJournal,
+  type GrokAcpJournalEntry,
+  type GrokAcpRuntime,
+  type GrokAcpRuntimeHost,
+} from './runtime.js'
+import { type FakeGrokAcpServer, startFakeGrokAcpServer } from './test-support/fake-acp-server.js'
+
+/**
+ * THE ONE HOST FACT THIS FILE VARIES, and it is a fact about the MACHINE rather
+ * than about the driver: whether this box can run a Grok ACP client terminal,
+ * and for which attach modes. The capability declares `client` in every one of
+ * them — the variant this family produces does not change with the host — and
+ * the driver turns a host that starts none into the corpus's typed refusal.
+ *
+ *   `true` (default)     both modes, the ordinary machine;
+ *   `false`              neither — nowhere to run a terminal at all;
+ *   `'spectators-only'`  a read-only stream for watchers, but no seat to put a
+ *                        controlling human in.
+ *
+ * The third is not a shape invented to make a test pass: it is the ONLY host
+ * under which the corpus reaches its refused-TAKEOVER assertion, because
+ * `assertAttachHonoursOneControlLease` returns at a refused peek, so a host that
+ * refuses everything never gets as far as asking for control. Both refusal
+ * worlds are `describe`s at the bottom of this file.
+ */
+interface WorldOptions {
+  hostsClientTerminals?: boolean | 'spectators-only'
+  /** Keep ACP's cancellation fence separate from the request so interrupt
+   *  transcript materialization can be tested at the exact boundary. */
+  deferCancellation?: boolean
+  /**
+   * WHETHER THIS MACHINE CAN READ GROK'S SESSION FILES, AND WHETHER THEY EXIST
+   * YET (POD-2703, review 2). Also a fact about the machine, not the driver —
+   * the capability declares an archive under all three.
+   *
+   *   `'ready'` (default)  the reader is wired and the files are there;
+   *   `'not-yet'`          wired, and the harness has written nothing yet;
+   *   `'absent'`           this host wires no reader at all.
+   *
+   * The last two are the arms `export()` answers with a refusal, and they had no
+   * world: the review found that replacing the whole branch with a bare `throw`
+   * left the package at 512/512. A refusal nobody provokes is indistinguishable
+   * from one that was never written — which is this milestone's own rule, turned
+   * on the corpus that enforces it.
+   */
+  archiveReader?: 'ready' | 'not-yet' | 'absent'
+}
+
+function makeWorld(options: WorldOptions = {}): {
+  target: ConformanceTarget
+  failProviderTurn(sessionId: SessionId, detail: string): void
+  failProviderAttempt(sessionId: SessionId, detail: string): void
+  completeProviderTurn(
+    sessionId: SessionId,
+    stopReason?: 'end_turn' | 'cancelled' | 'refusal',
+  ): void
+  toolCall(sessionId: SessionId, input: Parameters<FakeGrokAcpServer['toolCall']>[0]): void
+  toolCallUpdate(
+    sessionId: SessionId,
+    input: Parameters<FakeGrokAcpServer['toolCallUpdate']>[0],
+  ): void
+  failNextPrompt(sessionId: SessionId, detail?: string): void
+  rawFrames: unknown[]
+  streamAssistantText(sessionId: SessionId, chunks: readonly string[]): Promise<void>
+  replayLastUpdate(sessionId: SessionId): void
+  appendNativeTurn(sessionId: SessionId, userText: string, assistantText: string): void
+} {
+  const hostsClientTerminals = options.hostsClientTerminals ?? true
+  const archiveReader = options.archiveReader ?? 'ready'
+  let runtime: GrokAcpRuntime | undefined
+  let replayPromptSettlement: (() => void) | undefined
+  let seq = 0
+  /** Grok's own session store, per WORLD rather than per agent process. */
+  const conversations = new Map<string, Record<string, unknown>[]>()
+  const archiveFrames = new Map<string, Record<string, unknown>[]>()
+  let nativeEventSeq = 0
+  const servers = new Map<SessionId, FakeGrokAcpServer>()
+  const entries = new Map<SessionId, GrokAcpJournalEntry>()
+  const rawFrames: unknown[] = []
+  const journal: GrokAcpJournal = {
+    read: (id) => entries.get(id),
+    write: (entry) => entries.set(entry.sessionId, entry),
+    clear: (id) => {
+      entries.delete(id)
+    },
+  }
+  const processKey = (id: SessionId): string => `podium-gk-${id}`
+  const host: GrokAcpRuntimeHost = {
+    journal,
+    now: () => Date.UTC(2026, 7, 16) + ++seq * 1000,
+    mintSessionId: () => `gk-session-${++seq}` as SessionId,
+    nativeArchivePollMs: 5,
+    onRawFrame: (_sessionId, frame) => rawFrames.push(frame),
+    makeClient(config) {
+      const client = createGrokAcpClient(config)
+      return new Proxy(client, {
+        get(target, property, receiver) {
+          if (property !== 'call') return Reflect.get(target, property, receiver)
+          return (method: string, params?: unknown): Promise<unknown> => {
+            const promise = client.call(method, params)
+            if (method !== 'session/prompt') return promise
+            // A native Promise settles once, while the driver fence must also
+            // absorb a provider adapter that delivers the same settlement
+            // twice. This replayable thenable exposes that exact boundary.
+            return {
+              then(
+                onfulfilled: (value: unknown) => unknown,
+                onrejected: (reason: unknown) => unknown,
+              ): Promise<unknown> {
+                return promise.then((value) => {
+                  replayPromptSettlement = () => {
+                    void onfulfilled(value)
+                  }
+                  return onfulfilled(value)
+                }, onrejected)
+              },
+            } as Promise<unknown>
+          }
+        },
+      })
+    },
+    async launch(input) {
+      const nativeId =
+        entries.get(input.sessionId)?.grokSessionId ?? `grok-native-${input.sessionId}`
+      replayPromptSettlement = undefined
+      const server = startFakeGrokAcpServer(nativeId, {
+        onReplayedPromptResult: () => replayPromptSettlement?.(),
+        // ONE store across every server this world starts: Grok's conversation
+        // outlives the agent process, which is the whole premise of
+        // `session/load`. See the option's own doc for what a private map per
+        // server made unfalsifiable.
+        store: conversations,
+        frameStore: archiveFrames,
+        ...(options.deferCancellation !== undefined
+          ? { deferCancellation: options.deferCancellation }
+          : {}),
+      })
+      servers.get(input.sessionId)?.crash()
+      servers.set(input.sessionId, server)
+      const endpoint: GrokAcpEndpoint = {
+        transport: server.transport,
+        process: {
+          key: processKey(input.sessionId),
+          pid: 5000 + seq,
+          scopeUnit: `${processKey(input.sessionId)}.scope`,
+        },
+        stop: async () => server.crash(),
+        kill: async () => {
+          server.crash()
+          servers.delete(input.sessionId)
+        },
+        resources: () => ({ memoryBytes: 80 * 1024 * 1024, oomKills: 0 }),
+        alive: () => server.alive,
+      }
+      return endpoint
+    },
+    /**
+     * THE ARCHIVE IS THE SESSION'S OWN UPDATES, not a constant (POD-2703,
+     * review 1).
+     *
+     * This returned the same two bytes for every session, which made every
+     * export assertion above it metadata-only: the reviewer replaced each
+     * driver's payload with one garbage byte and the suite stayed green, and on
+     * this family the payload ALREADY WAS a garbage byte. An archive that
+     * carries nothing of the conversation is a backup that reports success and
+     * restores nothing.
+     */
+    // OMITTED ENTIRELY under `'absent'`, not stubbed to return nothing: the
+    // driver distinguishes a host with no reader from a reader with nothing to
+    // read, and a stub would collapse the two back together.
+    ...(archiveReader === 'absent'
+      ? {}
+      : {
+          readArchive: async ({ grokSessionId }: { grokSessionId: string }) => {
+            if (archiveReader === 'not-yet') return undefined
+            return [
+              {
+                path: `grok/${grokSessionId}/updates.jsonl`,
+                bytes: new TextEncoder().encode(
+                  (archiveFrames.get(grokSessionId) ?? [])
+                    .map((frame) => JSON.stringify(frame))
+                    .join('\n') + ((archiveFrames.get(grokSessionId)?.length ?? 0) > 0 ? '\n' : ''),
+                ),
+              },
+            ]
+          },
+        }),
+    ...(archiveReader === 'absent'
+      ? {}
+      : {
+          readNativeUpdates: async ({
+            grokSessionId,
+            offset,
+          }: {
+            grokSessionId: string
+            offset: number
+          }) => {
+            if (archiveReader === 'not-yet') return undefined
+            const frames = archiveFrames.get(grokSessionId) ?? []
+            const text = frames.map((frame) => JSON.stringify(frame)).join('\n')
+            const bytes = new TextEncoder().encode(text ? `${text}\n` : '')
+            const start = bytes.length < offset ? 0 : offset
+            return { offset: start, bytes: bytes.subarray(start) }
+          },
+        }),
+    // `mode` HAS ALWAYS BEEN ON THE HOST CONTRACT — a real host needs it to
+    // decide what to spawn — and a machine that hands a watcher a read-only
+    // stream while refusing to seat a controller is what makes the corpus's
+    // second refusal assertion reachable at all. See {@link WorldOptions}.
+    attachClient: async ({ sessionId, mode }) => {
+      if (hostsClientTerminals === false) return undefined
+      if (hostsClientTerminals === 'spectators-only' && mode === 'takeover') return undefined
+      return { streamId: `grok-client-${sessionId}`, warmTtlMs: 300_000 }
+    },
+  }
+  const serverFor = (id: SessionId): FakeGrokAcpServer => {
+    const server = servers.get(id)
+    if (!server) throw new Error(`no fake Grok ACP server for ${id}`)
+    return server
+  }
+  const control: ConformanceControl = {
+    askInteraction(sessionId) {
+      return serverFor(sessionId).askPermission()
+    },
+    reaskInteraction(sessionId) {
+      return serverFor(sessionId).askPermission()
+    },
+    async completeTurn(sessionId) {
+      serverFor(sessionId).completeTurn()
+      // The response settles a Promise; yielding here makes this control a
+      // causal barrier before the corpus sends its later ordering witness.
+      await Promise.resolve()
+    },
+
+    /**
+     * The chunk run alone — no item follows it here, because in this family
+     * nothing does. grok accumulates chunks into a buffer and flushes ONE
+     * complete item at the prompt's resolution, so the completed item the
+     * corpus joins against is produced by `completeTurn`, not by this call. That
+     * is the whole reason the join property is stated over the TURN rather than
+     * over an adjacent pair of events.
+     */
+    async streamAssistantText(sessionId, chunks) {
+      serverFor(sessionId).streamAgentText(chunks)
+      await Promise.resolve()
+    },
+
+    async failTurn(sessionId) {
+      serverFor(sessionId).completeTurn('refusal')
+      await Promise.resolve()
+    },
+    processEvent(sessionId, ev) {
+      if (ev.ev === 'exited') serverFor(sessionId).crash()
+    },
+    failNextVerification(sessionId) {
+      serverFor(sessionId).failNextPrompt()
+    },
+    textDeliveries(sessionId) {
+      return serverFor(sessionId).promptCount
+    },
+    restartSupervisor() {
+      for (const [sessionId, server] of servers) {
+        runtime?.forget(sessionId)
+        server.crash()
+      }
+    },
+    connectWithoutSecret() {
+      return { refused: true }
+    },
+  }
+  return {
+    failProviderTurn: (sessionId, detail) => serverFor(sessionId).failProviderTurn(detail),
+    failProviderAttempt: (sessionId, detail) => serverFor(sessionId).failProviderAttempt(detail),
+    completeProviderTurn: (sessionId, stopReason) => serverFor(sessionId).completeTurn(stopReason),
+    toolCall: (sessionId, input) => serverFor(sessionId).toolCall(input),
+    toolCallUpdate: (sessionId, input) => serverFor(sessionId).toolCallUpdate(input),
+    streamAssistantText: async (sessionId, chunks) => {
+      await control.streamAssistantText?.(sessionId, chunks)
+    },
+    replayLastUpdate: (sessionId) => serverFor(sessionId).replayLastUpdate(),
+    appendNativeTurn: (sessionId, userText, assistantText) => {
+      const grokSessionId = serverFor(sessionId).sessionId
+      const frames = archiveFrames.get(grokSessionId) ?? []
+      const append = (update: Record<string, unknown>): void => {
+        nativeEventSeq += 1
+        frames.push({
+          jsonrpc: '2.0',
+          method: 'session/update',
+          params: {
+            sessionId: grokSessionId,
+            update,
+            _meta: {
+              eventId: `${grokSessionId}-native-${nativeEventSeq}`,
+              agentTimestampMs: 1_786_800_000_000 + nativeEventSeq,
+            },
+          },
+        })
+      }
+      append({
+        sessionUpdate: 'user_message_chunk',
+        content: { type: 'text', text: userText },
+      })
+      append({
+        sessionUpdate: 'agent_message_chunk',
+        content: { type: 'text', text: assistantText },
+      })
+      append({ sessionUpdate: 'turn_completed', stop_reason: 'end_turn' })
+      archiveFrames.set(grokSessionId, frames)
+    },
+    failNextPrompt: (sessionId, detail) => serverFor(sessionId).failNextPrompt(detail),
+    rawFrames,
+    target: {
+      name: 'grok-acp',
+      family: 'server',
+      createDriver: () => {
+        runtime = createGrokAcpRuntime(host)
+        return { driver: runtime.driver, control }
+      },
+      reset: () => {
+        runtime?.dispose()
+        runtime = undefined
+        for (const server of servers.values()) server.crash()
+        servers.clear()
+        entries.clear()
+        // The store is per-WORLD, not per-server, but a property must not
+        // inherit a previous property's conversation.
+        conversations.clear()
+        archiveFrames.clear()
+        replayPromptSettlement = undefined
+        seq = 0
+        nativeEventSeq = 0
+      },
+      spec: () => ({
+        harness: 'grok',
+        selection: {
+          auth: 'subscription',
+          platform: 'linux',
+          available: ['grok-acp'],
+          preference: 'grok-acp',
+        },
+        workdir: '/tmp/conformance-grok',
+        model: {},
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+      }),
+    },
+  }
+}
+
+describe('grok-acp tool result transcript', () => {
+  it('materializes completed and failed output without fabricating absent output', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const sessionId = handle.binding.sessionId
+
+      world.toolCall(sessionId, { toolCallId: 'completed', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'completed',
+        status: 'completed',
+        content: [{ type: 'text', text: 'display fallback' }],
+        rawOutput: { output_for_prompt: 'canonical completed output' },
+      })
+      world.toolCall(sessionId, { toolCallId: 'failed', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'failed',
+        status: 'failed',
+        content: [{ type: 'text', text: 'command failed' }],
+      })
+      world.toolCall(sessionId, { toolCallId: 'explicit-empty', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'explicit-empty',
+        status: 'completed',
+        content: [{ type: 'text', text: 'must not win' }],
+        rawOutput: { output_for_prompt: '' },
+      })
+      world.toolCall(sessionId, { toolCallId: 'initially-absent', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'initially-absent',
+        status: 'completed',
+      })
+      await Promise.resolve()
+
+      let history = await handle.transcript.history({ limit: 20 })
+      expectToolPair(history, 'completed', 'canonical completed output')
+      expectToolPair(history, 'failed', 'command failed')
+      expectToolPair(history, 'explicit-empty', '')
+      expect(history.filter((item) => item.id === 'initially-absent:result')).toHaveLength(0)
+
+      // An absent terminal payload is not absorbing. A later update that
+      // explicitly carries empty output may resolve the same call.
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'initially-absent',
+        status: 'failed',
+        content: [{ type: 'text', text: '' }],
+      })
+      await Promise.resolve()
+      history = await handle.transcript.history({ limit: 20 })
+      expectToolPair(history, 'initially-absent', '')
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('absorbs duplicate terminal updates without re-emitting the stable result', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const sessionId = handle.binding.sessionId
+      world.toolCall(sessionId, { toolCallId: 'duplicate-completed', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'duplicate-completed',
+        status: 'completed',
+        content: 'first completed result',
+      })
+      world.toolCall(sessionId, { toolCallId: 'duplicate-failed', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'duplicate-failed',
+        status: 'failed',
+        content: 'first failed result',
+      })
+      await Promise.resolve()
+      const checkpoint = await handle.snapshot()
+
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'duplicate-completed',
+        status: 'completed',
+        content: 'second completed result',
+      })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'duplicate-failed',
+        status: 'failed',
+        content: 'second failed result',
+      })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'duplicate-completed',
+        status: 'failed',
+        content: 'late cross-status failure',
+      })
+      // Replayed call updates are duplicates too and must not reopen the pair.
+      world.toolCall(sessionId, { toolCallId: 'duplicate-completed', kind: 'execute' })
+      world.toolCall(sessionId, { toolCallId: 'duplicate-failed', kind: 'execute' })
+      await handle.stop()
+
+      const history = await handle.transcript.history({ limit: 20 })
+      expectToolPair(history, 'duplicate-completed', 'first completed result')
+      expectToolPair(history, 'duplicate-failed', 'first failed result')
+      expect(
+        history.filter(
+          (item) =>
+            item.id === 'duplicate-completed:result' || item.id === 'duplicate-failed:result',
+        ),
+      ).toHaveLength(2)
+      const events: RuntimeEvent[] = []
+      for await (const event of handle.events(checkpoint.cursor)) events.push(event)
+      expect(
+        events.filter(
+          (event) =>
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            (event.item.item.id === 'duplicate-completed:result' ||
+              event.item.item.id === 'duplicate-failed:result'),
+        ),
+      ).toHaveLength(0)
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('reconciles results before calls and replays the same resolved pairs on resume', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const spec = world.target.spec()
+      const handle = await driver.create(spec)
+      const sessionId = handle.binding.sessionId
+
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'out-of-order-completed',
+        status: 'completed',
+        content: 'completed before call',
+      })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'out-of-order-failed',
+        status: 'failed',
+        rawOutput: { output_for_prompt: 'failed before call' },
+      })
+      await Promise.resolve()
+      expect(
+        (await handle.transcript.history({ limit: 20 })).filter(
+          (item) => item.toolResult !== undefined,
+        ),
+      ).toHaveLength(0)
+
+      // Reverse the call order to prove pairing follows identity, not position.
+      world.toolCall(sessionId, { toolCallId: 'out-of-order-failed', kind: 'execute' })
+      world.toolCall(sessionId, { toolCallId: 'out-of-order-completed', kind: 'execute' })
+      world.toolCall(sessionId, { toolCallId: 'ordinary', kind: 'execute' })
+      world.toolCallUpdate(sessionId, {
+        toolCallId: 'ordinary',
+        status: 'completed',
+        content: 'ordinary result',
+      })
+      await Promise.resolve()
+
+      const liveHistory = await handle.transcript.history({ limit: 20 })
+      expectToolPair(liveHistory, 'out-of-order-completed', 'completed before call')
+      expectToolPair(liveHistory, 'out-of-order-failed', 'failed before call')
+      expectToolPair(liveHistory, 'ordinary', 'ordinary result')
+      const liveTools = liveHistory.filter((item) => item.role === 'tool')
+
+      const ref = handle.binding.resume
+      expect(ref).not.toBeNull()
+      if (!ref) return
+      await handle.kill()
+      const resumed = await driver.resume(ref, spec)
+      const replayedTools = (await resumed.transcript.history({ limit: 20 })).filter(
+        (item) => item.role === 'tool',
+      )
+      expect(toolTranscriptShape(replayedTools)).toEqual(toolTranscriptShape(liveTools))
+      expectToolPair(replayedTools, 'out-of-order-completed', 'completed before call')
+      expectToolPair(replayedTools, 'out-of-order-failed', 'failed before call')
+      expectToolPair(replayedTools, 'ordinary', 'ordinary result')
+
+      // Reset must clear reconciliation state. Reusing a provider identity in a
+      // fresh driver produces a fresh pair rather than inheriting replay state.
+      await resumed.kill()
+      world.target.reset()
+      const { driver: resetDriver } = world.target.createDriver()
+      const resetHandle = await resetDriver.create(spec)
+      world.toolCall(resetHandle.binding.sessionId, {
+        toolCallId: 'out-of-order-completed',
+        kind: 'execute',
+      })
+      world.toolCallUpdate(resetHandle.binding.sessionId, {
+        toolCallId: 'out-of-order-completed',
+        status: 'failed',
+        content: 'fresh after reset',
+      })
+      await Promise.resolve()
+      expectToolPair(
+        await resetHandle.transcript.history({ limit: 20 }),
+        'out-of-order-completed',
+        'fresh after reset',
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+describe('grok-acp provider event identity', () => {
+  it('absorbs a replayed notification but keeps identical real chunks', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const sessionId = handle.binding.sessionId
+      await handle.send({ text: 'identity witness' }, { origin: 'human', delivery: 'when-ready' })
+      await world.streamAssistantText(sessionId, ['same'])
+      world.replayLastUpdate(sessionId)
+      await world.streamAssistantText(sessionId, ['same'])
+      world.completeProviderTurn(sessionId, 'refusal')
+      for await (const event of handle.events('bootstrap')) {
+        if (event.t === 'turn' && (event.ev.ev === 'completed' || event.ev.ev === 'failed')) break
+      }
+      const history = await handle.transcript.history({ limit: 20 })
+      const assistants = history.filter((item) => item.role === 'assistant')
+      expect(assistants).toHaveLength(1)
+      expect(assistants[0]?.text).toBe('samesame')
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+describe('grok-acp native controller sync', () => {
+  it('tails native Grok updates into chat exactly once while takeover holds the lease', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'headless prompt before takeover' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await world.streamAssistantText(handle.binding.sessionId, ['headless answer'])
+      world.completeProviderTurn(handle.binding.sessionId, 'refusal')
+      await expect
+        .poll(async () => await handle.transcript.history({ limit: 20 }))
+        .toContainEqual(expect.objectContaining({ role: 'assistant', text: 'headless answer' }))
+
+      const holder = 'native-sync-test'
+      await expect(handle.attach({ mode: 'takeover', holder })).resolves.toMatchObject({
+        kind: 'client',
+      })
+
+      world.appendNativeTurn(handle.binding.sessionId, 'native user prompt', 'native answer')
+      const counts = async (): Promise<[number, number]> => {
+        const history = await handle.transcript.history({ limit: 20 })
+        return [
+          history.filter((item) => item.role === 'user' && item.text === 'native user prompt')
+            .length,
+          history.filter((item) => item.role === 'assistant' && item.text === 'native answer')
+            .length,
+        ]
+      }
+      await expect.poll(counts).toEqual([1, 1])
+      await new Promise((resolve) => setTimeout(resolve, 20))
+      await expect(counts()).resolves.toEqual([1, 1])
+      const history = await handle.transcript.history({ limit: 20 })
+      expect(
+        history.filter((item) => item.role === 'assistant' && item.text === 'headless answer'),
+      ).toHaveLength(1)
+      await handle.lease.release(holder)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+function expectToolPair(
+  items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>,
+  toolUseId: string,
+  toolResult: string,
+): void {
+  const callIndex = items.findIndex(
+    (item) => item.toolUseId === toolUseId && item.toolName !== undefined,
+  )
+  const resultIndex = items.findIndex(
+    (item) => item.toolUseId === toolUseId && item.toolResult !== undefined,
+  )
+  expect(callIndex).toBeGreaterThanOrEqual(0)
+  expect(resultIndex).toBeGreaterThan(callIndex)
+  expect(items[resultIndex]).toMatchObject({
+    id: `${toolUseId}:result`,
+    role: 'tool',
+    toolUseId,
+    toolResult,
+  })
+}
+
+function toolTranscriptShape(
+  items: Awaited<ReturnType<AgentSessionHandle['transcript']['history']>>,
+): unknown[] {
+  return items.map((item) => ({
+    id: item.id,
+    role: item.role,
+    text: item.text,
+    toolName: item.toolName,
+    toolInput: item.toolInput,
+    toolTitle: item.toolTitle,
+    toolResult: item.toolResult,
+    toolUseId: item.toolUseId,
+  }))
+}
+
+describe('grok-acp interrupt transcript marker', () => {
+  it('materializes one durable user event only after Grok confirms cancellation', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'keep working until stopped' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      await handle.interrupt()
+
+      // The notification was only a request. Until the pending prompt answers,
+      // the turn is still open and its history must not claim it was stopped.
+      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+        expect.objectContaining({ event: 'interrupt' }),
+      )
+      await expect(handle.state()).resolves.toMatchObject({ phase: 'working' })
+
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+
+      await expect
+        .poll(async () => await handle.transcript.history({ limit: 20 }))
+        .toContainEqual({
+          id: 'grok-interrupt-1',
+          role: 'user',
+          text: '[Request interrupted by user]',
+          ts: expect.any(String),
+          event: 'interrupt',
+        })
+      const history = await handle.transcript.history({ limit: 20 })
+      expect(history.filter((item) => item.event === 'interrupt')).toHaveLength(1)
+      const emitted: RuntimeEvent[] = []
+      for await (const event of handle.events('bootstrap')) {
+        emitted.push(event)
+        if (
+          event.t === 'item' &&
+          event.item.kind === 'complete' &&
+          event.item.item.event === 'interrupt'
+        ) {
+          break
+        }
+      }
+      expect(emitted).toContainEqual(
+        expect.objectContaining({
+          t: 'item',
+          item: {
+            kind: 'complete',
+            item: expect.objectContaining({ role: 'user', event: 'interrupt' }),
+          },
+        }),
+      )
+      await expect(handle.state()).resolves.toMatchObject({
+        phase: 'idle',
+        idle: { kind: 'interrupted' },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('keeps the confirmed marker reconstructable after native output and restart', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver, control } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      const binding = handle.binding
+      const observed: RuntimeEvent[] = []
+      const pump = (async () => {
+        for await (const event of handle.events('bootstrap')) {
+          observed.push(event)
+          if (
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt'
+          ) {
+            return
+          }
+        }
+      })()
+
+      await handle.send(
+        { text: 'emit native output before the stop fence' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await world.streamAssistantText(handle.binding.sessionId, ['partial before stop'])
+      await handle.interrupt()
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+      await pump
+
+      const turnStartIndex = observed.findIndex(
+        (event) => event.t === 'turn' && event.ev.ev === 'started',
+      )
+      expect(turnStartIndex).toBeGreaterThanOrEqual(0)
+      const turnStart = observed[turnStartIndex]
+      if (!turnStart) throw new Error('Grok turn start was not observed')
+
+      // Reproduce the durable gate from the exact live checkpoint seen in the
+      // failed A3 cell. Fine fragments never move that checkpoint; every later
+      // coarse event must prove it follows the accepted turn start. A restart
+      // can reconstruct only the complete marker that survives this gate.
+      let checkpoint = turnStart.cursor
+      const durableAfterStart: RuntimeEvent[] = []
+      for (const event of observed.slice(turnStartIndex + 1)) {
+        if (isRuntimeFineEvent(event)) continue
+        if (compareProviderCursor(checkpoint, event.cursor) !== 'after') continue
+        durableAfterStart.push(event)
+        checkpoint = event.cursor
+      }
+      const reconstructedAfterRestart = durableAfterStart.flatMap((event) =>
+        event.t === 'item' &&
+        event.item.kind === 'complete' &&
+        event.item.item.event === 'interrupt'
+          ? [event.item.item]
+          : [],
+      )
+      expect(reconstructedAfterRestart).toEqual([
+        expect.objectContaining({
+          id: 'grok-interrupt-1',
+          role: 'user',
+          event: 'interrupt',
+        }),
+      ])
+
+      // Recreate the daemon's adopt path, not merely its cursor comparator:
+      // the fresh ACP process loads the journalled provider cursor and Grok
+      // replays the native conversation before `adopt()` returns. That replay
+      // must rebuild this handle's local projection without advertising old
+      // transcript/state as new durable events after the saved checkpoint.
+      control.restartSupervisor()
+      const { driver: restartedDriver } = world.target.createDriver()
+      const adopted = await restartedDriver.adopt(binding)
+      const adoptedEvents: RuntimeEvent[] = []
+      for await (const event of adopted.events('bootstrap')) {
+        adoptedEvents.push(event)
+        if (event.t === 'process' && event.ev.ev === 'adopted') break
+      }
+
+      expect(await adopted.transcript.history({ limit: 20 })).toContainEqual(
+        expect.objectContaining({
+          role: 'user',
+          text: 'emit native output before the stop fence',
+        }),
+      )
+      expect(
+        adoptedEvents.filter(
+          (event) => event.t === 'item' || event.t === 'state',
+        ),
+      ).toEqual([])
+
+      const acceptedAfterRestart: RuntimeEvent[] = []
+      for (const event of adoptedEvents) {
+        if (isRuntimeFineEvent(event)) continue
+        if (compareProviderCursor(checkpoint, event.cursor) !== 'after') continue
+        acceptedAfterRestart.push(event)
+        checkpoint = event.cursor
+      }
+      const reconstructedWithAdopt = [...durableAfterStart, ...acceptedAfterRestart]
+      expect(
+        reconstructedWithAdopt.filter(
+          (event) =>
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt',
+        ),
+      ).toHaveLength(1)
+      expect(
+        acceptedAfterRestart.filter(
+          (event) => event.t === 'item' || event.t === 'state',
+        ),
+      ).toEqual([])
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('does not attribute an unrequested provider cancellation to the user', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'provider may cancel this' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+
+      await expect.poll(async () => (await handle.state()).phase).toBe('idle')
+      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+        expect.objectContaining({ event: 'interrupt' }),
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('does not attribute a cancellation confirmed before a late interrupt request', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'provider cancellation wins this race' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+
+      // The fake dispatches the response synchronously, resolving the client
+      // Promise, while `finishPrompt` remains a later microtask. The interrupt
+      // body then runs while the session still looks busy: exactly the window
+      // that sampling a boolean inside `finishPrompt` misattributed.
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+      await handle.interrupt()
+
+      await expect.poll(async () => (await handle.state()).phase).toBe('idle')
+      expect(await handle.transcript.history({ limit: 20 })).not.toContainEqual(
+        expect.objectContaining({ event: 'interrupt' }),
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('keeps one confirmed user marker when teardown wins the continuation race', async () => {
+    const world = makeWorld({ deferCancellation: true })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send(
+        { text: 'stop after confirmation' },
+        { origin: 'human', delivery: 'when-ready' },
+      )
+      await handle.interrupt()
+
+      // Confirmation synchronously crosses the durable item boundary. Stop
+      // disposes the session before `finishPrompt`'s microtask can run, so a
+      // marker materialized by that continuation would be lost.
+      world.completeProviderTurn(handle.binding.sessionId, 'cancelled')
+      await handle.stop()
+
+      const history = await handle.transcript.history({ limit: 20 })
+      expect(history.filter((item) => item.event === 'interrupt')).toEqual([
+        expect.objectContaining({
+          id: 'grok-interrupt-1',
+          role: 'user',
+          text: '[Request interrupted by user]',
+        }),
+      ])
+      const emitted: RuntimeEvent[] = []
+      for await (const event of handle.events('bootstrap')) emitted.push(event)
+      expect(
+        emitted.filter(
+          (event) =>
+            event.t === 'item' &&
+            event.item.kind === 'complete' &&
+            event.item.item.event === 'interrupt',
+        ),
+      ).toHaveLength(1)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+const { target } = makeWorld()
+
+async function eventsThroughTurnFailure(handle: AgentSessionHandle): Promise<RuntimeEvent[]> {
+  const observed: RuntimeEvent[] = []
+  let sawTurnFailure = false
+  let sawStateFailure = false
+  for await (const event of handle.events('bootstrap')) {
+    observed.push(event)
+    if (event.t === 'turn' && event.ev.ev === 'failed') sawTurnFailure = true
+    if (event.t === 'state' && event.change.kind === 'turn_failed') sawStateFailure = true
+    if (sawTurnFailure && sawStateFailure) break
+  }
+  return observed
+}
+
+describe('grok-acp provider failure detail', () => {
+  it('keeps a causal 402 detail when the prompt response closes the turn', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      world.failProviderTurn(
+        handle.binding.sessionId,
+        'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+      )
+      const observed = await eventsThroughTurnFailure(handle)
+      expect(
+        observed.filter((entry) => entry.t === 'state' && entry.change.kind === 'turn_failed'),
+      ).toHaveLength(1)
+
+      expect(observed).toContainEqual(
+        expect.objectContaining({
+          t: 'state',
+          change: expect.objectContaining({
+            kind: 'turn_failed',
+            errorClass: 'usage_limit',
+            retryable: false,
+            detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+          }),
+        }),
+      )
+      expect(observed).toContainEqual(
+        expect.objectContaining({
+          t: 'turn',
+          ev: expect.objectContaining({
+            ev: 'failed',
+            disposition: 'needs-human',
+            detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+          }),
+        }),
+      )
+      await expect(handle.state()).resolves.toMatchObject({
+        phase: 'errored',
+        error: {
+          class: 'usage_limit',
+          retryable: false,
+          detail: 'API error (status 402 Payment Required): Grok Build usage balance exhausted',
+        },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('clears a transient retry failure when the same turn later completes', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    const detail = 'API error (status 429 Too Many Requests): retry succeeded'
+    try {
+      const handle = await driver.create(world.target.spec())
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      world.failProviderAttempt(handle.binding.sessionId, detail)
+      world.completeProviderTurn(handle.binding.sessionId)
+
+      const observed: RuntimeEvent[] = []
+      for await (const event of handle.events('bootstrap')) {
+        observed.push(event)
+        if (event.t === 'turn' && event.ev.ev === 'completed') break
+      }
+      expect(observed.filter((event) => event.t === 'turn' && event.ev.ev === 'failed')).toEqual([])
+      await expect(handle.state()).resolves.toMatchObject({ phase: 'idle' })
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('classifies an immediate 402 prompt rejection before chat materialization', async () => {
+    const world = makeWorld()
+    const { driver } = world.target.createDriver()
+    const detail = 'API error (status 402 Payment Required): Grok Build usage balance exhausted'
+    try {
+      const handle = await driver.create(world.target.spec())
+      world.failNextPrompt(handle.binding.sessionId, detail)
+      await handle.send({ text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
+      const observed = await eventsThroughTurnFailure(handle)
+      const rawError = world.rawFrames.find(
+        (frame) =>
+          typeof frame === 'object' &&
+          frame !== null &&
+          'error' in frame &&
+          typeof frame.error === 'object' &&
+          frame.error !== null,
+      )
+      expect(rawError).toMatchObject({
+        error: { code: 402, message: detail },
+      })
+      const classifiedDetail = `status 402: ${detail}`
+
+      const stateFailure = observed.find(
+        (entry) => entry.t === 'state' && entry.change.kind === 'turn_failed',
+      )
+      if (!stateFailure || stateFailure.t !== 'state') {
+        throw new Error('missing immediate rejection state failure')
+      }
+      expect(stateFailure.change).toEqual({
+        kind: 'turn_failed',
+        errorClass: 'usage_limit',
+        retryable: false,
+        detail: classifiedDetail,
+      })
+
+      const turnFailure = observed.find((entry) => entry.t === 'turn' && entry.ev.ev === 'failed')
+      if (!turnFailure || turnFailure.t !== 'turn') {
+        throw new Error('missing immediate rejection turn failure')
+      }
+      expect(turnFailure.ev).toMatchObject({
+        ev: 'failed',
+        disposition: 'needs-human',
+        detail: classifiedDetail,
+      })
+      await expect(handle.state()).resolves.toMatchObject({
+        phase: 'errored',
+        error: { class: 'usage_limit', retryable: false, detail: classifiedDetail },
+      })
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+/**
+ * THE REFUSAL ARM, ON A REAL DRIVER (POD-2486; the arms are POD-2121's and
+ * POD-2131's, landed for opencode first and byte-equivalent here).
+ *
+ * `assertAttachHonoursOneControlLease` branches on whether the driver hands back
+ * an ENDPOINT or a REFUSAL, and the refusal side carries the invariant with
+ * teeth: a refused take-over must not be holding the control lease. The fixture
+ * above returned an endpoint unconditionally, so this driver only ever took the
+ * endpoint branch, and `runtime.ts`'s reserve-then-roll-back — the `!endpoint`
+ * arm that puts `previousLease` back — was guarded by nothing on this family.
+ * POD-2131's reviewer found the same hole here and in codex after fixing it for
+ * opencode; this is that fix.
+ *
+ * WHY NOT A SECOND FULL `runConformance`. Nothing else in the corpus reads
+ * `attachClient`, so a second whole-corpus pass would re-prove ~90 properties to
+ * reach one branch. The suite exports the assertion for exactly this.
+ */
+describe('grok-acp on a host with nowhere to run a terminal', () => {
+  it('refuses the attach, typed, and does not walk off with the lease', async () => {
+    const world = makeWorld({ hostsClientTerminals: false })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+
+      /**
+       * THE ARM IS PINNED BEFORE THE PROPERTY RUNS, because the property is
+       * satisfied by EITHER arm and would go green on this world without ever
+       * reaching the refusal branch — the exact failure that kept the branch
+       * dormant, reproduced one level up.
+       *
+       * `supported` stays TRUE: a declared attach refused by a particular
+       * machine, not a family with no terminal at all. Pinning here forces the
+       * CLASSIFICATION path — a refusal must be typed — to run, and no more: a
+       * peek never touches the lease, so no mode-guarded driver can fail that
+       * half. The `describe` below is the one with teeth.
+       */
+      expect(driver.capabilities().attach.supported).toBe(true)
+      expect(await handle.attach({ mode: 'peek', holder: 'probe' })).toMatchObject({
+        reason: 'unsupported',
+      })
+
+      await assertAttachHonoursOneControlLease(handle, driver.capabilities(), world.target.family)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+/**
+ * THE HALF WITH THE TEETH: A REFUSED TAKE-OVER IS NOT HOLDING THE LEASE.
+ *
+ * A box that can pipe a read-only stream to watchers and has no seat for a
+ * controlling human. The peek succeeds and only the take-over is refused, and
+ * that ordering is the whole point: `assertAttachHonoursOneControlLease` RETURNS
+ * at a refused peek, so the world above never gets as far as asking for control,
+ * while the ordinary world hosts both and never refuses at all.
+ *
+ * What it pins in THIS driver: `attach` reserves the lease before awaiting
+ * `host.attachClient`, so the invariant rides entirely on the rollback in the
+ * `!endpoint` branch. Delete `session.lease = previousLease` there and a caller
+ * refused control is nonetheless recorded as the human controller — the steward
+ * will not nudge, `lease.acquire` refuses the next comer with `lease_held`, and
+ * no terminal exists for anyone to type into.
+ *
+ * THE PIN NEEDS A SESSION OF ITS OWN, and that is load-bearing rather than tidy.
+ * The pin has to establish that on this world a peek yields an endpoint and a
+ * take-over is refused, or the property could be satisfied through the endpoint
+ * branch and prove nothing. But the pin's own take-over IS the call under test,
+ * and a driver with the bug leaves the lease taken behind it; pinning on the
+ * judged session would then hand the property a poisoned starting state, since
+ * it reads the lease BEFORE its own take-over and compares the two, so a lease
+ * already wrongly held reads as "unchanged" and the bug passes. MEASURED ON THIS
+ * DRIVER, not inherited from opencode's finding (POD-2131): with the rollback
+ * deleted, judging the property on the probe session instead of a fresh one
+ * leaves the whole package green. Two fresh sessions answer it — the pin is a
+ * statement about the MACHINE, which the host decides per call off `mode` alone,
+ * so it holds for both.
+ */
+describe('grok-acp on a host that streams to watchers but seats no controller', () => {
+  it('refuses the take-over without walking off with the lease', async () => {
+    const world = makeWorld({ hostsClientTerminals: 'spectators-only' })
+    const { driver } = world.target.createDriver()
+    try {
+      const probe = await driver.create(world.target.spec())
+      expect(driver.capabilities().attach.supported).toBe(true)
+      expect('kind' in (await probe.attach({ mode: 'peek', holder: 'probe' }))).toBe(true)
+      expect(await probe.attach({ mode: 'takeover', holder: 'probe' })).toMatchObject({
+        reason: 'unsupported',
+      })
+
+      // The judged session is a FRESH one, untouched by the pin above.
+      const handle = await driver.create(world.target.spec())
+      await assertAttachHonoursOneControlLease(handle, driver.capabilities(), world.target.family)
+    } finally {
+      world.target.reset()
+    }
+  })
+})
+
+runConformance(target.createDriver, {
+  name: target.name,
+  family: target.family,
+  reset: target.reset,
+  spec: target.spec,
+  exemptions: PERMITTED_FAILURES.server,
+})
+
+/**
+ * THE TWO REFUSALS `export()` CAN GIVE, AND THE ONE THING THAT SEPARATES THEM.
+ *
+ * Both worlds are a session with a resume ref, a live process and no archive to
+ * hand back, so every other export assertion is identical across them. The only
+ * difference a caller can see is the REASON, and the reason decides whether it
+ * ever asks again. That makes this pair the whole test: a single-arm version of
+ * it — either one alone — passes on a driver that answers both the same way,
+ * which is the defect this replaced.
+ *
+ * WHY HERE AND NOT IN THE CORPUS. Neither world is reachable through the driver
+ * contract: nothing in it makes a harness un-write its own store, and the corpus
+ * has no verb for "this machine wires no reader". The corpus supplies the
+ * judgement — {@link expectTypedRefusal} — and the family supplies the world.
+ */
+describe('grok-acp export when there is no archive to give', () => {
+  it('says NOT YET when the harness has not written its session files', async () => {
+    const world = makeWorld({ archiveReader: 'not-yet' })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+
+      /**
+       * PINNED FIRST, for the reason the attach worlds above are: the property
+       * below is satisfied by a refusal, and a world that had quietly declared
+       * no archive would reach one WITHOUT running the branch this exists for.
+       * The declaration stays `supported` — grok archives, this session has
+       * nothing in it yet — and that is what forces the not-yet arm.
+       */
+      expect(driver.capabilities().archive.supported).toBe(true)
+      expect(handle.binding.resume).toBeTruthy()
+
+      await expectTypedRefusal(
+        handle.export(),
+        'no_archive_yet',
+        'export() on a grok session whose files the harness has not written yet',
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+
+  it('says NEVER when this machine wires no reader at all', async () => {
+    const world = makeWorld({ archiveReader: 'absent' })
+    const { driver } = world.target.createDriver()
+    try {
+      const handle = await driver.create(world.target.spec())
+      expect(driver.capabilities().archive.supported).toBe(true)
+
+      // The ONE world where `unsupported` is honest on this family: no turn and
+      // no wait produces a reader, so a caller that stops asking is right.
+      await expectTypedRefusal(
+        handle.export(),
+        'unsupported',
+        'export() on a grok host that wires no session-file reader',
+      )
+    } finally {
+      world.target.reset()
+    }
+  })
+})

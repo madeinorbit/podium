@@ -25,7 +25,10 @@ import type { EngineState } from './state'
 import { knownTabIdsForWorkspace, sessionBelongsToWorkspace } from './state'
 
 /** Exactly the slices the membership rule reads. */
-type MembershipState = Pick<EngineState, 'issues' | 'sessions' | 'pendingSpawnIds' | 'fileTabs'>
+type MembershipState = Pick<
+  EngineState,
+  'issues' | 'sessions' | 'pendingSpawnIds' | 'pendingSpawnPrompts' | 'fileTabs'
+>
 
 function issue(id: string, over: Record<string, unknown> = {}): IssueWire {
   return {
@@ -86,6 +89,7 @@ function membership(
     issues,
     sessions,
     pendingSpawnIds: new Set<string>(),
+    pendingSpawnPrompts: new Map<string, string>(),
     fileTabs: [],
     ...over,
   }
@@ -207,6 +211,7 @@ describe('workspace membership', () => {
     } as unknown as FileTab
     const withTabs = membership(issues, sessions, {
       pendingSpawnIds: new Set(['spawn-1']),
+      pendingSpawnPrompts: new Map<string, string>(),
       fileTabs: [fileTab],
     })
     for (const key of keys) {

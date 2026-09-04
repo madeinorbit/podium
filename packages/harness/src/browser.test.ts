@@ -48,6 +48,7 @@ describe('@podium/harness/browser — the no-tools table', () => {
   it('answers true only for the harnesses with a native all-tools-off mechanism', () => {
     expect(BUILTIN_HARNESS_KINDS.filter((kind) => harnessSupportsNoTools(kind))).toEqual([
       'claude-code',
+      'pi',
     ])
   })
 })

@@ -114,7 +114,7 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
   )
   const issues = useReplicaIssues()
   const { setFocusedIssueId } = useOperatorFocus()
-  // Same as useDefaultSpawn: the fallback READS the published slice (POD-331)
+  // The fallback READS the published slice (POD-331)
   // instead of re-deriving the whole worklist on a private clock. The rail is
   // the consumer this mattered for — it renders without the sidebar's prop, so
   // before this it was running its own `sidebarSections` + `unifiedWorkList`.
@@ -303,6 +303,10 @@ export function useUnifiedWork(derivationOverride?: SidebarDerivation) {
     work,
     pinned,
     groups,
+    // The PROJECT tree, not just the rows in it (POD-1469): a repo with no work
+    // at all contributes no group, so the empty-project band can only be drawn
+    // from the sections themselves.
+    sections,
     sessions,
     issues,
     allWorktreePaths,

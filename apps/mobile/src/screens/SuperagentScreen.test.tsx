@@ -7,8 +7,26 @@ import type { ReactNode } from 'react'
 import { act } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
+import type { ComposerAttachmentsApi } from '../components/useComposerAttachments'
+import type { PickedFile } from '../lib/composer-media'
 
-afterEach(cleanup)
+const transcriptProps = vi.hoisted(
+  () => [] as { items: { text: string }[]; liveItem?: { text: string } }[],
+)
+const composerProps = vi.hoisted(
+  () =>
+    [] as {
+      attachments?: ComposerAttachmentsApi
+      onSend: (text: string) => void
+    }[],
+)
+
+afterEach(() => {
+  cleanup()
+  vi.restoreAllMocks()
+  transcriptProps.length = 0
+  composerProps.length = 0
+})
 
 vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
@@ -21,13 +39,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('lucide-react-native', () => ({
-  ArrowUp: () => null,
-  ChevronLeft: () => null,
-  Cpu: () => null,
-  Eraser: () => null,
-  Gauge: () => null,
-}))
 vi.mock('expo-blur', async () => {
   const { View } = await import('react-native')
   return { BlurView: (props: object) => <View {...props} /> }
@@ -53,30 +64,47 @@ vi.mock('../components/BottomSheet', () => ({
     ) : null,
 }))
 vi.mock('../components/TranscriptList', () => ({
-  TranscriptList: ({ tail }: { tail?: { label: string; tone: string } }) => (
-    <div>
-      transcript
-      {tail?.tone === 'working' ? (
-        <span data-testid="superagent-working-indicator">{tail.label}</span>
-      ) : null}
-    </div>
-  ),
+  TranscriptList: ({
+    items = [],
+    liveItem,
+    tail,
+  }: {
+    items?: { text: string }[]
+    liveItem?: { text: string }
+    tail?: { label: string; tone: string }
+  }) => {
+    transcriptProps.push({ items, ...(liveItem ? { liveItem } : {}) })
+    return (
+      <div>
+        transcript
+        <span data-testid="superagent-live-text">{liveItem?.text ?? items.at(-1)?.text ?? ''}</span>
+        {tail?.tone === 'working' ? (
+          <span data-testid="superagent-working-indicator">{tail.label}</span>
+        ) : null}
+      </div>
+    )
+  },
 }))
 vi.mock('../components/Composer', () => ({
   Composer: ({
-    below,
+    leading,
     onSend,
+    attachments,
   }: {
-    below?: ReactNode
+    leading?: ReactNode
     onSend: (text: string) => void
-  }) => (
-    <div>
-      {below}
-      <button type="button" onClick={() => onSend('hello')}>
-        send
-      </button>
-    </div>
-  ),
+    attachments?: ComposerAttachmentsApi
+  }) => {
+    composerProps.push({ onSend, ...(attachments ? { attachments } : {}) })
+    return (
+      <div>
+        {leading}
+        <button type="button" onClick={() => onSend('hello')}>
+          send
+        </button>
+      </div>
+    )
+  },
 }))
 vi.mock('../components/LaunchPlaceholders', () => ({
   BootstrapCrossfade: ({ children }: { children: ReactNode }) => <>{children}</>,
@@ -98,6 +126,121 @@ describe('SuperagentScreen chrome', () => {
     expect(screen.queryByText('OVERARCHING')).toBeNull()
     expect(screen.getByLabelText('Clear context — start the chat fresh')).toBeTruthy()
     expect(screen.getByLabelText('Model')).toBeTruthy()
+  })
+
+  it('does not create an attachment session when the screen opens', async () => {
+    const ensureSession = vi.fn(async () => ({ podiumSessionId: 'session:unused' }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
+          ensureSession: { mutate: ensureSession },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+      },
+    })
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(ensureSession).not.toHaveBeenCalled()
+  })
+
+  it('creates one session for concurrent first attachments and uploads each once', async () => {
+    const ensureSession = vi.fn(async () => ({ podiumSessionId: 'session:attachments' }))
+    const uploadImage = vi.fn(async ({ filename }: { filename: string; sessionId: string }) => ({
+      path: `/uploads/${filename}`,
+    }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
+          ensureSession: { mutate: ensureSession },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+        sessions: {
+          uploadImage: { mutate: uploadImage },
+          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+        },
+      },
+    })
+    const attachments = composerProps.at(-1)?.attachments
+    if (!attachments) throw new Error('Superagent attachment controls were not rendered')
+    const picked = (name: string): PickedFile => ({
+      name,
+      mimeType: 'image/png',
+      previewUri: `file:///${name}`,
+      dataBase64: `bytes:${name}`,
+    })
+
+    act(() => attachments.accept([]))
+    expect(ensureSession).not.toHaveBeenCalled()
+    act(() => {
+      attachments.accept([picked('one.png')])
+      attachments.accept([picked('two.png')])
+    })
+
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(2))
+    expect(ensureSession).toHaveBeenCalledOnce()
+    expect(ensureSession).toHaveBeenCalledWith({ threadId: 'global' })
+    expect(uploadImage.mock.calls.map(([input]) => [input.sessionId, input.filename])).toEqual([
+      ['session:attachments', 'one.png'],
+      ['session:attachments', 'two.png'],
+    ])
+  })
+
+  it('prepares a fresh attachment session after clearing the bound Superagent', async () => {
+    const ensureSession = vi
+      .fn()
+      .mockResolvedValueOnce({ podiumSessionId: 'session:first' })
+      .mockResolvedValueOnce({ podiumSessionId: 'session:second' })
+    const clear = vi.fn(async () => {})
+    const uploadImage = vi.fn(async ({ filename }: { filename: string; sessionId: string }) => ({
+      path: `/uploads/${filename}`,
+    }))
+    await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: { query: async () => [{ id: 'global', kind: 'global' }] },
+          ensureSession: { mutate: ensureSession },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: clear },
+          interruptTurn: { mutate: async () => {} },
+        },
+        sessions: {
+          uploadImage: { mutate: uploadImage },
+          transcriptRead: { query: async () => ({ items: [], hasMore: false }) },
+          answerAskUserQuestion: { mutate: async () => ({ ok: true }) },
+        },
+      },
+    })
+    const picked = (name: string): PickedFile => ({
+      name,
+      mimeType: 'image/png',
+      previewUri: `file:///${name}`,
+      dataBase64: `bytes:${name}`,
+    })
+
+    act(() => composerProps.at(-1)?.attachments?.accept([picked('before.png')]))
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(1))
+    expect(uploadImage.mock.calls[0]?.[0].sessionId).toBe('session:first')
+
+    fireEvent.click(screen.getByLabelText('Clear context — start the chat fresh'))
+    await waitFor(() => expect(clear).toHaveBeenCalledOnce())
+    await waitFor(() => expect(composerProps.at(-1)?.attachments?.attachments).toEqual([]))
+
+    act(() => composerProps.at(-1)?.attachments?.accept([picked('after.png')]))
+    await waitFor(() => expect(uploadImage).toHaveBeenCalledTimes(2))
+    expect(ensureSession).toHaveBeenCalledTimes(2)
+    expect(uploadImage.mock.calls.map(([input]) => input.sessionId)).toEqual([
+      'session:first',
+      'session:second',
+    ])
   })
 
   it('sends the picked model and effort with the turn', async () => {
@@ -161,5 +304,106 @@ describe('SuperagentScreen chrome', () => {
       await Promise.resolve()
     })
     expect(screen.queryByTestId('superagent-working-indicator')).toBeNull()
+  })
+
+  it('orders coalesced text behind newer status and invalidates cancelled frames', async () => {
+    const view = await renderWithMobileStore(<SuperagentScreen />, {
+      api: {
+        superagent: {
+          listThreads: {
+            query: async () => [
+              {
+                id: 'global',
+                kind: 'global',
+                podiumSessionId: 'session:superagent',
+                turnRunning: true,
+              },
+            ],
+          },
+          sendTurn: { mutate: async () => ({ threadId: 'global' }) },
+          clear: { mutate: async () => {} },
+          interruptTurn: { mutate: async () => {} },
+        },
+      },
+    })
+    await waitFor(() => expect(screen.getByTestId('superagent-working-indicator')).toBeTruthy())
+
+    const frames: FrameRequestCallback[] = []
+    const requestFrame = vi
+      .spyOn(window, 'requestAnimationFrame')
+      .mockImplementation((callback) => {
+        frames.push(callback)
+        return frames.length
+      })
+    const cancelFrame = vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(() => {})
+    const settledBeforeStreaming = transcriptProps.at(-1)?.items
+
+    act(() => {
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'partial-text',
+        text: 'one',
+      })
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'partial-text',
+        text: 'one two',
+      })
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'partial-text',
+        text: 'one two three',
+      })
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'status',
+        status: 'tool',
+        label: 'Bash',
+      })
+    })
+
+    expect(requestFrame).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId('superagent-live-text').textContent).toBe('')
+
+    act(() => frames[0]?.(0))
+
+    expect(screen.getByTestId('superagent-live-text').textContent).toBe('one two three')
+    expect(screen.getByTestId('superagent-working-indicator').textContent).toBe('Bash')
+    expect(transcriptProps.at(-1)?.items).toBe(settledBeforeStreaming)
+
+    act(() => {
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'partial-text',
+        text: 'newer than the status',
+      })
+      frames[1]?.(1)
+    })
+
+    expect(requestFrame).toHaveBeenCalledTimes(2)
+    expect(screen.getByTestId('superagent-live-text').textContent).toBe('newer than the status')
+    expect(screen.getByTestId('superagent-working-indicator').textContent).toBe('Working')
+    expect(transcriptProps.at(-1)?.items).toBe(settledBeforeStreaming)
+
+    act(() => {
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'partial-text',
+        text: 'must not survive turn end',
+      })
+      view.emit('headlessActivity', 'session:superagent', { kind: 'turn-end' })
+      view.emit('headlessActivity', 'session:superagent', { kind: 'turn-start' })
+      // Model the host dequeuing the callback just before cancelAnimationFrame.
+      frames[2]?.(2)
+    })
+
+    expect(requestFrame).toHaveBeenCalledTimes(3)
+    expect(cancelFrame).toHaveBeenCalledWith(3)
+    expect(screen.getByTestId('superagent-live-text').textContent).toBe('')
+    expect(screen.getByTestId('superagent-working-indicator').textContent).toBe('starting')
+
+    act(() => {
+      view.emit('headlessActivity', 'session:superagent', {
+        kind: 'partial-text',
+        text: 'cancel on unmount',
+      })
+    })
+    expect(requestFrame).toHaveBeenCalledTimes(4)
+    view.unmount()
+    expect(cancelFrame).toHaveBeenCalledWith(4)
   })
 })

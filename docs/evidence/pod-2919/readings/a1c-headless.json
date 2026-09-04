@@ -1,0 +1,69 @@
+{
+  "cell": "A1c",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "dead-session send gave a typed refusal",
+  "evidence": [
+    "aliveMarker=ALIVE-YDRMY0",
+    "deadMarker=DEAD-KAXLHH",
+    "typedRefusal=true",
+    "reason=dead-lettered: session no longer exists",
+    "silentlyAccepted=false"
+  ],
+  "data": {
+    "typed": true,
+    "reason": "dead-lettered: session no longer exists",
+    "accepted": false
+  },
+  "requestedCwd": "/tmp/pod-2919/probes/headless-a1c",
+  "cwdFromSpawn": null,
+  "instance": "oc2919",
+  "codePin": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+  "pin": {
+    "codeSha": "1f531c6cc7efc022db1b90e175c4640906ba97f6",
+    "codeShort": "1f531c6",
+    "server": {
+      "pid": 824576,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "daemon": {
+      "pid": 824666,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "1f531c6cc7efc022db1b90e175c4640906ba97f6"
+    },
+    "bundleSourceSha": "1f531c6",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "host": {
+    "load": [
+      "12.89",
+      "11.34",
+      "14.32"
+    ],
+    "memAvailableKb": 5319036,
+    "swapFreeKb": 36850540,
+    "diskFreeKb": 16241952
+  },
+  "at": "2026-08-27T02:27:26.786Z",
+  "error": "",
+  "log": [
+    "PIN PINJSON {\"codeSha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\",\"codeShort\":\"1f531c6\",\"server\":{\"pid\":824576,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"daemon\":{\"pid\":824666,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"1f531c6cc7efc022db1b90e175c4640906ba97f6\"},\"bundleSourceSha\":\"1f531c6\",\"expectedDriver\":\"opencode-server\",\"expectedFamily\":\"server\",\"actualRuntimeDriver\":\"\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=824576 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN daemon pid=824666 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=1f531c6cc7ef",
+    "PIN bundle sourceSha=1f531c6 expected=1f531c6",
+    "PIN daemon runtime driver=unset expected=opencode-server family=server",
+    "HOST {\"load\":[\"10.86\",\"10.90\",\"14.23\"],\"memAvailableKb\":4832156,\"swapFreeKb\":36850064,\"diskFreeKb\":16219116}",
+    "SESSION sid=94b079a2-7d31-4ef2-a8db-5d014cdfe81b",
+    "CWD requested=/tmp/pod-2919/probes/headless-a1c",
+    "CWD spawn-observed=/tmp/pod-2919/probes/headless-a1c",
+    "CWD query=/tmp/pod-2919/probes/headless-a1c match=true",
+    "DRIVER bound=opencode-server family=server status=live",
+    "CONTROL alive reply=true dead typedRefusal=true reason=dead-lettered: session no longer exists silentlyAccepted=false"
+  ]
+}

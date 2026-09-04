@@ -47,6 +47,7 @@ const MODEL_PROBES = {
   cursor: ['cursor-agent', 'models'],
   opencode: ['opencode', 'models'],
   codex: ['codex', 'debug', 'models'],
+  pi: ['pi', '--list-models'],
 } as const satisfies Record<string, readonly string[]>
 
 export type ProbeableAgent = keyof typeof MODEL_PROBES
@@ -96,6 +97,36 @@ export function parseOpencodeModels(out: string): ModelChoice[] {
   return models
 }
 
+/** pi --list-models → a whitespace table `provider model context max-out thinking images`
+ *  (verified against pi 0.84.4). The id Podium passes back is `provider/model`, the
+ *  form `--model` accepts. A model whose thinking column is `yes` takes every
+ *  thinking level; `no` means the effort picker has nothing to offer. */
+export function parsePiModels(out: string): ModelChoice[] {
+  const models: ModelChoice[] = []
+  let inTable = false
+  for (const raw of out.split('\n')) {
+    const cells = raw.trim().split(/\s+/)
+    if (cells.length < 2) continue
+    const [provider, model] = cells
+    if (!provider || !model) continue
+    // Rows count only under the table header; prose ("No models found") never does.
+    if (provider === 'provider' && model === 'model') {
+      inTable = true
+      continue
+    }
+    if (!inTable) continue
+    const thinking = cells[4]
+    models.push({
+      value: `${provider}/${model}`,
+      label: `${provider}/${model}`,
+      efforts: thinking === 'yes' ? [...PI_THINKING_LEVELS] : [],
+    })
+  }
+  return models
+}
+
+const PI_THINKING_LEVELS = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max'] as const
+
 /** codex debug models → `{ models: [{ slug, display_name, visibility, priority }] }`.
  *  Keep only user-selectable models (`visibility === 'list'` drops internal ones like
  *  codex-auto-review), ordered by the CLI's own priority. */
@@ -142,6 +173,7 @@ const PARSERS: Record<ProbeableAgent, (out: string) => ModelChoice[]> = {
   cursor: parseCursorModels,
   opencode: parseOpencodeModels,
   codex: parseCodexModels,
+  pi: parsePiModels,
 }
 
 export function parseModels(kind: ProbeableAgent, out: string): ModelChoice[] {

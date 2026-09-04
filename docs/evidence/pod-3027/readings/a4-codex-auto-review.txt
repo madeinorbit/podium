@@ -1,0 +1,23 @@
+A4_START=2026-08-28 11:57:43 CEST
+EPIC=45323df366cb9ac7156f7d1b4c02c39c706aaf33
+DRIVE=be0334e77b1d82cb27b3df991429359f31048682
+EPIC_CI=2026-08-28 10:07:21 +0200
+DRIVE_CI=2026-08-28 11:53:19 +0200
+==============================================================================
+A4a / A4b  permission ask, and answering it twice   harness=codex
+==============================================================================
+SESSION CWD        never-approved dummy git repo /home/mgw/pod-3027-a4-never-approved-1787911063763-cwd-on8dn4/repo
+                   avoided trusted projects: /home/mgw/src/podium, /tmp/cxprobe/work, /tmp/podium-test-run-fXLHSe/podium-codex-live-Hfw0BE, /tmp/pod-op/repo, /home/mgw/src/podium-cloud, /tmp/cx2819/work, /tmp/cx2819-mention/arm0/cwd, /tmp/cx2819-mention/arm1/cwd, /tmp/cx2819-mention/arm2/cwd, /tmp/pod-2777/repo, /home/mgw/src/podium/.worktrees/issue-2245-operator-test-instance
+                   isolated approvals_reviewer=auto_review
+session 4772840e-c3ee-4286-8e3c-00d37a9dc00d created
+BOUND DRIVER       codex-app-server (family server)
+
+CONTROL            the turn produced 4 transcript item(s), 4 delta frame(s) — FIRED
+
+A4a  BLOCKED — no enumerable structured ask appeared in 20s
+     tool calls seen: Bash
+     BLOCKED, not FAILED: this harness approved its own tool call, so the
+     product was never handed an ask to surface. That is this rig's posture,
+     not the product's ask plane.
+A4b  BLOCKED — no ask was raised, so there is no answer to send twice.
+A4_END=2026-08-28 11:58:29 CEST rc=2

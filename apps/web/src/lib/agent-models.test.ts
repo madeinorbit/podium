@@ -5,10 +5,10 @@ import {
   allConnectorModelLabel,
   allConnectorModelOptions,
   decodeModelPick,
-  encodeModelPick,
   effortLabel,
   effortOptions,
   effortOptionsForModel,
+  encodeModelPick,
   isEffortValid,
   modelLabel,
   modelOptions,
@@ -16,7 +16,7 @@ import {
 
 describe('agent-models catalog', () => {
   it('lists Auto first for every agent (model + effort)', () => {
-    for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const) {
+    for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const) {
       expect(modelOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
       expect(effortOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
     }

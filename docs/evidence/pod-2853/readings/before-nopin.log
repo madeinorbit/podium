@@ -1,0 +1,36 @@
+[2026-08-26T09:25:22.799Z] POD-2853 drive — instance 'p2853'
+  state root         /home/mgw/.local/state/podium/p2853  (35 bytes)
+  ABDUCO_SOCKET_DIR  <unset — the instance must compose its own>
+  arm                /home/mgw/src/podium/.worktrees/issue-2853-bug-a-named-instance-cannot-start-any-te
+  arm HEAD           f6a6c86254fdfcb990ea571441acfdf032193cc2
+[2026-08-26T09:25:23.127Z] session 27985862-a2f8-47be-a737-ba84abf44cf0 created; 45000ms for the spawn to settle or fail
+  durable label      podium-p2853-27985862-a2f8-47be-a737-ba84abf44cf0  (49 bytes)
+
+--- ROW (the surface a user watches) -------------------------------
+  status         exited
+  spawnFailure   "/home/mgw/.local/state/podium/p2853/bin/abduco exited 1: create-session: File name too long"
+  durableLabel   ?
+  full row       {"sessionId":"27985862-a2f8-47be-a737-ba84abf44cf0","agentKind":"claude-code","harness":"claude-code","driverId":null,"requestedDriverId":null,"status":"exited","phase":"idle","machine":"flatblock","model":null,"effort":null,"contextUsagePercent":null,"account":"native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241","error":null,"draft":false,"nativeSubagentCount":0,"nativeSubagents":[],"subagents":[],"issue":null,"commits":["c6ff691 scratch repo for the POD-2853 drive"],"files":["## main"],"unackedMessages":0}
+
+--- DISK (walked directly, independent of Podium's resolver) -------
+  no socket carrying this label under ANY root abduco could pick
+
+--- COMPOSED LENGTHS vs the 108-byte sun_path limit --------------
+  user=mgw  host=@flatblock  label=49B
+  OVER   121B  /home/mgw/.local/state/podium/p2853/runtime/abduco/abduco/mgw/
+           instance pin <state>/runtime/abduco
+  OVER   114B  /home/mgw/.local/state/podium/p2853/runtime/abduco/mgw/
+           instance pin <state>/runtime
+  fits    98B  /run/user/1001/podium-p2853/abduco/mgw/
+           XDG_RUNTIME_DIR per-instance root
+  OVER   114B  /home/mgw/.local/state/podium/p2853/agent-home/.abduco/
+           agent HOME/.abduco (abduco's HOME fallback)
+  fits    77B  /home/mgw/.abduco/
+           daemon HOME/.abduco
+  fits    75B  /tmp/abduco/mgw/
+           /tmp/abduco/<user>
+
+--- VERDICT --------------------------------------------------------
+  DEFECT 1: abduco refused the composed path — it is longer than sun_path.
+
+  daemon log: /tmp/pod-2853/logs/daemon.log

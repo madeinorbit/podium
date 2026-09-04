@@ -1,0 +1,109 @@
+// @vitest-environment happy-dom
+
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { beforeEach, describe, expect, it } from 'vitest'
+
+interface NativeOpenWindow extends Window {
+  __PODIUM_DELIVER_NATIVE_OPEN__?: (raw: unknown) => void
+  __PODIUM_NATIVE_OPEN_ACK__?: (raw: unknown) => void
+  __PODIUM_NATIVE_OPEN_READY__?: (ready?: boolean) => void
+}
+
+const bridge = readFileSync(join(__dirname, 'native-open.js'), 'utf8')
+const nativeWindow = window as NativeOpenWindow
+
+beforeEach(() => {
+  delete nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__
+  delete nativeWindow.__PODIUM_NATIVE_OPEN_ACK__
+  delete nativeWindow.__PODIUM_NATIVE_OPEN_READY__
+  window.eval(bridge)
+})
+
+describe('desktop native-open page bridge', () => {
+  it('queues cold URLs until the listener is ready and drains each once', () => {
+    const received: unknown[] = []
+    const onOpen = (event: Event): void => {
+      const raw = (event as CustomEvent).detail
+      received.push(raw)
+      nativeWindow.__PODIUM_NATIVE_OPEN_ACK__?.(raw)
+    }
+    const first = 'podium://issues/POD-1710?literal=%27quoted%27'
+    const second = 'podium://sessions/POD-1710-A'
+
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(first)
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(second)
+    window.addEventListener('podium:native-open', onOpen)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
+
+    expect(received).toEqual([first, second])
+    window.removeEventListener('podium:native-open', onOpen)
+  })
+
+  it('delivers warm URLs once and queues across a listener handoff', () => {
+    const received: unknown[] = []
+    const onOpen = (event: Event): void => {
+      const raw = (event as CustomEvent).detail
+      received.push(raw)
+      nativeWindow.__PODIUM_NATIVE_OPEN_ACK__?.(raw)
+    }
+    window.addEventListener('podium:native-open', onOpen)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.()
+
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://sessions/POD-1710-A')
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(false)
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-1710')
+    expect(received).toEqual(['podium://sessions/POD-1710-A'])
+
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
+    expect(received).toEqual(['podium://sessions/POD-1710-A', 'podium://issues/POD-1710'])
+    window.removeEventListener('podium:native-open', onOpen)
+  })
+
+  it('retains an unacknowledged URL across a listener remount', () => {
+    const raw = 'podium://issues/POD-1710'
+    const firstHost: unknown[] = []
+    const secondHost: unknown[] = []
+    const onFirstOpen = (event: Event): void => firstHost.push((event as CustomEvent).detail)
+    const onSecondOpen = (event: Event): void => {
+      const detail = (event as CustomEvent).detail
+      secondHost.push(detail)
+      nativeWindow.__PODIUM_NATIVE_OPEN_ACK__?.(detail)
+    }
+
+    window.addEventListener('podium:native-open', onFirstOpen)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.()
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(raw)
+    expect(firstHost).toEqual([raw])
+
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(false)
+    window.removeEventListener('podium:native-open', onFirstOpen)
+    window.addEventListener('podium:native-open', onSecondOpen)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.()
+
+    expect(secondHost).toEqual([raw])
+    window.removeEventListener('podium:native-open', onSecondOpen)
+  })
+
+  it('rejects the newest cold URL once the pending queue is full', () => {
+    const received: unknown[] = []
+    const onOpen = (event: Event): void => {
+      const raw = (event as CustomEvent).detail
+      received.push(raw)
+      nativeWindow.__PODIUM_NATIVE_OPEN_ACK__?.(raw)
+    }
+    const accepted = Array.from(
+      { length: 32 },
+      (_, index) => `podium://issues/POD-${index}`,
+    )
+
+    for (const raw of accepted) nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.(raw)
+    nativeWindow.__PODIUM_DELIVER_NATIVE_OPEN__?.('podium://issues/POD-excess')
+    window.addEventListener('podium:native-open', onOpen)
+    nativeWindow.__PODIUM_NATIVE_OPEN_READY__?.(true)
+
+    expect(received).toEqual(accepted)
+    window.removeEventListener('podium:native-open', onOpen)
+  })
+})

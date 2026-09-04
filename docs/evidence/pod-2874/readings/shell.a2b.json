@@ -1,0 +1,110 @@
+{
+  "cell": "A2B",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2874/probes/shell-a2b",
+  "at": "2026-08-26T12:28:56.445Z",
+  "pin": {
+    "cell": "A2B",
+    "at": "2026-08-26T12:28:56.514Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2420776",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4087868 kB",
+      "SwapFree": "37479852 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "fresh session reported idle at boot",
+  "control": {
+    "fired": true,
+    "what": "new session attach/output evidence independent of the status value",
+    "detail": "created={\"sessionId\":\"ab5283c4-7ea4-4f1e-90c5-fa95068482dc\",\"agentId\":\"ab5283c4-7ea4-4f1e-90c5-fa95068482dc\",\"harness\":\"shell\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"1755c56a-e4fd-49b0-812e-d11963f60279\",\"accountId\":null}; attached=1; screenBytes=102"
+  },
+  "evidence": [
+    "STATUS            {\"sessionId\":\"ab5283c4-7ea4-4f1e-90c5-fa95068482dc\",\"agentKind\":\"shell\",\"harness\":\"shell\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":null,\"error\"",
+    "SESSION ROW       {\"sessionId\":\"ab5283c4-7ea4-4f1e-90c5-fa95068482dc\",\"agentKind\":\"shell\",\"title\":\"shell-a2b\",\"cwd\":\"/tmp/pod-2874/probes/shell-a2b\",\"status\":\"live\",\"controllerId\":\"c31\",\"geometry\":{\"cols\":80,\"rows\":24},\"epoch\":0,\"clientCount\":1,\"createdAt\":\"2026-08-26T12:28:56.",
+    "FRAME TYPES       machinesChanged=3 welcome=1 sessionDraftChanged=1 approvalsChanged=1 hostMetricsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 outputFrame=1",
+    "SCREEN TAIL       \"mgw@flatblock:/tmp/pod-2874/probes/shell-a2b$ mgw@flatblock:/tmp/pod-2874/probes/shell-a2b$\""
+  ],
+  "data": {
+    "sid": "ab5283c4-7ea4-4f1e-90c5-fa95068482dc",
+    "status": {
+      "sessionId": "ab5283c4-7ea4-4f1e-90c5-fa95068482dc",
+      "agentKind": "shell",
+      "harness": "shell",
+      "driverId": null,
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": null,
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [],
+      "files": [],
+      "unackedMessages": 0
+    },
+    "row": {
+      "sessionId": "ab5283c4-7ea4-4f1e-90c5-fa95068482dc",
+      "agentKind": "shell",
+      "title": "shell-a2b",
+      "cwd": "/tmp/pod-2874/probes/shell-a2b",
+      "status": "live",
+      "controllerId": "c31",
+      "geometry": {
+        "cols": 80,
+        "rows": 24
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-26T12:28:56.578Z",
+      "lastActiveAt": "2026-08-26T12:28:56.578Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "1755c56a-e4fd-49b0-812e-d11963f60279",
+      "machineName": "flatblock",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      }
+    }
+  }
+}

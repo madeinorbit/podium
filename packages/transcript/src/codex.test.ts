@@ -16,6 +16,18 @@ describe('codexRecordToItems', () => {
     expect(items[0]).toMatchObject({ role: 'user', text: 'fix the chat view' })
   })
 
+  it('surfaces turn_aborted as the shared interrupt event', () => {
+    expect(codexRecordToItems(env('event_msg', { type: 'turn_aborted' }))).toEqual([
+      {
+        id: expect.any(String),
+        role: 'user',
+        ts: '2026-06-16T16:11:00.000Z',
+        text: 'Conversation interrupted',
+        event: 'interrupt',
+      },
+    ])
+  })
+
   it('takes the clean user prompt from event_msg.item_completed UserMessage', () => {
     const items = codexRecordToItems(
       env('event_msg', {
@@ -109,6 +121,28 @@ describe('codexRecordToItems', () => {
       }),
     )
     expect(items).toEqual([expect.objectContaining({ role: 'assistant', text: 'Done.' })])
+  })
+
+  it('marks only Codex final-answer messages as answers', () => {
+    const commentary = codexRecordToItems(
+      env('response_item', {
+        type: 'message',
+        role: 'assistant',
+        phase: 'commentary',
+        content: [{ type: 'output_text', text: 'I am checking the parser.' }],
+      }),
+    )
+    const answer = codexRecordToItems(
+      env('response_item', {
+        type: 'message',
+        role: 'assistant',
+        phase: 'final_answer',
+        content: [{ type: 'output_text', text: 'The parser is fixed.' }],
+      }),
+    )
+
+    expect(commentary[0]).not.toHaveProperty('answer')
+    expect(answer[0]).toMatchObject({ answer: true, text: 'The parser is fixed.' })
   })
 
   it('maps function_call to a tool item keyed by call_id', () => {

@@ -1,6 +1,10 @@
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import type { AgentObservationRebindAckMessage } from '@podium/protocol'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { declaredValue } from '../manifest.js'
 import type { HarnessObservationLease, HarnessObserverHost } from '../manifest.js'
 
 const mockedObserver = vi.hoisted(() => ({
@@ -157,7 +161,41 @@ describe('codex adapter exact rebind fence', () => {
 
     expect(mockedObserver.starts).toHaveLength(2)
     expect(mockedObserver.starts[1]?.opts.resumeValue).toBe('thread-b')
+
     expect(observerHost.onResumeValue).toHaveBeenCalledWith('thread-b', 'exact')
     expect(observerHost.tailFile).toHaveBeenCalledWith('/rollout/b.jsonl')
+  })
+})
+
+describe('codex login environment', () => {
+  it('reads auth and identity from the supplied CODEX_HOME', () => {
+    const root = mkdtempSync(join(tmpdir(), 'codex-login-'))
+    try {
+      const configuredHome = join(root, 'configured')
+      mkdirSync(configuredHome, { recursive: true })
+      writeFileSync(
+        join(configuredHome, 'auth.json'),
+        JSON.stringify({
+          tokens: {
+            access_token: 'a',
+            refresh_token: 'r',
+            account_id: 'acct-env',
+          },
+        }),
+      )
+      const env = { CODEX_HOME: configuredHome }
+      const identityReader = declaredValue(codexManifest.inventory.loginIdentity)
+
+      expect(codexManifest.inventory.detectLogin(root, env)).toMatchObject({
+        state: 'in',
+        identity: { providerAccountId: 'acct-env' },
+      })
+      expect(identityReader).toBeDefined()
+      expect(identityReader?.(root, env)).toMatchObject({
+        providerAccountId: 'acct-env',
+      })
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
   })
 })

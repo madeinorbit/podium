@@ -126,6 +126,26 @@ describe('archive parks the session process [POD-108]', () => {
     expect(daemon.filter((c) => c.type === 'spawn').length).toBe(spawnsBefore)
   })
 
+  it('refuses to resurrect an archived session even when its resume ref survives', async () => {
+    const { reg, daemon } = makeRegistry()
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/r',
+    })
+    bindLive(reg, sessionId, '/r')
+    reg.modules.sessions.setArchived({ sessionId, archived: true })
+    const spawnsBefore = daemon.filter((c) => c.type === 'spawn').length
+
+    expect(
+      await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+    ).toEqual({
+      ok: false,
+      reason: 'session is archived',
+    })
+    expect(meta(reg, sessionId)).toMatchObject({ archived: true, status: 'hibernated' })
+    expect(daemon.filter((c) => c.type === 'spawn')).toHaveLength(spawnsBefore)
+  })
+
   it('attachDaemon parks legacy archived-but-live rows instead of reattaching', () => {
     const { reg, daemon } = makeRegistry()
     const { sessionId } = reg.modules.sessions.createSession({

@@ -5,6 +5,7 @@ import { asMachineId, FIRST_ADMIN_USER_ID, type UpdateChannel } from '@podium/mo
 import type { MobileWebIdentity, UpdateTarget } from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
+import type { SnapshotChildRunner } from './migrations/snapshot-verifier'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
@@ -73,9 +74,13 @@ const temporaryStores: Array<{ store: SessionStore; directory: string }> = []
  * intentionally cannot produce one, so restart-order tests use a disposable
  * file-backed store and keep the production gate armed.
  */
-function fileBackedStore(): SessionStore {
+function fileBackedStore(runChild?: SnapshotChildRunner): SessionStore {
   const directory = mkdtempSync(join(tmpdir(), 'podium-router-updates-'))
-  const store = new SessionStore(join(directory, 'podium.db'))
+  const store = new SessionStore(
+    join(directory, 'podium.db'),
+    undefined,
+    runChild ? { runChild } : {},
+  )
   temporaryStores.push({ store, directory })
   return store
 }
@@ -903,10 +908,10 @@ describe('updates tRPC', () => {
     /**
      * ORDER REVERSED, DELIBERATELY (POD-2098). The old choreography rebuilt the
      * website first and then packed around it. The operation packs first,
-     * because an EXPLICIT pack rebuilds `apps/web/dist` on its way to the
-     * tarball (`decideWebDist`) — so the website is a consequence of preparing,
-     * not a separate round, and the `web` step's reality check then usually
-     * passes without acting. One build instead of two.
+     * because everything downstream consumes what `prepare` packs. Since
+     * POD-3054 the pack runs entirely inside the approved commit's snapshot and
+     * does not write the live `apps/web/dist`; the `web` step does that, last,
+     * restoring this commit's clients from the cache the pack just filled.
      */
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     // Nothing is granted while the target is still a bare identity: the wave
@@ -1095,8 +1100,33 @@ describe('updates tRPC', () => {
       artifacts: { web: { digest: '47a01e3' } },
     })
 
+    // The coordinator itself can take a source update and must not force a pack
+    // (POD-2198). A bundle-only remote is the place this test says is waiting on
+    // packaging; without it there is correctly no prepare step anymore.
+    const bundleMachine = asMachineId('bundle-machine')
+    registry.sessionStore.machines.upsertMachine({
+      id: bundleMachine,
+      name: 'Bundle machine',
+      hostname: 'bundle-machine',
+      tokenHash: 'bundle-machine-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.modules.machines.setUpdateChannel(bundleMachine, 'dev')
+    registry.modules.machines.setMachineBuild(
+      bundleMachine,
+      { appVersion: 'dev+aaaaaaa' },
+      ['update.delivery.bundle'],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.gateway.attachDaemon(bundleMachine, (message) => grants.push(message))
+
     await caller.updates.converge()
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
+    expect(
+      registry.modules.operations.engine
+        .active('lifecycle')
+        ?.operation?.steps?.map((step) => step.id),
+    ).toContain('prepare')
     await vi.waitFor(() => expect(requestDestBundle).toHaveBeenCalledOnce())
     expect(requestCoordinatorRestart).not.toHaveBeenCalled()
 
@@ -1518,6 +1548,67 @@ describe('the update operation', () => {
    * SAME operation rather than an error, which is what makes both tabs render
    * one panel instead of one of them reporting a conflict.
    */
+  /**
+   * POD-3068's regression, at the boundary that actually regressed.
+   *
+   * The Ludovico outage was `updates.start` planning a MACHINE-ONLY update — no
+   * server step, nothing that would ever take a snapshot — and paying ~79.9
+   * seconds for a full backup scan on the way. An earlier revision of this fix
+   * still queued a background verifier from the planning read, which is the same
+   * mistake wearing a different hat, so this asserts the production entry point
+   * rather than the step runner: `updates.start` must not start a verifier.
+   */
+  it('start: a machine-only plan never invokes the snapshot verifier', async () => {
+    process.env.PODIUM_APP_VERSION = '0.4.2'
+    const verifierRuns: string[] = []
+    const store = fileBackedStore(async (request) => {
+      verifierRuns.push(request.path)
+      return { failure: { code: 'crashed', detail: 'no verifier should run here' } }
+    })
+    // A snapshot exists on disk and is UNVERIFIED: the tempting case, where a
+    // background scan would look like a helpful thing to start.
+    store.snapshotBeforeUpdate('0.4.1', '0.4.2')
+    const { registry, caller } = harness({ store })
+    // The host is already on the target; only a daemon machine is behind.
+    registry.modules.machines.setMachineBuild(
+      registry.sessionStore.hostMachineId,
+      { appVersion: '0.4.2' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    const behind = asMachineId('behind-machine')
+    registry.sessionStore.machines.upsertMachine({
+      id: 'behind-machine',
+      name: 'Behind',
+      hostname: 'behind',
+      tokenHash: 'behind-token',
+      ownerUserId: FIRST_ADMIN_USER_ID,
+    })
+    registry.gateway.attachDaemon(behind, () => {})
+    registry.modules.machines.setMachineBuild(
+      behind,
+      { appVersion: '0.4.1' },
+      [],
+      '2026-08-13T00:00:00.000Z',
+    )
+    registry.modules.machines.setUpdateChannel(behind, 'dev')
+    registry.modules.updates.setTarget(target('0.4.2'))
+    const discover = vi.spyOn(registry.sessionStore, 'discoverDatabaseSnapshots')
+
+    const started = await caller.updates.start()
+    // Past the tick a background verifier would have been scheduled on: this
+    // assertion has to be able to SEE a deferred spawn, not just a sync one.
+    await new Promise((resolve) => setTimeout(resolve, 20))
+
+    expect(started.operationId).toMatch(/^op_/)
+    // The plan has no server step, so nothing may have asked for a proof...
+    expect(started.operation?.steps?.map((step) => step.id)).not.toContain('server')
+    // ...and nothing may have started one in the background either.
+    expect(verifierRuns).toEqual([])
+    expect(discover).not.toHaveBeenCalled()
+    registry.dispose()
+  })
+
   it('gives two concurrent starts one operation id', async () => {
     const { registry, caller } = behindHarness({ requestCoordinatorRestart: () => {} })
     const [first, second] = await Promise.all([caller.updates.start(), caller.updates.start()])

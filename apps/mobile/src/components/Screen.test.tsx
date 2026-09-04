@@ -9,7 +9,6 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(),
 }))
-vi.mock('lucide-react-native', () => ({ ChevronLeft: () => null }))
 
 const { Screen } = await import('./Screen')
 

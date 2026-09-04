@@ -37,7 +37,7 @@ describe('MobileSyncProgressStore', () => {
     expect(store.getSnapshot()).toMatchObject({ blocking: false, phase: 'ready' })
 
     store.noteEvent(posture('stale'))
-    expect(store.getSnapshot()).toMatchObject({ blocking: false, phase: 'reconnecting' })
+    expect(store.getSnapshot()).toMatchObject({ blocking: false, phase: 'offline' })
   })
 
   it('makes a persisted-cursor launch usable while it catches up', () => {

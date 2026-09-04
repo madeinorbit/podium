@@ -57,7 +57,42 @@ describe('status + delivery line', () => {
   })
   it('tells the delivery story', () => {
     expect(deliveryLine(base)).toBe('queued')
+    expect(deliveryLine({ ...base, queuePosition: 2 })).toBe('queued · queue position 2')
+    // An abandoned drain is TERMINAL, and the chip says which way it ended
+    // [POD-2132, POD-2202] — "still queued" described a wait nobody was serving.
+    expect(
+      deliveryLine({
+        ...base,
+        status: 'dead_letter',
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'never-live',
+      }),
+    ).toBe('not delivered · session never became ready')
+    expect(
+      deliveryLine({
+        ...base,
+        status: 'dead_letter',
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'teardown',
+      }),
+    ).toBe('not delivered · session torn down')
+    expect(deliveryLine({ ...base, status: 'dead_letter' })).toBe('dead-lettered · target gone')
     expect(deliveryLine({ ...base, status: 'expired' })).toBe('expired undelivered')
+    // AN ATTACHMENT THE DRIVER REFUSED IS NOT A VANISHED TARGET [POD-2574]. The
+    // session behind this row is running and reachable; what failed is the send.
+    // Before the server stamped a cause, this row arrived here with a null reason
+    // and fell through to "target gone", so BOTH readers of this function — the
+    // ledger view and the chat transcript, via chat.ts — told the user the one
+    // thing that was not true. Pinned as a line rather than as a status because
+    // the status was already right; the sentence was the bug.
+    expect(
+      deliveryLine({
+        ...base,
+        status: 'dead_letter',
+        deliveryDeferredAt: '2026-08-25T18:00:00.000Z',
+        deliveryDeferredReason: 'delivery-failed',
+      }),
+    ).toBe('not delivered · delivery failed')
     expect(
       deliveryLine({
         ...base,

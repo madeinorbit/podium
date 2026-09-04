@@ -4,12 +4,14 @@
  * harness allowlist, plus the concierge confirmed-gate wrapping.
  */
 
-import { asIssueId, spawnedByTag, type ThreadId } from '@podium/model'
 import {
+  asIssueId,
   asSessionId,
+  asThreadId,
   isAgentKind,
   type SessionId,
-  asThreadId,
+  spawnedByTag,
+  type ThreadId,
   type TranscriptItem,
   WorkState,
 } from '@podium/model'
@@ -64,6 +66,9 @@ export const NOT_CONFIRMED_MSG =
 /** issue_create is always allowed (filing issues is safe), EXCEPT with start:true,
  *  which spawns a session — that path takes the same confirmed gate. */
 const CREATE_WITH_START_TOOL = 'issue_create'
+
+/** Tools that can only answer out of the full-text index (PDM-25). */
+const SEARCH_TOOLS = ['search_conversations', 'search_all']
 
 export type Args = Record<string, unknown>
 
@@ -174,7 +179,7 @@ export function buildSuperagentTools(
           properties: {
             agentKind: {
               type: 'string',
-              enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'],
+              enum: ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi', 'shell'],
             },
             cwd: {
               type: 'string',
@@ -251,7 +256,11 @@ export function buildSuperagentTools(
         if (first) {
           // Durable queued send: delivers once the CLI settles, survives a failed
           // spawn attempt AND a server restart (unlike the old in-memory timer).
-          sessions.queueText({ sessionId, text: first })
+          // `queue` under the contract too (POD-1761 W4, C3): the durability IS
+          // the point here, and it is the one delivery that completes on the
+          // server rather than in a daemon that may not have bound this session
+          // yet — which is precisely the window a first message has to survive.
+          sessions.receiptSend('queue', { sessionId, text: first })
         }
         return JSON.stringify({ sessionId, cwd, agentKind })
       },
@@ -346,7 +355,13 @@ export function buildSuperagentTools(
         },
       },
       run: async (args) => {
-        const r = sessions.resumeAndSend({
+        // `wake` (POD-1761 W4, C3) — the resume-then-send shape, migrated whole.
+        // The seam keeps the one question `resumeAndSend` was really asking (is
+        // there a live process with nothing queued ahead of this) and drops the
+        // one it should not ask any more (is that process READY for bytes): the
+        // first is a lifecycle fact no receipt can supply, the second is exactly
+        // the prediction a receipt replaces.
+        const r = sessions.receiptSend('wake', {
           sessionId: sessionIdArg(args.sessionId),
           text: str(args.text) ?? '',
         })
@@ -818,6 +833,17 @@ export function buildSuperagentTools(
       },
     },
   ]
+
+  // One switch for search (PDM-25): with `command-palette` off this boot built no
+  // full-text index, so the assistant is never offered a search it cannot back.
+  // The gate reads what the store ACTUALLY built rather than re-resolving the
+  // flag, so the belt and the index can never disagree.
+  if (!store.searchIndexEnabled) {
+    for (const name of SEARCH_TOOLS) {
+      const at = tools.findIndex((t) => t.spec.name === name)
+      if (at >= 0) tools.splice(at, 1)
+    }
+  }
   if (linearKey) {
     tools.push(
       {

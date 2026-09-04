@@ -19,10 +19,12 @@
  * out `isAllowedRoot(...)` was the shape this replaces.
  */
 
+import { createLogger } from '@podium/logger'
 import {
   AutomationIdField,
   asThreadId,
   asUserId,
+  IssueIdField,
   type MachineId,
   MachineIdField,
   ThreadIdField,
@@ -30,10 +32,18 @@ import {
 import { loadConfig } from '@podium/runtime/config'
 import { z } from 'zod'
 import { getFeatureStates } from '../features'
+import { CostService } from './cost/service'
 import type { FamilyState } from './derived-family'
 import { assertAllowedRoot } from './files/registry'
 import { defineQuery } from './query-table'
+import { QUOTA_HISTORY_DEFAULT_DAYS, recordQuotaSamples } from './quota-history/service'
 import { specsInputs } from './specs/service'
+
+const log = createLogger('cost')
+
+/** The usage harvest's window — the daemon's own default, restated because the
+ *  cost fold must record which window its per-file totals were taken over. */
+const USAGE_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 const q = defineQuery<FamilyState>()
 const noInput = z.object({}).passthrough().optional()
@@ -136,8 +146,60 @@ export const GIT_QUERIES = {
 export const USAGE_QUERIES = {
   /** Hour×model token buckets for the last 7 days, harvested from harness
    *  transcripts on the dev machine. Window math (5h/weekly/cost) is
-   *  client-side. */
-  summary: q(noInput, (s) => s.modules.rpc.usage()),
+   *  client-side.
+   *
+   *  ALSO WRITES (POD-1858), on the same terms `quota.summary` below sets out:
+   *  the daemon returns the per-FILE half of the walk it just did, and it is
+   *  folded into the per-task cost rows on the way out. No caller input reaches
+   *  the fold and no second scan happens — attributing the walk that ALREADY
+   *  runs is the whole architecture of the cost read path, because a second walk
+   *  of the same 4GB would land on the daemon loop that carries PTY traffic.
+   *
+   *  `sources` is STRIPPED before the payload is returned: it is an order of
+   *  magnitude larger than the buckets and no client reads it. Best-effort — a
+   *  failed fold never fails the usage read. */
+  summary: q(noInput, async (s) => {
+    // The daemon's own default window, restated here because the fold has to
+    // record WHICH window its per-file totals cover — see `window_since_ms`.
+    const sinceMs = Date.now() - USAGE_WINDOW_MS
+    const { sources, sourcesSinceMs, ...usage } = await s.modules.rpc.usage(sinceMs, true)
+    if (sources && sources.length > 0) {
+      try {
+        // The MEMO's window, not ours. The daemon may serve a fold it computed
+        // against an older `sinceMs`; stamping it with the newer one re-dates
+        // last window's numbers as current and keeps a transcript that has
+        // since fallen out of the window contributing to "attributed".
+        const foldSinceMs = sourcesSinceMs ?? sinceMs
+        new CostService(s.store).ingest(s.modules.rpc.answeringMachineId(), sources, foldSinceMs)
+      } catch (err) {
+        log.warn('cost fold failed — usage buckets unaffected', { err })
+      }
+    }
+    return usage
+  }),
+} as const
+
+// ---------------------------------------------------------------------------
+// cost — what a task cost (POD-1858)
+// ---------------------------------------------------------------------------
+
+export const COST_QUERIES = {
+  /** One task's accounting: own cost, rollup over ALL descendants, descendant
+   *  count, the per-session breakdown, and which of the four states it is in.
+   *  Own and rollup are returned separately because the UI draws a labelled
+   *  split and cannot derive one from the other.
+   *
+   *  TOKENS, NEVER DOLLARS — the one price table lives in client-core and the
+   *  server does not import it. A pure DB read: it opens no transcript, so a
+   *  panel can call it on first paint. */
+  task: q(z.object({ issueId: IssueIdField }), (s, input) =>
+    new CostService(s.store).task(input.issueId),
+  ),
+  /** Every task with a stored figure — the sheet's ranked table, and the cohort
+   *  the "×median" rate is computed against. OWN cost per task, not rolled up:
+   *  a rolled-up parent beside its own children counts the same money twice
+   *  down one column. */
+  tasks: q(noInput, (s) => new CostService(s.store).tasks()),
 } as const
 
 export const QUOTA_QUERIES = {
@@ -145,8 +207,30 @@ export const QUOTA_QUERIES = {
    *  daemon host from each agent's own usage endpoint. Fans out to every online
    *  machine (each runs its agents under its own account) — one entry per
    *  machine. Distinct from `usage`, which is transcript-harvested token-cost
-   *  analytics. */
-  summary: q(noInput, (s) => s.modules.rpc.agentQuotaAll()),
+   *  analytics.
+   *
+   *  ALSO WRITES (POD-1571), and deliberately: every reading served here is
+   *  folded into the window ledger on the way out, so an open tab adds
+   *  resolution the 15-minute sampler alone would miss. It stays a `query`
+   *  because the write is a fold of what was just read — no caller input reaches
+   *  it, nothing is created, and the same fold runs whether or not anyone asks.
+   *  Best-effort: a failed fold never fails the read. */
+  summary: q(noInput, async (s) => {
+    const machines = await s.modules.rpc.agentQuotaAll()
+    recordQuotaSamples(s.store.quotaHistory, machines)
+    return machines
+  }),
+  /** The window ledger: one entry per run of a plan window, oldest first, over
+   *  the requested lookback. `peakPercent` is what a window came to before it
+   *  reset — the whole point of the series. See `viewmodels/quota-history`. */
+  history: q(
+    z.object({ days: z.number().int().positive().max(365).optional() }).optional(),
+    (s, input) => {
+      const days = input?.days ?? QUOTA_HISTORY_DEFAULT_DAYS
+      const now = Date.now()
+      return s.store.quotaHistory.list(now - days * 24 * 60 * 60 * 1000, now)
+    },
+  ),
 } as const
 
 export const FEATURE_QUERIES = {

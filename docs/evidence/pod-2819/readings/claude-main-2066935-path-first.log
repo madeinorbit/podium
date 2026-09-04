@@ -1,0 +1,18 @@
+
+=== claude / attach — TODAY'S MAIN 2066935 — shape=path-first ===
+   SESSION            4eb07a8b-e366-4b60-b79d-ab3b27daa19f
+   BOUND DRIVER       (none — this build has no runtime contract)
+   STATUS             live
+   TUI PRIMER         nothing to clear
+   CONTROL            FIRED — replied PODIUM-CD10EA in 3045ms
+   STAGED             /tmp/pod-2819/state/uploads/4eb07a8b-e366-4b60-b79d-ab3b27daa19f/15347b17-2e1a-4d0b-8a26-b7050f858b9e.txt
+   SECRET IN FILE     FILESECRET-DD958E — present in the bytes and nowhere else
+   PROMPT BEGINS      "/tmp/pod-2819/state/uploads/4eb07a8b-e36"
+   PRE-ATTACH         pre-attach: Esc (auto-mode offer) · pre-attach: Esc (auto-mode offer) · pre-attach: Esc (auto-mode offer) · pre-attach: Esc (auto-mode offer)
+   SEND               {"ok":true,"disposition":"delivered"}
+   ECHOED BACK        yes, after 7737ms
+   APPROVALS          0
+   PTY BYTES          10282 arrived after the send
+
+   PASS — TODAY'S MAIN 2066935 — shape=path-first
+   ASSISTANT SAID  "\nFILESECRET-DD958E"

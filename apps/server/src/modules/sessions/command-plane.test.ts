@@ -99,6 +99,8 @@ function ctxFor(
   const modules = o.reg.modules
   const deps: SessionCommandDeps = {
     sessions: () => sessionCommandServices(modules),
+    stageAttachment: (input) => modules.sessions.runtimeGateway.stageAttachment(input),
+    runtimeContractActive: (sessionId) => modules.sessions.receiptSender.onContract(sessionId),
     // The chat path's send dispatches the `mail.send` CONTRACT (POD-729), so the
     // fixture binds the port the same way the composition root does — from the
     // principal's own capability, through the real gate. Substituting the
@@ -119,6 +121,9 @@ function ctxFor(
 
     createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
       modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    attachDraftArtifacts: async (issueId, artifacts) => {
+      for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
+    },
     discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {
@@ -134,6 +139,36 @@ function ctxFor(
 }
 
 describe('draft launch compensation', () => {
+  it('stores browser attachments on the draft before starting its session', async () => {
+    const o = makeOracle()
+    const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
+      agentKind: 'codex',
+      cwd: '/p',
+      draftIssue: { repoPath: '/p' },
+      draftArtifacts: [
+        {
+          id: 'att-1',
+          filename: 'mock.png',
+          mimeType: 'image/png',
+          dataBase64: 'UE5H',
+        },
+      ],
+    })
+
+    const draft = o.reg.issues.list('/p').find((issue) => issue.draft)
+    expect(draft?.panel?.artifacts).toEqual([
+      expect.objectContaining({
+        path: 'attachments/att-1/mock.png',
+        title: 'mock.png',
+        entry: 'mock.png',
+      }),
+    ])
+    expect(o.reg.modules.sessions.getSessionIssueId(created.sessionId)).toBe(draft?.id)
+    expect((await o.reg.issues.panelArtifactRead(draft?.id ?? '', { index: 1 })).dataBase64).toBe(
+      'UE5H',
+    )
+  })
+
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = makeOracle()
     const issue = o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
@@ -531,6 +566,35 @@ describe('invisible fails exactly like nonexistent', () => {
 
     expect(onHidden).toBe('session not found')
     expect(onHidden).toBe(onGhost)
+  })
+})
+
+describe('chat interrupt ordering', () => {
+  it('reserves a stopped message id so a send arriving later cannot recreate it', async () => {
+    const o = makeOracle()
+    const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
+    const ctx = ctxFor(o, human(FIRST_ADMIN_USER_ID))
+    vi.spyOn(o.reg.modules.sessions, 'interruptTurn').mockReturnValue({
+      ok: false,
+      reason: 'no active turn',
+    })
+
+    expect(
+      dispatchSessionCommand(ctx, 'interrupt', { sessionId, messageId: 'msg_stopped' }),
+    ).toEqual({ ok: true })
+
+    expect(
+      await dispatchSessionCommand(ctx, 'sendText', {
+        sessionId,
+        text: 'must stay stopped',
+        mutationId: 'msg_stopped',
+      }),
+    ).toEqual({
+      ok: false,
+      reason: 'interaction interrupted',
+      disposition: 'dead_letter',
+    })
+    expect(o.store.messages.getMessage('msg_stopped')).toBeNull()
   })
 })
 

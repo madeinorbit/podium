@@ -1,5 +1,5 @@
 /**
- * Live agent daemon process (split deployment): owns ALL per-agent work — abduco/tmux
+ * Live agent daemon process (split deployment): owns ALL per-agent work — abduco
  * PTY attach, transcript tailing, agent-state observation, discovery scans, host metrics.
  * Connects to the coordinating server over ws://localhost:<port>/daemon and reconnects
  * with backoff, so it can start before the server is ready and survive a server restart
@@ -22,11 +22,13 @@ import { bootProcess } from '@podium/runtime/boot'
 import { resolveLocalServerHost, resolvePort } from '@podium/runtime/config'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
 import { startDaemon } from '../apps/daemon/src/daemon'
+import { parseBackendArg } from '../apps/daemon/src/durable-backend'
 
 const port = resolvePort()
 // Must match what the server BOUND, not an assumption about it — a `PODIUM_HOST`
 // pointing at one interface means loopback is not listening (POD-1585).
 const host = resolveLocalServerHost()
+const backend = parseBackendArg(process.argv.slice(2))
 
 await bootProcess({
   name: 'daemon',
@@ -43,6 +45,8 @@ await bootProcess({
       machineId: readOrCreateLocalMachineId(),
       installCodexHooks: true,
       installGrokHooks: true,
+      // `--backend host|abduco|none`; PODIUM_DURABLE_BACKEND is read by the daemon itself.
+      ...(backend ? { backend } : {}),
     }),
   // TELL THE TRUTH ABOUT THE LINK (POD-1585). `startDaemon` resolves on first
   // connect OR after its own ~10s grace, so reaching this line proves the daemon

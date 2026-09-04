@@ -18,6 +18,7 @@ import {
   type TransportTag,
 } from '@podium/commands'
 import type { z } from 'zod'
+import type { FleetLogLevelDirector } from './fleet-director'
 import type { ClientLogLevelDirector } from './level-director'
 import type { CrashTelemetry, LogIngestService } from './service'
 
@@ -31,6 +32,16 @@ export interface LogsState {
    * still never sees a `ctx`.
    */
   readonly levels: ClientLogLevelDirector
+  /**
+   * The operator's reach into running DAEMONS (POD-3156). A third member for the
+   * same reason as the second: exactly one handler needs it, the widening is
+   * VISIBLE on the family, and the handler still never sees a `ctx`.
+   *
+   * Ingestion of what a raised daemon then sends is deliberately NOT here — it
+   * arrives on the daemon socket and is filed by the gateway's `logs` port under
+   * the AUTHENTICATED machine, never through a command a caller could aim.
+   */
+  readonly fleetLevels: FleetLogLevelDirector
   /** Absent on a server assembled without telemetry — the crash still stores. */
   readonly telemetry?: CrashTelemetry | undefined
 }
@@ -56,6 +67,13 @@ export const LOGS_COMMANDS_TRPC = {
     contract: LOGS_CONTRACTS.setLevel,
     handler: ((state, input) => state.levels.setLevel(input)) satisfies LogsHandler<
       z.infer<(typeof LOGS_CONTRACTS)['setLevel']['input']>,
+      unknown
+    >,
+  },
+  setDaemonLevel: {
+    contract: LOGS_CONTRACTS.setDaemonLevel,
+    handler: ((state, input) => state.fleetLevels.setLevel(input)) satisfies LogsHandler<
+      z.infer<(typeof LOGS_CONTRACTS)['setDaemonLevel']['input']>,
       unknown
     >,
   },

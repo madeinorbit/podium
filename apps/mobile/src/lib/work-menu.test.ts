@@ -25,63 +25,69 @@ const issue = (patch: Partial<IssueNavigationModel> = {}): IssueNavigationModel 
     ...patch,
   }) as unknown as IssueNavigationModel
 
-const moves = { placement: true, moveTop: true, moveUp: true, moveDown: true }
+const moves = { placement: true }
 
+/**
+ * The 2026-08-27 device review CUT this menu down. Open/Peek (duplicates of the
+ * row tap), Set priority, Run now, Labels, Move down, Pin, Snooze and Archive
+ * are all gone from the long-press; these tests pin the trimmed vocabulary so
+ * the desktop projection does not quietly grow back.
+ */
 describe('Work long-press menu projection', () => {
-  it('keeps Closed to recovery and archive, even when the live menu has every capability', () => {
+  it('keeps Closed to recovery only', () => {
     expect(workMenuActionIds(issue({ closedReason: 'done' }), 'closed', moves)).toEqual([
       'bringBack',
-      'archive',
     ])
   })
 
-  it('keeps Snoozed to unsnooze and archive', () => {
+  it('keeps Snoozed to unsnooze only', () => {
     expect(workMenuActionIds(issue({ deferUntil: 'next-message' }), 'snoozed', moves)).toEqual([
       'undefer',
-      'archive',
     ])
   })
 
-  it('projects the desktop live menu plus the phone-only peek and reorder affordances', () => {
+  it('offers exactly the trimmed live menu when every capability is present', () => {
     expect(workMenuActionIds(issue(), 'live', moves)).toEqual([
-      'open',
-      'peek',
       'rename',
       'read',
       'status',
+      'color',
+      'placement',
+      'delete',
+    ])
+  })
+
+  it('never resurrects the options the device review removed', () => {
+    const removed = [
+      'open',
+      'peek',
       'priority',
       'agent',
       'labels',
-      'color',
-      'placement',
-      'defer',
-      'pin',
+      'moveDown',
       'moveTop',
       'moveUp',
-      'moveDown',
-      'archive',
-      'delete',
-    ])
-  })
-
-  it('drops open-only and top-level-only actions when their desktop gates fail', () => {
-    expect(
-      workMenuActionIds(
-        issue({ parentId: asIssueId('parent'), closedReason: 'cancelled', deferUntil: undefined }),
-        'live',
-        { placement: false, moveTop: false, moveUp: false, moveDown: false },
-      ),
-    ).toEqual([
-      'open',
-      'peek',
-      'rename',
-      'read',
-      'status',
-      'priority',
-      'labels',
       'pin',
       'archive',
-      'delete',
-    ])
+      'defer',
+    ]
+    for (const lane of ['live', 'snoozed', 'closed'] as const) {
+      const ids: string[] = workMenuActionIds(issue(), lane, moves)
+      expect(ids.filter((id) => removed.includes(id))).toEqual([])
+    }
+  })
+
+  it('drops the gated rows when their gates fail', () => {
+    expect(
+      workMenuActionIds(issue({ parentId: asIssueId('parent') }), 'live', {
+        placement: false,
+      }),
+    ).toEqual(['rename', 'read', 'status', 'delete'])
+  })
+
+  it('offers nothing on a deleted row', () => {
+    expect(workMenuActionIds(issue({ deletedAt: '2026-08-27T00:00:00Z' }), 'live', moves)).toEqual(
+      [],
+    )
   })
 })

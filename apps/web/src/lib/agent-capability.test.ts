@@ -18,9 +18,12 @@ import {
   SIGNED_OUT_HINT,
 } from './agent-capability'
 
-const harness = (kind: string, installed: boolean, state: 'in' | 'out' = 'in') => ({
+const harness = (kind: string, installed: boolean | null, state: 'in' | 'out' = 'in') => ({
   kind,
   installed,
+  ...(installed === null
+    ? { probeError: { reason: 'timed-out' as const, timeoutMs: 60_000 } }
+    : {}),
   login: { state },
 })
 
@@ -69,6 +72,16 @@ describe('candidateFromAvailability', () => {
     )
   })
 
+  it('keeps an explicit probe timeout distinct and carries its retry detail', () => {
+    const candidate = candidateFromAvailability(
+      host('mine', [harness('cursor', null)]),
+      'available',
+      'cursor',
+    )
+    expect(candidate.rejection).toBe('harness-probe-timed-out')
+    expect(candidate.probeDescription).toBe('timed out after 60s')
+  })
+
   it('marks a logged-out harness as startable-with-a-warning, not as refused', () => {
     const candidate = candidateFromAvailability(
       host('mine', [harness('cursor', true, 'out')]),
@@ -97,6 +110,23 @@ describe('agentFleetStatus', () => {
     )
     expect(status.reason).toBe('Cursor is not installed on vmi34.')
     expect(status.hint).toBe('not installed')
+  })
+
+  it('states the bounded probe failure on a single-host row', () => {
+    const status = agentFleetStatus(
+      [
+        {
+          machineName: 'vmi34',
+          rejection: 'harness-probe-timed-out',
+          probeDescription: 'timed out after 60s',
+        },
+      ],
+      'New Cursor',
+    )
+    expect(status.reason).toBe(
+      'Couldn’t determine whether Cursor is installed on vmi34; probe timed out after 60s. Retry.',
+    )
+    expect(status.hint).toBe('probe timed out')
   })
 
   it('names the fix when several hosts are all missing the CLI', () => {

@@ -1,36 +1,36 @@
-import { useEffect, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, TextInput, View } from 'react-native'
+import { useRef, useState } from 'react'
+import { Platform, StyleSheet, Text, TextInput, View } from 'react-native'
 import { login, logout } from '../client/auth'
-import { useServerProfile } from '../client/ServerProfileGate'
+import { useServerProfile } from '../client/server-profile-context'
 import { AsciiWordmark } from '../components/AsciiWordmark'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { PressableScale } from '../components/PressableScale'
-import { font, mono, monoLabel } from '../theme/theme'
+import { WorkingMark } from '../components/WorkingMark'
+import { color, font, mono, monoLabel } from '../theme/theme'
 
 /**
  * The web login screen (LoginGate spec 2b) ported 1:1 [POD-131]: ASCII
- * wordmark with the idle shimmer, mono host label, fused input bar with the
+ * static wordmark, mono host label, fused input bar with the
  * terracotta submit square, and the mono status line underneath. The screen
- * is intentionally THEME-INDEPENDENT — the same fixed near-black tokens the
- * web login gate uses, not the app's Superade surface ramp. It renders before
- * there is a session, so it deliberately owns its colours outright.
+ * keeps the product's ASCII identity while structural colors follow the active
+ * iOS appearance before authentication just as they do after it.
  */
 const C = {
-  bg: '#0a0a0e',
-  bar: '#0e0e12',
-  border: '#3a3a46',
-  accent: '#D97757',
+  bg: color.bg,
+  bar: color.surface,
+  border: color.borderStrong,
+  accent: color.claude,
   accentText: '#2b1208',
-  success: '#10b981',
-  error: '#f43f5e',
-  errorText: '#f87171',
-  waiting: '#d9b477',
-  text: '#f3f3f8',
-  textDim: '#9a9aa8',
-  textFaint: '#7a7a86',
-  placeholder: '#5a5a66',
+  success: color.successText,
+  successFill: color.success,
+  error: color.danger,
+  errorText: color.dangerText,
+  waiting: color.needsYouText,
+  text: color.text,
+  textDim: color.textDim,
+  textFaint: color.textFaint,
+  placeholder: color.textMicro,
 } as const
-
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏']
 
 type LoginState = 'empty' | 'typing' | 'busy' | 'error' | 'ok'
 
@@ -54,14 +54,7 @@ export function LoginScreen({
   const [busy, setBusy] = useState(false)
   const [ok, setOk] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [spinFrame, setSpinFrame] = useState(0)
   const submitInFlight = useRef(false)
-
-  useEffect(() => {
-    if (!busy) return
-    const id = setInterval(() => setSpinFrame((f) => (f + 1) % SPINNER_FRAMES.length), 80)
-    return () => clearInterval(id)
-  }, [busy])
 
   const submit = async () => {
     if (!password || submitInFlight.current || ok) return
@@ -131,12 +124,13 @@ export function LoginScreen({
           : state === 'typing'
             ? 'press ⏎ to sign in'
             : 'waiting on you — enter your password'
-  const btnGlyph = state === 'busy' ? SPINNER_FRAMES[spinFrame] : state === 'ok' ? '✓' : '→'
+  const btnGlyph = state === 'ok' ? '✓' : '→'
 
   return (
-    <KeyboardAvoidingView
+    <KeyboardAvoidingRoot
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      automaticOffset
     >
       <AsciiWordmark color={ok ? C.success : C.text} fontSize={3.9} />
       <Text style={styles.host}>{`Sign in to ${originHost(httpOrigin)}`.toUpperCase()}</Text>
@@ -163,18 +157,22 @@ export function LoginScreen({
           onPress={() => void submit()}
           style={[
             styles.submit,
-            ok ? { backgroundColor: C.success } : null,
+            ok ? { backgroundColor: C.successFill } : null,
             { opacity: (password && !busy) || ok ? 1 : 0.45 },
           ]}
         >
-          <Text style={styles.submitGlyph}>{btnGlyph}</Text>
+          {state === 'busy' ? (
+            <WorkingMark size={16} tint={C.accentText} label={null} />
+          ) : (
+            <Text style={styles.submitGlyph}>{btnGlyph}</Text>
+          )}
         </PressableScale>
       </View>
       <View style={styles.statusRow} accessibilityRole={error ? 'alert' : undefined}>
         {state !== 'busy' ? <View style={[styles.dot, { backgroundColor: statColor }]} /> : null}
         <Text style={[styles.status, { color: statColor }]}>{statText}</Text>
       </View>
-    </KeyboardAvoidingView>
+    </KeyboardAvoidingRoot>
   )
 }
 

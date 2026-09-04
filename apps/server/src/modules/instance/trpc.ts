@@ -23,6 +23,7 @@ import { type InstanceAccountStore, InstanceService } from './service'
 const instanceService = (state: {
   telemetry?: { emitter: { buildUsageReport: () => unknown } } | undefined
   users?: InstanceAccountStore | undefined
+  store?: { settings: { getSettings(): { transcripts: { mirror?: boolean } } } } | undefined
   loginRequired?: (() => boolean) | undefined
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void) | undefined
@@ -43,6 +44,9 @@ const instanceService = (state: {
     // not activation-pending, so the restart cannot become a general bounce lever.
     readiness: state.readiness,
     requestCoordinatorRestart: state.requestCoordinatorRestart,
+    // The bottom layer of the transcript-mirroring decision (PDM-26), read per
+    // call so a Settings write shows up without a restart.
+    transcriptMirrorSetting: () => state.store?.settings.getSettings().transcripts.mirror,
     // POD-1882: the fleet default is the channel every unpinned machine follows,
     // so writing it has to re-resolve their targets and push the new projection.
     onFleetChannelChanged: state.modules

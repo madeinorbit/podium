@@ -1,0 +1,46 @@
+[claude] session 2aa92c5f-a1e6-41cd-b79c-26b2d8b9e468 created; 12000ms for the TUI to come up
+[claude] bound driver (unknown) (family (unknown))
+[claude] TUI priming: nothing to clear
+[codex] session 6ddfca79-baff-4b78-88b1-7914873662c6 created; 12000ms for the TUI to come up
+[codex] bound driver generic-pty (family terminal)
+[codex] TUI priming: press-enter-to-continue; press-enter-to-continue; press-enter-to-continue
+[grok] session 7922666e-f06e-46d6-8b63-e12c11061dbf created; 12000ms for the TUI to come up
+[grok] bound driver generic-pty (family terminal)
+[grok] TUI priming: nothing to clear
+
+=== phase while producing output ===
+
+| harness | driver | verdict | phases seen | EVER working | output bytes |
+|---|---|---|---|---|---|
+| claude | (unknown) | **REFUSED** | unknown=60 | false | 0 |
+| codex | generic-pty | **FAIL** | unknown=60 | false | 3984 |
+| grok | generic-pty | **PASS** | working=1 errored=59 | true | 9132 |
+
+--- claude ((unknown)) — REFUSED: no PTY output arrived at all during the window — the agent was not producing, so a phase of `idle` cannot be told apart from a correct one
+    +  1077ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+    + 11198ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+    + 21319ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+    + 31463ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+    + 41561ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+    + 51739ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+    + 60858ms  phase=unknown    ptyBytes=      0  transcriptChars=0
+
+--- codex (generic-pty) — FAIL: produced 3984 bytes of output and never once reported working
+    +  1084ms  phase=unknown    ptyBytes=   1651  transcriptChars=0
+    + 11663ms  phase=unknown    ptyBytes=   3984  transcriptChars=0
+    + 21998ms  phase=unknown    ptyBytes=   3984  transcriptChars=0
+    + 32092ms  phase=unknown    ptyBytes=   3984  transcriptChars=0
+    + 42183ms  phase=unknown    ptyBytes=   3984  transcriptChars=0
+    + 52360ms  phase=unknown    ptyBytes=   3984  transcriptChars=0
+    + 61467ms  phase=unknown    ptyBytes=   3984  transcriptChars=0
+
+--- grok (generic-pty) — PASS: reported working while producing 9132 bytes of output
+    +  1085ms  phase=working    ptyBytes=   6683  transcriptChars=0
+    + 11195ms  phase=errored    ptyBytes=   9132  transcriptChars=0
+    + 21300ms  phase=errored    ptyBytes=   9132  transcriptChars=0
+    + 31393ms  phase=errored    ptyBytes=   9132  transcriptChars=0
+    + 41577ms  phase=errored    ptyBytes=   9132  transcriptChars=0
+    + 51717ms  phase=errored    ptyBytes=   9132  transcriptChars=0
+    + 60997ms  phase=errored    ptyBytes=   9132  transcriptChars=0
+
+1 of 3 harness(es) never reported working: codex

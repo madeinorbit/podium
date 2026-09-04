@@ -9,223 +9,245 @@
 
 The top-level composition root.
 
-Verified constructor declarations: 60. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.
+Verified constructor declarations: 69. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.
 
 | Order | Declaration | Earlier dependencies read at wiring time | Source line |
 |---:|---|---|---:|
-| 1 | `reactions` | — | 282 |
-| 2 | `portableStateFence` | — | 287 |
-| 3 | `currentSettings` | — | 290 |
-| 4 | `featureEnabled` | `currentSettings` | 294 |
-| 5 | `principalForCapability` | — | 298 |
-| 6 | `workflowCallerForCapability` | `principalForCapability` | 307 |
-| 7 | `mutations` | — | 338 |
-| 8 | `sessionInstructions` | — | 339 |
-| 9 | `liveSessions` | — | 340 |
-| 10 | `clientRegistry` | — | 343 |
-| 11 | `issueAccess` | — | 345 |
-| 12 | `updates` | — | 350 |
-| 13 | `machines` | `clientRegistry`, `updates` | 351 |
-| 14 | `updatesService` | `machines` | 384 |
-| 15 | `requestBroker` | `machines` | 402 |
-| 16 | `settings` | — | 406 |
-| 17 | `feedVisibility` | — | 425 |
-| 18 | `visibility` | `feedVisibility` | 426 |
-| 19 | `ledger` | `feedVisibility`, `visibility` | 430 |
-| 20 | `issueArbitration` | `ledger` | 443 |
-| 21 | `conversationDiagnostics` | — | 453 |
-| 22 | `subscriptions` | — | 456 |
-| 23 | `roomVisibility` | `visibility` | 467 |
-| 24 | `presence` | `clientRegistry`, `roomVisibility`, `subscriptions` | 472 |
-| 25 | `feedServing` | `conversationDiagnostics`, `feedVisibility`, `ledger`, `presence`, `subscriptions` | 478 |
-| 26 | `funnel` | `feedServing`, `ledger` | 499 |
-| 27 | `snapshotTail` | `conversationDiagnostics`, `ledger` | 508 |
-| 28 | `publisher` | — | 525 |
-| 29 | `specs` | — | 526 |
-| 30 | `broadcastWorktreesChanged` | `clientRegistry` | 537 |
-| 31 | `memory` | `conversationDiagnostics`, `feedServing`, `ledger`, `requestBroker` | 545 |
-| 32 | `rpc` | `liveSessions`, `machines`, `memory`, `portableStateFence`, `requestBroker` | 567 |
-| 33 | `serverTransfer` | `feedServing`, `machines`, `memory`, `portableStateFence`, `rpc` | 591 |
-| 34 | `loginPropagation` | `machines`, `rpc` | 645 |
-| 35 | `capabilityForLiveSession` | `issueAccess`, `liveSessions` | 651 |
-| 36 | `liveSessionOwnership` | `liveSessions` | 669 |
-| 37 | `mail` | `capabilityForLiveSession`, `feedVisibility`, `liveSessionOwnership`, `machines`, `principalForCapability` | 680 |
-| 38 | `queuedMessageApply` | `mail` | 723 |
-| 39 | `sessionsSvc` | `broadcastWorktreesChanged`, `clientRegistry`, `funnel`, `issueAccess`, `ledger`, `liveSessions`, `loginPropagation`, `machines`, `memory`, `presence`, `queuedMessageApply`, `rpc`, `sessionInstructions`, `snapshotTail`, `subscriptions` | 730 |
-| 40 | `nativeLogin` | `machines`, `sessionsSvc` | 766 |
-| 41 | `hosts` | `clientRegistry`, `liveSessions`, `machines`, `requestBroker`, `sessionsSvc` | 795 |
-| 42 | `headless` | `sessionsSvc` | 840 |
-| 43 | `notify` | `clientRegistry`, `featureEnabled`, `sessionsSvc` | 846 |
-| 44 | `issueArtifacts` | `portableStateFence`, `rpc` | 895 |
-| 45 | `issues` | `broadcastWorktreesChanged`, `funnel`, `issueArbitration`, `issueArtifacts`, `machines`, `publisher`, `rpc`, `sessionsSvc` | 903 |
-| 46 | `issueSessionLifecycle` | `issueArbitration`, `issues`, `sessionsSvc` | 1022 |
-| 47 | `sessionWorkspace` | `liveSessions` | 1062 |
-| 48 | `locks` | `funnel`, `issues`, `liveSessions`, `sessionWorkspace` | 1070 |
-| 49 | `lockCommands` | `issues`, `locks`, `sessionWorkspace` | 1094 |
-| 50 | `messagesSvc` | `funnel`, `issues`, `machines`, `mail`, `sessionsSvc` | 1111 |
-| 51 | `workflows` | `issues`, `liveSessions`, `machines`, `messagesSvc`, `principalForCapability`, `sessionsSvc` | 1178 |
-| 52 | `messageGate` | `issues`, `mail`, `messagesSvc`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1307 |
-| 53 | `readToolkit` | `issues`, `messagesSvc`, `rpc`, `sessionsSvc` | 1354 |
-| 54 | `issueAttach` | `issues` | 1367 |
-| 55 | `automations` | `issues`, `ledger`, `machines`, `sessionsSvc` | 1378 |
-| 56 | `approvals` | `automations`, `clientRegistry`, `issues`, `machines`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1411 |
-| 57 | `issueCommands` | `issueArbitration`, `issueAttach`, `issueSessionLifecycle`, `issues`, `messagesSvc`, `mutations`, `rpc`, `sessionsSvc` | 1507 |
-| 58 | `layout` | `ledger` | 1571 |
-| 59 | `readPosition` | `ledger` | 1573 |
-| 60 | `agentRelayGate` | `approvals`, `currentSettings`, `featureEnabled`, `issueCommands`, `issueSessionLifecycle`, `issues`, `lockCommands`, `machines`, `messageGate`, `readToolkit`, `sessionsSvc`, `specs`, `workflowCallerForCapability`, `workflows` | 1609 |
+| 1 | `reactions` | — | 318 |
+| 2 | `portableStateFence` | — | 323 |
+| 3 | `currentSettings` | — | 326 |
+| 4 | `featureEnabled` | `currentSettings` | 330 |
+| 5 | `principalForCapability` | — | 334 |
+| 6 | `workflowCallerForCapability` | `principalForCapability` | 343 |
+| 7 | `mutations` | — | 374 |
+| 8 | `logs` | — | 378 |
+| 9 | `sessionInstructions` | — | 379 |
+| 10 | `liveSessions` | — | 380 |
+| 11 | `clientRegistry` | — | 383 |
+| 12 | `clientLogLevels` | `clientRegistry` | 387 |
+| 13 | `issueAccess` | — | 389 |
+| 14 | `updates` | — | 394 |
+| 15 | `machines` | `clientRegistry`, `updates` | 395 |
+| 16 | `updatesService` | `machines` | 432 |
+| 17 | `requestBroker` | `machines` | 457 |
+| 18 | `settings` | — | 461 |
+| 19 | `issueEventFeed` | — | 484 |
+| 20 | `feedVisibility` | `issueEventFeed` | 485 |
+| 21 | `visibility` | `feedVisibility` | 489 |
+| 22 | `ledger` | `feedVisibility`, `visibility` | 493 |
+| 23 | `issueArbitration` | `ledger` | 523 |
+| 24 | `conversationDiagnostics` | — | 533 |
+| 25 | `subscriptions` | — | 536 |
+| 26 | `roomVisibility` | `visibility` | 547 |
+| 27 | `presence` | `clientRegistry`, `roomVisibility`, `subscriptions` | 552 |
+| 28 | `feedServing` | `conversationDiagnostics`, `feedVisibility`, `ledger`, `presence`, `subscriptions` | 558 |
+| 29 | `funnel` | `feedServing`, `ledger` | 579 |
+| 30 | `snapshotTail` | `conversationDiagnostics`, `ledger` | 588 |
+| 31 | `publisher` | — | 606 |
+| 32 | `specs` | — | 607 |
+| 33 | `broadcastWorktreesChanged` | `clientRegistry` | 618 |
+| 34 | `memory` | `conversationDiagnostics`, `feedServing`, `ledger`, `requestBroker` | 628 |
+| 35 | `rpc` | `liveSessions`, `machines`, `memory`, `portableStateFence`, `requestBroker` | 650 |
+| 36 | `serverTransfer` | `feedServing`, `machines`, `memory`, `portableStateFence`, `rpc` | 674 |
+| 37 | `loginPropagation` | `machines`, `rpc` | 728 |
+| 38 | `capabilityForLiveSession` | `issueAccess`, `liveSessions` | 734 |
+| 39 | `liveSessionOwnership` | `liveSessions` | 752 |
+| 40 | `mail` | `capabilityForLiveSession`, `feedVisibility`, `liveSessionOwnership`, `machines`, `principalForCapability` | 763 |
+| 41 | `queuedApplyHooks` | — | 807 |
+| 42 | `queuedMessageApply` | `mail`, `queuedApplyHooks` | 810 |
+| 43 | `sessionsSvc` | `broadcastWorktreesChanged`, `clientRegistry`, `funnel`, `issueAccess`, `ledger`, `liveSessions`, `loginPropagation`, `machines`, `memory`, `presence`, `queuedMessageApply`, `rpc`, `sessionInstructions`, `snapshotTail`, `subscriptions` | 818 |
+| 44 | `nativeLogin` | `machines`, `sessionsSvc` | 856 |
+| 45 | `closedIssueIdsMemo` | — | 889 |
+| 46 | `closedIssueIdsThisFrame` | `closedIssueIdsMemo` | 890 |
+| 47 | `hosts` | `clientRegistry`, `closedIssueIdsThisFrame`, `liveSessions`, `machines`, `requestBroker`, `sessionsSvc` | 899 |
+| 48 | `headless` | `sessionsSvc` | 957 |
+| 49 | `notify` | `clientRegistry`, `featureEnabled`, `sessionsSvc` | 963 |
+| 50 | `issueArtifacts` | `portableStateFence`, `rpc` | 1012 |
+| 51 | `issues` | `broadcastWorktreesChanged`, `funnel`, `issueArbitration`, `issueArtifacts`, `machines`, `publisher`, `rpc`, `sessionsSvc` | 1020 |
+| 52 | `issueSessionLifecycle` | `issueArbitration`, `issues`, `sessionsSvc` | 1139 |
+| 53 | `sessionWorkspace` | `liveSessions` | 1179 |
+| 54 | `locks` | `funnel`, `issues`, `liveSessions`, `sessionWorkspace` | 1187 |
+| 55 | `lockCommands` | `issues`, `locks`, `sessionWorkspace` | 1211 |
+| 56 | `messagesSvc` | `funnel`, `issues`, `machines`, `mail`, `sessionsSvc` | 1228 |
+| 57 | `workflows` | `issues`, `liveSessions`, `machines`, `messagesSvc`, `principalForCapability`, `sessionsSvc` | 1297 |
+| 58 | `messageGate` | `issues`, `mail`, `messagesSvc`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1431 |
+| 59 | `readToolkit` | `issues`, `messagesSvc`, `rpc`, `sessionsSvc` | 1478 |
+| 60 | `issueAttach` | `issues` | 1491 |
+| 61 | `automations` | `issues`, `ledger`, `machines`, `sessionsSvc` | 1502 |
+| 62 | `approvals` | `automations`, `clientRegistry`, `issues`, `machines`, `sessionsSvc`, `workflowCallerForCapability`, `workflows` | 1535 |
+| 63 | `shippingCell` | — | 1649 |
+| 64 | `shippingPort` | `shippingCell` | 1650 |
+| 65 | `issueCommands` | `issueArbitration`, `issueAttach`, `issueSessionLifecycle`, `issues`, `messagesSvc`, `mutations`, `rpc`, `sessionsSvc`, `shippingPort` | 1655 |
+| 66 | `shipping` | `issueAccess`, `issues`, `ledger`, `machines`, `principalForCapability`, `rpc`, `sessionsSvc` | 1723 |
+| 67 | `layout` | `ledger` | 1892 |
+| 68 | `readPosition` | `ledger` | 1894 |
+| 69 | `agentRelayGate` | `approvals`, `currentSettings`, `featureEnabled`, `issueCommands`, `issueSessionLifecycle`, `issues`, `lockCommands`, `machines`, `messageGate`, `readToolkit`, `sessionsSvc`, `specs`, `workflowCallerForCapability`, `workflows` | 1933 |
 
-Field assignment order (14); an eager read of any of these above its own line fails the audit:
+Field assignment order (15); an eager read of any of these above its own line fails the audit:
 
 | Order | Field | Source line |
 |---:|---|---:|
-| 1 | `this.store` | 283 |
-| 2 | `this.now` | 286 |
-| 3 | `this.ledger` | 442 |
-| 4 | `this.issues` | 1546 |
-| 5 | `this.issueCommands` | 1568 |
-| 6 | `this.modules` | 1574 |
-| 7 | `this.steward` | 1665 |
-| 8 | `this.messageSweep` | 1738 |
-| 9 | `this.eventRetention` | 1743 |
-| 10 | `this.issueAutoArchive` | 1749 |
-| 11 | `this.issueGitWatch` | 1753 |
-| 12 | `this.automationScheduler` | 1756 |
-| 13 | `this.clientGateway` | 1766 |
-| 14 | `this.gateway` | 1776 |
+| 1 | `this.store` | 319 |
+| 2 | `this.now` | 322 |
+| 3 | `this.ledger` | 505 |
+| 4 | `this.issues` | 1700 |
+| 5 | `this.issueCommands` | 1722 |
+| 6 | `this.shipping` | 1888 |
+| 7 | `this.modules` | 1895 |
+| 8 | `this.steward` | 1991 |
+| 9 | `this.messageSweep` | 2064 |
+| 10 | `this.eventRetention` | 2069 |
+| 11 | `this.issueAutoArchive` | 2075 |
+| 12 | `this.issueGitWatch` | 2079 |
+| 13 | `this.automationScheduler` | 2082 |
+| 14 | `this.clientGateway` | 2092 |
+| 15 | `this.gateway` | 2102 |
 
 ## startServer — `apps/server/src/server.ts`
 
 Process boot. Its own comments call the order load-bearing ("Order matters between these two"), and nothing was checking it.
 
-Verified constructor declarations: 33. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.
+Verified constructor declarations: 39. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.
 
 | Order | Declaration | Earlier dependencies read at wiring time | Source line |
 |---:|---|---|---:|
-| 1 | `appVersion` | — | 207 |
-| 2 | `instanceId` | — | 208 |
-| 3 | `config` | — | 212 |
-| 4 | `role` | — | 213 |
-| 5 | `hostMachineId` | — | 219 |
-| 6 | `updateSigningKey` | — | 220 |
-| 7 | `portableStateFence` | — | 223 |
-| 8 | `store` | `hostMachineId` | 224 |
-| 9 | `credentialsRequired` | `store` | 234 |
-| 10 | `bootPrune` | `store` | 239 |
-| 11 | `registry` | `appVersion`, `instanceId`, `portableStateFence`, `role`, `store`, `updateSigningKey` | 261 |
-| 12 | `bootstrapToken` | — | 317 |
-| 13 | `telemetry` | `registry` | 341 |
-| 14 | `repos` | `registry`, `store` | 345 |
-| 15 | `repoDiscovery` | `hostMachineId`, `registry`, `store` | 348 |
-| 16 | `superagent` | `registry`, `repos`, `store` | 367 |
-| 17 | `messaging` | `registry`, `store`, `superagent` | 371 |
-| 18 | `cloud` | — | 401 |
-| 19 | `devArtifactToken` | — | 402 |
-| 20 | `boundPort` | — | 403 |
-| 21 | `developmentSourceRoot` | — | 404 |
-| 22 | `requestCoordinatorRestart` | `developmentSourceRoot`, `instanceId` | 405 |
-| 23 | `devPublisher` | `boundPort`, `config`, `devArtifactToken`, `developmentSourceRoot`, `hostMachineId`, `registry`, `store`, `updateSigningKey` | 408 |
-| 24 | `app` | — | 422 |
-| 25 | `requestPrincipal` | `credentialsRequired`, `store` | 470 |
-| 26 | `guard` | `credentialsRequired`, `store` | 478 |
-| 27 | `mcpToken` | — | 505 |
-| 28 | `issueTools` | — | 506 |
-| 29 | `mobileWebDir` | — | 578 |
-| 30 | `mobileIndex` | `mobileWebDir` | 588 |
-| 31 | `webDir` | — | 604 |
-| 32 | `host` | — | 621 |
-| 33 | `requestedPort` | — | 632 |
+| 1 | `configuredProxyHops` | — | 315 |
+| 2 | `trustedProxyHops` | `configuredProxyHops` | 323 |
+| 3 | `tls` | — | 324 |
+| 4 | `appVersion` | — | 325 |
+| 5 | `instanceId` | — | 326 |
+| 6 | `config` | — | 330 |
+| 7 | `role` | — | 331 |
+| 8 | `hostMachineId` | — | 337 |
+| 9 | `updateSigningKey` | — | 338 |
+| 10 | `portableStateFence` | — | 341 |
+| 11 | `store` | `hostMachineId` | 342 |
+| 12 | `credentialsRequired` | `store` | 352 |
+| 13 | `mobilePairing` | — | 354 |
+| 14 | `bootPrune` | `store` | 358 |
+| 15 | `registry` | `appVersion`, `instanceId`, `portableStateFence`, `role`, `store`, `updateSigningKey` | 379 |
+| 16 | `bootstrapToken` | — | 435 |
+| 17 | `telemetry` | `registry` | 459 |
+| 18 | `repos` | `registry`, `store` | 463 |
+| 19 | `repoDiscovery` | `hostMachineId`, `registry`, `store` | 466 |
+| 20 | `superagent` | `registry`, `repos`, `store` | 485 |
+| 21 | `messaging` | `registry`, `store`, `superagent` | 489 |
+| 22 | `cloud` | — | 519 |
+| 23 | `devArtifactToken` | — | 520 |
+| 24 | `boundPort` | — | 521 |
+| 25 | `developmentSourceRoot` | — | 522 |
+| 26 | `requestCoordinatorRestart` | `developmentSourceRoot`, `instanceId` | 523 |
+| 27 | `devPublisher` | `boundPort`, `config`, `devArtifactToken`, `developmentSourceRoot`, `hostMachineId`, `instanceId`, `registry`, `store`, `updateSigningKey` | 526 |
+| 28 | `requestPeerAddresses` | — | 542 |
+| 29 | `app` | — | 543 |
+| 30 | `requestPrincipal` | `credentialsRequired`, `store` | 592 |
+| 31 | `guard` | `credentialsRequired`, `store`, `trustedProxyHops` | 600 |
+| 32 | `revokeConnectedMobileSession` | — | 612 |
+| 33 | `mcpToken` | — | 644 |
+| 34 | `issueTools` | — | 645 |
+| 35 | `mobileWebDir` | — | 737 |
+| 36 | `mobileIndex` | `mobileWebDir` | 740 |
+| 37 | `webDir` | — | 756 |
+| 38 | `host` | — | 766 |
+| 39 | `requestedPort` | — | 776 |
 
 ## SessionStore — `apps/server/src/store.ts`
 
 The per-aggregate repository composition. Cross-aggregate edges are late-bound lambdas by design, so only eager reads are ordered here.
 
-Verified constructor declarations: 1. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.
+Verified constructor declarations: 2. Forward dependencies: 0. Deferred service closures: 0. Non-null late bindings: 0.
 
 | Order | Declaration | Earlier dependencies read at wiring time | Source line |
 |---:|---|---|---:|
-| 1 | `applied` | — | 183 |
+| 1 | `applied` | — | 190 |
+| 2 | `importedRepos` | — | 259 |
 
-Field assignment order (30); an eager read of any of these above its own line fails the audit:
+Field assignment order (31); an eager read of any of these above its own line fails the audit:
 
 | Order | Field | Source line |
 |---:|---|---:|
-| 1 | `this.hostMachineId` | 164 |
-| 2 | `this.db` | 170 |
-| 3 | `this.observationCheckpoints` | 198 |
-| 4 | `this.sessions` | 199 |
-| 5 | `this.issues` | 200 |
-| 6 | `this.repos` | 203 |
-| 7 | `this.approvals` | 208 |
-| 8 | `this.conversations` | 209 |
-| 9 | `this.sync` | 210 |
-| 10 | `this.auth` | 211 |
-| 11 | `this.superagent` | 212 |
-| 12 | `this.settings` | 213 |
-| 13 | `this.layout` | 214 |
-| 14 | `this.readPositions` | 215 |
-| 15 | `this.secrets` | 216 |
-| 16 | `this.settingsAudit` | 217 |
-| 17 | `this.accounts` | 218 |
-| 18 | `this.machines` | 219 |
-| 19 | `this.grants` | 220 |
-| 20 | `this.users` | 221 |
-| 21 | `this.telegramBindings` | 222 |
-| 22 | `this.events` | 223 |
-| 23 | `this.notificationFacts` | 224 |
-| 24 | `this.messages` | 225 |
-| 25 | `this.readWatermarks` | 226 |
-| 26 | `this.workflows` | 227 |
-| 27 | `this.locks` | 228 |
-| 28 | `this.maintenance` | 229 |
-| 29 | `this.automations` | 230 |
-| 30 | `this.messagingTopics` | 231 |
+| 1 | `this.hostMachineId` | 171 |
+| 2 | `this.db` | 177 |
+| 3 | `this.observationCheckpoints` | 205 |
+| 4 | `this.sessions` | 206 |
+| 5 | `this.issues` | 207 |
+| 6 | `this.repos` | 210 |
+| 7 | `this.approvals` | 215 |
+| 8 | `this.conversations` | 216 |
+| 9 | `this.sync` | 217 |
+| 10 | `this.auth` | 218 |
+| 11 | `this.superagent` | 219 |
+| 12 | `this.settings` | 220 |
+| 13 | `this.layout` | 221 |
+| 14 | `this.readPositions` | 222 |
+| 15 | `this.secrets` | 223 |
+| 16 | `this.settingsAudit` | 224 |
+| 17 | `this.accounts` | 225 |
+| 18 | `this.machines` | 226 |
+| 19 | `this.grants` | 227 |
+| 20 | `this.users` | 228 |
+| 21 | `this.telegramBindings` | 229 |
+| 22 | `this.events` | 230 |
+| 23 | `this.notificationFacts` | 231 |
+| 24 | `this.messages` | 232 |
+| 25 | `this.readWatermarks` | 233 |
+| 26 | `this.workflows` | 234 |
+| 27 | `this.locks` | 235 |
+| 28 | `this.maintenance` | 236 |
+| 29 | `this.automations` | 237 |
+| 30 | `this.shipping` | 238 |
+| 31 | `this.messagingTopics` | 239 |
 
 ## wireSessionLifecycle — `apps/server/src/modules/sessions/session-wiring.ts`
 
 SessionLifecycle's constructor body, moved out of the class (POD-1396). The `as any` write surface disables TypeScript's definite-assignment analysis, so this walk is the only thing checking its order.
 
-Verified wiring assignments: 41. Forward dependencies: 0. Deferred (closure) reads: 101, allowed by design. Non-null late bindings: 0.
+Verified wiring assignments: 45. Forward dependencies: 0. Deferred (closure) reads: 111, allowed by design. Non-null late bindings: 0.
 
 | Order | Assignment | Earlier dependencies read at wiring time | Source line |
 |---:|---|---|---:|
-| 1 | `store` | — | 69 |
-| 2 | `sessions` | — | 70 |
-| 3 | `now` | — | 71 |
-| 4 | `mutations` | `store` | 72 |
-| 5 | `clients` | — | 73 |
-| 6 | `bus` | — | 74 |
-| 7 | `machines` | — | 75 |
-| 8 | `rpc` | — | 76 |
-| 9 | `funnel` | — | 78 |
-| 10 | `concurrencyHistory` | `bus`, `store` | 79 |
-| 11 | `terminalProof` | `store` | 85 |
-| 12 | `launchConfig` | `store` | 96 |
-| 13 | `naming` | — | 100 |
-| 14 | `machineReconciler` | — | 104 |
-| 15 | `broadcasts` | — | 119 |
-| 16 | `browserOpen` | `clients` | 127 |
-| 17 | `bindingReceipts` | — | 135 |
-| 18 | `daemonProjection` | `bindingReceipts`, `sessions` | 145 |
-| 19 | `workspace` | `machines`, `rpc`, `store` | 157 |
-| 20 | `state` | `store` | 167 |
-| 21 | `view` | `machines`, `sessions`, `state`, `store` | 197 |
-| 22 | `repository` | `funnel`, `sessions`, `state`, `store`, `view` | 206 |
-| 23 | `sessionStart` | `launchConfig`, `repository`, `state`, `store`, `terminalProof`, `view` | 231 |
-| 24 | `headless` | — | 260 |
-| 25 | `inbox` | — | 274 |
-| 26 | `sendText` | — | 353 |
-| 27 | `interruptText` | — | 354 |
-| 28 | `queueText` | — | 355 |
-| 29 | `resumeAndSend` | — | 356 |
-| 30 | `answerAskUserQuestion` | — | 357 |
-| 31 | `setSessionDraft` | — | 362 |
-| 32 | `draftRevision` | — | 364 |
-| 33 | `clientControl` | `browserOpen`, `inbox`, `sessions`, `state` | 365 |
-| 34 | `autoContinue` | — | 406 |
-| 35 | `daemonLifecycle` | `autoContinue`, `browserOpen`, `bus`, `daemonProjection`, `inbox`, `sessions`, `state`, `store` | 422 |
-| 36 | `sessionTeardown` | `autoContinue`, `bus`, `clients`, `daemonProjection`, `machines`, `repository`, `rpc`, `sessions`, `state`, `store`, `terminalProof`, `view` | 455 |
-| 37 | `sessionKill` | `autoContinue`, `bus`, `clients`, `daemonProjection`, `machines`, `repository`, `sessions`, `state`, `store` | 477 |
-| 38 | `sessionClientPlane` | `browserOpen`, `clientControl`, `clients`, `headless`, `machineReconciler`, `machines`, `repository`, `rpc`, `state`, `terminalProof` | 493 |
-| 39 | `sessionAuthz` | `clientControl`, `machines`, `sessions`, `store` | 505 |
-| 40 | `sessionMetaOps` | `funnel`, `mutations`, `repository`, `sessionTeardown`, `sessions`, `state`, `store`, `view` | 514 |
-| 41 | `sessionRevival` | `autoContinue`, `launchConfig`, `machines`, `repository`, `rpc`, `sessions`, `state`, `store`, `terminalProof`, `workspace` | 533 |
+| 1 | `store` | — | 70 |
+| 2 | `sessions` | — | 71 |
+| 3 | `now` | — | 72 |
+| 4 | `mutations` | `store` | 73 |
+| 5 | `clients` | — | 74 |
+| 6 | `bus` | — | 75 |
+| 7 | `machines` | — | 76 |
+| 8 | `rpc` | — | 77 |
+| 9 | `funnel` | — | 79 |
+| 10 | `concurrencyHistory` | `bus`, `store` | 80 |
+| 11 | `terminalProof` | `store` | 86 |
+| 12 | `launchConfig` | `store` | 97 |
+| 13 | `naming` | — | 101 |
+| 14 | `machineReconciler` | — | 105 |
+| 15 | `broadcasts` | — | 121 |
+| 16 | `browserOpen` | `clients` | 129 |
+| 17 | `bindingReceipts` | — | 137 |
+| 18 | `daemonProjection` | `bindingReceipts`, `sessions` | 147 |
+| 19 | `workspace` | `machines`, `rpc`, `store` | 159 |
+| 20 | `state` | `store` | 169 |
+| 21 | `view` | `machines`, `sessions`, `state`, `store` | 199 |
+| 22 | `repository` | `funnel`, `sessions`, `state`, `store`, `view` | 208 |
+| 23 | `sessionStart` | `launchConfig`, `repository`, `state`, `store`, `terminalProof`, `view` | 233 |
+| 24 | `headless` | — | 262 |
+| 25 | `inbox` | — | 276 |
+| 26 | `sendText` | — | 358 |
+| 27 | `interruptText` | — | 359 |
+| 28 | `interruptTurn` | — | 360 |
+| 29 | `queueText` | — | 361 |
+| 30 | `cancelQueuedMessage` | — | 362 |
+| 31 | `hasQueuedMessage` | — | 364 |
+| 32 | `resumeAndSend` | — | 366 |
+| 33 | `answerAskUserQuestion` | — | 367 |
+| 34 | `setSessionDraft` | — | 372 |
+| 35 | `draftRevision` | — | 374 |
+| 36 | `clientControl` | `browserOpen`, `inbox`, `sessions`, `state` | 375 |
+| 37 | `autoContinue` | — | 416 |
+| 38 | `runtimeGateway` | `rpc` | 441 |
+| 39 | `daemonLifecycle` | `autoContinue`, `browserOpen`, `bus`, `daemonProjection`, `inbox`, `runtimeGateway`, `sessions`, `state`, `store` | 474 |
+| 40 | `sessionTeardown` | `autoContinue`, `bus`, `clients`, `daemonProjection`, `machines`, `repository`, `rpc`, `sessions`, `state`, `store`, `terminalProof`, `view` | 514 |
+| 41 | `sessionKill` | `autoContinue`, `bus`, `clients`, `daemonProjection`, `machines`, `repository`, `sessions`, `state`, `store` | 536 |
+| 42 | `sessionClientPlane` | `browserOpen`, `clientControl`, `clients`, `headless`, `machineReconciler`, `machines`, `repository`, `rpc`, `state`, `terminalProof` | 552 |
+| 43 | `sessionAuthz` | `clientControl`, `machines`, `sessions`, `store` | 564 |
+| 44 | `sessionMetaOps` | `funnel`, `mutations`, `repository`, `sessionTeardown`, `sessions`, `state`, `store`, `view` | 573 |
+| 45 | `sessionRevival` | `autoContinue`, `launchConfig`, `machines`, `repository`, `rpc`, `sessions`, `state`, `store`, `terminalProof`, `workspace` | 592 |

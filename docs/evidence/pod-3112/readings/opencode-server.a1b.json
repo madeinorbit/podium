@@ -1,0 +1,107 @@
+{
+  "cell": "A1B",
+  "driver": "opencode-server",
+  "cwd": "/tmp/pod-3112-paired-r4/probes/opencode-server-a1b",
+  "at": "2026-08-30T02:02:15.766Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-30T02:02:15.789Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "31bcb744c866d35026555b5ffcdb46c553502a54",
+    "pinSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "serverSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "daemonSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "31bcb74",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2551347",
+    "daemonPid": "2551567",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18770240 kB",
+      "SwapFree": "40428316 kB"
+    },
+    "rootFreeKiB": 69473248,
+    "load1m": 6.28,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r4/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "busy send upgraded to blocking delivery without a stale position and survived reload",
+  "control": {
+    "fired": true,
+    "what": "the first busy-turn send delivering and the session producing an in-flight signal",
+    "detail": "first user turn=true; preview=true; working=true at 41ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SECOND SEND       {\"ok\":true,\"queued\":false,\"disposition\":\"delivered\"}",
+    "FINAL STATE       blocking-delivered",
+    "QUEUE POSITION    null",
+    "FINAL PAYLOAD POSITION false",
+    "HISTORICAL POSITION    false",
+    "RELOADED USER     true in 26ms",
+    "RELOADED REPLY    true in 1042ms"
+  ],
+  "data": {
+    "sid": "f590b6fb-8efc-449e-b517-3c50692a6cd3",
+    "first": "P3112-A1B-FIRST-MTF5ZEPA",
+    "queued": "P3112-A1B-QUEUED-MTF5ZEPA",
+    "firstUser": true,
+    "working": [
+      {
+        "ms": 40,
+        "phase": "working",
+        "status": "live",
+        "driverId": "opencode-server"
+      }
+    ],
+    "second": {
+      "ok": true,
+      "queued": false,
+      "disposition": "delivered"
+    },
+    "secondUser": true,
+    "secondAssistant": true,
+    "position": null,
+    "finalPayloadHasPosition": false,
+    "historicalPositionObserved": false,
+    "queuedValue": false,
+    "disposition": "delivered",
+    "stillQueued": false,
+    "blockingDelivered": true,
+    "finalStateConsistent": true,
+    "survivedReload": true
+  }
+}

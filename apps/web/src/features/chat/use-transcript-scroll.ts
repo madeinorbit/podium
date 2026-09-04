@@ -30,7 +30,7 @@ export interface UseTranscriptScrollResult {
   jumpToBottom: () => void
   pinToBottom: () => void
   loadOlder: () => void
-  scrollToBlock: (index: number) => void
+  scrollToBlock: (index: number, opts?: { instant?: boolean }) => void
   syncStickyPromptPositions: () => void
   pinnedBrief: PinnedBrief | null
 }
@@ -272,12 +272,12 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
   }, [sessionId])
 
   const scrollToBlock = useCallback(
-    (index: number) => {
+    (index: number, opts?: { instant?: boolean }) => {
       const scroller = scrollerRef.current
       const target = scroller?.querySelector<HTMLElement>(`[data-block="${index}"]`)
       if (!target) return
       stopScroll()
-      target.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      target.scrollIntoView({ block: 'center', behavior: opts?.instant ? 'auto' : 'smooth' })
     },
     [scrollerRef, stopScroll],
   )

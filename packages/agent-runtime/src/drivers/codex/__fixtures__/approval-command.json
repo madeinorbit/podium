@@ -1,0 +1,54 @@
+{
+  "_recordedFrom": "codex-cli 0.147.0 with approval_policy=untrusted. NOTE: the JSON-RPC id is 0.",
+  "approvalRequest": {
+    "method": "item/commandExecution/requestApproval",
+    "id": 0,
+    "params": {
+      "threadId": "019fff94-7326-7032-b90b-3cc7e1805180",
+      "turnId": "019fff94-8653-77f2-b4ab-b36e0db39521",
+      "itemId": "exec-a4e07770-5098-457e-b4cf-f1e46285ac70",
+      "startedAtMs": 1786699418214,
+      "environmentId": "local",
+      "reason": "command failed; retry without sandbox?",
+      "command": "/bin/bash -c 'echo PODIUM_PROBE_OK'",
+      "cwd": "/tmp/cxprobe/work",
+      "commandActions": [
+        {
+          "type": "unknown",
+          "command": "echo PODIUM_PROBE_OK"
+        }
+      ],
+      "proposedExecpolicyAmendment": [
+        "echo",
+        "PODIUM_PROBE_OK"
+      ],
+      "availableDecisions": [
+        "accept",
+        {
+          "acceptWithExecpolicyAmendment": {
+            "execpolicy_amendment": [
+              "echo",
+              "PODIUM_PROBE_OK"
+            ]
+          }
+        },
+        "cancel"
+      ]
+    }
+  },
+  "approvalResponse": {
+    "jsonrpc": "2.0",
+    "id": 0,
+    "result": {
+      "decision": "accept"
+    }
+  },
+  "serverRequestResolved": {
+    "method": "serverRequest/resolved",
+    "params": {
+      "threadId": "019fff94-7326-7032-b90b-3cc7e1805180",
+      "requestId": 0
+    },
+    "emittedAtMs": 1786699418326
+  }
+}

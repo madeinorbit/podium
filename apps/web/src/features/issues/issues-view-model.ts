@@ -1,5 +1,5 @@
 import { filterBoardScope } from '@podium/client-core/viewmodels'
-import type { IssueId, IssueStage } from '@podium/model/browser'
+import type { IssueId, IssueStage, SessionMeta } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import { type BoardFilter, filterBoardIssues, filterChips } from './issue-board-filter'
 import {
@@ -50,6 +50,8 @@ export interface IssuesViewModel {
  */
 export function deriveIssuesViewModel({
   issues,
+  sessions = [],
+  now = Date.now(),
   display,
   filter,
   expanded,
@@ -57,6 +59,8 @@ export function deriveIssuesViewModel({
   openIssueId,
 }: {
   issues: IssueViewModel[]
+  sessions?: readonly SessionMeta[]
+  now?: number
   display: IssuesDisplay
   filter: BoardFilter
   expanded: ReadonlySet<string>
@@ -77,6 +81,8 @@ export function deriveIssuesViewModel({
   const epicProgress = computeEpicProgressMap(
     nonArchived,
     boardIssues.map((issue) => issue.id),
+    sessions,
+    now,
   )
   const orderedByStage = groupIssuesByStage(boardIssues, display.ordering)
   const layout: IssuesLayout = isMobile ? 'list' : display.layout

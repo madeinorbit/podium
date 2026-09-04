@@ -1,7 +1,7 @@
-import { asThreadId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asThreadId } from '@podium/model'
 import {
   MAINTENANCE_PROTOCOL_VERSION,
   MAINTENANCE_SCHEMA_VERSION,
@@ -11,9 +11,9 @@ import {
   type MessageExpiryObservation,
 } from '@podium/protocol'
 import { describe, expect, it, vi } from 'vitest'
-import { JanitorService } from '../apps/janitor/src/janitor'
 import { MaintenanceService } from '../apps/server/src/modules/maintenance/service'
 import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import { JanitorService } from '../packages/janitor/src/janitor'
 
 const NOW = Date.parse('2026-07-18T00:00:00.000Z')
 

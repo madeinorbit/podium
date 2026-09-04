@@ -1,0 +1,65 @@
+{
+  "instance": "grok2927",
+  "arm": "headless",
+  "results": [
+    {
+      "id": "A2b",
+      "arm": "headless",
+      "verdict": "PASS",
+      "summary": "fresh bound session reported idle without a working/blank sample",
+      "control": {
+        "fired": true,
+        "what": "fresh session bound to Grok and was readable before any user turn",
+        "detail": "driver=grok-acp family=server phases=idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle,idle"
+      },
+      "evidence": [
+        "PRODUCT DRIVER    driverId=grok-acp family=server",
+        "BOUND             driver=grok-acp family=server",
+        "PHASES             idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle -> idle",
+        "IDLE SEEN          true",
+        "WORKING/BLANK      false"
+      ],
+      "data": {
+        "driverId": "grok-acp",
+        "driverFamily": "server",
+        "samples": [
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle",
+          "idle"
+        ],
+        "idle": true,
+        "bad": false
+      },
+      "cwd": "/tmp/pod-2927-grok/cells/headless-a2b",
+      "memoryMb": 4159,
+      "pin": "PIN OK row=A2b arm=headless instance=grok2927 serverPid=1851034 daemonPid=1851119 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=cf293895c349b36220765abce890c88273723516 runtimeTree=86faf02fc43965cb75f9dbf7e06cfb56317e912b nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "708fc35c-a895-40e8-8830-8dd1f8d6c443"
+      ],
+      "at": "2026-08-27T09:29:09.769Z"
+    }
+  ],
+  "admission": {
+    "diskFreeKb": 12834672,
+    "memAvailableKb": 4805340,
+    "load1": 10.56,
+    "lease": "test:heavy free"
+  },
+  "recordedAtLocal": "2026-08-27 11:29:47 CEST"
+}

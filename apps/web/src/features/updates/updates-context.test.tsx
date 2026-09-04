@@ -54,6 +54,29 @@ const OFFER: UpdatePanelView = {
   indicatorLabel: 'Podium 0.4.3 is available',
 }
 
+/**
+ * HOW LONG THE REAL DYNAMIC IMPORT IS GIVEN.
+ *
+ * These two tests go through the ACTUAL lazy boundary rather than a mocked one —
+ * that is the whole point of the file — so what they wait on is vitest resolving
+ * and transforming `UpdatesEngine`'s import graph on demand. The default 1000 ms
+ * left no margin for that: the suite passed alone and failed whenever it shared
+ * a run with other files, and one module added to the graph was enough to tip it
+ * (POD-3224).
+ *
+ * Raising the budget costs the file NOTHING it was built to catch. The failure
+ * it exists to make visible is a boundary that never resolves at all, and that
+ * one fails at any timeout; the stopwatch was only ever deciding how often a
+ * healthy boundary was called unhealthy.
+ *
+ * Worth stating because it is easy to misread as a symptom being silenced: the
+ * PRODUCTION graph is unchanged. `UpdatesEngine` reaches `lib/sw-container`
+ * through `app/pwa-register` regardless, and these tests mock `pwa-register`
+ * away — so the extra module is an artifact of the mock, present here and
+ * nowhere a user runs.
+ */
+const CHUNK_ARRIVES_MS = 5_000
+
 /** Stands in for the shell's own subtree, and counts how often it was mounted. */
 function Child({ onMount }: { onMount: () => void }): JSX.Element {
   const updates = useUpdates()
@@ -103,8 +126,14 @@ describe('UpdatesProvider', () => {
     )
 
     // Nobody clicked anything and no update was "requested" — mounting is enough.
-    expect(await screen.findByTestId('update-panel')).toBeTruthy()
-    const indicator = await screen.findByTestId('update-indicator')
+    expect(
+      await screen.findByTestId('update-panel', {}, { timeout: CHUNK_ARRIVES_MS }),
+    ).toBeTruthy()
+    const indicator = await screen.findByTestId(
+      'update-indicator',
+      {},
+      { timeout: CHUNK_ARRIVES_MS },
+    )
     expect(indicator.getAttribute('data-indicator')).toBe('idle-dot')
     expect(indicator.getAttribute('aria-label')).toBe('Podium 0.4.3 is available')
   })
@@ -122,7 +151,7 @@ describe('UpdatesProvider', () => {
     expect(screen.getByTestId('child')).toBeTruthy()
     expect(onMount).toHaveBeenCalledTimes(1)
 
-    await screen.findByTestId('update-panel')
+    await screen.findByTestId('update-panel', {}, { timeout: CHUNK_ARRIVES_MS })
 
     // Still the same mount. A second one here would mean the shell's store,
     // replica and socket had been torn down and rebuilt by a bundle-size fix.

@@ -3,6 +3,7 @@ import {
   type IntervalScheduler,
   readSupervisorPid,
   SUPERVISOR_PID_ENV,
+  SUPERVISOR_SHUTDOWN_FILE_ENV,
   type SupervisorProbe,
   supervisorGone,
   unsupervisedEnv,
@@ -10,17 +11,26 @@ import {
 } from './supervisor'
 
 /** A fake /proc: `ppid` and the set of live PIDs, both mutable mid-test. */
-function makeProbe(ppid: number, live: number[]): SupervisorProbe & { die: (pid: number) => void } {
+function makeProbe(
+  ppid: number,
+  live: number[],
+): SupervisorProbe & {
+  die: (pid: number) => void
+  requestShutdown: (path: string) => void
+} {
   const alive = new Set(live)
+  const shutdownFiles = new Set<string>()
   let parent = ppid
   return {
     ppid: () => parent,
     alive: (pid) => alive.has(pid),
+    shutdownRequested: (path) => shutdownFiles.has(path),
     die: (pid) => {
       alive.delete(pid)
       // The kernel reparents an orphan the moment its parent dies.
       if (parent === pid) parent = 1
     },
+    requestShutdown: (path) => shutdownFiles.add(path),
   }
 }
 
@@ -98,6 +108,23 @@ describe('watchSupervisor', () => {
     expect(onOrphaned).toHaveBeenCalledWith(500)
   })
 
+  it('uses the same graceful shutdown when the live shell writes its marker', () => {
+    const probe = makeProbe(500, [500])
+    const timer = makeTimer()
+    const onOrphaned = vi.fn()
+    const env = {
+      [SUPERVISOR_PID_ENV]: '500',
+      [SUPERVISOR_SHUTDOWN_FILE_ENV]: '/state/desktop.shutdown',
+    }
+    watchSupervisor(onOrphaned, { env, probe, ...timer.options })
+
+    probe.requestShutdown('/state/desktop.shutdown')
+    timer.tick()
+
+    expect(onOrphaned).toHaveBeenCalledWith(500)
+    expect(probe.alive(500)).toBe(true)
+  })
+
   it('fires once and stops polling: shutdown must not be re-entered every second', () => {
     const probe = makeProbe(500, [500])
     const timer = makeTimer()
@@ -137,8 +164,13 @@ describe('watchSupervisor', () => {
 
 describe('unsupervisedEnv', () => {
   it('drops the supervisor PID so a deliberately detached spawn outlives the shell', () => {
-    const env = unsupervisedEnv({ [SUPERVISOR_PID_ENV]: '500', PODIUM_PORT: '18787' })
+    const env = unsupervisedEnv({
+      [SUPERVISOR_PID_ENV]: '500',
+      [SUPERVISOR_SHUTDOWN_FILE_ENV]: '/state/desktop.shutdown',
+      PODIUM_PORT: '18787',
+    })
     expect(env[SUPERVISOR_PID_ENV]).toBeUndefined()
+    expect(env[SUPERVISOR_SHUTDOWN_FILE_ENV]).toBeUndefined()
     expect(env.PODIUM_PORT).toBe('18787')
   })
 

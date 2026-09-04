@@ -214,7 +214,7 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     expect(meta.querySelector('.pod-mark')).toBeTruthy()
     expect(meta.textContent).toMatch(/\d+:\d\d/)
     const workingStatus = workingRow.querySelector('[data-testid="row-lifecycle-status"]')
-    expect(workingStatus?.textContent).toContain('working')
+    expect(workingStatus?.textContent).toContain('in progress')
     // The partially-working issue has a question waiting → the row reads
     // waiting (stillness), and says so in line 2's one ochre sentence.
     const waitingRow = screen
@@ -251,8 +251,8 @@ describe('SidebarUnified per-row working grammar (#41)', () => {
     // only "an agent is computing" mark rather than a second one.
     expect(waitingRow.querySelector('.pod-mark')).toBeTruthy()
     const status = waitingRow.querySelector('[data-testid="row-lifecycle-status"]')
-    // Both facts, and no head-count eating the width they need.
-    expect(status?.textContent).toContain('working · needs answer')
+    // The spinner carries live agent activity. The words remain the task stage.
+    expect(status?.textContent).toContain('in progress')
     expect(status?.textContent).not.toContain('agents')
     // A waiting row with nothing running stays perfectly still.
     const merge = screen

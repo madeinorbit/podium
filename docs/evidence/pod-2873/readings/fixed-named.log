@@ -1,0 +1,57 @@
+
+=== POD-2873 fixed-named ================================================
+  source SHA       3d7fa89bc7f773a95bdfb753f02e2bf8efa738ea
+  server/daemon    /tmp/pod2873-arm/repo
+  web bundle       not loaded (direct API terminal drive)
+  instance         pod2873n
+  HOME             /home/mgw (natural; not overridden)
+  agent HOME       /home/mgw/.local/state/podium/pod2873n/agent-home (distinct)
+  state root       /home/mgw/.local/state/podium/pod2873n (product-derived; PODIUM_STATE_DIR unset)
+  socket override  <unset>
+  endpoints        http://127.0.0.1:21742 hook=21842 relay=21843
+  expectation       fixed
+  working directory /tmp/pod2873-arm/working-directory
+2026-08-26T13:39:46.132Z booted server pid=2739087 source_sha=3d7fa89bc7f773a95bdfb753f02e2bf8efa738ea
+2026-08-26T13:39:50.638Z server healthy on http://127.0.0.1:21742
+2026-08-26T13:39:50.642Z booted daemon pid=2739457 source_sha=3d7fa89bc7f773a95bdfb753f02e2bf8efa738ea
+2026-08-26T13:39:52.172Z daemon connected to server
+2026-08-26T13:39:52.353Z terminal session a23fdccb-d01d-46dd-a628-ae869b946424 created
+  durable label    podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424
+
+--- BEFORE DAEMON RESTART — positive control ---------------------------------------------
+  API status      starting
+  DB status       live
+  API row (full)  {"sessionId":"a23fdccb-d01d-46dd-a628-ae869b946424","agentKind":"shell","harness":"shell","driverId":null,"requestedDriverId":null,"status":"starting","phase":"idle","machine":"flatblock","model":null,"effort":null,"contextUsagePercent":null,"account":null,"error":null,"draft":false,"nativeSubagentCount":0,"nativeSubagents":[],"subagents":[],"issue":null,"commits":[],"files":[],"unackedMessages":0}
+  DB row (full)   {"id":"a23fdccb-d01d-46dd-a628-ae869b946424","owner_user_id":"user:sole","agent_kind":"shell","model":null,"effort":null,"account_id":null,"cwd":"/tmp/pod2873-arm/working-directory","title":"working-directory","origin_kind":"spawn","conversation_id":null,"resume_kind":null,"resume_value":null,"status":"live","exit_code":null,"spawn_failure":null,"durable_label":"podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424","created_at":"2026-08-26T13:39:52.316Z","last_active_at":"2026-08-26T13:39:52.316Z","name":null,"archived":0,"work_state":null,"machine_id":"bbf115b3-b450-4d55-81b6-dfb8f8ba3fd6","last_output_at":null,"last_input_at":null,"last_resumed_at":null,"spawned_by":"user","headless":0,"issue_id":null,"stopped_at":null,"stop_reason":null,"deleted_at":null,"deleted_by_issue_id":null,"deletion_source":null,"workflow_run_id":null,"workflow_step_id":null,"execution_profile_id":null,"name_source":null,"ref_issue_id":null,"ref_letter":null,"ref_draft":null,"terminal_cols":80,"terminal_rows":24,"working_ms_total":null,"input_count":0,"output_count":0,"activity_count":0,"created_by_actor_kind":"user","created_by_actor_id":"user:sole","created_by_on_behalf_of":"user:sole","selected_driver_id":null,"login_harness":null,"oom_killed_at":null}
+  direct sockets (whole scanned surface)
+  scanned present /run/user/1001/podium-pod2873n/abduco/mgw (named socket-root candidate /run/user/1001/podium-pod2873n)
+    matching entries ["podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424@flatblock"]
+  scanned absent /run/user/1001/podium/abduco/mgw (named socket-root candidate /run/user/1001/podium)
+  scanned absent /tmp/podium-1001/abduco/mgw (named socket-root candidate /tmp/podium-1001)
+  scanned absent /home/mgw/.local/state/podium/pod2873n/agent-home/.abduco (agent HOME/.abduco)
+  scanned absent /home/mgw/.abduco (daemon HOME/.abduco)
+  scanned absent /tmp/abduco/mgw (/tmp/abduco/<user>)
+  LIVE /run/user/1001/podium-pod2873n/abduco/mgw/podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424@flatblock (104 bytes; named socket-root candidate /run/user/1001/podium-pod2873n)
+  POSITIVE CONTROL  live row and live terminal master are both present
+  abduco processes  [2739560]
+2026-08-26T13:39:52.911Z stopped daemon pid=2739457
+2026-08-26T13:39:52.918Z booted daemon pid=2739587 source_sha=3d7fa89bc7f773a95bdfb753f02e2bf8efa738ea
+  post-restart settle live after 1145 ms
+
+--- AFTER DAEMON RESTART — row watched by the operator ---------------------------------------------
+  API status      reconnecting
+  DB status       live
+  API row (full)  {"sessionId":"a23fdccb-d01d-46dd-a628-ae869b946424","agentKind":"shell","harness":"shell","driverId":null,"requestedDriverId":null,"status":"reconnecting","phase":"idle","machine":"flatblock","model":null,"effort":null,"contextUsagePercent":null,"account":null,"error":null,"draft":false,"nativeSubagentCount":0,"nativeSubagents":[],"subagents":[],"issue":null,"commits":[],"files":[],"unackedMessages":0}
+  DB row (full)   {"id":"a23fdccb-d01d-46dd-a628-ae869b946424","owner_user_id":"user:sole","agent_kind":"shell","model":null,"effort":null,"account_id":null,"cwd":"/tmp/pod2873-arm/working-directory","title":"working-directory","origin_kind":"spawn","conversation_id":null,"resume_kind":null,"resume_value":null,"status":"live","exit_code":null,"spawn_failure":null,"durable_label":"podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424","created_at":"2026-08-26T13:39:52.316Z","last_active_at":"2026-08-26T13:39:52.316Z","name":null,"archived":0,"work_state":null,"machine_id":"bbf115b3-b450-4d55-81b6-dfb8f8ba3fd6","last_output_at":null,"last_input_at":null,"last_resumed_at":null,"spawned_by":"user","headless":0,"issue_id":null,"stopped_at":null,"stop_reason":null,"deleted_at":null,"deleted_by_issue_id":null,"deletion_source":null,"workflow_run_id":null,"workflow_step_id":null,"execution_profile_id":null,"name_source":null,"ref_issue_id":null,"ref_letter":null,"ref_draft":null,"terminal_cols":80,"terminal_rows":24,"working_ms_total":null,"input_count":0,"output_count":0,"activity_count":0,"created_by_actor_kind":"user","created_by_actor_id":"user:sole","created_by_on_behalf_of":"user:sole","selected_driver_id":null,"login_harness":null,"oom_killed_at":null}
+  direct sockets (whole scanned surface)
+  scanned present /run/user/1001/podium-pod2873n/abduco/mgw (named socket-root candidate /run/user/1001/podium-pod2873n)
+    matching entries ["podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424@flatblock"]
+  scanned absent /run/user/1001/podium/abduco/mgw (named socket-root candidate /run/user/1001/podium)
+  scanned absent /tmp/podium-1001/abduco/mgw (named socket-root candidate /tmp/podium-1001)
+  scanned absent /home/mgw/.local/state/podium/pod2873n/agent-home/.abduco (agent HOME/.abduco)
+  scanned absent /home/mgw/.abduco (daemon HOME/.abduco)
+  scanned absent /tmp/abduco/mgw (/tmp/abduco/<user>)
+  LIVE /run/user/1001/podium-pod2873n/abduco/mgw/podium-pod2873n-a23fdccb-d01d-46dd-a628-ae869b946424@flatblock (104 bytes; named socket-root candidate /run/user/1001/podium-pod2873n)
+  FIXED ARM         PASS — reattach found the live master after daemon restart
+2026-08-26T13:39:55.384Z stopped daemon pid=2739587
+2026-08-26T13:39:55.492Z stopped server pid=2739087

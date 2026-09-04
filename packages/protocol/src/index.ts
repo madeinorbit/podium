@@ -1,6 +1,7 @@
 /**
  * @podium/protocol — wire types + codecs for agent/terminal sessions.
  */
+export * from './binary-envelope'
 export * from './bundle-version'
 export * from './delegation'
 // Branded entity ids and the two legacy composite-key helpers live in
@@ -15,6 +16,7 @@ export * from './edge'
 export * from './features'
 export * from './handshake'
 export * from './issue-read-limits'
+export * from './links'
 export * from './lock-names'
 export * from './locks'
 export * from './maintenance'

@@ -86,7 +86,7 @@ beforeEach(() => {
   telemetryState.mockResolvedValue({
     usage: 'absent',
     crash: 'absent',
-    endpoint: 'https://telemetry.podium.dev',
+    endpoint: 'https://pulse.meetpodium.com/v1/u',
   })
   telemetrySet.mockReset()
   telemetrySet.mockResolvedValue({ usage: 'off', crash: 'off' })

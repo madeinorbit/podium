@@ -1,0 +1,86 @@
+{
+  "cell": "A3",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "turn stopped 632ms after interrupt, but nothing marks it",
+  "evidence": [
+    "WAS RUNNING       3 preview frame(s) and 0 new transcript chars — tokens are being produced; phase=working, 3 preview frame(s), 0 new transcript chars, 0 new terminal bytes",
+    "INTERRUPT SENT    {\"ok\":true,\"requested\":\"protocol\"}",
+    "SETTLED           phase left 'working' after 632ms",
+    "TRANSCRIPT MARK   no item carries event:'interrupt'",
+    "TEXT              0 chars at the call -> 0 chars at settle",
+    "FRAMES AFTER      2 preview frame(s) arrived AFTER the call",
+    "TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s",
+    "AFTER THE CALL    phase=idle status=live error=none",
+    "SCORED ON         phase leaving 'working'"
+  ],
+  "data": {
+    "settledMs": 632,
+    "marked": false,
+    "charsBefore": 0,
+    "charsAfter": 0,
+    "framesAfterInterrupt": 2,
+    "host": {
+      "load": [
+        "7.47",
+        "9.36",
+        "10.89"
+      ],
+      "memAvailableKb": 5102844,
+      "swapFreeKb": 36405640,
+      "diskFreeKb": 12972148
+    }
+  },
+  "requestedCwd": "/tmp/pod-2919/probes/headless-a3",
+  "cwdFromSpawn": null,
+  "instance": "oc2919",
+  "codePin": "94dffcda323fb02ad10038e6d7fe7e034f190f9",
+  "pin": {
+    "codeSha": "94dffcda323fb02ad10038e6d7fe7e034f190f9f",
+    "codeShort": "94dffcd",
+    "server": {
+      "pid": 943095,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "94dffcda323fb02ad10038e6d7fe7e034f190f9f"
+    },
+    "daemon": {
+      "pid": 943320,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "94dffcda323fb02ad10038e6d7fe7e034f190f9f"
+    },
+    "bundleSourceSha": "94dffcd",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "host": {
+    "load": [
+      "9.81",
+      "9.71",
+      "10.95"
+    ],
+    "memAvailableKb": 4221880,
+    "swapFreeKb": 36409196,
+    "diskFreeKb": 12912172
+  },
+  "at": "2026-08-27T03:03:42.069Z",
+  "error": "",
+  "log": [
+    "PIN PINJSON {\"codeSha\":\"94dffcda323fb02ad10038e6d7fe7e034f190f9f\",\"codeShort\":\"94dffcd\",\"server\":{\"pid\":943095,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"94dffcda323fb02ad10038e6d7fe7e034f190f9f\"},\"daemon\":{\"pid\":943320,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"94dffcda323fb02ad10038e6d7fe7e034f190f9f\"},\"bundleSourceSha\":\"94dffcd\",\"expectedDriver\":\"opencode-server\",\"expectedFamily\":\"server\",\"actualRuntimeDriver\":\"\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=943095 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=94dffcda323f",
+    "PIN daemon pid=943320 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=94dffcda323f",
+    "PIN bundle sourceSha=94dffcd expected=94dffcd",
+    "PIN daemon runtime driver=unset expected=opencode-server family=server",
+    "HOST {\"load\":[\"7.47\",\"9.36\",\"10.89\"],\"memAvailableKb\":5102844,\"swapFreeKb\":36405640,\"diskFreeKb\":12972148}",
+    "A3 capacity load=7.47 memAvailableKb=5102844 swapFreeKb=36405640 vmstatQuiet=true",
+    "SESSION sid=10a088d0-190d-4da2-b0ab-59b051a03735",
+    "CWD requested=/tmp/pod-2919/probes/headless-a3",
+    "CWD spawn-observed=/tmp/pod-2919/probes/headless-a3",
+    "CWD query=/tmp/pod-2919/probes/headless-a3 match=true",
+    "DRIVER bound=opencode-server family=server status=live",
+    "A3 control=true verdict=PASS"
+  ]
+}

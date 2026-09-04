@@ -12,7 +12,13 @@ export class ConversationIndexRepository {
     private readonly hostMachineId: MachineId,
   ) {}
 
-  ensureFts(): void {
+  /**
+   * Create the FTS5 index and the three triggers that keep it fed, then rebuild
+   * it from `conversations`. Called at boot only when the `command-palette` flag
+   * is on; a build without FTS5 support falls into the catch and leaves
+   * `ftsAvailable` false, which the LIKE fallback in `searchCandidates` covers.
+   */
+  enableFts(): void {
     try {
       this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
         title, name, summary, project_path, content='conversations', content_rowid='rowid')`)
@@ -32,6 +38,26 @@ export class ConversationIndexRepository {
     } catch {
       this.ftsAvailable = false
     }
+  }
+
+  /**
+   * Drop the feeding triggers, leaving the virtual table itself in place.
+   *
+   * The triggers are what cost something when search is off: every insert,
+   * update and delete on `conversations` writes fts5 rows (see the `upsert`
+   * comment below for the stall that measured). The table is left alone on
+   * purpose — dropping it buys nothing, and `conversations_fts` is rebuilt from
+   * scratch whenever the flag comes back on.
+   *
+   * The triggers MUST go before the table could ever be dropped: a trigger whose
+   * `INSERT INTO conversations_fts` has no table fails every write to
+   * `conversations`.
+   */
+  disableFts(): void {
+    this.db.exec(`DROP TRIGGER IF EXISTS conversations_ai;
+      DROP TRIGGER IF EXISTS conversations_ad;
+      DROP TRIGGER IF EXISTS conversations_au;`)
+    this.ftsAvailable = false
   }
 
   /**

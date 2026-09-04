@@ -1,4 +1,4 @@
-import { isAgentComputing } from '@podium/model'
+import { isAgentConfirmedComputing } from '@podium/model'
 import type { EventsRepository, PodiumEventRecord } from '../../store/events'
 import type { EventBus } from '../bus'
 import type { Session } from './session'
@@ -28,15 +28,18 @@ interface ConcurrencyChange {
 /**
  * The registry holds every session it has ever seen, including the exited and
  * the parked, and their last observed phase is deliberately preserved. So the
- * count must ask liveness too — see `isAgentComputing`. Without it the skyline
+ * count must ask confirmed liveness too. Without it the skyline
  * had a floor that only ratcheted upward: every agent that ever died mid-turn
  * kept counting, and the strip read "13 agents working" for hours (POD-730).
+ * Reconnecting sessions are excluded as well: the preserved phase is useful
+ * for recovery, but it is no longer evidence of work happening now.
  */
 export function workingAgentCount(
-  sessions: Iterable<Pick<Session, 'agentState' | 'status' | 'archived'>>,
+  sessions: Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>>,
+  nowMs: number,
 ): number {
   let count = 0
-  for (const session of sessions) if (isAgentComputing(session)) count += 1
+  for (const session of sessions) if (isAgentConfirmedComputing(session, nowMs)) count += 1
   return count
 }
 
@@ -103,7 +106,8 @@ export class AgentConcurrencyHistory {
 
   constructor(
     private readonly deps: {
-      sessions: () => Iterable<Pick<Session, 'agentState' | 'status' | 'archived'>>
+      sessions: () =>
+        Iterable<Pick<Session, 'agentState' | 'status' | 'archived' | 'lastActiveAt'>>
       events: Pick<EventsRepository, 'appendEvent' | 'listKindSinceWithPrior'>
       bus: EventBus
       now: () => number
@@ -128,7 +132,7 @@ export class AgentConcurrencyHistory {
   }
 
   capture(): number {
-    const count = workingAgentCount(this.deps.sessions())
+    const count = workingAgentCount(this.deps.sessions(), this.deps.now())
     if (count === this.lastRecordedCount) return count
     try {
       this.deps.events.appendEvent({

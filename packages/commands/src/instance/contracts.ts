@@ -142,6 +142,10 @@ const CREATES_NOTHING = {
 
 export const setupCompleteInput = z.object({
   publicUrl: z.string(),
+  /** The reachability method selected alongside the URL. */
+  networkOption: z
+    .enum(['tailscale-funnel', 'tailscale-serve', 'cloudflare-tunnel', 'manual'])
+    .optional(),
   /** Which host mode this reachable box is (the web runs this step for both);
    *  absent preserves the existing mode (default all-in-one on first run). */
   mode: z.enum(['all-in-one', 'server']).optional(),
@@ -152,6 +156,15 @@ export const setupCompleteInput = z.object({
    *  guard, a follow-up telemetry call from the not-yet-logged-in setup page
    *  would 401. Absent = not asked. */
   telemetry: z.object({ usage: z.enum(['on', 'off']), crash: z.enum(['on', 'off']) }).optional(),
+  /**
+   * Acknowledge that replacing an ALREADY-SET public URL strands every joined
+   * machine (PDM-26): the old URL is embedded in every join token issued and
+   * every paired device's record, and none of them can be told about the new
+   * one. Never needed for the first URL, and writing the same URL again is
+   * idempotent — so it is only ever collected when a live deployment's address
+   * is actually being changed.
+   */
+  confirmUrlChange: z.literal(true).optional(),
 })
 
 export const setupCompleteContract = {
@@ -182,8 +195,8 @@ export const setupCompleteContract = {
     outputPaths: [],
     note:
       '`password` IS credential material and is redacted from any log or audit record of this ' +
-      'command. `publicUrl` and `mode` are deployment identity and stay visible — the URL is public ' +
-      'by definition and a refusal must name it to be actionable. The telemetry answers are ' +
+      'command. `publicUrl`, `networkOption`, and `mode` are deployment identity and stay visible. ' +
+      'A refusal must name the URL to be actionable. The telemetry answers are ' +
       'consent booleans, not data. The RESULT is the resolved config and carries no password back, ' +
       'which is why `outputPaths` is empty rather than unexamined.',
   } satisfies RedactionPolicy,

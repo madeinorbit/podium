@@ -1,0 +1,46 @@
+{
+  "recordedAt": "2026-08-30T20:21:00+02:00",
+  "kind": "r18-f0e3afba-experimental-control-refusal",
+  "verdict": "REFUSED",
+  "scored": false,
+  "epicPin": "f0e3afba846298b2adffcd93d236a8083f6ade64",
+  "branchAlignment": {
+    "head": "f0e3afba846298b2adffcd93d236a8083f6ade64",
+    "localEpicTip": "f0e3afba846298b2adffcd93d236a8083f6ade64",
+    "leftRightCount": [0, 0]
+  },
+  "provider": {
+    "name": "OpenCode",
+    "version": "1.18.25",
+    "path": "/home/mgw/.opencode/bin/opencode",
+    "sha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "webBundle": {
+    "sourceSha": "252c8c4",
+    "bundleVersion": "bundle+BZTkVqZf",
+    "reuseProof": "git diff --quiet 252c8c4..f0e3afba846298b2adffcd93d236a8083f6ade64 -- apps/web returned zero"
+  },
+  "run": {
+    "instance": "p3112-a7-final-f0e-r1",
+    "ports": [22132, 49132, 49133],
+    "base": "/tmp/pod-3112-a7-final-f0e-r1",
+    "fixture": "/tmp/pod-3112-a7-final-f0e-r1/dummy-repo",
+    "machineId": "eafda69d-7f6e-4848-8618-326af8e50bab",
+    "startedAt": "2026-08-30T20:19:38+02:00",
+    "readingAt": "2026-08-30T18:19:57.865Z",
+    "finishedAt": "2026-08-30T18:20:29.600Z",
+    "onboarding": {"entered": false, "steps": []},
+    "providerPrompts": 0,
+    "reason": "The normal desktop topbar and Settings dialog mounted, but the required visible Headless session drivers control did not appear within 30000 ms.",
+    "a7a": "UNSCORED",
+    "a7b": "NOT ATTEMPTED",
+    "rawHashes": {
+      "r18-reading.json": "6a4feb9d464d7bbc0c670a5d6eddd66fc5cf18b4e4eb8c51e41308bcd1504c43",
+      "r18-run.log": "da5ced683e48a0d5ff356fb5b3d9971edf32115513ae32799f6fb98acf29a9cc",
+      "server.log": "a0159355e407d189c050782808648c9d62c7d0ee22a60d47f174b0cd10075039",
+      "daemon.log": "a2290daf4d6bea27a3004ff168f1e71f5d8b0720780c5f19dbbbc48950f4282b"
+    },
+    "cleanup": "At 2026-08-30T20:21:00+02:00 the server, daemon, credential symlink, all three listeners, and every process carrying the exact named-instance environment were absent."
+  },
+  "ledger": "No eight-field row was appended because the required independent experimental-setting control did not fire."
+}

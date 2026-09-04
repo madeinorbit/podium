@@ -13,7 +13,6 @@ import {
   cardAge,
   issueCardStateSlots,
   issueStateWord,
-  liveAgentCount,
 } from './issue-card'
 import { DEFAULT_DISPLAY } from './issues-display'
 
@@ -27,7 +26,9 @@ describe('issueCardStateSlots — rank', () => {
       needsHuman: true,
       blocked: true,
     })
-    expect(issueCardStateSlots(issue, { badges }).map((s) => s.kind)[0]).toBe('deleted')
+    expect(issueCardStateSlots(issue, { badges, workingAgents: 0 }).map((s) => s.kind)[0]).toBe(
+      'deleted',
+    )
   })
 
   it('ranks needs-you above blocked, blocked above live, live above merge', () => {
@@ -43,7 +44,7 @@ describe('issueCardStateSlots — rank', () => {
         dirtyFiles: 0,
       },
     })
-    expect(issueCardStateSlots(issue, { badges }).map((s) => s.kind)).toEqual([
+    expect(issueCardStateSlots(issue, { badges, workingAgents: 2 }).map((s) => s.kind)).toEqual([
       'needs-human',
       'blocked',
       'live',
@@ -58,18 +59,32 @@ describe('issueCardStateSlots — rank', () => {
       estimateMin: 30,
       dueAt: '2026-08-01T00:00:00.000Z',
     })
-    const kinds = issueCardStateSlots(issue, { badges }).map((s) => s.kind)
+    const kinds = issueCardStateSlots(issue, { badges, workingAgents: 0 }).map((s) => s.kind)
     expect(kinds.indexOf('needs-human')).toBeLessThan(kinds.indexOf('labels'))
     expect(kinds).toEqual(['needs-human', 'labels', 'due', 'estimate'])
   })
 
+  it('uses the canonical working count when the caller resolved the session rows', () => {
+    const staleSummary = makeIssue({ sessionSummary: { total: 1, byPhase: { working: 1 } } })
+    expect(issueCardStateSlots(staleSummary, { badges, workingAgents: 0 })).toEqual([])
+  })
+
+  it('adds an epic own workers to its descendant workers', () => {
+    const slots = issueCardStateSlots(makeIssue({}), {
+      badges,
+      workingAgents: 1,
+      progress: { total: 2, done: 0, liveAgents: 2 },
+    })
+    expect(slots.find((slot) => slot.kind === 'live')).toEqual({ kind: 'live', count: 3 })
+  })
+
   it('keeps type OFF the state line — it is identity, and it costs a whole row', () => {
     const bug = makeIssue({ type: 'bug' })
-    expect(issueCardStateSlots(bug, { badges })).toEqual([])
+    expect(issueCardStateSlots(bug, { badges, workingAgents: 0 })).toEqual([])
   })
 
   it('says nothing about a task that has nothing to say', () => {
-    expect(issueCardStateSlots(makeIssue({}), { badges: off })).toEqual([])
+    expect(issueCardStateSlots(makeIssue({}), { badges: off, workingAgents: 0 })).toEqual([])
   })
 })
 
@@ -77,11 +92,11 @@ describe('issueCardStateSlots — the Display toggles still change the card', ()
   const issue = makeIssue({ labels: ['ui', 'perf'], estimateMin: 30 })
 
   it('drops each badge when its toggle is off', () => {
-    expect(issueCardStateSlots(issue, { badges: off })).toEqual([])
+    expect(issueCardStateSlots(issue, { badges: off, workingAgents: 0 })).toEqual([])
   })
 
   it('keeps them when it is on', () => {
-    expect(issueCardStateSlots(issue, { badges }).map((s) => s.kind)).toEqual([
+    expect(issueCardStateSlots(issue, { badges, workingAgents: 0 }).map((s) => s.kind)).toEqual([
       'labels',
       'estimate',
     ])
@@ -89,21 +104,11 @@ describe('issueCardStateSlots — the Display toggles still change the card', ()
 
   it('collapses labels past the dot cap into an overflow count', () => {
     const many = makeIssue({ labels: ['a', 'b', 'c', 'd', 'e'] })
-    const slot = issueCardStateSlots(many, { badges }).find((s) => s.kind === 'labels')
+    const slot = issueCardStateSlots(many, { badges, workingAgents: 0 }).find(
+      (s) => s.kind === 'labels',
+    )
     expect(slot).toMatchObject({ kind: 'labels', overflow: 2 })
     if (slot?.kind === 'labels') expect(slot.labels).toHaveLength(3)
-  })
-})
-
-describe('liveAgentCount', () => {
-  it('counts only sessions actually computing — attached-but-still is not live', () => {
-    expect(
-      liveAgentCount(makeIssue({ sessionSummary: { total: 5, byPhase: { idle: 4, working: 1 } } })),
-    ).toBe(1)
-    expect(liveAgentCount(makeIssue({ sessionSummary: { total: 5, byPhase: { idle: 5 } } }))).toBe(
-      0,
-    )
-    expect(liveAgentCount(makeIssue({}))).toBe(0)
   })
 })
 
@@ -129,21 +134,26 @@ describe('aheadCount', () => {
 
 describe('issueStateWord — the one word a dense row has space for', () => {
   it('takes the top of the same ranked list the card walks', () => {
-    expect(issueStateWord(makeIssue({ needsHuman: true }))).toEqual({
+    expect(issueStateWord(makeIssue({ needsHuman: true }), 0)).toEqual({
       text: 'needs you',
       tone: 'attention',
     })
     expect(
-      issueStateWord(makeIssue({ sessionSummary: { total: 2, byPhase: { working: 2 } } })),
+      issueStateWord(makeIssue({ sessionSummary: { total: 2, byPhase: { working: 2 } } }), 2),
     ).toEqual({ text: '2 working', tone: 'live' })
   })
 
+  it('does not revive a stale raw phase summary', () => {
+    const staleSummary = makeIssue({ sessionSummary: { total: 1, byPhase: { working: 1 } } })
+    expect(issueStateWord(staleSummary, 0)).toBeNull()
+  })
+
   it('is null when the row has nothing to say, so the suffix teaches something', () => {
-    expect(issueStateWord(makeIssue({}))).toBeNull()
+    expect(issueStateWord(makeIssue({}), 0)).toBeNull()
   })
 
   it('ignores the Display badges — a row is not a card', () => {
-    expect(issueStateWord(makeIssue({ type: 'bug', labels: ['ui'] }))).toBeNull()
+    expect(issueStateWord(makeIssue({ type: 'bug', labels: ['ui'] }), 0)).toBeNull()
   })
 })
 

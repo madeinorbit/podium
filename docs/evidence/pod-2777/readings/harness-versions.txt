@@ -1,0 +1,4 @@
+  codex     /home/mgw/.local/bin/codex               codex-cli 0.149.1
+  grok      /home/mgw/.local/bin/grok                grok 0.2.118 (1e1687c1cf) [stable]
+  opencode  /home/mgw/.opencode/bin/opencode         1.18.16
+  claude    /home/mgw/.local/bin/claude              2.1.231 (Claude Code)

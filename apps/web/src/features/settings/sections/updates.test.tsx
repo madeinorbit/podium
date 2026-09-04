@@ -831,3 +831,53 @@ describe('UpdatesSection', () => {
     })
   })
 })
+
+/**
+ * `updateScope: 'fleet-only'` (PDM-26). The deployment replaces the server
+ * binary itself, so the section says who owns it rather than leaving an
+ * operator to wonder why the fleet moves and the server never does.
+ */
+describe('a deployment that owns the server binary', () => {
+  it('says server updates are the deployment’s, and machines still follow the feed', async () => {
+    trpc.setup.channel.query.mockResolvedValue({
+      channel: 'stable',
+      envForced: false,
+      updateScope: 'fleet-only',
+    })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+
+    render(<UpdatesSection />)
+
+    expect(await screen.findByText(/Server updates are managed by this deployment/)).toBeTruthy()
+  })
+
+  it('says nothing under the default scope', async () => {
+    trpc.setup.channel.query.mockResolvedValue({
+      channel: 'stable',
+      envForced: false,
+      updateScope: 'all',
+    })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+
+    render(<UpdatesSection />)
+
+    await screen.findByText('Fleet default channel')
+    expect(screen.queryByText(/Server updates are managed by this deployment/)).toBeNull()
+  })
+
+  it('a server too old to report a scope is treated as “all”', async () => {
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+    quietHistory()
+
+    render(<UpdatesSection />)
+
+    await screen.findByText('Fleet default channel')
+    expect(screen.queryByText(/Server updates are managed by this deployment/)).toBeNull()
+  })
+})

@@ -1,5 +1,6 @@
 import type { CSSProperties, ReactNode, PointerEvent as ReactPointerEvent } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import {
   PULL_REFRESH_THRESHOLD,
   pullWillRefresh,
@@ -9,6 +10,8 @@ import { color, font, mono, radius } from '../theme/theme'
 
 const START_SLOP = 7
 const CONFIRMED_MS = 700
+const PULLING_TRANSITION = 'opacity 80ms linear'
+const SETTLING_TRANSITION = 'transform 180ms ease, opacity 160ms ease'
 
 interface ActivePointer {
   id: number
@@ -41,21 +44,83 @@ export function PullToRefreshBoundary({
   refreshing: boolean
   onRefresh: () => void
 }) {
+  const reduceMotion = useReduceMotion()
   const boundaryRef = useRef<HTMLDivElement>(null)
   const pointer = useRef<ActivePointer | null>(null)
   const touch = useRef<ActivePointer | null>(null)
+  const indicatorRef = useRef<HTMLDivElement>(null)
   const distanceRef = useRef(0)
+  const pendingDistanceRef = useRef(0)
+  const animationFrameRef = useRef<number | null>(null)
+  const armedRef = useRef(false)
+  const pinnedRef = useRef(refreshing)
   const refreshTriggered = useRef(false)
   const wasRefreshing = useRef(false)
   const confirmationTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const [distance, setDistance] = useState(0)
+  const [armed, setArmed] = useState(false)
   const [confirmed, setConfirmed] = useState(false)
-  const armed = pullWillRefresh(distance)
 
-  const setPullDistance = useCallback((next: number) => {
-    distanceRef.current = next
-    setDistance(next)
+  const paintPullDistance = useCallback(
+    (distance: number) => {
+      if (pinnedRef.current) return
+      const indicator = indicatorRef.current
+      if (!indicator) return
+      indicator.style.transition =
+        distance > 0 ? PULLING_TRANSITION : reduceMotion ? 'none' : SETTLING_TRANSITION
+      indicator.style.opacity = distance > 0 ? '1' : '0'
+      indicator.style.transform = `translate(-50%, ${distance - 42}px)`
+    },
+    [reduceMotion],
+  )
+
+  const cancelScheduledFrame = useCallback(() => {
+    if (animationFrameRef.current === null) return
+    cancelAnimationFrame(animationFrameRef.current)
+    animationFrameRef.current = null
   }, [])
+
+  const schedulePullDistance = useCallback(
+    (next: number) => {
+      if (pinnedRef.current) return
+      distanceRef.current = next
+      pendingDistanceRef.current = next
+
+      const nextArmed = pullWillRefresh(next)
+      if (nextArmed !== armedRef.current) {
+        armedRef.current = nextArmed
+        setArmed(nextArmed)
+      }
+
+      if (animationFrameRef.current !== null) return
+      animationFrameRef.current = requestAnimationFrame(() => {
+        animationFrameRef.current = null
+        if (pinnedRef.current) return
+        paintPullDistance(pendingDistanceRef.current)
+      })
+    },
+    [paintPullDistance],
+  )
+
+  const clearPullDistance = useCallback(() => {
+    cancelScheduledFrame()
+    distanceRef.current = 0
+    pendingDistanceRef.current = 0
+    if (armedRef.current) {
+      armedRef.current = false
+      setArmed(false)
+    }
+    if (!pinnedRef.current) paintPullDistance(0)
+  }, [cancelScheduledFrame, paintPullDistance])
+
+  const pinned = refreshing || confirmed
+
+  useLayoutEffect(() => {
+    pinnedRef.current = pinned
+    if (!pinned) return
+    pointer.current = null
+    touch.current = null
+    clearPullDistance()
+  }, [clearPullDistance, pinned])
 
   useEffect(() => {
     if (refreshing) {
@@ -68,20 +133,21 @@ export function PullToRefreshBoundary({
     wasRefreshing.current = false
     setConfirmed(true)
     confirmationTimer.current = setTimeout(() => setConfirmed(false), CONFIRMED_MS)
-  }, [refreshing])
+  }, [clearPullDistance, refreshing])
 
   useEffect(
     () => () => {
+      cancelScheduledFrame()
       if (confirmationTimer.current) clearTimeout(confirmationTimer.current)
     },
-    [],
+    [cancelScheduledFrame],
   )
 
   const reset = useCallback(() => {
     pointer.current = null
     touch.current = null
-    if (!refreshing) setPullDistance(0)
-  }, [refreshing, setPullDistance])
+    clearPullDistance()
+  }, [clearPullDistance])
 
   const triggerRefresh = useCallback(() => {
     if (refreshTriggered.current || refreshing || !pullWillRefresh(distanceRef.current)) return
@@ -98,6 +164,7 @@ export function PullToRefreshBoundary({
     // escape hatch: it keeps the same physical gesture alive and prevents only
     // a downward top-edge move, leaving ordinary mid-list scrolling untouched.
     const onTouchStart = (event: TouchEvent) => {
+      if (pinnedRef.current) return
       const point = event.touches[0]
       if (!point) return
       const scrollElement = verticalScroller(event.target, boundary)
@@ -118,7 +185,7 @@ export function PullToRefreshBoundary({
         return
       }
       event.preventDefault()
-      setPullDistance(resistedPullDistance(rawDistance - START_SLOP))
+      schedulePullDistance(resistedPullDistance(rawDistance - START_SLOP))
     }
     const onTouchEnd = (event: TouchEvent) => {
       const active = touch.current
@@ -138,9 +205,10 @@ export function PullToRefreshBoundary({
       boundary.removeEventListener('touchend', onTouchEnd)
       boundary.removeEventListener('touchcancel', reset)
     }
-  }, [reset, setPullDistance, triggerRefresh])
+  }, [reset, schedulePullDistance, triggerRefresh])
 
   const onPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (pinnedRef.current) return
     if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return
     const boundary = boundaryRef.current
     if (!boundary) return
@@ -163,7 +231,7 @@ export function PullToRefreshBoundary({
     // so no compositor frame can rubber-band behind the indicator.
     event.preventDefault()
     event.currentTarget.setPointerCapture?.(event.pointerId)
-    setPullDistance(resistedPullDistance(rawDistance - START_SLOP))
+    schedulePullDistance(resistedPullDistance(rawDistance - START_SLOP))
   }
 
   const finishPointer = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -172,18 +240,17 @@ export function PullToRefreshBoundary({
     event.currentTarget.releasePointerCapture?.(event.pointerId)
     pointer.current = null
     triggerRefresh()
-    setPullDistance(0)
+    clearPullDistance()
   }
 
   const cancelPointer = () => {
     pointer.current = null
     // A physical touch continues through the non-passive listener above after
     // the browser cancels its PointerEvent. Do not erase that gesture's travel.
-    if (!touch.current && !refreshing) setPullDistance(0)
+    if (!touch.current) clearPullDistance()
   }
 
-  const visible = distance > 0 || refreshing || confirmed
-  const indicatorDistance = refreshing || confirmed ? PULL_REFRESH_THRESHOLD : distance
+  const indicatorDistance = pinned ? PULL_REFRESH_THRESHOLD : 0
   const label = refreshing
     ? connected
       ? 'Checking for updates…'
@@ -219,16 +286,16 @@ export function PullToRefreshBoundary({
         Refresh list
       </button>
       <div
+        ref={indicatorRef}
         role="status"
         aria-live="polite"
         aria-atomic="true"
         data-pull-to-refresh-indicator
         style={{
           ...indicatorStyle,
-          opacity: visible ? 1 : 0,
+          opacity: pinned ? 1 : 0,
           transform: `translate(-50%, ${indicatorDistance - 42}px)`,
-          transition:
-            distance > 0 ? 'opacity 80ms linear' : 'transform 180ms ease, opacity 160ms ease',
+          transition: reduceMotion ? 'none' : SETTLING_TRANSITION,
         }}
       >
         <span aria-hidden="true" style={glyphStyle}>

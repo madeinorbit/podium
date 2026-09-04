@@ -1,0 +1,896 @@
+{
+  "schema": "pod-3097-a11-v1",
+  "issue": "POD-3097",
+  "cell": "codex",
+  "verdict": "FAIL",
+  "startedAt": "2026-08-29T21:34:54.670Z",
+  "finishedAt": "2026-08-29T21:37:15.690Z",
+  "control": {
+    "marker": "P3097-CODEX-CONTROL-C7HWG8I",
+    "startedAt": "2026-08-29T21:34:58.711Z",
+    "finishedAt": "2026-08-29T21:35:03.579Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+      "status": "live",
+      "phase": "idle",
+      "driverId": "codex-app-server",
+      "driverFamily": "server",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "resume": {
+        "kind": "codex-thread",
+        "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+      }
+    },
+    "fired": true
+  },
+  "expectedDriver": "codex-app-server",
+  "before": {
+    "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+    }
+  },
+  "target": {
+    "model": "gpt-5.6-luna",
+    "effort": "max"
+  },
+  "configuredAt": "2026-08-29T21:35:34.128Z",
+  "configureOutcome": {
+    "ok": true,
+    "effective": "next-turn"
+  },
+  "immediate": {
+    "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+    }
+  },
+  "nextTurn": {
+    "marker": "P3097-CODEX-CONFIGURED-P4TFDP2",
+    "startedAt": "2026-08-29T21:35:34.171Z",
+    "finishedAt": "2026-08-29T21:35:36.445Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+      "agentKind": "codex",
+      "accountId": "native:claude-code",
+      "title": "repo",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T21:35:36.000Z",
+        "workingMsTotal": 5000,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c0",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T21:34:57.640Z",
+      "lastActiveAt": "2026-08-29T21:35:36.000Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "codex-thread",
+        "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+      },
+      "transcriptAvailable": true,
+      "requestedModel": "gpt-5.6-luna",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "codex-app-server",
+      "driverFamily": "server",
+      "conversationPodiumId": "conv_c4505a93-d1ab-4b65-a9ac-99910d518387",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": false
+    }
+  },
+  "afterTurn": {
+    "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+    }
+  },
+  "reloaded": {
+    "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+    }
+  },
+  "restarted": {
+    "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+    }
+  },
+  "persistenceTurn": {
+    "marker": "P3097-CODEX-PERSISTED-976VEBT",
+    "startedAt": "2026-08-29T21:36:25.781Z",
+    "finishedAt": "2026-08-29T21:36:29.311Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+      "agentKind": "codex",
+      "accountId": "native:claude-code",
+      "title": "repo",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T21:36:28.000Z",
+        "workingMsTotal": 5000,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c0",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T21:34:57.640Z",
+      "lastActiveAt": "2026-08-29T21:36:28.876Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "codex-thread",
+        "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+      },
+      "transcriptAvailable": true,
+      "requestedModel": "gpt-5.6-luna",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "codex-app-server",
+      "driverFamily": "server",
+      "conversationPodiumId": "conv_c4505a93-d1ab-4b65-a9ac-99910d518387",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": false
+    }
+  },
+  "final": {
+    "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+    }
+  },
+  "initialPins": {
+    "at": "2026-08-29T21:34:54.684Z",
+    "head": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1455881",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1456038",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T213054Z",
+    "capacity": {
+      "load1m": 2.58,
+      "memAvailable": "18849040 kB",
+      "rootFreeKiB": 78037524
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "finalPins": {
+    "at": "2026-08-29T21:37:14.684Z",
+    "head": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1478825",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1478898",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T213622Z",
+    "capacity": {
+      "load1m": 10.85,
+      "memAvailable": "18494320 kB",
+      "rootFreeKiB": 77967396
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "events": [
+    {
+      "at": "2026-08-29T21:34:54.670Z",
+      "event": "cell-start",
+      "detail": {
+        "cell": "codex"
+      }
+    },
+    {
+      "at": "2026-08-29T21:34:55.550Z",
+      "event": "initial-pins-proved",
+      "detail": {
+        "at": "2026-08-29T21:34:54.684Z",
+        "head": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1455881",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1456038",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T213054Z",
+        "capacity": {
+          "load1m": 2.58,
+          "memAvailable": "18849040 kB",
+          "rootFreeKiB": 78037524
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:34:57.610Z",
+      "event": "live-catalog-read",
+      "detail": {
+        "fetchedAt": 1788039297595,
+        "counts": {
+          "grok": 2,
+          "cursor": 0,
+          "opencode": 32,
+          "codex": 7,
+          "claude-code": 10
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:34:57.659Z",
+      "event": "session-created",
+      "detail": {
+        "sid": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+        "agentKind": "codex"
+      }
+    },
+    {
+      "at": "2026-08-29T21:34:58.705Z",
+      "event": "driver-bound",
+      "detail": {
+        "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "codex-app-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "resume": {
+          "kind": "codex-thread",
+          "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:35:34.121Z",
+      "event": "independent-positive-control",
+      "detail": {
+        "marker": "P3097-CODEX-CONTROL-C7HWG8I",
+        "startedAt": "2026-08-29T21:34:58.711Z",
+        "finishedAt": "2026-08-29T21:35:03.579Z",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "userObserved": true,
+        "assistantObserved": true,
+        "row": {
+          "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+          }
+        },
+        "fired": true
+      }
+    },
+    {
+      "at": "2026-08-29T21:35:34.128Z",
+      "event": "configure-request",
+      "detail": {
+        "model": "gpt-5.6-luna",
+        "effort": "max"
+      }
+    },
+    {
+      "at": "2026-08-29T21:35:34.170Z",
+      "event": "configure-reply",
+      "detail": {
+        "configureOutcome": {
+          "ok": true,
+          "effective": "next-turn"
+        },
+        "immediate": {
+          "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:36:21.570Z",
+      "event": "next-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-CODEX-CONFIGURED-P4TFDP2",
+          "startedAt": "2026-08-29T21:35:34.171Z",
+          "finishedAt": "2026-08-29T21:35:36.445Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+            "agentKind": "codex",
+            "accountId": "native:claude-code",
+            "title": "repo",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T21:35:36.000Z",
+              "workingMsTotal": 5000,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c0",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T21:34:57.640Z",
+            "lastActiveAt": "2026-08-29T21:35:36.000Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "codex-thread",
+              "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+            },
+            "transcriptAvailable": true,
+            "requestedModel": "gpt-5.6-luna",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "codex-app-server",
+            "driverFamily": "server",
+            "conversationPodiumId": "conv_c4505a93-d1ab-4b65-a9ac-99910d518387",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": true,
+            "harnessPromptModeHints": false
+          }
+        },
+        "row": {
+          "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:36:21.626Z",
+      "event": "fresh-client-reload",
+      "detail": {
+        "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "codex-app-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "gpt-5.6-luna",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "codex-thread",
+          "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:36:21.879Z",
+      "event": "isolated-restart-start"
+    },
+    {
+      "at": "2026-08-29T21:36:24.593Z",
+      "event": "isolated-restart-complete",
+      "detail": {
+        "stdout": ""
+      }
+    },
+    {
+      "at": "2026-08-29T21:36:25.758Z",
+      "event": "post-server-daemon-restart",
+      "detail": {
+        "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "codex-app-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "gpt-5.6-luna",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "codex-thread",
+          "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:37:14.667Z",
+      "event": "post-restart-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-CODEX-PERSISTED-976VEBT",
+          "startedAt": "2026-08-29T21:36:25.781Z",
+          "finishedAt": "2026-08-29T21:36:29.311Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+            "agentKind": "codex",
+            "accountId": "native:claude-code",
+            "title": "repo",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T21:36:28.000Z",
+              "workingMsTotal": 5000,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c0",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T21:34:57.640Z",
+            "lastActiveAt": "2026-08-29T21:36:28.876Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "codex-thread",
+              "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+            },
+            "transcriptAvailable": true,
+            "requestedModel": "gpt-5.6-luna",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "codex-app-server",
+            "driverFamily": "server",
+            "conversationPodiumId": "conv_c4505a93-d1ab-4b65-a9ac-99910d518387",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": true,
+            "harnessPromptModeHints": false
+          }
+        },
+        "row": {
+          "sessionId": "a2518a2a-faef-478a-ae1b-adbcb119253a",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04f72-7e16-7d92-8256-b9a997e8d3fa"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:37:15.690Z",
+      "event": "final-pins-proved",
+      "detail": {
+        "at": "2026-08-29T21:37:14.684Z",
+        "head": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1478825",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1478898",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T213622Z",
+        "capacity": {
+          "load1m": 10.85,
+          "memAvailable": "18494320 kB",
+          "rootFreeKiB": 77967396
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    }
+  ]
+}

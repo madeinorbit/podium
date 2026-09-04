@@ -1,0 +1,81 @@
+{
+  "issue": "POD-3112",
+  "kind": "r18-a7a-issue-row-selector-refusal",
+  "verdict": "REFUSED",
+  "scored": false,
+  "integrationPin": "250acc1d36ac3748f6d9e6695f9c0bbf5573c85e",
+  "productEquivalencePin": "c1e07223c18bdfa6eb835081c58e6a11feece86a",
+  "web": {
+    "sourceSha": "c1e0722",
+    "appVersion": "dev+c1e0722",
+    "bundleVersion": "bundle+BZTkVqZf",
+    "classification": "reused by reviewed rig contract because apps/web is byte-identical through integrationPin"
+  },
+  "instance": {
+    "name": "p3112-a7a-250acc-r1",
+    "base": "/tmp/pod-3112-a7a-250acc-r1",
+    "ports": [22451, 49451, 49452],
+    "machineId": "5b3608ee-4b65-4efa-b7d4-ae39a8b13239",
+    "updateChannel": "edge",
+    "dummyCommit": "ba945cd6eff349c70a56c2195cbee5365c19c927"
+  },
+  "identity": {
+    "sessionId": "110a91b8-54c2-4f42-9840-154f7fa896af",
+    "displayRef": "DUM-1-A",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": "ses_facae9053ffeAy91Elvpgbrsim",
+    "processKey": "podium-oc-110a91b8-54c2-4f42-9840-154f7fa896af",
+    "providerPid": 804752,
+    "providerExactBeforeRestart": true
+  },
+  "seedControls": {
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "nativeMarkerOccurrences": 2,
+    "nativeNormalizedLength": 328,
+    "nativeSampleCount": 1,
+    "nativeState": {
+      "connected": true,
+      "role": "controller",
+      "controllerId": "c0",
+      "lastSeq": 201,
+      "outputSeen": true
+    },
+    "redactedNormalizedTail": "┃┃RememberthecodewordR18-MTFZ3L9Q.ReplywithexactlyP3112-R18-SEED-MTFZ3L9Q.Donotuse┃tools.┃P3112-R18-SEED-MTFZ3L9Q▣Build·GPT-5.6Luna·4.1s┃┃┃┃Build·GPT-5.6LunaOpenCodeGo╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀/tmp/pod-3112-a7a-250acc-r1/dummy-repo6.6K(1%)·$0.00ctrl+pcommands"
+  },
+  "restart": {
+    "oldDaemonPid": 799343,
+    "newDaemonPid": 807676,
+    "exactPinRetained": true
+  },
+  "refusal": {
+    "reason": "REFUSED registered project readiness 0",
+    "renderedProjectGroup": {
+      "text": "DUMMY-REPO\\n1",
+      "expanded": true,
+      "visible": true
+    },
+    "machineOnlineGrantedEdge": true,
+    "sessionIssueBacked": true,
+    "classification": "harness predicate defect",
+    "concreteSeam": "openWorkspace accepts unified-worktree-row or empty start-first-task but the restored issue-backed DUM-1-A session renders as unified-issue-row",
+    "requiredSubissue": "POD-3125"
+  },
+  "fences": {
+    "a7aReadyCreated": false,
+    "a7aContinueCreated": false,
+    "a7bAttempted": false,
+    "acceptanceRowWritten": false,
+    "blindRetry": false
+  },
+  "teardown": {
+    "driveDownCompleted": true,
+    "ownedProviderPidsStopped": [804752, 805126, 805127],
+    "portsClear": true,
+    "credentialSymlinkRemoved": true,
+    "outsideNamedInstanceTouched": false
+  }
+}

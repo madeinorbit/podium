@@ -46,8 +46,10 @@ describe('OfferBar', () => {
 
     const link = container.querySelector<HTMLAnchorElement>('[data-testid="offer-detail"] a')
     expect(link?.getAttribute('href')).toBe('https://preview.example.com/login')
-    // `_blank` is what the desktop shell's opener shim keys on to hand the URL
-    // to the OS browser; in a browser tab it is a new tab either way.
+    // `_blank` marks the link as leaving Podium: in a browser tab it opens one,
+    // and in the desktop shell it is the anchor WKWebView would swallow, which
+    // is why the injected shim claims the click first. (The shim keys on the
+    // ORIGIN, not on this attribute — a link to our own Podium carries neither.)
     expect(link?.getAttribute('target')).toBe('_blank')
     expect(link?.getAttribute('rel')).toBe('noopener noreferrer')
     expect(container.querySelector('[data-testid="offer-detail"]')?.textContent).toContain(

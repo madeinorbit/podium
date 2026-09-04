@@ -5,8 +5,8 @@ import { SWITCH_TRACE_MARKS } from '@podium/protocol'
 import { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowDownToLine } from 'lucide-react'
 import type { JSX, MutableRefObject } from 'react'
-import { Suspense, useCallback, useEffect, useRef, useState } from 'react'
-import { useSessionDraft } from '@/app/store'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useReplicaIssues, useSessionDraft, useStoreSelector } from '@/app/store'
 import { TranscriptFeedBoundary } from '@/features/chat/TranscriptFeedBoundary'
 import { cn } from '@/lib/utils'
 import { handleChatMdClick } from './chat-md-click'
@@ -14,9 +14,21 @@ import { ChatComposer } from './ChatComposer'
 import { ChatRail } from './ChatRail'
 import { isChatInteractable } from './chat-interactable'
 import { ImageLightbox } from './ImageLightbox'
+import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
 import { type ChatSurface, useChatSurface } from './use-chat-surface'
+
+/**
+ * THE BLOCKED-SESSION BAR (POD-2414), LAZY — because it draws nothing almost
+ * always. A blocked session is the exception, so the card's markup, its answer
+ * buttons and their styles have no business in the eager chunk every session
+ * pays for. The gate below is one array scan, and the chunk is fetched the first
+ * time a session is actually stopped on something.
+ */
+const PendingInteractionBar = lazy(() =>
+  import('./PendingInteractionBar').then((module) => ({ default: module.PendingInteractionBar })),
+)
 
 /**
  * CHAT (POD-405) — the SHELL, and nothing else.
@@ -111,7 +123,7 @@ function ScopedChatComposer({
       taRef={chat.taRef}
       draft={draft}
       onDraftChange={setDraft}
-      enabled={chat.composer.enabled}
+      deliverable={chat.composer.deliverable}
       placeholder={chat.composer.placeholder}
       compact={compact}
       isMobile={chat.isMobile}
@@ -127,6 +139,7 @@ function ScopedChatComposer({
       onOfferDismiss={chat.dismissOffer}
       session={chat.session}
       turnError={chat.headlessTurn.turnError}
+      transcriptFreshness={chat.transcriptFreshness}
       offlineAsOf={chat.offlineAsOf}
       attached={chat.attached}
       autoFocusKey={sessionId}
@@ -149,6 +162,8 @@ export function ChatView({
   compact = false,
   initialTurnRunning = false,
   initialPendingText,
+  onInitialPendingSettled,
+  deferInitialTranscript = false,
   onLeave,
 }: {
   sessionId: SessionId
@@ -166,6 +181,11 @@ export function ChatView({
   /** The first prompt shown optimistically while the freshly-created headless
    * transcript catches up to the thread/session swap. */
   initialPendingText?: string
+  /** Called once the transcript echoes `initialPendingText`. */
+  onInitialPendingSettled?: () => void
+  /** Wait to read/subscribe until a client-minted session id exists on the
+   * authority. The optimistic prompt remains visible during this boundary. */
+  deferInitialTranscript?: boolean
   /** Called once when the session leaves the principal's view (evicted or
    *  deleted) so the host can navigate away. Optional: a host that does not
    *  provide it simply renders the blank surface, which is still not a
@@ -178,20 +198,33 @@ export function ChatView({
     superThread,
     compact,
     initialTurnRunning,
+    deferInitialTranscript,
     ...(initialPendingText !== undefined
       ? { initialPendingText }
       : { initialPendingText: undefined }),
+    onInitialPendingSettled,
   })
+  /**
+   * IS THIS SESSION STOPPED ON SOMETHING? (POD-2414)
+   *
+   * A count, not a card: the bar is code-split, and this decides whether to
+   * fetch it. Deliberately NOT `pendingInteractionCards` — that decides how an
+   * ask RENDERS and belongs in the chunk it renders from; all this needs is
+   * whether the aggregate holds an open row for this session. `?? []` because a
+   * replica whose `pendingInteraction` collection has not arrived is a partial
+   * world, not an error.
+   */
+  const blocked = useStoreSelector((s) =>
+    (s.pendingInteractions ?? []).some(
+      (row) => row.sessionId === sessionId && row.status === 'asked',
+    ),
+  )
+  const issues = useReplicaIssues()
   const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
+  const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
   const quoteIntoDraft = useCallback((markdown: string) => {
     quoteDraftRef.current?.(markdown)
   }, [])
-  // Alpha boundary: issue refs remain clickable, but their stage/availability
-  // decoration is intentionally disconnected from the live issue store. This
-  // makes transcript DOM identity independent of fleet updates while the new
-  // feed architecture is evaluated; live decoration can return as a separately
-  // measured enhancement once selection and scroll remain stable.
-
   // Leave once, quietly. Not a toast and not an animation — see the header.
   useEffect(() => {
     if (chat.gone) onLeave?.(sessionId)
@@ -292,11 +325,37 @@ export function ChatView({
   }, [active, chat.phase, sessionId])
 
   return (
-    <div className={cn('flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}>
+    /**
+     * THE WHOLE CONVERSATION IS THE DROP TARGET (POD-1595).
+     *
+     * These handlers used to sit on the composer dock alone — a strip about
+     * seventy pixels tall at the very bottom of the pane. Dragging a file into
+     * a chat means dragging it at the CONVERSATION, and the conversation is the
+     * other ninety percent of the surface: over all of it the cursor said "no",
+     * releasing did nothing, and in a plain browser tab the page navigated away
+     * to the dropped file, taking the half-written prompt with it.
+     *
+     * WHAT ACCEPTS THE DROP AND WHAT LIGHTS UP ARE NOT THE SAME RECTANGLE, and
+     * that is the point (POD-1595, second pass). The first cut drew the target
+     * over the whole conversation, which answered "can I drop here?" and then
+     * left "…and where does it GO?" unanswered — a dashed box around everything
+     * reads as the file landing on the transcript. So the hit area stays wide,
+     * because that is the bug, and the composer is what highlights, because that
+     * is the destination: drop anywhere, it lands in your prompt.
+     */
+    <div
+      className={cn('relative flex min-h-0 flex-1 flex-col', compact && 'chat-compact')}
+      // NOT WHILE THE LIGHTBOX IS UP. It is a child of this surface, so a drag
+      // over it bubbles here — and the veil (z-20) would draw UNDERNEATH the
+      // lightbox (z-100), so releasing a file over a full-screen image attached
+      // it silently, with nothing on screen having offered to. Standing down
+      // hands the drag to `useFileDropGuard`, which swallows it harmlessly.
+      {...(chat.lightbox === null ? chat.attachments.dropHandlers : {})}
+    >
       {/* `offer-lift-region`: an opened offer fold pushes the whole transcript
           up under the panel header instead of resizing it — the feed keeps its
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
-      <div className="offer-lift-region relative flex min-h-0 flex-1">
+      <div ref={setIssueLivenessRoot} className="offer-lift-region relative flex min-h-0 flex-1">
         <Suspense fallback={null}>
           <TranscriptFeedBoundary
             setScrollerRef={chat.scroll.setScrollerRef}
@@ -310,6 +369,7 @@ export function ChatView({
             blocks={chat.blocks}
             markdownHtml={chat.markdownHtml}
             search={chat.search}
+            revealedRow={chat.revealedRow}
             moreAbove={chat.moreAbove}
             loadingOlder={chat.loadingOlder}
             loadOlder={chat.loadOlder}
@@ -328,9 +388,14 @@ export function ChatView({
             stickyEnabled={chat.stickyEnabled}
             isOperatorPromptRow={chat.isOperatorPromptRow}
             pending={chat.pending}
+            restoredFailed={chat.restoredFailed}
+            {...(chat.retryFailedMessage
+              ? { onRetryFailed: chat.retryFailedMessage }
+              : {})}
             restoredQueued={chat.restoredQueued}
             onRetractQueued={chat.retractQueuedMessage}
             overlay={chat.headless ? chat.headlessTurn.overlay : null}
+            turnPreview={chat.turnPreview}
             activity={chat.activity}
             attribution={chat.attribution}
             expandRuns={chat.expandRuns}
@@ -396,6 +461,20 @@ export function ChatView({
           </button>
         )}
       </div>
+      {/* Between the feed and the composer, because an ask that scrolls away is
+          the failure the aggregate exists to fix — and because the composer is
+          where a person's attention already is when they come to unblock
+          something. `fallback={null}` because the bar's own empty state is
+          nothing: a one-frame gap before a card appears reads as the card
+          appearing, while a spinner over the composer would not. */}
+      {blocked && (
+        <Suspense fallback={null}>
+          <PendingInteractionBar sessionId={sessionId} compact={compact} />
+        </Suspense>
+      )}
+      {/* Host attachment is state so this leaf re-arms wherever it sits in the
+          tree; issue deltas still render only the leaf and mutate attributes. */}
+      <IssueChipLiveness root={issueLivenessRoot} />
       <ScopedChatComposer
         sessionId={sessionId}
         superThread={superThread}

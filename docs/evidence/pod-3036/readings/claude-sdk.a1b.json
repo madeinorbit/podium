@@ -1,0 +1,99 @@
+{
+  "cell": "A1B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3036n/probes/claude-sdk-a1b",
+  "at": "2026-08-28T11:56:28.975Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-28T11:56:28.995Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "checkoutSha": "b736dd8df0f602e7f5c9ebd00459ff6fa0d7d70c",
+    "pinSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "serverSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "daemonSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b736dd8",
+      "appsWebIdentical": true
+    },
+    "serverPid": "536616",
+    "daemonPid": "536844",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19760660 kB",
+      "SwapFree": "41657048 kB"
+    },
+    "rootFreeKiB": 84981472,
+    "load1m": 2.26,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3036n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "busy send queued with a durable position, survived reload, and answered idle",
+  "control": {
+    "fired": true,
+    "what": "the first busy-turn send delivering and the session producing an in-flight signal",
+    "detail": "first user turn=true; preview=true; working=true at 24ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SECOND SEND       {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}",
+    "QUEUE POSITION    1",
+    "POSITION FIELD    true",
+    "RELOADED USER     false in 5106ms",
+    "RELOADED REPLY    true in 28802ms"
+  ],
+  "data": {
+    "sid": "e3dcb00b-f58f-44b8-a2bb-f5abc3a0eb38",
+    "first": "P3036-A1B-FIRST-MTCWBTI7",
+    "queued": "P3036-A1B-QUEUED-MTCWBTI7",
+    "firstUser": true,
+    "working": [
+      {
+        "ms": 24,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-sdk"
+      }
+    ],
+    "second": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "secondUser": false,
+    "secondAssistant": true,
+    "position": 1,
+    "hasPositionField": true
+  }
+}

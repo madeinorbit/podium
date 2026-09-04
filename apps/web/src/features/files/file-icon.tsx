@@ -1,11 +1,11 @@
 import {
   Braces,
   Database,
-  File as FileIcon,
   FileArchive,
   FileAudio,
   FileCode,
   FileCog,
+  File as FileIcon,
   FileImage,
   FileLock,
   FileTerminal,
@@ -13,6 +13,7 @@ import {
   FileType,
   FileVideo,
   type LucideIcon,
+  Sheet,
 } from 'lucide-react'
 import type { JSX } from 'react'
 
@@ -39,7 +40,11 @@ const BY_EXT: Record<string, { icon: LucideIcon; className: string }> = {
   html: { icon: FileCode, className: 'text-orange-400' },
   htm: { icon: FileCode, className: 'text-orange-400' },
   css: { icon: FileType, className: 'text-sky-300' },
+  less: { icon: FileType, className: 'text-sky-300' },
   scss: { icon: FileType, className: 'text-pink-400' },
+  vue: { icon: FileCode, className: 'text-emerald-400' },
+  svelte: { icon: FileCode, className: 'text-orange-400' },
+  xml: { icon: FileCode, className: 'text-orange-300' },
   json: { icon: Braces, className: 'text-yellow-300' },
   jsonc: { icon: Braces, className: 'text-yellow-300' },
   yaml: { icon: FileCog, className: 'text-fuchsia-300' },
@@ -51,18 +56,28 @@ const BY_EXT: Record<string, { icon: LucideIcon; className: string }> = {
   mdx: { icon: FileText, className: 'text-blue-300' },
   txt: { icon: FileText, className: 'text-muted-foreground' },
   pdf: { icon: FileText, className: 'text-red-400' },
+  csv: { icon: Sheet, className: 'text-emerald-400' },
+  tsv: { icon: Sheet, className: 'text-emerald-400' },
   png: { icon: FileImage, className: 'text-violet-400' },
   jpg: { icon: FileImage, className: 'text-violet-400' },
   jpeg: { icon: FileImage, className: 'text-violet-400' },
   gif: { icon: FileImage, className: 'text-violet-400' },
   webp: { icon: FileImage, className: 'text-violet-400' },
+  avif: { icon: FileImage, className: 'text-violet-400' },
+  bmp: { icon: FileImage, className: 'text-violet-400' },
   svg: { icon: FileImage, className: 'text-violet-400' },
   ico: { icon: FileImage, className: 'text-violet-400' },
   mp4: { icon: FileVideo, className: 'text-rose-400' },
   webm: { icon: FileVideo, className: 'text-rose-400' },
   mov: { icon: FileVideo, className: 'text-rose-400' },
+  m4v: { icon: FileVideo, className: 'text-rose-400' },
+  ogv: { icon: FileVideo, className: 'text-rose-400' },
   mp3: { icon: FileAudio, className: 'text-rose-300' },
   wav: { icon: FileAudio, className: 'text-rose-300' },
+  ogg: { icon: FileAudio, className: 'text-rose-300' },
+  m4a: { icon: FileAudio, className: 'text-rose-300' },
+  aac: { icon: FileAudio, className: 'text-rose-300' },
+  flac: { icon: FileAudio, className: 'text-rose-300' },
   zip: { icon: FileArchive, className: 'text-amber-400' },
   gz: { icon: FileArchive, className: 'text-amber-400' },
   tar: { icon: FileArchive, className: 'text-amber-400' },
@@ -75,11 +90,17 @@ const BY_EXT: Record<string, { icon: LucideIcon; className: string }> = {
   lock: { icon: FileLock, className: 'text-muted-foreground' },
 }
 
-/** Filetype icon for a filename, matched by extension (dotfiles → config icon). */
+/** Filetype icon for a filename, matched by extension (dotfiles → config icon).
+ *  Accepts a bare name or a full path — callers pass both, and the dotfile and
+ *  `Dockerfile`/`Makefile` rules below only match against the last segment. */
 export function FileTypeIcon({ name, size = 14 }: { name: string; size?: number }): JSX.Element {
-  const lower = name.toLowerCase()
-  const ext = lower.includes('.') ? lower.split('.').pop()! : ''
-  const m = BY_EXT[ext] ?? (lower.startsWith('.') ? { icon: FileCog, className: 'text-muted-foreground' } : { icon: FileIcon, className: 'text-muted-foreground' })
+  const lower = name.slice(name.lastIndexOf('/') + 1).toLowerCase()
+  const ext = lower.includes('.') ? (lower.split('.').pop() ?? '') : ''
+  const m =
+    BY_EXT[ext] ??
+    (lower.startsWith('.') || /^(dockerfile|makefile|justfile)$/i.test(lower)
+      ? { icon: FileCog, className: 'text-muted-foreground' }
+      : { icon: FileIcon, className: 'text-muted-foreground' })
   const Icon = m.icon
   return <Icon size={size} className={`flex-none ${m.className}`} aria-hidden="true" />
 }

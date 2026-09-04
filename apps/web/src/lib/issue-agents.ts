@@ -6,6 +6,7 @@ import {
   GrokIcon,
   OpenAIcon,
   OpenCodeIcon,
+  PiIcon,
 } from '@/lib/icons/AgentIcons'
 import type { PropertyOption } from './PropertyMenu'
 
@@ -19,6 +20,7 @@ export const ISSUE_AGENT_KINDS = [
   'grok',
   'opencode',
   'cursor',
+  'pi',
 ] as const satisfies readonly IssueAgentKind[]
 
 const ISSUE_AGENT_LABELS: Record<IssueAgentKind, string> = {
@@ -27,6 +29,7 @@ const ISSUE_AGENT_LABELS: Record<IssueAgentKind, string> = {
   grok: 'Grok',
   opencode: 'OpenCode',
   cursor: 'Cursor',
+  pi: 'Pi',
 }
 
 const ISSUE_AGENT_ICONS: Record<IssueAgentKind, IconComponent> = {
@@ -35,6 +38,7 @@ const ISSUE_AGENT_ICONS: Record<IssueAgentKind, IconComponent> = {
   grok: GrokIcon,
   opencode: OpenCodeIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
 }
 
 export function issueAgentKind(value: string | null | undefined): IssueAgentKind | null {

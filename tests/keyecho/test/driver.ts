@@ -32,8 +32,9 @@ export function bootKeyecho(args: string[] = []): Keyecho {
     bunTerminalBackend(),
   )
   let raw = ''
+  const decoder = new TextDecoder()
   session.onFrame((frame) => {
-    raw += Buffer.from(frame.data, 'base64').toString('utf8')
+    raw += decoder.decode(frame.data, { stream: true })
   })
   const text = () => raw.replace(ANSI, '')
   return {

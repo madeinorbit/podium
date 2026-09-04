@@ -71,6 +71,7 @@ const NATIVE_HARNESSES: readonly [HarnessAgent, string][] = [
   ['claude-code', 'anthropic'],
   ['codex', 'openai'],
   ['grok', 'xai'],
+  ['opencode', 'opencode'],
 ]
 
 function nativeFromCatalog(
@@ -155,6 +156,7 @@ export function accountViews(
           detectNative(machinesOrHome, 'claude-code', 'anthropic'),
           detectNative(machinesOrHome, 'codex', 'openai'),
           detectNative(machinesOrHome, 'grok', 'xai'),
+          detectNative(machinesOrHome, 'opencode', 'opencode'),
         ]
       : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome)
 

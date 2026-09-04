@@ -1,0 +1,114 @@
+{
+  "cell": "BQUOTA",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3036n/probes/claude-pty-bquota",
+  "at": "2026-08-28T12:08:37.913Z",
+  "pin": {
+    "cell": "BQUOTA",
+    "at": "2026-08-28T12:08:37.954Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "checkoutSha": "b736dd8df0f602e7f5c9ebd00459ff6fa0d7d70c",
+    "pinSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "serverSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "daemonSha": "c71b896a9504426ee6706a0623e9cb25e704cc98",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b736dd8",
+      "appsWebIdentical": true
+    },
+    "serverPid": "536616",
+    "daemonPid": "578876",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3036-claude-sdk-full-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19488924 kB",
+      "SwapFree": "41658024 kB"
+    },
+    "rootFreeKiB": 85012280,
+    "load1m": 5.86,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3036n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "provider classed as authentication",
+  "control": {
+    "fired": true,
+    "what": "a delivered send, reply needle, quota text, auth text, or structured error from a live session",
+    "detail": "user=true; assistant=false; class=authentication"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "CLASS             {\"errorClass\":\"authentication\",\"retryable\":false}",
+    "ERROR             {\"class\":\"unknown\",\"retryable\":true}",
+    "ASSISTANT         false",
+    "SCREEN            \"78\\nAccessingworkspace:\\n/tmp/pod-3036n/probes/claude-pty-bquota\\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyour\\nowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,\\ntakeamomenttoreviewwhat'sinthisfolderfirst.\\nClaudeCode'llbeabletoread,edit,andexecutefileshere.\\nSecurityguide\\n1.Yes,Itrustthisfolder\\n2.No,exit\\nEntertoconfirmEsctocancel\\n]11;?[>0q(B\\n]0; Claude CodeClaudeCodev2.1.236                                              Tips for getting started                      Welcomeback!Run/inittocreateaCLAUDE.                                What'snewBugfixesandreliabilityimp                                  Aded`--restricted`or `CLA                                       Added `experimentl.cacheTtl`   Opus 5 (1Mcntxt)  API Usage Blling    /elease-notesformore/tmp/pod-3036n/probes/claude-pty-bquota manualmodeon?forshortcutsforagentsNotloggedinRun/login                          high/effort\\nNotlogged in  Run /login\\nUpdateinstalledRestarttoupdate\\nhigh/effort\\n(B(B(BReplywithexactlythiswordandnothingelse:P3036-BQUOTA-MTCWRXXX.Donot  use tools. manualmodeon\\n]0; Claude Code Reply with exactly this word and nothing else: P3036-BQUOTA-MTCWRXXX. Do not  use tools. Tinkering\\n \\nmanualmodeonesctointerruptforagents\\nNotloggedinRun/login\\nUpdateinstalledRestarttoupdate\\n]0; Claude CodeNotloggedinPleaserun/loginChurnedfor0s manualmodeon?forshortcutsforagents          Not logged in  Run/login\\nUpdateinstalledRestarttoupdate\""
+  ],
+  "data": {
+    "sid": "46b7355a-8419-4127-887c-7f10f05857dc",
+    "needle": "P3036-BQUOTA-MTCWRXXX",
+    "class": {
+      "errorClass": "authentication",
+      "retryable": false
+    },
+    "user": true,
+    "assistant": false,
+    "row": {
+      "sessionId": "46b7355a-8419-4127-887c-7f10f05857dc",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "errored",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": {
+        "class": "unknown",
+        "retryable": true
+      },
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "da9af1a probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

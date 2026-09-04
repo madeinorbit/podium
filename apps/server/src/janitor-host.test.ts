@@ -8,7 +8,7 @@ describe('startJanitorHost', () => {
       port: 1,
       serverUrl: 'http://127.0.0.1:1',
       token: 't',
-      startJanitorWorker: async () => ({
+      start: async () => ({
         progressVersion: () => 3,
         state: () => 'running',
         reason: () => undefined,
@@ -26,7 +26,7 @@ describe('startJanitorHost', () => {
       port: 1,
       serverUrl: 'http://127.0.0.1:1',
       token: 't',
-      startJanitorWorker: async () => {
+      start: async () => {
         throw new Error('worker module missing')
       },
     })
@@ -41,7 +41,7 @@ describe('startJanitorHost', () => {
       port: 1,
       serverUrl: 'http://127.0.0.1:1',
       token: 't',
-      startJanitorWorker: async () => ({
+      start: async () => ({
         progressVersion: () => 5,
         state: () => state,
         reason: () => reason,
@@ -54,5 +54,36 @@ describe('startJanitorHost', () => {
     expect(host.state()).toBe('degraded')
     expect(host.reason()).toMatch(/20260820_x/)
     expect(host.progressVersion()).toBe(5)
+  })
+
+  /**
+   * POD-1607, from apps/cli's local-dial test: the janitor must dial the address
+   * the server BOUND. It moved here with the worker (PDM-27) — `PODIUM_HOST` is
+   * how you reach Podium from another device, and it leaves loopback unbound, so
+   * a hard-coded `http://localhost:<port>` would refuse every maintenance call.
+   */
+  it('dials the bound interface, not a hard-coded loopback', async () => {
+    const prior = process.env.PODIUM_HOST
+    process.env.PODIUM_HOST = '100.113.194.89'
+    try {
+      let dialed: string | undefined
+      await startJanitorHost({
+        port: 23000,
+        token: 't',
+        start: async ({ serverUrl }) => {
+          dialed = serverUrl
+          return {
+            progressVersion: () => 0,
+            state: () => 'running',
+            reason: () => undefined,
+            close: () => {},
+          }
+        },
+      })
+      expect(dialed).toBe('http://100.113.194.89:23000')
+    } finally {
+      if (prior === undefined) delete process.env.PODIUM_HOST
+      else process.env.PODIUM_HOST = prior
+    }
   })
 })

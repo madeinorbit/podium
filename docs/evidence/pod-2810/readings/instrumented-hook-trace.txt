@@ -1,0 +1,24 @@
+P2810 ingest sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=UserPromptSubmit psid=4084a847-69f9-40d8-bc44-a3ed69f0c991 tpath=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/4084a847-69f9-40d8-bc44-a3ed69f0c991.jsonl
+P2810 route sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=UserPromptSubmit tracker=true bound=true lease=true causal=false
+P2810 causal-route sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=UserPromptSubmit have=false awaitingBootstrapAck=undefined pending=false
+P2810 ack sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 result=snapshot_applied reason=undefined causal=true isBootstrap=true awaitingBootstrapAck=true cursor={"transcript":0,"hook":0}
+P2810 applyHook-capture-FAILED hook=UserPromptSubmit path=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/4084a847-69f9-40d8-bc44-a3ed69f0c991.jsonl
+P2810 ingest sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=StopFailure psid=4084a847-69f9-40d8-bc44-a3ed69f0c991 tpath=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/4084a847-69f9-40d8-bc44-a3ed69f0c991.jsonl
+P2810 route sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=StopFailure tracker=true bound=true lease=true causal=true
+P2810 causal-route sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=StopFailure have=true awaitingBootstrapAck=false pending=false
+P2810 applyHook-capture-FAILED hook=StopFailure path=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/4084a847-69f9-40d8-bc44-a3ed69f0c991.jsonl
+P2810 ingest sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=SessionEnd psid=4084a847-69f9-40d8-bc44-a3ed69f0c991 tpath=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/4084a847-69f9-40d8-bc44-a3ed69f0c991.jsonl
+P2810 route sid=9c3f497d-af5d-43f7-92e7-7c54f12e0678 hook=SessionEnd tracker=false bound=false lease=false causal=false
+P2810 ingest sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=UserPromptSubmit psid=e78d1346-1b9a-49bb-b5dd-156b1d6508cf tpath=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/e78d1346-1b9a-49bb-b5dd-156b1d6508cf.jsonl
+P2810 route sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=UserPromptSubmit tracker=true bound=true lease=true causal=false
+P2810 causal-route sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=UserPromptSubmit have=false awaitingBootstrapAck=undefined pending=false
+P2810 ack sid=1890dee0-bdc0-47ee-a98b-6f426100f40e result=snapshot_applied reason=undefined causal=true isBootstrap=true awaitingBootstrapAck=true cursor={"transcript":0,"hook":0}
+P2810 applyHook-capture-FAILED hook=UserPromptSubmit path=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/e78d1346-1b9a-49bb-b5dd-156b1d6508cf.jsonl
+P2810 ingest sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=Stop psid=e78d1346-1b9a-49bb-b5dd-156b1d6508cf tpath=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/e78d1346-1b9a-49bb-b5dd-156b1d6508cf.jsonl
+P2810 route sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=Stop tracker=true bound=true lease=true causal=true
+P2810 causal-route sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=Stop have=true awaitingBootstrapAck=false pending=false
+P2810 applyHook hook=Stop boundary=54568 dev=2049 ino=1369023 seg=claude:e78d1346-1b9a-49bb-b5dd-156b1d6508cf:eyJwYXRoIjoiL3RtcC9wb2QtMjgwMS9zdGF0ZS9hZ2VudC
+P2810 observeHook-reject no-open-epoch Stop promptId=46b57201-69b8-47d3-a9f3-1a1b95d601d7
+P2810 applyHook-result hook=Stop observation=NULL
+P2810 ingest sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=SessionEnd psid=e78d1346-1b9a-49bb-b5dd-156b1d6508cf tpath=/tmp/pod-2801/state/agent-home/.claude/projects/-tmp-pod-2801-repo/e78d1346-1b9a-49bb-b5dd-156b1d6508cf.jsonl
+P2810 route sid=1890dee0-bdc0-47ee-a98b-6f426100f40e hook=SessionEnd tracker=false bound=false lease=false causal=false

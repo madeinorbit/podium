@@ -18,13 +18,14 @@ export async function sendOfferAction(
     sessionId: SessionId
     text: string
     wake: boolean
+    mutationId?: ReturnType<typeof asMutationId>
   },
 ): Promise<void> {
   const mutation = input.wake ? sessions.resumeAndSend : sessions.sendText
   const result = await mutation.mutate({
     sessionId: input.sessionId,
     text: input.text,
-    mutationId: asMutationId(randomUUID()),
+    mutationId: input.mutationId ?? asMutationId(randomUUID()),
   })
   assertSendAccepted(result)
 }

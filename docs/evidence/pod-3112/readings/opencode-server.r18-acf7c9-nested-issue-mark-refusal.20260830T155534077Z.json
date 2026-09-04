@@ -1,0 +1,78 @@
+{
+  "issue": "POD-3112",
+  "kind": "r18-a7a-nested-issue-mark-refusal",
+  "verdict": "REFUSED",
+  "scored": false,
+  "integrationPin": "acf7c9c2b9c2559ef040847d661cbbdd71444a7e",
+  "productEquivalencePin": "c1e07223c18bdfa6eb835081c58e6a11feece86a",
+  "web": {
+    "sourceSha": "c1e0722",
+    "appVersion": "dev+c1e0722",
+    "bundleVersion": "bundle+BZTkVqZf",
+    "classification": "reused by reviewed rig contract because all product paths including apps/web are byte-identical"
+  },
+  "instance": {
+    "name": "p3112-a7a-acf7c9-r1",
+    "base": "/tmp/pod-3112-a7a-acf7c9-r1",
+    "ports": [22551, 49551, 49552],
+    "machineId": "ff4f5cda-82c7-4df3-9e78-c3b89265193e",
+    "updateChannel": "edge",
+    "dummyCommit": "e4a7293fde253f444a993d3371d9e77212705953"
+  },
+  "identity": {
+    "sessionId": "04cdc4a0-2ac6-4b39-b351-4a96b246a011",
+    "issueId": "iss_77473dab-1b50-4f05-ae72-418a98397d82",
+    "displayRef": "DUM-1-A",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": "ses_fac9ed05cffepPsEbDbfvPmv3I",
+    "processKey": "podium-oc-04cdc4a0-2ac6-4b39-b351-4a96b246a011",
+    "providerPid": 886188,
+    "providerExactBeforeRestart": true
+  },
+  "seedControls": {
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "nativeMarkerOccurrences": 2,
+    "nativeNormalizedLength": 345,
+    "nativeState": {
+      "connected": true,
+      "role": "controller",
+      "controllerId": "c0",
+      "lastSeq": 185,
+      "outputSeen": true
+    },
+    "redactedNormalizedTail": "┃┃RememberthecodewordR18-MTFZPPPG.ReplywithexactlyP3112-R18-SEED-MTFZPPPG.Donotuse┃tools.┃Thought·293msP3112-R18-SEED-MTFZPPPG▣Build·GPT-5.6Luna·3.5s┃┃^[[I┃┃Build·GPT-5.6LunaOpenCodeGo╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀/tmp/pod-3112-a7a-acf7c9-r1/dummy-repo6.6K(1%)·$0.00ctrl+pcommands"
+  },
+  "restart": {
+    "oldDaemonPid": 878416,
+    "newDaemonPid": 890502,
+    "exactPinRetained": true,
+    "serverIssuePresent": true,
+    "serverSessionIssueBindingPresent": true,
+    "renderedProjectGroupVisibleExpandedCount": 1
+  },
+  "refusal": {
+    "reason": "REFUSED restored issue row count 0",
+    "classification": "harness predicate defect",
+    "concreteSeam": "WorkRowShell renders data-testid=unified-issue-row on the outer wrapper and data-issue-row on its inner shell-work-row, while openWorkspace requires both attributes on one element",
+    "testDefect": "the POD-3125 hermetic fixture incorrectly co-locates data-testid and data-issue-row on one element",
+    "productRestorationLoss": false
+  },
+  "fences": {
+    "a7aReadyCreated": false,
+    "a7aContinueCreated": false,
+    "a7bAttempted": false,
+    "acceptanceRowWritten": false,
+    "blindRetry": false
+  },
+  "teardown": {
+    "driveDownCompleted": true,
+    "ownedProviderPidsStopped": [886188, 886277, 886278],
+    "portsClear": true,
+    "credentialSymlinkRemoved": true,
+    "outsideNamedInstanceTouched": false
+  }
+}

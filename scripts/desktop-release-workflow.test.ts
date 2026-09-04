@@ -408,6 +408,14 @@ describe('desktop release workflow', () => {
     expect(macSigningVerifier).not.toContain('$granted/podium-cli')
   })
 
+  it('builds and publishes the updater-signed Windows NSIS installer', () => {
+    expect(desktopWorkflow).toContain('target: windows-x86_64')
+    expect(desktopWorkflow).toContain('runner: windows-latest')
+    expect(desktopWorkflow).toContain('--bundles nsis')
+    expect(desktopWorkflow).toContain('bundle/nsis/*-setup.exe')
+    expect(desktopWorkflow).toContain('bundle/nsis/*-setup.exe.sig')
+  })
+
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
     expect(desktopWorkflow).toContain('release_notes:')
     expect(desktopWorkflow).toContain('TAURI_SIGNING_PRIVATE_KEY:')
@@ -416,7 +424,7 @@ describe('desktop release workflow', () => {
       'PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}',
     )
     expect(desktopWorkflow).toContain('libwebkit2gtk-4.1-dev')
-    expect(desktopWorkflow).toContain('blacksmith-6vcpu-macos-15')
+    expect(desktopWorkflow).toContain('runner: macos-15\n')
     expect(desktopWorkflow).toContain('target: darwin-aarch64')
     expect(desktopWorkflow).toContain('--target aarch64-apple-darwin')
     expect(desktopWorkflow).toContain('APPLE_SIGNING_IDENTITY:')
@@ -506,7 +514,12 @@ describe('desktop release workflow', () => {
     // No matrix: reintroducing one would mean an architecture decided where a bundle
     // was built again, which is exactly what cross-compilation removed.
     expect(parsed.jobs?.headless?.strategy).toBeUndefined()
-    expect(headlessWorkflow).toContain('--prepare-cross')
+    // The ONE release entry, shared with the development publisher (POD-3054): it
+    // builds or restores the clients once and packages every platform from that
+    // single output. A job that reached past it for a per-platform packaging entry
+    // would be paying for the client build once per platform again.
+    expect(headlessWorkflow).toContain('bun run release:prepare')
+    expect(headlessWorkflow).not.toContain('package-headless.ts')
     // All four platforms, named. A build that quietly stopped minting one would
     // otherwise publish a release the missing platform's machines cannot resolve.
     for (const asset of ['linux-x64', 'linux-arm64', 'darwin-arm64', 'darwin-x64']) {

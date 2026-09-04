@@ -1,0 +1,34 @@
+{
+  "cell": "A6A",
+  "at": "2026-08-27T01:08:01.734Z",
+  "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+  "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+  "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+  "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+  "web": {
+    "wireSchemaDigest": "986ebf5e8e57820c",
+    "wireVersion": 2,
+    "builtAt": "2026-08-27T00:46:16.692Z",
+    "appVersion": "dev+40c198e",
+    "sourceSha": "40c198e",
+    "bundleVersion": "bundle+DskDAbLF"
+  },
+  "serverPid": "502194",
+  "daemonPid": "490995",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+  "freeMemory": {
+    "MemTotal": "12242288 kB",
+    "MemAvailable": "4808852 kB",
+    "SwapFree": "36725788 kB"
+  },
+  "forbiddenOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "TMUX_TMPDIR": null,
+    "PODIUM_WEB_DIR": null
+  }
+}

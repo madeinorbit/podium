@@ -20,13 +20,16 @@ function withResizeObserver(): void {
 function fakeHub(): {
   hub: SocketHub
   attached: () => void
-  frame: (text: string) => void
+  frame: (bytes: Uint8Array) => void
 } {
   let cbs: SessionCallbacks = {}
   const connection = {
     sendResize: () => {},
     sendInput: () => {},
     requestControl: () => {},
+    // POD-3239 B4: the one ask. Inert here — these suites are about frames,
+    // readiness and the colour-scheme report, not about sizing.
+    sendViewportRequest: () => {},
     redraw: () => {},
     state: () => ({ role: 'detached', cols: 80, rows: 24, epoch: 0, connected: true }),
   }
@@ -37,7 +40,7 @@ function fakeHub(): {
     },
     detach: () => {},
   } as unknown as SocketHub
-  return { hub, attached: () => cbs.onAttached?.(), frame: (text: string) => cbs.onFrame?.(text) }
+  return { hub, attached: () => cbs.onAttached?.(), frame: (bytes: Uint8Array) => cbs.onFrame?.(bytes) }
 }
 
 describe('session-mount onReady', () => {
@@ -70,9 +73,9 @@ describe('session-mount onReady', () => {
       onReady,
     })
 
-    frame('') // empty replay is not "ready"
+    frame(new Uint8Array()) // empty replay is not "ready"
     expect(onReady).not.toHaveBeenCalled()
-    frame('hello')
+    frame(new TextEncoder().encode('hello'))
     expect(onReady).toHaveBeenCalledTimes(1)
 
     mounted.dispose()

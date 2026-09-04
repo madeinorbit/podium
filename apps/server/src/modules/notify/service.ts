@@ -124,6 +124,14 @@ export class NotifyService {
       const info = this.deps.sessionInfo(sessionId)
       if (info) this.notifyAttention(ownerUserId, info, prev, next, observation)
     })
+    bus.on('attention.raised', ({ sessionId, ownerUserId, title, body }) => {
+      const info = this.deps.sessionInfo(sessionId)
+      if (!info) return
+      // The session wiring persists the failure before raising this live-only
+      // attention event. Keeping persistence out of this listener means an
+      // ownerless or disconnected session still has the same durable record.
+      this.notifyNotice(ownerUserId, info, { title, body })
+    })
     bus.on('settings.changed', ({ previous, next }) => {
       this.notifyAttentionForNewExternalTargets(previous.notifications, next.notifications)
     })
@@ -275,11 +283,19 @@ export class NotifyService {
         })
       } catch {}
     }
-    const settings = this.deps.getSettings(ownerUserId).notifications
-    if (this.deps.notificationsEnabled?.() === false) return
     const name = this.attentionNoticeName(info)
     const notice = attentionNotice(name, prev, next)
     if (!notice) return
+    this.notifyNotice(ownerUserId, info, notice)
+  }
+
+  private notifyNotice(
+    ownerUserId: UserId,
+    info: SessionNoticeInfo,
+    notice: AttentionNotice,
+  ): void {
+    const settings = this.deps.getSettings(ownerUserId).notifications
+    if (this.deps.notificationsEnabled?.() === false) return
     if (settings.web) {
       const event: LiveServerMessage = {
         type: 'attentionEvent',

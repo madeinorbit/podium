@@ -15,6 +15,29 @@ function deferred<T>() {
 }
 
 describe('DaemonHarnessRuntime', () => {
+  it('joins an in-flight inventory wave instead of suppressing its result', async () => {
+    const build = deferred<ResolvedHarnessInventory>()
+    let builds = 0
+    const runtime = new DaemonHarnessRuntime({
+      buildSnapshot: async () => {
+        builds += 1
+        return build.promise
+      },
+    })
+
+    const initial = runtime.current()
+    const periodic = runtime.reprobe()
+    const serverRequested = runtime.reprobe()
+    expect(periodic).toBe(initial)
+    expect(serverRequested).toBe(initial)
+    expect(builds).toBe(1)
+
+    const snapshot = testHarnessSnapshot({ 'claude-code': '/home/user/.local/bin/claude' }, 0)
+    build.resolve(snapshot)
+    await expect(initial).resolves.toBe(snapshot)
+    expect(runtime.isCurrent(snapshot)).toBe(true)
+  })
+
   it('discards a generation that finishes after its replacement', async () => {
     const builds = [deferred<ResolvedHarnessInventory>(), deferred<ResolvedHarnessInventory>()]
     const runtime = new DaemonHarnessRuntime({
@@ -74,9 +97,18 @@ describe('DaemonHarnessRuntime', () => {
       const first = await runtime.current()
       const second = await runtime.reprobe()
       expect(probeEnvironments).toHaveLength(2)
-      expect(probeEnvironments[0]).toBe(first.commandEnvironment.env)
-      expect(probeEnvironments[1]).toBe(first.commandEnvironment.env)
+      // THE REUSE IS THE `toBe` ON THE SNAPSHOT: `reprobe()` threads the previous
+      // snapshot's commandEnvironment through instead of resolving the machine's
+      // command environment again, and identity is the only thing that says so.
       expect(second.commandEnvironment).toBe(first.commandEnvironment)
+      // The probe's env is DERIVED from it, not the same object — `fix(harness):
+      // answer login reads for the instance's own home` routes every login read
+      // through `harnessLoginReadEnv`, which composes a fresh record (instance
+      // HOME forced on, this harness's foreign credentials and inherited parent
+      // controls taken out) so the readout names the same account the child will
+      // run as. Both probes must still see one env built from the one snapshot.
+      expect(probeEnvironments[0]).not.toBe(first.commandEnvironment.env)
+      expect(probeEnvironments[0]).toEqual(probeEnvironments[1])
       expect(probeEnvironments[1]).toHaveProperty('CLAUDE_CONFIG_DIR', '')
       expect(probeEnvironments[1]).toHaveProperty(
         'CLAUDE_SECURESTORAGE_CONFIG_DIR',

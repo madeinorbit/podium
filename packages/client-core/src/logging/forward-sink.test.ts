@@ -1,7 +1,7 @@
-import type { ForwardedLogRecord } from '@podium/commands'
+import { type ForwardedLogRecord, MAX_REPORTED_DROPS } from '@podium/commands'
 import { addSink, clearSinks, type LogRecord, resetLogging } from '@podium/logger'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { createForwardingSink } from './forward-sink'
+import { createForwardingSink, type ForwardMeta, REPORTED_DROPS_CAP } from './forward-sink'
 
 function record(msg: string, level: LogRecord['level'] = 'warn'): LogRecord {
   return { ts: '2026-08-12T00:00:00.000Z', level, ns: 'web', msg }
@@ -225,6 +225,94 @@ describe('forwarding sink', () => {
     expect(sink.pending()).toBe(0)
   })
 
+  /**
+   * A GAP IN THE SERVER'S FILE IS AMBIGUOUS UNLESS THE CLIENT SAYS SO
+   * (POD-3167). A quiet client and a client whose forwarding queue is
+   * overflowing look identical to whoever reads `clients/web-m1.ndjson`, and the
+   * two have different fixes — so the count rides along with the next batch.
+   */
+  it('reports what it dropped on the next batch it sends', async () => {
+    const meta: Array<{ dropped?: number }> = []
+    const sink = createForwardingSink({
+      send: async (_records, m) => {
+        meta.push(m)
+      },
+      batchSize: 50,
+      maxQueue: 2,
+      flushIntervalMs: 5000,
+    })
+
+    // Three records into a queue of two, with the flush held off: one is lost.
+    sink.write(record('one'))
+    sink.write(record('two'))
+    sink.write(record('three'))
+    expect(sink.dropped()).toBe(1)
+
+    await sink.flush()
+    expect(meta[0]).toEqual({ dropped: 1 })
+
+    // Reported ONCE. A count that repeated on every subsequent batch would read
+    // as a client dropping records continuously when it dropped one.
+    sink.write(record('four'))
+    await sink.flush()
+    expect(meta[1]).toEqual({})
+  })
+
+  it('says nothing when it has dropped nothing', async () => {
+    const meta: Array<{ dropped?: number }> = []
+    const sink = createForwardingSink({
+      send: async (_records, m) => {
+        meta.push(m)
+      },
+      batchSize: 50,
+      flushIntervalMs: 5000,
+    })
+
+    sink.write(record('one'))
+    await sink.flush()
+
+    expect(meta).toEqual([{}])
+  })
+
+  /** A failed send must not lose the REPORT along with the batch: the drops
+   *  stay unreported until a batch carrying them actually goes out. */
+  it('keeps the drop report when the send that would have carried it fails', async () => {
+    const meta: Array<{ dropped?: number }> = []
+    let fail = true
+    const sink = createForwardingSink({
+      send: async (_records, m) => {
+        meta.push(m)
+        if (fail) throw new Error('offline')
+      },
+      batchSize: 50,
+      maxQueue: 1,
+      flushIntervalMs: 5000,
+      retryBaseMs: 10,
+      jitter: () => 0.5,
+    })
+
+    sink.write(record('one'))
+    sink.write(record('two'))
+    expect(sink.dropped()).toBe(1)
+    await sink.flush()
+    expect(meta[0]).toEqual({ dropped: 1 })
+
+    fail = false
+    await vi.advanceTimersByTimeAsync(100)
+    await sink.flush()
+
+    // The retry carried the same report, because the first attempt never landed.
+    expect(meta[1]).toEqual({ dropped: 1 })
+  })
+
+  /** The cap is restated in the sink rather than imported, so that a browser
+   *  bundle does not drag the whole contract table in behind a value import. A
+   *  restatement that drifts is worse than no restatement, so it is CHECKED
+   *  against the contract here — a test file may import both. */
+  it('reports no more than the contract accepts', () => {
+    expect(REPORTED_DROPS_CAP).toBe(MAX_REPORTED_DROPS)
+  })
+
   it('clamps an oversized message so one huge record cannot poison the batch', async () => {
     const sent: ForwardedLogRecord[][] = []
     const sink = createForwardingSink({
@@ -241,5 +329,116 @@ describe('forwarding sink', () => {
     const forwarded = sent[0]?.[0]
     expect(forwarded?.msg.length).toBeLessThanOrEqual(8192)
     expect(forwarded?.truncated).toBe(true)
+  })
+})
+
+/**
+ * THE UNLOAD HAND-OFF (POD-3224 follow-up).
+ *
+ * A record written 200 ms before a navigation had no way to arrive: the flush
+ * timer is five seconds and the document does not last that long. These pin the
+ * three properties that make it arrive — it goes synchronously, it prefers the
+ * NEWEST records, and it does not empty a queue the browser refused.
+ */
+describe('flushing for a document that is going away', () => {
+  const line = (msg: string): LogRecord => ({
+    ts: '2026-09-02T16:55:18.000Z',
+    level: 'info',
+    ns: 'web:reload',
+    msg,
+  })
+
+  it('hands over synchronously — no timer, no promise', () => {
+    const handed: ForwardedLogRecord[][] = []
+    const sink = createForwardingSink({
+      send: async () => {},
+      sendOnUnload: (records) => {
+        handed.push(records)
+        return true
+      },
+    })
+
+    sink.write(line('update panel action pressed'))
+    sink.write(line('reload handshake finished'))
+    sink.write(line('reloading the page'))
+    // No clock is advanced. This is the whole point: there is no later.
+    const sent = sink.flushOnUnload()
+
+    expect(sent).toBe(3)
+    expect(handed[0]?.map((r) => r.msg)).toEqual([
+      'update panel action pressed',
+      'reload handshake finished',
+      'reloading the page',
+    ])
+    expect(sink.pending()).toBe(0)
+  })
+
+  it('prefers the NEWEST records when the budget cannot hold them all', () => {
+    const handed: ForwardedLogRecord[][] = []
+    const sink = createForwardingSink({
+      send: async () => {},
+      sendOnUnload: (records) => {
+        handed.push(records)
+        return true
+      },
+    })
+
+    // Well over the 48 KB budget, so the drain has to choose.
+    const filler = 'x'.repeat(4000)
+    for (let i = 0; i < 40; i++) sink.write(line(`old ${i} ${filler}`))
+    sink.write(line('reloading the page'))
+
+    sink.flushOnUnload()
+
+    const sentMessages = handed[0]?.map((r) => r.msg) ?? []
+    // The line describing the navigation is the reason this path exists.
+    expect(sentMessages.at(-1)).toBe('reloading the page')
+    expect(sentMessages.length).toBeLessThan(41)
+    // What could not fit is COUNTED, not silently abandoned.
+    expect(sink.dropped()).toBeGreaterThan(0)
+  })
+
+  it('reports the abandoned records as dropped on the batch it does send', () => {
+    const metas: ForwardMeta[] = []
+    const sink = createForwardingSink({
+      send: async () => {},
+      sendOnUnload: (_records, meta) => {
+        metas.push(meta)
+        return true
+      },
+    })
+    const filler = 'y'.repeat(4000)
+    for (let i = 0; i < 40; i++) sink.write(line(`old ${i} ${filler}`))
+
+    sink.flushOnUnload()
+
+    expect(metas[0]?.dropped).toBeGreaterThan(0)
+  })
+
+  /**
+   * `visibilitychange` fires for a tab that is merely backgrounded, and that tab
+   * comes back. Emptying the queue on a hand-off the browser refused would lose
+   * those records for nothing.
+   */
+  it('keeps the queue when the browser refuses the hand-off', () => {
+    const sink = createForwardingSink({
+      send: async () => {},
+      sendOnUnload: () => false,
+    })
+
+    sink.write(line('reloading the page'))
+    const sent = sink.flushOnUnload()
+
+    expect(sent).toBe(0)
+    expect(sink.pending()).toBe(1)
+    expect(sink.dropped()).toBe(0)
+  })
+
+  it('does nothing, harmlessly, in a runtime that supplied no unload transport', () => {
+    const sink = createForwardingSink({ send: async () => {} })
+    sink.write(line('reloading the page'))
+
+    expect(sink.flushOnUnload()).toBe(0)
+    expect(sink.pending()).toBe(1)
   })
 })

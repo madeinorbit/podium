@@ -15,6 +15,7 @@ import type {
   SessionId,
   TranscriptItem,
   UsageBucketWire,
+  UsageSourceWire,
 } from '@podium/model'
 import { asMachineId } from '@podium/model'
 import type {
@@ -35,9 +36,12 @@ import type {
   HandoffExportResultMessage,
   HandoffImportChunkResultMessage,
   HandoffImportResultMessage,
+  InteractionAnswerOutcome,
   ModelChoiceWire,
+  ObservationInputOrigin,
   PortableCredentialBundle,
   PortableCredentialKind,
+  QuotaHistorySampleWire,
   RepoOp,
   ServerBindHost,
   ServerEndpointResultMessage,
@@ -52,10 +56,17 @@ import { SERVER_TRANSFER_MAX_CHUNK_BYTES } from '@podium/protocol'
 import type {
   ControlMessage,
   DaemonMessage,
+  RuntimeAttachmentRef,
+  RuntimeConfigureResultMessage,
+  RuntimeLifecycleResultMessage,
+  RuntimeSnapshotResultMessage,
+  RuntimeStageAttachmentResultMessage,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,
   ShippingJobResult,
   ShippingRepairApplyResultMessage,
+  TurnDelivery,
+  TurnReceipt,
 } from '@podium/protocol/daemon'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
@@ -70,6 +81,7 @@ import type { MemoryReader } from '../memory/types'
 import { DEPLOYMENT, perf } from '../perf/registry'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
+import { mergeLatestTranscriptPage } from '../sessions/terminal'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -80,6 +92,19 @@ const BROWSE_TIMEOUT_MS = 20_000
 // `createRepo` is four git invocations after the mkdir, and the first one on a
 // cold machine pays for git's own start-up. Still well short of the clone budget.
 const DIR_OP_INIT_TIMEOUT_MS = 60_000
+/**
+ * How long a `runtimeSendRequest` waits for its receipt.
+ *
+ * DERIVED FROM THE DRIVER'S OWN WINDOW, not chosen: the terminal driver waits
+ * `VERIFICATION_WINDOW_MS` (4.8s) before answering `unverified`, so an RPC
+ * deadline shorter than that would time out sends the driver was about to
+ * report honestly — turning the one outcome that exists to avoid a guess back
+ * into a guess. The margin covers the round trip.
+ */
+const RUNTIME_SEND_TIMEOUT_MS = 12_000
+/** The other four verbs are local operations on the machine — a lease check, a
+ *  keystroke, a state read — with no verification window to wait out. */
+const RUNTIME_VERB_TIMEOUT_MS = 10_000
 
 export interface ScanResult {
   conversations: ConversationSummaryWire[]
@@ -132,6 +157,25 @@ export interface RpcSessionView {
   agentKind: AgentKind
   resume?: ResumeRef
   transcriptItems(): TranscriptItem[]
+  runtimeTranscriptItems?(): TranscriptItem[]
+}
+
+function withRuntimeTranscriptItems(
+  slice: TranscriptSlice,
+  session: RpcSessionView,
+  input: { anchor?: string; direction: 'before' | 'after'; limit: number },
+): TranscriptSlice {
+  // The cache is an overlay only on the unanchored latest page. Anchored paging
+  // remains owned by the provider source and its cursor.
+  if (input.anchor || input.direction !== 'before') return slice
+  const runtimeItems = session.runtimeTranscriptItems?.() ?? []
+  if (runtimeItems.length === 0) return slice
+  const merged = mergeLatestTranscriptPage(slice.items, runtimeItems, input.limit)
+  return {
+    ...slice,
+    items: merged.items,
+    hasMore: slice.hasMore || merged.hasMore,
+  }
 }
 
 interface DaemonRpcDeps {
@@ -179,8 +223,10 @@ const USAGE = daemonRequestKind<{
   hostname: string
   sampledAt?: string
   buckets: UsageBucketWire[]
+  sources?: UsageSourceWire[]
 }>('us')
 const AGENT_QUOTA = daemonRequestKind<{ hostname: string; agents: AgentQuotaWire[] }>('aq')
+const QUOTA_HISTORY = daemonRequestKind<{ samples: QuotaHistorySampleWire[] }>('qh')
 const MODEL_PROBE = daemonRequestKind<Record<string, ModelChoiceWire[]>>('mp')
 const DEV_ARTIFACT_PROBE = daemonRequestKind<Payload<DevArtifactProbeResultMessage>>('up')
 const TRANSCRIPT_READ = daemonRequestKind<TranscriptSlice>('tr')
@@ -205,6 +251,20 @@ const SERVER_ENDPOINT = daemonRequestKind<Payload<ServerEndpointResultMessage>>(
 const SHIPPING_JOB = daemonRequestKind<ShippingJobResult>('sj')
 const SHIPPING_EVIDENCE = daemonRequestKind<Payload<ShippingEvidenceResultMessage>>('se')
 const SHIPPING_REPAIR_APPLY = daemonRequestKind<Payload<ShippingRepairApplyResultMessage>>('sr')
+// AGENT RUNTIME CONTRACT (POD-1761 W3). Five correlated verbs against a flagged
+// session's driver. They are ordinary RPC families because that is exactly what
+// they are — nothing about the contract needed a new transport, which is the
+// point of putting it in FRONT of the existing stack rather than beside it.
+const RUNTIME_STAGE_ATTACHMENT =
+  daemonRequestKind<Payload<RuntimeStageAttachmentResultMessage>>('rt')
+const RUNTIME_SEND = daemonRequestKind<TurnReceipt>('rs')
+const RUNTIME_LIFECYCLE = daemonRequestKind<Payload<RuntimeLifecycleResultMessage>>('rl')
+const RUNTIME_ANSWER = daemonRequestKind<InteractionAnswerOutcome>('ra')
+/** The observation bootstrap (POD-2023). Its result is the union the frame
+ *  carries — a snapshot, or the typed refusal for a session that is not behind
+ *  the contract. */
+const RUNTIME_SNAPSHOT = daemonRequestKind<Payload<RuntimeSnapshotResultMessage>>('rn')
+const RUNTIME_CONFIGURE = daemonRequestKind<Payload<RuntimeConfigureResultMessage>>('rc')
 
 /** How ONE reply frame settles: pick the family, project the payload, hand both
  *  to the correlator along with the machine that answered. */
@@ -261,12 +321,15 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
       hostname: msg.hostname,
       ...(msg.sampledAt === undefined ? {} : { sampledAt: msg.sampledAt }),
       buckets: msg.buckets,
+      ...(msg.sources === undefined ? {} : { sources: msg.sources }),
     }),
   agentQuotaResult: (broker, machineId, msg) =>
     void broker.settle(AGENT_QUOTA, msg.requestId, machineId, {
       hostname: msg.hostname,
       agents: msg.agents,
     }),
+  quotaHistoryResult: (broker, machineId, msg) =>
+    void broker.settle(QUOTA_HISTORY, msg.requestId, machineId, { samples: msg.samples }),
   modelProbeResult: (broker, machineId, msg) =>
     void broker.settle(MODEL_PROBE, msg.requestId, machineId, msg.byAgent),
   devArtifactProbeResult: (broker, machineId, msg) =>
@@ -321,6 +384,18 @@ const RPC_REPLY_SETTLERS: { [K in RpcDaemonFrameType]: ReplySettler<K> } = {
     void broker.settle(SHIPPING_REPAIR_APPLY, msg.requestId, machineId, payloadOf(msg)),
   credentialInstallResult: (broker, machineId, msg) =>
     void broker.settle(CREDENTIAL_INSTALL, msg.requestId, machineId, payloadOf(msg)),
+  runtimeStageAttachmentResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_STAGE_ATTACHMENT, msg.requestId, machineId, payloadOf(msg)),
+  runtimeSendResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_SEND, msg.requestId, machineId, msg.receipt),
+  runtimeLifecycleResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_LIFECYCLE, msg.requestId, machineId, payloadOf(msg)),
+  runtimeAnswerResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_ANSWER, msg.requestId, machineId, msg.outcome),
+  runtimeSnapshotResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_SNAPSHOT, msg.requestId, machineId, payloadOf(msg)),
+  runtimeConfigureResult: (broker, machineId, msg) =>
+    void broker.settle(RUNTIME_CONFIGURE, msg.requestId, machineId, payloadOf(msg)),
 }
 
 /**
@@ -349,6 +424,17 @@ export class DaemonRpcService {
 
   /** Globally-unique requestId mint — shared with the headless module so its
    *  turn/bind ids can never collide with an RPC id. */
+  /**
+   * The machine an UNROUTED request lands on — the one `usage()` answered from.
+   *
+   * The cost fold needs it: a transcript path is only unique within a host, so
+   * the segment lookup that turns a path into a session has to be scoped to the
+   * daemon whose walk produced it (POD-1858).
+   */
+  answeringMachineId(): MachineId {
+    return this.deps.defaultMachine()
+  }
+
   nextRequestId(prefix: string): string {
     return this.broker.nextRequestId(prefix)
   }
@@ -472,11 +558,25 @@ export class DaemonRpcService {
     )
   }
 
-  /** Token-usage buckets from the daemon's transcript harvest (empty on timeout). */
-  usage(sinceMs?: number): Promise<{
+  /**
+   * Token-usage buckets from the daemon's transcript harvest (empty on timeout).
+   *
+   * `withSources` also returns the per-FILE breakdown behind the buckets, which
+   * is what per-task cost is folded from (POD-1858). Opt-in because it is an
+   * order of magnitude larger than the buckets and has exactly one reader: the
+   * cost fold on `usage.summary`, which strips it before the payload reaches a
+   * client. The status chip's 90-second poll asks without it.
+   */
+  usage(
+    sinceMs?: number,
+    withSources?: boolean,
+  ): Promise<{
     hostname: string
     sampledAt?: string
     buckets: UsageBucketWire[]
+    sources?: UsageSourceWire[]
+    /** The window the `sources` folds cover — the daemon's memo, not `sinceMs`. */
+    sourcesSinceMs?: number
   }> {
     return this.request(
       USAGE,
@@ -486,6 +586,7 @@ export class DaemonRpcService {
         type: 'usageRequest',
         requestId,
         ...(sinceMs !== undefined ? { sinceMs } : {}),
+        ...(withSources ? { withSources } : {}),
       }),
     )
   }
@@ -508,6 +609,31 @@ export class DaemonRpcService {
       }),
       machineId,
     )
+  }
+
+  /**
+   * Recover past quota windows from harness files on every online host (POD-1571).
+   *
+   * A generous timeout, and deliberately: this walks every Codex session rollout
+   * on the machine — over a thousand files on a working box — where `agentQuota`
+   * beside it makes three HTTP calls. Nothing waits on it; it seeds the ledger in
+   * the background at boot, once.
+   */
+  async quotaHistoryAll(sinceMs: number): Promise<QuotaHistorySampleWire[]> {
+    const machineIds = this.deps.onlineMachineIds()
+    if (machineIds.length === 0) return []
+    const perMachine = await Promise.all(
+      machineIds.map((machineId) =>
+        this.request(
+          QUOTA_HISTORY,
+          120_000,
+          () => ({ samples: [] }),
+          (requestId) => ({ type: 'quotaHistoryRequest', requestId, sinceMs }),
+          machineId,
+        ),
+      ),
+    )
+    return perMachine.flatMap((r) => r.samples)
   }
 
   /**
@@ -662,6 +788,194 @@ export class DaemonRpcService {
         artifactRefs: [],
       }),
       (requestId) => ({ type: 'shippingRepairApplyRequest', requestId, ...input }),
+      machineId,
+    )
+  }
+
+  // ---- the Agent Runtime contract (POD-1761 W3) ----
+  //
+  // FOUR VERBS, NO POLICY. Everything these methods know is which frame to build
+  // and how long to wait; whether a session is behind the contract at all is the
+  // DAEMON's answer, and it comes back as a typed refusal rather than as a
+  // question this side has to ask first. A caller that guessed would be a second
+  // place the flag lived.
+
+  /**
+   * Deliver one turn through the contract and answer with its receipt.
+   *
+   * NOTE WHAT A TIMEOUT PRODUCES: `unverified`, not `refused`. The frame really
+   * did go to a machine, so "the keystrokes may well have landed and nobody
+   * proved it" is the true statement — which is precisely what that outcome
+   * means. Reporting `refused` would tell a caller the session declined the
+   * write, and a caller that believed it would send the same text twice.
+   */
+  runtimeSend(
+    input: {
+      sessionId: SessionId
+      turnId?: string
+      text: string
+      origin: ObservationInputOrigin
+      delivery: TurnDelivery
+      attachments?: readonly RuntimeAttachmentRef[]
+    },
+    machineId: MachineId,
+  ): Promise<TurnReceipt> {
+    return this.request(
+      RUNTIME_SEND,
+      RUNTIME_SEND_TIMEOUT_MS,
+      () => ({
+        outcome: 'unverified' as const,
+        deliveredAs: input.delivery,
+        verificationWindowMs: RUNTIME_SEND_TIMEOUT_MS,
+        at: new Date().toISOString(),
+      }),
+      (requestId) => ({
+        type: 'runtimeSendRequest',
+        requestId,
+        turnId: input.turnId ?? requestId,
+        sessionId: input.sessionId,
+        text: input.text,
+        origin: input.origin,
+        delivery: input.delivery,
+        attachments: input.attachments ? [...input.attachments] : undefined,
+      }),
+      machineId,
+    )
+  }
+
+  runtimeStageAttachment(
+    input: {
+      sessionId: SessionId
+      source: { bytes: Uint8Array; filename: string; mediaType: string }
+    },
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeStageAttachmentResultMessage>> {
+    return this.request(
+      RUNTIME_STAGE_ATTACHMENT,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({
+        type: 'runtimeStageAttachmentRequest',
+        requestId,
+        sessionId: input.sessionId,
+        source: {
+          dataBase64: Buffer.from(input.source.bytes).toString('base64'),
+          filename: input.source.filename,
+          mediaType: input.source.mediaType,
+        },
+      }),
+      machineId,
+    )
+  }
+
+  /** REQUEST a fence. The fence itself, if the provider confirms one, arrives on
+   *  the causal stream as a terminal turn event — never as this reply. */
+  runtimeInterrupt(
+    sessionId: SessionId,
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeLifecycleResultMessage>> {
+    return this.request(
+      RUNTIME_LIFECYCLE,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({ type: 'runtimeInterruptRequest', requestId, sessionId }),
+      machineId,
+    )
+  }
+
+  /**
+   * THE OBSERVATION BOOTSTRAP, ACROSS THE WIRE (POD-2023).
+   *
+   * Coarse `runtimeEvent` frames are `control.entity`: the daemon fsync-retains
+   * them until the server commits and returns a terminal receipt. This snapshot
+   * RPC is an explicit current-state read for control-plane callers, not the
+   * recovery mechanism for the durable event stream or its board projector.
+   *
+   * A TIMEOUT IS `not_running`, and that is the honest default rather than a
+   * convenient one: what a caller learns is "I could not obtain a bootstrap",
+   * and the only safe reading of that is that this machine is not driving the
+   * session. Manufacturing an empty snapshot would hand a consumer a cursor that
+   * silently discards everything before it.
+   */
+  runtimeSnapshot(
+    sessionId: SessionId,
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeSnapshotResultMessage>> {
+    return this.request(
+      RUNTIME_SNAPSHOT,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({ type: 'runtimeSnapshotRequest', requestId, sessionId }),
+      machineId,
+    )
+  }
+
+  runtimeAnswer(
+    input: { sessionId: SessionId; interactionId: string; answer: Record<string, unknown> },
+    machineId: MachineId,
+  ): Promise<InteractionAnswerOutcome> {
+    return this.request(
+      RUNTIME_ANSWER,
+      RUNTIME_VERB_TIMEOUT_MS,
+      // A timeout is not "already answered" and not "expired": the ask may still
+      // be open and unanswered, which is exactly `unknown-interaction` from this
+      // side's point of view — we do not know that it is there.
+      () => ({ ok: false as const, reason: 'unknown-interaction' as const }),
+      (requestId) => ({
+        type: 'runtimeAnswerRequest',
+        requestId,
+        sessionId: input.sessionId,
+        interactionId: input.interactionId,
+        answer: input.answer,
+      }),
+      machineId,
+    )
+  }
+
+  /**
+   * CHANGE A RUNNING SESSION'S STICKY MODEL / EFFORT (POD-3081).
+   *
+   * A TIMEOUT IS `not_running`, matching every runtime verb above it, and here
+   * the choice carries a little more weight than usual: this reply is what the
+   * server writes the session's REQUESTED model from. Defaulting a lost reply to
+   * anything optimistic would record a change the machine may never have made,
+   * and the requested-vs-observed split would then be showing a requested value
+   * that was never requested of anything.
+   */
+  runtimeConfigure(
+    input: { sessionId: SessionId; model?: string; effort?: string; permissionMode?: string },
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeConfigureResultMessage>> {
+    return this.request(
+      RUNTIME_CONFIGURE,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({
+        type: 'runtimeConfigureRequest',
+        requestId,
+        sessionId: input.sessionId,
+        ...(input.model !== undefined ? { model: input.model } : {}),
+        ...(input.effort !== undefined ? { effort: input.effort } : {}),
+        ...(input.permissionMode !== undefined ? { permissionMode: input.permissionMode } : {}),
+      }),
+      machineId,
+    )
+  }
+
+  runtimeLifecycle(
+    input: { sessionId: SessionId; verb: 'stop' | 'hibernate' | 'kill' },
+    machineId: MachineId,
+  ): Promise<Payload<RuntimeLifecycleResultMessage>> {
+    return this.request(
+      RUNTIME_LIFECYCLE,
+      RUNTIME_VERB_TIMEOUT_MS,
+      () => ({ sessionId: input.sessionId, result: { reason: 'not_running' as const } }),
+      (requestId) => ({
+        type: 'runtimeLifecycleRequest',
+        requestId,
+        sessionId: input.sessionId,
+        verb: input.verb,
+      }),
       machineId,
     )
   }
@@ -881,7 +1195,7 @@ export class DaemonRpcService {
 
   /** One-shot `claude -p` / `codex exec` / `grok -p` on a dev machine. */
   harnessExec(input: {
-    agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor'
+    agent: 'claude-code' | 'codex' | 'grok' | 'opencode' | 'cursor' | 'pi'
     model?: string
     effort?: string
     prompt: string
@@ -1029,7 +1343,7 @@ export class DaemonRpcService {
         perf.record('phase', 'transcriptRead.lake', lakeMs, DEPLOYMENT)
         perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
         recordTotal()
-        return fromLake
+        return withRuntimeTranscriptItems(fromLake, session, input)
       }
     }
     const hasDaemon = this.deps.hasDaemon(session.machineId)
@@ -1072,7 +1386,7 @@ export class DaemonRpcService {
       perf.record('phase', 'transcriptRead.daemon', daemonMs ?? 0, DEPLOYMENT)
       perf.record('phase', 'transcriptRead.items', fromDaemon.items.length, DEPLOYMENT)
       recordTotal()
-      return fromDaemon
+      return withRuntimeTranscriptItems(fromDaemon, session, input)
     }
     // Empty/timeout daemon answer (or no daemon): serve from the mirrored copy.
     if (!lakeAttempted) fromLake = await readLake()
@@ -1081,7 +1395,12 @@ export class DaemonRpcService {
       perf.record('phase', 'transcriptRead.items', fromLake.items.length, DEPLOYMENT)
     }
     recordTotal()
-    return fromLake ?? fromDaemon ?? { items: [], hasMore: false }
+    const fallback = fromLake ?? fromDaemon ?? { items: [], hasMore: false }
+    const projected = withRuntimeTranscriptItems(fallback, session, input)
+    if (projected !== fallback) {
+      perf.record('phase', 'transcriptRead.items', projected.items.length, DEPLOYMENT)
+    }
+    return projected
   }
 
   listDir(input: {
@@ -1139,7 +1458,7 @@ export class DaemonRpcService {
 
   readAsset(
     input:
-      | { sessionId: SessionId; path: string }
+      | { sessionId: SessionId; path: string; offset?: number; length?: number }
       | {
           machineId?: MachineId
           root: string
@@ -1163,6 +1482,8 @@ export class DaemonRpcService {
           cwd: session.cwd,
           path: input.path,
           knownPath,
+          ...(input.offset !== undefined ? { offset: input.offset } : {}),
+          ...(input.length !== undefined ? { length: input.length } : {}),
         }),
         session.machineId, // the asset lives in the session's cwd on its machine
       )

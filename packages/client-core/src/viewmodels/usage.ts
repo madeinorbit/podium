@@ -715,6 +715,21 @@ export function formatUsd(n: number): string {
   return n >= 100 ? `$${formatCount(Math.round(n))}` : `$${n.toFixed(2)}`
 }
 
+/**
+ * `$225.81` — the same money with its cents kept.
+ *
+ * `formatUsd` rounds above $100 because the surfaces it was written for state a
+ * figure and move on, and three significant figures IS the provenance there. A
+ * ranked table is the other case: it sits under the sheet's provenance bar, its
+ * rows are meant to be compared against each other, and two tasks that round to
+ * $226 are not the same price. No second price table and no second rounding
+ * rule — one formatter for a figure being stated, one for a figure being
+ * compared.
+ */
+export function formatUsdExact(n: number): string {
+  return `$${n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
 /** Dollar ruler mark: no false `.0`, while genuine half steps stay visible. */
 export function formatUsdTick(n: number): string {
   return formatUsd(n)

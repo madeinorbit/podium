@@ -29,7 +29,7 @@ describe('mobile transcript helpers', () => {
       ],
     )
 
-    expect(merged.map((entry) => entry.text)).toEqual(['old', 'current', 'new'])
+    expect(merged.map((entry) => entry.text)).toEqual(['old', 'current duplicate', 'new'])
   })
 
   // POD-343 (the mobile half of POD-341): a delta frame is not always newer. The

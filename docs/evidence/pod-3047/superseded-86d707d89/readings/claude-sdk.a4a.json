@@ -1,0 +1,100 @@
+{
+  "cell": "A4A",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4a",
+  "at": "2026-08-28T13:25:26.646Z",
+  "pin": {
+    "cell": "A4A",
+    "at": "2026-08-28T13:25:26.666Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "9ba8292cd86e88faf0a7cef71ca2b3716fef2317",
+    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "9ba8292",
+      "appsWebIdentical": true
+    },
+    "serverPid": "989426",
+    "daemonPid": "990109",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "15042888 kB",
+      "SwapFree": "41724796 kB"
+    },
+    "rootFreeKiB": 83551728,
+    "load1m": 12.22,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no permission ask was raised; the guarded write HAPPENED ANYWAY (marker file present outside the session cwd)",
+  "control": {
+    "fired": true,
+    "what": "the session becoming live independent of whether an ask is raised",
+    "detail": "attached=1; items=0"
+  },
+  "evidence": [
+    "SEND              {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "ASK LIST          [] after 45379ms",
+    "TERMINAL          false",
+    "MARKER WRITTEN    true at /tmp/pod-3047-external/P3047-A4A-MTCZI81Y.txt",
+    "ITEMS             []",
+    "CHAT ITEMS        [{\"id\":\"claude-sdk-user-2208b464-9873-433d-a8ca-8c1f5aae7546-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run exactly: printf P3047-A4A-MTCZI81Y > /tmp/pod-3047-external/P3047-A4A-MTCZI81Y.txt ; then tell me whether it succeeded.\"},{\"id\":\"6a34ae7b-380a-42f9-b57c-21f4ad596d3b\",\"role\":\"assistant\",\"text\":\"It succeeded — the command ran with no errors and wrote the token to `/tmp/pod-3047-external/P3047-A4A-MTCZI81Y.txt`.\"}]"
+  ],
+  "data": {
+    "sid": "2208b464-9873-433d-a8ca-8c1f5aae7546",
+    "probe": {
+      "asks": [],
+      "terminal": false,
+      "chatFrame": true,
+      "ms": 45379
+    },
+    "items": [],
+    "markerWritten": true,
+    "chatItems": [
+      {
+        "id": "claude-sdk-user-2208b464-9873-433d-a8ca-8c1f5aae7546-1",
+        "role": "user",
+        "ts": "2026-08-28T13:25:28.789Z",
+        "text": "Use your Bash tool to run exactly: printf P3047-A4A-MTCZI81Y > /tmp/pod-3047-external/P3047-A4A-MTCZI81Y.txt ; then tell me whether it succeeded."
+      },
+      {
+        "id": "6a34ae7b-380a-42f9-b57c-21f4ad596d3b",
+        "role": "assistant",
+        "ts": "2026-08-28T13:25:37.347Z",
+        "text": "It succeeded — the command ran with no errors and wrote the token to `/tmp/pod-3047-external/P3047-A4A-MTCZI81Y.txt`."
+      }
+    ]
+  }
+}

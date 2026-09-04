@@ -3,7 +3,15 @@ import { hostname } from 'node:os'
 import { createLogger } from '@podium/logger'
 import type { MachineId } from '@podium/model'
 import {
+  CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   createHandshakeDialer,
+  DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES,
+  DaemonPtyInputMetadata,
+  type DaemonPtyOutputBatch,
+  decodeBinaryEnvelope,
+  encodeBinaryEnvelope,
   type LocalDaemonAttachment,
   type PeerBuild,
   type PeerCredential,
@@ -21,6 +29,8 @@ import {
 import WebSocket, { type RawData } from 'ws'
 import { deliveryCaps } from './build-report'
 import type { DaemonOptions, ReconnectTimers } from './daemon-options'
+import type { QueueDrainOutbox } from './queue-drain-outbox'
+import type { RuntimeEventOutbox } from './runtime-event-outbox'
 import { savePairingToken, savePinnedUpdatePubkey } from './identity'
 import { decideOnProtocolMismatch, decidePostUpdate } from './self-update'
 
@@ -30,6 +40,7 @@ const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
 const SOCKET_OPEN_DEADLINE_MS = 10_000
 const PEER_HELLO_ACK_DEADLINE_MS = 10_000
+const QUEUE_DRAIN_RETRY_MS = 500
 
 /**
  * How long a protocol-mismatch `podium update` may run before it is killed.
@@ -62,11 +73,11 @@ export type DaemonConnectionState =
 
 interface SocketLike {
   readonly readyState: number
-  send(data: string): void
+  send(data: string | Uint8Array): void
   close(): void
   terminate(): void
   once(event: 'open' | 'close', listener: () => void): this
-  on(event: 'message', listener: (raw: RawData) => void): this
+  on(event: 'message', listener: (raw: RawData, isBinary?: boolean) => void): this
   on(event: 'close', listener: () => void): this
   on(event: 'error', listener: (error: unknown) => void): this
   on(
@@ -83,7 +94,10 @@ export interface DaemonConnectionDeps {
   readonly machineId: MachineId
   readonly identity: { token?: string; updatePubkey?: string }
   readonly receiveApplicationFrame: (raw: RawData) => void
-  readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => void
+  readonly receiveBinaryInput?: (metadata: DaemonPtyInputMetadata, payload: Uint8Array) => void
+  readonly sendApplicationFrame: (socket: SocketLike | undefined, msg: DaemonMessage) => boolean
+  readonly queueDrainOutbox: QueueDrainOutbox
+  readonly runtimeEventOutbox: RuntimeEventOutbox
   readonly onConnected: () => { convergedVersion?: string } | void
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
@@ -93,12 +107,47 @@ export interface DaemonConnectionDeps {
 export interface DaemonConnection {
   readonly state: DaemonConnectionState
   start(): Promise<void>
+  sendOutput(batch: DaemonPtyOutputBatch): void
   send(msg: DaemonMessage): void
   quiesceEndpoint(transferId: string): void
   resumeEndpoint(transferId: string): void
   prepareEndpointCommit(transferId: string, publicUrl: string): Promise<string>
   activateEndpoint(transferId: string): void
+  acknowledgeQueueDrainReport(reportId: string): void
+  acknowledgeRuntimeEvent(deliveryId: string): void
   close(): Promise<void>
+}
+
+const assertOutputBatch = (batch: DaemonPtyOutputBatch): void => {
+  if (
+    !Number.isSafeInteger(batch.sourceFrames) ||
+    batch.sourceFrames < 1 ||
+    batch.sourceFrames > DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES
+  ) {
+    throw new RangeError(
+      `daemon PTY output batches require sourceFrames in 1..${DAEMON_PTY_OUTPUT_MAX_SOURCE_FRAMES}`,
+    )
+  }
+}
+
+const legacyOutputMessage = (
+  batch: DaemonPtyOutputBatch,
+): Extract<DaemonMessage, { type: 'agentFrameBatch' }> => {
+  return {
+    type: 'agentFrameBatch',
+    sessionId: batch.sessionId,
+    frames: [
+      Buffer.from(batch.bytes).toString('base64'),
+      ...Array.from({ length: batch.sourceFrames - 1 }, () => ''),
+    ],
+  }
+}
+
+/** Normalize every ws RawData variant without changing any byte values. */
+export function normalizeRawData(raw: RawData): Buffer {
+  if (Buffer.isBuffer(raw)) return raw
+  if (Array.isArray(raw)) return Buffer.concat(raw)
+  return Buffer.from(raw)
 }
 
 /**
@@ -127,6 +176,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let socketGeneration = 0
   let openDeadline: { generation: number; handle: unknown } | undefined
   let acknowledgementDeadline: { generation: number; handle: unknown } | undefined
+  let queueDrainRetryTimer: unknown | undefined
+  let runtimeEventRetryTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
   let closing = false
   let started = false
@@ -138,9 +189,12 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let endpointActivationPending = false
   let endpointTargetUrl: string | undefined
   const quiescedFrames: DaemonMessage[] = []
+  let acceptedCaps = new Set<string>()
+  const invalidSockets = new WeakSet<SocketLike>()
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
-  // per code/version until an authenticated machine transport exists; ordinary
-  // runtime frames retain the historical drop-while-offline behavior.
+  // per code/version until an authenticated machine transport exists. Ordinary
+  // runtime frames retain historical drop-while-offline behavior; queue-drain
+  // abandonment is the one durable, acknowledged exception below.
   const pendingDiagnostics = new Map<
     string,
     Extract<DaemonMessage, { type: 'machineDiagnostic' }>
@@ -201,11 +255,96 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     clearAcknowledgementDeadline(generation)
   }
 
+  const stopQueueDrainRetry = (): void => {
+    if (queueDrainRetryTimer === undefined) return
+    timers.clearTimeout(queueDrainRetryTimer)
+    queueDrainRetryTimer = undefined
+  }
+
+  const stopRuntimeEventRetry = (): void => {
+    if (runtimeEventRetryTimer === undefined) return
+    timers.clearTimeout(runtimeEventRetryTimer)
+    runtimeEventRetryTimer = undefined
+  }
+
+  const sendConnected = (msg: DaemonMessage): boolean => {
+    if (localAttachment) {
+      try {
+        localAttachment.deliver(msg)
+        return true
+      } catch (error) {
+        log.warn('could not deliver a daemon frame over the local link', { err: error })
+        return false
+      }
+    }
+    return deps.sendApplicationFrame(socket, msg)
+  }
+
+  const scheduleQueueDrainRetry = (): void => {
+    if (
+      closing ||
+      state !== 'connected' ||
+      queueDrainRetryTimer !== undefined ||
+      deps.queueDrainOutbox.pending().length === 0
+    ) {
+      return
+    }
+    queueDrainRetryTimer = timers.setTimeout(() => {
+      queueDrainRetryTimer = undefined
+      replayQueueDrainReports()
+    }, QUEUE_DRAIN_RETRY_MS)
+  }
+
+  const replayQueueDrainReports = (): void => {
+    if (state !== 'connected') return
+    for (const report of deps.queueDrainOutbox.pending()) sendConnected(report)
+    scheduleQueueDrainRetry()
+  }
+
+  const scheduleRuntimeEventRetry = (): void => {
+    if (
+      closing ||
+      state !== 'connected' ||
+      runtimeEventRetryTimer !== undefined ||
+      deps.runtimeEventOutbox.pending().length === 0
+    )
+      return
+    runtimeEventRetryTimer = timers.setTimeout(() => {
+      runtimeEventRetryTimer = undefined
+      replayRuntimeEvents()
+    }, QUEUE_DRAIN_RETRY_MS)
+  }
+
+  const replayRuntimeEvents = (): void => {
+    if (state !== 'connected') return
+    for (const event of deps.runtimeEventOutbox.pending()) sendConnected(event)
+    scheduleRuntimeEventRetry()
+  }
+
   const scheduleReconnect = (): void => {
     if (closing || reconnectTimer !== undefined || state === 'unauthorized' || state === 'blocked')
       return
+    const from = state
     state = 'backoff'
     const delay = reconnectBackoffMs
+    /**
+     * THE LINK GOING AWAY, AND COMING BACK (POD-3224, question 13).
+     *
+     * A coordinator applying its own grant takes this link down, so the shape of
+     * the outage is how a machine tells "the server restarted for the update I
+     * am part of" from "the network broke". The status FILE has always carried
+     * the current state; nothing carried the transitions, so afterwards there
+     * was no way to say when the link dropped, how long the backoff had grown,
+     * or how many attempts it took to come back.
+     *
+     * `info` and bounded: one line per drop, one per return. A daemon that stays
+     * connected writes none.
+     */
+    log.info('daemon link lost; backing off before reconnecting', {
+      from,
+      retryBackoffMs: delay,
+      ...(lastSocketError ? { lastError: lastSocketError } : {}),
+    })
     report({
       state: 'disconnected',
       retryBackoffMs: delay,
@@ -269,6 +408,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     updatePubkey?: string,
     updateKeyRotations?: readonly UpdateKeyRotation[],
     active?: SocketLike,
+    caps: readonly string[] = [],
   ): void => {
     if (issuedToken) {
       persistPairing(issuedToken, updatePubkey)
@@ -304,9 +444,24 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         }
       }
     }
+    const from = state
     state = 'connected'
+    acceptedCaps = new Set(caps)
+    const recoveredAfterMs =
+      reconnectBackoffMs === RECONNECT_MIN_MS ? undefined : reconnectBackoffMs
+    // READ BEFORE THEY ARE CLEARED. Both of these describe the outage that just
+    // ended, and clearing them first is how the field that names the cause ends
+    // up permanently absent from the line that exists to report it.
+    const recoveredFrom = lastSocketError
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
+    log.info('daemon link established', {
+      from,
+      // The backoff this attempt had grown to. Absent on a first connection —
+      // which is itself the distinction between "came back" and "just started".
+      ...(recoveredAfterMs !== undefined ? { afterBackoffMs: recoveredAfterMs } : {}),
+      ...(recoveredFrom ? { recoveredFrom } : {}),
+    })
     const boot = deps.onConnected() ?? {}
     convergedVersion = boot.convergedVersion ?? convergedVersion
     report({
@@ -323,6 +478,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       else deps.sendApplicationFrame(socket, diagnostic)
     }
     pendingDiagnostics.clear()
+    replayQueueDrainReports()
+    replayRuntimeEvents()
     resolveStart()
   }
 
@@ -385,18 +542,66 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     child.once('close', (code) => settle(code))
   }
 
+  const closeForInvalidBinary = (
+    active: SocketLike | undefined,
+    reason: 'unnegotiated' | 'malformed',
+    error: unknown,
+  ): void => {
+    const detail = error instanceof Error ? error.message : String(error)
+    acceptedCaps.clear()
+    lastSocketError = detail
+    log.warn('closing daemon connection for invalid binary PTY input', {
+      reason,
+      err: error,
+    })
+    if (active) {
+      invalidSockets.add(active)
+      if (socket === active) state = 'closed'
+      active.close()
+      return
+    }
+    localAttachment?.close()
+    localAttachment = undefined
+    state = 'closed'
+  }
   const receiveReply = (
     dialer: ReturnType<typeof createHandshakeDialer>,
     raw: RawData,
     active: SocketLike | undefined,
+    isBinary = false,
   ): void => {
-    const step = dialer.receive(raw.toString())
+    if (isBinary) {
+      if (dialer.state !== 'established' || !acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+        closeForInvalidBinary(
+          active,
+          'unnegotiated',
+          new Error('binary PTY input arrived before capability negotiation'),
+        )
+        return
+      }
+      let decoded: { metadata: DaemonPtyInputMetadata; payload: Uint8Array }
+      try {
+        decoded = decodeBinaryEnvelope(normalizeRawData(raw), DaemonPtyInputMetadata)
+      } catch (error) {
+        closeForInvalidBinary(active, 'malformed', error)
+        return
+      }
+      deps.receiveBinaryInput?.(decoded.metadata, decoded.payload)
+      return
+    }
+    const step = dialer.receive(normalizeRawData(raw).toString())
     if (step.action === 'deliver') {
       deps.receiveApplicationFrame(Buffer.from(step.raw))
       return
     }
     if (step.action === 'established') {
-      established(step.issuedToken, step.updatePubkey, step.updateKeyRotations, active)
+      established(
+        step.issuedToken,
+        step.updatePubkey,
+        step.updateKeyRotations,
+        active,
+        step.caps.accepted,
+      )
       return
     }
     if (step.action === 'protocol-error') {
@@ -437,9 +642,18 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     return createHandshakeDialer({
       peerRole: 'machine',
       credential: selected,
-      caps: deliveryCaps(deps.build).filter(
-        (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
-      ),
+      caps: [
+        ...deliveryCaps(deps.build).filter(
+          (cap) => reportUpdateIdentity || cap !== 'update.delivery.feed',
+        ),
+        CAP_TERMINAL_OUTPUT_BINARY_V1,
+        CAP_TERMINAL_INPUT_BINARY_V1,
+        // POD-3239: this daemon reports the grid it applied after every resize
+        // it dispatches, which is what licenses the server to stop writing the
+        // session's geometry from the request side. Offered from the commit that
+        // makes it true, so the advertisement is never ahead of the behaviour.
+        CAP_DAEMON_GEOMETRY_APPLIED,
+      ],
       ...(reportUpdateIdentity ? { build: deps.build } : {}),
       claims: {
         machineId: deps.machineId,
@@ -450,6 +664,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   const connectLocal = (): void => {
+    acceptedCaps.clear()
     state = 'connecting'
     report({ state: 'connecting' })
     const localLink = options.localLink
@@ -469,6 +684,26 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const attachment = localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
+      deliverInput: (input) => {
+        if (!acceptedCaps.has(CAP_TERMINAL_INPUT_BINARY_V1)) {
+          closeForInvalidBinary(
+            undefined,
+            'unnegotiated',
+            new Error('local binary PTY input arrived before capability negotiation'),
+          )
+          return
+        }
+        deps.receiveBinaryInput?.(
+          {
+            v: 1,
+            type: 'ptyInput',
+            sessionId: input.sessionId,
+            inputOrigin: input.inputOrigin,
+            ...(input.attribution === undefined ? {} : { attribution: input.attribution }),
+          },
+          input.bytes,
+        )
+      },
     })
     if (attachment.established) localAttachment = attachment
     receiveReply(dialer, Buffer.from(JSON.stringify(attachment.reply)), undefined)
@@ -476,6 +711,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
 
   function connectSocket(): void {
     if (closing) return
+    acceptedCaps.clear()
     state = 'connecting'
     report({ state: 'connecting' })
     const active = openSocket(`${activeServerUrl}/daemon`)
@@ -497,6 +733,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     active.once('open', () => {
       if (!isCurrent()) return
       clearOpenDeadline(generation)
+      if (invalidSockets.has(active)) return
       try {
         dialer = makeDialer()
         state = 'awaiting-ack'
@@ -517,18 +754,27 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         terminal('blocked', 'configuration', String(error), active)
       }
     })
-    active.on('message', (raw) => {
-      if (!isCurrent()) return
+    active.on('message', (raw, isBinary) => {
+      if (!isCurrent() || invalidSockets.has(active)) return
+      if (!dialer && isBinary) {
+        closeForInvalidBinary(
+          active,
+          'unnegotiated',
+          new Error('binary PTY input arrived before the daemon handshake'),
+        )
+        return
+      }
       if (!dialer) {
         terminal('blocked', 'handshake-protocol', 'reply-before-hello', active)
         return
       }
-      receiveReply(dialer, raw, active)
+      receiveReply(dialer, raw, active, isBinary === true)
       if (state !== 'awaiting-ack') clearAcknowledgementDeadline(generation)
     })
     if (!process.versions.bun) {
       active.on('unexpected-response', (_req, response) => {
         if (!isCurrent()) return
+        if (invalidSockets.has(active)) return
         if (response.statusCode === 426) handleProtocolMismatch(active, 'http-426')
       })
     }
@@ -539,7 +785,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     active.on('close', () => {
       if (socket !== active || socketGeneration !== generation) return
       socket = undefined
+      acceptedCaps.clear()
       clearHandshakeDeadlines(generation)
+      stopQueueDrainRetry()
+      stopRuntimeEventRetry()
       if (closing) return
       if (endpointActivationPending) {
         endpointActivationPending = false
@@ -549,14 +798,6 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         scheduleReconnect()
       }
     })
-  }
-
-  const sendConnected = (msg: DaemonMessage): void => {
-    if (localAttachment) {
-      localAttachment.deliver(msg)
-      return
-    }
-    deps.sendApplicationFrame(socket, msg)
   }
 
   const probeAuthenticatedEndpointOnce = (publicUrl: string): Promise<void> =>
@@ -649,18 +890,62 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       }
       return ready
     },
-    send(msg) {
-      if (quiescedTransferId && msg.type !== 'serverEndpointResult') {
-        quiescedFrames.push(msg)
+    sendOutput(batch) {
+      if (socket && invalidSockets.has(socket)) return
+      if (state !== 'connected') return
+      assertOutputBatch(batch)
+      if (localAttachment) {
+        localAttachment.deliverOutput(batch)
         return
       }
+      if (socket && acceptedCaps.has(CAP_TERMINAL_OUTPUT_BINARY_V1)) {
+        try {
+          socket.send(
+            encodeBinaryEnvelope(
+              {
+                v: 1,
+                type: 'ptyOutput',
+                sessionId: batch.sessionId,
+                sourceFrames: batch.sourceFrames,
+              },
+              batch.bytes,
+            ),
+          )
+        } catch (error) {
+          lastSocketError = error instanceof Error ? error.message : String(error)
+        }
+        return
+      }
+      const message = legacyOutputMessage(batch)
+      deps.sendApplicationFrame(socket, message)
+    },
+    send(msg) {
+      const isQueueDrainReport = msg.type === 'runtimeQueueDrainAbandoned'
+      const isRuntimeEvent = msg.type === 'runtimeEvent'
+      if (isQueueDrainReport) {
+        if (!msg.reportId) {
+          throw new Error('runtimeQueueDrainAbandoned requires reportId before daemon send')
+        }
+        deps.queueDrainOutbox.enqueue({ ...msg, reportId: msg.reportId })
+      }
+      if (isRuntimeEvent) {
+        if (!msg.deliveryId) throw new Error('runtimeEvent requires deliveryId before daemon send')
+        deps.runtimeEventOutbox.enqueue({ ...msg, deliveryId: msg.deliveryId })
+      }
+      if (quiescedTransferId && msg.type !== 'serverEndpointResult') {
+        if (!isQueueDrainReport && !isRuntimeEvent) quiescedFrames.push(msg)
+        return
+      }
+      if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
-          pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
+          pendingDiagnostics.set(msg.code + '\0' + (msg.observedVersion ?? ''), msg)
         }
         return
       }
       sendConnected(msg)
+      if (isQueueDrainReport) scheduleQueueDrainRetry()
+      if (isRuntimeEvent) scheduleRuntimeEventRetry()
     },
     quiesceEndpoint(transferId) {
       // A final snapshot may replace the target stage (and therefore transfer id)
@@ -694,9 +979,19 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         connectSocket()
       }
     },
+    acknowledgeQueueDrainReport(reportId) {
+      deps.queueDrainOutbox.acknowledge(reportId)
+      if (deps.queueDrainOutbox.pending().length === 0) stopQueueDrainRetry()
+    },
+    acknowledgeRuntimeEvent(deliveryId) {
+      deps.runtimeEventOutbox.acknowledge(deliveryId)
+      if (deps.runtimeEventOutbox.pending().length === 0) stopRuntimeEventRetry()
+    },
     async close() {
       closing = true
       state = 'closed'
+      stopQueueDrainRetry()
+      stopRuntimeEventRetry()
       if (reconnectTimer !== undefined) {
         timers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined
@@ -705,6 +1000,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       localAttachment?.close()
       localAttachment = undefined
       const active = socket
+      acceptedCaps.clear()
       socket = undefined
       if (!active || active.readyState === WebSocket.CLOSED) return
       await new Promise<void>((resolve) => {

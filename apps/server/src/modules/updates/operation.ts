@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type { MachineId, UpdateChannel } from '@podium/model'
 import type {
   AwaitingAsk,
@@ -68,16 +69,18 @@ import {
  * It is the spec's own §3.1 example order, and each adjacency has a reason:
  *
  *  - `prepare` first because everything downstream consumes what it packs. In
- *    the development flow `requestDestBundle()` is an EXPLICIT build, and an
- *    explicit build rebuilds `apps/web/dist` before it packs the tarball
- *    (`decideWebDist`) — so preparing is also what makes the website current.
+ *    the development flow `requestDestBundle()` is an EXPLICIT build.
  *  - `machines` before `server` because this server restarting is what ends this
  *    process. The old choreography expressed the same ordering as a 250 ms poll
  *    loop with a 60-minute backstop; here it is simply the order of the plan.
  *  - `web` last because on an INSTALLED server the served dist arrives with the
- *    server's own swap, and in the development flow `prepare` has already built
- *    it — so by the time the step is reached its reality check usually passes
- *    without acting, which is exactly what a reality-first runner should do.
+ *    server's own swap. In the development flow `prepare` no longer makes the
+ *    LIVE website current as a side effect — since POD-3054 the release build
+ *    runs entirely inside the approved commit's snapshot and never writes
+ *    `apps/web/dist` — so this step does that work itself, where an operator has
+ *    already confirmed the update and a restart follows. It is not a second
+ *    client build: `prepare` populated the Turbo cache for this commit's clients,
+ *    so the rebuild here restores rather than compiles.
  *
  * WHAT DOES NOT LIVE HERE: the wave planner, the grant protocol, the dev
  * publisher, the daemon swap. Those are the muscle and they are untouched. This
@@ -85,6 +88,9 @@ import {
  */
 
 export const UPDATE_OPERATION_KIND = 'update'
+
+/** The update kind's own narration. See `operations/engine.ts` for the framework's. */
+const log = createLogger('server:updates')
 
 export const UPDATE_STEP_PREPARE = 'prepare'
 export const UPDATE_STEP_MACHINES = 'machines'
@@ -1149,6 +1155,29 @@ function stepOf(operation: Operation, stepId: string): OperationStep | undefined
  * dialog offering the same update again.
  */
 export function reconcileUpdateOperation(operation: Operation, reality: UpdateReality): Operation {
+  /**
+   * THE REALITY THE SUCCESSOR JUDGED THIS AGAINST (POD-3224, question 8).
+   *
+   * The engine records what the operation was and what it became; only here are
+   * the INPUTS to that decision knowable. "The server did not reach the target"
+   * is the update's most consequential verdict, and reading it without the
+   * version actually running, the digest actually served and whatever note the
+   * parent left is guesswork — the successor is a different binary, and the
+   * question is precisely which one it turned out to be.
+   */
+  log.info('reconciling an adopted update against reality', {
+    operationId: operation.id,
+    state: operation.state,
+    appVersion: reality.appVersion,
+    ...(reality.servedWebDigest ? { servedWebDigest: reality.servedWebDigest } : {}),
+    // The parent's note is the difference between "came back on the wrong
+    // version" and "the parent deliberately rolled this machine back".
+    ...(reality.parentReport ? { parentReport: reality.parentReport } : {}),
+    machines: reality.machineDirectory.length,
+    behind: reality.machineDirectory.filter(
+      (machine) => machine.version !== updateOperationDetails(operation)?.target.version,
+    ).length,
+  })
   const details = updateOperationDetails(operation)
   if (!details) {
     // Bytes that do not name a target cannot be reconciled against anything.
@@ -1361,6 +1390,21 @@ export interface UpdateOperationContext {
   }
   /** Server-owned snapshot seam; daemon places deliberately have none. */
   createDatabaseSnapshot?: (fromVersion: string, targetVersion: string) => string | undefined
+  /**
+   * Worker-backed snapshot seam (POD-3068), preferred over the synchronous one
+   * above when both are present.
+   *
+   * The server step is the ONE place allowed to wait for a snapshot proof, and
+   * it waits on a Promise rather than on the event loop: the verification runs
+   * in a child process, so this host keeps answering health and read requests
+   * for the whole time it takes to scan a multi-hundred-megabyte file.
+   */
+  prepareVerifiedDatabaseSnapshot?: (
+    fromVersion: string,
+    targetVersion: string,
+  ) => Promise<
+    { ok: true; path: string; schemaVersion?: string } | { ok: false; code: string; detail: string }
+  >
   /** Verified recovery point to carry into a new operation's failure guidance. */
   latestDatabaseSnapshot?: () => string | undefined
   legacyTransferActive?: () => boolean
@@ -1783,10 +1827,18 @@ const ensureMachines: StepRunner<UpdateOperationContext>['ensure'] = async ({
    * also re-enters this runner and that is not a stall — the successor should
    * let the existing grants stand and watch them.
    */
-  if ((step.stalls ?? 0) > 0) context.updates.reissueGrants(details.channel)
+  if ((step.stalls ?? 0) > 0) {
+    context.updates.reissueGrants(details.channel, undefined, {
+      initiator: { kind: 'operation-retry', operationId: operation.id, step: UPDATE_STEP_MACHINES },
+      eligibility: 'a grant this operation issued went silent and the step stalled',
+    })
+  }
 
   context.updates.markAuthorized(details.channel)
-  context.updates.tick(details.channel)
+  context.updates.tick(details.channel, {
+    initiator: { kind: 'operation', operationId: operation.id, step: UPDATE_STEP_MACHINES },
+    eligibility: `selected by this operation's wave for ${details.target.version}`,
+  })
   const progress = projectMachines(operation, step, context)
   return { state: 'running', ...progress }
 }
@@ -2055,7 +2107,10 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         }),
       }
     }
-    if (!context.createDatabaseSnapshot || !context.recordOperationDetails) {
+    if (
+      (!context.createDatabaseSnapshot && !context.prepareVerifiedDatabaseSnapshot) ||
+      !context.recordOperationDetails
+    ) {
       return {
         state: 'failed',
         error: describeUpdateOperationFailure({
@@ -2079,23 +2134,39 @@ const serverRunner: StepRunner<UpdateOperationContext> = {
         }
       }
     }
+    // THE SAFETY CHECK THAT SURVIVED THE MOVE (POD-3068). Verification left the
+    // request path, not the restart path: a timeout, a corrupt file or an
+    // identity mismatch here is a structured operation failure and the OLD
+    // SERVER KEEPS RUNNING. Only a proved snapshot reaches `requestCoordinatorRestart`.
+    const fromVersion = details.fromVersion ?? context.appVersion()
+    const snapshotFailure = (detail: string): StepOutcome => ({
+      state: 'failed',
+      error: describeUpdateOperationFailure({
+        code: 'preparation-failed',
+        detail: `Database snapshot failed; the server was not restarted: ${detail}`,
+      }),
+    })
     let databaseSnapshotPath: string | undefined
-    try {
-      databaseSnapshotPath = context.createDatabaseSnapshot(
-        details.fromVersion ?? context.appVersion(),
-        details.target.version,
-      )
-      if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
+    if (context.prepareVerifiedDatabaseSnapshot) {
+      let verification: Awaited<ReturnType<typeof context.prepareVerifiedDatabaseSnapshot>>
+      try {
+        verification = await context.prepareVerifiedDatabaseSnapshot(
+          fromVersion,
+          details.target.version,
+        )
+      } catch (error) {
+        return snapshotFailure(error instanceof Error ? error.message : String(error))
+      }
+      if (!verification.ok) return snapshotFailure(`${verification.code}: ${verification.detail}`)
+      databaseSnapshotPath = verification.path
       context.recordOperationDetails(operation.id, { databaseSnapshotPath })
-    } catch (error) {
-      return {
-        state: 'failed',
-        error: describeUpdateOperationFailure({
-          code: 'preparation-failed',
-          detail: `Database snapshot failed; the server was not restarted: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        }),
+    } else if (context.createDatabaseSnapshot) {
+      try {
+        databaseSnapshotPath = context.createDatabaseSnapshot(fromVersion, details.target.version)
+        if (!databaseSnapshotPath) throw new Error('the database has no snapshotable file')
+        context.recordOperationDetails(operation.id, { databaseSnapshotPath })
+      } catch (error) {
+        return snapshotFailure(error instanceof Error ? error.message : String(error))
       }
     }
     context.requestCoordinatorRestart()
@@ -2287,9 +2358,20 @@ export function createUpdateFleetBridge(deps: {
       placeIds: readonly string[],
       patch: StepProgressPatch,
     ): Promise<void>
+    /** Restate the note about places this operation is NOT waiting for (POD-3040). */
+    recordDeferred(id: string, deferred: readonly DeferredPlace[]): Promise<void>
     reensure(id: string, stepId: string, patch?: StepProgressPatch): Promise<void>
     /** Where this bridge writes the wave rounds it just watched happen (POD-2754). */
     recordDetails(id: string, patch: Record<string, unknown>): unknown
+    /**
+     * The most recent operations, newest first — how {@link onTargetChanged}
+     * reaches an update that has already FINISHED. That is the common case for
+     * a deferred promise, not an edge one (POD-3040).
+     */
+    history(
+      kind?: string,
+      limit?: number,
+    ): { id: string; kind: string; operation: Operation | null }[]
   }
   updates: UpdatesService
   /**
@@ -2300,8 +2382,56 @@ export function createUpdateFleetBridge(deps: {
    * which is what the composition root's engine uses.
    */
   now?: () => number
-}): { onFleetChanged: () => void } {
-  return {
+}): { onFleetChanged: () => void; onTargetChanged: () => void } {
+  /**
+   * EVERY UPDATE WHOSE DEFERRED PROMISE IS STILL STANDING (POD-3040).
+   *
+   * ALL of the retained ones, not the newest — and that distinction is the
+   * whole point. A deferred promise belongs to the operation that made it, and
+   * operations keep happening: an all-offline update finishes with "laptop will
+   * update when it reconnects", then a second update runs on the machines that
+   * were awake and finishes with nothing deferred at all. Reading only the
+   * newest row — or only the active one — would find that second operation,
+   * have nothing to correct, and leave the first one promising delivery of a
+   * release that no longer exists. The stale sentence is precisely the one on
+   * the OLDER row.
+   *
+   * `history` is bounded by the same retention that bounds the list Settings →
+   * Updates renders, and it includes a running operation as well as finished
+   * ones, so this is the whole set of rows whose promise anybody can still
+   * read. Rows whose promise is still true cost one comparison each:
+   * {@link supersededDeferredPlaces} returns nothing for an empty `deferred`
+   * list and nothing for an operation whose exact target is still published, so
+   * an unrelated row is never written.
+   */
+  const restateStaleDeferredPromises = (): void => {
+    for (const row of deps.engine.history(UPDATE_OPERATION_KIND)) {
+      if (!row.operation) continue
+      const details = updateOperationDetails(row.operation)
+      if (!details) continue
+      const restated = supersededDeferredPlaces(row.operation, details, deps.updates)
+      if (restated) void deps.engine.recordDeferred(row.id, restated)
+    }
+  }
+
+  const bridge = {
+    /**
+     * THE TARGET MOVED, so a deferred promise made against the old one may have
+     * stopped being true (POD-3040).
+     *
+     * This is the only event that can falsify it — a fleet event cannot change
+     * what is published — which is why the restatement lives here and not in
+     * `onFleetChanged`. It fires on all three of publication, re-resolution and
+     * withdrawal, and it corrects the note WITHOUT holding any rollout open:
+     * nothing is granted, no step is entered, and a finished operation stays
+     * finished (see {@link OperationEngine.recordDeferred}).
+     */
+    onTargetChanged: () => {
+      restateStaleDeferredPromises()
+      // …and then the ordinary fleet pass, which is what a target change has
+      // always driven: an active wave still has to be projected against it.
+      bridge.onFleetChanged()
+    },
     onFleetChanged: () => {
       const row = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
       if (!row || row.kind !== UPDATE_OPERATION_KIND || !row.operation) return
@@ -2428,6 +2558,7 @@ export function createUpdateFleetBridge(deps: {
       void deps.engine.recordProgress(row.id, UPDATE_STEP_MACHINES, projected)
     },
   }
+  return bridge
 }
 
 const isArrived = (place: StepPlace): boolean => place.state === 'current'
@@ -2447,7 +2578,18 @@ export function admissibleDeferredPlaces(
 ): StepPlace[] {
   const deferred = operation.deferred ?? []
   if (deferred.length === 0) return []
-  const published = updates.target(details.channel) ?? details.target
+  const published = exactPublishedTarget(details, updates)
+  // THE EXACT TARGET IS GONE (POD-3040), so nobody joins this wave.
+  //
+  // Retention is finite: a newer publication supersedes this operation's
+  // target and the sweep reclaims its tarballs under the ordinary window. A
+  // machine that slept through that must not be admitted here — the grant it
+  // would receive carries whatever is published NOW, while every arrival check
+  // in this operation is fenced to `details.target.version`, so it would
+  // download a version this operation can never count and then be reported as
+  // silent. {@link supersededDeferredPlaces} gives it the honest word instead,
+  // and the ordinary reconciler converges it on the newest orderable target.
+  if (!published) return []
   const deliveries = offeredDeliveries(published)
   const fleet = new Map(updates.fleet().map((machine) => [machine.id, machine]))
   const admitted: StepPlace[] = []
@@ -2466,6 +2608,63 @@ export function admissibleDeferredPlaces(
     })
   }
   return admitted
+}
+
+/**
+ * THIS OPERATION'S TARGET, OR NOTHING (POD-3040).
+ *
+ * An operation is a promise about ONE immutable release, and every place it
+ * counts is judged against `details.target.version`. So the published target
+ * is usable here only while it is still that exact version; anything else —
+ * a newer publication, or a withdrawn channel — means the operation's target
+ * is no longer on offer, and falling back to `details.target` would have this
+ * operation reason from a release the server can no longer serve.
+ */
+function exactPublishedTarget(
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): UpdateTarget | undefined {
+  const published = updates.target(details.channel)
+  if (!published) return undefined
+  return published.version === details.target.version ? published : undefined
+}
+
+/** §3.6: a deferred place whose exact target is no longer the one on offer. */
+export const DEFERRED_TARGET_SUPERSEDED = 'target-superseded'
+/** §3.6: a deferred place whose channel is currently offering nothing at all. */
+export const DEFERRED_TARGET_UNAVAILABLE = 'target-unavailable'
+
+/**
+ * THE WORD A DEFERRED MACHINE IS OWED WHEN ITS RELEASE IS GONE (POD-3040).
+ *
+ * Deferring an offline machine is what lets publication proceed without it,
+ * and the note it leaves — "will update when it reconnects" — is true only
+ * while the release it was deferred against still exists. Retention is finite,
+ * so eventually it does not: the sweep reclaims the tarballs a newer publish
+ * superseded, and the address in this operation's plan answers `not found`.
+ *
+ * Saying so is the whole obligation. The alternative — quietly handing the
+ * machine the newest bytes under this operation's name — would report a
+ * version this operation never planned as this operation's success, which is
+ * exactly the lie the exact-target fence exists to prevent. The machine is not
+ * stranded by the honesty: the ordinary reconciler converges it on whatever is
+ * published now, as a new operation, under its own name.
+ *
+ * Returns the rewritten deferred list, or `undefined` when nothing changed.
+ */
+export function supersededDeferredPlaces(
+  operation: Operation,
+  details: UpdateOperationDetails,
+  updates: UpdatesService,
+): DeferredPlace[] | undefined {
+  const deferred = operation.deferred ?? []
+  if (deferred.length === 0) return undefined
+  if (exactPublishedTarget(details, updates)) return undefined
+  const reason = updates.target(details.channel)
+    ? DEFERRED_TARGET_SUPERSEDED
+    : DEFERRED_TARGET_UNAVAILABLE
+  if (deferred.every((place) => place.reason === reason)) return undefined
+  return deferred.map((place) => ({ ...place, reason }))
 }
 
 /**

@@ -1,0 +1,135 @@
+{
+  "cell": "A2A",
+  "driver": "default-headed",
+  "cwd": "/tmp/pod-3112-paired-r4/probes/default-headed-a2a",
+  "at": "2026-08-30T02:20:10.879Z",
+  "pin": {
+    "cell": "A2A",
+    "at": "2026-08-30T02:20:10.903Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "7cb40e8693c9cfaa5ed89097786e5b1c9f53d13e",
+    "pinSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "serverSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "daemonSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "7cb40e8",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2551347",
+    "daemonPid": "2551567",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18774060 kB",
+      "SwapFree": "40428444 kB"
+    },
+    "rootFreeKiB": 69144636,
+    "load1m": 3.75,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r4/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "working badge timing or continuity did not meet the release criterion",
+  "control": {
+    "fired": true,
+    "what": "the short turn actually running to completion with its assistant nonce observed",
+    "detail": "assistant=true; workingAt={\"at\":2254,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"generic-pty\"}"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "SEND ROUND-TRIP   1804ms",
+    "WORKING AT        {\"at\":2254,\"phase\":\"working\",\"status\":\"live\",\"driverId\":\"generic-pty\"}",
+    "MID-TURN FLICKERS 0",
+    "FINAL IDLE        true",
+    "AFTER             {\"sessionId\":\"90258034-742c-466f-a744-e1c7ee8a576e\",\"agentKind\":\"opencode\",\"harness\":\"opencode\",\"driverId\":\"generic-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"opencode-go/gpt-5.6-luna\",\"effort\":null,\"contextUsag"
+  ],
+  "data": {
+    "sid": "90258034-742c-466f-a744-e1c7ee8a576e",
+    "answered": true,
+    "sendRoundTripMs": 1804,
+    "workingAt": {
+      "at": 2254,
+      "phase": "working",
+      "status": "live",
+      "driverId": "generic-pty"
+    },
+    "flickers": [],
+    "endsIdle": true,
+    "samples": [
+      {
+        "at": 40,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "at": 2254,
+        "phase": "working",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "at": 3700,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      }
+    ],
+    "after": {
+      "sessionId": "90258034-742c-466f-a744-e1c7ee8a576e",
+      "agentKind": "opencode",
+      "harness": "opencode",
+      "driverId": "generic-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": "opencode-go/gpt-5.6-luna",
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "a03156b probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

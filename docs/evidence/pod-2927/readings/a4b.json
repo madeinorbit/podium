@@ -1,0 +1,56 @@
+{
+  "id": "A4b",
+  "arm": "headless",
+  "verdict": "BLOCKED",
+  "summary": "permission probe produced no durable turn or ask, so no successful first answer existed and answer-twice was not measurable",
+  "control": {
+    "fired": false,
+    "what": "a real permission ask is raised and its first answer succeeds and resolves it",
+    "detail": "probe turn: 0 transcript items, 0 delta frames; no ask"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A4a / A4b  permission ask, and answering it twice   harness=grok",
+    "==============================================================================",
+    "session ddce9891-bbd4-4b93-af83-219486f5847a created",
+    "BOUND DRIVER       grok-acp (family server)",
+    "terminal viewer    4431 byte(s) on attach (outputSeen=false)",
+    "CONTROL            the turn produced 0 transcript item(s), 0 delta frame(s) — DID NOT FIRE",
+    "REFUSED — the positive control did not fire.",
+    "  control watched: the turn producing durable transcript items at all",
+    "  control saw:     0 item(s), 0 delta frame(s)",
+    "  A session that produced no turn cannot be shown to have missed an ask."
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "terminalAttachBytes": 4431,
+    "transcriptItems": 0,
+    "deltaFrames": 0,
+    "firstAnswerSucceeded": false,
+    "secondAnswerAttempted": false
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a4b-dedicated",
+  "pin": {
+    "codeCommit": "c26c267be1c4b2f8cc6ccc2e66ea675e84024587",
+    "codeTree": "7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4",
+    "serverPid": 2025239,
+    "daemonPid": 2025418,
+    "webSourceSha": "c26c267",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "permissionAskExists": "BLOCKED — the probe turn produced no durable item and no ask",
+    "firstAnswerSucceedsAndResolves": "UNMEASURED — no ask existed",
+    "secondAnswerTypedError": "UNMEASURED — without a successful first answer there is no second-answer case",
+    "noDoubleAction": "UNMEASURED — neither answer nor tool action occurred"
+  },
+  "admission": {
+    "diskFreeKb": 12544404,
+    "memAvailableKb": 4180380,
+    "load1": 4.57,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 12:23:41 CEST",
+  "recovery": "The preflight before this scored attempt found the prior server unresponsive and was interrupted before a cell began; the same named instance was restarted and verified at the same pins."
+}

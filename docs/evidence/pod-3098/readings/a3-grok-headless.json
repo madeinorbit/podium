@@ -1,0 +1,875 @@
+{
+  "cell": "A3",
+  "harness": "grok",
+  "arm": "headless",
+  "verdict": "FAIL",
+  "at": "2026-08-29T23:04:28.049Z",
+  "summary": "A3 clauses unmet: accepted=true stoppedMs=272 quietTail=true exactlyOneDurable=false idleDistinct=true",
+  "pins": {
+    "head": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "base": "b64abaafd7f3c4dcaa034464e98d7304d1f175b3",
+    "evidenceHead": "2c756af85c35b69eb2759be922de79f6f46d9b1e",
+    "serverSource": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "daemonSource": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "webSource": "574e2666043359d28cf2b876201d41cf241ff629",
+    "runtimeServer": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "runtimeDaemon": "ef1b5e4d421e62e4e93e3fcec151eff75b832bbc",
+    "servedWeb": "ef1b5e4",
+    "instance": "p3098-a3-current-tip",
+    "stateRoot": "/tmp/pod-3098-a3-ef1b5e4/state",
+    "agentHome": "/tmp/pod-3098-a3-ef1b5e4/agent-home",
+    "ports": {
+      "server": 19983,
+      "hook": 46983,
+      "relay": 46984
+    },
+    "runtimeArm": "headless"
+  },
+  "provider": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "versions": [
+      "grok: exit undefined"
+    ],
+    "sessionId": "7df5f306-dace-47bc-ab32-7e72721f981e",
+    "primed": []
+  },
+  "admission": {
+    "loadAtAdmission": 11.19,
+    "loadAtInterrupt": 11.13,
+    "limit": 12,
+    "installedRelayAvailable": true
+  },
+  "control": {
+    "fired": true,
+    "workingSeen": true,
+    "growthTransitions": 2,
+    "baseline": {
+      "ms": 5,
+      "phase": "idle",
+      "previews": 0,
+      "assistantChars": 0,
+      "terminalBytes": 0,
+      "deltaFrames": 0
+    },
+    "atRequest": {
+      "ms": 2,
+      "phase": "working",
+      "previews": 5,
+      "assistantChars": 0,
+      "terminalBytes": 0,
+      "deltaFrames": 1
+    },
+    "samples": [
+      {
+        "ms": 3,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 259,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 521,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 782,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 1063,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 1325,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 1580,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 1838,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2094,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2351,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2608,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 2863,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3118,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3378,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3632,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 3888,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4142,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4399,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4654,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 4915,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5170,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5431,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5685,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 5940,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6195,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6454,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6708,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 6963,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7218,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7479,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 7745,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 8001,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 8255,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 8514,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 8781,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 9035,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 9290,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 9544,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 9798,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 10053,
+        "phase": "working",
+        "previews": 0,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 10318,
+        "phase": "working",
+        "previews": 3,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      },
+      {
+        "ms": 10574,
+        "phase": "working",
+        "previews": 5,
+        "assistantChars": 0,
+        "terminalBytes": 0,
+        "deltaFrames": 1
+      }
+    ],
+    "preExistingInterruptItems": [],
+    "send": {
+      "ok": true,
+      "disposition": "delivered"
+    }
+  },
+  "interrupt": {
+    "request": {
+      "ok": true,
+      "requested": "protocol"
+    },
+    "requestToStoppedMs": 272,
+    "quickCeilingMs": 5000,
+    "outputAfterRequest": {
+      "previewFrames": 1,
+      "assistantChars": 109,
+      "terminalBytes": 0,
+      "transcriptDeltaFrames": 2,
+      "samples": [
+        {
+          "ms": 16,
+          "phase": "working",
+          "previews": 5,
+          "assistantChars": 0,
+          "terminalBytes": 0,
+          "deltaFrames": 1
+        },
+        {
+          "ms": 272,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 526,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 782,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 1037,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 1293,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 1552,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 1807,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 2063,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 2318,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 2575,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 2840,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 3094,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 3349,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 3603,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 3858,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 4113,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 4368,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 4630,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 4884,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 5147,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 5401,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 5662,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 5916,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 6171,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 6425,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 6684,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 6945,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 7199,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 7454,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 7707,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 7961,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 8215,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 8470,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 8724,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 8985,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 9240,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 9496,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 9751,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 10005,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 10268,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 10522,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 10790,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 11045,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 11308,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 11562,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        },
+        {
+          "ms": 11817,
+          "phase": "idle",
+          "previews": 6,
+          "assistantChars": 109,
+          "terminalBytes": 0,
+          "deltaFrames": 3
+        }
+      ]
+    },
+    "quietTail": true
+  },
+  "durable": {
+    "live": [
+      {
+        "id": "grok-interrupt-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "afterClientReload": [
+      {
+        "id": "grok-interrupt-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "afterServerDaemonRestart": [],
+    "exactlyOneStableId": false,
+    "liveItems": [
+      {
+        "id": "grok-user-turn-1",
+        "role": "user",
+        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-grok-headless-MTEZLGSA only in the final line."
+      },
+      {
+        "id": "grok-assistant-01a04fc3-90dc-74e2-a38d-1d202b64c9ec-41",
+        "role": "assistant",
+        "text": "1. The morning light spilled across the quiet street and painted the windows gold.\n2. A distant train whistle"
+      },
+      {
+        "id": "grok-interrupt-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "restartItems": [
+      {
+        "id": "grok-user-01a04fc3-90dc-74e2-a38d-1d202b64c9ec-3",
+        "role": "user",
+        "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-grok-headless-MTEZLGSA only in the final line."
+      }
+    ],
+    "preRestartLedger": "55|session.runtime|{\"at\":\"2026-08-29T23:03:32.030Z\",\"provenance\":\"bootstrap\",\"cursor\":{\"segmentId\":\"01a04fc3-90dc-74e2-a38d-1d202b64c9ec\",\"pathHint\":\"01a04fc3-90dc-74e2-a38d-1d202b64c9ec-2\",\"components\":{\"event\":2,\"seq\":1}},\"observerGeneration\":1,\"turnEpoch\":0,\"t\":\"state\",\"change\":{\"kind\":\"session_started\",\"at\":\"2026-08-29T23:03:32.030Z\"}}\n61|session.phase|{\"phase\":\"working\",\"agentKind\":\"grok\",\"cwd\":\"/tmp/pod-3098-a3-ef1b5e4/provider-work\"}\n62|session.runtime|{\"at\":\"2026-08-29T23:03:32.431Z\",\"provenance\":\"live\",\"cursor\":{\"segmentId\":\"01a04fc3-90dc-74e2-a38d-1d202b64c9ec\",\"pathHint\":\"01a04fc3-90dc-74e2-a38d-1d202b64c9ec-2\",\"components\":{\"event\":2,\"seq\":4}},\"observerGeneration\":1,\"turnEpoch\":1,\"t\":\"turn\",\"ev\":{\"ev\":\"started\",\"turnEpoch\":1,\"origin\":\"controller\"}}\n64|session.phase|{\"phase\":\"idle\",\"verdict\":\"done\",\"agentKind\":\"grok\",\"cwd\":\"/tmp/pod-3098-a3-ef1b5e4/provider-work\"}\ncheckpoint|1|{\"segmentId\":\"01a04fc3-90dc-74e2-a38d-1d202b64c9ec\",\"pathHint\":\"01a04fc3-90dc-74e2-a38d-1d202b64c9ec-2\",\"components\":{\"event\":2,\"seq\":4}}|1|null",
+    "publicRead": {
+      "sessionId": "7df5f306-dace-47bc-ab32-7e72721f981e",
+      "items": [
+        {
+          "role": "user",
+          "text": "Produce a long answer of 500 numbered lines, one full sentence per line. Do not use tools, do not summarize, and put P3098-A3-grok-headless-MTEZLGSA only in the final line."
+        }
+      ],
+      "cursor": "WyIwMTcwOWVmM2M0NzUiLDUwNzUsbnVsbCwwXQ",
+      "hasMore": false,
+      "truncated": false
+    },
+    "restartOutput": "PIN VERIFIED head=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc server=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc daemon=ef1b5e4d421e62e4e93e3fcec151eff75b832bbc web=ef1b5e4 arm=headless instance=p3098-a3-current-tip state=/tmp/pod-3098-a3-ef1b5e4/state agentHome=/tmp/pod-3098-a3-ef1b5e4/agent-home ports=19983/46983/46984"
+  },
+  "idleRefusal": {
+    "response": {
+      "ok": false,
+      "reason": "Grok only takes an interrupt while it is working, and it is not working right now"
+    },
+    "newItems": [],
+    "interruptItemsAfter": [
+      {
+        "id": "grok-interrupt-1",
+        "role": "user",
+        "event": "interrupt",
+        "text": "[Request interrupted by user]"
+      }
+    ],
+    "distinguishedFromConfirmedStop": true
+  }
+}

@@ -50,7 +50,11 @@ export function AttachmentStrip({
             <span className="attachment-chip-size">· {fileSize(att.size)}</span>
           )}
           {att.state === 'uploading' && <span className="attachment-chip-state">Uploading</span>}
-          {att.state === 'failed' && <span className="text-destructive">!</span>}
+          {att.state === 'failed' && (
+            <span className="attachment-chip-state text-destructive">
+              {att.error ?? 'Could not attach'}
+            </span>
+          )}
           <button
             data-pressable
             type="button"

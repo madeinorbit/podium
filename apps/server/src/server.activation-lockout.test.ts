@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
 
@@ -59,7 +60,7 @@ describe('setting a password on a live server does not block it [POD-2766]', () 
       JSON.stringify({ configVersion: 2, mode: 'all-in-one' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
   })
 
@@ -126,7 +127,7 @@ describe('an operator can recover a genuinely stale server [POD-2766]', () => {
       JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({ links: [httpBatchLink({ url: url('/trpc') })] })
     // A credential first, while the instance is still open — this is the account
     // the operator will need on the far side of the block.

@@ -4,6 +4,7 @@ import {
   type AccountId,
   type AgentKind,
   agentCapabilityRejection,
+  agentProbeTimeoutDescription,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
   asAccountId,
@@ -26,17 +27,19 @@ import {
 } from '@podium/model'
 import type {
   DaemonHandshake,
+  DaemonPtyInputBatch,
   LiveServerMessage,
   MachineVerb,
   PeerBuild,
-  Principal,
   ServerMessage,
   UpdateKeyRotation,
 } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { deviceGradeSoleOwner } from '../../device-grade-owner'
 import { type EnrollmentLedger, newLedgerTxnId } from '../../enrollment-ledger'
 import type { ClientPrincipal } from '../../gateway/client-principal'
+import type { DaemonControlPeer } from '../../gateway/daemon-ports'
 import type { MachineRecord, SessionStore } from '../../store'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
@@ -54,6 +57,29 @@ export { sha256 } from './enrollment'
  * this service stays principal-free and only carries the answer.
  */
 export type MachineUseResolver = (machineId: MachineId) => MachineUseDecision
+
+type PendingDaemonDelivery =
+  | { readonly kind: 'control'; readonly message: ControlMessage }
+  | { readonly kind: 'input'; readonly input: DaemonPtyInputBatch }
+
+const sendControl = (transport: DaemonControlPeer, message: ControlMessage): void => {
+  if (typeof transport === 'function') transport(message)
+  else transport.send(message)
+}
+
+const sendPtyInput = (transport: DaemonControlPeer, input: DaemonPtyInputBatch): void => {
+  if (typeof transport !== 'function') {
+    transport.sendInput(input)
+    return
+  }
+  transport({
+    type: 'input',
+    sessionId: input.sessionId,
+    inputOrigin: input.inputOrigin,
+    data: Buffer.from(input.bytes).toString('base64'),
+    ...(input.attribution ? { attribution: input.attribution } : {}),
+  })
+}
 
 /**
  * One principal's OWNERSHIP answer, per machine (POD-1495) — "are you this
@@ -209,12 +235,19 @@ export class MachinesService {
   // machineId -> control-message sender for that daemon. Replaces the single
   // socket: each connected machine has its own send, so a session's control
   // messages route to the daemon that actually runs it.
-  private readonly daemons = new Map<string, Send<ControlMessage>>()
+  private readonly daemons = new Map<string, DaemonControlPeer>()
+  /** The negotiated capability set of each live daemon socket — see
+   *  {@link MachineService.daemonSupports}. Keyed and cleared exactly like
+   *  {@link MachineService.daemons}, so the two can never disagree. */
+  private readonly daemonCaps = new Map<string, ReadonlySet<string>>()
   /** One local parent-backed update participant; separate from agent daemon routing. */
   private readonly updateParticipants = new Map<
     string,
     Send<Extract<ControlMessage, { type: 'updateGrant' }>>
   >()
+  /** Online daemon connections whose current-generation inventory has not arrived yet. */
+  private readonly inventoryPending = new Set<string>()
+  private readonly inventoryWaiters = new Map<string, Set<() => void>>()
   // Per-machine queue for control messages produced while that daemon is briefly
   // offline (e.g. the local daemon during boot, or a survivor session's reattach
   // before its machine re-attaches). Flushed in order on attach (flushQueued).
@@ -224,7 +257,7 @@ export class MachinesService {
   // Nothing here is waiting for an answer — a queued message may be a fire-and-
   // forget spawn — and it is the layer BELOW the broker, which sends through
   // `toMachine` and never learns whether a message went out or was parked.
-  private readonly pendingByMachine = new Map<string, ControlMessage[]>()
+  private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
   /**
    * Latest durable inventory report received while the server-transfer fence owns
    * SQLite. Inventory is a replaceable machine fact, so one entry per machine is
@@ -287,8 +320,18 @@ export class MachinesService {
 
   /** Register a machine's daemon socket (the bookkeeping half of attachDaemon —
    *  the registry orchestrates adoption/flush/reattach around this). */
-  attach(machineId: MachineId, send: Send<ControlMessage>): void {
-    this.daemons.set(machineId, send)
+  attach(machineId: MachineId, transport: DaemonControlPeer, caps: readonly string[] = []): void {
+    this.daemons.set(machineId, transport)
+    // WHAT THIS SOCKET CAN DO, for as long as this socket lasts (POD-3239). Kept
+    // beside `daemons` and cleared with it: the question "does the daemon
+    // holding this session report applied geometry?" is a question about a live
+    // connection, and answering it from a persisted list would keep saying yes
+    // after a downgrade.
+    this.daemonCaps.set(machineId, new Set(caps))
+    // A persisted inventory describes the PREVIOUS connection. Until this daemon
+    // reports, treating an old `installed: false` as current turns startup into a
+    // confident false negative.
+    this.inventoryPending.add(machineId)
     // The daemon may have (re-)registered/touched its machine row on the way in
     // (pair/hello, or a test upserting directly before attaching) — drop the cache.
     this.invalidateMachineCache()
@@ -342,12 +385,15 @@ export class MachinesService {
    *  session's spawn produced before the host daemon's ws connected). Every queue is
    *  keyed by a real machine id, so there is nothing to carry over on attach. */
   flushQueued(machineId: MachineId): void {
-    const send = this.daemons.get(machineId)
-    if (!send) return
+    const transport = this.daemons.get(machineId)
+    if (!transport) return
     const pending = this.pendingByMachine.get(machineId)
     if (pending && pending.length > 0) {
       this.pendingByMachine.delete(machineId)
-      for (const m of pending) send(m)
+      for (const delivery of pending) {
+        if (delivery.kind === 'control') sendControl(transport, delivery.message)
+        else sendPtyInput(transport, delivery.input)
+      }
     }
   }
 
@@ -362,9 +408,12 @@ export class MachinesService {
    *  the 35s "no daemon answered" timeout.
    *
    *  Returns false when the closing socket is already superseded (nothing to do). */
-  detach(machineId: MachineId, send?: Send<ControlMessage>): boolean {
-    if (send !== undefined && this.daemons.get(machineId) !== send) return false
+  detach(machineId: MachineId, transport?: DaemonControlPeer): boolean {
+    if (transport !== undefined && this.daemons.get(machineId) !== transport) return false
     this.daemons.delete(machineId)
+    this.daemonCaps.delete(machineId)
+    this.inventoryPending.delete(machineId)
+    this.settleInventoryWaiters(machineId)
     this.invalidateMachineCache()
     return true
   }
@@ -372,6 +421,44 @@ export class MachinesService {
   /** True when `machineId` has a live daemon socket right now. */
   hasDaemon(machineId: MachineId): boolean {
     return this.daemons.has(machineId)
+  }
+
+  /**
+   * Did the daemon currently attached for `machineId` negotiate this capability?
+   *
+   * False when no daemon is attached, which is the right answer rather than a
+   * missing one: a session whose machine is offline has nothing reporting
+   * anything, and the caller's fallback is the conservative branch.
+   */
+  daemonSupports(machineId: MachineId, cap: string): boolean {
+    return this.daemonCaps.get(machineId)?.has(cap) === true
+  }
+
+  /** Wait briefly for the live daemon's first inventory, requesting it now. */
+  async waitForInventory(machineId: MachineId, timeoutMs = 25_000): Promise<void> {
+    if (!this.inventoryPending.has(machineId)) return
+    let timer: ReturnType<typeof setTimeout> | undefined
+    let settle!: () => void
+    const reported = new Promise<void>((resolve) => {
+      settle = () => {
+        if (timer) clearTimeout(timer)
+        this.inventoryWaiters.get(machineId)?.delete(settle)
+        resolve()
+      }
+      const waiters = this.inventoryWaiters.get(machineId)
+      if (waiters) waiters.add(settle)
+      else this.inventoryWaiters.set(machineId, new Set([settle]))
+      timer = setTimeout(settle, timeoutMs)
+      timer.unref?.()
+    })
+    this.toMachine(machineId, { type: 'inventoryRequest' })
+    await reported
+  }
+
+  private settleInventoryWaiters(machineId: MachineId): void {
+    const waiters = this.inventoryWaiters.get(machineId)
+    this.inventoryWaiters.delete(machineId)
+    for (const settle of waiters ?? []) settle()
   }
 
   /** Route a control message to the daemon that owns `machineId`; queue it if that
@@ -384,14 +471,29 @@ export class MachinesService {
         return
       }
     }
-    const send = this.daemons.get(machineId)
-    if (send) {
-      send(msg)
+    const transport = this.daemons.get(machineId)
+    if (transport) {
+      sendControl(transport, msg)
       return
     }
     const q = this.pendingByMachine.get(machineId)
-    if (q) q.push(msg)
-    else this.pendingByMachine.set(machineId, [msg])
+    const delivery = { kind: 'control' as const, message: msg }
+    if (q) q.push(delivery)
+    else this.pendingByMachine.set(machineId, [delivery])
+  }
+
+  /** Route canonical PTY bytes without re-encoding on a capable daemon transport. */
+  readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void => {
+    if (input.bytes.byteLength === 0) return
+    const transport = this.daemons.get(machineId)
+    if (transport) {
+      sendPtyInput(transport, input)
+      return
+    }
+    const q = this.pendingByMachine.get(machineId)
+    const delivery = { kind: 'input' as const, input }
+    if (q) q.push(delivery)
+    else this.pendingByMachine.set(machineId, [delivery])
   }
 
   // ---- machine admin + daemon pairing/auth ----
@@ -592,7 +694,8 @@ export class MachinesService {
   /** Throw a human-readable reason when a machine cannot run an agent. */
   requireAgent(machineId: MachineId, agentKind: AgentKind, use?: MachineUseResolver): void {
     const machine = this.listMachines(use).find((candidate) => candidate.id === machineId)
-    if (!machine) throw new Error(`unknown machine '${machineId}'`)
+    if (!machine)
+      throw new TRPCError({ code: 'NOT_FOUND', message: `unknown machine '${machineId}'` })
     const rejection = agentCapabilityRejection(machine, agentKind)
     // Exhaustive rather than a chain of ifs: a rejection reason nobody handled
     // used to fall through and THROW NOTHING, i.e. a new refusal would fail OPEN
@@ -602,13 +705,32 @@ export class MachinesService {
       case undefined:
         return
       case 'unauthorized':
-        throw new Error(`you do not have access to run agents on machine '${machine.name}'`)
+        throw new TRPCError({
+          code: 'FORBIDDEN',
+          message: `you do not have access to run agents on machine '${machine.name}'`,
+        })
       case 'no-daemon':
         throw new Error(machineRejectionMessage(machine.name, 'no-daemon', `run ${agentKind}`))
       case 'offline':
-        throw new Error(`machine '${machine.name}' is offline`)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `machine '${machine.name}' is offline`,
+        })
+      case 'inventory-unavailable':
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `machine '${machine.name}' is still probing whether ${agentKind} is installed; wait for the probe or run \`podium machine reprobe ${machine.name}\``,
+        })
+      case 'harness-probe-timed-out':
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `could not determine whether ${agentKind} is installed on machine '${machine.name}' (probe ${agentProbeTimeoutDescription(machine, agentKind)}); retry`,
+        })
       case 'harness-missing':
-        throw new Error(`${agentKind} is not installed on machine '${machine.name}'`)
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: `${agentKind} is not installed on machine '${machine.name}'`,
+        })
       default: {
         const exhaustive: never = rejection
         throw new Error(`machine '${machine.name}' cannot run ${agentKind}: ${String(exhaustive)}`)
@@ -825,7 +947,9 @@ export class MachinesService {
         ...(m.components !== null ? { components: m.components } : {}),
         versionState: deriveVersionState(m.appVersion, target),
         ...(m.podiumManaged === false ? { podiumManaged: false } : {}),
-        ...(m.inventory ? { inventory: m.inventory } : {}),
+        // A durable snapshot remains useful while OFFLINE, but it is not evidence
+        // about a newly attached daemon until that connection reports once.
+        ...(m.inventory && !this.inventoryPending.has(m.id) ? { inventory: m.inventory } : {}),
       }
     })
   }
@@ -895,6 +1019,8 @@ export class MachinesService {
   private persistInventory(machineId: MachineId, inventoryJson: string): void {
     this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
+    this.inventoryPending.delete(machineId)
+    this.settleInventoryWaiters(machineId)
     if (this.deps.bus) this.deps.bus.emit('machine.metadataChanged', { machineId, inventory: true })
     else this.deps.sessionsChangedForMachine?.(machineId)
     this.broadcastMachines()

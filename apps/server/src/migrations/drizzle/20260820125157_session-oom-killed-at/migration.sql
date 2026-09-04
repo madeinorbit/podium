@@ -1,0 +1,1 @@
+ALTER TABLE `sessions` ADD `oom_killed_at` text;

@@ -107,13 +107,30 @@ import { AgentKind, HarnessAgent } from './agent'
 /** External provider account identifier; it is not a Podium entity id. */
 const ProviderAccountIdField = z.string().optional()
 
+/** The probe answered no installation question before its shared budget expired. */
+export const AgentProbeError = z.object({
+  reason: z.literal('timed-out'),
+  timeoutMs: z.number().int().positive(),
+})
+export type AgentProbeError = z.infer<typeof AgentProbeError>
+
+/** Human-facing duration for an inconclusive inventory verdict. */
+export function probeTimeoutDescription(error?: AgentProbeError): string {
+  if (!error) return 'timed out'
+  const seconds = Math.ceil(error.timeoutMs / 1000)
+  return `timed out after ${seconds}s`
+}
+
 /** `USE` — one agent CLI's install + login status on the daemon's machine.
  *  Use-gated: `login.account` names a person, and the install set describes what
  *  the owner's hardware can run. */
 export const AgentInventory = z.object({
   kind: HarnessAgent,
-  installed: z.boolean(),
-  /** Parsed from `<cli> --version`; absent when not installed / parse failed. */
+  /** `null` means the bounded version probe timed out, so presence is unknown. */
+  installed: z.boolean().nullable(),
+  /** Why presence is unknown. Absent when the probe reached a definitive answer. */
+  probeError: AgentProbeError.optional(),
+  /** Parsed from `<cli> --version`; absent unless definitely installed. */
   version: z.string().optional(),
   /** Resolved binary path when installed (may be a bare PATH name). */
   path: z.string().optional(),
@@ -139,8 +156,11 @@ export type AgentInventory = z.infer<typeof AgentInventory>
  *  PATH. */
 export const ToolInventory = z.object({
   name: z.string(),
-  installed: z.boolean(),
-  /** Parsed from `<name> --version`; absent when not installed / parse failed. */
+  /** `null` means the bounded version probe timed out, so presence is unknown. */
+  installed: z.boolean().nullable(),
+  /** Why presence is unknown. Absent when the probe reached a definitive answer. */
+  probeError: AgentProbeError.optional(),
+  /** Parsed from `<name> --version`; absent unless definitely installed. */
   version: z.string().optional(),
   /** Resolved binary path when installed (may be a bare PATH name). */
   path: z.string().optional(),
@@ -157,6 +177,18 @@ export const Inventory = z.object({
   podiumVersion: z.string().optional(),
   /** All 5 HarnessAgent kinds, present or not. */
   agents: z.array(AgentInventory),
+  /** Concrete runtime drivers admitted by this daemon's manifest and live
+   * version/auth gates. Optional for older daemons; terminal drivers are
+   * included so API consumers can distinguish a complete report. */
+  runtimeDrivers: z
+    .array(
+      z.object({
+        harness: HarnessAgent,
+        id: z.string().min(1),
+        family: z.enum(['terminal', 'server', 'embedded']),
+      }),
+    )
+    .optional(),
   /** Non-harness CLIs (currently just `gh` for #214). Defaulted so an
    *  inventory_json blob persisted before this field parses back cleanly. */
   tools: z.array(ToolInventory).default([]),
@@ -181,6 +213,23 @@ export const HostMemoryWire = z.object({
   swapFreeBytes: byteCount,
 })
 export type HostMemoryWire = z.infer<typeof HostMemoryWire>
+
+/**
+ * `SEE` — one filesystem's capacity sample, `df`'s three columns and the path
+ * they were read from. Used and available are BOTH carried because they do not
+ * add up to the total: a Linux filesystem keeps a root-only reserve (5% by
+ * default) that is neither in use nor available to the operator, and folding it
+ * into either number would make the panel disagree with `df` on the same box.
+ * The percentage is used ÷ (used + available), which is `df`'s Use% exactly.
+ */
+export const HostDiskWire = z.object({
+  /** The directory sampled — the daemon host's home, where worktrees live. */
+  path: z.string(),
+  totalBytes: byteCount,
+  usedBytes: byteCount,
+  availableBytes: byteCount,
+})
+export type HostDiskWire = z.infer<typeof HostDiskWire>
 
 /**
  * `SEE` — pure health/liveness. Kernel load averages plus logical core count so
@@ -211,6 +260,55 @@ export const HostMetricsWire = z.object({
    *  are an existence leak is deliberately undecided. Marked `SEE` because it is
    *  health-shaped; whoever draws the projection may move it to `USE`. */
   idleCapUnmet: z.number().int().nonnegative().optional(),
+  /**
+   * Client terminals on this machine that nobody is watching — what could be
+   * reclaimed under pressure WITHOUT touching a session (spec §5: attachments
+   * are pure convenience and go first, the session engine is untouched).
+   *
+   * A COUNT, on the same §3.1.2 boundary and for the same reason as
+   * `idleCapUnmet` above: health-shaped, `SEE`, and whether counts are an
+   * existence leak stays deliberately undecided. It names no session — which is
+   * also all the pressure policy needs, since the machine picks WHICH to close
+   * (it holds the ages and the viewer state; the server holds the threshold).
+   * Optional for mixed-version fleets: absent means a daemon that predates
+   * attachments, not a machine with none.
+   */
+  reclaimableAttachments: z.number().int().nonnegative().optional(),
+  /**
+   * What this machine's AGENT SESSIONS are using, against the aggregate
+   * throttle their slice carries (POD-2413; spec §6).
+   *
+   * `memory` above is the whole host, which cannot say WHOSE pressure it is: a
+   * browser and a fleet of runaway agents produce the same number, and only one
+   * of them is fixed by parking a session. This pair is the attributable
+   * signal — the sessions slice's `memory.current` and its `MemoryHigh` — so
+   * the reclaim policy can act on evidence about sessions rather than on a
+   * host-wide proxy.
+   *
+   * `SEE`, and no session is named: an aggregate is exactly what the policy
+   * needs, since the machine picks which session to give back. Optional for
+   * mixed-version fleets and for every host without cgroups.
+   */
+  sessionsMemory: z
+    .object({
+      currentBytes: byteCount,
+      highBytes: byteCount,
+      /**
+       * PSI `full avg10` for the slice: the share of the last ten seconds in
+       * which EVERY runnable session task was blocked on memory at once.
+       *
+       * THIS is the pressure signal; the two byte counts are context. cgroup
+       * `memory.current` counts reclaimable page cache and the kernel only
+       * reclaims at the high line, so a build-heavy slice sits pinned at its
+       * watermark with memory genuinely free — acting on "current >= high"
+       * would park sessions on a host under no pressure at all. `full` rather
+       * than `some` for the same reason at one remove: some-stalling is what an
+       * ordinary parallel build does all the time. Optional: a kernel without
+       * PSI reports nothing rather than a zero.
+       */
+      stalledPct: z.number().nonnegative().optional(),
+    })
+    .optional(),
 })
 export type HostMetricsWire = z.infer<typeof HostMetricsWire>
 
@@ -449,6 +547,51 @@ export const UsageBucketWire = z.object({
 })
 export type UsageBucketWire = z.infer<typeof UsageBucketWire>
 
+/**
+ * `USE` — one transcript file's usage, with the file kept as the key.
+ *
+ * The bucket set above answers "what did this host spend, by hour and model" and
+ * deliberately forgets which session each record came from. That erasure is what
+ * makes per-task cost impossible without a second walk of the same 4GB, so this
+ * shape carries the one fact the fold discards: the PATH the records were read
+ * from. The server turns a path into a session (and therefore an issue) with one
+ * indexed lookup per FILE — never per record, which is the whole reason
+ * attribution is affordable at all.
+ *
+ * TWO FOLDS, ON PURPOSE. `windowModels` covers the records inside the requested
+ * window and is what the usage sheet's by-task section reads; `models` covers the
+ * whole file and is what the durable per-session row stores, because "what did
+ * this task cost" outlives any window. Sending the underlying hour buckets
+ * instead would be the same data an order of magnitude larger, and no reader
+ * wants a per-task figure resolved to the hour.
+ */
+export const UsageModelTotalWire = z.object({
+  model: z.string(),
+  inputTokens: z.number().int().nonnegative(),
+  outputTokens: z.number().int().nonnegative(),
+  cacheReadTokens: z.number().int().nonnegative(),
+  cacheCreationTokens: z.number().int().nonnegative(),
+  cacheCreation1hTokens: z.number().int().nonnegative().optional(),
+  messages: z.number().int().nonnegative(),
+})
+export type UsageModelTotalWire = z.infer<typeof UsageModelTotalWire>
+
+export const UsageSourceWire = z.object({
+  /** Absolute path of the transcript this usage was read from. */
+  path: z.string(),
+  /** Which harness wrote it. The FLOOR mark keys off this and nothing else. */
+  harness: z.enum(['claude-code', 'codex', 'grok']),
+  /** Bytes of this file consumed so far — the incremental cursor, exact. */
+  scannedBytes: z.number().int().nonnegative(),
+  firstTsMs: z.number().int().nonnegative(),
+  lastTsMs: z.number().int().nonnegative(),
+  /** Every record in the file, folded by model. */
+  models: z.array(UsageModelTotalWire),
+  /** The subset at or after the scan's `sinceMs`, folded by model. */
+  windowModels: z.array(UsageModelTotalWire),
+})
+export type UsageSourceWire = z.infer<typeof UsageSourceWire>
+
 // ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which
 // is transcript-harvested token-cost analytics. Quota is the share of each rolling
 // plan window consumed + when it resets, read live from each agent's own usage
@@ -497,6 +640,69 @@ export const MachineQuotaWire = z.object({
   agents: z.array(AgentQuotaWire),
 })
 export type MachineQuotaWire = z.infer<typeof MachineQuotaWire>
+
+// ── Quota HISTORY. The wires above are the live reading; these are the record of
+// what each window came to before it reset. Nothing upstream keeps that record —
+// no provider reports a window id, a start, or a prior period — so it exists only
+// because this server samples and folds. [spec:SP-0610]
+
+/**
+ * The identity a quota window belongs to. Rate limits are per-ACCOUNT, not per
+ * machine: two machines signed into one account share a pool, and keying history
+ * by machine would double-count it. Falls back to the machine when the provider
+ * reports no email, so two machines we cannot prove share an account are never
+ * merged.
+ */
+export function quotaAccountKey(
+  agent: AgentKind,
+  email: string | undefined,
+  machineId: string,
+): string {
+  return email ? `${agent}::${email}` : `${agent}::machine:${machineId}`
+}
+
+/**
+ * `USE` — one concrete run of a rolling quota window, from its start to the reset
+ * that ended it. This is the unit the history chart is made of: "how well did I
+ * use my quota" has exactly one honest answer per instance, `peakPercent`.
+ *
+ * PEAK, NOT LAST. The closing sample is always stale by up to one sampling
+ * interval, so a window still climbing when it rolled over would be understated
+ * by its final reading. The peak is stable against a missed last sample.
+ *
+ * NO PROVIDER REPORTS A WINDOW START. `startedAt` is derived as
+ * `resetsAt - windowMinutes`, and is absent when the provider reports no duration
+ * (`windowMinutes: 0`, a legitimate value meaning "unknown").
+ */
+export const QuotaWindowHistoryWire = z.object({
+  accountKey: z.string().min(1),
+  agent: AgentKind,
+  /** `session` · `weekly-all` · `weekly-scoped:model:fable` · `weekly` … */
+  windowKey: z.string().min(1),
+  label: z.string(),
+  scopeModel: z.string().optional(),
+  /** Plan tier at the time. A percentage of one pool is NOT comparable to a
+   *  percentage of another, so a change here segments the series. */
+  plan: z.string().optional(),
+  resetsAt: z.string(),
+  startedAt: z.string().optional(),
+  windowMinutes: z.number().int().nonnegative(),
+  firstSeenAt: z.string(),
+  lastSeenAt: z.string(),
+  firstPercent: z.number(),
+  peakPercent: z.number(),
+  lastPercent: z.number(),
+  sampleCount: z.number().int().nonnegative(),
+  /** True once `now` is past `resetsAt`: the window is over and its peak is final. */
+  closed: z.boolean(),
+  /** First seen more than one sampling interval after the window started, so its
+   *  early life was never watched and the peak may understate what was spent. */
+  partial: z.boolean(),
+  /** `live` — sampled by this server. `backfill` — recovered from harness files on
+   *  the daemon host, which only Codex and Grok write. */
+  source: z.enum(['live', 'backfill']),
+})
+export type QuotaWindowHistoryWire = z.infer<typeof QuotaWindowHistoryWire>
 
 // ---------------------------------------------------------------------------
 // Repos, worktrees and directory browsing (was messages/discovery.ts)

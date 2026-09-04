@@ -58,6 +58,7 @@ import {
   SessionProvenance,
   SessionRef,
   SessionResume,
+  SessionRuntimeConfig,
   SessionTombstone,
   SessionWorkflowLink,
   SessionWorkState,
@@ -73,6 +74,10 @@ import {
  */
 export const SessionAggregate = SessionIdentity.extend(SessionPlacement.shape)
   .extend(SessionLaunchConfig.shape)
+  // POD-3081: the RUNTIME request, durable and distinct from the launch pair
+  // above it. See the group's own header for why it is neither launch config
+  // nor live overlay.
+  .extend(SessionRuntimeConfig.shape)
   .extend(SessionNaming.shape)
   .extend(SessionProvenance.shape)
   .extend(SessionRef.shape)

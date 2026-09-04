@@ -42,7 +42,7 @@ import {
   TerminalOutcomeMessage,
   WelcomeMessage,
 } from './terminal'
-import { TranscriptDeltaMessage } from './transcript'
+import { TranscriptDeltaMessage, TurnPreviewMessage } from './transcript'
 
 // ---- Server -> browser client ----
 // A single session's live title changed (an agent set its terminal title via OSC).
@@ -89,6 +89,7 @@ export const ServerMessage = z.discriminatedUnion('type', [
   PongMessage,
   AttentionEventMessage,
   TranscriptDeltaMessage,
+  TurnPreviewMessage,
   ApprovalsChangedMessage,
   IssuesChangedMessage,
   IssueUpdatedMessage,

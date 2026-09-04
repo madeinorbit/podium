@@ -5,14 +5,20 @@ import { homedir, hostname, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { promisify } from 'node:util'
 import { bindHarnessExec, buildResolvedInventory, harnessMcpConfigTransport } from '@podium/harness'
-import type { UsageBucketWire } from '@podium/model'
+import type { UsageBucketWire, UsageSourceWire } from '@podium/model'
+import type { QuotaHistorySampleWire } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import { bundleStagePath } from '../handoff-package'
 import { githubCliClone, githubCliList, githubCliStatus } from '../github-cli'
+import { bundleStagePath } from '../handoff-package'
 import { buildHarnessExec } from '../harness-exec.js'
+import { scanQuotaHistory } from '../quota-history-scan'
 import { repoOpCommand } from '../repo-op'
-import { scanHostUsage } from '../usage-scan'
+import { scanHostUsageSources, UsageScanCache } from '../usage-scan'
 import type { ControlHandlers, DaemonContext } from './context'
+import {
+  harnessChildStripEnv,
+  harnessInstanceEnv,
+} from './session-env'
 
 const execFileAsync = promisify(execFile)
 
@@ -127,9 +133,11 @@ async function runHarnessExec(
       args,
       stdin,
       env: execEnv,
-    } = bindHarnessExec(snapshot, msg.agent, buildHarnessExec(
+    } = bindHarnessExec(
+      snapshot,
       msg.agent,
-      {
+      buildHarnessExec(msg.agent, {
+        env: snapshot.commandEnvironment.env,
         prompt: msg.prompt,
         ...(msg.model ? { model: msg.model } : {}),
         ...(msg.effort ? { effort: msg.effort } : {}),
@@ -137,18 +145,25 @@ async function runHarnessExec(
         ...(mcpConfigPath ? { mcpConfigPath } : {}),
         ...(msg.mcpConfig ? { mcpConfig: msg.mcpConfig } : {}),
         ...(msg.allowedTools ? { allowedTools: msg.allowedTools } : {}),
-      },
-    ))
+      }),
+    )
     // promisified execFile still exposes the child: deliver the prompt on
     // stdin (claude — variadic --allowedTools would eat an argv prompt) and
     // ALWAYS close the pipe, or stdin-appending CLIs (codex) block on EOF.
     // Timeout/maxBuffer kill-budget semantics are execFileAsync's, unchanged.
     // codex's MCP bearer token rides `execEnv` (POD-1021), merged over process.env.
+    const childEnv: NodeJS.ProcessEnv = {
+      ...process.env,
+      ...execEnv,
+      ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+      ...harnessInstanceEnv(msg.agent, ctx.homeDir),
+    }
+    for (const key of harnessChildStripEnv(msg.agent, execEnv)) delete childEnv[key]
     const pending = execFileAsync(cmd, args, {
       timeout: msg.timeoutMs ?? 240_000,
       maxBuffer: 4 * 1024 * 1024,
       ...(msg.cwd ? { cwd: msg.cwd } : {}),
-      ...(execEnv ? { env: { ...process.env, ...execEnv } } : {}),
+      env: childEnv,
     })
     pending.child.stdin?.end(stdin ?? '')
     const { stdout } = await pending
@@ -205,16 +220,21 @@ function rescanUsage(ctx: DaemonContext, sinceMs: number): Promise<void> {
   const pending = usageRescans.get(ctx)
   if (pending) return pending
   const started = (async () => {
-    let buckets: UsageBucketWire[]
+    let scan: { buckets: UsageBucketWire[]; sources: UsageSourceWire[] }
     try {
-      buckets = await scanHostUsage({
+      // The cache lives on the memo box, so the SECOND walk on this daemon reads
+      // only the bytes appended since the first one. Transcripts are append-only,
+      // which is what makes that exact rather than a guess.
+      ctx.usageMemo.cache ??= new UsageScanCache()
+      scan = await scanHostUsageSources({
         sinceMs,
+        cache: ctx.usageMemo.cache,
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
       })
     } catch {
-      buckets = []
+      scan = { buckets: [], sources: [] }
     }
-    ctx.usageMemo.value = { atMs: Date.now(), sinceMs, buckets }
+    ctx.usageMemo.value = { atMs: Date.now(), sinceMs, ...scan }
   })().finally(() => {
     usageRescans.delete(ctx)
   })
@@ -246,6 +266,12 @@ async function runUsageScan(
     hostname: hostname(),
     ...(current ? { sampledAt: new Date(current.atMs).toISOString() } : {}),
     buckets,
+    // Only when asked. The status chip polls this every 90s and wants the
+    // buckets alone; the per-file breakdown is an order of magnitude larger and
+    // has exactly one reader, the server's cost fold.
+    ...(msg.withSources && current
+      ? { sources: current.sources, sourcesSinceMs: current.sinceMs }
+      : {}),
   })
 }
 
@@ -255,6 +281,38 @@ async function runAgentQuotaScan(
 ): Promise<void> {
   const agents = await ctx.quotaFetcher.getAgentQuota(msg.refresh ?? false)
   ctx.send({ type: 'agentQuotaResult', requestId: msg.requestId, hostname: hostname(), agents })
+}
+
+/**
+ * Recover past quota windows from harness files on this host (POD-1571).
+ *
+ * NOT memoised, unlike the usage scan beside it. This is a one-shot the server
+ * runs at boot to seed the ledger, not a poll — and a walk of every Codex rollout
+ * is expensive enough that holding its result for a caller who will not ask again
+ * would be memory spent on nothing.
+ */
+async function runQuotaHistoryScan(
+  ctx: DaemonContext,
+  msg: Extract<ControlMessage, { type: 'quotaHistoryRequest' }>,
+): Promise<void> {
+  let samples: QuotaHistorySampleWire[] = []
+  try {
+    samples = await scanQuotaHistory({
+      sinceMs: msg.sinceMs,
+      machineId: ctx.machineId,
+      ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
+    })
+  } catch {
+    // A harness we cannot read is a harness with no recoverable history, which
+    // is already the answer for Claude. An empty result says exactly that.
+    samples = []
+  }
+  ctx.send({
+    type: 'quotaHistoryResult',
+    requestId: msg.requestId,
+    hostname: hostname(),
+    samples,
+  })
 }
 
 async function runGitHubCli(
@@ -272,7 +330,12 @@ async function runGitHubCli(
 
 export const execHandlers: Pick<
   ControlHandlers,
-  'repoOpRequest' | 'harnessExecRequest' | 'usageRequest' | 'agentQuotaRequest' | 'githubCliRequest'
+  | 'repoOpRequest'
+  | 'harnessExecRequest'
+  | 'usageRequest'
+  | 'agentQuotaRequest'
+  | 'quotaHistoryRequest'
+  | 'githubCliRequest'
 > = {
   repoOpRequest: (ctx, msg) => {
     void runRepoOp(ctx, msg)
@@ -285,6 +348,9 @@ export const execHandlers: Pick<
   },
   agentQuotaRequest: (ctx, msg) => {
     void runAgentQuotaScan(ctx, msg)
+  },
+  quotaHistoryRequest: (ctx, msg) => {
+    void runQuotaHistoryScan(ctx, msg)
   },
   githubCliRequest: (ctx, msg) => {
     void runGitHubCli(ctx, msg)

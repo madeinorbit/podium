@@ -14,7 +14,6 @@
  */
 import { execFileSync } from 'node:child_process'
 import { appendFileSync, chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 // @podium/harness is EMPTY — POD-396 took the PTY half to @podium/pty and
@@ -45,7 +44,7 @@ import {
   applyHarnessEnv,
   applyRealAgentCodexEnv,
   harnessPidFile,
-  reapHarnessSessions,
+  harnessScratchRepo,
   reapStaleHarnessDirs,
 } from './harness-env'
 
@@ -103,25 +102,14 @@ const PORT = Number(process.env.PORT ?? 8799)
 const KEYECHO_CLI = fileURLToPath(new URL('../keyecho/src/cli.tsx', import.meta.url))
 const KEYECHO_PKG = fileURLToPath(new URL('../keyecho', import.meta.url))
 const REPO_ROOT = fileURLToPath(new URL('../../', import.meta.url)).replace(/\/$/, '')
-
-// Reap leftovers from a previous hard-killed run, then isolate this run's state +
-// abduco/tmux sockets in a per-port dir (never touches the user's ~/.podium or
-// real sessions). globalTeardown reaps the same dir after the suite.
-reapHarnessSessions(PORT)
-// Also sweep ABANDONED sibling ports (an ad-hoc run SIGKILLed days ago leaves its
-// abduco masters parked under /tmp/podium-e2e-<other-port> that no same-port run
-// will ever revisit) — POD-107.
+// Reap only abandoned, explicitly owned run roots before claiming this run.
+// A fresh short run token makes simultaneous same-port harnesses independent.
 reapStaleHarnessDirs()
-const { stateDir } = applyHarnessEnv(PORT)
+const { stateDir, env: harnessChildEnv } = applyHarnessEnv(PORT)
 
-// A scratch repo WITH a linked worktree, at a deterministic per-port path so specs
-// can compute it (tmpdir()/zz-podium-e2e-repo-<PORT>; the zz- prefix keeps it
-// sorted BEHIND the real repo, so specs that hover "the first worktree row"
-// keep browsing this repo's tree). Scanning THIS repo (unlike
-// REPO_ROOT, which is often itself a linked worktree and scans as a single entry)
-// yields a main worktree + a sibling — the multi-worktree sidebar that the
-// worktree-follow specs need a session to move between.
-const SCRATCH_REPO = join(tmpdir(), `zz-podium-e2e-repo-${PORT}`)
+// Keep the scratch repo inside this run's owned root. Its basename stays stable
+// so existing sidebar assertions can identify it, while the parent path is unique.
+const SCRATCH_REPO = harnessScratchRepo(PORT)
 const SCRATCH_FEAT = `${SCRATCH_REPO}-feat`
 rmSync(SCRATCH_REPO, { recursive: true, force: true })
 const E2E_TARGET_ID = 'e2e-target'
@@ -191,6 +179,20 @@ if (realAgentCodexEnv) {
   writeCodexStartupFixture(realAgentCodexEnv.codexHomeDir, [REPO_ROOT, SCRATCH_REPO, SCRATCH_FEAT])
   await ensurePodiumCodexHooks({ homeDir: realAgentCodexEnv.discoveryHomeDir })
 }
+const realCodexTraceRoot = process.env.CODEX_ROLLOUT_TRACE_ROOT
+const harnessLaunchEnv: Record<string, string> = {
+  ...harnessChildEnv,
+  ...(realAgentCodexEnv
+    ? {
+        CODEX_HOME: realAgentCodexEnv.codexHomeDir,
+        ...(realCodexTraceRoot ? { CODEX_ROLLOUT_TRACE_ROOT: realCodexTraceRoot } : {}),
+      }
+    : {}),
+}
+function withHarnessChildEnv(spec: LaunchSpec): LaunchSpec {
+  return { ...spec, env: { ...harnessLaunchEnv, ...(spec.env ?? {}) } }
+}
+
 
 /**
  * PODIUM_E2E_SILENT_START=<ms> — every spawn is a child that prints NOTHING for
@@ -214,7 +216,7 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
     }) + '\n',
   )
   if (SILENT_START_MS > 0) {
-    return {
+    return withHarnessChildEnv({
       cmd: process.execPath,
       args: [
         '-e',
@@ -223,22 +225,22 @@ const launch = (kind: AgentKind, opts: LaunchOptions): LaunchSpec => {
         `setTimeout(() => { process.stdout.write('booted $ '); setInterval(() => {}, 1000) }, ${SILENT_START_MS})`,
       ],
       cwd: REPO_ROOT,
-    }
+    })
   }
   if (kind === 'shell' || REAL_AGENTS) {
     const spec = agentLaunchCommand(kind, opts)
     // The isolated CODEX_HOME contains only the reviewed Podium hook. This
     // documented automation bypass is test-only and never changes production trust.
     if (REAL_AGENTS && kind === 'codex') {
-      return { ...spec, args: ['--dangerously-bypass-hook-trust', ...spec.args] }
+      return withHarnessChildEnv({ ...spec, args: ['--dangerously-bypass-hook-trust', ...spec.args] })
     }
-    return spec
+    return withHarnessChildEnv(spec)
   }
-  return {
+  return withHarnessChildEnv({
     cmd: process.execPath,
     args: [KEYECHO_CLI, '--mode', 'both'],
     cwd: KEYECHO_PKG,
-  }
+  })
 }
 
 let server = await startServer({ port: PORT, redirectPhoneRootToMobile: false })
@@ -391,6 +393,86 @@ const daemonOptions: Parameters<typeof startDaemon>[0] = {
   workerClient: inlineWorkerClient(),
 }
 let daemon = await startDaemon(daemonOptions)
+const QUEUE_POSITION_ISSUE_TITLE = 'POD-2920 A1b production queue'
+if (process.env.PODIUM_E2E_QUEUE_POSITION === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: QUEUE_POSITION_ISSUE_TITLE,
+    startNow: false,
+  })
+  server.registry.modules.issues.update(issue.id, { stage: 'in_progress' })
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  const subjects: Array<{ agentKind: AgentKind; label: string; idleAfterMs: number }> = [
+    { agentKind: 'codex', label: 'POD-2920 A1b codex-headless', idleAfterMs: 40_000 },
+    { agentKind: 'claude-code', label: 'POD-2920 A1b claude-pty', idleAfterMs: 100_000 },
+  ]
+  const fixtureSessions: Array<{ sessionId: string; agentKind: AgentKind; label: string }> = []
+  for (const subject of subjects) {
+    let sessionId: string | undefined
+    let lastError: unknown
+    for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+      try {
+        sessionId = server.registry.modules.sessions.createSession({
+          agentKind: subject.agentKind,
+          cwd: REPO_ROOT,
+          issueId: issue.id,
+          title: subject.label,
+          machineId: hostMachineId(),
+        }).sessionId
+      } catch (err) {
+        lastError = err
+        await new Promise((resolve) => setTimeout(resolve, 250))
+      }
+    }
+    if (sessionId === undefined) {
+      throw new Error(
+        `PODIUM_E2E_QUEUE_POSITION: ${subject.agentKind} inventory never arrived — ${String(lastError)}`,
+      )
+    }
+    server.registry.modules.sessions.renameSession({ sessionId, name: subject.label })
+    let live = false
+    for (let attempt = 0; attempt < 80 && !live; attempt++) {
+      live =
+        server.registry.modules.sessions
+          .listSessions()
+          .find((session) => session.sessionId === sessionId)?.status === 'live'
+      if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+    if (!live) {
+      throw new Error(`PODIUM_E2E_QUEUE_POSITION: ${subject.label} never became live`)
+    }
+    server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+      type: 'agentState',
+      sessionId,
+      state: {
+        phase: 'working',
+        since: new Date().toISOString(),
+        nativeSubagentCount: 0,
+      },
+    })
+    setTimeout(() => {
+      const current = server.registry.modules.sessions
+        .listSessions()
+        .find((session) => session.sessionId === sessionId)
+      if (!current || current.status !== 'live') return
+      server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+        type: 'agentState',
+        sessionId,
+        state: {
+          phase: 'idle',
+          idle: { kind: 'done' },
+          since: new Date().toISOString(),
+          nativeSubagentCount: 0,
+        },
+      })
+    }, subject.idleAfterMs).unref?.()
+    fixtureSessions.push({ sessionId, agentKind: subject.agentKind, label: subject.label })
+  }
+  writeFileSync(
+    join(stateDir, 'pod-2920-queue-position.json'),
+    JSON.stringify({ issueId: issue.id, issueTitle: QUEUE_POSITION_ISSUE_TITLE, sessions: fixtureSessions }),
+  )
+}
 // POD-408: one LIVE, RESUMABLE agent session, so a spec can drive the panel's
 // lifecycle arbitration in both directions with real clicks — Hibernate from the
 // header overflow (live → parked), Resume from the banner (parked → live).
@@ -458,6 +540,130 @@ if (process.env.PODIUM_E2E_PANEL_LIFECYCLE === '1') {
       phase: 'idle',
       idle: { kind: 'done' },
       since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+}
+/**
+ * POD-3239: one LIVE session the SERVER already holds at a NON-DEFAULT grid.
+ *
+ * That is the whole fixture, and the whole point. The reported bug is a terminal
+ * painting at 80x24 for a beat after a chat → CLI switch, and 80x24 is xterm's
+ * own constructor default — so a session sitting at the default cannot tell a
+ * buffer born at W from one born at the default. This one is at 132x43, which is
+ * neither the default nor anything the harness browser's box measures to, so the
+ * first constructed grid names its own source.
+ */
+if (process.env.PODIUM_E2E_TERMINAL_SIZING === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Terminal sizing subject',
+    startNow: false,
+  })
+  // Same inventory race as PODIUM_E2E_PANEL_LIFECYCLE above — retry, do not assume.
+  let sessionId: string | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+    try {
+      sessionId = server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+      }).sessionId
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (sessionId === undefined) {
+    throw new Error(
+      `PODIUM_E2E_TERMINAL_SIZING: the agent inventory never arrived — ${String(lastError)}`,
+    )
+  }
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Sizing panel subject' })
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'done' },
+      since: new Date().toISOString(),
+      nativeSubagentCount: 0,
+    },
+  })
+  // AFTER THE BIND, and the order is the whole fixture. `bind` is itself a
+  // geometry report (MODEL rule 1), and the daemon binds the keyecho jig at the
+  // 80x24 spawn default — so a report sent before it is immediately and
+  // correctly overwritten. Wait for the session to go live, then report.
+  let live = false
+  for (let attempt = 0; attempt < 80 && !live; attempt++) {
+    live =
+      server.registry.modules.sessions
+        .listSessions()
+        .find((row) => row.sessionId === sessionId)?.status === 'live'
+    if (!live) await new Promise((resolve) => setTimeout(resolve, 250))
+  }
+  if (!live) throw new Error('PODIUM_E2E_TERMINAL_SIZING: the session never became live')
+  // MOVE W THROUGH THE ONE WRITER (POD-3239 B6): the daemon's report. Writing
+  // the terminal's geometry directly would be the fixture asserting a value the
+  // production path is supposed to own, and would not exercise the broadcast the
+  // client's row depends on.
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'geometryApplied',
+    sessionId,
+    geometry: { cols: 132, rows: 43 },
+    cause: 'request',
+  })
+}
+// POD-1595: one LIVE session whose last turn ended with a QUESTION, so its tail
+// carries an attention verdict before anything is sent. That standing verdict is
+// the whole subject — `chatActivity` used to rank it above the operator's own
+// send, so the row under a freshly-sent prompt described the turn BEFORE it and
+// did not budge until the daemon's first observation of the new one arrived.
+// Nothing about that is reproducible on a fresh session: with no verdict to be
+// stale, the old order and the new one agree.
+if (process.env.PODIUM_E2E_STALE_VERDICT === '1') {
+  const issue = server.registry.modules.issues.create({
+    repoPath: REPO_ROOT,
+    title: 'Stale verdict under a send',
+    startNow: false,
+  })
+  // Same inventory race as PANEL_LIFECYCLE above, same answer: retry rather than
+  // let `requireAgent` take the harness down.
+  let sessionId: string | undefined
+  let lastError: unknown
+  for (let attempt = 0; attempt < 80 && sessionId === undefined; attempt++) {
+    try {
+      sessionId = server.registry.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: REPO_ROOT,
+        issueId: issue.id,
+        machineId: hostMachineId(),
+      }).sessionId
+    } catch (err) {
+      lastError = err
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
+  }
+  if (sessionId === undefined) {
+    throw new Error(
+      `PODIUM_E2E_STALE_VERDICT: the agent inventory never arrived — ${String(lastError)}`,
+    )
+  }
+  server.registry.modules.sessions.renameSession({ sessionId, name: 'Stale verdict subject' })
+  const principal = inProcessMachinePrincipal(hostMachineId())
+  // `idle` + `question` is what `agentBadge` turns into `needs answer`, and the
+  // tail into "Waiting for your answer". Stamped an hour ago, because the point
+  // is that it belongs to a turn that is over.
+  server.registry.modules.sessions.onSessionDaemonFrame(principal, {
+    type: 'agentState',
+    sessionId,
+    state: {
+      phase: 'idle',
+      idle: { kind: 'question' },
+      since: new Date(Date.now() - 3_600_000).toISOString(),
       nativeSubagentCount: 0,
     },
   })
@@ -826,7 +1032,7 @@ const restartDaemon = async (): Promise<void> => {
   if (daemonRestartInFlight || shuttingDown) return
   daemonRestartInFlight = true
   try {
-    // Detach only. Durable abduco/tmux masters (and their inherited stable hook
+    // Detach only. Durable abduco masters (and their inherited stable hook
     // socket path) survive; the replacement daemon reuses that path and reattaches.
     await daemon.close()
     await new Promise((resolve) => setTimeout(resolve, 250))
@@ -846,7 +1052,7 @@ const shutdown = (): Promise<void> => {
   shuttingDown = true
   shutdownPromise = (async () => {
     // Full reap: harness sessions are throwaway — without this every e2e run leaks
-    // durable abduco/tmux masters (durability is the feature; the harness opts out).
+    // durable abduco masters (durability is the feature; the harness opts out).
     await daemon.close({ reapSessions: true })
     await server.close()
     // globalTeardown treats removal as the acknowledgement that every writer above

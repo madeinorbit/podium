@@ -1,0 +1,900 @@
+{
+  "schema": "pod-3097-a11-v1",
+  "issue": "POD-3097",
+  "cell": "claude",
+  "verdict": "FAIL",
+  "startedAt": "2026-08-29T21:56:33.544Z",
+  "finishedAt": "2026-08-29T21:58:55.758Z",
+  "control": {
+    "marker": "P3097-CLAUDE-CONTROL-VI0MDKI",
+    "startedAt": "2026-08-29T21:56:37.186Z",
+    "finishedAt": "2026-08-29T21:56:43.000Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+      "status": "live",
+      "phase": "idle",
+      "driverId": "claude-sdk",
+      "driverFamily": "embedded",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "resume": {
+        "kind": "claude-session",
+        "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+      }
+    },
+    "fired": true
+  },
+  "expectedDriver": "claude-sdk",
+  "before": {
+    "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "resume": {
+      "kind": "claude-session",
+      "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+    }
+  },
+  "target": {
+    "model": "claude-opus-5",
+    "effort": "max"
+  },
+  "configuredAt": "2026-08-29T21:57:13.510Z",
+  "configureOutcome": {
+    "ok": true,
+    "effective": "next-turn"
+  },
+  "immediate": {
+    "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "claude-opus-5",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "claude-session",
+      "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+    }
+  },
+  "nextTurn": {
+    "marker": "P3097-CLAUDE-CONFIGURED-5CY1V6U",
+    "startedAt": "2026-08-29T21:57:13.539Z",
+    "finishedAt": "2026-08-29T21:57:16.825Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+      "agentKind": "claude-code",
+      "accountId": "native:claude-code",
+      "title": "Reply with exactly P3097-CLAUDE-CONTROL-VI0MDKI and nothing else. Do not…",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T21:57:16.722Z",
+        "workingMsTotal": 8552,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c1",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T21:56:37.035Z",
+      "lastActiveAt": "2026-08-29T21:57:16.723Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "claude-session",
+        "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+      },
+      "transcriptAvailable": true,
+      "requestedModel": "claude-opus-5",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "claude-sdk",
+      "driverFamily": "embedded",
+      "conversationPodiumId": "conv_99751ffb-8cec-4783-9a47-b555b6a7f5d4",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": true
+    }
+  },
+  "afterTurn": {
+    "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "claude-opus-5",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "claude-session",
+      "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+    }
+  },
+  "reloaded": {
+    "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "claude-opus-5",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "claude-session",
+      "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+    }
+  },
+  "restarted": {
+    "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "claude-opus-5",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "claude-session",
+      "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+    }
+  },
+  "persistenceTurn": {
+    "marker": "P3097-CLAUDE-PERSISTED-014IP44",
+    "startedAt": "2026-08-29T21:58:06.348Z",
+    "finishedAt": "2026-08-29T21:58:09.673Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+      "agentKind": "claude-code",
+      "accountId": "native:claude-code",
+      "title": "Reply with exactly P3097-CLAUDE-PERSISTED-014IP44 and nothing else. Do n…",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T21:58:09.635Z",
+        "workingMsTotal": 8552,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c0",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T21:56:37.035Z",
+      "lastActiveAt": "2026-08-29T21:57:16.723Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "claude-session",
+        "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+      },
+      "transcriptAvailable": true,
+      "requestedModel": "claude-opus-5",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "claude-sdk",
+      "driverFamily": "embedded",
+      "conversationPodiumId": "conv_99751ffb-8cec-4783-9a47-b555b6a7f5d4",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": true
+    }
+  },
+  "final": {
+    "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "claude-opus-5",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "claude-session",
+      "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+    }
+  },
+  "initialPins": {
+    "at": "2026-08-29T21:56:33.570Z",
+    "head": "64e9c1201ea860a23256a3990b9a8f4d34d8fd1c",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "nonEvidenceChanges": [],
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1561423",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1561566",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T215417Z",
+    "capacity": {
+      "load1m": 7.58,
+      "memAvailable": "17213716 kB",
+      "rootFreeKiB": 76312164
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "finalPins": {
+    "at": "2026-08-29T21:58:54.832Z",
+    "head": "64e9c1201ea860a23256a3990b9a8f4d34d8fd1c",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "nonEvidenceChanges": [],
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1585026",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1585415",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T215802Z",
+    "capacity": {
+      "load1m": 8.76,
+      "memAvailable": "18118176 kB",
+      "rootFreeKiB": 76324436
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "events": [
+    {
+      "at": "2026-08-29T21:56:33.544Z",
+      "event": "cell-start",
+      "detail": {
+        "cell": "claude"
+      }
+    },
+    {
+      "at": "2026-08-29T21:56:34.623Z",
+      "event": "initial-pins-proved",
+      "detail": {
+        "at": "2026-08-29T21:56:33.570Z",
+        "head": "64e9c1201ea860a23256a3990b9a8f4d34d8fd1c",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "nonEvidenceChanges": [],
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1561423",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1561566",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T215417Z",
+        "capacity": {
+          "load1m": 7.58,
+          "memAvailable": "17213716 kB",
+          "rootFreeKiB": 76312164
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:56:37.021Z",
+      "event": "live-catalog-read",
+      "detail": {
+        "fetchedAt": 1788040597009,
+        "counts": {
+          "grok": 2,
+          "cursor": 0,
+          "opencode": 32,
+          "codex": 7,
+          "claude-code": 10
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:56:37.081Z",
+      "event": "session-created",
+      "detail": {
+        "sid": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+        "agentKind": "claude-code"
+      }
+    },
+    {
+      "at": "2026-08-29T21:56:37.176Z",
+      "event": "driver-bound",
+      "detail": {
+        "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "claude-sdk",
+        "driverFamily": "embedded",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "resume": {
+          "kind": "claude-session",
+          "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:57:13.500Z",
+      "event": "independent-positive-control",
+      "detail": {
+        "marker": "P3097-CLAUDE-CONTROL-VI0MDKI",
+        "startedAt": "2026-08-29T21:56:37.186Z",
+        "finishedAt": "2026-08-29T21:56:43.000Z",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "userObserved": true,
+        "assistantObserved": true,
+        "row": {
+          "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "claude-sdk",
+          "driverFamily": "embedded",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "resume": {
+            "kind": "claude-session",
+            "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+          }
+        },
+        "fired": true
+      }
+    },
+    {
+      "at": "2026-08-29T21:57:13.510Z",
+      "event": "configure-request",
+      "detail": {
+        "model": "claude-opus-5",
+        "effort": "max"
+      }
+    },
+    {
+      "at": "2026-08-29T21:57:13.539Z",
+      "event": "configure-reply",
+      "detail": {
+        "configureOutcome": {
+          "ok": true,
+          "effective": "next-turn"
+        },
+        "immediate": {
+          "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "claude-sdk",
+          "driverFamily": "embedded",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "claude-opus-5",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "claude-session",
+            "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:58:01.958Z",
+      "event": "next-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-CLAUDE-CONFIGURED-5CY1V6U",
+          "startedAt": "2026-08-29T21:57:13.539Z",
+          "finishedAt": "2026-08-29T21:57:16.825Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+            "agentKind": "claude-code",
+            "accountId": "native:claude-code",
+            "title": "Reply with exactly P3097-CLAUDE-CONTROL-VI0MDKI and nothing else. Do not…",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T21:57:16.722Z",
+              "workingMsTotal": 8552,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c1",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T21:56:37.035Z",
+            "lastActiveAt": "2026-08-29T21:57:16.723Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "claude-session",
+              "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+            },
+            "transcriptAvailable": true,
+            "requestedModel": "claude-opus-5",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "claude-sdk",
+            "driverFamily": "embedded",
+            "conversationPodiumId": "conv_99751ffb-8cec-4783-9a47-b555b6a7f5d4",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": true,
+            "harnessPromptModeHints": true
+          }
+        },
+        "row": {
+          "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "claude-sdk",
+          "driverFamily": "embedded",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "claude-opus-5",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "claude-session",
+            "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:58:02.032Z",
+      "event": "fresh-client-reload",
+      "detail": {
+        "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "claude-sdk",
+        "driverFamily": "embedded",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "claude-opus-5",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "claude-session",
+          "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:58:02.286Z",
+      "event": "isolated-restart-start"
+    },
+    {
+      "at": "2026-08-29T21:58:06.218Z",
+      "event": "isolated-restart-complete",
+      "detail": {
+        "stdout": ""
+      }
+    },
+    {
+      "at": "2026-08-29T21:58:06.336Z",
+      "event": "post-server-daemon-restart",
+      "detail": {
+        "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "claude-sdk",
+        "driverFamily": "embedded",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "claude-opus-5",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "claude-session",
+          "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:58:54.817Z",
+      "event": "post-restart-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-CLAUDE-PERSISTED-014IP44",
+          "startedAt": "2026-08-29T21:58:06.348Z",
+          "finishedAt": "2026-08-29T21:58:09.673Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+            "agentKind": "claude-code",
+            "accountId": "native:claude-code",
+            "title": "Reply with exactly P3097-CLAUDE-PERSISTED-014IP44 and nothing else. Do n…",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T21:58:09.635Z",
+              "workingMsTotal": 8552,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c0",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T21:56:37.035Z",
+            "lastActiveAt": "2026-08-29T21:57:16.723Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "claude-session",
+              "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+            },
+            "transcriptAvailable": true,
+            "requestedModel": "claude-opus-5",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "claude-sdk",
+            "driverFamily": "embedded",
+            "conversationPodiumId": "conv_99751ffb-8cec-4783-9a47-b555b6a7f5d4",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": true,
+            "harnessPromptModeHints": true
+          }
+        },
+        "row": {
+          "sessionId": "5c216765-10bc-45fc-9461-fd042f3f2bf1",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "claude-sdk",
+          "driverFamily": "embedded",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "claude-opus-5",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "claude-session",
+            "value": "2d599562-3c8e-4a18-b92a-da024d0bb700"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:58:55.758Z",
+      "event": "final-pins-proved",
+      "detail": {
+        "at": "2026-08-29T21:58:54.832Z",
+        "head": "64e9c1201ea860a23256a3990b9a8f4d34d8fd1c",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "nonEvidenceChanges": [],
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1585026",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1585415",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T215802Z",
+        "capacity": {
+          "load1m": 8.76,
+          "memAvailable": "18118176 kB",
+          "rootFreeKiB": 76324436
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    }
+  ]
+}

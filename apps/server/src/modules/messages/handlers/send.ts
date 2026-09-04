@@ -50,17 +50,19 @@ export async function sendHandler(
   // 'accepted', fyi at queued — so the sender is never handed a bare 'queued'
   // that provably vanished.
   //
-  // The session chat path (`sessions.sendText` / `resumeAndSend`) reaches this
-  // same handler in `immediate` mode: everything above this line — resolution
-  // under the ceiling, the target gate, the sender stamped from the capability —
-  // is what it came here FOR, and the blocking wait is the part that belongs to
-  // the CLI surface alone. See {@link MailDeliveryMode}.
+  // Legacy session chat reaches this same handler in `immediate` mode, preserving
+  // its pinned queued response. A session with an active runtime contract is
+  // selected into `confirm` mode by the composition root so its existing receipt
+  // can refuse a send after the process disappears. Everything above this line —
+  // resolution under the ceiling, the target gate, and the sender stamped from
+  // the capability — is shared in either mode. See {@link MailDeliveryMode}.
   const { sleep, awaitPollMs } = deps
   const nowIso = deps.now
   const from = senderFromPrincipal(caller.principal)
   const payload = {
     to,
     body: input.body,
+    ...(input.attachments ? { attachments: input.attachments } : {}),
     ...(ctx.correlationId ? { correlationId: ctx.correlationId } : {}),
     ...(input.urgency ? { urgency: input.urgency } : {}),
     ...(input.lifecycle ? { lifecycle: input.lifecycle } : {}),
@@ -77,13 +79,17 @@ export async function sendHandler(
         })
   // Keep the legacy `queued` boolean consistent with the FINAL (post-blocking)
   // disposition [POD-854]: blocking upgraded a busy-held `queued` sync send to
-  // `delivered`, so it must not still report `queued: true` alongside it.
+  // `delivered`, so it must not still report `queued: true` alongside it. The
+  // enqueue-time position is the same stale claim in numeric form: once the
+  // blocking boundary confirms delivery, reload projects no queued position.
   const queued = r.queued === true && r.disposition === 'delivered' ? false : r.queued
+  const position = r.disposition === 'delivered' ? undefined : r.position
   return {
     id: r.message.id,
     ok: r.ok,
     ...(queued !== undefined ? { queued } : {}),
     ...(r.reason !== undefined ? { reason: r.reason } : {}),
+    ...(position !== undefined ? { position } : {}),
     // The honest, sender-facing outcome [POD-834]: held / dead_letter are never
     // hidden behind a bare "queued" success.
     disposition: r.disposition,

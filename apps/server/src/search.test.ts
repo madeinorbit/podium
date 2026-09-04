@@ -1,4 +1,4 @@
-import { asMachineId, asThreadId, asIssueId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
+import { asIssueId, asMachineId, asThreadId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { SearchResultWire } from '@podium/protocol'
 import { afterEach, describe, expect, it } from 'vitest'
 import { z } from 'zod'
@@ -10,6 +10,12 @@ import { RepoRegistry } from './repo-registry'
 import { appRouter } from './router'
 import { SessionStore } from './store'
 import { OPERATOR } from './test-support/capabilities'
+import { forceFeature } from './test-support/features'
+
+// Omni-search reads the full-text index, and whether a boot HAS one is the
+// `command-palette` flag (PDM-25). These tests are about the indexed path, so
+// they force it on before any store is constructed.
+forceFeature('command-palette', true)
 
 /** The fixture's caller. `addComment` requires a principal (POD-1315) — these
  *  tests exercise the operator seam, so they say so rather than defaulting. */

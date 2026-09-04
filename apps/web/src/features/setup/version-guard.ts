@@ -13,6 +13,11 @@ import { isIterationMode } from '@/lib/iteration-mode'
 import { pageBundleVersion } from '@/lib/logging/build-version'
 import { clearReloadBudgetNote, noteReloadBudgetSpent } from '@/lib/reload-budget'
 import { askServedAssets, type ServedAssetsAnswer } from '@/lib/served-assets'
+import { forceReload } from '@/lib/force-reload'
+
+// Keep the historical import path public while sharing the implementation with
+// the root stale-build banner without pulling this feature into its eager graph.
+export { forceReload }
 
 /**
  * Wire-version handshake for the web client. A cached PWA shell can outlive a server redeploy
@@ -38,28 +43,6 @@ export type VersionCheck = 'ok' | 'reloaded' | 'blocked' | 'server-behind' | 'it
 
 /** Re-exported so callers of `checkServedAssets` need only this module. */
 export type { ServedAssetsAnswer }
-
-/**
- * Evict the PWA service worker + every cache, then hard-reload. Best-effort: a failure in
- * either eviction step must not prevent the reload (a plain reload still beats a wedged tab).
- */
-export async function forceReload(): Promise<void> {
-  try {
-    const regs = await navigator.serviceWorker?.getRegistrations?.()
-    if (regs) await Promise.all(regs.map((r) => r.unregister()))
-  } catch {
-    // best-effort: unregister failures shouldn't block the reload
-  }
-  try {
-    if (typeof caches !== 'undefined') {
-      const keys = await caches.keys()
-      await Promise.all(keys.map((k) => caches.delete(k)))
-    }
-  } catch {
-    // best-effort: cache eviction failures shouldn't block the reload
-  }
-  location.reload()
-}
 
 /**
  * WHICH SERVED BUILD A RELOAD IS AIMED AT (POD-2253).

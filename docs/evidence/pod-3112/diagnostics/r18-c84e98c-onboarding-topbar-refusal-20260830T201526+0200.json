@@ -1,0 +1,54 @@
+{
+  "recordedAt": "2026-08-30T20:15:26+02:00",
+  "kind": "r18-c84e98c-onboarding-topbar-refusal",
+  "verdict": "REFUSED",
+  "scored": false,
+  "epicPin": "c84e98c6d7e5f9f0632e9a7c36471826a98b6f6e",
+  "provider": {
+    "name": "OpenCode",
+    "version": "1.18.25",
+    "path": "/home/mgw/.opencode/bin/opencode",
+    "sha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "webBundle": {
+    "sourceSha": "252c8c4",
+    "bundleVersion": "bundle+BZTkVqZf",
+    "reuseProof": "git diff --quiet 252c8c4..c84e98c6d7e5f9f0632e9a7c36471826a98b6f6e -- apps/web returned zero"
+  },
+  "attempts": [
+    {
+      "instance": "p3112-a7-final-c84-r1",
+      "ports": [22112, 49112, 49113],
+      "base": "/tmp/pod-3112-a7-final-c84-r1",
+      "verdict": "REFUSED",
+      "reason": "The orchestration shell could not resolve bun, so the r18 program never started.",
+      "providerPrompts": 0,
+      "providerLaunched": false,
+      "cleanup": "Server, daemon, credential symlink, and all three listeners removed before r2."
+    },
+    {
+      "instance": "p3112-a7-final-c84-r2",
+      "ports": [22122, 49122, 49123],
+      "base": "/tmp/pod-3112-a7-final-c84-r2",
+      "fixture": "/tmp/pod-3112-a7-final-c84-r2/dummy-repo",
+      "machineId": "6d092a33-9383-4202-84db-f709a237e6a3",
+      "startedAt": "2026-08-30T20:14:22+02:00",
+      "readingAt": "2026-08-30T18:14:44.368Z",
+      "finishedAt": "2026-08-30T18:14:44.781Z",
+      "verdict": "REFUSED",
+      "reason": "The corrected r18 harness observed zero desktop-topbar controls before session creation: Error: REFUSED desktop topbar count 0.",
+      "onboarding": {"entered": false, "steps": []},
+      "providerPrompts": 0,
+      "a7a": "UNSCORED",
+      "a7b": "NOT ATTEMPTED",
+      "rawHashes": {
+        "r18-reading.json": "51ae002d03b7370e3302d2c037989f0c03034c33fd7693b934fdf985b4585e4c",
+        "r18-run.log": "e33457134f91d0c54b057194d88c82d2867743ae08c9d3f8b3841a95a91ef72e",
+        "server.log": "10fc3e5e71a42fcda9d49ab9de39f7f69bc3fb96dd393d91116522a9a99707fc",
+        "daemon.log": "1a301cae4f37f0255ad1a8fd42f266b93fad7d18c68d4dd98d350a837c7be0c0"
+      },
+      "cleanup": "At 2026-08-30T20:15:26+02:00 the server, daemon, credential symlink, all three listeners, and every process carrying the exact named-instance environment were absent."
+    }
+  ],
+  "ledger": "No eight-field row was appended because the required independent UI control did not fire."
+}

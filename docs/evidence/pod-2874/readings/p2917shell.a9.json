@@ -1,0 +1,83 @@
+{
+  "cell": "A9",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2917-shell/probes/shell-a9",
+  "at": "2026-08-27T01:27:09.034Z",
+  "pin": {
+    "cell": "A9",
+    "at": "2026-08-27T01:27:09.073Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T00:46:16.692Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+DskDAbLF"
+    },
+    "serverPid": "502194",
+    "daemonPid": "558640",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4168436 kB",
+      "SwapFree": "37039848 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session process tree was gone immediately and after five minutes",
+  "control": {
+    "fired": true,
+    "what": "unique shell marker echoed before process-table kill check",
+    "detail": "marker=P2874-A9-MTAUEQ55; echo=true in 501ms; processes=1; screenBytes=270"
+  },
+  "evidence": [
+    "MARKER            P2874-A9-MTAUEQ55 echo=true in 501ms",
+    "KILL              {\"result\":{}}",
+    "BEFORE            [\"630649  630648 /bin/bash\"]",
+    "IMMEDIATE         [[],[],[],[],[],[],[],[],[],[]]",
+    "AFTER 5 MIN       []",
+    "SERVER/DAEMON      true/true"
+  ],
+  "data": {
+    "sid": "054110bc-bc15-4a1b-9521-5484b70862ae",
+    "marker": "P2874-A9-MTAUEQ55",
+    "echo": {
+      "ok": true,
+      "ms": 501
+    },
+    "before": [
+      "630649  630648 /bin/bash"
+    ],
+    "killed": {
+      "result": {}
+    },
+    "immediate": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "after": [],
+    "waitedMs": 300000
+  }
+}

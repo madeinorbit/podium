@@ -16,14 +16,33 @@ function tmpDbPath(): string {
 }
 
 /**
- * Shared SQLite-shim behaviors, run against whichever runtime driver is active
- * (node:sqlite under vitest/Node, bun:sqlite under `bun test`). The shim must behave
- * identically on both — that is the whole point of the abstraction.
+ * Shared SQLite-shim behaviors over the one driver (`bun:sqlite`), run by BOTH
+ * runners — vitest (`bun --bun vitest`) and `bun test`. The two lanes differ in the
+ * test runner, not in the driver; the spec is shared so neither can drift.
  */
 export function sqliteShimSpec(t: SqlTestPrimitives): void {
   const { describe, it, expect } = t
 
-  describe(`sqlite shim [${process.versions.bun ? 'bun:sqlite' : 'node:sqlite'}]`, () => {
+  describe('sqlite shim [bun:sqlite]', () => {
+    it('refuses to open under a runtime that is not Bun', () => {
+      // There is no second driver to fall back to (PDM-25), so a Node caller has
+      // to hear it HERE — not three calls later inside the migrator, which is
+      // where the old fallback actually failed.
+      const versions = process.versions as { bun?: string }
+      const real = versions.bun
+      delete versions.bun
+      try {
+        expect(() => openDatabase(':memory:')).toThrow(/requires the Bun runtime/)
+      } finally {
+        Object.defineProperty(versions, 'bun', {
+          value: real,
+          configurable: true,
+          enumerable: true,
+          writable: true,
+        })
+      }
+    })
+
     it('round-trips rows with positional ? params (prepare/run/all)', () => {
       const db = openDatabase(':memory:')
       try {

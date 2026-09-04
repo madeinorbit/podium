@@ -1,0 +1,33 @@
+POD-2810 BEFORE — claude on claude-pty, epic tip 604f8d7de, rig repinned at this
+worktree (P2801_REPO=<this worktree>), agent-home credentials refreshed.
+
+  . docs/evidence/pod-2801/drive-env.sh
+  PODIUM_PASSWORD=p2801 PODIUM_RUNTIME_DRIVER=claude-pty \
+    P2801_READY_MS=45000 bun docs/evidence/pod-2801/phase-probe.ts claude
+
+[claude] session 1890dee0-bdc0-47ee-a98b-6f426100f40e created; 45000ms for the TUI to come up
+[claude] bound driver claude-pty (family terminal)
+[claude] TUI priming: nothing to clear
+
+| harness | driver | verdict | phases seen | EVER working | output bytes | growing intervals |
+|---|---|---|---|---|---|---|
+| claude | claude-pty | **FAIL** | idle=60 | false | 79922 | 53/59 |
+
+--- claude (claude-pty) — FAIL: produced 79922 bytes of output over 53 growing intervals and never once reported working
+    +  1124ms  phase=idle       ptyBytes=   2231  transcriptChars=0
+    + 11367ms  phase=idle       ptyBytes=  15927  transcriptChars=0
+    + 21603ms  phase=idle       ptyBytes=  29807  transcriptChars=0
+    + 32023ms  phase=idle       ptyBytes=  43542  transcriptChars=0
+    + 42346ms  phase=idle       ptyBytes=  59444  transcriptChars=0
+    + 52549ms  phase=idle       ptyBytes=  74452  transcriptChars=0
+    + 61683ms  phase=idle       ptyBytes=  79922  transcriptChars=11851
+
+The durable checkpoint that turn left behind, read out of the rig's own db:
+
+  cursor           {"transcript":0,"hook":0}
+  lastAcceptedLive null
+  turnEpoch        0
+  phase            idle
+  segment          { path: ".../e78d1346-….jsonl", device: "missing", inode: "missing" }
+
+Identical in every field to the reading POD-2801 filed this issue from.

@@ -27,6 +27,7 @@ import { makeIssueClient } from '@podium/issue-client'
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { runWorkflowCli, type WorkflowCliDeps } from '../../cli/src/workflow-cli'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -39,7 +40,7 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-workflow-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ port: 0 })
+    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     const registry = server.registry
     registry.modules.settings.setSettingsFor(FIRST_ADMIN_USER_ID, {
       ...registry.modules.settings.getSettings(),

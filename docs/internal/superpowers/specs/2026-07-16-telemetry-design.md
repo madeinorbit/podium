@@ -162,7 +162,7 @@ server process (sole emitter, D10)
   └── flusher   daily + jitter, on graceful shutdown, best-effort
         │  reads consent fresh (D9)
         ▼
-  https://telemetry.podium.dev  (relay: validate → drop IP → forward)
+  https://pulse.meetpodium.com/v1/u  (relay: validate → drop IP → forward)
         ▼
   PostHog Cloud (disclosed)
 ```

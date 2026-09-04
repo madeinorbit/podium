@@ -1,35 +1,22 @@
+import { discoveredPlacement, type IssueNavigationModel } from '@podium/client-core/viewmodels'
 import {
-  discoveredPlacement,
-  type IssueNavigationModel,
-  spawnIssueAgent,
-} from '@podium/client-core/viewmodels'
-import {
-  DEFER_NEXT_MESSAGE,
   type IssueCloseReason,
   type IssueWire,
   issueStatusMenuEntries,
   issueStatusValueOf,
   parseIssueStatusValue,
   type SessionMeta,
-  snoozeUntil1h,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useMemo, useState } from 'react'
-import { useMobileStore } from '../client/hooks'
-import { ISSUE_AGENT_KINDS, ISSUE_AGENT_LABELS, issueAgentKind } from '../lib/agent-models'
+import { useStoreActions } from '../client/hooks'
 import { issueCloseBlockers } from '../lib/issue-close'
-import {
-  type WorkMenuActionId,
-  type WorkMenuLane,
-  workDeferDateFromNow,
-  workIssueStartable,
-  workMenuActionIds,
-} from '../lib/work-menu'
+import { type WorkMenuActionId, type WorkMenuLane, workMenuActionIds } from '../lib/work-menu'
 import { color } from '../theme/theme'
 import { ActionSheet, type SheetAction } from './ActionSheet'
 import { IssueCloseSheet } from './IssueCloseSheet'
 import { IssueColorSheet } from './IssueColorSheet'
-import { PriorityGlyph, StageGlyph } from './StageGlyph'
+import { StageGlyph } from './StageGlyph'
 import { PromptSheet } from './task-detail/PromptSheet'
 
 export interface WorkIssueMenuTarget {
@@ -43,47 +30,31 @@ type MenuSheet =
   | { kind: 'menu' }
   | { kind: 'rename' }
   | { kind: 'status' }
-  | { kind: 'priority' }
-  | { kind: 'agent' }
-  | { kind: 'labels' }
-  | { kind: 'defer' }
   | { kind: 'color' }
-  | { kind: 'confirm-archive' }
   | { kind: 'confirm-delete' }
   | { kind: 'confirm-close'; reason: IssueCloseReason }
 
-interface MoveCapabilities {
-  top: boolean
-  up: boolean
-  down: boolean
-}
-
 /**
- * Work's long-press surface, projected from the desktop sidebar vocabulary.
- * Nested desktop flyouts become one-at-a-time bottom sheets; their actions and
- * ordering stay the same. Phone-only Peek and Move controls remain because they
- * replace a second pane and a mouse drag respectively.
+ * Work's long-press surface. Once the desktop sidebar vocabulary in full, and
+ * trimmed by the 2026-08-27 device review to the acts a long-press is actually
+ * for — see {@link workMenuActionIds} for what survived and why (the Move
+ * reorder pair went in the 2026-08-28 follow-up review). Nested desktop
+ * flyouts become one-at-a-time bottom sheets.
  */
 export function WorkIssueMenu({
   target,
   issues,
   sessions,
-  moves,
-  onOpen,
-  onPeek,
-  onMove,
   onClose,
 }: {
   target: WorkIssueMenuTarget
   issues: readonly IssueWire[]
   sessions: readonly SessionMeta[]
-  moves: MoveCapabilities
-  onOpen: (issue: IssueWire) => void
-  onPeek: (issue: IssueWire) => void
-  onMove: (issue: IssueWire, to: 'top' | 'up' | 'down') => void
   onClose: () => void
 }) {
-  const store = useMobileStore()
+  // Actions only — identity-stable, so the open menu does not re-render on
+  // every store publish while an agent streams underneath it.
+  const store = useStoreActions()
   const [sheet, setSheet] = useState<MenuSheet>({ kind: 'menu' })
   const issue = target.issue
   const closeIf = (kind: NonNullable<MenuSheet>['kind']) => () =>
@@ -100,35 +71,18 @@ export function WorkIssueMenu({
     () => discoveredPlacement(issue, new Map(issues.map((candidate) => [candidate.id, candidate]))),
     [issue, issues],
   )
-  const allLabels = useMemo(
-    () => [...new Set(issues.flatMap((candidate) => candidate.labels))].sort(),
-    [issues],
-  )
   const agentSessions = useMemo(
     () => sessions.filter((session) => session.issueId === issue.id && !session.archived),
     [issue.id, sessions],
   )
   const sessionCount = new Set(issue.memberSessionIds ?? agentSessions.map((s) => s.sessionId)).size
-  const archiveTaskCount = 1 + issue.childCount
-  const startable = workIssueStartable(issue)
   const actionIds = workMenuActionIds(issue, target.lane, {
     placement: placement?.originId != null,
-    moveTop: moves.top,
-    moveUp: moves.up,
-    moveDown: moves.down,
   })
 
   const finish = (result?: Promise<unknown>): void => {
     setSheet(null)
     void result?.catch(() => {})
-  }
-
-  const archive = (): void => {
-    if (issue.childCount > 0 || sessionCount > 0) {
-      setSheet({ kind: 'confirm-archive' })
-      return
-    }
-    finish(store.updateIssue(issue.id, { archived: true }))
   }
 
   const rootActions = actionIds.flatMap((id): SheetAction[] => {
@@ -186,89 +140,6 @@ export function WorkIssueMenu({
       />
 
       <ActionSheet
-        visible={sheet?.kind === 'priority'}
-        title="Priority"
-        actions={[0, 1, 2, 3, 4].map((priority) => ({
-          label: `P${priority}`,
-          icon: <PriorityGlyph priority={priority} size={15} />,
-          selected: issue.priority === priority,
-          onPress: () => finish(store.updateIssue(issue.id, { priority })),
-        }))}
-        onClose={closeIf('priority')}
-      />
-
-      <ActionSheet
-        visible={sheet?.kind === 'agent'}
-        title={startable ? 'Run now' : 'Assign agent'}
-        actions={agentActions()}
-        onClose={closeIf('agent')}
-      />
-
-      <ActionSheet
-        visible={sheet?.kind === 'labels'}
-        title="Labels"
-        subtitle={allLabels.length === 0 ? 'No labels in this repository yet.' : undefined}
-        actions={
-          allLabels.length === 0
-            ? [{ label: 'No labels', disabled: true, onPress: () => {} }]
-            : allLabels.map((label) => ({
-                label,
-                selected: issue.labels.includes(label),
-                onPress: () =>
-                  finish(
-                    store.setIssueLabels(
-                      issue.id,
-                      issue.labels.includes(label)
-                        ? issue.labels.filter((candidate) => candidate !== label)
-                        : [...issue.labels, label],
-                    ),
-                  ),
-              }))
-        }
-        onClose={closeIf('labels')}
-      />
-
-      <ActionSheet
-        visible={sheet?.kind === 'defer'}
-        title="Snooze / defer"
-        actions={[
-          {
-            label: 'For 1 hour',
-            onPress: () => finish(store.deferIssue(issue.id, snoozeUntil1h(Date.now()))),
-          },
-          {
-            label: 'Until tomorrow',
-            onPress: () => finish(store.deferIssue(issue.id, workDeferDateFromNow(Date.now(), 1))),
-          },
-          {
-            label: 'For a week',
-            onPress: () => finish(store.deferIssue(issue.id, workDeferDateFromNow(Date.now(), 7))),
-          },
-          {
-            label: 'Until next message',
-            onPress: () => finish(store.deferIssue(issue.id, DEFER_NEXT_MESSAGE)),
-          },
-          ...(issue.deferUntil != null
-            ? [{ label: 'Unsnooze', onPress: () => finish(store.undeferIssue(issue.id)) }]
-            : []),
-        ]}
-        onClose={closeIf('defer')}
-      />
-
-      <ActionSheet
-        visible={sheet?.kind === 'confirm-archive'}
-        title="Archive this task?"
-        subtitle={`${describeCascade(archiveTaskCount, sessionCount)} They leave active views, and any running agents are stopped. Unarchiving brings the task back but does not restart them.`}
-        actions={[
-          {
-            label: 'Archive',
-            onPress: () => finish(store.updateIssue(issue.id, { archived: true })),
-          },
-        ]}
-        onClose={closeIf('confirm-archive')}
-      />
-
-      <ActionSheet
         visible={sheet?.kind === 'confirm-delete'}
         title="Delete this task?"
         subtitle={`${describeCascade(1, sessionCount)} Tasks and sessions can be restored; running agents will be stopped.`}
@@ -296,14 +167,6 @@ export function WorkIssueMenu({
 
   function actionFor(id: WorkMenuActionId): SheetAction | null {
     switch (id) {
-      case 'open':
-        return { label: 'Open', onPress: () => finishAnd(() => onOpen(issue)) }
-      case 'peek':
-        return {
-          label: 'Peek',
-          hint: 'The task inspector, without leaving Work',
-          onPress: () => finishAnd(() => onPeek(issue)),
-        }
       case 'rename':
         return { label: 'Rename', onPress: () => setSheet({ kind: 'rename' }) }
       case 'read':
@@ -314,15 +177,6 @@ export function WorkIssueMenu({
         }
       case 'status':
         return { label: 'Set status', onPress: () => setSheet({ kind: 'status' }) }
-      case 'priority':
-        return { label: 'Set priority', onPress: () => setSheet({ kind: 'priority' }) }
-      case 'agent':
-        return {
-          label: startable ? 'Run now' : 'Assign agent',
-          onPress: () => setSheet({ kind: 'agent' }),
-        }
-      case 'labels':
-        return { label: 'Labels', onPress: () => setSheet({ kind: 'labels' }) }
       case 'color':
         return { label: 'Set colour', onPress: () => setSheet({ kind: 'color' }) }
       case 'placement': {
@@ -344,19 +198,6 @@ export function WorkIssueMenu({
             ),
         }
       }
-      case 'defer':
-        return { label: 'Snooze / defer', onPress: () => setSheet({ kind: 'defer' }) }
-      case 'pin':
-        return {
-          label: issue.pinned ? 'Unpin' : 'Pin',
-          onPress: () => finish(store.updateIssue(issue.id, { pinned: !issue.pinned })),
-        }
-      case 'moveTop':
-        return { label: 'Move to top', onPress: () => finishAnd(() => onMove(issue, 'top')) }
-      case 'moveUp':
-        return { label: 'Move up', onPress: () => finishAnd(() => onMove(issue, 'up')) }
-      case 'moveDown':
-        return { label: 'Move down', onPress: () => finishAnd(() => onMove(issue, 'down')) }
       case 'bringBack':
         return {
           label: 'Bring back from Closed',
@@ -367,8 +208,6 @@ export function WorkIssueMenu({
         }
       case 'undefer':
         return { label: 'Unsnooze', onPress: () => finish(store.undeferIssue(issue.id)) }
-      case 'archive':
-        return { label: 'Archive…', onPress: archive }
       case 'delete':
         return {
           label: 'Delete…',
@@ -376,23 +215,6 @@ export function WorkIssueMenu({
           onPress: () => setSheet({ kind: 'confirm-delete' }),
         }
     }
-  }
-
-  function finishAnd(action: () => void): void {
-    finish()
-    action()
-  }
-
-  function agentActions(): SheetAction[] {
-    const defaultKind = issueAgentKind(issue.defaultAgent) ?? 'claude-code'
-    const kinds = [defaultKind, ...ISSUE_AGENT_KINDS.filter((kind) => kind !== defaultKind)]
-    return kinds.map((kind, index) => ({
-      label: `${ISSUE_AGENT_LABELS[kind]}${index === 0 ? ' (default)' : ''}`,
-      onPress: () => {
-        const input = index === 0 ? { id: issue.id } : { id: issue.id, agentKind: kind }
-        finish(spawnIssueAgent(store.trpc.issues, input))
-      },
-    }))
   }
 }
 

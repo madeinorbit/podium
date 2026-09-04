@@ -7,6 +7,7 @@ import {
   GrokIcon,
   OpenAIcon,
   OpenCodeIcon,
+  PiIcon,
 } from '@/lib/icons/AgentIcons'
 
 /**
@@ -50,6 +51,7 @@ const GLYPH_TONE: Record<AgentKind, string> = {
   grok: GLYPH_TONE_FALLBACK,
   opencode: GLYPH_TONE_FALLBACK,
   cursor: GLYPH_TONE_FALLBACK,
+  pi: GLYPH_TONE_FALLBACK,
   shell: GLYPH_TONE_FALLBACK,
 }
 
@@ -59,6 +61,7 @@ const CHIP_TINT: Record<AgentKind, string> = {
   grok: GROK_TILE_TINT,
   opencode: CHIP_TINT_FALLBACK,
   cursor: CHIP_TINT_FALLBACK,
+  pi: CHIP_TINT_FALLBACK,
   shell: CHIP_TINT_FALLBACK,
 }
 
@@ -68,6 +71,7 @@ const FLEET_TILE_TINT: Record<AgentKind, string> = {
   grok: GROK_TILE_TINT,
   opencode: FLEET_TILE_TINT_FALLBACK,
   cursor: FLEET_TILE_TINT_FALLBACK,
+  pi: FLEET_TILE_TINT_FALLBACK,
   shell: FLEET_TILE_TINT_FALLBACK,
 }
 
@@ -170,6 +174,7 @@ export const AGENT_KIND_ICON: Record<AgentKind, AgentIconComponent> = {
   grok: GrokIcon,
   opencode: OpenCodeIcon,
   cursor: CursorIcon,
+  pi: PiIcon,
   shell: SquareTerminal,
 }
 

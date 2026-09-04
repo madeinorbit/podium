@@ -33,11 +33,24 @@ import { clockLabel, fullTimeLabel, parseTs } from './transcript-time'
  *  is visible. */
 export type TurnPosition = 'open' | 'bind'
 
+/** A row inside the agent's visible working narrative. `start` draws the
+ * register once; subsequent narration and tool runs continue the same region
+ * without repeating it. Final answers and human prompts sit outside it. */
+export type ProcessPosition = 'start' | 'continue'
+
 export function turnClass(turn: TurnPosition | undefined): string | undefined {
   return turn === 'open'
     ? 'transcript-turn-open'
     : turn === 'bind'
       ? 'transcript-turn-bind'
+      : undefined
+}
+
+export function processClass(process: ProcessPosition | undefined): string | undefined {
+  return process === 'start'
+    ? 'transcript-process-row transcript-process-start'
+    : process === 'continue'
+      ? 'transcript-process-row'
       : undefined
 }
 
@@ -237,6 +250,7 @@ export const ChatBlockView = memo(function ChatBlockView({
   stickyOperator = false,
   attribution,
   turn,
+  process,
   arrived = false,
   onQuote,
   markdownHtml,
@@ -273,6 +287,8 @@ export const ChatBlockView = memo(function ChatBlockView({
   attribution?: TranscriptAttribution
   /** This row's place in its exchange (POD-376) — see {@link TurnPosition}. */
   turn?: TurnPosition
+  /** This row's place in the visible process narrative. */
+  process?: ProcessPosition
   /** This row landed after the feed was already on screen (POD-423) — it plays
    *  its one-shot arrival. See `useFeedArrivals`. */
   arrived?: boolean
@@ -325,12 +341,14 @@ export const ChatBlockView = memo(function ChatBlockView({
   const rowClass = cn(
     'group transcript-row isolate',
     bodyTurnClass,
+    processClass(process),
     arrived && item.role !== 'user' && 'transcript-arrive',
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
   )
   const nonStickyRowClass = cn(
     'transcript-row',
+    processClass(process),
     arrived && 'transcript-arrive',
     highlighted && 'transcript-search-hit',
     dimmed && 'opacity-35',
@@ -437,6 +455,7 @@ export const ChatBlockView = memo(function ChatBlockView({
       <div className={rowClass} data-block={index}>
         <div className="transcript-rail transcript-rail--none" aria-hidden="true" />
         <div className="transcript-body py-0.5">
+          {process === 'start' && <div className="transcript-process-label">Process</div>}
           <ToolBlock block={block} sessionId={sessionId} cwd={cwd} openFile={openFile} />
         </div>
       </div>
@@ -576,6 +595,7 @@ export const ChatBlockView = memo(function ChatBlockView({
             isAnswer && 'transcript-answer',
           )}
         >
+          {process === 'start' && <div className="transcript-process-label">Process</div>}
           {item.role === 'system' && (
             <div className="transcript-header">
               <span className="transcript-role transcript-role--system">System</span>

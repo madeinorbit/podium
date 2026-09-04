@@ -24,6 +24,12 @@ import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { FIRST_ADMIN_USER_ID, asMachineId, asSessionId } from '@podium/model'
 import { SESSION_COOKIE } from '@podium/protocol'
 import {
+  ABDUCO_SUN_PATH_MAX,
+  abducoSocketDir,
+  abducoSocketPathBytes,
+  longestDurableLabelFor,
+} from '@podium/runtime/abduco-socket'
+import {
   abducoSocketPath,
   killAbducoSession,
   resolveAbducoBin,
@@ -39,6 +45,7 @@ import {
 import { encodeJoin } from '@podium/runtime/join'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { AppRouter } from '../apps/server/src/router'
+import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
 
@@ -140,7 +147,6 @@ function instanceEnv(
     'PODIUM_HOME',
     'NOTIFY_SOCKET',
     'ABDUCO_SOCKET_DIR',
-    'TMUX_TMPDIR',
   ])
     delete env[key]
   Object.assign(env, {
@@ -428,7 +434,6 @@ describe('long instance durable sockets', () => {
       PODIUM_STATE_DIR: process.env.PODIUM_STATE_DIR,
       PODIUM_ABDUCO: process.env.PODIUM_ABDUCO,
       ABDUCO_SOCKET_DIR: process.env.ABDUCO_SOCKET_DIR,
-      TMUX_TMPDIR: process.env.TMUX_TMPDIR,
       PODIUM_NO_SCOPE: process.env.PODIUM_NO_SCOPE,
     }
     const restore = () => {
@@ -457,7 +462,6 @@ describe('long instance durable sockets', () => {
       process.env.PODIUM_STATE_DIR = stateDir
       process.env.PODIUM_ABDUCO = bin
       delete process.env.ABDUCO_SOCKET_DIR
-      delete process.env.TMUX_TMPDIR
       process.env.PODIUM_NO_SCOPE = '1'
       applyInstanceRuntimeEnv(instanceId, process.env, stateDir)
       label = durableSessionLabel(sessionId, instanceId)
@@ -593,6 +597,105 @@ describe('multi-instance runtime isolation', () => {
     })
   }, 120_000)
 
+  /**
+   * FLEET DAEMON LOG CAPTURE, ACROSS THE SOCKET (POD-3156).
+   *
+   * The hermetic roundtrip in `apps/server/src/modules/logs/` drives every
+   * schema, table and filename rule in this path, and deliberately stops at the
+   * socket. This is the half it cannot hold: TWO INDEPENDENT RUNTIMES — a
+   * coordinator and a separately-installed, separately-stated daemon that
+   * enrolled with a real pair code over a real WebSocket — where the machine the
+   * records are filed under is one the SERVER AUTHENTICATED rather than one a
+   * test injected.
+   *
+   * It is the multi-instance lane rather than a unit test for the reason
+   * docs/multi-instance.md gives: an acceptance about separate deployments has
+   * to start separate deployments, and multiple clients routed to one runtime
+   * would prove the opposite of what is claimed.
+   */
+  it('raises a joined remote daemon from the coordinator and keeps its records centrally', async () => {
+    const source = await packagedCoordinator()
+    const sourceApi = trpc(source)
+    const pairing = await sourceApi.machines.pairingCode.mutate()
+    const fleet = makeSpec('blue', 'packaged-log-capture-member')
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec: fleet })
+    const token = encodeJoin({
+      v: 1,
+      serverUrl: `ws://127.0.0.1:${source.port}`,
+      pairCode: pairing.code,
+    })
+
+    const joined = await runPackagedCli(executable, fleet, [
+      'setup',
+      '--join',
+      token,
+      '--persist',
+      'detached',
+    ])
+    expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+      machineId: string
+    }
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).some(
+          (machine) => machine.id === identity.machineId && machine.online,
+        ),
+      'remote daemon enrollment for log capture',
+    )
+
+    // The file is named by the same rule the server files under, imported rather
+    // than restated — a test that derived the name its own way could pass while
+    // the operator's `podium logs fleet-<machine>` looked in the wrong place.
+    const fleetFile = join(
+      source.stateDir,
+      'logs',
+      'fleet',
+      `${machineFileKey(identity.machineId)}.ndjson`,
+    )
+    const central = (): string => (existsSync(fleetFile) ? readFileSync(fleetFile, 'utf8') : '')
+
+    // DEFAULT CLOSED. An enrolled, connected, actively-logging daemon has sent
+    // nothing, because nobody asked it to.
+    expect(existsSync(fleetFile)).toBe(false)
+
+    const raised = await sourceApi.logs.setDaemonLevel.mutate({
+      level: 'debug',
+      ttlMs: 600_000,
+      target: { machineId: identity.machineId },
+    })
+    expect(raised.daemons.map((d) => String(d.machineId))).toEqual([identity.machineId])
+
+    await waitUntil(
+      () => central().includes('daemon log level raised'),
+      'the raised daemon’s records reaching the coordinator',
+    )
+
+    const records = central()
+      .split('\n')
+      .filter((line) => line.length > 0)
+      .map((line) => JSON.parse(line) as Record<string, unknown>)
+    // FILED UNDER THE AUTHENTICATED MACHINE, every one of them. The frame carries
+    // no machine field at all; this is the server's own answer on disk.
+    expect(records.length).toBeGreaterThan(0)
+    expect(records.every((r) => r.machineId === identity.machineId)).toBe(true)
+    // The raise ships what the daemon had already recorded, so the central file
+    // starts before the operator's command rather than at it.
+    expect(records.some((r) => String(r.ns).startsWith('daemon'))).toBe(true)
+
+    // AND THE WAY BACK, in the same file, which is what tells a later reader
+    // that the stream stopping was an expiry rather than a dead machine.
+    await sourceApi.logs.setDaemonLevel.mutate({
+      level: null,
+      target: { machineId: identity.machineId },
+    })
+    await waitUntil(
+      () => central().includes('daemon log level restored'),
+      'the reset reaching the remote daemon',
+    )
+  }, 180_000)
+
   it('returns nonzero with the auth reason when packaged join is rejected', async () => {
     const source = await packagedCoordinator()
     const fleet = makeSpec('blue', 'packaged-rejected-member')
@@ -727,9 +830,27 @@ describe('multi-instance runtime isolation', () => {
     expect(JSON.parse(readFileSync(join(named.stateDir, 'instance.json'), 'utf8'))).toMatchObject({
       instanceId: 'blue',
     })
+    // A NAMED INSTANCE GETS A PRIVATE DURABLE-SOCKET ROOT, and since POD-2853
+    // that root is NOT under its state directory. It used to be
+    // `<state>/runtime/abduco`, and the composed socket path
+    // (`<root>/abduco/<user>/podium-<instance>-<uuid>@<host>`) then ran past the
+    // 108-byte `sun_path` ceiling on the documented state layout — measured at
+    // 121 bytes — so every terminal spawn on a named instance died with
+    // "create-session: File name too long". The root now comes from the runtime
+    // directory, which is both short enough and where sockets belong.
     expect(existsSync(join(compat.stateDir, 'runtime', 'abduco'))).toBe(false)
     expect(existsSync(join(named.stateDir, 'runtime', 'abduco'))).toBe(false)
-    expect(existsSync(instanceSocketRuntimeDir('blue', named.stateDir))).toBe(true)
+    const namedSocketRoot = instanceSocketRuntimeDir('blue', named.stateDir)
+    expect(existsSync(namedSocketRoot)).toBe(true)
+    // AND IT FITS, which is the property the old pin failed. Asserted with the
+    // real user and host, because those bytes are in the same budget.
+    expect(
+      abducoSocketPathBytes(
+        abducoSocketDir(namedSocketRoot, userInfo().username),
+        longestDurableLabelFor('blue'),
+        `@${hostname()}`,
+      ),
+    ).toBeLessThan(ABDUCO_SUN_PATH_MAX)
 
     const inspectBoot = (spec: InstanceSpec) => {
       const db = openDatabase(join(spec.stateDir, 'podium.db'))

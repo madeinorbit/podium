@@ -35,6 +35,7 @@ function connection(
       return stream(message)
     },
     viewports: new Map(),
+    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 2,

@@ -3,6 +3,7 @@ import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueColorHex } from '@/lib/issueColors'
+import { useNow } from '@/lib/useNow'
 import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './issue-lifecycle'
 import { CommentComposer, IssueActivitySection, MailSection } from './issue-page/IssueActivity'
 import { IssueAgentActivity } from './issue-page/IssueAgentActivity'
@@ -68,8 +69,9 @@ export function IssuePage({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const model = useIssuePageModel(issue, orderedIds)
-  const { busy, run, prev, next, repoName, feed, mail, children, issues } = model
+  const { busy, run, prev, next, repoName, feed, mail, children, issues, sessions } = model
   const { memberSessions, openSession } = model
+  const now = useNow(60_000)
   const commands = issuePageCommands({ trpc: model.trpc, issue, run, ...model.issueWrites })
 
   // If this issue is unshared while open (POD-1077 evict), leave — once, and
@@ -230,6 +232,8 @@ export function IssuePage({
               <IssueSubIssues
                 issue={issue}
                 subIssues={children}
+                sessions={sessions}
+                now={now}
                 busy={busy}
                 addingChild={addingChild}
                 childTitle={childTitle}

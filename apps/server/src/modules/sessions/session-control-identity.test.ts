@@ -54,6 +54,7 @@ function makeClient(
     principal: userClientPrincipal(id, user, role),
     send: (m: ServerMessage) => sent.push(m),
     viewports: new Map(),
+    viewportSeq: new Map(),
     attached: new Set(),
     caps: new Set(),
     wireVersion: 1,
@@ -187,6 +188,29 @@ describe('POD-1081 attach + take-control policy', () => {
       sessionId: SESSION,
       outcome: 'unauthorized',
     })
+    expect(session.terminal.clientCount).toBe(0)
+  })
+
+  it('returns a typed reason instead of attaching a Claude SDK Native view', () => {
+    const session = makeSession()
+    session.driverId = 'claude-sdk'
+    session.attachKinds = []
+    const ctl = control({
+      session,
+      owner: { owner: OWNER, grants: [] },
+      machineUse: 'granted',
+    })
+    const owner = makeClient('c-owner-native-gap', OWNER, 'admin')
+
+    ctl.onFrame(owner.principal, owner, { type: 'attach', sessionId: SESSION })
+
+    expect(owner.sent).toContainEqual({
+      type: 'terminalOutcome',
+      sessionId: SESSION,
+      outcome: 'unsupported',
+      detail: "Runtime driver 'claude-sdk' does not support a Native view",
+    })
+    expect(owner.attached).not.toContain(SESSION)
     expect(session.terminal.clientCount).toBe(0)
   })
 
@@ -379,10 +403,10 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
     const owner = makeClient('c-owner', OWNER, 'admin')
     session.terminal.attachClient(owner)
 
-    const handleControllerInput = vi.fn(
-      (principal: ClientPrincipal, client: ClientConn, sessionId: SessionId, data: string) => {
+    const handleControllerInputBytes = vi.fn(
+      (principal: ClientPrincipal, client: ClientConn, sessionId: SessionId, bytes: Uint8Array) => {
         // Production SessionInbox stamps from principal, never from a frame field.
-        session.terminal.handleInput(client.id, data, {
+        session.terminal.handleInputBytes(client.id, bytes, {
           actor: { kind: 'user', id: principal.user },
           onBehalfOf: principal.user,
         })
@@ -392,7 +416,7 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
       sessions: new Map([[SESSION, session]]),
       state: { replayDrafts: vi.fn(), handleDraftEdit: vi.fn() } as never,
       inbox: {
-        handleControllerInput,
+        handleControllerInputBytes,
         requestControl: vi.fn(),
         reconcileActiveRenderer: vi.fn(),
         handleResize: vi.fn(),
@@ -420,10 +444,15 @@ describe('POD-1081 two-principal identity (not "the only connection")', () => {
       },
     } as never)
 
-    expect(handleControllerInput).toHaveBeenCalledTimes(1)
-    expect(handleControllerInput).toHaveBeenCalledWith(owner.principal, owner, SESSION, 'eA==')
+    expect(handleControllerInputBytes).toHaveBeenCalledTimes(1)
+    expect(handleControllerInputBytes).toHaveBeenCalledWith(
+      owner.principal,
+      owner,
+      SESSION,
+      Buffer.from('eA==', 'base64'),
+    )
     // Exactly four args — forged attribution is not threaded.
-    expect(handleControllerInput.mock.calls[0]).toHaveLength(4)
+    expect(handleControllerInputBytes.mock.calls[0]).toHaveLength(4)
     expect(session.terminal.lastInputAttribution).toEqual({
       actor: { kind: 'user', id: OWNER },
       onBehalfOf: OWNER,
@@ -456,17 +485,17 @@ describe('POD-1081 agent control drops at next apply (no reaper)', () => {
     // Simulate rights revocation: authorizeDrive starts returning false.
     let allowed = true
     const inbox = {
-      handleControllerInput: (
+      handleControllerInputBytes: (
         principal: ClientPrincipal,
         client: ClientConn,
         sessionId: SessionId,
-        data: string,
+        bytes: Uint8Array,
       ) => {
         if (!allowed) {
           if (session.terminal.controllerId === client.id) session.terminal.revokeController()
           return
         }
-        session.terminal.handleInput(client.id, data, {
+        session.terminal.handleInputBytes(client.id, bytes, {
           actor: { kind: 'user', id: principal.user },
           onBehalfOf: principal.user,
         })

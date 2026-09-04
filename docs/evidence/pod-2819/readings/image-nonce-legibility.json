@@ -1,0 +1,61 @@
+[
+  {
+    "arm": "no-detail-field (WHAT THE DRIVER SENDS TODAY)",
+    "secret": "481632",
+    "answer": "481632",
+    "pass": true,
+    "model": "gpt-5.6-sol",
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "reasoning",
+      "agentMessage"
+    ]
+  },
+  {
+    "arm": "detail=auto",
+    "secret": "592741",
+    "answer": "573741",
+    "pass": false,
+    "model": "gpt-5.6-sol",
+    "itemTypes": [
+      "userMessage",
+      "agentMessage"
+    ]
+  },
+  {
+    "arm": "detail=low",
+    "secret": "638205",
+    "answer": "573821",
+    "pass": false,
+    "model": "gpt-5.6-sol",
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "agentMessage"
+    ]
+  },
+  {
+    "arm": "detail=high",
+    "secret": "714936",
+    "answer": "714256",
+    "pass": false,
+    "model": "gpt-5.6-sol",
+    "itemTypes": [
+      "userMessage",
+      "reasoning",
+      "agentMessage"
+    ]
+  },
+  {
+    "arm": "detail=original",
+    "secret": "825147",
+    "answer": "826147",
+    "pass": false,
+    "model": "gpt-5.6-sol",
+    "itemTypes": [
+      "userMessage",
+      "agentMessage"
+    ]
+  }
+]

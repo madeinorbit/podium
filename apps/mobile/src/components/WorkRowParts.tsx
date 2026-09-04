@@ -22,7 +22,7 @@ import { AgentMark, kindTone, markSize } from './AgentMark'
  *  memory, the agent is still on the task. One tone for every kind — the fact
  *  being drawn is "this one is asleep", not which harness it is. The kind's own
  *  mark stays: a parked Codex is still a Codex. */
-const PARKED_TONE = { fg: color.textFaint, bg: alpha(color.textDim, 0.1) }
+const PARKED_TONE = { fg: color.textFaint, bg: color.quaternaryFill }
 
 /** The stacked tile's edge. Named because the mark inside is sized from it. */
 const FLEET_TILE = 19
@@ -41,11 +41,7 @@ const FLEET_TILE = 19
  * phone used to filter hibernation out exactly as the sidebar did, so a fleet
  * the memory reaper had put to sleep read as an empty one.
  */
-export function FleetSummary({
-  sessions,
-}: {
-  sessions: readonly SessionMeta[]
-}) {
+export function FleetSummary({ sessions }: { sessions: readonly SessionMeta[] }) {
   const { present, tiles, nativeCount, label } = deriveFleetPresence(sessions)
   if (present.length === 0) return null
   const shown = tiles.slice(0, FLEET_KIND_LIMIT)
@@ -139,7 +135,9 @@ export function RowProgressMeter({
       accessibilityValue={{ min: 0, max: progress.total, now: progress.done }}
       style={styles.meter}
     >
-      <View style={[styles.seg, { width: pct(progress.done), backgroundColor: color.working }]} />
+      <View
+        style={[styles.seg, { width: pct(progress.done), backgroundColor: color.workingText }]}
+      />
       <View
         style={[
           styles.seg,
@@ -187,7 +185,7 @@ const styles = StyleSheet.create({
   },
   native: {
     ...mono(500),
-    color: color.claude,
+    color: color.claudeText,
     fontSize: 9,
     paddingHorizontal: 3,
     paddingVertical: 1,
@@ -203,7 +201,7 @@ const styles = StyleSheet.create({
     fontSize: 9,
   },
   gitFault: {
-    color: color.danger,
+    color: color.dangerText,
   },
   meter: {
     flexDirection: 'row',

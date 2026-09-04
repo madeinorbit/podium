@@ -4,6 +4,7 @@ import type { PendingItem, QueuedChatMessage } from './chat'
 import {
   pairPendingWithQueued,
   projectOptimisticMessages,
+  reconcilePending,
   reconcileQueued,
   tailAppendedUserItems,
 } from './chat'
@@ -44,6 +45,16 @@ describe('queued message projection', () => {
     const q = queued('q1', 'hello', at)
     expect(projectOptimisticMessages([p], [q], [])).toEqual({
       pending: [{ ...p, durable: q }],
+      queued: [],
+    })
+  })
+
+  it('replaces a stale local ordinal with the durable reload position', () => {
+    const at = Date.parse('2026-08-19T10:00:00.000Z')
+    const p = { ...pending('p1', 'hello', at), deliveryId: 'q1', queuePosition: 4 }
+    const q = { ...queued('q1', 'hello', at), injectedAt: null, queuePosition: 1 }
+    expect(pairPendingWithQueued([p], [q])).toEqual({
+      pending: [{ ...p, queuePosition: 1, durable: q }],
       queued: [],
     })
   })
@@ -124,6 +135,37 @@ describe('queued message projection', () => {
       toolPaths: [path],
     } as TranscriptItem
     expect(reconcileQueued([q], [echoed])).toEqual([])
+  })
+
+  it('reconciles a seeded task prompt when the server appends its technical brief', () => {
+    const optimistic = {
+      ...pending('p1', 'Review this screenshot', Date.now()),
+      acceptsAppendedBrief: true,
+    }
+    const echoed = {
+      id: 'u1',
+      role: 'user',
+      text: 'Review this screenshot\n\nThe operator attached this file:\n/tmp/shot.png',
+    } as TranscriptItem
+
+    expect(reconcilePending([optimistic], [echoed])).toEqual([])
+  })
+
+  it('reconciles one normalized attachment-bearing launch echo FIFO', () => {
+    const path = '/home/u/.podium/uploads/coldstart/shot.png'
+    const first = {
+      ...pending('p1', 'Review this screenshot', Date.now()),
+      acceptsAppendedBrief: true,
+    }
+    const second = { ...first, id: 'p2', at: first.at + 1 }
+    const echoed = {
+      id: 'u1',
+      role: 'user',
+      text: 'Review this screenshot',
+      toolPaths: [path],
+    } as TranscriptItem
+
+    expect(reconcilePending([first, second], [echoed])).toEqual([second])
   })
 
   it('does not classify prepended history as a newly delivered tail row', () => {

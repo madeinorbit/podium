@@ -3,6 +3,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { createTRPCClient, httpBatchLink } from '@trpc/client'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import type { AppRouter } from './router'
 import { startServer } from './server'
 
@@ -49,7 +50,7 @@ describe('tRPC context carries the accounts repository', () => {
       JSON.stringify({ configVersion: 2, mode: 'all-in-one', persistence: 'systemd' }),
     )
     process.env.PODIUM_STATE_DIR = stateDir
-    handle = await startServer({ port: 0 })
+    handle = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     trpc = createTRPCClient<AppRouter>({
       links: [httpBatchLink({ url: url('/trpc') })],
     })

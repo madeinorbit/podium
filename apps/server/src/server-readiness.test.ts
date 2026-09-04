@@ -254,3 +254,78 @@ describe('which config changes make this process stale [POD-2766]', () => {
     expect(isControlPlanePath('/readiness')).toBe(false)
   })
 })
+
+describe('an env-set mode (PDM-26)', () => {
+  const ok = (config: PodiumConfig): ConfigInspection => ({ state: 'ok', config, migrated: [] })
+
+  it('is ready with an EMPTY config file — the container never writes one', () => {
+    const readiness = createServerReadiness({
+      bootConfig: {},
+      envMode: 'server',
+      hasLiveAgentMachine: () => true,
+      inspect: () => ok({}),
+    })
+    expect(readiness()).toMatchObject({ state: 'ready', dataPlane: 'available' })
+  })
+
+  it('is degraded, never unconfigured, when no agent machine is live', () => {
+    const readiness = createServerReadiness({
+      bootConfig: {},
+      envMode: 'server',
+      hasLiveAgentMachine: () => false,
+      inspect: () => ok({}),
+    })
+    expect(readiness()).toMatchObject({
+      state: 'degraded',
+      reason: 'agent_unavailable',
+      dataPlane: 'available',
+    })
+  })
+
+  it('is not stale when the FILE names a different mode — env is boot-time and wins', () => {
+    const readiness = createServerReadiness({
+      bootConfig: {},
+      envMode: 'server',
+      hasLiveAgentMachine: () => true,
+      inspect: () => ok({ mode: 'all-in-one' }),
+    })
+    expect(readiness().state).toBe('ready')
+  })
+
+  it('still reports persistence staleness under an env mode', () => {
+    const readiness = createServerReadiness({
+      bootConfig: { persistence: 'detached' },
+      envMode: 'server',
+      hasLiveAgentMachine: () => true,
+      inspect: () => ok({ persistence: 'systemd' }),
+    })
+    expect(readiness()).toMatchObject({
+      state: 'activation_pending',
+      reason: 'restart_required',
+      stale: ['persistence'],
+    })
+  })
+
+  it('a corrupt file is degraded rather than unconfigured — this process has a mode', () => {
+    const readiness = createServerReadiness({
+      bootConfig: {},
+      envMode: 'server',
+      hasLiveAgentMachine: () => true,
+      inspect: () => ({ state: 'corrupt', config: {}, error: 'bad json', migrated: [] }),
+    })
+    expect(readiness()).toMatchObject({
+      state: 'degraded',
+      reason: 'configuration_invalid',
+      dataPlane: 'available',
+    })
+  })
+
+  it('without envMode, nothing changes', () => {
+    const readiness = createServerReadiness({
+      bootConfig: {},
+      hasLiveAgentMachine: () => true,
+      inspect: () => ok({}),
+    })
+    expect(readiness().state).toBe('unconfigured')
+  })
+})

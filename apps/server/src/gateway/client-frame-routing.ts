@@ -49,6 +49,7 @@ export const CLIENT_FRAME_PORTS = {
   input: ['sessions'],
   resize: ['sessions'],
   requestControl: ['sessions'],
+  viewportRequest: ['sessions'],
   redrawRequest: ['sessions'],
   transcriptSubscribe: ['sessions'],
   transcriptUnsubscribe: ['sessions'],

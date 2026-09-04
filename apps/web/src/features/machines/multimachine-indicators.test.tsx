@@ -9,7 +9,8 @@
 import type { MachineQuotaWire } from '@podium/model'
 import { asMachineId, asSessionId, type SessionMeta } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
+import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { HeaderHostIndicators, HostIndicators } from './HostIndicators'
 import { QuotaIndicator } from './QuotaIndicator'
 
@@ -164,6 +165,7 @@ const machineQuota = (
 
 beforeEach(() => {
   vi.clearAllMocks()
+  resetPolledQueryCache()
   maxIdleSessions = 8
   sessions = []
   memoryBreakdown.mockResolvedValue(breakdownFor('vmi'))
@@ -180,11 +182,19 @@ beforeEach(() => {
 afterEach(cleanup)
 
 describe('memory chip is machine-aware', () => {
+  beforeAll(async () => {
+    // HostIndicators opens HostInfoView through React.lazy. A cold click otherwise
+    // pays the chunk transform inside waitFor's 1s window, so the mutate is
+    // never observed when this describe runs first or on its own.
+    await import('./HostMemoryView')
+  })
+
   it('requests the clicked machine breakdown, not the first machine', async () => {
     render(<HostIndicators />)
     // The vmi chip (second host) — its accessible name carries the hostname.
     const chip = screen.getByRole('button', { name: /vmi — memory/i })
     fireEvent.click(chip)
+    await screen.findByLabelText('Host info')
     await waitFor(() =>
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('vmi34') }),
     )
@@ -195,6 +205,7 @@ describe('memory chip is machine-aware', () => {
     render(<HostIndicators />)
     const chip = screen.getByRole('button', { name: /podium-host — memory/i })
     fireEvent.click(chip)
+    await screen.findByLabelText('Host info')
     await waitFor(() =>
       expect(memoryBreakdown).toHaveBeenCalledWith({ machineId: asMachineId('podium-host') }),
     )
@@ -244,6 +255,54 @@ describe('quota overlay groups by account', () => {
     const verdictItems = document.querySelectorAll('.health-popover-quota .hp-verdict-item')
     expect(verdictItems).toHaveLength(2)
     expect([...verdictItems].every((item) => item.querySelector('i'))).toBe(true)
+  })
+
+  it('keeps Grok visible when its quota read expires', async () => {
+    const mixed = machineQuota('solo', 'solo', 'solo', 'claude@example.com', 20)
+    mixed.agents.push({
+      agent: 'grok',
+      status: 'expired',
+      account: { email: 'grok@example.com' },
+      windows: [],
+      fetchedAt: '2026-07-07T00:00:00.000Z',
+    })
+    quotaSummary.mockResolvedValue([mixed])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Grok \(grok@example\.com\) Token expired/i,
+    })
+    const grok = chip.querySelector<HTMLElement>('[data-harness="grok"]')
+    expect(grok).toBeTruthy()
+    expect(within(grok as HTMLElement).getByText('GR')).toBeTruthy()
+    expect(within(grok as HTMLElement).getByText('N/A')).toBeTruthy()
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('1 unavailable')).toBeTruthy())
+    expect(screen.getByText('Token expired')).toBeTruthy()
+  })
+
+  it('keeps a provider visible when a healthy response has no quota windows', async () => {
+    const mixed = machineQuota('solo', 'solo', 'solo', 'claude@example.com', 20)
+    mixed.agents.push({
+      agent: 'grok',
+      status: 'ok',
+      account: { email: 'grok@example.com' },
+      windows: [],
+      fetchedAt: '2026-07-07T00:00:00.000Z',
+    })
+    quotaSummary.mockResolvedValue([mixed])
+
+    render(<QuotaIndicator header />)
+
+    const chip = await screen.findByRole('button', {
+      name: /Grok \(grok@example\.com\) quota unavailable/i,
+    })
+    expect(chip.querySelector('[data-harness="grok"] .header-quota-unavailable')).toBeTruthy()
+
+    fireEvent.click(chip)
+    await waitFor(() => expect(screen.getByText('No quota reported')).toBeTruthy())
   })
 
   it('shows a card per distinct account, each labeled with its email + machine', async () => {
@@ -383,8 +442,10 @@ describe('quota overlay groups by account', () => {
   })
 })
 
-describe('header quota chip does not pin a detailed breakdown', () => {
-  it('opens the hover panel without data-pinned', async () => {
+describe('the quota panel has one tier', () => {
+  // Pinning was retired with POD-1603: no chip stamps `data-pinned`, no panel
+  // grows on click, and nothing anywhere invites a second zoom.
+  it('opens the whole panel on the first gesture', async () => {
     quotaSummary.mockResolvedValue([machineQuota('solo', 'solo', 'solo', 'solo@example.com', 20)])
     render(<QuotaIndicator header />)
     const chip = await screen.findByRole('button', { name: /agent quota/i })

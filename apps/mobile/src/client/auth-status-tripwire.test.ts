@@ -7,7 +7,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { type AuthStatus, fetchAuthStatus } from './auth'
+import { type AuthStatus, checkLiveAuth, fetchAuthStatus } from './auth'
 
 /** The complete status contract; userId is the namespace input. */
 const STATUS_FIELDS = ['needsAuth', 'authed', 'userId'] as const
@@ -39,6 +39,28 @@ describe('the mobile auth status names its replica principal', () => {
     try {
       return fetchAuthStatus('http://example.invalid').then((status) => {
         expect(Object.keys(status).sort()).toEqual([...STATUS_FIELDS].sort())
+      })
+    } finally {
+      globalThis.fetch = original
+    }
+  })
+
+  it('classifies an expired live credential separately from a network failure', async () => {
+    const original = globalThis.fetch
+    try {
+      globalThis.fetch = (async () =>
+        new Response(JSON.stringify({ needsAuth: true, authed: false, userId: null }), {
+          headers: { 'content-type': 'application/json' },
+        })) as typeof globalThis.fetch
+      await expect(checkLiveAuth('https://podium.example', 'expired')).resolves.toMatchObject({
+        kind: 'expired',
+      })
+
+      globalThis.fetch = (async () => {
+        throw new TypeError('Network request failed')
+      }) as typeof globalThis.fetch
+      await expect(checkLiveAuth('https://podium.example', 'still-local')).resolves.toMatchObject({
+        kind: 'unreachable',
       })
     } finally {
       globalThis.fetch = original

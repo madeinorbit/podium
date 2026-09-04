@@ -7,9 +7,14 @@
  * the worklist → issues edge lands — `issuePendingDecision`,
  * `pendingDecisionLabel` and `issueFinishedAt` are read from the issues slice,
  * one way.
+ *
+ * The same one-way rule now brings in `issueErroredSession` from `mission`
+ * (POD-1601), so the sidebar's "an agent on this row died" is the SAME verdict
+ * the Flight Deck strip and the issue explorer print. Duplicating that
+ * predicate here is how a row and a strip end up disagreeing about one task.
  */
-import type { IssueWire, SessionMeta } from '@podium/model'
-import { issueDisplayRef } from '@podium/protocol'
+import { type IssueWire, issueStatusLabel, type SessionMeta } from '@podium/model'
+import { issueErroredSession } from '../../mission'
 import {
   agentBadge,
   isOfferOnlyAttention,
@@ -18,6 +23,8 @@ import {
   type MotionPhase,
   type MotionTiming,
   motionPhase,
+  sessionErrored,
+  sessionErrorLine,
 } from '../../session-status'
 import { mostUrgentSession } from '../../session-urgency'
 import {
@@ -30,12 +37,10 @@ import {
 import { rowSessions, type UnifiedIssueRow, type UnifiedWorkRow } from './row-types'
 
 /**
- * Aggregate motion phase for one unified WORK row (#41): the row wears the most
- * human-relevant of its member sessions' phases. `waiting` dominates (stillness
- * is the signal — a row that needs you must read amber even while other agents
- * grind on), then `working`, then `done` when every member finished; a row
- * whose sessions are merely idle/ready reads motion `queued` (dimmed stillness
- * — status copy surfaces this as "idle", not "queued").
+ * Aggregate motion phase for one unified work row. This controls activity and
+ * attention treatment, not the issue status words. `waiting` dominates, then
+ * `working`. Finished turns make an open issue quiet, not done, so only a
+ * closed issue may wear the terminal phase.
  */
 export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   if (row.kind === 'issue' && pendingDecisionStats(row).count > 0) return 'waiting'
@@ -47,7 +52,16 @@ export function rowMotionPhase(row: UnifiedWorkRow): MotionPhase {
   ) {
     return 'done'
   }
-  return aggregateMotionPhase(sessions, row.kind === 'issue' ? row.issue : undefined)
+  const phase = aggregateMotionPhase(sessions, row.kind === 'issue' ? row.issue : undefined)
+  if (
+    phase === 'done' &&
+    row.kind === 'issue' &&
+    row.issue.stage !== 'done' &&
+    row.issue.closedReason == null
+  ) {
+    return 'queued'
+  }
+  return phase
 }
 
 /** The same waiting > working > all-done > queued aggregation over any member
@@ -197,31 +211,65 @@ export function deepAttentionSource(
   return best
 }
 
-/** Is any session waiting within `depth` levels of `row` (0 = own sessions
- *  only)? Distinguishes a visible yellow (the child row explains itself) from
- *  one hidden behind the roll-up (the parent must whisper the source). */
-function waitingWithinDepth(row: UnifiedIssueRow, depth: number): boolean {
-  if (row.sessions.some((s) => motionPhase(s, row.issue) === 'waiting')) return true
-  if (rowPendingDecision(row) !== null) return true
-  if (depth <= 0) return false
-  return (row.startedByChildren ?? []).some((child) => waitingWithinDepth(child, depth - 1))
+/**
+ * AN AGENT ON THIS ROW STOPPED ON AN ERROR — the words, or null (POD-1601).
+ *
+ * This is the line that has to BEAT the pending decision, and that is the whole
+ * point of it being separate. A task whose agent moved it to `review` and then
+ * died on the next turn satisfies both readings, and the row only has one line:
+ * it printed `Needs review`, which is a true sentence about the stage and a lie
+ * about the run — there is no verdict coming, because nothing is going to finish
+ * asking for one. Whichever of the two the operator acts on first, they need to
+ * know the agent is gone before they open the diff.
+ *
+ * Branch-wide, like {@link rowWaitingCount}: a sidebar row is the only line its
+ * whole mission gets, so an error three levels down has nowhere else to appear.
+ */
+export function rowErrorLine(row: UnifiedWorkRow): string | null {
+  const sessions = rowSessions(row)
+  const errored =
+    row.kind === 'issue'
+      ? issueErroredSession(row.issue, sessions)
+      : (sessions.find(sessionErrored) ?? null)
+  return errored ? sessionErrorLine(errored) : null
 }
 
 /**
- * The row's second line (#41): a compact status phrase in the handoff's copy
- * grammar. Waiting rows surface WHAT is being waited for (the most urgent
- * session's badge label — "needs answer", "plan ready"); working/done rows
- * read as their phase; multi-agent rows carry the head-count. Quiet rows
- * (motion bucket `queued` — dimmed stillness, nothing working or needing you)
- * read **idle**, never "queued": "queued" sounds like pending work and
- * confused temporary pinned desks that were simply done for now.
+ * The row's second line. Issue rows describe task state only. A leaf reads its
+ * workflow status, while a container reads the same formal child-task rollup as
+ * the mission meter. Agent activity stays in the motion, fleet and attention
+ * channels. Unowned worktree rows still use session activity because they have
+ * no task state to report.
  */
+function childTaskStatusLine(row: UnifiedIssueRow): string | null {
+  const rollup = row.missionRollup
+  if (!rollup?.fromChildren) return null
+  const { total, done, run, review, stall, block, wait } = rollup.progress
+  if (total === 0) return 'no active subtasks'
+  const noun = total === 1 ? 'subtask' : 'subtasks'
+  const progress = `${done}/${total} ${noun} done`
+  if (done === total) return progress
+  const next =
+    block > 0
+      ? `${block} blocked`
+      : review > 0
+        ? `${review} in review`
+        : run > 0
+          ? `${run} underway`
+          : stall > 0
+            ? `${stall} stalled`
+            : wait > 0
+              ? `${wait} to go`
+              : null
+  return next ? `${progress} · ${next}` : progress
+}
+
 export function rowStatusLine(
   row: UnifiedWorkRow,
   now: number = Date.now(),
-  /** How many descendant levels render beneath this row (POD-100 L4 cap):
-   *  1 for a top-level row (children visible), 0 for a depth-capped child. */
-  visibleDepth: number = 1,
+  /** Kept for call-site compatibility. Task status no longer changes with how
+   *  much of the child tree a particular surface happens to render. */
+  _visibleDepth: number = 1,
 ): string {
   const sessions = rowSessions(row)
   const phase = rowMotionPhase(row)
@@ -236,50 +284,23 @@ export function rowStatusLine(
   ) {
     return 'awaiting first prompt'
   }
+  if (row.kind === 'issue') {
+    const childStatus = childTaskStatusLine(row)
+    if (childStatus) return childStatus
+    const decision = rowPendingDecision(row)
+    if (decision !== null) return pendingDecisionLabel(row.issue, decision)
+    if (row.continuation) return row.continuation
+    if (row.issue.blocked) return 'blocked'
+    return issueStatusLabel(row.issue).toLowerCase()
+  }
   let head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
-  // Child progress speaks of subtasks, not a bare "N/M done" — appended to the
-  // phase word that used to read "done · 0/1 done" (POD-85).
-  const children = row.kind === 'issue' && row.issue.childCount > 0 ? row.issue : null
-  const progress = children ? ` · ${children.childDoneCount}/${children.childCount} subtasks` : ''
   if (phase === 'waiting') {
-    // A waiting row can still have an agent computing on it, and since the row
-    // is the mission's only line in this column, silence about that is a lie
-    // (POD-703). The ask keeps the row's phase and its amber; the work says so
-    // in the words, in the same `working · ` grammar the deep-attention whisper
-    // below has always used.
-    //
-    // AND IT SPENDS THE HEAD-COUNT TO DO IT. Line 2 is ~22 mono characters wide
-    // in the sidebar, so "2 agents · working · waiting on decision" ellipsized
-    // away the very ask it was supposed to keep. The head-count is the cheapest
-    // of the three: the fleet stack on line 1 already shows the tiles AND the
-    // number, and it is the only one of the three that is stated twice.
-    const working = rowHasWorkingSession(row)
-    const own = working ? 'working · ' : ''
-    if (working) head = ''
-    if (row.kind === 'issue') {
-      const decision = rowPendingDecision(row)
-      if (decision !== null) {
-        return `${head}${own}${pendingDecisionLabel(row.issue, decision)}${progress}`
-      }
-    }
-    // Branch attention whisper (POD-100 L3): the yellow comes from a descendant
-    // hidden behind the depth cap — no visible row explains the pill, so the
-    // sub-line names the deepest source instead of a bare "needs you".
-    if (row.kind === 'issue') {
-      const deep = deepAttentionSource(row)
-      if (deep && deep.depth > visibleDepth && !waitingWithinDepth(row, visibleDepth)) {
-        const request =
-          deep.kind === 'session' ? 'needs you' : pendingDecisionLabel(deep.issue, deep.kind)
-        return `${head}${own}deep: ${issueDisplayRef(deep.issue)} ${request}${progress}`
-      }
-    }
-    const issue = row.kind === 'issue' ? row.issue : undefined
     const urgent = mostUrgentSession(
-      sessions.filter((s) => motionPhase(s, issue) === 'waiting'),
+      sessions.filter((s) => motionPhase(s) === 'waiting'),
       now,
     )
-    const label = urgent ? (agentBadge(urgent, issue)?.label ?? 'needs you') : 'needs you'
-    return head + own + label + progress
+    const label = urgent ? (agentBadge(urgent)?.label ?? 'needs you') : 'needs you'
+    return head + label
   }
   if (phase === 'working') {
     // The head-count is "how many sessions", but the word is "working". A
@@ -287,25 +308,12 @@ export function rowStatusLine(
     // and must not inflate "2 agents · working" when only one is computing.
     const computing = sessions.filter(isSessionWorking).length
     const workingHead = computing > 1 ? `${computing} agents · ` : ''
-    return workingHead + 'working' + progress
+    return workingHead + 'working'
   }
-  if (phase === 'done') {
-    // A parent whose own sessions are done but whose subtasks aren't is not
-    // "done" — the open subtasks ARE its status.
-    if (children && children.childDoneCount < children.childCount) {
-      return head + `${children.childDoneCount}/${children.childCount} subtasks done`
-    }
-    return head + 'done'
-  }
-  // A VACATED ROW IS NOT IDLE (POD-1193). Stillness here has a reason and a
-  // route: the work carried on somewhere else. "idle" is what the fall-through
-  // used to say once the review's amber was correctly withdrawn, which trades a
-  // wrong ask for no information at all. Placed on the quiet path only — a row
-  // with a live descendant is working, and that outranks the signpost.
-  if (row.kind === 'issue' && row.continuation) return head + row.continuation + progress
+  if (phase === 'done') return head + 'done'
   // Motion still uses the `queued` bucket for dim stillness; the human-facing
   // word is idle — quiet, not waiting in line.
-  return head + 'idle' + progress
+  return head + 'idle'
 }
 
 /**

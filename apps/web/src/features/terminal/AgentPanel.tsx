@@ -37,7 +37,7 @@ import {
   Terminal as TerminalIcon,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
 import { useSession, useSessionDraft, useStoreSelector } from '@/app/store'
@@ -61,13 +61,16 @@ import { agentBrandDot } from '@/lib/agent-tone'
 import { assertSendAccepted } from '@/lib/assert-send-accepted'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { effectiveIssueColorHex } from '@/lib/issueColors'
+import { issueAgentKind } from '@/lib/issue-agents'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
+import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
+import type { AgentPanelProps } from './agent-panel-props'
 import { applyInitialTerminalAppearance, paneTintedBackground, withBackground } from './appearance'
 import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
@@ -77,17 +80,13 @@ import { ExitedBanner, ExitedPane, HibernatedBanner, HibernatedPane } from './Se
 import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
+import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 // Opt-in browser-test hook: `?e2e=1` exposes `globalThis.__podium` on the mounted
 // session (screenText/sendInput/simulateKeyboard/…) for the Playwright harness under
 // tests/e2e/browser. Off by default, so normal sessions never expose the input API.
 const E2E = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('e2e')
-
-/** Collapse the user's home directory to `~` for a compact cwd display. */
-export function prettyCwd(path: string): string {
-  return path.replace(/^\/(?:home|Users)\/[^/]+/, '~')
-}
 
 /** Effort tiers, compacted to header width. Unknown spellings pass through. */
 const EFFORT_SHORT: Record<string, string> = {
@@ -101,8 +100,17 @@ const EFFORT_SHORT: Record<string, string> = {
 /**
  * The header's model token [POD-121]: "fable 5 · med". The model is the
  * transcript-OBSERVED one when known (`observedModel` — resolves a spawn-time
- * `auto` and follows `/model` switches), else the spawn selection — including
- * an explicit "auto", shown literally until observation resolves it [POD-158].
+ * `auto` and follows `/model` switches), then the one last REQUESTED at runtime
+ * (`requestedModel`, POD-3081), then the spawn selection — including an explicit
+ * "auto", shown literally until observation resolves it [POD-158].
+ *
+ * THE MIDDLE ARM IS WHY THE ORDER IS THREE AND NOT TWO. A sticky configure on a
+ * headless session takes effect on the NEXT turn, so between the change and the
+ * next assistant message there is no observation of the new model — and without
+ * this arm the token would fall all the way through to the SPAWN selection and
+ * show a model two changes out of date. It sits BELOW the observation because
+ * the observation is the stronger claim: during that window the session really
+ * is still answering as the old model, and the dotted rule below says so.
  * Effort renders even before any model is known ("· med"→ effort-only label).
  * Null only when neither a model nor an effort is known.
  *
@@ -110,13 +118,41 @@ const EFFORT_SHORT: Record<string, string> = {
  * "claude-haiku-4-5-20251001" → "haiku 4.5" (date suffix dropped, consecutive
  * numeric parts join as a dotted version).
  */
+/**
+ * MAY A CLIENT OFFER A MODEL / EFFORT CONTROL ON THIS RUNNING SESSION?
+ * (POD-3087.)
+ *
+ * The one fact that answers it is `configureFields`, reported by the daemon on
+ * bind out of the live driver's own `configure.fields`. Nothing else on
+ * `SessionMeta` can: `driverFamily` is the nearest, and it is wrong here —
+ * `grok-acp` is family `server` and declares `configure` for `permissionMode`
+ * alone, so a family-gated picker appears on a session that can only refuse it.
+ *
+ * ABSENT IS NOT "NO", and this function exists as much for that rule as for the
+ * lookup. Undefined means we have not been told — an older daemon mid-upgrade,
+ * or a session that has not bound yet — and reading it as "cannot" would hide
+ * the control on every session in the fleet during a rolling upgrade, silently.
+ * So absent answers `unknown`, and the caller decides; only an EMPTY array,
+ * which is a daemon that answered "nothing", is a real no.
+ */
+export type ConfigurableVerdict = 'yes' | 'no' | 'unknown'
+
+export function canConfigureModel(session: {
+  configureFields?: readonly string[]
+}): ConfigurableVerdict {
+  if (session.configureFields === undefined) return 'unknown'
+  return session.configureFields.includes('model') ? 'yes' : 'no'
+}
+
 export function modelToken(session: {
   observedModel?: string
   observedEffort?: string
+  requestedModel?: string
+  requestedEffort?: string
   model?: string
   effort?: string
 }): string | null {
-  const raw = session.observedModel ?? session.model
+  const raw = session.observedModel ?? session.requestedModel ?? session.model
   let label: string | undefined
   if (raw === 'auto') {
     label = 'auto'
@@ -138,6 +174,7 @@ export function modelToken(session: {
   }
   const rawEffort =
     session.observedEffort ??
+    session.requestedEffort ??
     (session.effort && session.effort !== 'auto' ? session.effort : undefined)
   const effort = rawEffort ? (EFFORT_SHORT[rawEffort] ?? rawEffort) : undefined
   if (!label) return effort ?? null
@@ -167,19 +204,7 @@ export function AgentPanel({
   active = true,
   focused = active,
   showHeader = true,
-}: {
-  sessionId: SessionId
-  /** False when this panel is mounted but hidden (an inactive tab kept warm so
-   *  switching back catches up instead of wiping). Gates focus, nothing else. */
-  active?: boolean
-  /** True only for the active tab in the workspace's focused pane. A split
-   *  workspace can have several visible/active terminals, but desktop shortcut
-   *  commands must have exactly one recipient. */
-  focused?: boolean
-  /** Setup embeds the native terminal inside a dialog that already owns its title and close
-   *  action. Hide the ordinary workspace controls there so sign-in stays a single-purpose flow. */
-  showHeader?: boolean
-}): JSX.Element {
+}: AgentPanelProps): JSX.Element {
   const {
     hub,
     machines,
@@ -191,6 +216,7 @@ export function AgentPanel({
     openFile,
     uiState,
     selectedIssueId,
+    navigateToSession,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -206,11 +232,67 @@ export function AgentPanel({
       openFile: s.openFile,
       uiState: s.uiState,
       selectedIssueId: s.selectedIssueId,
+      navigateToSession: s.navigateToSession,
     }),
     shallowEqual,
   )
   const session = useSession(sessionId)
+  const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
+  const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
+  const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
+  const pendingLoginSession = useSession(pendingLoginSessionId ?? undefined)
+  useEffect(() => {
+    if (!pendingLoginSession) return
+    navigateToSession(pendingLoginSession.sessionId)
+    setPendingLoginSessionId(null)
+  }, [navigateToSession, pendingLoginSession])
+  const openLoginTerminal = useCallback(async (): Promise<void> => {
+    const harness = issueAgentKind(session?.agentKind)
+    if (!session || !harness || loginTerminalBusy) return
+    setLoginTerminalBusy(true)
+    setLoginTerminalError(null)
+    try {
+      const result = await trpc.accounts.login.mutate({
+        harness,
+        ...(session.machineId ? { machineId: session.machineId } : {}),
+      })
+      setPendingLoginSessionId(result.sessionId)
+    } catch (cause) {
+      setLoginTerminalError(cause instanceof Error ? cause.message : String(cause))
+    } finally {
+      setLoginTerminalBusy(false)
+    }
+  }, [loginTerminalBusy, session, trpc])
   const spawnConfirmed = useStoreSelector((s) => !s.pendingSpawnIds.has(sessionId))
+  const observedOptimisticFirstPrompt = useStoreSelector((s) =>
+    s.pendingSpawnPrompts.get(sessionId),
+  )
+  // Replica confirmation retires the engine's prompt seed at the same time it
+  // can move this panel between live/parked/ended surface branches. Those
+  // branches remount ChatView, so retain the seed one level higher until the
+  // transcript explicitly echoes it; otherwise a fast terminal row can flash
+  // an empty conversation between confirmation and the transcript write.
+  const [heldOptimisticFirstPrompt, setHeldOptimisticFirstPrompt] = useState<{
+    sessionId: SessionId
+    text: string
+  } | null>(
+    observedOptimisticFirstPrompt === undefined
+      ? null
+      : { sessionId, text: observedOptimisticFirstPrompt },
+  )
+  useEffect(() => {
+    if (observedOptimisticFirstPrompt !== undefined) {
+      setHeldOptimisticFirstPrompt({ sessionId, text: observedOptimisticFirstPrompt })
+    }
+  }, [observedOptimisticFirstPrompt, sessionId])
+  const optimisticFirstPrompt =
+    observedOptimisticFirstPrompt ??
+    (heldOptimisticFirstPrompt?.sessionId === sessionId
+      ? heldOptimisticFirstPrompt.text
+      : undefined)
+  const settleOptimisticFirstPrompt = useCallback(() => {
+    setHeldOptimisticFirstPrompt((current) => (current?.sessionId === sessionId ? null : current))
+  }, [sessionId])
   // Agent chrome needs durable issue fields (colour, branch, git state), not
   // session-derived rollups. `useReplicaIssues` intentionally invalidates on
   // every session row change to refresh those rollups, which would wake all
@@ -258,6 +340,7 @@ export function AgentPanel({
     mode: effectiveMode,
     modeSettled,
     chatCapable,
+    terminalOutlook,
     pickMode,
   } = usePanelSurface({
     sessionId,
@@ -303,6 +386,37 @@ export function AgentPanel({
   // resume ref is known. Also the first right-aligned header control, so the
   // `ml-auto` fallbacks below defer to it when present.
   const resumeCmd = session ? resumeCommand(session) : null
+  // A running-session control is deliberately a separate path from the model
+  // readout below. The daemon reports `configureFields` from the live driver's
+  // own capabilities; only an explicit `model` capability may expose these
+  // controls. `undefined` remains unknown during an older-daemon/rolling-bind
+  // window, and PATCH-shaped mutations preserve the other sticky field.
+  const runtimeAgentKind = session ? issueAgentKind(session.agentKind) : null
+  const canConfigureRuntime =
+    session !== undefined && runtimeAgentKind !== null && canConfigureModel(session) === 'yes'
+  const canConfigureRuntimeEffort =
+    canConfigureRuntime && session?.configureFields?.includes('effort') === true
+  const runtimeModel = session?.requestedModel ?? session?.model ?? 'auto'
+  const runtimeEffort = session?.requestedEffort ?? session?.effort ?? 'auto'
+  const configureRuntime = useCallback(
+    async (patch: { model?: string; effort?: string }) => {
+      try {
+        const result = await trpc.sessions.configure.mutate({ sessionId, ...patch })
+        if ('ok' in result) {
+          toast.success(
+            result.effective === 'next-turn'
+              ? 'The change applies from the next turn.'
+              : 'The running session changed.',
+          )
+          return
+        }
+        toast.error(result.detail ?? `Could not change the running session (${result.reason}).`)
+      } catch {
+        toast.error('Could not change the running session.')
+      }
+    },
+    [sessionId, trpc],
+  )
   // Manual hibernation, as a descriptor: whether it applies at all and why it is
   // blocked come from the SHARED eligibility rule (`sessionMenuEligibility`, also
   // read by the session context menu and the command palette) rather than from a
@@ -415,13 +529,9 @@ export function AgentPanel({
       termSurface.style.height = ''
     }
     if (dockOpenTarget) {
-      void termSurface.offsetHeight // reflow so fit() measures the pinned size
-      const m = mountedRef.current
-      if (m) {
-        const grid = m.view.fit()
-        if (grid) m.connection.sendResize(grid.cols, grid.rows)
-        m.view.scrollToBottom()
-      }
+      // Pinning the surface changes the BOX; the mount's ResizeObserver asks for
+      // the new size (one writer, POD-3239). Only the scroll is ours to do.
+      mountedRef.current?.view.scrollToBottom()
     }
     requestAnimationFrame(() => setDockOpen(dockOpenTarget))
     // Backstop: transitionEnd is the normal unpin; if it never fires (hidden
@@ -486,17 +596,16 @@ export function AgentPanel({
     [termSettings.background, termAppearance, termBg],
   )
   // The hook's mount effect already receives the terminal-client defaults. Apply
-  // the panel tint directly after mount so its initial appearance does not
-  // schedule a second, identical fit. Custom font metrics still get one fit
-  // when the pane is eligible; hidden panes wait for their normal reveal path.
+  // the panel tint directly after mount so the terminal never paints with the
+  // wrong background. It no longer needs an eligibility gate: applying an
+  // appearance measures nothing (POD-3239 B4) — the mount's own `setAppearance`
+  // is what asks, and it is gated there.
   const initialAppearanceAppliedRef = useRef<typeof appearance | null>(null)
-  const canFitInitialAppearance =
-    gates.ptySizingAllowed &&
-    (typeof document === 'undefined' || document.visibilityState === 'visible')
   const echoLatencyEnabled = echoHudEnabled(uiState)
 
   const {
     containerRef: termRef,
+    viewportRef: termViewportRef,
     toolbarRef,
     mountedRef,
     ready,
@@ -512,6 +621,17 @@ export function AgentPanel({
     // server-side yet (#119) either — its one-shot attach would be dropped and
     // never retried, so `spawnConfirmed` holds the mount until the reconcile.
     enabled: gates.terminalMounted && terminalRuntimeRequestedRef.current,
+    // BORN AT W (POD-3239 B1 / MODEL rule 2). The server has always published
+    // this session's grid on its row and nothing read it, so every terminal was
+    // constructed at xterm's 80x24 and dragged to the real size afterwards —
+    // which is the quadrant the operator saw. Read at mount time only; from then
+    // on the attach snapshot and the daemon's reports are what move the buffer.
+    ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+    geometryState: session?.geometryState ?? 'unknown',
+    // THE BOX CLIPS (POD-3239 B3). The desktop pane hides what does not fit and
+    // pads the rest with the terminal background; it never scrolls over the pty
+    // and never scales it.
+    crop: 'clip',
     // The terminal stays mounted across a chat<->native toggle (Task 6): it's
     // kept alive (hidden under the chat overlay) with eligibility flipped here
     // instead of by a remount — see useTerminalSession's own setActive effect.
@@ -528,7 +648,7 @@ export function AgentPanel({
     // effect, which also schedules a redundant fit.
     onFrame: () => scheduleSampleRef.current(),
     onMounted: (mounted) => {
-      applyInitialTerminalAppearance(mounted, appearance, canFitInitialAppearance)
+      applyInitialTerminalAppearance(mounted.view, appearance)
       initialAppearanceAppliedRef.current = appearance
       // Seed the file-link provider immediately after mount with whatever paths
       // are already known (from the transcript subscription effect below).
@@ -651,11 +771,42 @@ export function AgentPanel({
   // apart from a session whose screen we merely don't hold (POD-379's case,
   // where dropping the overlay at attach is right). The per-second clock runs
   // only while such a wait is actually on screen in this pane.
-  const silenceNow = useNow(1_000, gates.terminalActive && (!ready || !outputSeen))
+  // …and it also has to tick while a reconnecting session's machine is away,
+  // which is a wait with no output and no attach to end it [POD-2290 round 2].
+  const silenceNow = useNow(
+    1_000,
+    gates.terminalActive && (!ready || !outputSeen || session?.status === 'reconnecting'),
+  )
+  // When THIS mount started waiting for its attach [POD-2290] — zero while
+  // attached, restamped on the next wait, so a re-attach is judged on its own
+  // window instead of inheriting the first one's age. A render-phase ref write,
+  // like `issuesRef`/`savedModeRef`: it derives from `ready`, holds no state the
+  // renderer can disagree with, and an effect would lag the very frame it dates.
+  const attachWaitSinceRef = useRef(0)
+  if (ready) attachWaitSinceRef.current = 0
+  else if (attachWaitSinceRef.current === 0) attachWaitSinceRef.current = Date.now()
+  /**
+   * …and the second clock: how long this mount has been looking at a session
+   * whose MACHINE is away and whose driver family nobody has stated
+   * [POD-2290 round 2]. Both conditions, because either alone is ordinary — a
+   * reconnecting row usually reconnects, and a family-unknown row is usually a
+   * legacy one that is perfectly fine — while together they are the window the
+   * reviewer photographed the original bug in.
+   */
+  const machineAway = session?.status === 'reconnecting' && terminalOutlook === 'unknown'
+  const awaitingSinceRef = useRef(0)
+  if (!machineAway) awaitingSinceRef.current = 0
+  else if (awaitingSinceRef.current === 0) awaitingSinceRef.current = Date.now()
   const overlay = startupOverlay({
     ready,
     outputSeen,
     ageMs: sessionAgeMs(session?.createdAt, silenceNow),
+    attachWaitMs:
+      attachWaitSinceRef.current === 0
+        ? null
+        : Math.max(0, silenceNow - attachWaitSinceRef.current),
+    awaitingMachineMs:
+      awaitingSinceRef.current === 0 ? null : Math.max(0, silenceNow - awaitingSinceRef.current),
   })
 
   // Native-mode dictation: transcribed speech types straight into the PTY as
@@ -805,9 +956,31 @@ export function AgentPanel({
                 className="model-token hidden flex-none items-center gap-[5px] font-mono text-[10px] text-(--issue-muted) lg:inline-flex"
                 data-provenance={session.observedModel ? 'observed' : 'requested'}
                 title={
-                  session.observedModel
+                  // POD-3087: whether the model can be changed HERE is now a
+                  // reported fact rather than a guess, so the readout can say so.
+                  // Appended to whichever provenance sentence applies, because
+                  // "what is running" and "can I change it" are two different
+                  // questions and collapsing them is how a readout starts
+                  // implying it is a control.
+                  (session.observedModel
                     ? `Observed — the model this agent is actually running, read from its transcript. The harness owns this; Podium reports it.${session.effort ? ' Effort is the spawn request.' : ''}`
-                    : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.'
+                    : session.requestedModel
+                      ? // POD-3081: a RUNTIME change, not a spawn one, and the
+                        // difference is the whole reason the wording branches —
+                        // a sticky configure on a headless session takes effect
+                        // on the next message, so "not yet seen" here means
+                        // "not yet asked", not "the harness ignored you".
+                        'Requested — you changed this on the running session. It applies from its next message, and this becomes Observed once a turn answers on it.'
+                      : 'Requested at spawn — not yet seen in the transcript. The harness owns model selection; Podium reports it rather than setting it.') +
+                  (canConfigureModel(session) === 'yes'
+                    ? ' This session can be moved to another model while it runs.'
+                    : canConfigureModel(session) === 'no'
+                      ? ' This harness takes its model at launch; changing it is a relaunch.'
+                      : // UNKNOWN says nothing at all. A sentence claiming either
+                        // answer for a session whose daemon has not reported would
+                        // be an invention, and silence is the honest shape of "we
+                        // have not been told".
+                        '')
                 }
               >
                 {/* Brand mark for harnesses that have one — a table lookup, so a new
@@ -823,6 +996,36 @@ export function AgentPanel({
                 )}
                 <span className="model-token-text">{modelToken(session)}</span>
               </span>
+            )}
+            {/* Runtime model/effort controls [POD-3087]. These are offered only
+              after the daemon has positively reported the live driver's fields;
+              a missing report is not permission to guess from driver family. */}
+            {session && runtimeAgentKind && canConfigureRuntime && (
+              <>
+                <ModelPicker
+                  agentKind={runtimeAgentKind}
+                  value={runtimeModel}
+                  onChange={(model) => {
+                    void configureRuntime({ model })
+                  }}
+                  variant="pill"
+                  className="hidden flex-none lg:inline-flex"
+                  machineId={session.machineId}
+                />
+                {canConfigureRuntimeEffort && (
+                  <EffortPicker
+                    agentKind={runtimeAgentKind}
+                    model={runtimeModel}
+                    value={runtimeEffort}
+                    onChange={(effort) => {
+                      void configureRuntime({ effort })
+                    }}
+                    variant="pill"
+                    className="hidden flex-none lg:inline-flex"
+                    machineId={session.machineId}
+                  />
+                )}
+              </>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
               control — both views always visible and labeled, the filled segment
@@ -975,17 +1178,71 @@ export function AgentPanel({
           </span>
         </div>
       )}
+      {showHeader && session && runtimeAgentKind && canConfigureRuntime && (
+        <div
+          data-testid="runtime-configure-mobile"
+          className="flex min-w-0 flex-none items-center gap-2 border-b border-hairline-soft px-3 py-1.5 lg:hidden"
+        >
+          <span className="flex-none text-[10px] font-medium text-text-dim">Next turn</span>
+          <ModelPicker
+            agentKind={runtimeAgentKind}
+            value={runtimeModel}
+            onChange={(model) => {
+              void configureRuntime({ model })
+            }}
+            variant="pill"
+            className="min-w-0 max-w-[min(14rem,58vw)] flex-1 truncate"
+            machineId={session.machineId}
+          />
+          {canConfigureRuntimeEffort && (
+            <EffortPicker
+              agentKind={runtimeAgentKind}
+              model={runtimeModel}
+              value={runtimeEffort}
+              onChange={(effort) => {
+                void configureRuntime({ effort })
+              }}
+              variant="pill"
+              className="min-w-0 max-w-[8rem] flex-1 truncate"
+              machineId={session.machineId}
+            />
+          )}
+        </div>
+      )}
       {session?.condition === 'logged-out' && (
         <div
           role="status"
           className="flex flex-none items-center gap-2 border-b border-warning/30 bg-warning/10 px-3 py-2 text-xs text-warning"
         >
           <strong>{panelLabel(session.agentKind)} isn&apos;t logged in</strong>
-          <span>Run its login command in this pane to continue.</span>
+          <span>
+            {terminalOutlook === 'none'
+              ? 'Open a sign-in terminal to authenticate, then retry here.'
+              : 'Run its login command in this pane to continue.'}
+          </span>
         </div>
       )}
       {handover && <HandoverPane view={handover} background={termBg} />}
-      {surface.kind === 'transit' ? (
+      {surface.kind === 'pending' ? (
+        // WAITING TO BE TOLD WHICH VIEW THIS SESSION HAS [POD-2290]. One
+        // placeholder, no controls: the panel does not know yet whether there
+        // is a terminal behind this agent, and the honest thing during a wait
+        // that ends by itself is to say the session is starting and offer
+        // nothing it might have to take away a second later.
+        <div
+          className="flex flex-1 flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+          style={{ backgroundColor: termBg }}
+          data-testid="panel-pending"
+          role="status"
+          aria-live="polite"
+        >
+          <span
+            className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+            aria-hidden="true"
+          />
+          <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
+        </div>
+      ) : surface.kind === 'transit' ? (
         // The veil owns this window; underneath it only the pane's own surface
         // shows, so a mid-move status change (live → parked) never repaints a
         // view the operator didn't ask for.
@@ -1001,7 +1258,13 @@ export function AgentPanel({
               waking={sessionWaking(session)}
               queuedCount={session?.queuedMessageCount ?? 0}
             />
-            <ChatView sessionId={sessionId} active={active} />
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
           </>
         ) : (
           <HibernatedPane sessionId={sessionId} />
@@ -1021,7 +1284,13 @@ export function AgentPanel({
               {...(session.neverBound ? { neverBound: true as const } : {})}
               waking={sessionWaking(session)}
             />
-            <ChatView sessionId={sessionId} active={active} />
+            <ChatView
+              sessionId={sessionId}
+              active={active}
+              initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
+              deferInitialTranscript={!spawnConfirmed}
+            />
           </>
         ) : (
           <ExitedPane
@@ -1036,99 +1305,234 @@ export function AgentPanel({
       ) : (
         // Warm chat<->native toggle (Task 6): the terminal container stays
         // mounted in BOTH modes — `hidden` (display:none) when in chat — so
-        // switching modes never disposes and re-attaches the PTY. ChatView is
-        // rendered as a sibling overlay on top when in chat mode.
+        // Switching modes never disposes and re-attaches the PTY. Both surfaces
+        // stay mounted; the inactive one is hidden so subscriptions and terminal
+        // state survive a warm mode switch.
         <>
-          {effectiveMode === 'chat' && <ChatView sessionId={sessionId} active={active} />}
-          {/* The container is pinned to the TERMINAL's background — the pane's
+          <div
+            className={cn('flex min-h-0 flex-1 flex-col', effectiveMode !== 'chat' && 'hidden')}
+            data-testid="chat-surface"
+          >
+            <ChatView
+              sessionId={sessionId}
+              active={active && effectiveMode === 'chat'}
+              initialPendingText={optimisticFirstPrompt}
+              onInitialPendingSettled={settleOptimisticFirstPrompt}
+              /* AND NOT WHILE THE NATIVE PANE IS THE SURFACE. Keeping both
+                 surfaces mounted is what makes the toggle warm, but a chat view
+                 that is merely PARKED behind the terminal must not open a
+                 transcript subscription: before this merge neither branch ever
+                 had one there — dev/mw did not mount this view in native mode at
+                 all, and the epic's transcript hook still gated its own
+                 read-then-subscribe on `active`. dev/mw moved that gate inside
+                 the transcript controller, which starts on mount, so without
+                 this every native panel in the fleet would hold a live
+                 subscription it never used. A BACKGROUND CHAT TAB still starts:
+                 the condition is the selected SURFACE, not focus, which is
+                 exactly the warm-but-subscribed panel dev/mw kept catching
+                 deltas for. */
+              deferInitialTranscript={!spawnConfirmed || effectiveMode !== 'chat'}
+            />
+          </div>
+          {/* THE ONE HONEST NATIVE PANE [POD-2290]. Reachable only through the
+              switcher's stickiness — a session that once had a terminal and
+              stopped having one — because the switch is never withdrawn under
+              the operator's cursor. What it must not do is what the original
+              bug did: animate a spinner over an attach that is never coming.
+              It names the reason and points at the view that works. */}
+          {gates.noTerminalPaneShown && (
+            <div
+              className="flex flex-1 flex-col items-center justify-center gap-2 px-8 text-center"
+              style={{ backgroundColor: termBg }}
+              data-testid="no-terminal-pane"
+              role="status"
+            >
+              <SquareTerminal size={22} className="text-zinc-600" aria-hidden="true" />
+              <span className="text-[13px] text-zinc-400">
+                {session?.condition === 'logged-out'
+                  ? `${panelLabel(session.agentKind)} needs sign-in`
+                  : `${session ? panelLabel(session.agentKind) : 'This agent'} is running without a terminal`}
+              </span>
+              <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                {session?.condition === 'logged-out'
+                  ? 'This headless session has no command-line screen. Open a temporary terminal to sign in, then retry the session here.'
+                  : 'It is driven over its own protocol rather than a shell, so there is no screen to attach to. Everything it does shows up in Chat.'}
+              </span>
+              <span className="mt-1 flex flex-wrap items-center justify-center gap-2">
+                {session?.condition === 'logged-out' && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    data-testid="open-login-terminal"
+                    disabled={loginTerminalBusy}
+                    onClick={() => void openLoginTerminal()}
+                  >
+                    <SquareTerminal size={13} aria-hidden="true" />
+                    {loginTerminalBusy ? 'Opening…' : 'Open sign-in terminal'}
+                  </Button>
+                )}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => pickModeWithTrace('chat')}
+                >
+                  <MessageSquareText size={13} aria-hidden="true" /> Open Chat
+                </Button>
+              </span>
+              {loginTerminalError && (
+                <span className="max-w-[44ch] text-[11px] text-danger" role="alert">
+                  {loginTerminalError}
+                </span>
+              )}
+            </div>
+          )}
+          {/* …but a session with NO terminal keeps nothing warm [POD-2290]: the
+              container below never gets a PTY, and the startup overlay inside
+              it would paint a spinner over a wait that has no end. `hidden`
+              would have been enough to keep it off screen and is not enough to
+              make it honest — an animation nobody can see is still a claim the
+              panel is making. */}
+          {gates.nativePaneRendered && (
+            <>
+              {/* The container is pinned to the TERMINAL's background — the pane's
               issue tint (§2.5), or the user's custom color from the appearance
               settings — regardless of the app theme: otherwise a light theme
               shows a white container edge around the terminal, and a custom
               background a dark one. */}
-          <div
-            ref={termSurfaceRef}
-            data-testid="terminal-surface"
-            className={cn(
-              // `offer-lift-region`: the PTY is what an opened offer fold
-              // pushes up under the header. Its box never changes, so the
-              // terminal is never re-gridded and the TUI never repaints.
-              'offer-lift-region relative flex min-h-0 flex-1 flex-col',
-              effectiveMode === 'chat' && 'hidden',
-            )}
-            style={{ backgroundColor: termBg }}
-          >
-            <div ref={termRef} className="term min-h-0 flex-1" />
-            {overlay.kind !== 'hidden' && (
               <div
-                className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+                ref={(node) => {
+                  // ONE ELEMENT, TWO READERS. The offer lift and the switch
+                  // trace already treat this as the terminal's box; POD-3239 B3
+                  // makes that official by handing the same element to the mount
+                  // as its measured viewport.
+                  termSurfaceRef.current = node
+                  termViewportRef.current = node
+                }}
+                data-testid="terminal-surface"
+                className={cn(
+                  // `offer-lift-region`: the PTY is what an opened offer fold
+                  // pushes up under the header. Its box never changes, so the
+                  // terminal is never re-gridded and the TUI never repaints.
+                  // `term-viewport`: the clip + inset + terminal background that
+                  // make this element the BOX (B3) rather than a wrapper.
+                  'offer-lift-region term-viewport flex min-h-0 flex-1 flex-col',
+                  effectiveMode === 'chat' && 'hidden',
+                )}
                 style={{ backgroundColor: termBg }}
-                data-testid="terminal-startup-overlay"
-                role="status"
-                aria-live="polite"
               >
-                <span
-                  className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
-                  aria-hidden="true"
-                />
-                <span>Starting {session ? panelLabel(session.agentKind) : 'session'}…</span>
-                {/* Machine voice, mono and tabular so the digits don't jitter.
+                {/* The HOST. No flex sizing: xterm sizes it to cols x cell and
+                the box above pads or clips around it. */}
+                <div ref={termRef} className="term" />
+                {overlay.kind !== 'hidden' && (
+                  <div
+                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+                    style={{ backgroundColor: termBg }}
+                    data-testid="terminal-startup-overlay"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {/* The spinner is a CLAIM that something is still happening, so
+                    it is dropped the moment that claim stops being credible
+                    [POD-2290] — a stalled mount says so in words instead of
+                    animating over a wait that is not going to end. */}
+                    {overlay.kind !== 'stalled' && overlay.kind !== 'awaiting-machine' && (
+                      <span
+                        className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span data-testid="startup-headline">
+                      {overlay.kind === 'awaiting-machine'
+                        ? 'Waiting for this machine'
+                        : overlay.kind === 'stalled'
+                          ? `${session ? panelLabel(session.agentKind) : 'This session'} hasn’t started`
+                          : `Starting ${session ? panelLabel(session.agentKind) : 'session'}…`}
+                    </span>
+                    {/* The one overlay arm that names a cause, because here the
+                    panel actually knows it: the session row is `reconnecting`
+                    and no driver fact has arrived, so what is missing is the
+                    MACHINE, not the harness. Saying "Starting OpenCode…" over
+                    this is the round-two bug in miniature — a claim about a
+                    process nobody is talking to. [POD-2290] */}
+                    {overlay.kind === 'awaiting-machine' && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Podium hasn’t heard from this machine in {formatClock(overlay.elapsedMs)}.
+                        The session is still here — it will pick up again once the machine
+                        reconnects.
+                      </span>
+                    )}
+                    {/* What the operator can actually do about it. Deliberately
+                    silent on the CAUSE: nothing here can tell a spawn that
+                    failed from a machine that went away, and naming the wrong
+                    one is worse than naming none. */}
+                    {overlay.kind === 'stalled' && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Nothing has attached to this terminal in {formatClock(overlay.elapsedMs)}.
+                        The session may have failed to start — check its status, or spawn it again.
+                      </span>
+                    )}
+                    {/* Machine voice, mono and tabular so the digits don't jitter.
                     aria-hidden: a per-second counter inside a live region would
                     re-announce itself every tick; the lines around it carry the
                     meaning a screen reader needs. */}
-                {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
-                  <span
-                    className="font-mono text-[11px] text-zinc-500 tabular-nums"
-                    data-testid="startup-silence"
-                    aria-hidden="true"
+                    {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
+                      <span
+                        className="font-mono text-[11px] text-zinc-500 tabular-nums"
+                        data-testid="startup-silence"
+                        aria-hidden="true"
+                      >
+                        no output yet · {formatClock(overlay.elapsedMs)}
+                      </span>
+                    )}
+                    {overlay.kind === 'silent' && overlay.hint && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Still attached — some CLIs update themselves or run first-time setup before
+                        printing anything.
+                      </span>
+                    )}
+                  </div>
+                )}
+                {ready && !atBottom && (
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="sm"
+                    className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-primary"
+                    onClick={() => mountedRef.current?.view.scrollToBottom()}
                   >
-                    no output yet · {formatClock(overlay.elapsedMs)}
-                  </span>
+                    <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
+                  </Button>
                 )}
-                {overlay.kind === 'silent' && overlay.hint && (
-                  <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                    Still attached — some CLIs update themselves or run first-time setup before
-                    printing anything.
-                  </span>
-                )}
+                {echoLatencyEnabled && <EchoHud hub={hub} mountedRef={mountedRef} />}
               </div>
-            )}
-            {ready && !atBottom && (
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                className="absolute bottom-3 left-1/2 z-[4] -translate-x-1/2 rounded-full bg-muted text-foreground shadow-[0_4px_14px_var(--carve-popover-near)] hover:border-primary"
-                onClick={() => mountedRef.current?.view.scrollToBottom()}
-              >
-                <ArrowDownToLine size={13} aria-hidden="true" /> Jump to bottom
-              </Button>
-            )}
-            {echoLatencyEnabled && <EchoHud hub={hub} mountedRef={mountedRef} />}
-          </div>
-          {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
+              {/* Prompt-area chrome (§2.6, Q1 default): a tinted rule + mono hint
               row hugging the PTY's bottom edge — the composer itself is the
               CLI's own pixels, never re-drawn here. Only hints the CLI really
               honours are shown (Q2): Claude Code's shift+tab mode cycle and
               `?` shortcut help; other agents get the rule alone. */}
-          {ready && (
-            <div
-              data-testid="prompt-chrome"
-              // Rides up with the PTY it hugs, but is never clipped: it is a
-              // 20px strip, and clipping it by the lift would erase it.
-              className={cn(
-                'offer-lift-rise flex-none px-[13px] font-mono',
-                effectiveMode === 'chat' && 'hidden',
-              )}
-              style={{ backgroundColor: termBg }}
-            >
-              <div className="border-t issue-hairline-35" aria-hidden="true" />
-              {session?.harnessPromptModeHints === true && (
-                <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
-                  <span>(shift+tab to cycle modes)</span>
-                  <span className="ml-auto">? for shortcuts</span>
+              {ready && (
+                <div
+                  data-testid="prompt-chrome"
+                  // Rides up with the PTY it hugs, but is never clipped: it is a
+                  // 20px strip, and clipping it by the lift would erase it.
+                  className={cn(
+                    'offer-lift-rise flex-none px-[13px] font-mono',
+                    effectiveMode === 'chat' && 'hidden',
+                  )}
+                  style={{ backgroundColor: termBg }}
+                >
+                  <div className="border-t issue-hairline-35" aria-hidden="true" />
+                  {session?.harnessPromptModeHints === true && (
+                    <div className="flex items-center gap-1.5 px-[2px] pt-[5px] pb-[7px] shell-type-micro text-text-dim">
+                      <span>(shift+tab to cycle modes)</span>
+                      <span className="ml-auto">? for shortcuts</span>
+                    </div>
+                  )}
                 </div>
               )}
-            </div>
+            </>
           )}
           {/* Agent action offer bar [spec:SP-c7f1] beneath the PTY — the native
               counterpart of the chat composer's bar, so offers aren't invisible
@@ -1142,25 +1546,17 @@ export function AgentPanel({
               data-testid="native-offer-dock"
               aria-hidden={!nativeOffer}
               onTransitionEnd={(e) => {
-                // The dock's height change must WINCH the PTY to its FINAL
-                // size, or a TUI that draws to the old grid (Codex) paints its
-                // prompt box under the dock. Don't rely on the debounced
-                // ResizeObserver alone: force a fit at the settled size, send
-                // the resize if the grid changed, and re-pin the viewport so
-                // any in-place-repaint ghost frame scrolls away. Unpin the
-                // surface FIRST so flex resumes before the settled-size fit
-                // (on open this fit is a no-op — the grid snapped at start).
+                // Unpin the surface so flex resumes; the settled box is a
+                // ResizeObserver event, and the mount asks for the size from
+                // there (one writer, POD-3239). Re-pin the viewport afterwards
+                // so any in-place-repaint ghost frame scrolls away.
                 // Own transition only. React's synthetic transitionend BUBBLES,
                 // so without the target check any descendant animating the same
                 // property re-grids the PTY behind the user's back.
                 if (e.target !== e.currentTarget || e.propertyName !== 'grid-template-rows') return
                 dockUnpinRef.current?.()
                 setTimeout(() => {
-                  const m = mountedRef.current
-                  if (!m) return
-                  const grid = m.view.fit()
-                  if (grid) m.connection.sendResize(grid.cols, grid.rows)
-                  m.view.scrollToBottom()
+                  mountedRef.current?.view.scrollToBottom()
                 }, 120)
               }}
             >

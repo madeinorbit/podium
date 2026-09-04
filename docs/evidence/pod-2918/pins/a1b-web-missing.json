@@ -1,0 +1,29 @@
+{
+  "cell": "A1B",
+  "at": "2026-08-27T01:44:18.821Z",
+  "sourceRoot": "/tmp/pod-2918/source-40c",
+  "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+  "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+  "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+  "web": {
+    "error": "SyntaxError: Failed to parse JSON"
+  },
+  "serverPid": "554006",
+  "daemonPid": "632103",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven (deleted)",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven (deleted)",
+  "freeMemory": {
+    "MemTotal": "12242288 kB",
+    "MemAvailable": "5011836 kB",
+    "SwapFree": "36955328 kB"
+  },
+  "forbiddenOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "TMUX_TMPDIR": null,
+    "PODIUM_WEB_DIR": null
+  }
+}

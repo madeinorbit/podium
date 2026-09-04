@@ -1,0 +1,94 @@
+{
+  "cell": "A9",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "kill removed all current-daemon stamped session processes and left infrastructure intact",
+  "evidence": [
+    "marker=A9-2VF4PA",
+    "replyControl=true",
+    "daemonInstanceUuid=a1ce2d12-849a-4b8c-a64a-d8b23bac46e7",
+    "uuidSource=state instance.json",
+    "sessionId=523a6820-b5d7-455e-b48c-6e366a6a4f4b",
+    "beforeEligible=1",
+    "after15s=0",
+    "after300sOrphans=0",
+    "rebound=0",
+    "eligibleRowsAfter=0",
+    "foreignExcluded=0",
+    "infraAlive=2/2",
+    "attribution=exact current-daemon PODIUM_INSTANCE_UUID + nonempty PODIUM_SESSION_ID, cwd map includes tmp and worktree"
+  ],
+  "data": {
+    "before": [
+      {
+        "pid": 1094840,
+        "ppid": 1086980,
+        "cwd": "/tmp/pod-2919/probes/headless-a9",
+        "location": "tmp-state-or-probe",
+        "instanceUuid": "a1ce2d12-849a-4b8c-a64a-d8b23bac46e7",
+        "sessionId": "523a6820-b5d7-455e-b48c-6e366a6a4f4b"
+      }
+    ],
+    "immediate": 0,
+    "orphans": 0,
+    "rebound": 0,
+    "eligibleRowsAfter": 0,
+    "foreignExcluded": 0,
+    "infraAlive": 2
+  },
+  "requestedCwd": "/tmp/pod-2919/probes/headless-a9",
+  "cwdFromSpawn": null,
+  "instance": "oc2919",
+  "codePin": "fb67ef2278f083bf1bc7036186dea1e183dfcec6",
+  "pin": {
+    "codeSha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6",
+    "codeShort": "fb67ef2",
+    "server": {
+      "pid": 1076330,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6"
+    },
+    "daemon": {
+      "pid": 1086980,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned",
+      "sha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6"
+    },
+    "bundleSourceSha": "fb67ef2",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "host": {
+    "load": [
+      "5.50",
+      "6.99",
+      "7.99"
+    ],
+    "memAvailableKb": 6173348,
+    "swapFreeKb": 36646352,
+    "diskFreeKb": 13983560
+  },
+  "at": "2026-08-27T04:08:02.408Z",
+  "error": "",
+  "log": [
+    "PIN PINJSON {\"codeSha\":\"fb67ef2278f083bf1bc7036186dea1e183dfcec6\",\"codeShort\":\"fb67ef2\",\"server\":{\"pid\":1076330,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"fb67ef2278f083bf1bc7036186dea1e183dfcec6\"},\"daemon\":{\"pid\":1086980,\"cwd\":\"/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned\",\"sha\":\"fb67ef2278f083bf1bc7036186dea1e183dfcec6\"},\"bundleSourceSha\":\"fb67ef2\",\"expectedDriver\":\"opencode-server\",\"expectedFamily\":\"server\",\"actualRuntimeDriver\":\"\",\"contract\":\"1\",\"streaming\":\"1\"}",
+    "PIN server pid=1076330 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=fb67ef2278f0",
+    "PIN daemon pid=1086980 cwd=/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned sha=fb67ef2278f0",
+    "PIN bundle sourceSha=fb67ef2 expected=fb67ef2",
+    "PIN daemon runtime driver=unset expected=opencode-server family=server",
+    "HOST {\"load\":[\"10.81\",\"9.68\",\"8.92\"],\"memAvailableKb\":5867244,\"swapFreeKb\":36560848,\"diskFreeKb\":13914808}",
+    "SESSION sid=523a6820-b5d7-455e-b48c-6e366a6a4f4b",
+    "CWD requested=/tmp/pod-2919/probes/headless-a9",
+    "CWD spawn-observed=/tmp/pod-2919/probes/headless-a9",
+    "CWD query=/tmp/pod-2919/probes/headless-a9 match=true",
+    "DRIVER bound=opencode-server family=server status=live",
+    "CONTROL pre-kill session processes=1",
+    "STAMP daemonUuid=a1ce2d12-849a-4b8c-a64a-d8b23bac46e7 uuidSource=state instance.json attributable=1 eligible=1 unstampedInScope=0 foreignExcluded=0",
+    "PRE pid=1094840 ppid=1086980 cwd=/tmp/pod-2919/probes/headless-a9 location=tmp-state-or-probe session=523a6820-b5d7-455e-b48c-6e366a6a4f4b cmd=/home/mgw/.local/state/podium/oc2919/agent-home/.opencode/bin/opencode serve --port 45177 --hostname 127.0.0.1",
+    "after15s survivors=0",
+    "after300s orphans=0 rebound=0 eligibleRowsAfter=0 infrastructure=2/2"
+  ]
+}

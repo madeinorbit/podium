@@ -1,0 +1,72 @@
+{
+  "issue": "POD-3112",
+  "kind": "r18-a7b-hibernate-viewer-refusal",
+  "verdict": "REFUSED",
+  "scored": false,
+  "integrationPin": "9a47994476cd36fd30a36fa0ab8cafdec84db7f5",
+  "web": {
+    "sourceSha": "9a47994",
+    "appVersion": "dev+9a47994",
+    "bundleVersion": "bundle+BZTkVqZf",
+    "wireSchemaDigest": "325e219a891fc6c8"
+  },
+  "instance": {
+    "name": "p3112-a7b-9a4799-r1",
+    "base": "/tmp/pod-3112-a7b-9a4799-r1",
+    "ports": [22751, 49751, 49752],
+    "machineId": "a307b99c-d4bb-41a3-9501-95947d2a43d6",
+    "updateChannel": "edge",
+    "dummyCommit": "f8c167b5daa13aff73fa0e03b0af48856ae70260"
+  },
+  "identity": {
+    "sessionId": "222bd033-7e78-45a7-9f10-6440e6c4f60c",
+    "createdAt": "2026-08-30T16:12:29.679Z",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": "ses_fac8e5128ffeKMN61SZ26Uhnf6",
+    "processKey": "podium-oc-222bd033-7e78-45a7-9f10-6440e6c4f60c",
+    "providerPid": 968839
+  },
+  "prerequisiteA7a": {
+    "verdict": "PASS",
+    "oldDaemonPid": 964471,
+    "newDaemonPid": 972365,
+    "adoptMs": 36.07241399999475,
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "sameSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true,
+    "native": true,
+    "chat": true,
+    "recallRemembered": true
+  },
+  "a7bRefusal": {
+    "reason": "REFUSED provider survived hibernate",
+    "sessionStatusAtDiagnostic": "hibernated",
+    "providerAliveAtDiagnostic": true,
+    "journalSeqAtDiagnostic": 123,
+    "journalTurnEpochAtDiagnostic": 2,
+    "journalBindingVersionAtDiagnostic": 2,
+    "fineWatchReleasedAt": "2026-08-30T16:14:26.820Z",
+    "nativeInputDiscardedAt": "2026-08-30T16:14:26.908Z",
+    "fineWatchReacquiredAt": "2026-08-30T16:14:26.962Z",
+    "classification": "harness control-order defect",
+    "concreteSeam": "A7b invokes sessions.hibernate while the browser remains in Native; viewer/input activity reacquires the runtime before the immediate provider-death assertion",
+    "requiredSubissue": "POD-3129"
+  },
+  "fences": {
+    "a7aContinueCreatedOnce": true,
+    "laterCellAttempted": false,
+    "acceptanceRowsWritten": 0,
+    "blindRetry": false
+  },
+  "teardown": {
+    "driveDownCompleted": true,
+    "ownedProcessesRemaining": 0,
+    "portsClear": true,
+    "credentialSymlinkRemoved": true,
+    "outsideNamedInstanceTouched": false
+  }
+}

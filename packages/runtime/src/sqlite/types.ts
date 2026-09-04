@@ -1,7 +1,7 @@
 /**
- * Runtime-neutral SQLite surface. Implemented by `node:sqlite` (Node) and
- * `bun:sqlite` (Bun) so the persistence layer carries no native addon on either
- * runtime — which keeps `bun build --compile` free of embedded `.node` files.
+ * Bun-only SQLite surface over `bun:sqlite`, which carries no native addon — that
+ * is what keeps `bun build --compile` free of embedded `.node` files. The interface
+ * stays narrow so a driver with different semantics remains pluggable in tests.
  *
  * The API mirrors the small subset Podium actually uses: prepared statements with
  * positional `?` parameters, `exec` for DDL / PRAGMA / transactions, and `close`.

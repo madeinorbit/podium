@@ -1,6 +1,6 @@
 import { ISSUE_COLOR_HEX, type IssueColorSlot } from '@podium/model'
 import { mix } from './mix'
-import { color } from './theme'
+import { adaptiveColor, appearancePalette, color } from './theme'
 
 /**
  * The issue-accent "colour flow" for native surfaces. [spec:SP-b4d1]
@@ -8,8 +8,8 @@ import { color } from './theme'
  * Palette slots and hexes come from @podium/model (the same source the web
  * shell uses); this module adds the native-side derivations the web gets from
  * CSS `color-mix()` — see ./mix.ts. Tint percentages mirror the web's
- * issue-mix-* utilities so a surface recipe produces identical pixels on both
- * renderers, and the bases they mix over are the Dark Ink tiers (POD-784).
+ * issue-mix-* utilities while each iOS appearance mixes over its own semantic
+ * surface base.
  *
  * RESERVED COLOURS — never pickable, never reused as issue accents, never used
  * for status: bisque #d9b477 (the brand accent, and the attention signal it
@@ -90,26 +90,36 @@ export function issueSquareFg(hex: string): string {
 export const flow = {
   /** Workspace pane behind content — must stay under the tab-strip tier so a
    *  card still reads above it: 4% over the app bg (was the handoff's 10). */
-  paneBg: (c: string) => mix(c, 4, color.bg),
+  paneBg: (c: string) => adaptiveMix(c, 4, appearancePalette.light.bg, appearancePalette.dark.bg),
   /** Tinted chrome bar (session header), capped at the raised-cell tier:
    *  8% over the card surface (was 16). */
-  headerBg: (c: string) => mix(c, 8, color.card),
+  headerBg: (c: string) =>
+    adaptiveMix(c, 8, appearancePalette.light.surface, appearancePalette.dark.surface),
   /** Stronger pane-chrome bar, capped at the tab-strip tier: 6% over the app
    *  bg (was 24). The cap is set by the BRIGHTEST palette slot rather than by
    *  the neutral flow — lime is the one that reaches the sheet first (it clears
    *  it at 8% while slate is still clear), and a bar may not out-rank the sheet
    *  for SOME issues and not others. */
-  paneHeaderBg: (c: string) => mix(c, 6, color.bg),
+  paneHeaderBg: (c: string) =>
+    adaptiveMix(c, 6, appearancePalette.light.bg, appearancePalette.dark.bg),
   /** Unselected coloured list row: ~12% over the card surface. */
-  rowBg: (c: string) => mix(c, 12, color.card),
+  rowBg: (c: string) =>
+    adaptiveMix(c, 12, appearancePalette.light.surface, appearancePalette.dark.surface),
   /** Selected list row: 28% over the card surface (+ .8-alpha border). */
-  rowSelectedBg: (c: string) => mix(c, 28, color.card),
+  rowSelectedBg: (c: string) =>
+    adaptiveMix(c, 28, appearancePalette.light.surface, appearancePalette.dark.surface),
   /** Active row inside a panel menu: 18% over the card surface. */
-  rowActiveBg: (c: string) => mix(c, 18, color.card),
+  rowActiveBg: (c: string) =>
+    adaptiveMix(c, 18, appearancePalette.light.surface, appearancePalette.dark.surface),
   /** Near-white tinted title text (ctxText). */
-  text: (c: string) => mix(c, 8, color.text),
+  text: (c: string) => adaptiveMix(c, 8, appearancePalette.light.text, appearancePalette.dark.text),
   /** Tinted body text. */
-  body: (c: string) => mix(c, 22, color.body),
+  body: (c: string) =>
+    adaptiveMix(c, 22, appearancePalette.light.body, appearancePalette.dark.body),
   /** Tinted muted text (ctxMuted). */
-  muted: (c: string) => mix(c, 18, color.textDim),
+  muted: (c: string) => adaptiveMix(c, 18, appearancePalette.light.dim, appearancePalette.dark.dim),
 } as const
+
+function adaptiveMix(colour: string, percent: number, lightBase: string, darkBase: string): string {
+  return adaptiveColor(mix(colour, percent, lightBase), mix(colour, percent, darkBase))
+}

@@ -1,0 +1,29 @@
+==============================================================================
+A9  kill session — is the process tree really gone?   harness=codex  verb=sessions.kill
+==============================================================================
+rig infrastructure (excluded, and checked alive at the end): server 1944616, daemon 1953601
+baseline           7 rig process(es) before this session exists
+session 64ea2fb5-c144-4cf8-96ed-e8175bf1b9d0 created
+BOUND DRIVER       codex-app-server (family server)
+turn before kill   replied with ALIVE-EVRGTK
+
+CONTROL            1 process(es) appeared for this session:
+                     pid=1973495 rss=142468kB [PODIUM_INSTANCE] /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///h
+
+KILLING via sessions.kill …
+  returned         null
+  row says         status=(row gone) stopReason=?
+  process table    0 of 1 still alive after 15s
+
+ORPHAN WATCH       waiting 300s (the row says 300s)
+  after the wait   0 orphan(s)
+  rig intact       2/2 infrastructure process(es) still alive
+
+==============================================================================
+A9  PASS
+    1 process(es) belonged to the session; 0 survived 300s after the kill
+    measured in /proc, attributed by environment, never by command-line pattern
+    verb driven: sessions.kill
+    the row's own opinion was status=(gone) — recorded, not used as the verdict
+    control FIRED — the tree existed before the kill
+==============================================================================

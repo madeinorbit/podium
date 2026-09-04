@@ -1,4 +1,4 @@
-import { Maximize2, Smartphone } from 'lucide-react-native'
+import { Maximize2, Smartphone } from '../components/icons'
 import { Icon } from '../components/Icon'
 import { HeaderButton } from '../components/Screen'
 import { color } from '../theme/theme'
@@ -26,7 +26,7 @@ export function TerminalControlAction({ control }: { control: TerminalControlSta
       <Icon
         as={controlling ? Smartphone : Maximize2}
         size={15}
-        color={controlling ? color.working : color.textDim}
+        color={controlling ? color.workingText : color.textDim}
       />
     </HeaderButton>
   )

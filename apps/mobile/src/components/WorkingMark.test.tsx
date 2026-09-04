@@ -1,7 +1,67 @@
-import { render } from '@testing-library/react'
-import type { ComponentProps } from 'react'
+import { cleanup, render } from '@testing-library/react'
+import type { ComponentProps, ComponentType } from 'react'
 import type { View as RNView } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+
+const reanimated = vi.hoisted(() => ({
+  animatedProps: [] as Record<string, unknown>[],
+  animatedPropUpdaters: [] as Array<() => Record<string, unknown>>,
+  cancelAnimation: vi.fn(),
+  clock: null as {
+    get: () => number
+    set: (next: number | ((value: number) => number)) => void
+  } | null,
+  withRepeat: vi.fn((animation: number) => animation),
+  withTiming: vi.fn((toValue: number) => toValue),
+}))
+
+vi.mock('react-native-reanimated', async () => {
+  const React = await import('react')
+  const interpolate = (value: number, inputRange: number[], outputRange: number[]) => {
+    for (let index = 1; index < inputRange.length; index += 1) {
+      if (value <= inputRange[index]) {
+        const span = inputRange[index] - inputRange[index - 1]
+        const at = span === 0 ? 0 : (value - inputRange[index - 1]) / span
+        return outputRange[index - 1] + (outputRange[index] - outputRange[index - 1]) * at
+      }
+    }
+    return outputRange[outputRange.length - 1]
+  }
+  return {
+    default: {
+      createAnimatedComponent:
+        (Component: ComponentType<Record<string, unknown>>) =>
+        ({ animatedProps, ...props }: Record<string, unknown>) => {
+          reanimated.animatedProps.push(animatedProps as Record<string, unknown>)
+          return React.createElement(Component, {
+            ...props,
+            ...(animatedProps as Record<string, unknown>),
+          })
+        },
+    },
+    cancelAnimation: reanimated.cancelAnimation,
+    Easing: { linear: (value: number) => value },
+    interpolate,
+    makeMutable: (initial: number) => {
+      let current = initial
+      const mutable = {
+        get: () => current,
+        set: (next: number | ((value: number) => number)) => {
+          current = typeof next === 'function' ? next(current) : next
+        },
+      }
+      reanimated.clock = mutable
+      return mutable
+    },
+    ReduceMotion: { System: 'system' },
+    useAnimatedProps: (updater: () => Record<string, unknown>) => {
+      reanimated.animatedPropUpdaters.push(updater)
+      return updater()
+    },
+    withRepeat: reanimated.withRepeat,
+    withTiming: reanimated.withTiming,
+  }
+})
 
 // The web build resolves react-native-svg's `.web.js` entry through Metro's
 // platform extensions; this lane resolves the native one, which is Flow-typed
@@ -25,7 +85,8 @@ vi.mock('react-native-svg', async () => {
 let reduceMotion = false
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => reduceMotion }))
 
-const { DELAYS_MS, WorkingMark, wavePhase } = await import('./WorkingMark')
+const { WorkingMark } = await import('./WorkingMark.native')
+const { DELAYS_MS, wavePhase } = await import('./WorkingMark.shared')
 
 /** The keyframe the web mark animates, as amplitude over one cycle. */
 function baseWave(t: number): number {
@@ -151,9 +212,13 @@ describe('wavePhase', () => {
 describe('WorkingMark', () => {
   beforeEach(() => {
     drawn.length = 0
+    reanimated.animatedProps.length = 0
+    reanimated.animatedPropUpdaters.length = 0
     reduceMotion = false
+    vi.clearAllMocks()
   })
   afterEach(() => {
+    cleanup()
     reduceMotion = false
   })
 
@@ -209,15 +274,28 @@ describe('WorkingMark', () => {
     }
   })
 
-  it('holds the cell at the wave trough when motion is allowed', () => {
-    // Animated resolves its nodes to the CURRENT value before the child sees
-    // them, so this reads the mark at clock 0 — the moment before the first
-    // crest enters the cell, with every dot at the keyframe's rest.
+  it('keeps circle geometry static while opacity follows the wave', () => {
     render(<WorkingMark size={12} />)
     expect(drawn).toHaveLength(8)
+    expect(reanimated.animatedProps).toHaveLength(8)
+    expect(reanimated.animatedPropUpdaters).toHaveLength(8)
     for (const dot of drawn) {
       expect(dot.opacity).toBeCloseTo(0.2, 6)
-      expect(dot.r as number).toBeCloseTo(11 * 0.8, 6)
+      expect(dot.r).toBe(11)
+    }
+
+    const clock = reanimated.clock
+    if (!clock) throw new Error('WorkingMark did not create its shared clock')
+    for (let step = 0; step <= 100; step += 1) {
+      const progress = step / 100
+      clock.set(progress)
+      for (const [index, update] of reanimated.animatedPropUpdaters.entries()) {
+        const payload = update()
+        expect(Object.keys(payload)).toEqual(['opacity'])
+        expect(payload).not.toHaveProperty('r')
+        const amplitude = sample(wavePhase(PHASES[index] ?? 0), progress)
+        expect(payload.opacity).toBeCloseTo(0.2 + 0.8 * amplitude, 6)
+      }
     }
   })
 
@@ -244,5 +322,21 @@ describe('WorkingMark', () => {
     drawn.length = 0
     render(<WorkingMark size={12} tint="#ffffff" />)
     expect(new Set(drawn.map((d) => d.fill))).toEqual(new Set(['#ffffff']))
+  })
+
+  it('shares one UI-runtime clock across mounted marks', () => {
+    const { unmount } = render(
+      <>
+        <WorkingMark size={12} />
+        <WorkingMark size={18} />
+      </>,
+    )
+    expect(reanimated.withTiming).toHaveBeenCalledTimes(1)
+    expect(reanimated.withRepeat).toHaveBeenCalledTimes(1)
+    expect(reanimated.withRepeat).toHaveBeenCalledWith(1, -1, false, undefined, 'system')
+    expect(reanimated.cancelAnimation).not.toHaveBeenCalled()
+
+    unmount()
+    expect(reanimated.cancelAnimation).toHaveBeenCalledTimes(1)
   })
 })

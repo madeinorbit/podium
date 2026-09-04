@@ -38,6 +38,7 @@ const REAUTH_HINT: Partial<Record<HarnessAgent, string>> = {
   codex: 'run `codex login` (or refresh your ChatGPT session)',
   'claude-code': 'run `claude login`',
   grok: 're-authenticate the Grok CLI',
+  pi: 'run `pi` and use its /login command',
 }
 
 /** Collapse whitespace and keep a short, readable tail of a raw error. */

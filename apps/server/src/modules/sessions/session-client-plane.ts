@@ -5,8 +5,13 @@
  */
 
 import { createLogger } from '@podium/logger'
-import type { SessionId, MachineId } from '@podium/model'
-import type { LiveServerMessage, MachinePrincipal, RoomRef, SessionOpenUrlMessage } from '@podium/protocol'
+import type { MachineId, SessionId } from '@podium/model'
+import type {
+  LiveServerMessage,
+  MachinePrincipal,
+  RoomRef,
+  SessionOpenUrlMessage,
+} from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { systemPrincipal } from '../../command-principal'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
@@ -71,7 +76,11 @@ export class SessionClientPlane {
       durableLabel: session.durableLabel,
       agentKind: session.agentKind,
       cwd: session.cwd,
-      geometry: session.terminal.geometry,
+      // LAST-KNOWN, AND NAMED AS SUCH (POD-3279). The daemon builds its headless
+      // screens against this; it never puts the pty at it, and it never reports
+      // it back on `bind`. What this server knows W to be is not evidence about
+      // the size a surviving agent has actually been running at.
+      lastKnownGeometry: session.terminal.geometry,
       binding: {
         transitionId: `reattach:${session.sessionId}:${requestedGeneration}`,
         machineAccess: recoveryMachineAccess,
@@ -97,6 +106,9 @@ export class SessionClientPlane {
           }
         : {}),
       ...(session.resume ? { resume: session.resume } : {}),
+      ...(session.lifecycleDriverRequest()
+        ? { runtimeContract: session.lifecycleDriverRequest() }
+        : {}),
       ...(this.ports.rpc.transcriptPathHint(
         { kind: 'system', id: 'session-attach' },
         {
@@ -111,6 +123,7 @@ export class SessionClientPlane {
         ? { createdAtMs: Date.parse(session.createdAt) }
         : {}),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
+      ...(session.requestedDriverId ? { requestedDriverId: session.requestedDriverId } : {}),
     } as ControlMessage
   }
 
@@ -264,6 +277,14 @@ export class SessionClientPlane {
     this.ports.clientControl.onFrame(principal, client, message)
   }
 
+  onSessionClientInput(
+    principal: ClientPrincipal,
+    client: ClientConn,
+    sessionId: SessionId,
+    bytes: Uint8Array,
+  ): void {
+    this.ports.clientControl.onInputBytes(principal, client, sessionId, bytes)
+  }
   /** Hand an issue the worktree its session is actually working in [spec:SP-4ef9].
    *  Two ways in: the agent DECLARES it (`podium worktree`), or the HARNESS makes its
    *  own worktree and the session's hooks start reporting from it (Claude's

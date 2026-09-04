@@ -395,7 +395,7 @@ export function IssueContextMenu({
                   disabled: rejection !== undefined,
                   hint:
                     rejection && handoffSession
-                      ? handoffRejectionText(rejection, handoffSession.agentKind)
+                      ? handoffRejectionText(rejection, handoffSession.agentKind, machine)
                       : undefined,
                 })),
         }

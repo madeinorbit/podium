@@ -1,0 +1,19 @@
+# timestamp	issue	pin	driver	cell	verdict	control	reading
+2026-08-30T01:26:07.242Z	POD-3112	d35c7ef7b630730f727365f25323427c67614386	default-headed	A1A	PASS	FIRED	docs/evidence/pod-3112/readings/default-headed.a1a.json
+2026-08-30T01:26:46.591Z	POD-3112	d35c7ef7b630730f727365f25323427c67614386	opencode-server	A1A	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.a1a.json
+2026-08-30T01:37:04.477Z	POD-3112	d35c7ef7b630730f727365f25323427c67614386	default-headed	A1B	FAIL	FIRED	docs/evidence/pod-3112/readings/default-headed.a1b.json
+2026-08-30T02:01:52.455Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A1B	PASS	FIRED	docs/evidence/pod-3112/readings/default-headed.a1b.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T020122950Z.json
+2026-08-30T02:02:32.386Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	opencode-server	A1B	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.a1b.json
+2026-08-30T02:11:26.630Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A2A	INVALID	DISCARDED	docs/evidence/pod-3112/readings/default-headed.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T021058983Z.json
+2026-08-30T02:17:19.507Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A2A	REFUSED	MISSING	docs/evidence/pod-3112/readings/default-headed.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T021706403Z.json
+2026-08-30T02:20:27.131Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A2A	PARTIAL	FIRED	docs/evidence/pod-3112/readings/default-headed.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T022010879Z.json
+2026-08-30T02:38:40.990Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A2A	PASS	FIRED	docs/evidence/pod-3112/readings/default-headed.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T023825527Z.json
+2026-08-30T02:42:07.829Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	opencode-server	A2A	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.a2a.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T024157265Z.json
+2026-08-30T02:43:53.838Z	POD-3112	2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd	default-headed	A3	FAIL	FIRED	docs/evidence/pod-3112/readings/default-headed.a3.2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd-20260830T024321319Z.json
+2026-08-30T07:56:04.182Z	POD-3112	bc0263ccf49d499f60988c297c60554b4217a6b6	opencode-server	A3	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.r17-ui.20260830T075539635Z.json
+2026-08-30T16:06:29.140Z	POD-3112	b80b8408de006ccc329ddb2b6dcf667f3e4fa40d	opencode-server	A7A	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.r18-b80b840-a7a-pass.20260830T160629140Z.json
+2026-08-30T17:37:18.013Z	POD-3112	252c8c48e78cc1ed35c10968f00e487753e5066e	opencode-server	A7A/A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-252c8c-ui-control-refusal-20260830T173718Z.json
+2026-08-30T18:40:47.141Z	POD-3112	d6df08c41af3883685c3f18fad0fd0fef78bfec7	opencode-server	A7A	PASS	FIRED	docs/evidence/pod-3112/readings/opencode-server.r18-d6df08c-a7a-pass.20260830T184047141Z.json
+2026-08-30T18:44:00.573Z	POD-3112	d6df08c41af3883685c3f18fad0fd0fef78bfec7	opencode-server	A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-d6df08c-a7b-runner-exit-refusal-20260830T204400+0200.json
+2026-08-30T21:02:05+02:00	POD-3112	1dbac781be27161162661053dded82f633dc615e	opencode-server	A7A/A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-1dbac78-a7a-startup-refusal-20260830T210205+0200.json
+2026-08-30T21:09:29+02:00	POD-3112	1dbac781be27161162661053dded82f633dc615e	opencode-server	A7A/A7B	REFUSED	MISSING	docs/evidence/pod-3112/diagnostics/r18-1dbac78-login-contract-refusal-20260830T210929+0200.json

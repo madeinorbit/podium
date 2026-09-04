@@ -1,4 +1,6 @@
 use crate::bootstrap::{build_update_channel, read_config, write_update_channel, UpdateChannel};
+use semver::Version;
+use std::cmp::Ordering as VersionOrdering;
 #[cfg(any(target_os = "macos", test))]
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -6,7 +8,7 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_dialog::{DialogExt, MessageDialogButtons};
-use tauri_plugin_updater::{Update, UpdaterExt};
+use tauri_plugin_updater::{RemoteRelease, Update, UpdaterExt};
 
 pub type UpdateOwnership = Arc<AtomicBool>;
 
@@ -315,6 +317,97 @@ fn parse_updater_endpoint(endpoint: &str) -> Result<tauri::Url, UpdateError> {
     })
 }
 
+/// Compare native update versions with Podium's channel ordering.
+///
+/// Tauri's updater defaults to ordinary SemVer, where `0.1.1-dev.6` sorts
+/// below `0.1.1-edge.2` alphabetically. Podium deliberately gives `dev` a
+/// higher tier than `edge`, and the web updater already uses that rule. The
+/// native shell must use the same ordering or a freshly published dev build
+/// never reaches Restart Podium on an edge install.
+fn compare_podium_versions(candidate: &Version, current: &Version) -> VersionOrdering {
+    for (candidate_core, current_core) in [
+        (candidate.major, current.major),
+        (candidate.minor, current.minor),
+        (candidate.patch, current.patch),
+    ] {
+        let order = candidate_core.cmp(&current_core);
+        if order != VersionOrdering::Equal {
+            return order;
+        }
+    }
+
+    let candidate_pre = candidate.pre.as_str();
+    let current_pre = current.pre.as_str();
+    if candidate_pre.is_empty() || current_pre.is_empty() {
+        return match (candidate_pre.is_empty(), current_pre.is_empty()) {
+            (true, true) => VersionOrdering::Equal,
+            (true, false) => VersionOrdering::Greater,
+            (false, true) => VersionOrdering::Less,
+            (false, false) => unreachable!(),
+        };
+    }
+
+    let candidate_ids: Vec<&str> = candidate_pre.split('.').collect();
+    let current_ids: Vec<&str> = current_pre.split('.').collect();
+    for (candidate_id, current_id) in candidate_ids.iter().zip(current_ids.iter()) {
+        if candidate_id == current_id {
+            continue;
+        }
+        let candidate_numeric = candidate_id.bytes().all(|byte| byte.is_ascii_digit());
+        let current_numeric = current_id.bytes().all(|byte| byte.is_ascii_digit());
+        if candidate_numeric != current_numeric {
+            return if candidate_numeric {
+                VersionOrdering::Less
+            } else {
+                VersionOrdering::Greater
+            };
+        }
+        if candidate_numeric {
+            let candidate_digits = candidate_id.trim_start_matches('0');
+            let current_digits = current_id.trim_start_matches('0');
+            let candidate_digits = if candidate_digits.is_empty() {
+                "0"
+            } else {
+                candidate_digits
+            };
+            let current_digits = if current_digits.is_empty() {
+                "0"
+            } else {
+                current_digits
+            };
+            let order = candidate_digits
+                .len()
+                .cmp(&current_digits.len())
+                .then_with(|| candidate_digits.cmp(current_digits));
+            if order != VersionOrdering::Equal {
+                return order;
+            }
+            continue;
+        }
+
+        let candidate_rank = match *candidate_id {
+            "dev" => 2,
+            "edge" => 1,
+            _ => 0,
+        };
+        let current_rank = match *current_id {
+            "dev" => 2,
+            "edge" => 1,
+            _ => 0,
+        };
+        let order = candidate_rank
+            .cmp(&current_rank)
+            .then_with(|| candidate_id.cmp(current_id));
+        if order != VersionOrdering::Equal {
+            return order;
+        }
+    }
+    candidate_ids.len().cmp(&current_ids.len())
+}
+
+fn native_version_is_newer(current: Version, remote: RemoteRelease) -> bool {
+    compare_podium_versions(&remote.version, &current) == VersionOrdering::Greater
+}
 fn updater_for_channel(
     app: &AppHandle,
     channel: UpdateChannel,
@@ -323,6 +416,7 @@ fn updater_for_channel(
     let endpoint = endpoint_for_channel(channel, config.update_feed_endpoint.as_deref())?;
     let endpoint = parse_updater_endpoint(&endpoint)?;
     app.updater_builder()
+        .version_comparator(native_version_is_newer)
         .endpoints(vec![endpoint])
         .and_then(|builder| builder.build())
         .map_err(|error| {
@@ -923,7 +1017,10 @@ mod tests {
             Ok(EDGE_ENDPOINT.to_string())
         );
         assert_eq!(
-            endpoint_for_channel(UpdateChannel::Dev, Some("https://podium.test/updates/feed/dev/latest.json")),
+            endpoint_for_channel(
+                UpdateChannel::Dev,
+                Some("https://podium.test/updates/feed/dev/latest.json")
+            ),
             Ok("https://podium.test/updates/feed/dev/latest.json".to_string())
         );
         for endpoint in [
@@ -940,6 +1037,44 @@ mod tests {
         );
     }
 
+    fn native_order(candidate: &str, current: &str) -> VersionOrdering {
+        compare_podium_versions(
+            &Version::parse(candidate).expect("candidate must parse"),
+            &Version::parse(current).expect("current must parse"),
+        )
+    }
+
+    #[test]
+    fn native_order_matches_podium_dev_edge_tier() {
+        assert_eq!(
+            native_order("0.1.1-dev.6+34141d8", "0.1.1-edge.2"),
+            VersionOrdering::Greater
+        );
+        assert_eq!(
+            native_order("0.1.1-edge.2", "0.1.1-dev.6+34141d8"),
+            VersionOrdering::Less
+        );
+    }
+
+    #[test]
+    fn native_order_keeps_stable_above_its_prereleases() {
+        assert_eq!(
+            native_order("0.1.1-dev.6+34141d8", "0.1.1"),
+            VersionOrdering::Less
+        );
+        assert_eq!(
+            native_order("0.1.2-dev.1+34141d8", "0.1.1"),
+            VersionOrdering::Greater
+        );
+    }
+
+    #[test]
+    fn native_order_compares_numeric_prerelease_identifiers_numerically() {
+        assert_eq!(
+            native_order("0.1.1-dev.10+34141d8", "0.1.1-dev.9+1111111"),
+            VersionOrdering::Greater
+        );
+    }
     #[test]
     fn debug_builds_never_enable_production_auto_update() {
         assert!(!production_auto_update_enabled(true));
@@ -1087,7 +1222,10 @@ mod tests {
     #[test]
     fn transfer_failures_remain_download_failures() {
         let download = tauri_plugin_updater::Error::Network("offline".to_string());
-        assert_eq!(update_error(&download, None), UpdateError::download_failed());
+        assert_eq!(
+            update_error(&download, None),
+            UpdateError::download_failed()
+        );
     }
 
     #[test]
@@ -1095,13 +1233,13 @@ mod tests {
         let refusal = tauri_plugin_updater::Error::Network(
             "Unable to connect. Is the computer able to access the url?".to_string(),
         );
-        let url = tauri::Url::parse(
-            "https://missing.example/podium.tar.gz?X-Amz-Signature=secret",
-        )
-        .expect("valid URL");
+        let url = tauri::Url::parse("https://missing.example/podium.tar.gz?X-Amz-Signature=secret")
+            .expect("valid URL");
         let public = update_error(&refusal, Some(&url));
         assert_eq!(public.code, UpdateErrorCode::ArtifactUnreachable);
-        assert!(public.message.contains("https://missing.example/podium.tar.gz"));
+        assert!(public
+            .message
+            .contains("https://missing.example/podium.tar.gz"));
         assert!(!public.message.contains("secret"));
     }
 

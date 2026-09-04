@@ -17,24 +17,33 @@
  * "opened it" from "there is no panel in this document".
  */
 
-type Opener = () => void
+type Opener = () => boolean
+type Availability = () => boolean
 
 let opener: Opener | null = null
+let available: Availability | null = null
 const listeners = new Set<() => void>()
 
 /** The panel registers itself while mounted. Returns the unregister. */
-export function registerUpdatePanelOpener(open: Opener): () => void {
+export function registerUpdatePanelOpener(
+  open: Opener,
+  canOpen: Availability = () => true,
+): () => void {
   opener = open
+  available = canOpen
   for (const listener of listeners) listener()
   return () => {
-    if (opener === open) opener = null
+    if (opener === open) {
+      opener = null
+      available = null
+    }
     for (const listener of listeners) listener()
   }
 }
 
 /** Is there a panel in this document to open? */
 export function hasUpdatePanel(): boolean {
-  return opener !== null
+  return opener !== null && (available?.() ?? true)
 }
 
 /** Notified when {@link hasUpdatePanel} changes, so a button can label itself honestly. */
@@ -48,8 +57,7 @@ export function subscribeUpdatePanel(listener: () => void): () => void {
 /** Open the panel. Answers false when nothing is mounted to open. */
 export function openUpdatePanel(): boolean {
   if (!opener) return false
-  opener()
-  return true
+  return opener()
 }
 
 /**

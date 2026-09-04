@@ -1,0 +1,227 @@
+{
+  "cell": "A1A",
+  "driver": "default-headed",
+  "cwd": "/tmp/pod-3112-paired-r3/probes/default-headed-a1a",
+  "at": "2026-08-30T01:25:44.465Z",
+  "pin": {
+    "cell": "A1A",
+    "at": "2026-08-30T01:25:44.492Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "2f02fa43a661bb17b3be80bd6673d704acc191fc",
+    "pinSha": "d35c7ef7b630730f727365f25323427c67614386",
+    "serverSha": "d35c7ef7b630730f727365f25323427c67614386",
+    "daemonSha": "d35c7ef7b630730f727365f25323427c67614386",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "2f02fa4",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2423044",
+    "daemonPid": "2423166",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18379372 kB",
+      "SwapFree": "40418464 kB"
+    },
+    "rootFreeKiB": 70127432,
+    "load1m": 4.32,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r3/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "three idle sends replied, including the required last send",
+  "control": {
+    "fired": true,
+    "what": "send delivered or a needle appearing on the chat/transcript plane",
+    "detail": "3/3 delivered; user=3 assistant=3 lastAssistant=true"
+  },
+  "evidence": [
+    "SENDS             [{\"i\":1,\"needle\":\"P3112-A1A-default-headed-1-MTF4OK89\",\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"delivered\":true,\"user\":true,\"assistant\":true,\"userMs\":13,\"assistantMs\":1555,\"chatAssistant\":false,\"status\":{\"sessionId\":\"6a3bf047-b17c-4d97-8651-35a198561ffa\",\"agentKind\":\"opencode\",\"harness\":\"opencode\",\"driverId\":\"generic-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":\"opencode-go/gpt-5.6-luna\",\"effort\":null,\"contextUsagePercent\":null,\"account\":\"native:claude-code\",\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[\"0baede8 probe seed\"],\"files\":[\"## main\"],\"unackedMessages\":0}},{\"i\":2,\"needle\":\"P3112-A1A-default-headed-2-MTF4OO2X\",\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"delivered\":true,\"user\":true,\"assistant\":true,\"userMs\":104,\"assistantMs\":1117,\"chatAssistant\":false,\"status\":{\"sessionId\":\"6a3bf047-b17c-4d97-8651-35a198561ffa\",\"agentKind\":\"opencode\",\"harness\":\"opencode\",\"driverId\":\"generic-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":\"opencode-go/gpt-5.6-luna\",\"effort\":null,\"contextUsagePercent\":null,\"account\":\"native:claude-code\",\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[\"0baede8 probe seed\"],\"files\":[\"## main\"],\"unackedMessages\":0}},{\"i\":3,\"needle\":\"P3112-A1A-default-headed-3-MTF4OR9T\",\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"delivered\":true,\"user\":true,\"assistant\":true,\"userMs\":9,\"assistantMs\":13,\"chatAssistant\":true,\"status\":{\"sessionId\":\"6a3bf047-b17c-4d97-8651-35a198561ffa\",\"agentKind\":\"opencode\",\"harness\":\"opencode\",\"driverId\":\"generic-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"working\",\"machine\":\"flatblock\",\"model\":\"opencode-go/gpt-5.6-luna\",\"effort\":null,\"contextUsagePercent\":null,\"account\":\"native:claude-code\",\"error\":null,\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[\"0baede8 probe seed\"],\"files\":[\"## main\"],\"unackedMessages\":0}}]",
+    "IDENTITY          {\"sessionId\":\"6a3bf047-b17c-4d97-8651-35a198561ffa\",\"agentKind\":\"opencode\",\"harness\":\"opencode\",\"driverId\":\"generic-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"opencode-go/gpt-5.6-luna\",\"effort\":null,\"contextUsag",
+    "FRAME TYPES        outputFrame=188 sessionAgentStateChanged=7 transcriptDelta=6 hostMetricsChanged=5 machinesChanged=3 sessionTitleChanged=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+  ],
+  "data": {
+    "sid": "6a3bf047-b17c-4d97-8651-35a198561ffa",
+    "turns": [
+      {
+        "i": 1,
+        "needle": "P3112-A1A-default-headed-1-MTF4OK89",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "delivered": true,
+        "user": true,
+        "assistant": true,
+        "userMs": 13,
+        "assistantMs": 1555,
+        "chatAssistant": false,
+        "status": {
+          "sessionId": "6a3bf047-b17c-4d97-8651-35a198561ffa",
+          "agentKind": "opencode",
+          "harness": "opencode",
+          "driverId": "generic-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "working",
+          "machine": "flatblock",
+          "model": "opencode-go/gpt-5.6-luna",
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": "native:claude-code",
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [
+            "0baede8 probe seed"
+          ],
+          "files": [
+            "## main"
+          ],
+          "unackedMessages": 0
+        }
+      },
+      {
+        "i": 2,
+        "needle": "P3112-A1A-default-headed-2-MTF4OO2X",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "delivered": true,
+        "user": true,
+        "assistant": true,
+        "userMs": 104,
+        "assistantMs": 1117,
+        "chatAssistant": false,
+        "status": {
+          "sessionId": "6a3bf047-b17c-4d97-8651-35a198561ffa",
+          "agentKind": "opencode",
+          "harness": "opencode",
+          "driverId": "generic-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "working",
+          "machine": "flatblock",
+          "model": "opencode-go/gpt-5.6-luna",
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": "native:claude-code",
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [
+            "0baede8 probe seed"
+          ],
+          "files": [
+            "## main"
+          ],
+          "unackedMessages": 0
+        }
+      },
+      {
+        "i": 3,
+        "needle": "P3112-A1A-default-headed-3-MTF4OR9T",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "delivered": true,
+        "user": true,
+        "assistant": true,
+        "userMs": 9,
+        "assistantMs": 13,
+        "chatAssistant": true,
+        "status": {
+          "sessionId": "6a3bf047-b17c-4d97-8651-35a198561ffa",
+          "agentKind": "opencode",
+          "harness": "opencode",
+          "driverId": "generic-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "working",
+          "machine": "flatblock",
+          "model": "opencode-go/gpt-5.6-luna",
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": "native:claude-code",
+          "error": null,
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [
+            "0baede8 probe seed"
+          ],
+          "files": [
+            "## main"
+          ],
+          "unackedMessages": 0
+        }
+      }
+    ],
+    "driverRow": {
+      "sessionId": "6a3bf047-b17c-4d97-8651-35a198561ffa",
+      "agentKind": "opencode",
+      "harness": "opencode",
+      "driverId": "generic-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": "opencode-go/gpt-5.6-luna",
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "0baede8 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

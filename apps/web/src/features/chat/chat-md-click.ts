@@ -2,6 +2,7 @@ import type { SessionId } from '@podium/model/browser'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
+import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 import { activateRef } from '@/lib/ref-activation'
 
 /**
@@ -29,8 +30,16 @@ export function handleChatMdClick(
   }
 
   const fileAnchor = target?.closest?.('a.file-link') as HTMLElement | null
-  if (!fileAnchor) return
-  event.preventDefault()
-  const path = fileAnchor.getAttribute('data-path')
-  if (path) openFile(sessionId, resolveAgainstCwd(cwd, path))
+  if (fileAnchor) {
+    event.preventDefault()
+    const path = fileAnchor.getAttribute('data-path')
+    if (path) openFile(sessionId, resolveAgainstCwd(cwd, path))
+    return
+  }
+
+  // A link that addresses this Podium (POD-1606), through the same handler the
+  // file/artifact preview uses — the two markdown pipelines mark their anchors
+  // identically, so answering the click in one place is what keeps them from
+  // drifting apart.
+  handlePodiumLinkClick(event)
 }

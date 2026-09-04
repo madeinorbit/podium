@@ -1,4 +1,8 @@
-/** Machine inventory and verified executable snapshot for one command-environment generation. */
+/**
+ * Machine inventory and verified executable snapshot for one command-environment
+ * generation. Probes never throw: a missing CLI is `installed: false`, while a
+ * bounded probe that expires is explicitly unknown (`installed: null`).
+ */
 import { execFile } from 'node:child_process'
 import { homedir, platform as nodePlatform } from 'node:os'
 import { promisify } from 'node:util'
@@ -14,11 +18,11 @@ import {
   type LoginCommandResult,
   type HarnessLogin,
 } from '../manifest.js'
-import { AGENT_MANIFESTS } from '../registry.js'
+import { AGENT_MANIFESTS, harnessLoginReadEnv } from '../registry.js'
+import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '../version-probe.js'
 
 const log = createLogger('harness:inventory')
 const execFileAsync = promisify(execFile)
-const VERSION_TIMEOUT_MS = 5_000
 const PROBE_OUTPUT_LIMIT_BYTES = 1024 * 1024
 
 /** Runs argv with the generation environment. Injectable so tests never shell out. */
@@ -63,10 +67,29 @@ function candidatePaths(
   ]
   const resolved: string[] = []
   for (const candidate of candidates) {
-    const path = environment.resolve(candidate) ?? (legacyInjectedExec ? candidate : undefined)
+    // An injected exec answers by argv, so the seam has to stay argv-only. Asking
+    // the resolver first and only FALLING BACK to the name made the reported path
+    // depend on what the machine running the test happened to have installed
+    // (POD-2826), and no fixture can sandbox that: createCommandEnvironment always
+    // appends /usr/local/bin, /usr/bin and /bin to the search entries, so scrubbing
+    // PATH does not stop the host from answering.
+    const path = legacyInjectedExec ? candidate : environment.resolve(candidate)
     if (path && !resolved.includes(path)) resolved.push(path)
   }
   return resolved
+}
+
+/** Node's execFile timeout error is not a distinct class: it reports a killed
+ * child (and some injected/process wrappers report ETIMEDOUT instead). Keep the
+ * classification here so an expired observation never becomes an absence fact. */
+function probeTimedOut(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const details = error as Error & { code?: unknown; killed?: unknown }
+  return (
+    details.killed === true ||
+    details.code === 'ETIMEDOUT' ||
+    /(?:^|\s)ETIMEDOUT(?:\s|$)/i.test(error.message)
+  )
 }
 
 async function probeAgent(
@@ -78,34 +101,62 @@ async function probeAgent(
   legacyInjectedExec: boolean,
   hostPlatform: NodeJS.Platform,
 ): Promise<{ inventory: AgentInventory; executable?: ResolvedHarnessExecutable }> {
+  /**
+   * EVERY LOGIN READ RUNS UNDER THE CREDENTIAL HOME (POD-2692), the file detector
+   * and `loginCommandProbe` alike.
+   *
+   * `environment.env` describes the MACHINE — its PATH, its `HOME` — and that is
+   * the right environment for finding and versioning an executable. It is the
+   * wrong one for asking who is signed in: on a named instance the credentials
+   * live under an isolated agent-home, and `claude auth status` run with the
+   * operator's `HOME` cheerfully answers about the operator. It answered `in`
+   * against an agent-home holding no credential at all, and because a
+   * `determined` command verdict OVERRIDES the file detector, that wrong answer
+   * won and became the machine inventory the whole product reads.
+   */
+  const credentialEnv: Readonly<Record<string, string>> = Object.freeze(
+    harnessLoginReadEnv(manifest.kind, credentialHome, environment.env),
+  )
   let detected: HarnessLogin
   try {
-    detected = manifest.inventory.detectLogin(credentialHome)
+    detected = manifest.inventory.detectLogin(credentialHome, credentialEnv)
   } catch {
     detected = { state: 'unknown' }
   }
   const identityReader = declaredValue(manifest.inventory.loginIdentity)
   let identity: ReturnType<NonNullable<typeof identityReader>> | undefined
   try {
-    identity = identityReader?.(credentialHome)
+    identity = identityReader?.(credentialHome, credentialEnv)
   } catch {
     // Login identity is best-effort metadata.
   }
   const fallbackLogin = identity ? { ...detected, identity } : detected
   const commandProbe = declaredValue(manifest.inventory.loginCommandProbe)
   const declaration = manifest.inventory.executable
+  let timedOut = false
   for (const candidate of candidatePaths(manifest, environment, legacyInjectedExec)) {
     try {
       const version = (
-        await exec([candidate, ...declaration.versionArgs], VERSION_TIMEOUT_MS, environment.env)
-      ).trim()
-      if (declaration.identityProbe) {
-        const output = await exec(
-          [candidate, ...declaration.identityProbe.args],
-          VERSION_TIMEOUT_MS,
+        await exec(
+          [candidate, ...declaration.versionArgs],
+          AGENT_VERSION_PROBE_TIMEOUT_MS,
           environment.env,
         )
-        if (!declaration.identityProbe.accepts(output)) continue
+      ).trim()
+      if (declaration.identityProbe) {
+        try {
+          const output = await exec(
+            [candidate, ...declaration.identityProbe.args],
+            AGENT_VERSION_PROBE_TIMEOUT_MS,
+            environment.env,
+          )
+          if (!declaration.identityProbe.accepts(output)) continue
+        } catch (error) {
+          // A generic candidate such as `agent` can belong to another harness,
+          // so a timed-out identity probe proves neither presence nor absence.
+          timedOut ||= probeTimedOut(error)
+          continue
+        }
       }
       const executable: ResolvedHarnessExecutable = Object.freeze({
         kind: manifest.kind,
@@ -120,7 +171,7 @@ async function probeAgent(
             await loginExec(
               [candidate, ...commandProbe.args],
               commandProbe.timeoutMs,
-              environment.env,
+              credentialEnv,
             ),
           )
           login =
@@ -143,14 +194,24 @@ async function probeAgent(
         },
         executable,
       }
-    } catch {
-      // Missing, wrong identity, timed out, or no longer executable: try the declaration's next path.
+    } catch (error) {
+      timedOut ||= probeTimedOut(error)
+      // Missing, wrong identity, or no longer executable: try the declaration's next path.
     }
   }
   const login =
     commandProbe && hostPlatform === 'darwin' && fallbackLogin.state === 'out'
       ? { state: 'unknown' as const }
       : fallbackLogin
+  if (timedOut)
+    return {
+      inventory: {
+        kind: manifest.kind,
+        installed: null,
+        probeError: { reason: 'timed-out', timeoutMs: AGENT_VERSION_PROBE_TIMEOUT_MS },
+        login,
+      },
+    }
   return { inventory: { kind: manifest.kind, installed: false, login } }
 }
 
@@ -160,14 +221,23 @@ async function probeTool(
   exec: ProbeExec,
   legacyInjectedExec: boolean,
 ): Promise<ToolInventory> {
-  const candidate = environment.resolve(name) ?? (legacyInjectedExec ? name : undefined)
+  // Argv-only under an injected exec, for the same reason as candidatePaths (POD-2826).
+  const candidate = legacyInjectedExec ? name : environment.resolve(name)
   if (!candidate) return { name, installed: false }
   try {
-    const version = (await exec([candidate, '--version'], VERSION_TIMEOUT_MS, environment.env))
+    const version = (
+      await exec([candidate, '--version'], AGENT_VERSION_PROBE_TIMEOUT_MS, environment.env)
+    )
       .split('\n')[0]
       ?.trim()
     return { name, installed: true, ...(version ? { version } : {}), path: candidate }
-  } catch {
+  } catch (error) {
+    if (probeTimedOut(error))
+      return {
+        name,
+        installed: null,
+        probeError: { reason: 'timed-out', timeoutMs: AGENT_VERSION_PROBE_TIMEOUT_MS },
+      }
     return { name, installed: false }
   }
 }
@@ -180,6 +250,7 @@ export interface BuildInventoryOptions {
   /** @deprecated Test compatibility. Prefer explicit machineHome + credentialHome. */
   homeDir?: string
   commandEnvironment?: CommandEnvironment
+  env?: NodeJS.ProcessEnv
   exec?: ProbeExec
   loginExec?: LoginProbeExec
   platform?: NodeJS.Platform
@@ -219,6 +290,7 @@ export async function buildResolvedInventory(
     opts.commandEnvironment ??
     (await createCommandEnvironment({
       machineHome,
+      env: opts.env,
       generation: opts.generation ?? 0,
       platform: hostPlatform,
     }))

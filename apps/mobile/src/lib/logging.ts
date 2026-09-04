@@ -50,10 +50,10 @@ import { PRODUCT_VERSION_META } from '@podium/protocol'
  * second.
  *
  * `EXPO_PUBLIC_APP_VERSION` was the only source, and NOTHING IN THIS REPOSITORY
- * EVER SET IT: not `build:web`, not the redeploy path, not CI. So every phone
+ * EVER SET IT: not `build`, not the redeploy path, not CI. So every phone
  * build reported `dev` — on the Pulse build stamp and in the `v` field of every
  * forwarded log record — while the artefact it was running knew perfectly well
- * what it was. `build:web` ends in `write-web-build-stamp.ts`, which injects
+ * what it was. `build` ends in `write-web-build-stamp.ts`, which injects
  * `<meta name="podium-version">` into index.html exactly so a running page can
  * answer this synchronously. Ask that first, the same way `apps/web` does
  * (`pageBuildVersion`).

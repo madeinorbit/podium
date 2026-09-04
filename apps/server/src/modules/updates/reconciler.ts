@@ -35,8 +35,8 @@ import {
  * the wave's MUSCLE (`authorizeMachine` → `planWave` → the grant protocol) and
  * none of its choreography, which is why it can run with no operation at all.
  *
- * THREE PROPERTIES THIS FILE EXISTS TO GUARANTEE
- * ----------------------------------------------
+ * FOUR PROPERTIES THIS FILE EXISTS TO GUARANTEE
+ * ---------------------------------------------
  *  1. **It never races an operation.** While an exclusive `lifecycle` operation
  *     is active the operation owns granting, and this is paused ({@link decideReconciliation}
  *     refuses with `operation-active`). It resumes on the operation's TERMINAL
@@ -51,6 +51,11 @@ import {
  *  3. **It says who moved a machine.** {@link UpdateReconciler.convergedBy}
  *     marks the machines this converged, so the fleet payload can label a row
  *     that moved with nobody looking (additive; see the `convergedBy` field).
+ *  4. **It never converges the coordinator** (POD-2907). Everything above is
+ *     about machines this server TALKS TO. Its own row is not one of those: a
+ *     grant to it lands in-process and ends this server, so "with nobody
+ *     looking" stops being a property and becomes the defect. See the
+ *     `coordinator` refusal.
  *
  * WHAT IT IS DELIBERATELY NOT WIRED TO: publishing a target.
  * -----------------------------------------------------------
@@ -61,6 +66,11 @@ import {
  * ENDING, and both inherit a decision that was already made: the first by §9.1
  * ("stragglers converge to the current target without a new human decision"),
  * the second by the click that started the operation.
+ *
+ * …AND THE INHERITANCE HAS A BOUNDARY (POD-2907). Both of those decisions were
+ * made about the FLEET this coordinator serves. Neither of them is a decision to
+ * replace this coordinator, which is why the machine that IS this coordinator is
+ * refused by name below however eligible it looks.
  */
 
 const log = createLogger('server:updates')
@@ -70,6 +80,30 @@ const log = createLogger('server:updates')
 export type ReconcileRefusal =
   | 'operation-active'
   | 'unknown-machine'
+  /**
+   * THE COORDINATOR IS NOT A STRAGGLER (POD-2907).
+   *
+   * This host's own machine row looks like any other packaged rollout target:
+   * `installed`, feed-capable, online, and behind the moment anything newer is
+   * published. It is not any other machine. A grant to it does not travel over
+   * a socket to a daemon that can swap in the background — it lands on the
+   * in-process local update participant, which asks the supervising parent to
+   * swap the bundle and hand this process over to a successor. Every session,
+   * every socket and every operation this server is holding ends with it.
+   *
+   * That is an act with a UI: the update operation's plan puts the host in the
+   * wave (`hostUpdatesThroughFleet`) or gives it a `server` step, and either way
+   * a person saw it and pressed something. Background convergence has no such
+   * moment, and §3.6's licence — "stragglers converge to the current target
+   * without a new human decision" — is a statement about the FLEET the
+   * coordinator serves, not about the coordinator.
+   *
+   * On 2026-08-31 the difference cost a live server: a publication finished at
+   * 06:14:56Z, the local daemon's next reconnect enqueued this host, the table
+   * below found it merely "behind", and the parent launched a successor at
+   * 06:14:58Z with no operation and nobody clicking anything.
+   */
+  | 'coordinator'
   | 'no-target'
   | 'not-packaged-rollout-target'
   | 'at-target'
@@ -93,6 +127,15 @@ export type ReconcileDecision = { converge: true } | { converge: false; because:
 export interface ReconcileFacts {
   /** The live row from the fleet projection, or absent if the machine is gone. */
   machine: WaveMachine | undefined
+  /**
+   * Is this row the coordinator's own machine?
+   *
+   * DERIVED FROM THE ROW, not stated separately: POD-3170 put `coordinator` on
+   * the fleet projection so `decideWave` could hold this host until last, and a
+   * second identity kept here could only ever drift from the one the planner
+   * reads. Left overridable so the decision table can be exercised directly.
+   */
+  isCoordinator?: boolean
   /** The target published for THIS machine's channel — never a global default. */
   target: UpdateTarget | undefined
   /** Is an exclusive lifecycle operation running right now? Read per call. */
@@ -160,6 +203,14 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   if (facts.operationActive) return { converge: false, because: 'operation-active' }
   const machine = facts.machine
   if (!machine) return { converge: false, because: 'unknown-machine' }
+  // SECOND, and above every question about the target: this is a fact about
+  // WHICH MACHINE this is, and it holds whatever is published and whatever the
+  // row's state happens to be. Asking it after `at-target` would have made the
+  // refusal invisible in the ordinary case and present only in the one case
+  // that restarts the server.
+  if (facts.isCoordinator ?? machine.coordinator === true) {
+    return { converge: false, because: 'coordinator' }
+  }
   if (!facts.target) return { converge: false, because: 'no-target' }
   if (!isPackagedRolloutTarget(machine)) {
     return { converge: false, because: 'not-packaged-rollout-target' }
@@ -230,6 +281,12 @@ export class UpdateReconciler {
    * token rather than an id comparison.
    */
   private grants = 0
+  /**
+   * WHICH EDGE WOKE THIS, carried into the grant's causal record so a row in the
+   * event log says "a reconnect did this" or "an operation ending did this"
+   * rather than merely "the reconciler did this" (POD-2907).
+   */
+  private wokenBy: 'machine-connected' | 'operation-settled' = 'machine-connected'
   private pumping = false
   /** A spacing timer is already armed; see {@link UpdateReconciler.later}. */
   private waiting = false
@@ -246,6 +303,7 @@ export class UpdateReconciler {
    * with, not the one it had when it went away.
    */
   onMachineConnected(machineId: string): void {
+    this.wokenBy = 'machine-connected'
     this.enqueue(machineId)
   }
 
@@ -270,6 +328,7 @@ export class UpdateReconciler {
    */
   onOperationSettled(outcome?: string): void {
     if (outcome === 'canceled') return
+    this.wokenBy = 'operation-settled'
     for (const machine of this.deps.updates.fleet()) this.enqueue(machine.id)
     this.pump()
   }
@@ -459,6 +518,19 @@ export class UpdateReconciler {
       // owes anything: dropping its counter is what lets a LATER target start
       // from zero even if the version label is one this fleet has seen before.
       if (decision.because === 'at-target' && key !== undefined) this.attempts.delete(key)
+      // ONE REFUSAL IS WORTH SAYING OUT LOUD (POD-2907). Everything else here
+      // is ordinary background bookkeeping and belongs at debug; `coordinator`
+      // is this server declining to replace itself, on a path that once did,
+      // and the incident it comes from was investigable only because somebody
+      // still had the journal. It fires once per reconnect while this host is
+      // behind, which is rare and is exactly when a reader wants to see it.
+      if (decision.because === 'coordinator') {
+        log.info('reconciler left this coordinator alone — a handover needs an update operation', {
+          machineId,
+          targetVersion: target?.version,
+        })
+        return 'refused'
+      }
       log.debug('reconciler left a machine alone', {
         machineId,
         because: decision.because,
@@ -466,7 +538,13 @@ export class UpdateReconciler {
       return 'refused'
     }
 
-    const outcome: MachineApplyOutcome = this.deps.updates.authorizeMachine(asMachineId(machineId))
+    const outcome: MachineApplyOutcome = this.deps.updates.authorizeMachine(
+      asMachineId(machineId),
+      {
+        initiator: { kind: 'reconciliation', event: this.wokenBy },
+        eligibility: `behind ${target?.version ?? 'the published target'} after reconnecting`,
+      },
+    )
     if (key !== undefined) this.attempts.set(key, attempts + 1)
     if (outcome.result !== 'granted') {
       // `authorizeMachine` re-asks the same questions against the same fleet, so

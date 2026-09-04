@@ -23,6 +23,7 @@ import {
 import { SessionRegistry } from './relay'
 import { RepoRegistry } from './repo-registry'
 import { OPERATOR } from './test-support/capabilities'
+import { forceFeature } from './test-support/features'
 
 const registries: SessionRegistry[] = []
 afterEach(() => {
@@ -32,6 +33,10 @@ afterEach(() => {
 type TurnReq = Extract<ControlMessage, { type: 'headlessTurnRequest' }>
 
 async function harness(opts?: { eventReadLimit?: number }) {
+  // The belt's search tools only exist where the full-text index does (PDM-25),
+  // and that is decided when the store is constructed — so force the flag on
+  // through config BEFORE the registry mints its store.
+  forceFeature('command-palette', true)
   const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
   registries.push(registry)
   // Every headless turn the fake daemon saw. Turns auto-resolve ok so the

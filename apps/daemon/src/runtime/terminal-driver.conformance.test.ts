@@ -1,0 +1,627 @@
+/**
+ * THE TERMINAL DRIVER UNDER THE DRIVER CONFORMANCE CORPUS (POD-1761 W3).
+ *
+ * ---------------------------------------------------------------------------
+ * THE REAL DRIVER, A FIXTURE WORLD
+ * ---------------------------------------------------------------------------
+ *
+ * Every line of `terminal-driver.ts` and of the ported injection state machine
+ * runs here. What is faked is the WORLD the driver's host port describes: a PTY
+ * that records what was typed and echoes a user turn back the way a CLI does, a
+ * durable host that is alive until something reaps it, and an observation stream
+ * a test can post to. That is the same split the corpus's own header describes —
+ * "the PROPERTIES stay identical; only the way the world is nudged differs".
+ *
+ * WHY NOT A REAL CLAUDE SESSION HERE. The plan is explicit about which lane
+ * proves which receipt: the e2e harness (`tests/e2e/serve-harness.ts`) runs a
+ * keyecho jig, not a real harness, so no hook ever fires there. Hook-anchored
+ * acceptance is therefore proven at the FIXTURE level — by feeding the injected
+ * hook port a real `UserPromptSubmit` payload (see the sibling
+ * `terminal-driver.test.ts`) — and the flag-on e2e lane proves echo-based
+ * acceptance and `unverified`. Running the corpus against a live agent would
+ * make its timing assertions a flake generator and would prove less, not more.
+ *
+ * ---------------------------------------------------------------------------
+ * TIME IS VIRTUAL, AND THAT IS A CORRECTNESS DECISION
+ * ---------------------------------------------------------------------------
+ *
+ * The injection ladder waits real seconds by design (1.6s per verification tick,
+ * a 4.8s window). A corpus that waited them out would take a minute and would
+ * still be racing. So the fixture's clock advances to each timer as it fires:
+ * ORDER is preserved exactly, durations are honoured exactly, and nothing is
+ * skipped — only the wall-clock waiting is removed. A property that passed here
+ * because a timer was dropped would fail the ordering assertions immediately.
+ */
+
+import type { PendingInteraction } from '@podium/agent-runtime'
+import { TERMINAL_PERMITTED_FAILURES } from '@podium/agent-runtime'
+import type { ConformanceControl, ConformanceTarget } from '@podium/agent-runtime/testing'
+import {
+  assertArchiveHonoursItsDeclaration,
+  defaultAskFor,
+  runConformance,
+} from '@podium/agent-runtime/testing'
+import type { AgentRuntimeState, ResumeRef, SessionId, TranscriptItem } from '@podium/model'
+import type { AgentObservation } from '@podium/protocol'
+import type { DaemonMessage } from '@podium/protocol/daemon'
+import { describe, expect, it } from 'vitest'
+import {
+  createTerminalRuntime,
+  type TerminalHarnessProfile,
+  type TerminalRuntime,
+  type TerminalRuntimeHost,
+} from './terminal-driver'
+
+/**
+ * A generic-PTY harness: no causal hook channel, submit-verification on, screen
+ * classifier interactions.
+ *
+ * THE HARDEST PROFILE ON PURPOSE. It is the one that has to reach `unverified`
+ * honestly, uses the raw first-turn path, and has at-least-once interactions,
+ * so it exercises the terminal family's permitted failures and staging decline.
+ * A Claude profile would pass
+ * more of the corpus for a reason that says nothing about the family.
+ */
+const PROFILE: TerminalHarnessProfile = {
+  driverId: 'generic-pty',
+  sendProof: ['transcript-echo'],
+  hookAnchoredAccept: false,
+  needsSubmitVerification: true,
+  usesRawFirstTurn: true,
+  archivable: false,
+  reportsContextPercent: false,
+}
+
+/** The bracketed-paste envelope, parsed without a regex: the escape bytes are
+ *  literal control characters, which a `RegExp` literal cannot carry legibly. */
+const PASTE_START = '\u001b[200~'
+const PASTE_END = '\u001b[201~'
+const pastedText = (text: string): string | undefined =>
+  text.startsWith(PASTE_START) && text.endsWith(PASTE_END)
+    ? text.slice(PASTE_START.length, text.length - PASTE_END.length)
+    : undefined
+
+interface VirtualTimer {
+  at: number
+  fn: () => void
+  cancelled: boolean
+}
+
+/** One fixture world plus the driver runtime standing on it. */
+/**
+ * THE ONE HARNESS FACT THIS FILE VARIES, and it is a fact about the HARNESS
+ * rather than about the driver: whether this CLI writes a handoff transcript
+ * somewhere the daemon can locate and copy.
+ *
+ * `archivable: false` — the default and the hardest profile — makes
+ * `capabilities().archive` an `unsupported` declaration, so this driver reaches
+ * only the REFUSAL arm of the corpus's archive judgement. Every terminal harness
+ * Podium actually ships (Claude, Codex, Grok) declares a locator and takes the
+ * other arm, which nothing here would ever have exercised. See the second
+ * `describe` at the bottom of this file.
+ */
+interface WorldOptions {
+  archivable?: boolean
+}
+
+function makeWorld(options: WorldOptions = {}): {
+  target: ConformanceTarget
+  profile: TerminalHarnessProfile
+} {
+  const profile: TerminalHarnessProfile = { ...PROFILE, archivable: options.archivable ?? false }
+  let runtime: TerminalRuntime | undefined
+  let clock = Date.UTC(2026, 7, 14)
+  let timers: VirtualTimer[] = []
+  let draining = false
+  let nextId = 0
+
+  const alive = new Map<string, boolean>()
+  const phases = new Map<SessionId, AgentRuntimeState>()
+  const suppressEcho = new Set<SessionId>()
+  const turnEpochs = new Map<SessionId, number>()
+  const bridgeOf = new Map<SessionId, { write(dataBase64: string): void; pid: number }>()
+  const pendingPaste = new Map<SessionId, string>()
+  /** Deliveries of the caller's TEXT, counted at the PTY. A bracketed paste is
+   *  one delivery; the CR and the bounded verification nudges that follow it are
+   *  the same delivery finishing, not new ones. */
+  const deliveries = new Map<SessionId, number>()
+  /**
+   * THE HARNESS'S OWN SESSION STORE, AS FAR AS THIS FIXTURE MODELS IT (POD-2703).
+   *
+   * `resumeRefTiming: 'first-turn'` is the terminal family's declared floor, and
+   * the driver learns the ref from ONE place: a `sessionResumeRef` observation,
+   * which a real harness produces once it has written its transcript file. This
+   * fixture posted none, so every session it ran was permanently unresumable —
+   * `binding.resume` stayed `null`, `hibernate()` refused forever, and
+   * `export()` threw before it ever reached the archivable check.
+   *
+   * That was invisible while the corpus only reached the post-restart world
+   * through `adopt()`, which needs no ref at all. It is not a detail the corpus
+   * can be relaxed around: the declaration is a PROMISE that a ref arrives, so a
+   * fixture that never delivers one is describing a different harness.
+   *
+   * WHEN IT ARRIVES, and the two cases are genuinely different worlds:
+   *   - a FRESH launch has no store until the first turn is written, so the ref
+   *     lands with the first echoed user turn — which is what `first-turn` means;
+   *   - a RESUMED launch is handed the ref it is resuming; that store already
+   *     exists on disk, so the harness reports it as soon as it is up.
+   */
+  const resumeRefs = new Map<SessionId, ResumeRef>()
+  const storeWritten = new Set<SessionId>()
+  /**
+   * THE HARNESS'S TRANSCRIPT FILES, KEYED BY RESUME REF (POD-2703, review 1).
+   *
+   * `readTranscript` returned `[]` and `readFileBytes` returned a constant, so
+   * this fixture had no conversation at all: a resumed session's history was
+   * empty, its archive carried a fixed string, and both were identical to a
+   * fresh session's. Every corpus property that asked only about the REF was
+   * satisfied by that, which is exactly the hole the review found — a mutant
+   * whose `resume()` took the fresh-create path passed all four resume tests.
+   *
+   * KEYED BY RESUME VALUE, not by session id, and that is the point: the file
+   * is what outlives the process. `resume()` mints a NEW podium session id and
+   * points the relaunched CLI at the same store, so a fixture keyed by session
+   * id would lose the conversation at exactly the moment it is meant to prove it
+   * survived.
+   */
+  const transcripts = new Map<string, TranscriptItem[]>()
+
+  /**
+   * WHICH FILE THIS CLI IS ACTUALLY READING — decided at LAUNCH, never by what
+   * the driver claims (POD-2703, review 1 follow-up).
+   *
+   * I WAS STILL TRUSTING A CLAIM INSTEAD OF THE THING. That is the whole rule,
+   * and this is the second time in one issue it caught me. The review's finding
+   * was that the corpus asserted on the resume REF rather than on the
+   * conversation the ref addresses; the first repair fixed the properties and
+   * then keyed THIS lookup on `session.resume` — the ref the DRIVER reports.
+   * Same mistake, one level down, and it kept the review's own mutant alive on
+   * this family: a `resume()` that relaunches the CLI FRESH, with no `--resume`,
+   * while still reporting the requested ref was handed back the old
+   * conversation, because the fixture answered the ref rather than the process.
+   * Green suite, and an agent with no context at all.
+   *
+   * A CLI READS THE STORE IT WAS POINTED AT when it started. `resumeRefs` is
+   * exactly that record: the ref a resuming launch carried, or the fresh id a
+   * plain launch minted for itself. Keyed here, a fixture cannot hand back a
+   * conversation the process it models never opened — which is the entire
+   * difference between "the session came back" and "a new session is wearing
+   * its name".
+   *
+   * DO NOT KEY THIS ON `session.resume`. It will look equivalent, every test
+   * will pass, and the one property this fixture exists to make falsifiable
+   * will stop being able to fail.
+   */
+  const transcriptFor = (sessionId: SessionId): TranscriptItem[] => {
+    const launched = resumeRefs.get(sessionId)
+    return launched ? (transcripts.get(launched.value) ?? []) : []
+  }
+
+  const postResumeRef = (sessionId: SessionId): void => {
+    if (storeWritten.has(sessionId)) return
+    const resume = resumeRefs.get(sessionId)
+    if (!resume) return
+    storeWritten.add(sessionId)
+    runtime?.observe({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
+  }
+
+  const labelFor = (sessionId: SessionId): string => `podium-${sessionId}`
+  const iso = (): string => new Date(clock).toISOString()
+
+  /**
+   * Fire timers one at a time, advancing the clock to each.
+   *
+   * ONE PER TASK, earliest first: the injection machine interleaves awaits with
+   * timers, so firing a batch synchronously would run a later timer before the
+   * promise the earlier one resolved had a chance to continue.
+   *
+   * A MACROTASK RATHER THAN A MICROTASK, and the difference is the whole reason
+   * the queue drain was untestable here (POD-2085). On `queueMicrotask` the
+   * virtual clock ran to exhaustion inside one turn of the event loop, so
+   * anything the WORLD scheduled in real time — the `bind` frame below is the
+   * one that matters — was infinitely late: the drain burned its entire 25s
+   * virtual deadline and abandoned the queue before the session was ever live.
+   * Yielding to the macrotask queue lets real-time fixture events interleave
+   * with virtual ones while keeping the ordering guarantee above, and it made
+   * this file FASTER (838ms of test time against 3s), because the properties
+   * that were waiting out a doomed 25s drain now stop waiting.
+   */
+  const pump = (): void => {
+    if (draining) return
+    draining = true
+    setTimeout(() => {
+      draining = false
+      timers = timers.filter((timer) => !timer.cancelled)
+      if (timers.length === 0) return
+      timers.sort((a, b) => a.at - b.at)
+      const next = timers.shift()
+      if (next) {
+        clock = Math.max(clock, next.at)
+        next.fn()
+      }
+      if (timers.length > 0) pump()
+    }, 0)
+  }
+
+  /** The world's own view of a session's transcript, fed back the way a CLI's
+   *  native store would produce it. */
+  const echoUserTurn = (sessionId: SessionId, text: string): void => {
+    const item: TranscriptItem = {
+      id: `item-${++nextId}`,
+      cursor: `c${nextId}`,
+      role: 'user',
+      ts: iso(),
+      text,
+    }
+    // THE CLI WROTE ITS TRANSCRIPT FILE. Same moment the turn is echoed on the
+    // screen, because that is when a real harness appends — which is why a
+    // session killed mid-conversation is still resumable.
+    const resume = resumeRefs.get(sessionId)
+    if (resume) {
+      const file = transcripts.get(resume.value) ?? []
+      file.push(item)
+      transcripts.set(resume.value, file)
+    }
+    runtime?.observe({ type: 'transcriptDelta', sessionId, items: [item] })
+    // The harness has now written its store. `first-turn` is that moment.
+    postResumeRef(sessionId)
+  }
+
+  const observation = (
+    sessionId: SessionId,
+    transitionKind: AgentObservation['transitionKind'],
+    nextPhase: AgentRuntimeState['phase'],
+  ): AgentObservation => {
+    const turnEpoch = turnEpochs.get(sessionId) ?? 0
+    return {
+      podiumSessionId: sessionId,
+      provider: 'claude-code',
+      providerSessionId: `native-${sessionId}`,
+      bindingVersion: 1,
+      providerTurnId: null,
+      providerPromptId: null,
+      observerGeneration: 1,
+      providerCursor: { segmentId: `seg-${sessionId}`, components: { transcript: ++nextId } },
+      providerAt: iso(),
+      receivedAt: iso(),
+      sourceEventKind: 'fixture',
+      transitionKind,
+      provenance: 'live',
+      inputOrigin: 'human',
+      turnEpoch,
+      priorPhase: phases.get(sessionId)?.phase ?? 'unknown',
+      nextPhase,
+      transitionId: `t-${++nextId}`,
+      state: { phase: nextPhase, since: iso(), nativeSubagentCount: 0 },
+    }
+  }
+
+  const host: TerminalRuntimeHost = {
+    stageAttachment: async ({ source }) => {
+      const id = 'attachment-' + ++nextId
+      return {
+        id,
+        path: '/tmp/' + id + '-' + source.filename,
+        filename: source.filename,
+        mediaType: source.mediaType,
+        kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+      }
+    },
+    send: () => {
+      // The frames a real daemon would forward. Nothing in the corpus reads them:
+      // every property is stated against the CONTRACT surface, which is the whole
+      // reason one corpus can run against every family.
+    },
+    bridge: (sessionId) => bridgeOf.get(sessionId),
+    trackedState: (sessionId) => phases.get(sessionId),
+    draftSyncing: () => false,
+    durableLabel: labelFor,
+    scopeUnit: () => undefined,
+    durableHostAlive: async (label) => alive.get(label) === true,
+    stopSession: ({ sessionId, durableLabel }) => {
+      alive.set(durableLabel, false)
+      bridgeOf.delete(sessionId)
+    },
+    launch: async (msg) => {
+      const label = labelFor(msg.sessionId)
+      alive.set(label, true)
+      // A RESUMED launch is handed the conversation it is reopening; a fresh one
+      // will mint its own when the first turn is written. Either way the ref the
+      // harness reports later is THIS one — a fixture that invented a new value
+      // on resume would be modelling a harness that forked the conversation.
+      resumeRefs.set(
+        msg.sessionId,
+        msg.resume ?? { kind: 'fixture-transcript', value: `native-${msg.sessionId}` },
+      )
+      phases.set(msg.sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
+      turnEpochs.set(msg.sessionId, 0)
+      // THE CLI CAME UP. A real daemon says so with a `bind` frame — the same one
+      // `Session.markLive` flips the server's status on — and the queue drain
+      // waits for it, because typing into a session that is still painting is the
+      // POD-549 no-op. A fixture that skipped it would leave every session
+      // permanently `starting` and quietly disable the drain it means to test.
+      //
+      // AND IT ARRIVES ON A MACROTASK, WHICH IS NOT A DETAIL (POD-2085). The
+      // driver registers the session AFTER `launch()` resolves, and it drops any
+      // frame naming a session it has not registered yet. A `queueMicrotask`
+      // here therefore delivered the bind BEFORE registration, every time: the
+      // frame was discarded, `live` stayed false, and the ready-poll drain
+      // abandoned every queued turn at its deadline without typing — the exact
+      // silent loss this fixture's own comment says it exists to prevent. It went
+      // unnoticed because no property looked at what a queued turn DOES until
+      // POD-2085 added one. A real bind crosses a socket long after the spawn
+      // call returns; one macrotask is the smallest honest way to say so.
+      setTimeout(() => {
+        runtime?.observe({
+          type: 'bind',
+          sessionId: msg.sessionId,
+          cmd: 'fixture',
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          geometry: { cols: 120, rows: 40 },
+        })
+        // The store this launch was pointed at already exists on disk, so the
+        // harness reports it as soon as it is up rather than at a first turn it
+        // is not going to be the author of.
+        if (msg.resume) postResumeRef(msg.sessionId)
+      })
+      bridgeOf.set(msg.sessionId, {
+        pid: 4242,
+        write: (dataBase64) => {
+          const text = Buffer.from(dataBase64, 'base64').toString('utf8')
+          const paste = pastedText(text)
+          if (paste !== undefined) {
+            pendingPaste.set(msg.sessionId, paste)
+            deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
+            return
+          }
+          if (text !== '\r') {
+            // Grok's first prompt is raw text followed by CR. Model that path
+            // without mistaking ESC (interrupt) for user text; later turns use
+            // bracketed paste once the transcript records the first user turn.
+            if ((turnEpochs.get(msg.sessionId) ?? 0) === 0 && text !== '\u001b') {
+              pendingPaste.set(msg.sessionId, text)
+              deliveries.set(msg.sessionId, (deliveries.get(msg.sessionId) ?? 0) + 1)
+            }
+            return
+          }
+          const pasted = pendingPaste.get(msg.sessionId)
+          if (pasted === undefined) return
+          pendingPaste.delete(msg.sessionId)
+          // A CLI that is NOT going to accept this turn simply records nothing —
+          // which is exactly what an unprovable send looks like from outside.
+          if (suppressEcho.delete(msg.sessionId)) return
+          turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
+          echoUserTurn(msg.sessionId, pasted)
+        },
+      })
+    },
+    readTranscript: async (session, range) =>
+      // The harness's own file, read back — the one THIS process opened, not the
+      // one the driver says it is on; see `transcriptFor`. Anchors are not
+      // modelled: no corpus property pages this, and inventing an anchor scheme
+      // here would be fixture behaviour nothing verifies against the real reader.
+      transcriptFor(session.sessionId).slice(-range.limit),
+    archiveTranscript: async ({ resumeValue }) => {
+      // A HARNESS WITH NO LOCATOR CANNOT BE ASKED, and the driver is required to
+      // stop at its own capability check before it gets here — this throw is the
+      // fixture refusing to be the reason the refusal arm passes.
+      if (!profile.archivable) throw new Error('fixture harness declares no handoff transcript')
+      return {
+        // ABSOLUTE, as a real locator is: it names a file on THIS machine. What
+        // the archive carries is the driver's own archive-relative rendering of
+        // it, which is the distinction the corpus's path assertions turn on.
+        path: `/home/agent/.fixture/sessions/${resumeValue}.jsonl`,
+        relativeDir: 'fixture/sessions',
+      }
+    },
+    readFileBytes: async (path) => {
+      /**
+       * THE SESSION'S OWN TRANSCRIPT, byte for byte — not a constant naming the
+       * path (POD-2703, review 1). The constant made every export assertion
+       * above it metadata-only: the reviewer swapped each driver's payload for
+       * one garbage byte and the suite stayed green, and here the payload
+       * already was one.
+       */
+      const value = /\/([^/]+)\.jsonl$/.exec(path)?.[1] ?? ''
+      const items = transcripts.get(value) ?? []
+      return new TextEncoder().encode(items.map((item) => JSON.stringify(item)).join('\n') + '\n')
+    },
+    resources: () => undefined,
+    now: () => clock,
+    setTimer: (fn, delayMs) => {
+      const timer: VirtualTimer = { at: clock + delayMs, fn, cancelled: false }
+      timers.push(timer)
+      pump()
+      return timer
+    },
+    clearTimer: (handle) => {
+      ;(handle as VirtualTimer).cancelled = true
+    },
+  }
+
+  const control: ConformanceControl = {
+    askInteraction(sessionId, spec) {
+      const id = `ask-${++nextId}`
+      phases.set(sessionId, { phase: 'needs_user', since: iso(), nativeSubagentCount: 0 })
+      const interaction: PendingInteraction = {
+        id,
+        sessionId,
+        ...(typeof spec === 'string' ? defaultAskFor(spec) : spec),
+        askedAt: iso(),
+        // The classifier is what sees a menu on a screen; it is the family's
+        // source wherever there is no hook channel, and it is why the identity
+        // below is best-effort.
+        source: 'screen-classifier',
+        answerable: 'keystroke-emulated',
+      }
+      runtime?.control.askInteraction(sessionId, interaction)
+      return id
+    },
+    reaskInteraction(sessionId, id) {
+      // A RE-RENDERED MENU MINTS A SECOND ID FOR THE SAME LOGICAL ASK. That is
+      // the at-least-once weakness the permitted-failures table names, produced
+      // here rather than described.
+      void id
+      return control.askInteraction(sessionId, 'permission')
+    },
+    completeTurn(sessionId) {
+      phases.set(sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
+      runtime?.observe({
+        type: 'agentObservation',
+        observation: observation(sessionId, 'turn_terminal', 'idle'),
+      } as DaemonMessage)
+    },
+    processEvent(sessionId, ev) {
+      if (ev.ev !== 'exited') return
+      runtime?.observe({ type: 'agentExit', sessionId, code: ev.code ?? 0 })
+    },
+    textDeliveries(sessionId) {
+      // Counted at the PTY paste, which is where this family's words reach the
+      // agent: the queue drain types, so a queued turn counts when it drains and
+      // not when it was accepted into the queue (rule 3).
+      return deliveries.get(sessionId) ?? 0
+    },
+    failNextVerification(sessionId) {
+      // THE WORLD STOPS ECHOING, AND THAT IS ALL. The driver has no switch that
+      // makes a send answer `unverified`; it reaches that outcome by running its
+      // real ladder — bracketed paste, CR, two bounded retries, a 4.8s window —
+      // and finding no proof at the end of it. This is the same thing the flag-on
+      // e2e lane does, and it is why this property means something.
+      suppressEcho.add(sessionId)
+    },
+    restartSupervisor() {
+      // Handles die; the durable hosts in `alive` do not. That is a daemon
+      // restart, and it is what `adopt()` then has to find.
+      runtime?.control.restartSupervisor()
+    },
+    connectWithoutSecret() {
+      // A terminal session exposes no network endpoint, so there is nothing to
+      // authenticate. Stated rather than skipped.
+      return { refused: false }
+    },
+  }
+
+  return {
+    profile,
+    target: {
+      name: 'generic-pty',
+      family: 'terminal',
+      createDriver: () => {
+        runtime = createTerminalRuntime(host)
+        return { driver: runtime.driverFor('grok', profile), control }
+      },
+      reset: () => {
+        runtime?.dispose()
+        runtime = undefined
+        clock = Date.UTC(2026, 7, 14)
+        timers = []
+        nextId = 0
+        alive.clear()
+        phases.clear()
+        suppressEcho.clear()
+        turnEpochs.clear()
+        bridgeOf.clear()
+        pendingPaste.clear()
+        deliveries.clear()
+        resumeRefs.clear()
+        storeWritten.clear()
+        transcripts.clear()
+      },
+      spec: () => ({
+        harness: 'grok',
+        selection: { auth: 'subscription', platform: 'linux', available: ['generic-pty'] },
+        workdir: '/tmp/conformance',
+        model: {},
+        instructions: { supported: false, reason: 'fixture' },
+        mcpServers: { supported: false, reason: 'fixture' },
+      }),
+    },
+  }
+}
+
+const { target } = makeWorld()
+/**
+ * The one body of properties, run against the REAL terminal driver.
+ *
+ * `exemptions` is a CLAIM the suite checks, not a set of skips it obeys: it must
+ * equal the terminal family's row in `PERMITTED_FAILURES` exactly, so this
+ * driver fails both by claiming a weakness the family does not permit and by
+ * exhibiting one it did not claim. A property that does not hold is a driver fix
+ * or an argued addition to that table — never a skip here.
+ */
+runConformance(target.createDriver, {
+  name: target.name,
+  family: target.family,
+  reset: target.reset,
+  spec: target.spec,
+  exemptions: TERMINAL_PERMITTED_FAILURES,
+})
+
+/**
+ * THE OTHER ARM, ON THE SAME REAL DRIVER (POD-2703).
+ *
+ * ---------------------------------------------------------------------------
+ * WHY THE ARM WAS UNREACHABLE, AND WHAT THAT LEFT UNGUARDED
+ * ---------------------------------------------------------------------------
+ *
+ * The profile above declares `archivable: false`, deliberately — it is the
+ * hardest one, and it is what makes this file exercise the family's permitted
+ * failures. But it also makes `capabilities().archive` an `unsupported`
+ * declaration, so the run above only ever reaches "export() must reject". Every
+ * terminal harness Podium actually ships declares a locator, which means the
+ * whole of `terminal-driver.ts`'s `export()` — the locate, the read, the
+ * archive-RELATIVE path it builds out of an ABSOLUTE one, the binding it copies
+ * field by field so the pid and cgroup scope stay on this machine — was guarded
+ * by nothing at all.
+ *
+ * WHY NOT A SECOND FULL `runConformance`. Nothing else in the corpus reads
+ * `archivable`, so a second whole-corpus pass would re-prove ~40 properties to
+ * reach one branch. The suite exports its archive judgement for exactly this,
+ * and using the exported function rather than a copy is what keeps the two arms
+ * from drifting apart.
+ */
+describe('generic-pty on a harness that DOES declare a handoff transcript', () => {
+  it('produces a portable archive rather than refusing', async () => {
+    const world = makeWorld({ archivable: true })
+    world.target.reset()
+    const { driver, control } = world.target.createDriver()
+    const spec = world.target.spec()
+    const session = await driver.create(spec)
+
+    // `resumeRefTiming: 'first-turn'` for this family, and `export()` refuses
+    // without a ref — so the archive arm is only reachable through a real turn.
+    // THE TURN'S TEXT IS THE WITNESS the archive must carry: metadata alone
+    // stayed green against a payload replaced by one garbage byte (POD-2703
+    // review 1), so this world plants a string and looks for it in the bytes.
+    const witness = 'podium-witness-terminal-archivable'
+    await session.send({ text: witness }, { origin: 'human', delivery: 'when-ready' })
+    await control.completeTurn(session.binding.sessionId)
+    for (let i = 0; i < 200 && !session.binding.resume; i++) {
+      await new Promise((resolve) => setTimeout(resolve, 5))
+    }
+    expect(session.binding.resume).not.toBeNull()
+
+    await assertArchiveHonoursItsDeclaration(session, driver, witness)
+    world.target.reset()
+  })
+
+  it('still refuses before the harness has written its store', async () => {
+    const world = makeWorld({ archivable: true })
+    world.target.reset()
+    const { driver } = world.target.createDriver()
+    const session = await driver.create(world.target.spec())
+
+    // DECLARING A LOCATOR IS NOT THE SAME AS HAVING A FILE. This family's ref
+    // arrives at the first turn, so before one there is nothing an archive
+    // could name — and this is the one world where that is reachable at all:
+    // the run above declares no archive, so it refuses one screen earlier for a
+    // different reason and cannot tell a fabricated ref from an absent one.
+    expect(driver.capabilities().archive.supported).toBe(true)
+    expect(session.binding.resume).toBeNull()
+    // No conversation yet, so no witness to look for — only the refusal arm is
+    // reachable here, and it does not read one.
+    await assertArchiveHonoursItsDeclaration(session, driver, null)
+    world.target.reset()
+  })
+})

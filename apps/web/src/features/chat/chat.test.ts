@@ -4,8 +4,11 @@ import {
   FileLinkPathIndex,
   FILE_LINK_PATH_CAP,
   buildChatRows,
+  deadLetteredOperatorMessages,
   dedupeByCursor,
   freshOlderPage,
+  markPendingSendingDelivered,
+  markPendingSendingFailed,
   isBatchableTool,
   mergeByCursor,
   pairToolResults,
@@ -17,6 +20,38 @@ import {
   toolRunFailures,
 } from './chat'
 
+describe('markPendingSendingFailed', () => {
+  it('fails only a send that has not crossed the delivery boundary', () => {
+    const pending = [
+      { id: 'sending', text: 'one', at: 1, state: 'sending' as const },
+      { id: 'sent', text: 'two', at: 2, state: 'sent' as const },
+      { id: 'queued', text: 'three', at: 3, state: 'queued' as const },
+      { id: 'failed', text: 'four', at: 4, state: 'failed' as const, failure: 'old' },
+    ]
+    expect(markPendingSendingFailed(pending, 'quota exhausted')).toEqual([
+      { id: 'sending', text: 'one', at: 1, state: 'failed', failure: 'quota exhausted' },
+      { id: 'sent', text: 'two', at: 2, state: 'sent' },
+      { id: 'queued', text: 'three', at: 3, state: 'queued' },
+      { id: 'failed', text: 'four', at: 4, state: 'failed', failure: 'old' },
+    ])
+  })
+})
+
+describe('markPendingSendingDelivered', () => {
+  it('settles only the matching in-flight bubble before a later provider error', () => {
+    const pending = [
+      { id: 'delivered', text: 'one', at: 1, state: 'sending' as const },
+      { id: 'other', text: 'two', at: 2, state: 'sending' as const },
+    ]
+    const delivered = markPendingSendingDelivered(pending, 'delivered')
+
+    expect(markPendingSendingFailed(delivered, 'quota exhausted')).toEqual([
+      { id: 'delivered', text: 'one', at: 1, state: 'sent' },
+      { id: 'other', text: 'two', at: 2, state: 'failed', failure: 'quota exhausted' },
+    ])
+    expect(markPendingSendingDelivered(pending, 'missing')).toBe(pending)
+  })
+})
 const tool = (toolName: string, id: string): TranscriptItem => ({
   id,
   role: 'tool',
@@ -331,6 +366,15 @@ describe('mergeByCursor', () => {
     expect(merged.map((i) => i.id)).toEqual(['a', 'b', 'c'])
   })
 
+  it('keeps distinct positional rows when provider UUID is null', () => {
+    const first = it_('first', cursor('same-file', 10))
+    const second = it_('second', cursor('same-file', 20))
+
+    const merged = mergeByCursor([first], [second])
+
+    expect(merged.map((item) => item.id)).toEqual(['first', 'second'])
+  })
+
   it('returns prev unchanged when every delta item is a duplicate', () => {
     const prev = [it_('a', 'c1'), it_('b', 'c2')]
     const merged = mergeByCursor(prev, [it_('b', 'c2')])
@@ -438,10 +482,7 @@ describe('FileLinkPathIndex (AgentPanel file-link delta contract)', () => {
 
   it('caps retained history so a marathon transcript cannot grow the index forever', () => {
     const index = new FileLinkPathIndex(3)
-    index.add([
-      pathItem('a', ['/1.ts', '/2.ts']),
-      pathItem('b', ['/3.ts', '/4.ts']),
-    ])
+    index.add([pathItem('a', ['/1.ts', '/2.ts']), pathItem('b', ['/3.ts', '/4.ts'])])
     expect(index.knownPaths.size).toBe(3)
     expect([...index.knownPaths]).toEqual(['/2.ts', '/3.ts', '/4.ts'])
     expect(FILE_LINK_PATH_CAP).toBeGreaterThan(3)
@@ -542,5 +583,39 @@ describe('sameItems', () => {
 
   it('fails when the same length holds different items', () => {
     expect(sameItems([it_('a', 'c1')], [it_('b', 'c2')])).toBe(false)
+  })
+})
+
+describe('dead-lettered operator messages reaching the transcript', () => {
+  const row = (extra: Record<string, unknown>) => ({
+    id: 'msg_1',
+    from: 'operator',
+    to: 'session:s1',
+    status: 'dead_letter',
+    body: 'here is the screenshot',
+    createdAt: '2026-08-25T18:00:00.000Z',
+    ...extra,
+  })
+
+  // THE SECOND SURFACE, AND THE ONE THAT OUTLIVES THE FIRST [POD-2574]. The
+  // in-flight bubble renders the driver's refusal from the thrown cause; this
+  // mapper renders the SETTLED row, and it is what the user is left looking at.
+  // While the synchronous refusal recorded no cause, this returned the fallback
+  // — a claim that the session was gone, made about a session that is running.
+  it('does not tell the user the target is gone when a driver refused the file', () => {
+    const [message] = deadLetteredOperatorMessages(
+      [row({ deliveryDeferredReason: 'delivery-failed' })],
+      's1' as never,
+    )
+    expect(message?.failure).toBe('not delivered · delivery failed')
+    expect(message?.failure).not.toContain('target gone')
+  })
+
+  // The fallback is deliberately left alone for rows that really have no cause:
+  // narrowing it here would hide every OTHER dead letter that still records
+  // nothing (POD-2782), rather than fixing them.
+  it('still falls back when the row records no cause at all', () => {
+    const [message] = deadLetteredOperatorMessages([row({})], 's1' as never)
+    expect(message?.failure).toBe('dead-lettered · target gone')
   })
 })

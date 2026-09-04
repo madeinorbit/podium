@@ -1,0 +1,144 @@
+{
+  "cell": "A4B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4b",
+  "at": "2026-08-28T16:26:43.339Z",
+  "pin": {
+    "cell": "A4B",
+    "at": "2026-08-28T16:26:43.358Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "5cef0dd",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1875467",
+    "daemonPid": "1875670",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18284316 kB",
+      "SwapFree": "41212476 kB"
+    },
+    "rootFreeKiB": 82195976,
+    "load1m": 5.46,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a4b",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a4b",
+      "exists": true,
+      "files": 5
+    }
+  },
+  "verdict": "PASS",
+  "summary": "second answer returned a typed error without a double action",
+  "control": {
+    "fired": true,
+    "what": "the session attach/transcript becoming live before the ask answer test",
+    "detail": "items=2"
+  },
+  "evidence": [
+    "ASK               {\"id\":\"ixn_1033a486-daab-4797-a30a-f859a598ed05\",\"sessionId\":\"3754da2a-1931-4714-92bf-055035fe714b\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"claude-code\",\"reason\":\"auth-expired\"},\"askedAt\":\"2026-08-28T16:26:46.792Z\",\"source\":\"protocol\",\"answerable\":\"keystro",
+    "FIRST             {\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}",
+    "SECOND            {\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}",
+    "TYPED ERROR       true"
+  ],
+  "data": {
+    "sid": "3754da2a-1931-4714-92bf-055035fe714b",
+    "probe": {
+      "asks": [
+        {
+          "id": "ixn_1033a486-daab-4797-a30a-f859a598ed05",
+          "sessionId": "3754da2a-1931-4714-92bf-055035fe714b",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "claude-code",
+            "reason": "auth-expired"
+          },
+          "askedAt": "2026-08-28T16:26:46.792Z",
+          "source": "protocol",
+          "answerable": "keystroke-emulated",
+          "status": "asked",
+          "fingerprint": "e265eeab65fd5904aae6fc9f430a6cb5"
+        },
+        {
+          "id": "ixn_17437dc4-7fb6-4202-865f-9accc73f0660",
+          "sessionId": "3754da2a-1931-4714-92bf-055035fe714b",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "authentication",
+            "reason": "auth-expired"
+          },
+          "askedAt": "2026-08-28T16:26:46.811Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "status": "asked",
+          "fingerprint": "85277f4858b51cf9077d71b292bca8b0"
+        }
+      ],
+      "terminal": false,
+      "chatFrame": true,
+      "ms": 2011
+    },
+    "first": {
+      "result": {
+        "data": {
+          "ok": false,
+          "reason": "unknown-interaction",
+          "detail": "answer is for a permission ask; this one is login"
+        }
+      }
+    },
+    "second": {
+      "result": {
+        "data": {
+          "ok": false,
+          "reason": "unknown-interaction",
+          "detail": "answer is for a permission ask; this one is login"
+        }
+      }
+    },
+    "typed": true
+  }
+}

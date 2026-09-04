@@ -1,4 +1,5 @@
 import type { JSX, ReactNode } from 'react'
+import { reloadLog } from '@/lib/logging/update-logs'
 import { type BootField, BootScreen, type BootTrace } from './BootScreen'
 
 export function formatAppError(error: unknown, fallback = 'Something went wrong'): string {
@@ -26,10 +27,19 @@ export type ReloadWindow = { location: { reload: () => void; href: string } }
  * — some embedded webviews restrict it — re-assign the current URL, which any
  * navigable context honours.
  */
-export function reloadApp(win: ReloadWindow = window): void {
+export function reloadApp(win: ReloadWindow = window, reason = 'app-error-page'): void {
+  // Named and forwarded like every other self-triggered navigation (POD-3224).
+  // This one keeps its own href fallback rather than going through
+  // `navigateReload`, because the fallback IS the reason it exists.
+  reloadLog.info('reloading the page', { site: 'app-error', reason })
   try {
     win.location.reload()
-  } catch {
+  } catch (err) {
+    reloadLog.warn('location.reload() was refused; re-assigning the current URL', {
+      site: 'app-error',
+      reason,
+      err,
+    })
     const { href } = win.location
     win.location.href = href
   }
@@ -104,7 +114,7 @@ export function AppErrorPage({
       fields={fields}
       trace={trace}
       detail={detail}
-      primary={{ label: 'Reload interface', onClick: () => reloadApp(win) }}
+      primary={{ label: 'Reload interface', onClick: () => reloadApp(win, 'user-pressed-reload') }}
       secondary={onRetry ? { label: retryLabel, onClick: onRetry } : undefined}
     />
   )

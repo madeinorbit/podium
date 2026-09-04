@@ -91,8 +91,12 @@ async function listGrokSummaryFiles(sessionsRoot: string): Promise<ConversationP
 
     for (const sessionDir of sessionDirs.sort(compareDirentNames)) {
       if (!sessionDir.isDirectory()) continue
-      const summaryPath = join(workspacePath, sessionDir.name, 'summary.json')
-      if (await pathExists(summaryPath)) files.push({ path: summaryPath })
+      const sessionPath = join(workspacePath, sessionDir.name)
+      const summaryPath = join(sessionPath, 'summary.json')
+      const chatHistoryPath = join(sessionPath, 'chat_history.jsonl')
+      if (await pathExists(summaryPath) && (await pathExists(chatHistoryPath))) {
+        files.push({ path: chatHistoryPath })
+      }
     }
   }
 
@@ -113,7 +117,7 @@ async function summarizeFile(
 
   let raw: string
   try {
-    raw = await readFile(file.path, 'utf8')
+    raw = await readFile(join(dirname(file.path), 'summary.json'), 'utf8')
   } catch (cause) {
     return { diagnostics: [readDiagnostic(root, file.path, cause)] }
   }
@@ -171,7 +175,7 @@ async function summarizeGrokSummary(
     compactText(stringField(summary, 'generated_title'))
   const sessionDir = dirname(file)
   const relatedPaths = await existingPaths([
-    join(sessionDir, 'chat_history.jsonl'),
+    join(sessionDir, 'summary.json'),
     join(sessionDir, 'updates.jsonl'),
   ])
 
@@ -201,7 +205,7 @@ async function summarizeGrokSummary(
 }
 
 async function loadConversation(summary: AgentConversationSummary): Promise<AgentConversation> {
-  const chatPath = join(dirname(summary.source.path), 'chat_history.jsonl')
+  const chatPath = summary.source.path
   let parsed: { records: unknown[]; diagnostics: AgentConversationDiagnostic[] }
   try {
     const text = await readFile(chatPath, 'utf8')

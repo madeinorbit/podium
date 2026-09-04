@@ -9,7 +9,6 @@ import {
   maskSystemdUnitsRuntime,
   removeUserUnits,
   renderDaemonUnit,
-  renderJanitorUnit,
   renderParentUnit,
   renderServerUnit,
   renderSystemdFiles,
@@ -120,26 +119,6 @@ describe('renderDaemonUnit', () => {
   })
 })
 
-describe('renderJanitorUnit', () => {
-  it('runs one instance-scoped sibling after the server with blocked-version restart fencing', () => {
-    const u = renderJanitorUnit({ port: 18787 })
-    expect(u).toContain('Description=Podium durable maintenance janitor')
-    expect(u).toContain('After=network-online.target podium-server.service')
-    expect(u).toContain('Environment=PODIUM_PORT=18787')
-    expect(u).toContain('ExecStart=%h/.local/bin/podium janitor\n')
-    expect(u).toContain('Restart=always')
-    expect(u).toContain('RestartPreventExitStatus=78')
-  })
-
-  it('binds a named janitor only to its named server and command', () => {
-    const u = renderJanitorUnit({ instanceId: 'blue', port: 23000 })
-    expect(u).toContain('Environment=PODIUM_INSTANCE=blue')
-    expect(u).toContain('Environment=PODIUM_PORT=23000')
-    expect(u).toContain('After=network-online.target podium-blue-server.service')
-    expect(u).toContain('ExecStart=%h/.local/bin/podium-blue janitor\n')
-  })
-})
-
 describe('renderParentUnit', () => {
   it('is Type=notify with watchdog, Restart=always, takeover, interactive tier', () => {
     const u = renderParentUnit()
@@ -211,9 +190,12 @@ describe('migration systemd operations', () => {
     expect(derivedDefault).not.toBe(configuredPort)
 
     // This is the population the topology migration starts from, not a fresh
-    // parent-only install: three packaged role units remain live until the new
-    // parent proves healthy. All three must resolve the operator's configured
-    // port through the same runtime source for that entire safety window.
+    // parent-only install: the packaged role units remain live until the new
+    // parent proves healthy, and each must resolve the operator's configured
+    // port through the same runtime source for that entire safety window. The
+    // legacy janitor unit is no longer among them because nothing renders one
+    // any more (PDM-27) — retiring the one an old install already has on disk
+    // is the migration's job, asserted in role-reconcile.test.ts.
     const legacyUnits = {
       server: renderServerUnit({ profile: 'packaged', instanceId, port: configuredPort }),
       daemon: renderDaemonUnit({
@@ -222,7 +204,6 @@ describe('migration systemd operations', () => {
         port: configuredPort,
         local: true,
       }),
-      janitor: renderJanitorUnit({ instanceId, port: configuredPort }),
     }
     const resolvedPorts = Object.fromEntries(
       Object.entries(legacyUnits).map(([role, unit]) => [
@@ -237,7 +218,6 @@ describe('migration systemd operations', () => {
     ).toEqual({
       server: String(configuredPort),
       daemon: String(configuredPort),
-      janitor: String(configuredPort),
     })
   })
 

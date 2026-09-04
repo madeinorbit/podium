@@ -1,4 +1,4 @@
-import { AlertTriangle, X } from 'lucide-react-native'
+import { AlertTriangle, X } from './icons'
 import { StyleSheet, Text, View } from 'react-native'
 import { useMobileShell } from '../client/shell'
 import { color, font, leading, radius, sans, space } from '../theme/theme'
@@ -16,7 +16,7 @@ export function StorageNoticeAlert() {
 
   return (
     <View accessibilityRole="alert" style={styles.alert} testID="storage-notice-alert">
-      <Icon as={AlertTriangle} size={17} color={color.danger} />
+      <Icon as={AlertTriangle} size={17} color={color.dangerText} />
       <Text style={styles.message}>{notice.message}</Text>
       <PressableScale
         accessibilityRole="button"

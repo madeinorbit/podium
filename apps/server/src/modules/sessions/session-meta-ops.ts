@@ -5,8 +5,14 @@
  * Dispose: none.
  */
 
-
-import type { Attribution, IssueId, SessionId, TranscriptItem, UserId, WorkState } from '@podium/model'
+import type {
+  Attribution,
+  IssueId,
+  SessionId,
+  TranscriptItem,
+  UserId,
+  WorkState,
+} from '@podium/model'
 import { asUserId } from '@podium/model'
 import type { ObservationInputOrigin } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -31,6 +37,7 @@ export interface SessionMetaOpsPorts {
   state: any
   store: any
   toMachine: any
+  toPtyInput: any
   view: any
 }
 
@@ -73,7 +80,9 @@ export class SessionMetaOps {
       return
     }
     session.offer = offer
-    this.ports.repository.persist(session, () => this.ports.store.sessions.setOffer(sessionId, offer))
+    this.ports.repository.persist(session, () =>
+      this.ports.store.sessions.setOffer(sessionId, offer),
+    )
     this.ports.broadcastSessions()
   }
 
@@ -97,7 +106,8 @@ export class SessionMetaOps {
     // Those callers therefore never retire a corrupt row; only `podium offer
     // clear` and `dismissOffer` reach it, and widening their guards to this
     // read is not worth a per-turn query.
-    if (!clearedInMemory && this.ports.store.sessions.offerCreatedAt(sessionId) === undefined) return
+    if (!clearedInMemory && this.ports.store.sessions.offerCreatedAt(sessionId) === undefined)
+      return
     if (!session) {
       this.ports.store.sessions.clearOffer(sessionId)
       return
@@ -161,12 +171,18 @@ export class SessionMetaOps {
     sessionId: SessionId
     until: string | null
   }): void {
-    this.ports.state.setSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId, until)
+    this.ports.state.setSnooze(
+      this.ports.view.principalForTrustedUser(asUserId(userId)),
+      sessionId,
+      until,
+    )
   }
 
-
   clearSnooze(userId: UserId, sessionId: SessionId): void {
-    this.ports.state.clearSnooze(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+    this.ports.state.clearSnooze(
+      this.ports.view.principalForTrustedUser(asUserId(userId)),
+      sessionId,
+    )
   }
 
   /**
@@ -190,7 +206,10 @@ export class SessionMetaOps {
    *  null ⇒ unread) flips back to true, then broadcast. Marking MY copy unread
    *  never touches yours. No-op for an unknown session. */
   markSessionUnread(userId: UserId, sessionId: SessionId): void {
-    this.ports.state.markUnread(this.ports.view.principalForTrustedUser(asUserId(userId)), sessionId)
+    this.ports.state.markUnread(
+      this.ports.view.principalForTrustedUser(asUserId(userId)),
+      sessionId,
+    )
   }
 
   /**
@@ -227,7 +246,6 @@ export class SessionMetaOps {
     })
   }
 
-
   setWorkState({
     sessionId,
     workState,
@@ -261,7 +279,6 @@ export class SessionMetaOps {
     return this.ports.sessionTeardown.tryAutoArchiveStoppedObserved(observed, nowMs)
   }
 
-
   continueSession({ sessionId }: { sessionId: SessionId }): { ok: boolean } {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return { ok: false }
@@ -271,11 +288,10 @@ export class SessionMetaOps {
     if (session.status !== 'live' && session.status !== 'starting') return { ok: false }
     if (session.agentState?.phase !== 'errored') return { ok: false }
     session.terminal.recordInputActivity(this.ports.now(), 'auto_continue')
-    this.ports.toMachine(session.machineId, {
-      type: 'input',
+    this.ports.toPtyInput(session.machineId, {
       sessionId,
       inputOrigin: 'auto_continue',
-      data: Buffer.from('continue\r').toString('base64'),
+      bytes: Buffer.from('continue\r'),
     })
     return { ok: true }
   }
@@ -304,10 +320,7 @@ export class SessionMetaOps {
    * mutation (rename/archive/read/issue attachment/work state) goes through
    * here instead of hand-rolling persist+broadcast.
    */
-  mutateSessionMeta(
-    sessionId: SessionId,
-    write: (session: Session) => void | (() => void),
-  ): void {
+  mutateSessionMeta(sessionId: SessionId, write: (session: Session) => void | (() => void)): void {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
     this.ports.funnel.run({
@@ -367,7 +380,6 @@ export class SessionMetaOps {
       payload: { sessionId, attribution },
     })
   }
-
 
   prepareIssueSessionDelete(issueId: IssueId, worktreePath: string | null): SessionDeletePlan {
     const localMetas = [...this.ports.sessions.values()].map((s) =>

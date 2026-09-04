@@ -1,0 +1,126 @@
+{
+  "cell": "A2A",
+  "driver": "default-headed",
+  "cwd": "/tmp/pod-3112-paired-r4/probes/default-headed-a2a",
+  "at": "2026-08-30T02:38:25.527Z",
+  "pin": {
+    "cell": "A2A",
+    "at": "2026-08-30T02:38:25.550Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "6cdb699e2ba648d5af4dac7bbd64512529d11a4e",
+    "pinSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "serverSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "daemonSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "6cdb699",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2551347",
+    "daemonPid": "2551567",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18804344 kB",
+      "SwapFree": "40428516 kB"
+    },
+    "rootFreeKiB": 69101824,
+    "load1m": 4.26,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r4/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "working push arrived within 2s, with no flicker and pushed final idle",
+  "control": {
+    "fired": true,
+    "what": "the direct push observer receiving both a working state and the assistant nonce",
+    "detail": "assistant=true; workingReceiveMs=1211.121939999999"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "SEND ROUND-TRIP   1814ms (excluded)",
+    "TIMING            PASS receive=1211.121939999999ms source=1198ms",
+    "MID-TURN FLICKERS 0",
+    "PUSHED FINAL IDLE true"
+  ],
+  "data": {
+    "sid": "98c60e8d-98e5-4061-b7a1-e023513946ce",
+    "sendRoundTripMs": 1814,
+    "assessment": {
+      "verdict": "PASS",
+      "timing": "PASS",
+      "firstWorkingReceiveMs": 1211.121939999999,
+      "sourceDeltaMs": 1198,
+      "flickers": [],
+      "finalIdle": true,
+      "assistantNonceAtMonoMs": 14264.088783,
+      "reason": "working push arrived within 2s, with no flicker and pushed final idle"
+    },
+    "pushes": [
+      {
+        "receiveMonoMs": 13561.988946,
+        "receiveWallMs": 1788057518999,
+        "state": {
+          "phase": "working",
+          "since": "2026-08-30T02:38:38.903Z",
+          "workingMsTotal": 0,
+          "nativeSubagentCount": 0,
+          "stateSource": "poll",
+          "stateConfidence": 0.7,
+          "stateObservedAt": "2026-08-30T02:38:38.986Z"
+        },
+        "phase": "working",
+        "since": "2026-08-30T02:38:38.903Z",
+        "stateObservedAt": "2026-08-30T02:38:38.986Z"
+      },
+      {
+        "receiveMonoMs": 15263.65554,
+        "receiveWallMs": 1788057520701,
+        "state": {
+          "phase": "idle",
+          "since": "2026-08-30T02:38:39.366Z",
+          "workingMsTotal": 463,
+          "nativeSubagentCount": 0,
+          "idle": {
+            "kind": "done",
+            "summary": "1\n2\n3\n4\n5\n6\n7\n8\n9\n10\n11\n12\nP3112-A2A-MTF7A174"
+          },
+          "stateSource": "poll",
+          "stateConfidence": 0.7,
+          "stateObservedAt": "2026-08-30T02:38:39.692Z"
+        },
+        "phase": "idle",
+        "since": "2026-08-30T02:38:39.366Z",
+        "stateObservedAt": "2026-08-30T02:38:39.692Z"
+      }
+    ]
+  }
+}

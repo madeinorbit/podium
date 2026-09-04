@@ -3,15 +3,21 @@ import type {
   Attribution,
   Geometry,
   IssueId,
+  MachineId,
   ResumeRef,
   SessionId,
   SessionMeta,
   TranscriptItem,
   WorkState,
-  MachineId,
 } from '@podium/model'
-import { type AgentKind, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
-import { spawnedByParentSessionId } from '@podium/model'
+import {
+  type AgentKind,
+  asMachineId,
+  asSessionId,
+  asUserId,
+  spawnedByParentSessionId,
+  type UserId,
+} from '@podium/model'
 
 /**
  * WHO a session wire projection is being built for — the explicit argument
@@ -42,7 +48,15 @@ export interface SessionRoutingFacts {
 import { randomUUID } from 'node:crypto'
 import { basename } from 'node:path'
 import { computePriorities, FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MachinePrincipal, Principal } from '@podium/protocol'
+import type {
+  DaemonPtyInputBatch,
+  DaemonPtyOutputBatch,
+  InteractionEvent,
+  MachinePrincipal,
+  PendingInteraction,
+  Principal,
+} from '@podium/protocol'
+import type { TurnEvent } from '@podium/protocol/daemon'
 import {
   type AgentInstruction,
   AUTO_ARCHIVE_READ_WINDOW_MS,
@@ -58,7 +72,7 @@ import {
   type SubscriptionRegistry,
   type SyncChangesSinceResult,
 } from '@podium/protocol'
-import { type ControlMessage, type DaemonMessage } from '@podium/protocol/daemon'
+import type { ControlMessage, DaemonMessage, TurnReceipt } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
 import {
   DEVICE_GRADE_PRINCIPAL,
@@ -77,7 +91,7 @@ import { isFeatureEnabled } from '../../features'
 import type { BrowserOpenGateway } from '../../gateway/browser-open'
 import type { SessionsClientFrame } from '../../gateway/client-frame-routing'
 import type { ClientPrincipal } from '../../gateway/client-principal'
-import { type ClientConn, type ClientRegistry } from '../../gateway/client-registry'
+import type { ClientConn, ClientRegistry } from '../../gateway/client-registry'
 import type { SessionsDaemonFrame } from '../../gateway/daemon-frame-routing'
 import {
   harnessCapabilitiesFor,
@@ -120,16 +134,20 @@ import {
   inboxActorColumns,
   inboxActorFromColumns,
   inboxPrincipalFromCommand,
-  SessionInbox,
+  type SessionInbox,
   SYSTEM_INBOX_PRINCIPAL,
 } from './inbox'
 // Still used by the lazy workspace-fetch path (POD-658), which shares the
 // source-side bundle-base handshake and the chunked transfer with handoff.
 import type { PreparedSessionInstructions } from './instructions'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
+import type { ReceiptSender, ReceiptSendInput, ReceiptSendVia } from './receipt-send'
+import type { SessionRuntimeGateway } from './runtime-gateway'
+import type { TurnPreviewAccumulator } from './turn-preview'
 import { DEFAULT_GEOMETRY } from './session-shared'
 import type { SessionSpawnResult } from './session-start'
 
+export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 export type { SessionSpawnResult }
 // Re-exported for `relay.ts`, which imports both from here. Neither is
 // DECLARED here: DEFAULT_GEOMETRY lives in session-shared.ts (three
@@ -137,40 +155,41 @@ export type { SessionSpawnResult }
 // that produces it. POD-302's registry names declaration SITES, so pointing
 // it at a re-export is what went stale after the extraction.
 export { DEFAULT_GEOMETRY }
-export { APPLIED_MUTATIONS_MAX_AGE_MS } from './session-shared'
 
+import type { SessionActivityHistory, SessionActivityHistoryResult } from './activity-history'
 import type { AgentConcurrencyHistory, AgentConcurrencyHistoryResult } from './concurrency-history'
 import type { SessionLaunchConfig } from './launch-config'
 import type { SessionMachineReconciler } from './machine-reconciler'
-import { normalizeAgentName } from './naming'
 import type { SessionNaming } from './naming'
+import { normalizeAgentName } from './naming'
 import { SessionObservationLeases } from './observation-leases'
 import type { SessionBroadcastCoordinator } from './publication/broadcast'
-import type { SessionRepository, SessionProjectionEvent } from './repository'
+import type { SessionProjectionEvent, SessionRepository } from './repository'
 import type { Session } from './session'
 import { assertMayCommandSession, resolveSessionTarget } from './session-access'
-import type { SessionBindingReceipts } from './session-binding'
-import type { SessionStart } from './session-start'
-import type { SessionTeardown } from './session-teardown'
-import type { SessionKill } from './session-kill'
-import type { SessionClientPlane } from './session-client-plane'
 import type { SessionAuthz } from './session-authz'
+import type { SessionBindingReceipts } from './session-binding'
+import type { SessionClientPlane } from './session-client-plane'
+import type { SessionKill } from './session-kill'
 import type { SessionMetaOps } from './session-meta-ops'
 import type { SessionRevival } from './session-revival'
-import { wireSessionLifecycle } from './session-wiring'
+import type { SessionStart } from './session-start'
 import { SessionStateRegistry, sessionStatePrincipalFor } from './session-state/registry'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
+import type { SessionTeardown } from './session-teardown'
+import { wireSessionLifecycle } from './session-wiring'
 import type { SessionTerminalProof, TerminalProofStatus } from './terminal-proof'
 import type { SessionListCaller, SessionView } from './view'
 import type { SessionWorkspace } from './workspace'
 
 /** Composition types — live in session-lifecycle-types.ts (POD-1396). */
 export type {
-  SessionLedger,
   SessionDeletePlan,
-  SessionRestorePlan,
+  SessionLedger,
   SessionLifecycleDeps,
+  SessionRestorePlan,
 } from './session-lifecycle-types'
+
 import type { SessionLifecycleDeps } from './session-lifecycle-types'
 
 /** Session lifecycle runtime + composition boundary (POD-1396 facade). */
@@ -207,6 +226,8 @@ export class SessionLifecycle {
   private readonly toMachine = (machineId: MachineId, msg: ControlMessage): void =>
     this.machines.toMachine(machineId, msg)
   private readonly rpc!: DaemonRpcService
+  private readonly toPtyInput = (machineId: MachineId, input: DaemonPtyInputBatch): void =>
+    this.machines.toPtyInput(machineId, input)
   readonly headless!: HeadlessService
   /** Durable viewer/shared-surface state, isolated behind explicit ports. */
   readonly state!: SessionStateService
@@ -217,9 +238,11 @@ export class SessionLifecycle {
   readonly sendText!: SessionInbox['sendText']
   readonly interruptText!: SessionInbox['interruptText']
   readonly interruptTurn!: SessionInbox['interruptTurn']
+  readonly configureSession!: SessionInbox['configureSession']
   readonly queueText!: SessionInbox['queueText']
   readonly cancelQueuedMessage!: SessionInbox['cancelQueuedMessage']
   readonly hasQueuedMessage!: SessionInbox['hasQueuedMessage']
+  readonly queuedMessagePosition!: SessionInbox['queuedMessagePosition']
   readonly resumeAndSend!: SessionInbox['resumeAndSend']
   readonly answerAskUserQuestion!: (input: {
     sessionId: SessionId
@@ -244,6 +267,84 @@ export class SessionLifecycle {
   private readonly funnel!: WriteFunnel
   readonly clientControl!: SessionClientControl
   readonly daemonProjection!: SessionDaemonProjection
+  /** The Agent Runtime contract's server half (POD-1761 W3): the pass-through
+   *  for the five machine verbs, the durable completion of `queue`, and the sink
+   *  for the driver's causal stream. No caller routes through it until W4. */
+  readonly runtimeGateway!: SessionRuntimeGateway
+  /** The in-progress turn's preview fold (POD-2293). Absent when the machine
+   *  switch is off — the plane is not constructed at all, so an unflagged server
+   *  runs no listener and holds no per-session preview state. */
+  turnPreviews?: TurnPreviewAccumulator
+  /** The send seam W4's migrated callers route through: one legacy-shaped answer
+   *  now, one honest receipt to reconcile with later, and the single place the
+   *  per-session contract flag is read. */
+  readonly receiptSender!: ReceiptSender
+  /**
+   * THE MIGRATED SEND VERB (POD-1761 W4) — what `sendText` / `queueText` /
+   * `interruptText` / `resumeAndSend` above collapse into.
+   *
+   * An arrow rather than a bound field because `receiptSender` is assigned by
+   * the composition function below this declaration: reading it inside the
+   * closure defers the read to call time, which is what keeps the construction
+   * -order audit satisfied without reordering the wiring.
+   *
+   * The four verbs stay exported beside it, and not only for the legacy path —
+   * `ReceiptSender` itself calls them when a session has no driver behind it.
+   * They are the flag-off implementation, not dead weight awaiting deletion.
+   */
+  readonly receiptSend = (
+    via: ReceiptSendVia,
+    input: ReceiptSendInput,
+    onReceipt?: (receipt: TurnReceipt) => void,
+  ): { ok: boolean; queued?: boolean; position?: number; reason?: string } =>
+    this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
+  /**
+   * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
+   * interactions aggregate exists.
+   *
+   * LATE-BOUND, and it has to be: the aggregate is built after session wiring
+   * (it takes `sessionById` and the delivery gate, which are session-owned), so
+   * a constructor argument here would be a cycle. The daemon lifecycle reads it
+   * through a closure, which the construction-order audit permits precisely
+   * because a deferred read cannot observe the unassigned value.
+   *
+   * `undefined` until then, and a frame that arrives first is dropped rather
+   * than queued — a server-family session cannot exist before the aggregate
+   * does, because nothing can spawn one until the server is serving.
+   */
+  interactionAsk?: (msg: {
+    sessionId: SessionId
+    interaction: PendingInteraction
+  }) => void
+  /**
+   * THE FAILURE SINK (POD-2414), late-bound for the same reason and on the same
+   * terms as {@link interactionAsk} above.
+   *
+   * Every coarse turn boundary the runtime event gate commits is handed over,
+   * not only the failures: the aggregate opens an ask on a needs-human failure
+   * AND closes the stale one when a turn proves the session is running again,
+   * and both halves have to see the same stream to stay in step.
+   *
+   * The returned promise is awaited by the gate's projector before its durable
+   * cursor advances, so this must be safe to repeat.
+   */
+  interactionTurn?: (msg: {
+    sessionId: SessionId
+    ev: TurnEvent
+    at: string
+  }) => void | Promise<void>
+  /**
+   * THE RESOLUTION SINK (POD-2414), late-bound like its two siblings.
+   *
+   * `runtimeInteractionAsked` carries only the `asked` arm, so a protocol ask
+   * resolved inside the harness's own UI had nothing to retire it. The coarse
+   * stream's `interaction` events carry `answered` and `expired` too, and this
+   * is where they reach the aggregate.
+   */
+  interactionResolved?: (msg: {
+    sessionId: SessionId
+    ev: InteractionEvent
+  }) => void | Promise<void>
   private readonly daemonLifecycle!: SessionDaemonLifecycle
   readonly workspace!: SessionWorkspace
   readonly view!: SessionView
@@ -253,6 +354,8 @@ export class SessionLifecycle {
   private readonly bindingReceipts!: SessionBindingReceipts
   /** Durable 12-hour fleet-concurrency read model for the global status strip. */
   private readonly concurrencyHistory!: AgentConcurrencyHistory
+  /** Durable per-session phase-transition log for the waterfall's segments. */
+  private readonly activityHistory!: SessionActivityHistory
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
   private readonly activityFlushTimer = setInterval(() => this.repository.flushActivity(), 12_000)
@@ -268,7 +371,17 @@ export class SessionLifecycle {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
   }
   dispose(): void {
+    // Ahead of everything else: it owns coalescing timers, and a timer that
+    // fires into a half-disposed registry publishes into sessions that are gone.
+    this.turnPreviews?.dispose()
+    // Same hazard, one step further out (POD-2842): the outbox drain re-arms
+    // itself on a timer and every wake-up reads the queue table, so a shutdown
+    // taken while a row is in flight woke into the store `server.ts` closes
+    // right after this call. Stopping it loses nothing — the row is durable and
+    // the next bind re-drains it.
+    this.inbox.dispose()
     this.concurrencyHistory.dispose()
+    this.activityHistory.dispose()
     this.autoContinue.dispose()
     clearInterval(this.activityFlushTimer)
     this.browserOpen.dispose()
@@ -321,6 +434,9 @@ export class SessionLifecycle {
   }
   agentConcurrencyHistory(): AgentConcurrencyHistoryResult {
     return this.concurrencyHistory.history()
+  }
+  sessionActivityHistory(sessionIds: readonly SessionId[]): SessionActivityHistoryResult {
+    return this.activityHistory.history(sessionIds)
   }
   /** The member sessions of ONE issue, without wiring the rest [POD-1639].
    *  Same set and same fields as `sessionsForIssue(path, listSessions(), id)`;
@@ -504,6 +620,7 @@ export class SessionLifecycle {
       sessionId: SessionId
       force?: boolean
       selfStop?: boolean
+      reapParked?: boolean
       stopReason?: 'self' | 'parent' | 'forced'
       principal?: CommandPrincipal
     },
@@ -524,6 +641,7 @@ export class SessionLifecycle {
       issueId: IssueId
       force?: boolean
       callerSessionId?: SessionId
+      reapParked?: boolean
       principal?: CommandPrincipal
     },
     issues: SessionIssueWorkflowPort,
@@ -647,10 +765,16 @@ export class SessionLifecycle {
   onSessionClientFrame(...args: any[]): void {
     ;(this.sessionClientPlane as any).onSessionClientFrame(...args)
   }
+  onSessionClientInput(...args: any[]): void {
+    ;(this.sessionClientPlane as any).onSessionClientInput(...args)
+  }
   onSessionDaemonFrame(principal: MachinePrincipal, msg: SessionsDaemonFrame): void {
     this.daemonLifecycle.handle(principal, msg)
   }
-  transcriptFor(...args: any[]): any {
+  onSessionDaemonOutput(principal: MachinePrincipal, batch: DaemonPtyOutputBatch): void {
+    this.daemonLifecycle.handleOutput(principal, batch)
+  }
+  transcriptFor(...args: any[]): TranscriptItem[] {
     return (this.sessionMetaOps as any).transcriptFor(...args)
   }
   broadcastToClients(msg: LiveServerMessage, opts: { exceptClientId?: string } = {}): void {

@@ -1,0 +1,121 @@
+{
+  "cell": "A9",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
+  "at": "2026-08-28T16:45:17.024Z",
+  "pin": {
+    "cell": "A9",
+    "at": "2026-08-28T16:45:17.045Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "e4d4ecf097da9191cd6c9a953b36f5acbc40b17d",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "e4d4ecf",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1989048",
+    "daemonPid": "2028082",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19246980 kB",
+      "SwapFree": "41213372 kB"
+    },
+    "rootFreeKiB": 81960484,
+    "load1m": 2.56,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a9",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a9",
+      "exists": true,
+      "files": 4
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session process tree was gone immediately and after five minutes",
+  "control": {
+    "fired": true,
+    "what": "a claude-sdk-host child alive in the session before the kill — without one there is nothing that could be orphaned",
+    "detail": "hostChildren=2 pids=[2029635,2029635]; screenBytes=0"
+  },
+  "evidence": [
+    "KILL              {\"result\":{}}",
+    "BEFORE            [{\"pid\":2029635,\"ppid\":2028082,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"},{\"pid\":2029635,\"ppid\":0,\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a9\",\"cmd\":\"/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts\"}]",
+    "AFTER 5 MIN       []"
+  ],
+  "data": {
+    "sid": "58e84460-6936-4570-8bb1-b5795d9202d7",
+    "before": [
+      {
+        "pid": 2029635,
+        "ppid": 2028082,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      },
+      {
+        "pid": 2029635,
+        "ppid": 0,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a9",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      }
+    ],
+    "killed": {
+      "result": {}
+    },
+    "immediate": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "after": [],
+    "waitedMs": 300000
+  }
+}

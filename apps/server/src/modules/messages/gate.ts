@@ -86,6 +86,8 @@ export interface MessageGateDeps {
     machineId?: MachineId
     accountId?: AccountId | null
   }
+  /** Wait for the current daemon connection's first inventory before spawning. */
+  awaitMachineInventory?(machineId: MachineId): Promise<void>
   /** Resolve a named workflow execution profile. When a run + step are present,
    *  the workflow service returns the immutable snapshot pinned to that run. */
   resolveExecutionProfile?(input: {
@@ -140,6 +142,8 @@ export interface MessageWire {
   body: string
   createdAt: string
   status: string
+  /** Current 1-based position in the recipient session FIFO, read at projection time. */
+  queuePosition?: number
   ackedBy: string | null
   // Delivery-ledger fields (#237) [spec:SP-34d7 web] — additive, so the CLI
   // renderers ignore them; the web ledger view answers "what happened to my
@@ -159,6 +163,8 @@ export interface MessageWire {
   // "what happened to my message" answer that `podium mail status` renders.
   readAt: string | null
   deadLetteredAt: string | null
+  deliveryDeferredAt: string | null
+  deliveryDeferredReason: string | null
   /** A reply was requested [POD-835 §04b]: the recipient owes a response and the
    *  settle-nag will fire if none comes. Lets a reader see it must reply. */
   expectsResponse: boolean

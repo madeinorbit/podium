@@ -22,10 +22,11 @@
  *      (110x the cached 2s) on a host shared with a live Podium instance.
  */
 import { createHash } from 'node:crypto'
-import { existsSync, mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs'
-import { arch, homedir, platform, tmpdir } from 'node:os'
-import { isAbsolute, join, resolve, sep } from 'node:path'
+import { existsSync, mkdirSync, readdirSync, readFileSync } from 'node:fs'
+import { arch, cpus, freemem, homedir, platform } from 'node:os'
+import { join } from 'node:path'
 import { type InstallTopology, readInstallTopology } from './install-topology'
+import { sharedCacheDir } from './shared-cache-dir'
 import { readWorkspaceResolutionCensus } from './workspace-resolution-census'
 
 export interface ForceDecision {
@@ -174,56 +175,85 @@ export function admissionRefusal(census: EnvCensus, lane: string): string | null
   )
 }
 
-function projectCacheIdentity(root: string): string {
-  const dotGit = join(root, '.git')
-  if (!existsSync(dotGit)) return realpathSync(root)
-  const stat = statSync(dotGit)
-  const statTarget = stat.isFile() ? readFileSync(dotGit, 'utf8') : ''
-  const match = statTarget.match(/^gitdir: (.+)$/m)
-  const gitDir = match ? (match[1] ?? '') : dotGit
-  const absoluteGitDir = isAbsolute(gitDir) ? gitDir : resolve(root, gitDir)
-  // A linked worktree's gitfile points at <common-git-dir>/worktrees/<name>.
-  // Resolve this structurally instead of looking for a literal `worktrees` path segment:
-  // bare repositories and Windows path separators are both legitimate.
-  const worktreesParent = resolve(absoluteGitDir, '..', '..')
-  if (
-    stat.isFile() &&
-    absoluteGitDir !== worktreesParent &&
-    resolve(absoluteGitDir, '..').endsWith(`${sep}worktrees`)
-  ) {
-    return realpathSync(worktreesParent)
-  }
-  return realpathSync(absoluteGitDir)
+/**
+ * The Turbo cache lane of the shared durable cache root (see scripts/shared-cache-dir.ts,
+ * which holds the reasoning about the common-git-dir key and the base directory).
+ */
+export function sharedTurboCacheDir(root: string, env = process.env, home = homedir()): string {
+  return sharedCacheDir('turbo', root, env, home)
+}
+
+/** Peak RSS of one tsgo, rounded up from 817MB measured on this repo. The cap is
+ *  built on this number rather than on core count because RAM, not CPU, is what
+ *  runs out first: a 28-task graph at turbo's default of 10 wants ~8GB. */
+const COMPILER_MB = 900
+
+/** Headroom this gate refuses to spend. The daemon, every other agent session and
+ *  any live Podium instance share this machine, and a typecheck that takes the box
+ *  to the edge kills them rather than itself. 1.5GB is the floor below which work
+ *  on this host has been measured going bad — starved vitest runs taking minutes of
+ *  wall time for seconds of CPU, and tsgo dying with exit 144 and an empty log. */
+const RESERVE_MB = 1500
+
+/** MemAvailable, which is what the kernel thinks is obtainable without swapping —
+ *  `freemem()` undercounts badly because it ignores reclaimable page cache, and a
+ *  cap built on it would serialise a machine that is actually fine. */
+export function availableMb(meminfo?: string): number {
+  const text = meminfo ?? (existsSync('/proc/meminfo') ? readFileSync('/proc/meminfo', 'utf8') : '')
+  const match = text.match(/^MemAvailable:\s+(\d+) kB$/m)
+  if (match?.[1]) return Math.floor(Number(match[1]) / 1024)
+  return Math.floor(freemem() / 1024 / 1024)
 }
 
 /**
- * One durable cache per repository per host, shared by every sibling worktree.
+ * How many compilers this machine can run at once, right now.
  *
- * The key is the common git directory, so linked worktrees of one repository land in
- * the same place and a result produced in one is readable from the next — that sharing
- * is the whole return on the cache. Two things used to threaten it. TMPDIR is reminted
- * per agent session and per test file in this repository, so an XDG-less host silently
- * gave every session its own cache and its own cold start; and /tmp does not survive a
- * reboot. $HOME/.cache — the XDG default — is stable for both, so it is preferred over
- * the temporary directory, which now only catches a host with no usable home.
+ * Nothing capped this before. Turbo's default is 10, the graph has 28 tasks, and
+ * each tsgo peaks near a gigabyte — on a six-core box with 12GB shared between the
+ * daemon, every agent session and any live instance, that is how the machine dies.
+ * Two at 817MB and 739MB were measured together while the host sat at load 90 with
+ * 859MB free.
+ *
+ * The alternative that does NOT work is telling agents to check free memory and
+ * wait: nothing schedules them, so the outcome is an idle machine and work that
+ * never starts. The tool has the numbers, so the tool decides.
+ *
+ * An explicit `--concurrency` from the caller always wins — this only fills in a
+ * default that was never sensible.
  */
-export function sharedTurboCacheDir(root: string, env = process.env, home = homedir()): string {
-  const projectKey = createHash('sha256')
-    .update(projectCacheIdentity(root))
-    .digest('hex')
-    .slice(0, 16)
-  // Each candidate is only valid when absolute. A relative value is treated as unset:
-  // resolving it against each worktree would silently produce separate caches.
-  const cacheBase =
-    [env.XDG_CACHE_HOME, home && join(home, '.cache')].find(
-      (candidate): candidate is string => !!candidate && isAbsolute(candidate),
-    ) ?? join(tmpdir(), 'podium-cache')
-  return join(cacheBase, 'podium', 'turbo', projectKey)
+export function decideConcurrency(args: string[], env: { cores: number; availableMb: number }) {
+  if (args.some((a) => a === '--concurrency' || a.startsWith('--concurrency='))) {
+    return { cap: null as number | null, reason: 'caller set --concurrency' }
+  }
+  const byMemory = Math.floor(Math.max(0, env.availableMb - RESERVE_MB) / COMPILER_MB)
+  // Leave a core for the daemon and whatever else is live; never propose zero,
+  // because refusing to run at all is the failure mode we are avoiding, not a
+  // safety feature. One at a time is slow; it still finishes.
+  const byCores = Math.max(1, env.cores - 1)
+  const cap = Math.max(1, Math.min(byCores, byMemory))
+  return {
+    cap,
+    reason:
+      `${env.cores} cores, ${env.availableMb}MB available, ` +
+      `~${COMPILER_MB}MB per compiler, ${RESERVE_MB}MB reserved`,
+  }
 }
 
 export function turboEnv(root: string, census: EnvCensus): NodeJS.ProcessEnv {
   const cacheDir = process.env.TURBO_CACHE_DIR ?? sharedTurboCacheDir(root)
+  const existed = existsSync(cacheDir)
   mkdirSync(cacheDir, { recursive: true })
+  // Say it once, and require NOTHING of the reader. A cold cache is not a
+  // decision anyone has to make — turbo computes and fills it, which is correct
+  // and needs no help. The line exists only because the alternative is an agent
+  // watching an unusually slow run, inferring the cache is broken, and acting on
+  // it: re-running, forcing, or writing "a fresh worktree is a cold start" into a
+  // brief. That inference is what cost this epic time, not the run.
+  if (!existed || readdirSync(cacheDir).length === 0) {
+    console.error(
+      `cache at ${cacheDir} is empty — this run fills it. Nothing to do; the next run is fast.`,
+    )
+  }
   return {
     ...process.env,
     PODIUM_CHECK_ENV_HASH: fingerprint(census),
@@ -249,8 +279,20 @@ async function main() {
     process.exit(1)
   }
   if (decision.reason) console.error(`uncached run, reason: ${decision.reason}`)
+  const limit = decideConcurrency(decision.forwardArgs, {
+    cores: cpus().length,
+    availableMb: availableMb(),
+  })
+  const concurrencyArgs = limit.cap === null ? [] : [`--concurrency=${limit.cap}`]
+  if (limit.cap !== null) console.error(`typecheck concurrency ${limit.cap} (${limit.reason})`)
   const proc = Bun.spawn(
-    [join(root, 'node_modules', '.bin', 'turbo'), 'run', 'typecheck', ...decision.forwardArgs],
+    [
+      join(root, 'node_modules', '.bin', 'turbo'),
+      'run',
+      'typecheck',
+      ...concurrencyArgs,
+      ...decision.forwardArgs,
+    ],
     {
       cwd: root,
       stdio: ['inherit', 'inherit', 'inherit'],

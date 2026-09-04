@@ -9,6 +9,10 @@ permissions:
 # one, so the same tag drives the headless and desktop halves of one release to the same channel.
 # Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
 env:
+  # Pin the abduco cache back inside the checkout so actions/cache can name it as a
+  # `path`. The default is durable and outside the checkout (POD-3162), which is what a
+  # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
+  PODIUM_ABDUCO_CACHE_DIR: dist-bun/abduco-cache
   PODIUM_RELEASE_CHANNEL: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || 'stable' }}
   PODIUM_RELEASE_TAG: ${{ (github.event_name == 'workflow_dispatch' || contains(github.ref_name, '-edge.')) && 'edge' || github.ref_name }}
 concurrency:
@@ -27,19 +31,24 @@ jobs:
   # platforms costs one more compile each, not one more runner each.
   headless:
     name: cross-build all headless platforms
-    runs-on: blacksmith-4vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
+    env:
+      TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '1.3.14' }
       # zig cross-compiles the abduco helper. rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
-      - uses: mlugg/setup-zig@v1
-        with: { version: '0.16.0' }
-      - name: Install rcodesign
-        run: sudo -E bash scripts/ci-install-rcodesign.sh
+      # All three versions come from mise.toml — the one pin site dev machines share.
+      # That includes pigz, the parallel compressor for the release tarballs (optional at
+      # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
+      - uses: jdx/mise-action@v2
       # The abduco cache is content-addressed on the vendored source, so this key is the
-      # honest one: touch abduco.c and every platform's helper is rebuilt.
+      # honest one: touch abduco.c and every platform's helper is rebuilt. PODIUM_ABDUCO_CACHE_DIR
+      # pins it back inside the checkout: locally the default is a durable per-repository
+      # path outside it (POD-3162), which buys nothing on an ephemeral runner and cannot be
+      # named by an actions/cache `path`.
       - uses: actions/cache@v4
         with:
           path: dist-bun/abduco-cache
@@ -48,13 +57,29 @@ jobs:
         with:
           path: ~/.bun/install/cache
           key: headless-cross-${{ hashFiles('bun.lock') }}
+      # The client build cache (POD-3053). `release:prepare` builds web and mobile ONCE
+      # for the whole platform set through scripts/build-clients.ts; with this restored,
+      # a re-run for a commit CI has already built restores both instead. Same key shape
+      # as the ci.yml typecheck lane, with its own task suffix so the two never evict
+      # each other, and the same fall-back ladder: this SHA, then any build entry on
+      # this ref, then any entry for this lockfile.
+      - uses: actions/cache@v4
+        with:
+          path: /tmp/podium-cache/podium/turbo
+          key: turbo-${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-
+            turbo-${{ runner.os }}-bun-1.3.14-${{ hashFiles('bun.lock') }}-
       # --ignore-scripts: the compiled headless runtime uses Bun.Terminal and never
       # loads node-pty. esbuild ships a platform package.
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Build four signed headless bundles
         env:
           PODIUM_UPDATE_SIGNING_KEY: ${{ secrets.PODIUM_UPDATE_SIGNING_KEY }}
-        run: bun scripts/release.ts --channel "$PODIUM_RELEASE_CHANNEL" --prepare-cross
+        # --record: the build ledger's client half, uploaded with the assets so a
+        # release page's provenance -- which client build, restored or rebuilt, under
+        # which Turbo hashes -- survives the runner it was produced on.
+        run: bun run release:prepare -- --channel "$PODIUM_RELEASE_CHANNEL" --record dist-bun/release/record
       # Interrogate what will actually be uploaded, not the build tree it came from.
       # A wrong-architecture helper, a lost Darwin signature or a stub binary fails HERE,
       # before anything reaches a release page.
@@ -152,11 +177,30 @@ jobs:
 
   publish:
     needs: [headless, ab-check]
-    runs-on: blacksmith-2vcpu-ubuntu-2204
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: '1.3.14' }
+      # The stable bridge proof runs the privileged real-release lane against the
+      # prepared bytes. It skips the target build, but still packages the lane's
+      # isolated coordinator and therefore needs the checkout-local release
+      # toolchain. Edge never executes these setup steps or the proof.
+      - uses: jdx/mise-action@v2
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+      - uses: dtolnay/rust-toolchain@stable
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+      - name: Install checkout-local proof dependencies
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: bun install --frozen-lockfile --ignore-scripts
+      - name: Ensure the real-release base image is available
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: docker pull ubuntu:24.04
+      - name: Build the locked desktop signature verifier
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: >-
+          cargo build --release --locked
+          --manifest-path scripts/stable-candidate-minisign/Cargo.toml
       # Only the cross artifact. The native A/B leg stages under the same asset name and
       # must never reach the release.
       - uses: actions/download-artifact@v4
@@ -177,6 +221,40 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GITHUB_REPOSITORY: ${{ github.repository }}
         run: bun scripts/carry-forward-desktop-manifest.ts --channel "$PODIUM_RELEASE_CHANNEL" --dir dist-bun/release
+      # POD-2789 owns making this a complete, fail-closed pair. This issue starts
+      # exactly after that boundary: release.ts writes the final headless manifest
+      # without GH_TOKEN, then a byte-for-byte published v0.1.0 install must accept
+      # the complete candidate before any release create/upload can run.
+      - name: Prepare the complete stable candidate
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: bun scripts/release.ts --channel stable --tag "$PODIUM_RELEASE_TAG" --publish-dir dist-bun/release
+      - name: Seal the stable candidate bytes
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        run: |
+          snapshot="$RUNNER_TEMP/stable-release-candidate.json"
+          bun scripts/release-candidate-snapshot.ts \
+            --dir dist-bun/release --write "$snapshot"
+          echo "PODIUM_RELEASE_CANDIDATE_SNAPSHOT=$snapshot" >>"$GITHUB_ENV"
+      - name: Prove the stable candidate from published v0.1.0
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version="${PODIUM_RELEASE_TAG#v}"
+          PODIUM_UPDATE_E2E_ONLY=real-release \
+          PODIUM_UPDATE_E2E_REAL_TARGET_DIR="$GITHUB_WORKSPACE/dist-bun/release" \
+          PODIUM_UPDATE_E2E_REAL_TARGET_VERSION="$version" \
+          PODIUM_UPDATE_E2E_REAL_DESKTOP_VERIFIER="$GITHUB_WORKSPACE/scripts/stable-candidate-minisign/target/release/podium-stable-candidate-minisign" \
+          PODIUM_UPDATE_E2E_OUTPUT_DIR="$RUNNER_TEMP/stable-bridge-evidence" \
+            bash scripts/docker-update-e2e.sh
+      - name: Preserve stable bridge proof evidence
+        if: always() && env.PODIUM_RELEASE_CHANNEL == 'stable'
+        uses: actions/upload-artifact@v4
+        with:
+          name: stable-bridge-proof
+          path: ${{ runner.temp }}/stable-bridge-evidence
+          if-no-files-found: error
+          retention-days: 14
       - name: Publish one multi-platform release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -195,10 +273,7 @@ jobs:
       # Mach-O signature reader — and zig, to rebuild the reference abduco helpers it
       # checks the published binaries against. Without those references the embedded-helper
       # check could only be waived, and a waived check reads as a pass.
-      - uses: mlugg/setup-zig@v1
-        with: { version: '0.16.0' }
-      - name: Install rcodesign
-        run: sudo -E bash scripts/ci-install-rcodesign.sh
+      - uses: jdx/mise-action@v2
       - uses: actions/cache@v4
         with:
           path: dist-bun/abduco-cache

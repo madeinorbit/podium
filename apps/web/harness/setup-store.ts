@@ -63,7 +63,7 @@ const store = {
         query: async () => ({
           usage: 'absent',
           crash: 'absent',
-          endpoint: 'https://telemetry.podium.dev',
+          endpoint: 'https://pulse.meetpodium.com/v1/u',
         }),
       },
       set: { mutate: async () => ({ usage: 'off', crash: 'off' }) },

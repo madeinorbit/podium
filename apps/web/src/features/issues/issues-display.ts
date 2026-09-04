@@ -1,4 +1,14 @@
-import { orderIssues as coreOrderIssues, type IssuesOrdering } from '@podium/client-core/viewmodels'
+import {
+  confirmedWorkingAgentCount as coreConfirmedWorkingAgentCount,
+  confirmedWorkingAgentCountsByIssue as coreConfirmedWorkingAgentCountsByIssue,
+  orderIssues as coreOrderIssues,
+  readSharedIssuesDisplay,
+  type TaskProgress,
+  taskProgressMap,
+  type IssuesOrdering,
+  writeSharedIssuesDisplay,
+} from '@podium/client-core/viewmodels'
+import type { SessionMeta } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 
 export type IssuesLayout = 'board' | 'list'
@@ -32,20 +42,11 @@ export const DEFAULT_DISPLAY: IssuesDisplay = {
 }
 
 const LAYOUTS = new Set<string>(['board', 'list'])
-const ORDERINGS = new Set<string>(['priority', 'updated', 'created'])
-
 /** Parse a persisted display-options blob, falling back field-by-field so a
  *  stale or hand-edited value never breaks the view. */
 export function readIssuesDisplay(raw: string | null): IssuesDisplay {
-  if (!raw) return DEFAULT_DISPLAY
-  let v: unknown
-  try {
-    v = JSON.parse(raw)
-  } catch {
-    return DEFAULT_DISPLAY
-  }
-  if (typeof v !== 'object' || v == null) return DEFAULT_DISPLAY
-  const o = v as Record<string, unknown>
+  const shared = readSharedIssuesDisplay(raw)
+  const o = shared.source
   const badges = (typeof o.badges === 'object' && o.badges != null ? o.badges : {}) as Record<
     string,
     unknown
@@ -54,12 +55,9 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
     typeof badges[k] === 'boolean' ? (badges[k] as boolean) : DEFAULT_DISPLAY.badges[k]
   return {
     layout: LAYOUTS.has(String(o.layout)) ? (o.layout as IssuesLayout) : DEFAULT_DISPLAY.layout,
-    ordering: ORDERINGS.has(String(o.ordering))
-      ? (o.ordering as IssuesOrdering)
-      : DEFAULT_DISPLAY.ordering,
+    ordering: shared.ordering,
     flatten: typeof o.flatten === 'boolean' ? o.flatten : DEFAULT_DISPLAY.flatten,
-    showAgentTasks:
-      typeof o.showAgentTasks === 'boolean' ? o.showAgentTasks : DEFAULT_DISPLAY.showAgentTasks,
+    showAgentTasks: shared.showAgentTasks,
     badges: {
       labels: badge('labels'),
       type: badge('type'),
@@ -71,7 +69,11 @@ export function readIssuesDisplay(raw: string | null): IssuesDisplay {
 }
 
 export function writeIssuesDisplay(d: IssuesDisplay): string {
-  return JSON.stringify(d)
+  return writeSharedIssuesDisplay({
+    ordering: d.ordering,
+    showAgentTasks: d.showAgentTasks,
+    source: { ...d },
+  })
 }
 
 // The board scope filter is platform-neutral and lives in client-core so the
@@ -81,48 +83,38 @@ export { boardIssues, filterBoardScope } from '@podium/client-core/viewmodels'
 /** Progress rollup for a human-audience epic (#198): counts across its full
  *  descendant subtree so the human tracks "how far along" without seeing the
  *  internal churn. `done` counts descendants at stage 'done'; `liveAgents` counts
- *  descendants with at least one live session. Returns null when the issue has no
- *  descendants (nothing to roll up — render nothing). Pure. */
-export interface EpicProgress {
-  total: number
-  done: number
-  liveAgents: number
+ *  agents whose process and harness activity Podium can confirm right now.
+ *  Returns null when the issue has no descendants (nothing to roll up — render
+ *  nothing). Pure. */
+export type EpicProgress = TaskProgress
+
+/** The board's spelling of the shared confirmed-computing predicate. */
+export function confirmedWorkingAgentCount(sessions: readonly SessionMeta[], now: number): number {
+  return coreConfirmedWorkingAgentCount(sessions, now)
 }
 
-/** parent id → non-draft children. Built ONCE per render and shared across all
- *  roots so the rollup is O(n), not O(roots·n) (a hot-path re-scan otherwise). */
-type ChildrenIndex = Map<string, IssueViewModel[]>
-function buildChildrenIndex(issues: IssueViewModel[]): ChildrenIndex {
-  const childrenOf: ChildrenIndex = new Map()
-  for (const i of issues) {
-    if (i.draft || !i.parentId) continue
-    const arr = childrenOf.get(i.parentId)
-    if (arr) arr.push(i)
-    else childrenOf.set(i.parentId, [i])
-  }
-  return childrenOf
+/** Confirmed issue workers, keyed through canonical issue membership. */
+export function confirmedWorkingAgentCountsByIssue(
+  issues: readonly IssueViewModel[],
+  sessions: readonly SessionMeta[],
+  now: number,
+): Map<string, number> {
+  return coreConfirmedWorkingAgentCountsByIssue(issues, sessions, now)
 }
 
-function progressFrom(childrenOf: ChildrenIndex, epicId: string): EpicProgress | null {
-  let total = 0
-  let done = 0
-  let liveAgents = 0
-  const seen = new Set<string>([epicId])
-  const stack = [...(childrenOf.get(epicId) ?? [])]
-  while (stack.length > 0) {
-    const node = stack.pop()!
-    if (seen.has(node.id)) continue
-    seen.add(node.id)
-    total += 1
-    if (node.stage === 'done') done += 1
-    if ((node.sessionSummary?.total ?? 0) > 0) liveAgents += 1
-    for (const child of childrenOf.get(node.id) ?? []) stack.push(child)
-  }
-  return total === 0 ? null : { total, done, liveAgents }
-}
-
-export function computeEpicProgress(issues: IssueViewModel[], epicId: string): EpicProgress | null {
-  return progressFrom(buildChildrenIndex(issues), epicId)
+export function computeEpicProgress(
+  issues: IssueViewModel[],
+  epicId: string,
+  sessions: readonly SessionMeta[] = [],
+  now = Date.now(),
+): EpicProgress | null {
+  return (
+    taskProgressMap(
+      issues,
+      [epicId],
+      confirmedWorkingAgentCountsByIssue(issues, sessions, now),
+    ).get(epicId) ?? null
+  )
 }
 
 /** Batch rollup for many roots over one shared child index (see buildChildrenIndex) —
@@ -130,9 +122,11 @@ export function computeEpicProgress(issues: IssueViewModel[], epicId: string): E
 export function computeEpicProgressMap(
   issues: IssueViewModel[],
   rootIds: string[],
+  sessions: readonly SessionMeta[] = [],
+  now = Date.now(),
 ): Map<string, EpicProgress | null> {
-  const childrenOf = buildChildrenIndex(issues)
-  return new Map(rootIds.map((id) => [id, progressFrom(childrenOf, id)]))
+  const workingByIssue = confirmedWorkingAgentCountsByIssue(issues, sessions, now)
+  return taskProgressMap(issues, rootIds, workingByIssue)
 }
 
 /** Stable ordering for board columns and list groups. Pure — returns a copy.

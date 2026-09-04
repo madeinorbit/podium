@@ -1,0 +1,39 @@
+{
+  "instance": "grok2877",
+  "arm": "headless",
+  "results": [
+    {
+      "id": "B-provider-error",
+      "arm": "headless",
+      "verdict": "PASS",
+      "summary": "exhausted-quota provider fault surfaced with explicit quota/rate/limit wording",
+      "control": {
+        "fired": true,
+        "what": "the fresh authenticated session binding receipt before the exhausted-quota turn",
+        "detail": "driver=grok-acp family=server session=6526755e-2552-48d9-816d-8eb7c230e131"
+      },
+      "evidence": [
+        "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+        "FAULT VISIBLE     true after 827ms",
+        "ROW               {\"sessionId\":\"6526755e-2552-48d9-816d-8eb7c230e131\",\"agentKind\":\"grok\",\"accountId\":\"native:claude-code\",\"title\":\"headless-b-provider-error\",\"cwd\":\"/tmp/pod-2877-grok-followup-neutral/cells/headless-b-provider-error\",\"status\":\"live\",\"agentState\":{\"phase\":\"errored\",\"since\":\"2026-08-26T13:26:14.189Z\",\"workingMsTotal\":311,\"nativeSubagentCount\":0,\"error\":{\"class\":\"usage_limit\",\"retryable\":false,\"detail\":\"API error (status 402 Payment Required): Grok Build usage balance exhausted\"}},\"controllerId\":\"c0\",\"geometry\":{\"cols\":120,\"rows\":40},\"epoch\":0,\"clientCount\":1,\"createdAt\":\"2026-08-26T13:26:11.212Z\",\"lastActiveAt\":\"2026-08-26T13:26:13.878Z\",\"origin\":{\"kind\":\"spawn\"},\"archived\":false,\"readAt\":null,\"unread\":true,\"machineId\":\"4c0070fa-e5b2-4c6b-a10e-efc504c11670\",\"machineName\":\"flatblock\",\"resumable\":true,\"resume\":{\"kind\":\"grok-session\",\"value\":\"01a03e3f-efae-7290-b725-bc079fcf8e59\"},\"transcriptAvailable\":true,\"driverId\":\"grok-acp\",\"driverFamily\":\"server\",\"conversationPodiumId\":\"conv_c6f107cf-0",
+        "ASSISTANT         ",
+        "SCREEN            ",
+        "QUOTA WORDING     true"
+      ],
+      "data": {
+        "faultVisible": true,
+        "namesQuota": true,
+        "elapsed": 827,
+        "driverId": "grok-acp",
+        "driverFamily": "server"
+      },
+      "cwd": "/tmp/pod-2877-grok-followup-neutral/cells/headless-b-provider-error",
+      "memoryMb": 4317,
+      "pin": "PIN OK row=B-provider-error arm=headless instance=grok2877 serverPid=2666194 daemonPid=2666722 serverSha=93e5312134ef67e53a16cefc6f82316fff7e6fab webSourceSha=93e5312 driver=policy state=/home/mgw/.local/state/podium/grok2877 home=/home/mgw\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "6526755e-2552-48d9-816d-8eb7c230e131"
+      ],
+      "at": "2026-08-26T13:26:15.106Z"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "cell": "A1B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a1b",
+  "at": "2026-08-27T01:40:58.791Z",
+  "verdict": "BLOCKED",
+  "summary": "cell could not be driven: Error: pin mismatch {\"checkoutSha\":\"fba386f399a95589d9e3298658b88636d24d875e\",\"serverSha\":\"40c198eae5987da8cfa81ac20582ad9161d8270e\",\"daemonSha\":\"40c198eae5987da8cfa81ac20582ad9161d8270e\",\"webSha\":\"40c198e\",\"server\":{\"pid\":\"554006\",\"alive\":",
+  "control": {
+    "fired": false,
+    "what": "the complete pinned cell running to a result",
+    "detail": "Error: pin mismatch {\"checkoutSha\":\"fba386f399a95589d9e3298658b88636d24d875e\",\"serverSha\":\"40c198eae5987da8cfa81ac20582ad9161d8270e\",\"daemonSha\":\"40c198eae5987da8cfa81ac20582ad9161d8270e\",\"webSha\":\"40c198e\",\"server\":{\"pid\":\"554006\",\"alive\":true,\"cwd\":\"/home/mgw/src/podium/.worktr"
+  },
+  "evidence": [
+    "ERROR             Error: pin mismatch {\"checkoutSha\":\"fba386f399a95589d9e3298658b88636d24d875e\",\"serverSha\":\"40c198eae5987da8cfa81ac20582ad9161d8270e\",\"daemonSha\":\"40c198eae5987da8cfa81ac20582ad9161d8270e\",\"webSha\":\"40c198e\",\"server\":{\"pid\":\"554006\",\"alive\":true,\"cwd\":\"/home/mgw/src/podium/.worktr"
+  ],
+  "data": {}
+}

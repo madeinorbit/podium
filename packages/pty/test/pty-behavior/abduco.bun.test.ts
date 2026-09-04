@@ -45,7 +45,7 @@ d('abduco durable path [bun-terminal]', () => {
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -68,7 +68,7 @@ d('abduco durable path [bun-terminal]', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(600)
     re.write(Buffer.from('yo\r', 'utf8').toString('base64'))
@@ -100,7 +100,7 @@ d('abduco durable path [bun-terminal]', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24, backend }) // same geometry
     let out = ''
     re.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1400)
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size

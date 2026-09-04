@@ -29,15 +29,15 @@ describe('useUsageFeed scan history', () => {
     const { result } = renderHook(() => useUsageFeed(trpc))
 
     await act(async () => {})
-    expect(result.current.currentScan?.sampledAt).toBe(Date.parse(FIRST))
-    expect(result.current.previousScan).toBeNull()
+    expect(result.current.scans.map((scan) => scan.sampledAt)).toEqual([Date.parse(FIRST)])
 
     await act(() => vi.advanceTimersByTimeAsync(90_000))
-    expect(result.current.currentScan?.sampledAt).toBe(Date.parse(FIRST))
-    expect(result.current.previousScan).toBeNull()
+    expect(result.current.scans.map((scan) => scan.sampledAt)).toEqual([Date.parse(FIRST)])
 
     await act(() => vi.advanceTimersByTimeAsync(90_000))
-    expect(result.current.currentScan?.sampledAt).toBe(Date.parse(SECOND))
-    expect(result.current.previousScan?.sampledAt).toBe(Date.parse(FIRST))
+    expect(result.current.scans.map((scan) => scan.sampledAt)).toEqual([
+      Date.parse(FIRST),
+      Date.parse(SECOND),
+    ])
   })
 })

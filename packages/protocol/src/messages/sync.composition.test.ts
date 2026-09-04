@@ -50,7 +50,7 @@ const changesSinceArms = (union: unknown): { shape: Record<string, unknown> }[] 
   (union as { options: { shape: Record<string, unknown> }[] }).options
 
 describe('the wire change row composes the model vocabulary', () => {
-  it('has all twelve entity arms, so the loops below are not vacuous', () => {
+  it('has all thirteen entity arms, so the loops below are not vacuous', () => {
     // The counterfactual guard: if `.options` ever stopped resolving, every
     // per-arm assertion below would iterate an empty list and pass silently.
     //
@@ -59,17 +59,18 @@ describe('the wire change row composes the model vocabulary', () => {
     // sidebar/tab chrome, TEN with 'userReadPosition' (POD-1380) for how far a
     // person has read an event stream, ELEVEN with 'issueEvent' (POD-1772),
     // the curated cross-project event window the superagent feed used to poll
-    // for on a timer, TWELVE NOW: 'shipOrder', the replicated shipping row that
+    // for on a timer, TWELVE with 'shipOrder', the replicated shipping row that
     // arrived with the durable shipping model (7fb15bc57) — which added the arm
     // and left this count at eleven, so the suite went red on exactly the fact
-    // it exists to notice. They are COUNTED here rather than
+    // it exists to notice — and THIRTEEN NOW with 'pendingInteraction' (POD-2020),
+    // the blocking asks a session is stopped on. They are COUNTED here rather than
     // exempted because the loops below are what proves the new arms compose the
     // shared vocabulary too — main declared the earlier three as hand-written
     // `z.object`s restating `seq`/`id`/`op`, which is exactly the fork this file
     // exists to see. They are composed through `metadataChangeArm` instead, and
     // these assertions are the evidence that the port did not reintroduce the
     // five restatements POD-305 deleted.
-    expect(strictArms).toHaveLength(12)
+    expect(strictArms).toHaveLength(13)
   })
 
   it('takes `seq` from the shared field schema INSTANCE in every arm', () => {

@@ -1,0 +1,31 @@
+{
+  "at": "2026-08-30T03:44:42.796Z",
+  "issue": "POD-3112",
+  "kind": "diagnostic-refusal-not-acceptance",
+  "epicPin": "edc89c8a2685b0a12ee2bf67830aba379a8c98f2",
+  "evidenceHead": "5325d550f5606129f0fd1f6bdf09d4329422076c",
+  "productBytesIdentical": true,
+  "instance": "p3112-oc-interrupt-probe-r5",
+  "ports": [
+    20315,
+    47318,
+    47319
+  ],
+  "serverPid": 2855756,
+  "daemonPid": 2855841,
+  "providerTurns": 0,
+  "sessionId": "c5d68065-48d6-4a1b-8fef-11b44aba56b4",
+  "requestedRuntimeContract": "generic-pty",
+  "observed": {
+    "driverId": "generic-pty",
+    "requestedDriverId": "generic-pty",
+    "driverFamily": null,
+    "status": "live",
+    "phase": "idle"
+  },
+  "verdict": "REFUSED before provider turn",
+  "reason": "sessions.status omitted driverFamily, so the required exact generic-pty/terminal identity could not be proved fail-closed",
+  "endpointOrKeyProbe": "not reached",
+  "processListenerTrace": "not reached",
+  "interrupt": "not sent"
+}

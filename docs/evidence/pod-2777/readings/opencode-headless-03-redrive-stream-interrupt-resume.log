@@ -1,0 +1,81 @@
+ok  server pid=584704 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic started after the commit
+  ok  daemon pid=584780 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic started after the commit
+  ok  exactly one daemon (pid 584780) on state root /tmp/pod-2777/state
+  ok  worktree at e28013a8526ee454ca6b49296b9902daa6bbe1e2, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at e28013a
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"e28013a8526ee454ca6b49296b9902daa6bbe1e2","short":"e28013a","serverPid":584704,"daemonPid":584780,"webSourceSha":"e28013a","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running e28013a8526ee454ca6b49296b9902daa6bbe1e2 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=headless  expecting driver 'opencode-server'
+PIN                e28013a8526ee454ca6b49296b9902daa6bbe1e2 (web bundle e28013a, server pid 584704, daemon pid 584780)
+==============================================================================
+session ebdb1b2a-1444-4c56-8780-f697541713e8 created; giving the harness 25000ms to come up
+BOUND DRIVER       opencode-server (family server)
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   PASS  26 preview frames, 562→2105 chars, monotonic per row
+   control: FIRED — 1 frame(s), first at +19ms
+   JOINED            8643ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)
+   PHASE AT JOIN     working — a turn was in flight when the viewer arrived
+   PREVIEW FRAMES    26
+   FIRST             +19ms  epoch=1 seq=145 rows=1 chars=562
+   LAST              +2650ms  epoch=1 seq=512 rows=1 chars=2105
+   GROWTH            25/25 transitions increased the visible character count
+   MONOTONIC/ROW     YES — no row ever shrank
+   FINE WATCH        ACQUIRED — the daemon moved the driver's fine refcount for this session
+   FRAME TYPES       turnPreview=26 hostMetricsChanged=6 sessionDraftChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1
+
+── interrupt — interrupt a running turn
+   FAIL  still working 120s after interrupt
+   control: FIRED — phase=working, 26 preview frame(s), 0 chars on the transcript
+   WAS RUNNING       phase=working, 26 preview frame(s), 0 chars on the transcript
+   INTERRUPT SENT    {"ok":true}
+   SETTLED           NEVER — phase=working
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT AT INTERRUPT 0 chars → 0 chars at settle (durable transcript)
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the interrupt was sent
+   PREVIEW CHARS     2105 at the interrupt → 2105 at settle
+   READING           generation STOPPED (no frame arrived after the call) but the
+                     phase never left `working`. The turn is over and the product
+                     still shows it running — a stuck state rather than an
+                     unhonoured interrupt. Different defect, different owner.
+
+── resume — resume after a kill
+   FAIL  resumed, but the conversation did not come back
+   control: FIRED — the session repeated REMEMBER-BABU9L before it was parked
+   SECRET            REMEMBER-BABU9L — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":true}; PARKED after 42ms (status=hibernated)
+   RESURRECT         {"ok":true}
+     → back live?    NO — status=exited
+   RESUMEANDSEND     {"ok":true,"queued":true,"disposition":"queued"}
+     → back live?    NO — status=exited
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret never came back
+   SAME CONVERSATION YES — pointer conv_638af1d7-c1ed-4c30- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+==============================================================================
+RESULT  opencode / headless / driver=opencode-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+stream          PASS      fired     26 preview frames, 562→2105 chars, monotonic per row
+interrupt       FAIL      fired     still working 120s after interrupt
+resume          FAIL      fired     resumed, but the conversation did not come back
+==============================================================================
+written /tmp/pod-2777/results/opencode.headless.json
+EXIT=0

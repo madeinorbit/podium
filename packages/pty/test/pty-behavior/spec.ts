@@ -18,14 +18,14 @@ export interface TestPrimitives {
 function textOf(s: AgentSession): { raw: () => string; stripped: () => string } {
   let buf = ''
   s.onFrame((f) => {
-    buf += Buffer.from(f.data, 'base64').toString('utf8')
+    buf += Buffer.from(f.data).toString('utf8')
   })
   return { raw: () => buf, stripped: () => buf.replace(ANSI, '') }
 }
 function bytesOf(s: AgentSession): () => Buffer {
   const chunks: Buffer[] = []
   s.onFrame((f) => {
-    chunks.push(Buffer.from(f.data, 'base64'))
+    chunks.push(Buffer.from(f.data))
   })
   return () => Buffer.concat(chunks)
 }

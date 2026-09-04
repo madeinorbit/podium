@@ -1,4 +1,4 @@
-import { asMachineId, asIssueId, asSessionId } from '@podium/model'
+import { asMachineId, asIssueId, asSessionId, asUserId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import { captureLogs } from '../test-support/capture-logs'
 import { EventBus } from './bus'
@@ -89,5 +89,33 @@ describe('EventBus', () => {
     bus.removeAll()
     bus.emit('machine.connected', { machineId: asMachineId('m1') })
     expect(fn).not.toHaveBeenCalled()
+  })
+  it('carries the three cloud-analytics signals', () => {
+    const bus = new EventBus()
+    const login = vi.fn()
+    const created = vi.fn()
+    const crashed = vi.fn()
+    bus.on('auth.login', login)
+    bus.on('issue.created', created)
+    bus.on('client.crashed', crashed)
+
+    bus.emit('auth.login', { userId: asUserId('user:sole'), delivery: 'cookie' })
+    bus.emit('issue.created', {
+      issueId: asIssueId('iss_1'),
+      title: 'a title',
+      ownerUserId: asUserId('user:sole'),
+    })
+    bus.emit('client.crashed', {
+      origin: { role: 'web' },
+      err: { name: 'TypeError', message: 'boom' },
+    })
+
+    expect(login).toHaveBeenCalledWith({ userId: 'user:sole', delivery: 'cookie' })
+    expect(created).toHaveBeenCalledWith({
+      issueId: 'iss_1',
+      title: 'a title',
+      ownerUserId: 'user:sole',
+    })
+    expect(crashed).toHaveBeenCalledTimes(1)
   })
 })

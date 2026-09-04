@@ -25,18 +25,18 @@ describe('status-strip X share copy', () => {
   })
 
   it('puts the operator, not the product, on the burning end', () => {
-    expect(shareTokenBurn(12.4)).toBe(
-      'I am burning $12.4/hr in tokens with @podium_ade.\n\nI used to think that number would scare me.',
+    expect(shareTokenBurn(12.4, 12)).toBe(
+      "My agents' 12-minute token usage in @podium_ade works out to $12.4/hr at API list prices.\n\nI used to think that number would scare me.",
     )
   })
 
   it('swaps the closer when the hourly burn is small', () => {
     expect(shareTokenBurn(4.99)).toBe(
-      'I am running @podium_ade on $4.99/hr in tokens.\n\na rounding error with commit access.',
+      "My agents' 15-minute token usage in @podium_ade works out to $4.99/hr at API list prices.\n\na rounding error with commit access.",
     )
     expect(shareTokenBurn(0)).toContain('$0/hr')
     expect(shareTokenBurn(0)).toContain('rounding error')
-    // The boundary is the flex: $5.00 is a burn, $4.99 is a rounding error.
-    expect(shareTokenBurn(5)).toContain('I am burning')
+    // The boundary changes the closer, not the factual description of the rate.
+    expect(shareTokenBurn(5)).toContain('I used to think that number would scare me')
   })
 })

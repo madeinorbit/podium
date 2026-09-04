@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+# `pd` — run the p2290 instance's own CLI from source.
+#
+#   docs/evidence/pod-2290/pd session read <id>
+#
+# env -i, DELIBERATELY: this wrapper is invoked from a shell running INSIDE a
+# Podium session on the developer's default instance, which exports
+# PODIUM_SESSION_ID / PODIUM_SESSION_RELAY / PODIUM_AGENT_RELAY. Inheriting any
+# of them sends the command to the LIVE server while looking entirely correct.
+set -euo pipefail
+REPO=/home/mgw/src/podium/.worktrees/issue-2290-bug-native-view-stuck-on-headless-sessio
+exec env -i \
+  HOME="$HOME" PATH="$PATH" TERM="${TERM:-dumb}" \
+  PODIUM_INSTANCE=p2290 \
+  PODIUM_HOST=127.0.0.1 \
+  PODIUM_PORT=19807 \
+  PODIUM_HOOK_PORT=46807 \
+  PODIUM_AGENT_RELAY_PORT=46808 \
+  PODIUM_NO_RELAY=1 \
+  bash -c 'cd "$0" && exec bun --conditions=@podium/source scripts/cli.ts "$@"' "$REPO" "$@"

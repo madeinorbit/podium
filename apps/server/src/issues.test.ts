@@ -269,6 +269,26 @@ describe('IssueService CRUD', () => {
     expect(svc.get('iss_client-supplied')?.id).toBe('iss_client-supplied')
   })
 
+  it('refuses a client-provided id collision without changing or starting the issue', async () => {
+    const { svc, deps } = harness()
+    const id = asIssueId('iss_client-supplied')
+    svc.create({ repoPath: '/r', title: 'Original', description: 'Keep me', startNow: false, id })
+    const before = svc.get(id)
+
+    await expect(
+      svc.createAndMaybeStart({
+        repoPath: '/r',
+        title: 'Replacement',
+        description: 'Overwrite attempt',
+        startNow: true,
+        id,
+      }),
+    ).rejects.toThrow(`refusing to reuse an existing issue id: ${id}`)
+
+    expect(svc.get(id)).toEqual(before)
+    expect(deps.spawnSession).not.toHaveBeenCalled()
+  })
+
   it('create mints an iss_-prefixed uuid when no id is given (unchanged default behavior)', () => {
     const { svc } = harness()
     const wire = svc.create({ repoPath: '/r', title: 'X', startNow: false })
@@ -2030,6 +2050,28 @@ describe('IssueService.start', () => {
     expect(wire.worktreePath).not.toBeNull()
   })
 
+  it('reuses the optimistic first-session id when create starts immediately', async () => {
+    const { svc, deps } = harness()
+    const startSessionId = asSessionId('client-first-session')
+
+    await svc.createAndMaybeStart({
+      id: asIssueId('iss_client-task'),
+      startSessionId,
+      repoPath: '/r',
+      title: 'Instant chat',
+      description: 'Show my message now',
+      startNow: true,
+    })
+
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sessionId: startSessionId,
+        issueId: asIssueId('iss_client-task'),
+        initialPrompt: 'Show my message now',
+      }),
+    )
+  })
+
   it('start fails clearly when the worktree op fails', async () => {
     const { svc, deps } = harness()
     ;(deps.repoOp as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
@@ -3475,8 +3517,9 @@ describe('IssueService.prime (P1a)', () => {
     const { svc } = harness()
     const out = svc.prime({ repoPath: '/r', boundIssueId: null })
     const policy = out.slice(out.lastIndexOf('\n\n') + 2)
-    // Stages, titles, offers, artifacts, and the discovered-from essay already
-    // ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the unique procedures.
+    // Stages, general title doctrine, offers, artifacts, and the discovered-from
+    // essay already ride ISSUE_SYSTEM_POINTER on every harness. Prime keeps the
+    // unique procedures and may add facts about the bound issue before this tail.
     expect(policy).not.toContain('podium offer')
     expect(policy).not.toContain('Bug: duplicate session rows')
     expect(policy).not.toContain('lands in Proposed automatically')
@@ -4898,7 +4941,8 @@ describe('IssueService panelApply (agent-published human panel)', () => {
 
 describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc9])', () => {
   function artifactHarness() {
-    const h = harness([sess('/wt')])
+    const sessions = [sess('/wt')]
+    const h = harness(sessions)
     let n = 0
     const snapshot = vi.fn(async (o: { sourcePath: string }) => ({
       artifactId: asArtifactId(`art${++n}`),
@@ -4919,9 +4963,19 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
         : { ok: true, output: '' },
     )
     h.deps.repoOp = repoOp as typeof h.deps.repoOp
-    h.deps.artifacts = { snapshot, read, remove, removeIssue: vi.fn(async () => {}) }
+    h.deps.artifacts = {
+      snapshot,
+      upload: vi.fn(async (o: { filename: string; dataBase64: string }) => ({
+        artifactId: asArtifactId(`art${++n}`),
+        entry: o.filename,
+        files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
+      })),
+      read,
+      remove,
+      removeIssue: vi.fn(async () => {}),
+    }
     const svc = new IssueService(h.deps)
-    return { ...h, svc, snapshot, remove, read, stored, repoOp }
+    return { ...h, svc, snapshot, remove, read, stored, repoOp, sessions }
   }
 
   it('add snapshots from the issue worktree and stores artifactId/entry/files', async () => {
@@ -4991,11 +5045,105 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
     svc.update(w.id, { worktreePath: '/wt/issue-1' })
     await expect(svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
-      /outside the owning issue worktree/,
+      /outside the owning issue worktree.*--terminal-evidence/,
     )
     await expect(svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
-      /outside the owning issue worktree/,
+      /outside the owning issue worktree.*--terminal-evidence/,
     )
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('accepts an acknowledged raster screenshot from the attached session checkout', async () => {
+    const { svc, snapshot, sessions } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    sessions[0]!.issueId = w.id
+    sessions[0]!.machineId = asMachineId('machine-under-test')
+    svc.update(w.id, {
+      worktreePath: '/wt/issue-1',
+      machineId: asMachineId('machine-under-test'),
+    })
+    const wire = await svc.panelArtifactAdd(
+      w.id,
+      {
+        path: 'artifacts/POD-2602/resume-before.png',
+        terminalEvidence: true,
+        sourceRoot: '/home/mgw/review-2602',
+      },
+      { actorSessionId: asSessionId('/wt') },
+    )
+    expect(snapshot).toHaveBeenCalledWith({
+      issueId: w.id,
+      root: '/home/mgw/review-2602',
+      machineId: asMachineId('machine-under-test'),
+      sourcePath: 'artifacts/POD-2602/resume-before.png',
+    })
+    expect(wire.panel?.artifacts[0]).toMatchObject({
+      path: 'artifacts/POD-2602/resume-before.png',
+      sourceKind: 'terminal-evidence',
+      artifactId: 'art1',
+    })
+
+    // The review checkout may be gone by the time the issue reaches review;
+    // the permanent snapshot remains the durable proof.
+    expect(svc.update(w.id, { worktreePath: null, stage: 'review' }).stage).toBe('review')
+  })
+
+  it('refuses terminal text and scrollback, with a sanctioned next step', async () => {
+    const { svc, snapshot, sessions } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    sessions[0]!.issueId = w.id
+    await expect(
+      svc.panelArtifactAdd(
+        w.id,
+        { path: 'artifacts/stty-size.txt', terminalEvidence: true, sourceRoot: '/review' },
+        { actorSessionId: asSessionId('/wt') },
+      ),
+    ).rejects.toThrow(/raster image files only.*raw terminal text and scrollback.*--terminal-evidence/)
+    expect(snapshot).not.toHaveBeenCalled()
+  })
+
+  it('rejects non-image members discovered inside a terminal-evidence bundle', async () => {
+    const { svc, snapshot, remove, sessions } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    sessions[0]!.issueId = w.id
+    snapshot.mockResolvedValueOnce({
+      artifactId: asArtifactId('art-dir'),
+      entry: 'stty-size.txt',
+      files: [{ path: 'stty-size.txt', size: 3 }],
+      sourcePaths: ['screenshots.png/stty-size.txt'],
+    })
+    await expect(
+      svc.panelArtifactAdd(
+        w.id,
+        { path: 'screenshots.png', terminalEvidence: true, sourceRoot: '/review' },
+        { actorSessionId: asSessionId('/wt') },
+      ),
+    ).rejects.toThrow(/raster image files only.*raw terminal text and scrollback/)
+    expect(remove).toHaveBeenCalledWith(w.id, 'art-dir')
+    expect(svc.get(w.id)?.panel?.artifacts ?? []).toEqual([])
+  })
+
+  it('requires the invoking session to belong to the issue and its machine when pinned', async () => {
+    const { svc, snapshot, sessions } = artifactHarness()
+    const w = svc.create({ repoPath: '/r', title: 'X', startNow: false })
+    svc.update(w.id, { worktreePath: '/wt/issue-1', machineId: asMachineId('issue-machine') })
+    sessions[0]!.machineId = asMachineId('other-machine')
+    await expect(
+      svc.panelArtifactAdd(
+        w.id,
+        { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
+        { actorSessionId: asSessionId('/wt') },
+      ),
+    ).rejects.toThrow(/belonging to issue/)
+
+    sessions[0]!.issueId = w.id
+    await expect(
+      svc.panelArtifactAdd(
+        w.id,
+        { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
+        { actorSessionId: asSessionId('/wt') },
+      ),
+    ).rejects.toThrow(/same machine/)
     expect(snapshot).not.toHaveBeenCalled()
   })
 
@@ -5056,6 +5204,11 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     )
     h.deps.artifacts = {
       snapshot,
+      upload: vi.fn(async (o: { filename: string; dataBase64: string }) => ({
+        artifactId: asArtifactId(`art${++n}`),
+        entry: o.filename,
+        files: [{ path: o.filename, size: Buffer.from(o.dataBase64, 'base64').length }],
+      })),
       read,
       remove: vi.fn(async () => {}),
       removeIssue: vi.fn(async () => {}),

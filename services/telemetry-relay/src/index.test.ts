@@ -11,7 +11,7 @@ import type { CrashReport, UsageReport } from '@podium/telemetry/schema'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { type Env, handleRequest, toPostHogEvent } from './index'
 
-const env: Env = { POSTHOG_API_KEY: 'phc_test', POSTHOG_HOST: 'https://us.i.posthog.com' }
+const env: Env = { POSTHOG_API_KEY: 'phc_test', POSTHOG_HOST: 'https://eu.i.posthog.com' }
 
 const usage: UsageReport = {
   schema: 1,
@@ -37,8 +37,12 @@ const crash: CrashReport = {
 
 /** A request carrying every header a real client/edge would attach, including
  *  the IP headers the relay must ignore. */
-const post = (body: unknown, headers: Record<string, string> = {}) =>
-  new Request('https://telemetry.podium.dev/', {
+const post = (
+  body: unknown,
+  headers: Record<string, string> = {},
+  path = '/v1/u',
+) =>
+  new Request(`https://pulse.meetpodium.com${path}`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
@@ -121,7 +125,7 @@ describe('schema round-trip', () => {
 
   it('posts to the configured PostHog host', async () => {
     await handleRequest(post(usage), env)
-    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://us.i.posthog.com/i/v0/e/')
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('https://eu.i.posthog.com/i/v0/e/')
   })
 })
 
@@ -157,7 +161,7 @@ describe('malformed bodies are rejected, not forwarded', () => {
 
   it('rejects a body that lies about its content-length', async () => {
     const huge = { ...usage, features: { issues: true } }
-    const req = new Request('https://telemetry.podium.dev/', {
+    const req = new Request('https://pulse.meetpodium.com/v1/u', {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: `${JSON.stringify(huge)}${' '.repeat(9000)}`,
@@ -169,7 +173,7 @@ describe('malformed bodies are rejected, not forwarded', () => {
 describe('method handling', () => {
   it('answers CORS preflight', async () => {
     const res = await handleRequest(
-      new Request('https://telemetry.podium.dev/', { method: 'OPTIONS' }),
+      new Request('https://pulse.meetpodium.com/v1/u', { method: 'OPTIONS' }),
       env,
     )
     expect(res.status).toBe(204)
@@ -178,10 +182,22 @@ describe('method handling', () => {
 
   it('refuses GET — there is nothing to read back', async () => {
     const res = await handleRequest(
-      new Request('https://telemetry.podium.dev/', { method: 'GET' }),
+      new Request('https://pulse.meetpodium.com/v1/u', { method: 'GET' }),
       env,
     )
     expect(res.status).toBe(405)
+  })
+})
+
+  it('does not treat the root path as a telemetry endpoint', async () => {
+    expect((await handleRequest(post(usage, {}, '/'), env)).status).toBe(404)
+  })
+
+describe('path handling', () => {
+  it('does not treat unrelated paths as telemetry endpoints', async () => {
+    const res = await handleRequest(post(usage, {}, '/v1/data/example'), env)
+    expect(res.status).toBe(404)
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })
 

@@ -91,6 +91,18 @@ export class TranscriptLake {
   }
 
   /**
+   * Whether this lake actually mirrors.
+   *
+   * `false` is the deliberate no-op shape: a deployment that set
+   * `transcriptLake: 'off'` (PDM-26), or a test that constructed the registry
+   * without a lake dir. Exposed so "mirroring is off here" is a fact something
+   * can assert on rather than an absence of traffic to notice.
+   */
+  get mirroring(): boolean {
+    return this.mirror !== undefined
+  }
+
+  /**
    * Stop every paced loop this lake owns, and abandon the ranged reads it is
    * waiting on, BEFORE the store closes underneath them.
    *

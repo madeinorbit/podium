@@ -169,6 +169,10 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   heartbeatIntervalMs?: number
   /** Platform-owned persistence/navigation for a promoted server endpoint. */
   onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
+  /** False for a trusted local-only boot whose remote identity has not yet been
+   *  revalidated. The runtime opens the replica but starts no socket, boot read,
+   *  or outbox drain until its replacement provider enables networking. */
+  networkEnabled?: boolean
   /** History surface — mobile passes createMemoryRouterWindow(). Default: window. */
   routerWindow?: RouterWindow
   /** Test seam: runtime timing knobs (e.g. spawnConfirmGraceMs: 0 so a spawn
@@ -195,6 +199,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   isOnline,
   heartbeatIntervalMs,
   onServerRelocation,
+  networkEnabled,
   routerWindow,
   engineOverrides,
   unauthenticated = null,
@@ -220,6 +225,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     principal: ClientPrincipal
     config: StoreServerConfig
     api: TApi
+    networkEnabled: boolean
     runtime: ClientRuntime<TApi>
   } | null>(null)
   const held = runtimeRef.current
@@ -228,7 +234,8 @@ export function StoreProvider<TApi extends PodiumClientApi>({
     (principal === null ||
       !samePrincipal(held.principal, principal) ||
       held.config !== config ||
-      held.api !== api)
+      held.api !== api ||
+      held.networkEnabled !== (networkEnabled ?? true))
   ) {
     // Teardown happens BEFORE the successor is constructed, so there is never a
     // moment when two runtimes for two principals are both live over the same
@@ -242,6 +249,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
       principal,
       config,
       api,
+      networkEnabled: networkEnabled ?? true,
       runtime: createClientRuntime<TApi>({
         principal,
         config,
@@ -260,6 +268,7 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         isOnline,
         heartbeatIntervalMs,
         onServerRelocation,
+        networkEnabled,
         routerWindow,
         ...engineOverrides,
       }),

@@ -1,6 +1,8 @@
 import {
+  AgentKind,
   AgentMemoryWire,
   AgentQuotaWire,
+  HostDiskWire,
   HostMemoryWire,
   HostMetricsWire,
   MachineIdField,
@@ -8,6 +10,7 @@ import {
   ProjectMemoryWire,
   SessionIdField,
   UsageBucketWire,
+  UsageSourceWire,
 } from '@podium/model'
 import { z } from 'zod'
 
@@ -60,6 +63,26 @@ export const HostMetricsMessage = z.object({
 })
 
 /**
+ * Server→daemon: give back the client terminals nobody is watching (POD-2059).
+ *
+ * THE THRESHOLD IS THE SERVER'S, THE CHOICE IS THE MACHINE'S. Host pressure is
+ * decided where the setting lives (`hosts/service.ts` reads the hibernation
+ * config), and this frame is what spec §5's "attachments are reclaimed FIRST"
+ * looks like on the wire: it is sent INSTEAD OF parking a session, so a
+ * convenience terminal cannot outlive an agent it pushed into hibernation. Which
+ * attachments to close is the daemon's — it holds the viewer state and the ages,
+ * and a watched terminal is never a cheaper trade than an idle agent.
+ *
+ * NO SESSION ID: it is a machine-wide sweep of a machine-wide resource. Naming
+ * one would put the server in the business of choosing between terminals with
+ * none of the facts that decide it.
+ */
+export const ReclaimAttachmentsMessage = z.object({
+  type: z.literal('reclaimAttachments'),
+})
+export type ReclaimAttachmentsMessage = z.infer<typeof ReclaimAttachmentsMessage>
+
+/**
  * A host-local integration degraded in a way that needs a person's attention.
  *
  * Machine identity is deliberately absent: the gateway stamps the authenticated
@@ -104,11 +127,19 @@ export const MemoryBreakdownResultMessage = z.object({
   // memory + otherBytes still carry the headline numbers.
   supported: z.boolean(),
   memory: HostMemoryWire,
+  /** Capacity of the volume the daemon's home sits on. Optional: a daemon
+   *  predating the field, or one whose statfs refused, ships the breakdown
+   *  without it and the panel simply has no disk meter to draw. */
+  disk: HostDiskWire.optional(),
   agents: z.array(AgentMemoryWire),
   projects: z.array(ProjectMemoryWire),
   // used − agents − projects: everything on the box we don't control.
   otherBytes: z.number().int().nonnegative(),
 })
+export type MemoryBreakdownResultMessage = z.infer<typeof MemoryBreakdownResultMessage>
+
+/** The typed tRPC answer after the server removes the daemon-frame plumbing. */
+export type HostMemoryBreakdown = Omit<MemoryBreakdownResultMessage, 'type' | 'requestId'>
 
 // A potentially multi-minute inode walk. The server derives both sets from
 // registered repositories plus git's worktree registry; a web caller cannot
@@ -137,6 +168,9 @@ export const UsageRequestMessage = z.object({
   requestId: z.string(),
   /** Only count activity at/after this epoch ms (default: 7 days back). */
   sinceMs: z.number().optional(),
+  /** Also return the per-file breakdown behind the buckets (POD-1858). Opt-in:
+   *  the status chip polls this message every 90s and wants only the buckets. */
+  withSources: z.boolean().optional(),
 })
 export const UsageResultMessage = z.object({
   type: z.literal('usageResult'),
@@ -145,6 +179,18 @@ export const UsageResultMessage = z.object({
   /** When the daemon completed the transcript scan behind these buckets. */
   sampledAt: z.string().optional(),
   buckets: z.array(UsageBucketWire),
+  /** One entry per transcript the scan touched — the same records folded by
+   *  FILE instead of by hour. Present only for a `withSources` request; the
+   *  server folds it into per-task cost and does not pass it to clients. */
+  sources: z.array(UsageSourceWire).optional(),
+  /**
+   * THE WINDOW THE `sources` FOLDS ACTUALLY COVER — which is the memo's, not
+   * the request's. `buckets` are re-filtered to whatever this caller asked for;
+   * a per-file fold cannot be, so within the memo TTL the two can disagree and
+   * the server must stamp the durable rows with THIS rather than its own
+   * `sinceMs` (POD-1858 review).
+   */
+  sourcesSinceMs: z.number().optional(),
 })
 
 // ── Agent plan-quota (rate-limit windows). Distinct from UsageBucketWire, which
@@ -162,4 +208,42 @@ export const AgentQuotaResultMessage = z.object({
   requestId: z.string(),
   hostname: z.string(),
   agents: z.array(AgentQuotaWire),
+})
+
+// ── Quota HISTORY backfill (POD-1571). Codex writes its rate-limit state into
+// every session rollout and Grok logs each billing fetch, so weeks of past
+// windows sit on the daemon host as a side effect of those harnesses running.
+// Claude writes nothing anywhere and cannot be recovered. These samples are
+// folded by the server through the same identity rule live sampling uses.
+
+/** One recovered reading. Deliberately the RAW sample rather than a folded
+ *  window: folding is the server's job, and running it in two places would be
+ *  two answers to "is this the same window?". */
+export const QuotaHistorySampleWire = z.object({
+  agent: AgentKind,
+  /** Account email when the harness files name one; absent falls back to the
+   *  machine, matching `quotaAccountKey`. */
+  email: z.string().optional(),
+  machineId: z.string(),
+  windowKey: z.string().min(1),
+  label: z.string(),
+  plan: z.string().optional(),
+  usedPercent: z.number(),
+  resetsAtMs: z.number(),
+  windowMinutes: z.number().int().nonnegative(),
+  atMs: z.number(),
+})
+export type QuotaHistorySampleWire = z.infer<typeof QuotaHistorySampleWire>
+
+export const QuotaHistoryRequestMessage = z.object({
+  type: z.literal('quotaHistoryRequest'),
+  requestId: z.string(),
+  /** Oldest sample worth recovering, epoch ms. */
+  sinceMs: z.number(),
+})
+export const QuotaHistoryResultMessage = z.object({
+  type: z.literal('quotaHistoryResult'),
+  requestId: z.string(),
+  hostname: z.string(),
+  samples: z.array(QuotaHistorySampleWire),
 })

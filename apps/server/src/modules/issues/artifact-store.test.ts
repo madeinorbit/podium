@@ -1,7 +1,7 @@
-import { asArtifactId, asIssueId } from '@podium/model'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asArtifactId, asIssueId } from '@podium/model'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   ARTIFACT_FILE_CAP_BYTES,
@@ -45,12 +45,45 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
 
   it('snapshots a single file at its basename and reads it back', async () => {
     const store = new IssueArtifactStore(base, fakeRpc({ '/wt/shots/a.png': Buffer.from('PNG') }))
-    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'shots/a.png' })
+    const snap = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'shots/a.png',
+    })
     expect(snap.entry).toBe('a.png')
     expect(snap.files).toEqual([{ path: 'a.png', size: 3 }])
     const r = await store.read(asIssueId('iss_1'), snap.artifactId, 'a.png')
     expect(r?.bytes.toString()).toBe('PNG')
     expect(r?.contentType).toBe('image/png')
+    expect(r?.size).toBe(3)
+    const slice = await store.read(asIssueId('iss_1'), snap.artifactId, 'a.png', {
+      offset: 1,
+      length: 1,
+    })
+    expect(slice?.bytes.toString()).toBe('N')
+    expect(slice?.size).toBe(3)
+  })
+
+  it('stores browser bytes directly without a daemon source file', async () => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    const snap = await store.upload({
+      issueId: asIssueId('iss_1'),
+      filename: 'mock.png',
+      dataBase64: Buffer.from('PNG').toString('base64'),
+    })
+
+    expect(snap).toMatchObject({ entry: 'mock.png', files: [{ path: 'mock.png', size: 3 }] })
+    expect(
+      (await store.read(asIssueId('iss_1'), snap.artifactId, 'mock.png'))?.bytes.toString(),
+    ).toBe('PNG')
+  })
+
+  it('rejects a direct-upload filename that could escape its artifact directory', async () => {
+    const store = new IssueArtifactStore(base, fakeRpc({}))
+    await expect(
+      store.upload({ issueId: asIssueId('iss_1'), filename: '../mock.png', dataBase64: 'UE5H' }),
+    ).rejects.toThrow(/plain filename/)
+    expect(existsSync(join(base, 'iss_1'))).toBe(false)
   })
 
   it('pulls large files chunk by chunk (multiple ranged round-trips)', async () => {
@@ -63,7 +96,11 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
       return inner(i)
     }
     const store = new IssueArtifactStore(base, rpc)
-    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'big.bin' })
+    const snap = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'big.bin',
+    })
     expect(calls.length).toBe(3)
     expect(snap.files[0]?.size).toBe(big.length)
     const r = await store.read(asIssueId('iss_1'), snap.artifactId, 'big.bin')
@@ -87,10 +124,16 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
         },
       ),
     )
-    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'report' })
+    const snap = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'report',
+    })
     expect(snap.entry).toBe('index.html')
     expect(snap.files.map((f) => f.path).sort()).toEqual(['img/x.png', 'index.html'])
-    expect((await store.read(asIssueId('iss_1'), snap.artifactId, 'img/x.png'))?.bytes.toString()).toBe('X')
+    expect(
+      (await store.read(asIssueId('iss_1'), snap.artifactId, 'img/x.png'))?.bytes.toString(),
+    ).toBe('X')
   })
 
   it('errors the op naming the file when a pull fails — nothing left on disk', async () => {
@@ -128,7 +171,11 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
 
   it('read() guards path traversal and bad ids', async () => {
     const store = new IssueArtifactStore(base, fakeRpc({ '/wt/a.txt': Buffer.from('A') }))
-    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'a.txt' })
+    const snap = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'a.txt',
+    })
     writeFileSync(join(base, 'secret.txt'), 'top')
     expect(await store.read(asIssueId('iss_1'), snap.artifactId, '../../secret.txt')).toBeNull()
     expect(await store.read(asIssueId('..'), snap.artifactId, 'a.txt')).toBeNull()
@@ -140,12 +187,22 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
 
   it('remove() deletes one snapshot dir; removeIssue() deletes them all', async () => {
     const store = new IssueArtifactStore(base, fakeRpc({ '/wt/a.txt': Buffer.from('A') }))
-    const s1 = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'a.txt' })
-    const s2 = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'a.txt' })
+    const s1 = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'a.txt',
+    })
+    const s2 = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'a.txt',
+    })
     expect(s1.artifactId).not.toBe(s2.artifactId)
     await store.remove(asIssueId('iss_1'), s1.artifactId)
     expect(await store.read(asIssueId('iss_1'), s1.artifactId, 'a.txt')).toBeNull()
-    expect((await store.read(asIssueId('iss_1'), s2.artifactId, 'a.txt'))?.bytes.toString()).toBe('A')
+    expect((await store.read(asIssueId('iss_1'), s2.artifactId, 'a.txt'))?.bytes.toString()).toBe(
+      'A',
+    )
     await store.removeIssue(asIssueId('iss_1'))
     expect(existsSync(join(base, 'iss_1'))).toBe(false)
   })
@@ -153,9 +210,15 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   it('the stored copy survives source deletion (snapshot, not live-read)', async () => {
     const files = { '/wt/a.txt': Buffer.from('kept') }
     const store = new IssueArtifactStore(base, fakeRpc(files))
-    const snap = await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'a.txt' })
+    const snap = await store.snapshot({
+      issueId: asIssueId('iss_1'),
+      root: '/wt',
+      sourcePath: 'a.txt',
+    })
     delete (files as Record<string, Buffer>)['/wt/a.txt']
-    expect((await store.read(asIssueId('iss_1'), snap.artifactId, 'a.txt'))?.bytes.toString()).toBe('kept')
+    expect((await store.read(asIssueId('iss_1'), snap.artifactId, 'a.txt'))?.bytes.toString()).toBe(
+      'kept',
+    )
     // and the bytes really are server-local
     expect(readFileSync(join(base, 'iss_1', snap.artifactId, 'a.txt'), 'utf8')).toBe('kept')
   })

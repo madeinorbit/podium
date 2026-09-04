@@ -35,8 +35,23 @@ import { ptySmokeTests, realAgentSmokeTests } from '../vitest.smoke-requirements
 import unitConfig, { normalizedWireTests } from '../vitest.unit.config'
 import { REAL_AGENT_CLIS } from './agent-smoke-reporter'
 import { QUARANTINE } from './browser-quarantine'
+import { CLIENT_DIST_DIRS } from './build-clients'
 import { HEAVY_LANES, ORACLE_LANES } from './oracle'
+import {
+  inspectProofContract,
+  parseEvidence,
+  PROOF_CHECKS,
+  validateEvidence,
+} from './parity-release-proof'
 import { runWithHeavyTestLease } from './test-heavy'
+import {
+  footer,
+  LEAN_GATE_FILES,
+  otherLanes,
+  reconcileExecution,
+  resolveLaneAgainst,
+  vitestCommand,
+} from './test-lean'
 import scriptsConfig from './vitest.config'
 import rearchConfig from './vitest.rearch.config'
 
@@ -333,7 +348,8 @@ describe('test lane configuration', () => {
   it('keeps every server shard on the shared hermetic setup [POD-520]', () => {
     // The split turned one server lane into five. Each is a separate Vitest invocation, so
     // each can lose the hardening on its own: the env scrubber that keeps a suite off the
-    // live instance and POD-523's store fixture.
+    // live instance, POD-523's store fixture, and the shared worker cap that keeps the host
+    // survivable when Turbo runs the shards back to back.
     //
     // POD-527 gave one shard PROJECTS, so the same properties are now asserted twice: once
     // on the shard config and once on each project inside it. A project is where a Vitest
@@ -368,10 +384,10 @@ describe('test lane configuration', () => {
         // disagree. That has to be a failure, or a mis-generated shard passes as a green.
         // No project is exempt: a shard only grows a project when the scan put files in it.
         expect(test?.passWithNoTests, `${lane} would pass empty`).toBe(false)
-        // normalized-wire is the deliberately serialized one; retain its explicit worker cap.
-        if (name === 'normalized-wire') {
-          expect(test?.maxWorkers, `${lane} changed the serialized worker cap`).toBe(1)
-        }
+        // normalized-wire is the deliberately serialized one; the rest keep the shared cap.
+        expect(test?.maxWorkers, `${lane} changed the worker cap`).toBe(
+          name === 'normalized-wire' ? 1 : sharedVitestConfig.test.maxWorkers,
+        )
       }
     }
   })
@@ -401,16 +417,21 @@ describe('test lane configuration', () => {
     expect(config(integrationConfig).test?.retry).toBe(1)
   })
   it('caps forked lanes for the shared host', () => {
+    const activeWorkerLimit = resolveTestWorkerLimit(process.env.PODIUM_TEST_WORKERS)
+    expect(sharedVitestConfig.test.maxWorkers).toBe(activeWorkerLimit)
     const rootNode = nodeProject(rootConfig).test
     expect(rootNode?.fileParallelism).toBe(true)
     expect(rootNode?.minWorkers).toBe(1)
+    expect(rootNode?.maxWorkers).toBe(activeWorkerLimit)
     expect(config(integrationConfig).test?.minWorkers).toBe(1)
+    expect(config(integrationConfig).test?.maxWorkers).toBe(activeWorkerLimit)
     for (const appConfig of [webConfig, mobileConfig]) {
       expect(config(appConfig).test?.maxWorkers).toBe(sharedVitestConfig.test.maxWorkers)
     }
   })
 
   it('defaults worker limits safely and accepts explicit host overrides', () => {
+    expect(resolveTestWorkerLimit('')).toBe(2)
     expect(resolveTestWorkerLimit('6')).toBe(6)
     expect(resolveTestWorkerLimit(' auto ')).toBeUndefined()
     expect(() => resolveTestWorkerLimit('0')).toThrow(
@@ -518,7 +539,6 @@ describe('test lane configuration', () => {
     expect(pkg.scripts['test:agent']).toBe('bun run test')
     expect(pkg.scripts['test:full']).toBe('bun run typecheck && bun scripts/test.ts')
     expect(pkg.scripts['test:unit']).toBe('bun scripts/test.ts')
-    expect(pkg.scripts.test).toContain('vitest.unit.config.ts')
     expect(pkg.scripts.test).not.toContain('test:web')
     expect(pkg.scripts.test).not.toContain('test:bun:unit')
     expect(pkg.scripts.test).not.toContain('test:integration')
@@ -540,31 +560,222 @@ describe('test lane configuration', () => {
         'bun scripts/test-heavy.ts --',
       )
     }
-    // The dependency lanes spawn cold typechecks and package tests in DISPOSABLE
-    // worktrees, where PODIUM_SESSION_ID is unset so no inner probe can take a lease of
-    // its own. The lease therefore has to be here, around the whole lane, or a routine
-    // agent invocation runs several full typechecks with nothing admitting them
-    // [POD-2774].
-    const admissionLane = pkg.scripts['deps:global-store-cache-admission'] as string
-    expect(admissionLane).toContain('validation-admission.ts heavy')
-    expect(admissionLane).toContain('bun scripts/global-store-cache-admission.ts')
-    // One lease, outermost: the lane entry point must be the leased command and not
-    // something that leases again inside it.
-    expect(admissionLane.indexOf('validation-admission.ts')).toBeLessThan(
-      admissionLane.indexOf('global-store-cache-admission.ts'),
-    )
-    expect(admissionLane.match(/validation-admission\.ts/g)).toHaveLength(1)
     expect(pkg.scripts['test:perf:frontend']).toBe('bun run --cwd apps/web test:perf:large-state')
     expect(pkg.scripts['test:e2e']).toContain('NODE_OPTIONS=--conditions=@podium/source')
-    expect(pkg.scripts.test).toContain('bun run typecheck &&')
     expect(pkg.scripts['test:smoke:agents']).toContain('PODIUM_REAL_CLI=1')
-    expect(pkg.scripts.test).toContain('--maxWorkers=1')
     expect(pkg.scripts.test).not.toContain('validation-admission.ts')
-    expect(pkg.scripts.test).toContain('packages/runtime/src/boot.test.ts')
-    expect(pkg.scripts.test).toContain('apps/server/src/router.setup.test.ts')
-    expect(pkg.scripts.test).toContain('apps/daemon/src/connection-state.test.ts')
-    expect(pkg.scripts.test).toContain('scripts/test-configuration.test.ts')
+    // The four files moved out of this command line and into LEAN_GATE_FILES, so the
+    // scope is now asserted against the value the gate actually runs rather than
+    // against substrings of a string (POD-2728). What stays asserted HERE is that the
+    // command still routes through the lean runner: point `test` back at a bare
+    // `vitest run` and the footer, the resolution check and this guard all vanish
+    // together, which is precisely the state POD-2728 was filed about.
+    expect(pkg.scripts.test).toBe('bun run typecheck && bun scripts/test-lean.ts')
     expect(pkg.scripts.test).not.toContain('scripts/test.ts')
+  })
+
+  /**
+   * The lean gate must never be able to shrink quietly [POD-2728].
+   *
+   * Its scope was four POSITIONAL paths passed to `vitest run --passWithNoTests`, which
+   * made it the one explicit file list in the repository exempt from the rule the server
+   * shards are held to a few tests up ("an explicit file list that collects nothing means
+   * the manifest and the filesystem disagree"). Renaming one of the four dropped it from
+   * the gate and still exited 0; renaming all four printed "No test files found, exiting
+   * with code 0". Both were demonstrated, not reasoned about.
+   *
+   * Two independent things are pinned here, because either alone still allows the failure:
+   * the runner must refuse rather than narrow when a named file is not collected, and the
+   * command must not carry `--passWithNoTests` back in.
+   */
+  it('refuses to run a lean gate that has silently lost a file', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    expect(pkg.scripts.test, 'the lean gate would pass empty').not.toContain('--passWithNoTests')
+    expect(LEAN_GATE_FILES.length).toBeGreaterThan(0)
+
+    // Present in the collection: run exactly those, and report the lane's real size.
+    const collected = [...LEAN_GATE_FILES, 'packages/model/src/entities/agent.test.ts']
+    const resolved = resolveLaneAgainst(collected)
+    expect(resolved.ok).toBe(true)
+    if (resolved.ok) {
+      expect(resolved.files).toEqual([...LEAN_GATE_FILES])
+      expect(resolved.collected).toBe(collected.length)
+    }
+
+    // One file renamed out from under it — the case that used to exit 0 on three files.
+    const shrunk = collected.filter((file) => file !== LEAN_GATE_FILES[0])
+    const narrowed = resolveLaneAgainst(shrunk)
+    expect(narrowed.ok, 'a gate reduced to three files still passed').toBe(false)
+    if (!narrowed.ok) expect(narrowed.missing).toEqual([LEAN_GATE_FILES[0]])
+
+    // Everything gone — the case that used to print "No test files found" and exit 0.
+    const empty = resolveLaneAgainst([])
+    expect(empty.ok, 'an empty gate still passed').toBe(false)
+    if (!empty.ok) expect(empty.missing).toEqual([...LEAN_GATE_FILES])
+  })
+
+  /**
+   * A Vitest `json` report, as the runner writes it — absolute paths and all.
+   *
+   * Hand-built, but not hand-waved: every field asserted below was taken from a real
+   * report produced by the two invocations the review used to break the first version
+   * of this gate, so the fixture reproduces the shape that made it lie rather than a
+   * shape convenient for the assertion (POD-2728).
+   */
+  const vitestReport = (
+    files: { file: string; passed?: number; failed?: number; skipped?: number }[],
+  ) => ({
+    testResults: files.map(({ file, passed = 0, failed = 0, skipped = 0 }) => ({
+      // Vitest reports `passed` for a file whose every test was SKIPPED, which is why
+      // this gate counts assertions rather than reading the file-level status.
+      name: `${fileURLToPath(new URL('../', import.meta.url))}${file}`,
+      status: failed > 0 ? 'failed' : 'passed',
+      assertionResults: [
+        ...Array.from({ length: passed }, () => ({ status: 'passed' })),
+        ...Array.from({ length: failed }, () => ({ status: 'failed' })),
+        ...Array.from({ length: skipped }, () => ({ status: 'skipped' })),
+      ],
+    })),
+  })
+
+  const fullRun = () => vitestReport(LEAN_GATE_FILES.map((file) => ({ file, passed: 19 })))
+
+  /**
+   * The footer is the whole point of POD-2728, so it is asserted rather than trusted:
+   * the last thing a `bun run test` leaves on screen has to deny being a suite run and
+   * has to carry the ratio it actually ran. A green that reads like a suite is what
+   * taught the fleet that green means shipped.
+   */
+  it('ends the lean gate with output that cannot be read as a suite', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const lanes = otherLanes(pkg.scripts)
+    const passed = footer('PASSED', reconcileExecution(fullRun()), 955, lanes)
+    expect(passed).toContain('NOT the test suite')
+    expect(passed).toContain(`Ran ${LEAN_GATE_FILES.length} of the 955 files`)
+    expect(passed).toContain('0.4%')
+    expect(passed).toContain('bun run test:full')
+    for (const file of LEAN_GATE_FILES) expect(passed).toContain(file)
+
+    // A red lean gate must not borrow the reassuring half of that copy.
+    const failed = footer('FAILED', reconcileExecution(fullRun()), 955, lanes)
+    expect(failed).toContain('LEAN GATE FAILED')
+    expect(failed).not.toContain('lean gate green')
+  })
+
+  /**
+   * The footer's numerator must come from what Vitest EXECUTED, never from the scope
+   * it was asked for [POD-2728, found in adversarial review of 719e55460].
+   *
+   * The first version of this gate handed `footer()` the length of LEAN_GATE_FILES, so
+   * "Ran 4 of the N files" could not say anything but 4 no matter what happened in the
+   * run. Two ordinary invocations, no tampering with the tree, made it print a
+   * confident green over a run that had done a quarter of the work or none of it — and
+   * both were a REGRESSION, because the plain four-file script at least ended in
+   * Vitest's own honest `Tests 79 skipped (79)`.
+   *
+   * This is an assertion on an IDENTIFIER standing in for the content it addresses, so
+   * both halves are pinned: the count in the prose, and the verdict that follows from it.
+   */
+  it('counts what the runner executed, not what the gate asked for', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const lanes = otherLanes(pkg.scripts)
+
+    // `bun run test --shard=1/4` — one file ran, exit 0, footer used to claim four.
+    const sharded = reconcileExecution(
+      vitestReport(LEAN_GATE_FILES.slice(0, 1).map((file) => ({ file, passed: 19 }))),
+    )
+    expect(sharded.ok, 'a quarter of the gate counted as the gate').toBe(false)
+    expect(sharded.ranFiles).toBe(1)
+    expect(sharded.ranTests).toBe(19)
+    expect(sharded.shortfall.map((entry) => entry.file)).toEqual([...LEAN_GATE_FILES.slice(1)])
+    expect(sharded.shortfall.every((entry) => entry.reason === 'never ran')).toBe(true)
+    const shardFooter = footer('INCOMPLETE', sharded, 1022, lanes)
+    expect(shardFooter, 'the footer still claimed the whole set').toContain('Ran 1 of the 1022')
+    expect(shardFooter).not.toContain('lean gate green')
+    expect(shardFooter).toContain('NARROWER THAN THE GATE')
+
+    // `bun run test -t=<no match>` — four files collected, ZERO tests executed, and
+    // Vitest calls every one of them `passed` and exits 0. This is the gate's own
+    // "no lane may pass empty" invariant, failing on the lane it was written for.
+    const filtered = reconcileExecution(
+      vitestReport(LEAN_GATE_FILES.map((file) => ({ file, skipped: 19 }))),
+    )
+    expect(filtered.ok, 'a run with zero assertions passed').toBe(false)
+    expect(filtered.ranTests).toBe(0)
+    expect(filtered.ranFiles).toBe(0)
+    expect(filtered.skippedTests).toBe(76)
+    expect(filtered.shortfall.every((entry) => entry.reason === 'every test skipped')).toBe(true)
+    const filteredFooter = footer('INCOMPLETE', filtered, 1022, lanes)
+    expect(filteredFooter).toContain('Ran 0 of the 1022')
+    expect(filteredFooter).toContain('NOTHING RAN')
+    expect(filteredFooter).not.toContain('lean gate green')
+
+    // The no-flag version of the same thing: a `describe.skip` committed to one of the
+    // four. Nothing in argv shows it, which is why the check reads the tally instead.
+    const skippedOne = reconcileExecution(
+      vitestReport(
+        LEAN_GATE_FILES.map((file, index) =>
+          index === 2 ? { file, skipped: 19 } : { file, passed: 19 },
+        ),
+      ),
+    )
+    expect(skippedOne.ok, 'a .skip silently removed a file from the gate').toBe(false)
+    expect(skippedOne.ranFiles).toBe(3)
+    expect(skippedOne.shortfall).toEqual([
+      { file: LEAN_GATE_FILES[2], reason: 'every test skipped' },
+    ])
+
+    // And the honest run still passes, with the runner's numbers in the prose.
+    const whole = reconcileExecution(fullRun())
+    expect(whole.ok).toBe(true)
+    expect(whole.ranFiles).toBe(LEAN_GATE_FILES.length)
+    expect(whole.ranTests).toBe(76)
+    expect(whole.skippedTests).toBe(0)
+    // A failing assertion is still an executed one: red is a verdict, not a shortfall.
+    const red = reconcileExecution(
+      vitestReport(LEAN_GATE_FILES.map((file) => ({ file, passed: 18, failed: 1 }))),
+    )
+    expect(red.ok, 'a red gate was misreported as an incomplete one').toBe(true)
+    expect(red.failedTests).toBe(4)
+  })
+
+  /**
+   * The footer's roster of skipped lanes is READ OFF package.json, not written down
+   * [POD-2728]. A hand-kept roster would be the same bug one level up: add a lane,
+   * forget the footer, and the output starts asserting a set that is no longer true —
+   * which is exactly how this repository ended up with a command called `test` that
+   * did not say it ran four files. So what is pinned here is the derivation, not a
+   * list: every `test*` script must appear except this gate and its aliases.
+   */
+  it('derives the skipped-lane roster from package.json rather than restating it', () => {
+    const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
+      scripts: Record<string, string>
+    }
+    const lanes = otherLanes(pkg.scripts)
+
+    // The gate itself, and anything that is only an alias for it, are not "other lanes".
+    expect(lanes).not.toContain('test')
+    expect(lanes).not.toContain('test:agent')
+    expect(pkg.scripts['test:agent'], 'test:agent stopped being a pure alias').toBe('bun run test')
+
+    // Everything else that calls itself a test lane is in, including the ones a reader
+    // is most likely to assume the default covers.
+    for (const lane of ['test:full', 'test:unit', 'test:integration', 'test:e2e', 'test:rust']) {
+      expect(lanes, `${lane} vanished from the footer's roster`).toContain(lane)
+    }
+
+    // package.json's `//name` comment convention is documentation, not a lane.
+    expect(lanes.filter((lane) => lane.startsWith('//'))).toEqual([])
+
+    // And the derivation must actually be reading the object it was handed — a
+    // hardcoded roster would ignore a lane that only exists in this fixture.
+    expect(otherLanes({ test: 'x', 'test:invented-lane': 'y' })).toEqual(['test:invented-lane'])
   })
 
   it('keeps the native node-pty backend retired', () => {
@@ -885,17 +1096,22 @@ describe('test lane configuration', () => {
     const lane = readFileSync(new URL('./browser-lane.ts', import.meta.url), 'utf8')
     expect(lane, 'lane must run the workspace build').toMatch(/run\('bun', \['run', 'build'\]/)
     expect(lane, 'lane must export mobile web for phone projects').toMatch(
-      /@podium\/mobile['"],\s*['"]build:web['"]/,
+      /@podium\/mobile['"],\s*['"]build['"]/,
     )
-    // Root `bun run build` is packages/* then @podium/web; packages/* includes
-    // model before protocol alphabetically only by workspace graph — the
-    // historical order guarantee was model-before-protocol in one shell string.
-    // The root build script is the order of record for the lane.
+    // Root `bun run build` used to be a hand-written `--filter` chain, and its order
+    // was the order of record for this lane. It is a Turbo task graph now (POD-3053):
+    // the ordering guarantee moved from a shell string into `dependsOn`, where it is
+    // derived rather than remembered, and the lane gets it by delegating. What this
+    // still has to pin is that the root script IS that delegation — a chain creeping
+    // back would be a second order of record, and the one this lane does not read.
     const pkg = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')) as {
       scripts: Record<string, string>
     }
-    expect(pkg.scripts.build).toMatch(/packages\/\*/)
-    expect(pkg.scripts.build).toMatch(/@podium\/web/)
+    expect(pkg.scripts.build).toBe('bun scripts/build-clients.ts --workspace')
+    const buildClients = readFileSync(new URL('./build-clients.ts', import.meta.url), 'utf8')
+    expect(buildClients, 'the lane must run turbo run build, never a bare turbo build').toContain(
+      "'run',\n    'build',",
+    )
 
     for (const playwright of [browserConfig, phase3BrowserConfig]) {
       const command = webServerCommand(playwright)
@@ -913,6 +1129,39 @@ describe('test lane configuration', () => {
     expect(lane).toMatch(/buildOnly|BUILD_ONLY/)
     expect(lane, 'lane must expose --suite selection').toContain('--suite')
     expect(lane).toMatch(/resolveSelectedSuites|suiteSelectors/)
+  })
+
+  it('stamps both client dists after turbo, with no cache-state branch [POD-3072][POD-3082]', () => {
+    // WHAT RESTS ON THIS. Since POD-3082 the phone's build task no longer names
+    // PODIUM_APP_VERSION in its cache key, so a release whose clients did not change
+    // RESTORES apps/mobile/dist — stamped with whichever version and commit first built
+    // those inputs. The only thing that makes the released dist name THIS release is
+    // stampClients running after the turbo call, for every run, HIT and MISS alike.
+    //
+    // That is why the shape is asserted and not just the behaviour: an `if (cache ===
+    // 'MISS')` slipped in between the build and the stamp would leave every cold-build
+    // test green and only a restored release wrong — the exact failure POD-3072 was.
+    expect(CLIENT_DIST_DIRS, 'both client dists must be stamped').toEqual([
+      'apps/web/dist',
+      'apps/mobile/dist',
+    ])
+
+    const source = readFileSync(new URL('./build-clients.ts', import.meta.url), 'utf8')
+    for (const name of ['buildClients', 'buildWorkspace']) {
+      const start = source.indexOf(`export async function ${name}(`)
+      expect(start, `${name} is not exported from build-clients.ts`).toBeGreaterThan(-1)
+      const end = source.indexOf('\n}\n', start)
+      const body = source.slice(start, end)
+
+      const built = body.indexOf('runTurboBuild(')
+      const stamped = body.indexOf('stampClients(')
+      expect(built, `${name} no longer runs the turbo build`).toBeGreaterThan(-1)
+      expect(stamped, `${name} must stamp AFTER turbo returns`).toBeGreaterThan(built)
+      expect(
+        body.slice(built, stamped),
+        `${name} decides whether to stamp; the stamp must be unconditional`,
+      ).not.toMatch(/\b(if|switch|cache|HIT|MISS)\b|\?/)
+    }
   })
 
   it('keeps webServer budget for harness boot only [POD-535]', () => {
@@ -1020,6 +1269,198 @@ describe('test lane configuration', () => {
     expect(tests, 'the rust lane would run no tests').toBeGreaterThan(10)
   })
 
+  it('keeps parity release evidence fail-closed across native and packaged boundaries', () => {
+    expect(inspectProofContract(fileURLToPath(repoRoot))).toEqual([])
+
+    const baseline = parseEvidence(
+      JSON.parse(
+        readFileSync(new URL('./parity-release-proof-baseline.json', import.meta.url), 'utf8'),
+      ),
+    )
+    expect(Object.keys(baseline.checks).sort()).toEqual(
+      PROOF_CHECKS.map((check) => check.id).sort(),
+    )
+    expect(validateEvidence(baseline, { releaseReady: false })).toEqual([])
+    expect(validateEvidence(baseline, { releaseReady: true })).toHaveLength(PROOF_CHECKS.length)
+
+    const native = structuredClone(baseline)
+    native.checks['ios-minimum-simulator-smoke'] = {
+      status: 'passed',
+      source: 'automated',
+      artifacts: ['run://browser-emulation'],
+      notes: 'A browser device preset ran.',
+    }
+    expect(validateEvidence(native, { releaseReady: false })).toContain(
+      'ios-minimum-simulator-smoke: expected simulator evidence, found automated',
+    )
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'ios-minimum-simulator-smoke': {
+            status: 'passed',
+            source: 'browser-emulation',
+            notes: 'A browser device preset ran.',
+          },
+        },
+      }),
+    ).toThrow('browser emulation is never native proof')
+
+    const staleIos = structuredClone(baseline)
+    staleIos.checks['ios-current-device'] = {
+      status: 'passed',
+      source: 'physical-device',
+      device: 'iPhone 16 Pro',
+      osVersion: '26.6',
+      artifacts: ['device-run.mp4'],
+      notes: 'Ran on a stale current-device image.',
+    }
+    expect(validateEvidence(staleIos, { releaseReady: false })).toContain(
+      'ios-current-device: expected OS 26.6.1, found 26.6',
+    )
+
+    const wrongDevice = structuredClone(baseline)
+    wrongDevice.checks['ios-minimum-device'] = {
+      status: 'passed',
+      source: 'physical-device',
+      device: 'iPhone 8',
+      osVersion: '16.4',
+      artifacts: ['device-run.mp4'],
+      notes: 'Ran on the wrong minimum device.',
+    }
+    expect(validateEvidence(wrongDevice, { releaseReady: false })).toContain(
+      'ios-minimum-device: expected device iPhone SE (2nd generation), found iPhone 8',
+    )
+
+    const oneMacArchitecture = structuredClone(baseline)
+    oneMacArchitecture.checks['desktop-macos-apple-silicon-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'MacBook Pro (14-inch, M4 Pro, 2024)',
+      osVersion: 'macOS 26.6.2',
+      packageName: 'Podium_1.2.3_aarch64.dmg',
+      packageSha256: 'a'.repeat(64),
+      packageTrust: {
+        mechanism: 'apple-notarized-developer-id',
+        identity: 'Developer ID Application: Podium',
+        verified: true,
+      },
+      desktopBoundaryResults: {
+        notification: 'passed',
+        deepLinkCold: 'passed',
+        deepLinkWarm: 'passed',
+      },
+      artifacts: ['apple-silicon-run.mp4'],
+      notes: 'Apple Silicon package passed.',
+    }
+    expect(
+      validateEvidence(oneMacArchitecture, { releaseReady: false }).filter((error) =>
+        error.startsWith('desktop-macos-apple-silicon-package:'),
+      ),
+    ).toEqual([])
+    expect(validateEvidence(oneMacArchitecture, { releaseReady: true })).toContain(
+      'desktop-macos-intel-package: unavailable evidence blocks release',
+    )
+
+    const wrongDesktopPackage = structuredClone(baseline)
+    wrongDesktopPackage.checks['desktop-windows-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'Dell XPS 13 9340',
+      osVersion: 'Windows 11 24H2',
+      packageName: 'desktop-notes.txt',
+      packageSha256: 'b'.repeat(64),
+      artifacts: ['windows-run.mp4'],
+      notes: 'The package label is not an NSIS installer.',
+    }
+    expect(validateEvidence(wrongDesktopPackage, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected package Podium_<version>_x64-setup.exe, found desktop-notes.txt',
+    )
+
+    const untrustedWindowsPackage = structuredClone(baseline)
+    untrustedWindowsPackage.checks['desktop-windows-package'] = {
+      status: 'passed',
+      source: 'packaged-desktop',
+      device: 'Dell XPS 13 9340',
+      osVersion: 'Windows 11 24H2',
+      packageName: 'Podium_1.2.3_x64-setup.exe',
+      packageSha256: 'b'.repeat(64),
+      packageTrust: {
+        mechanism: 'windows-authenticode',
+        identity: 'Unknown publisher',
+        verified: false,
+      },
+      artifacts: ['windows-run.mp4'],
+      notes: 'The installer ran, but its publisher trust did not verify.',
+    }
+    expect(validateEvidence(untrustedWindowsPackage, { releaseReady: false })).toContain(
+      'desktop-windows-package: package trust verification did not pass',
+    )
+
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'desktop-windows-package': {
+            ...untrustedWindowsPackage.checks['desktop-windows-package'],
+            packageTrust: {
+              mechanism: 'Authenticode check failed',
+              identity: 'Acme Corp',
+              verified: true,
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'desktop-windows-package.packageTrust.mechanism must be one of apple-notarized-developer-id, windows-authenticode, tauri-minisign-signature',
+    )
+
+    expect(() =>
+      parseEvidence({
+        ...baseline,
+        checks: {
+          ...baseline.checks,
+          'desktop-linux-package': {
+            ...baseline.checks['desktop-linux-package'],
+            packageTrust: {
+              mechanism: 'sha256',
+              identity: 'release digest',
+              verified: true,
+            },
+          },
+        },
+      }),
+    ).toThrow(
+      'desktop-linux-package.packageTrust.mechanism must be one of apple-notarized-developer-id, windows-authenticode, tauri-minisign-signature',
+    )
+
+    const wrongPlatformTrust = structuredClone(untrustedWindowsPackage)
+    wrongPlatformTrust.checks['desktop-windows-package']!.packageTrust = {
+      mechanism: 'tauri-minisign-signature',
+      identity: 'Podium release key',
+      verified: true,
+    }
+    expect(validateEvidence(wrongPlatformTrust, { releaseReady: false })).toContain(
+      'desktop-windows-package: expected windows-authenticode, found tauri-minisign-signature',
+    )
+
+    const missingDesktopBoundaries = structuredClone(oneMacArchitecture)
+    delete missingDesktopBoundaries.checks['desktop-macos-apple-silicon-package']!
+      .desktopBoundaryResults
+    expect(validateEvidence(missingDesktopBoundaries, { releaseReady: false })).toContain(
+      'desktop-macos-apple-silicon-package: passed package evidence needs desktopBoundaryResults',
+    )
+
+    const failedDesktopBoundary = structuredClone(oneMacArchitecture)
+    failedDesktopBoundary.checks['desktop-macos-apple-silicon-package']!
+      .desktopBoundaryResults!.deepLinkWarm = 'failed'
+    expect(validateEvidence(failedDesktopBoundary, { releaseReady: false })).toContain(
+      'desktop-macos-apple-silicon-package: desktop boundary deepLinkWarm did not pass',
+    )
+  })
+
   it('keeps the oracle lane set, its runner, and CI in sync [POD-295]', () => {
     // The oracle is defined in three places that can drift apart silently: the lane
     // set (scripts/oracle.ts), the local runner (`bun run oracle`), and the CI job.
@@ -1075,6 +1516,9 @@ describe('test lane configuration', () => {
       scripts: Record<string, string>
     }
     for (const [name, script] of Object.entries(pkg.scripts)) {
+      // `//name` entries are package.json's comment convention — prose about a lane, not
+      // a command. Sweeping them for `vitest` reads a doc-string as an invocation.
+      if (name.startsWith('//')) continue
       for (const match of script.matchAll(/(?:^|&&|\|\|)\s*([^&|]*\bvitest\b[^&|]*)/g)) {
         const invocation = match[1]
         if (invocation === undefined) {
@@ -1086,5 +1530,14 @@ describe('test lane configuration', () => {
         ).toBe(true)
       }
     }
+
+    // The lean gate's invocation moved OUT of package.json and into scripts/test-lean.ts
+    // (POD-2728), so the sweep above can no longer see it. Follow it there rather than
+    // letting the repository's most-typed command fall out of this doctrine unnoticed —
+    // `bun --bun vitest` (the bin) silently comes up on real Node (POD-195), which is the
+    // whole reason the entry module is named explicitly.
+    const lean = vitestCommand(['run'])
+    expect(lean.slice(0, 2)).toEqual(['bun', '--bun'])
+    expect(lean[2]).toMatch(/node_modules\/vitest\/vitest\.mjs$/)
   })
 })

@@ -1,0 +1,80 @@
+{
+  "id": "A7b",
+  "armLabel": "fix",
+  "verdict": "PASS",
+  "summary": "hibernate/resurrect returned the same conversation live with context intact and a usable post-wake turn",
+  "control": {
+    "fired": true,
+    "clauses": {
+      "contextPlanted": "PASS — baseline answered OK after planting REMEMBER-9IOWHE",
+      "actuallyParked": "PASS — product row reached hibernated in 79ms",
+      "usableAfterWake": "PASS — fresh post-wake recall answered REMEMBER-9IOWHE in 5059ms"
+    }
+  },
+  "evidence": [
+    "==============================================================================",
+    "A7b  hibernate and wake   harness=grok",
+    "==============================================================================",
+    "session 059643c4-8cc3-40e2-86bd-fda955c78894",
+    "BOUND DRIVER       grok-acp (family server)",
+    "PLANT              \"REMEMBER-9IOWHE\"",
+    "  replied in       5212ms: \"OK\"",
+    "  conversation     conv_154d1bd7-640e-4fd9-ad1e-6941bcca545f",
+    "HIBERNATING …",
+    "  returned         {\"ok\":true}",
+    "  status           hibernated after 79ms",
+    "  C2 FIRED — it really parked",
+    "WAKING …",
+    "  returned         {\"ok\":true}",
+    "  status           live after 2155ms",
+    "  conversation     conv_154d1bd7-640e-4fd9-ad1e-6941bcca545f",
+    "  same pointer     true",
+    "  transcript keeps the pre-park exchange: true",
+    "RECALL             asking for the word back",
+    "  replied in       5059ms: \"REMEMBER-9IOWHE\"",
+    "==============================================================================",
+    "A7b  PASS",
+    "     woke live in 17229ms, never wedged",
+    "     word recalled after the wake: true  (REMEMBER-9IOWHE)",
+    "     conversation pointer unchanged: true",
+    "     transcript kept the exchange:   true",
+    "     controls: C1 context planted FIRED, C2 really parked FIRED, C3 post-wake turn FIRED",
+    "=============================================================================="
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "sessionId": "059643c4-8cc3-40e2-86bd-fda955c78894",
+    "hibernateOk": true,
+    "parked": true,
+    "parkedMs": 79,
+    "resurrectOk": true,
+    "live": true,
+    "liveMs": 2155,
+    "wokeWithoutWedgeMs": 17229,
+    "contextToken": "REMEMBER-9IOWHE",
+    "recalled": true,
+    "conversationBefore": "conv_154d1bd7-640e-4fd9-ad1e-6941bcca545f",
+    "conversationAfter": "conv_154d1bd7-640e-4fd9-ad1e-6941bcca545f",
+    "sameConversation": true,
+    "transcriptKept": true
+  },
+  "cwd": "/tmp/pod-2927-grok-current/cells/a7b-fix-5a/repo",
+  "pin": {
+    "codeCommit": "5a01098aae2cea4bbc4d7a7e893c1b70a15b137a",
+    "codeTree": "a55459ebebced6da2c55771fd358c6f68e14a0e2",
+    "serverPid": 2291866,
+    "daemonPid": 2292188,
+    "webSourceSha": "5a01098",
+    "webBundle": "bundle+D0-MLqzq",
+    "wireSchemaDigest": "986ebf5e8e57820c",
+    "nonDocDiff": 0
+  },
+  "admission": {
+    "diskFreeKb": 11850588,
+    "load1": 7.22,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 14:12:55 CEST",
+  "parentContext": "POD-2942 parent FAIL is retained; this fresh fix arm measures landed commits 77d98d676 and 5a01098aa."
+}

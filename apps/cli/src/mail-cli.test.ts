@@ -187,6 +187,40 @@ describe('podium mail CLI (argv shape)', () => {
     expect(out).toMatch(/no recipient session/i)
   })
 
+  it('mail status corrects a queue that missed its readiness deadline', async () => {
+    const c = client({
+      status: {
+        ...WIRE,
+        status: 'dead_letter',
+        deadLetteredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'never-live',
+      },
+    })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).toContain('status: dead_letter')
+    // The sender is told what actually happened, and told it is over — the old
+    // "still queued for retry" line described a wait that nothing was serving.
+    expect(out).toContain('never became ready within the deadline')
+    expect(out).not.toContain('still queued')
+    expect(out).toContain('deferred-reason=never-live')
+  })
+
+  it('mail status says a torn-down session was never typed into', async () => {
+    const c = client({
+      status: {
+        ...WIRE,
+        status: 'dead_letter',
+        deadLetteredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredAt: '2026-08-16T18:00:00.000Z',
+        deliveryDeferredReason: 'teardown',
+      },
+    })
+    const out = await runMailCli(['status', 'msg_1'], c)
+    expect(out).toContain('torn down before it could be typed into')
+    expect(out).toContain('deferred-reason=teardown')
+  })
+
   it('[POD-1420] mail status still confirms delivery when a session IS named', async () => {
     const c = client({
       status: { ...WIRE, status: 'delivered', deliveredAt: 't1', deliveredTo: 's-abc' },

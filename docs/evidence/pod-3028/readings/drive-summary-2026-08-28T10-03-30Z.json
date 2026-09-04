@@ -1,0 +1,66 @@
+{
+  "recordedAt": "2026-08-28T10:03:30.368Z",
+  "pin": "45323df366cb9ac7156f7d1b4c02c39c706aaf33",
+  "epicTip": "45323df366cb9ac7156f7d1b4c02c39c706aaf33",
+  "mergeBaseWithMain": "0bd90092c3a926b9305da34547fcc51b1e19b0a7",
+  "pod3001Ancestor": true,
+  "pod3018Ancestor": false,
+  "instance": "p3028q-8280953",
+  "serverPid": 140419,
+  "daemonPid": 140522,
+  "tosOnDaemon": "1",
+  "machineRuntimeDriver": null,
+  "isolatedCredentialCopy": false,
+  "operatorCredential": {
+    "mtime": "2026-08-28T06:20:34.463Z",
+    "expiresAtIso": "2026-08-28T14:20:34.109Z",
+    "expired": false,
+    "mtimeUnchangedThroughDriveAndTeardown": true
+  },
+  "providerWindow": {
+    "classification": "claude-weekly-quota-exhausted; monthly-spend-not-exhausted; oauth unexpired",
+    "weeklyAllPercent": 100,
+    "weeklyResetsAt": "2026-08-28T10:59:59.716342+00:00",
+    "monthlySpendPercent": 0,
+    "monthlySpendEnabled": false
+  },
+  "claudePty": {
+    "sessionId": "0269f20b-81fa-401e-be59-0e80ca21c35e",
+    "runtimeContract": null,
+    "dbSelectedDriverId": "claude-pty",
+    "statusDriverId": null,
+    "driverFamily": "terminal",
+    "productCondition": "logged-out",
+    "phase": "idle",
+    "status": "live",
+    "sendDisposition": "queued",
+    "claudeProcessObserved": true,
+    "sdkHostObserved": false,
+    "terminalBytes": 6424,
+    "promptPersisted": false,
+    "home": "/home/mgw/.local/state/podium/p3028q-8280953/agent-home",
+    "screenClass": "first-run theme picker plus Claude subscription login UI; no quota text",
+    "classification": "product-logged-out in empty instance agent-home; not monthly-spend; not operator OAuth expiry"
+  },
+  "claudeSdk": {
+    "sessionId": "b1d68ec1-b0a3-4d69-b0d7-5e3d7f90cb2d",
+    "runtimeContract": "claude-sdk",
+    "dbSelectedDriverId": "claude-sdk",
+    "statusDriverId": "claude-sdk",
+    "driverFamily": "embedded",
+    "productCondition": "logged-out",
+    "phase": "errored",
+    "statusError": null,
+    "transcriptItems": 0,
+    "sendDisposition": "delivered",
+    "resumeMinted": "5013ce96-4719-44f2-9794-e8614cb20d60",
+    "sdkHostObserved": false,
+    "durableHeadlessTurnsDir": false,
+    "classification": "persistent RuntimeDriver selected; turn failed without published error or quota text; product condition logged-out"
+  },
+  "teardown": {
+    "serverDaemonStopped": true,
+    "leftoverPtyClaudeKilled": true,
+    "liveCredentialUntouched": true
+  }
+}

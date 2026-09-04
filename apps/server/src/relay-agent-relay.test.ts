@@ -301,9 +301,34 @@ describe('server agent relay handler (P1b)', () => {
       expect(view.repos.every((repo) => visible.has(repo.machineId))).toBe(true)
     })
 
+    it('routes a capability-scoped re-probe to the selected online machine', async () => {
+      const sent: ControlMessage[] = []
+      const reply = new Promise<RelayResult>((resolve) => {
+        registry.gateway.attachDaemon(machineId, (message) => {
+          sent.push(message)
+          if (message.type === 'agentRelayResult') resolve(message)
+        })
+      })
+      registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId: 'ir-machines-reprobe',
+        sessionId: asSessionId(sA),
+        router: 'machines',
+        proc: 'reprobe',
+        input: { id: machineId },
+      })
+
+      const result = await reply
+      expect(result).toMatchObject({
+        ok: true,
+        result: { machineId, requested: true },
+      })
+      expect(sent).toContainEqual({ type: 'inventoryRequest' })
+    })
+
     it('still refuses every other machines proc', async () => {
-      // The allowlist grants reach to two READS, not to the router: rename and
-      // revoke stay operator-side.
+      // The allowlist grants reach to two reads and the bounded re-probe, not
+      // to the router: rename and revoke stay operator-side.
       for (const proc of ['rename', 'revoke', 'pairingCode']) {
         const reply = captureReply(registry, machineId)
         registry.gateway.routeDaemonFrame(machineId, {
@@ -696,7 +721,7 @@ describe('sessions.title — an agent names its own session (#490)', () => {
   beforeEach(() => {
     registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
-    A = registry.issues.create({ repoPath, title: 'epic root', startNow: false }) as typeof A
+    A = registry.issues.create({ repoPath, title: 'Agent relay epic', startNow: false }) as typeof A
     registry.issues.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = registry.issues.get(A.id)?.worktreePath as string
     // Two sessions on the SAME issue — siblings in the sidebar, which is exactly the
@@ -770,6 +795,16 @@ describe('sessions.title — an agent names its own session (#490)', () => {
     expect(prime).toContain(`under #${A.seq}`)
     // The sibling's display name is quoted so the agent can avoid duplicating it.
     expect(prime).toContain('Merge lock lease expiry')
+  })
+
+  it('primes a session on a prompt-titled real issue to retitle the issue', async () => {
+    registry.issues.update(A.id, {
+      title: 'Please investigate why task naming stopped working correctly',
+    })
+
+    const prime = String((await relay(asSessionId(sA), 'issues', 'prime', { repoPath })).result)
+    expect(prime).toContain("This issue's title violates the 3–5 word rule")
+    expect(prime).toContain(`podium issue update --id ${A.seq} --title "…"`)
   })
 
   it('says nothing about titles once the session HAS a name', async () => {

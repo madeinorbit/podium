@@ -1,0 +1,72 @@
+A5 current-tip dded76d9c exact single-arm re-drive
+Run window: 2026-08-28 03:24:32–03:28:16 CEST
+Harness: grok-acp from the product; driverId=grok-acp; driverFamily=server
+Named instance: grok2927a5d
+Instance UUID: 2f908bb1-effd-445a-aa08-09da12a93bb9
+Session: de9fcf23-0a41-4d22-b031-96b73ccdff7f
+Provider session: 01a045f7-f779-7630-a41d-9f30a3591a09
+Worktree: /tmp/pod-2927-grok-a5-d/repo
+Expected marker: TRANSCRIPT-VP2S9W
+
+Admission and pins
+- Candidate state root was absent before bring-up.
+- Product preflight created runtime/tmux; PODIUM_ADOPT_STATE=1 adopted only those product-created directories.
+- No PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR, TMUX_TMPDIR, HOME, or PODIUM_RUNTIME_DRIVER override.
+- One probe and one named instance; canonical verifier passed.
+- Server PID 3715551, daemon PID 3715631; both spawned at dded76d9c6df833dea3d31f248e987c73523a0d2 from the issue worktree.
+- Served web source dded76d, bundle+D9b31Ivh, wire schema c847f4452ebd568b, builtAt 2026-08-28T01:24:19.995Z, port 19938.
+- Code tree 9859799adf4cb9efeac98642ecd1991e9af12e2f.
+- Grok binary /home/mgw/.local/bin/grok, version 0.2.118 (1e1687c1cf) [stable].
+- test:heavy was held only for build and drive, then released before evidence writing.
+
+Pin verifier
+  ok no other probe is driving this rig
+  ok server pid=3715551 cwd=/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column spawned at dded76d
+  ok daemon pid=3715631 cwd=/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column spawned at dded76d
+  ok exactly one daemon (pid 3715631) on instance grok2927a5d
+  ok worktree at dded76d9c6df833dea3d31f248e987c73523a0d2; product tree clean
+  ok server answers on :19938
+  ok web bundle served from :19938 was built at dded76d
+  ok arm live in the processes: daemon CONTRACT=1 DRIVER=(policy), server STREAMING=1
+  PINJSON {"want":"dded76d9c6df833dea3d31f248e987c73523a0d2","short":"dded76d","spawnedSha":"dded76d9c6df833dea3d31f248e987c73523a0d2","serverPid":3715551,"daemonPid":3715631,"webSourceSha":"dded76d","contract":"1","streaming":"1","driver":""}
+  VERIFIED: grok2927a5d server + daemon + web bundle at dded76d9c6df833dea3d31f248e987c73523a0d2
+
+Positive live control
+  session de9fcf23-0a41-4d22-b031-96b73ccdff7f
+  A2b boot phase: idle at t+2159ms, status=live, driver=grok-acp
+  A2b control: session bound a live driver = true
+  A10 control: driverId=grok-acp, driverFamily=server
+  A5 control: 3 transcript items, 1 tool item, 3 delta frames
+
+Live tool-call/result observation
+  turn completed: false after 180000ms
+  toolUseId observed prefix: call-ec42803f-c4c0-4466-bac6
+  toolUseId note: the harness prints p.id.slice(0, 28), so this is the exact emitted prefix
+  tool item count: 1
+  call=true
+  result=false
+  provider result live: null
+
+Reload observation
+  live items: 3
+  reloaded items: 3
+  missing live items after reload: 0
+  expected marker still in reloaded history: false
+  tool items after reload: 1 (live: 1)
+  provider result reload: null
+  paired after reload: false
+  exact tool history: true
+
+Verdict
+  A5 FAIL
+  live tool calls paired to provider results: false
+  paired provider payload survives reload: false
+  reload shows the same history: false
+  control FIRED: one tool item was produced
+
+Cleanup
+  server 3715551: gone
+  daemon 3715631: gone
+  provider 3715939: gone
+  test:heavy: released
+  post-cleanup exact instance process scan: zero

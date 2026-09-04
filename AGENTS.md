@@ -37,13 +37,14 @@ bun run setup:worktree
 ```
 
 This is the supported topology-following frozen install: it uses the linker setting tracked in
-`bunfig.toml` (currently strict isolated linking with Bun's global store) and creates a checkout-local
+`bunfig.toml` — strict isolated linking with Bun's global store — and creates a checkout-local
 dependency link graph. Package payloads may be shared through Bun's store, but the complete
 `node_modules` tree never is. The command does not override the tracked topology, so it follows
 future configuration changes. Never share, copy, symlink, or bind-mount a complete `node_modules`
 tree between checkouts; checkout-local links are the boundary.
 
-If the checkout has a damaged or mixed-linker install, stop processes using it and run:
+If the checkout's dependency tree is damaged or out of sync with the lockfile, stop processes
+using it and run:
 
 ```bash
 bun run deps:repair
@@ -60,8 +61,6 @@ Neither command deletes shared caches. Do not add global Bun cache deletion (`bu
 removing `~/.bun/install/cache`, or deleting the configured equivalent) or shared Turbo-cache
 deletion to a repair. A reinstall may reuse or populate Bun's shared cache, but repair owns only
 the current checkout's dependency tree.
-Only `deps:rollback-hoisted` intentionally forces `--linker=hoisted`; setup and repair follow the
-tracked `bunfig.toml` setting.
 
 ## Issue tracking with Podium
 
@@ -102,6 +101,14 @@ bun run test
 It runs cached, lock-free typecheck followed by a tiny, hermetic, one-worker boot-wiring and lane-configuration probe. It is designed to
 answer “is this candidate internally coherent and are the basic runtime pieces still wired?”
 without traversing every package, starting browsers, or taking the whole-host heavy-test lease.
+
+It is **four files out of everything the unit config collects**, and the footer on every run
+states the exact ratio and the tests each file actually executed — read back out of the
+runner's own report for that run, not written down here, so it stays true as the tree grows.
+A run narrower than those four files ends `LEAN GATE INCOMPLETE` and exits non-zero; that is
+not a gate result, so do not report it as one. Read it, and report a green as “lean gate green” rather than
+“tests pass” [POD-2728]. `Tests 76 passed (76)` above that footer is the four files’ own test count, not a
+suite result. When a change needs suite-level evidence, `bun run test:full` is the sweep.
 Docs, copy, fonts, formatting, generated artifacts, and other changes that cannot affect runtime
 may skip even this gate; state why in the handoff.
 
@@ -123,6 +130,34 @@ instead of `test` when it already covers the relevant basic check; otherwise run
 `test` once and the one specialized lane once, sequentially. The default `test` deliberately
 does not take `test:heavy`: it neither waits behind nor delays heavyweight suites.
 Never overlap other validation commands in one session.
+
+**Running ONE test file: `apps/server` needs `bun --bun`.** The obvious command —
+`./node_modules/.bin/vitest run --config vitest.unit.config.ts <file>` — collects **zero
+tests** for anything under `apps/server`, failing with *"Only URLs with a scheme in: file,
+data, and node are supported by the default ESM loader. Received protocol 'bun:'"*. Those
+suites import `bun:` builtins, so they must run under Bun's runtime, not Node's:
+
+```
+cd apps/server && bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts <file>
+```
+
+That is what the package's own scripts already do. Two agents have written a server test,
+been unable to collect it, and reported the change with the test unexecuted — a test nobody
+has seen go red is not evidence. Elsewhere in the repo the plain `vitest.unit.config.ts` form
+is correct.
+
+**The typecheck cache is SHARED across worktrees — trust it.** `scripts/typecheck.ts` points
+turbo at one cache keyed by the repository's common git dir, so every worktree of this repo
+reuses it. Measured in a worktree with no local cache at all: **22 of 28 tasks HIT**. A fresh
+worktree is not a cold start, and re-running to "warm it up" achieves nothing. Run
+`bun run typecheck` and let turbo pick the set; never force it.
+
+Two caveats worth knowing rather than guarding against. The cache currently lives under `/tmp`
+(`XDG_CACHE_HOME` is unset), so a **reboot wipes it** and the first runs afterwards really are
+expensive — that is the box, not your change (POD-2778). And nothing caps how many compilers run
+at once: each takes most of a gigabyte, on six cores. If a typecheck dies with **exit 144 and an
+EMPTY log, the box ran out of memory** — that is not a type error, so do not go hunting a bug
+that is not there. Re-run it and treat the first result as no result.
 
 The complete map from changed paths and behavior to commands—including exact test locations,
 filename patterns, configs, parent commands, caching, and exclusions—is in

@@ -105,6 +105,14 @@ export const SERVER_PLANE_CLASS = {
   // ADR 7 D5: keystroke volume; durable recovery via the entity path.
   sessionDraftChanged: 'stream.live',
   headlessActivity: 'stream.live',
+  /**
+   * The in-progress half of a turn (POD-2293). `stream.live` by the same
+   * argument as `transcriptDelta` and more strongly: this frame is a SNAPSHOT of
+   * a preview, so a dropped one is corrected by the next and the last one is
+   * superseded by durable items on the transcript plane. Nothing is lost when
+   * every frame is lost — the reply still lands, it simply lands whole.
+   */
+  turnPreview: 'stream.live',
 
   // Advisory broadcasts re-served in full on attach — not (yet) oplog entities.
   // machinesChanged is a candidate for a durable entity kind; promoting it is an
@@ -148,6 +156,10 @@ export const CLIENT_PLANE_CLASS = {
   input: 'control.command',
   resize: 'control.command',
   requestControl: 'control.command',
+  // POD-3239: the one message a viewer sends about size. Same class as the two
+  // frames it replaces — it asks the server to mutate control/geometry, and a
+  // lost one must be retried by the viewer's next ask, not silently tolerated.
+  viewportRequest: 'control.command',
   redrawRequest: 'control.command',
   ping: 'stream.live',
   // Today's anonymous page-visibility bit. ADR 7 Amendment 1 D9.5: it maps
@@ -200,6 +212,7 @@ export const CONTROL_PLANE_CLASS = {
   headlessBind: 'control.command',
   usageRequest: 'control.command',
   agentQuotaRequest: 'control.command',
+  quotaHistoryRequest: 'control.command',
   modelProbeRequest: 'control.command',
   imageUploadRequest: 'control.command',
   spawn: 'control.command',
@@ -215,6 +228,7 @@ export const CONTROL_PLANE_CLASS = {
   sessionResumeRefConflict: 'control.command',
   transcriptMirrorRead: 'bulk.bulk',
   sessionPriority: 'control.command',
+  reclaimAttachments: 'control.command',
   scanRequest: 'control.command',
   scanReposRequest: 'control.command',
   browseDirsRequest: 'control.command',
@@ -249,6 +263,40 @@ export const CONTROL_PLANE_CLASS = {
   shippingJobRequest: 'control.command',
   shippingEvidenceRequest: 'control.command',
   shippingRepairApplyRequest: 'control.command',
+  // AGENT RUNTIME CONTRACT (POD-1761 W3). Correlated request/reply over a live
+  // path, exactly like `spawn` and every other session verb — see the argument
+  // in `./runtime.ts`'s header.
+  runtimeStageAttachmentRequest: 'control.command',
+  runtimeSendRequest: 'control.command',
+  runtimeInterruptRequest: 'control.command',
+  runtimeAnswerRequest: 'control.command',
+  runtimeLifecycleRequest: 'control.command',
+  /** Sticky model/effort on a running session (POD-3081). A correlated
+   *  request/reply like every other session verb: a lost one is a failed RPC the
+   *  caller already handles, and it is safe to repeat — configuring a session to
+   *  the model it is already on is a no-op. */
+  runtimeConfigureRequest: 'control.command',
+  // Receipt for a durable-synced daemon report. It is safe to repeat and only
+  // retires the daemon outbox record whose reportId it names.
+  runtimeQueueDrainAbandonedAck: 'control.command',
+  runtimeEventAck: 'control.command',
+  /** The observation bootstrap request (POD-2023) — a correlated round-trip
+   *  like every other session verb, so the same class for the same reason: a
+   *  lost one is a failed RPC the caller already handles. */
+  runtimeSnapshotRequest: 'control.command',
+  /**
+   * The desired watch level (POD-2293). `control.command` like every other
+   * session verb, though it correlates no reply: it is a command about a
+   * session's live observation, and a lost one is corrected by the next because
+   * the frame carries a desired STATE rather than an increment. What it must not
+   * be is `stream.live` — the daemon acts on it, and a plane whose contract is
+   * "drop freely" is the wrong promise for a frame that changes what a driver
+   * does.
+   */
+  runtimeWatch: 'control.command',
+  // FLEET DAEMON LOG CAPTURE (POD-3156). A command, not a stream: it is one
+  // frame that changes what the daemon does, and it carries no records.
+  setDaemonLogLevel: 'control.command',
 } as const satisfies Record<ControlMessage['type'], PlaneClass>
 
 /**
@@ -278,6 +326,7 @@ export const DAEMON_PLANE_CLASS = {
   headlessBindResult: 'control.command',
   usageResult: 'control.command',
   agentQuotaResult: 'control.command',
+  quotaHistoryResult: 'control.command',
   modelProbeResult: 'control.command',
   imageUploadResult: 'control.command',
   // Pairs with sessionResumeRefAck — host channel (ADR 7 D2).
@@ -292,7 +341,15 @@ export const DAEMON_PLANE_CLASS = {
   inventoryReport: 'control.command',
   // Host-local configuration warning, durably routed to the machine owner/admins.
   machineDiagnostic: 'control.command',
+  // The driver decision, ahead of the launch it describes (POD-2290). Same
+  // class as the `bind` that supersedes it: a lost one costs a client the early
+  // answer and nothing else, because `bind` carries the same fact behind it.
+  driverSelected: 'stream.live',
   bind: 'stream.live',
+  // POD-3239: the daemon's report of the grid it applied. Same class as `bind`,
+  // the other geometry report, and for the same reason: it is an observation of
+  // what the pty now IS, ordered with the output stream it precedes.
+  geometryApplied: 'stream.live',
   agentFrame: 'stream.live',
   agentFrameBatch: 'stream.live',
   agentExit: 'stream.live',
@@ -334,6 +391,37 @@ export const DAEMON_PLANE_CLASS = {
   shippingJobResult: 'control.command',
   shippingEvidenceResult: 'control.command',
   shippingRepairApplyResult: 'control.command',
+  // Agent Runtime receipts are correlated replies. Coarse events are retained
+  // until their durable server commit; fine token deltas have a separate live frame.
+  runtimeStageAttachmentResult: 'control.command',
+  runtimeSendResult: 'control.command',
+  // A dropped report would leave durable sender state claiming only `queued`,
+  // so this correction is entity truth rather than a lossy live-stream hint.
+  runtimeQueueDrainAbandoned: 'control.entity',
+  runtimeLifecycleResult: 'control.command',
+  runtimeConfigureResult: 'control.command',
+  runtimeAnswerResult: 'control.command',
+  /**
+   * DURABLE-SYNCED, and W1's argument for it is now backed by a durable row
+   * (POD-2023). "A blocking ask nobody recovers is exactly the stuck session §4
+   * exists to abolish" — the aggregate W2 landed is where the row lives, and
+   * this frame is how a protocol driver's ask reaches it. A dropped one would
+   * leave a session blocked with nothing on any surface saying so, which is the
+   * failure mode `stream.live` tolerates and this one must not.
+   */
+  runtimeInteractionAsked: 'control.entity',
+  /** The correlated reply to a snapshot request — the same class as every other
+   *  session verb's reply, for the same reason: a lost one is a failed RPC the
+   *  caller already has to handle. */
+  runtimeSnapshotResult: 'control.command',
+  runtimeEvent: 'control.entity',
+  runtimeFineEvent: 'stream.live',
+  // FLEET DAEMON LOG CAPTURE (POD-3156). `control.command` rather than
+  // `stream.live` deliberately: these records are RELIABLE-OR-COUNTED, never
+  // lossy-under-pressure. The daemon's own bounded queue decides what is
+  // dropped and says how many on the next batch, so a transport that silently
+  // shed frames would put a second, invisible drop point behind the counted one.
+  daemonLogBatch: 'control.command',
 } as const satisfies Record<DaemonMessage['type'], PlaneClass>
 
 // ---- Derived legacy vocabulary (ADR 7 D1 bridge; one migration window) ------

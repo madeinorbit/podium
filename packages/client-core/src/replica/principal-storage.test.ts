@@ -76,6 +76,33 @@ describe('principal replica storage', () => {
     ).toBe(true)
   })
 
+  it('sharded transcript windows stay inside their principal namespace', () => {
+    const memory = keyedStorage()
+    const alicePrefix = principalKeyPrefix('podium.replica', 'alice')
+    const bobPrefix = principalKeyPrefix('podium.replica', 'bob')
+    const alice = createSideCache({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      keyPrefix: alicePrefix,
+    })
+    alice.putTranscriptWindow('conversation/one', [{ id: 'alice-private' }] as never[])
+
+    const bob = createSideCache({
+      storage: memory.api,
+      enumerateKeys: memory.keys,
+      keyPrefix: bobPrefix,
+    })
+    expect(bob.transcriptWindow('conversation/one')).toBeUndefined()
+    expect(
+      memory
+        .keys()
+        .filter((key) => key.includes('.transcript-window.v2.'))
+        .every((key) => key.startsWith(alicePrefix)),
+    ).toBe(true)
+    alice.dispose()
+    bob.dispose()
+  })
+
   it('degrades safely when the active marker cannot be persisted', () => {
     // A real sink, not a console spy: the diagnostic travels as a record now.
     // No `minLevel`, so it follows the namespace level as production sinks do.

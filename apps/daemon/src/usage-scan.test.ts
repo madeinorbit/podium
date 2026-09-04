@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { appendFileSync, mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { UsageBucketWire } from '@podium/model'
@@ -13,6 +13,8 @@ import {
   scanCodexUsage,
   scanGrokUsage,
   scanHostUsage,
+  scanHostUsageSources,
+  UsageScanCache,
   usageFromRecord,
 } from './usage-scan'
 
@@ -622,5 +624,243 @@ describe('scanHostUsage', () => {
     const buckets = await scanHostUsage({ sinceMs: 0, homeDir: home })
     expect(buckets).toHaveLength(1)
     expect(buckets[0]).toMatchObject({ model: 'gpt-5' })
+  })
+})
+
+// ── POD-1858: the per-FILE half of the same walk ────────────────────────────
+
+describe('scanHostUsageSources', () => {
+  it('carries the path, the harness and the byte cursor out of the walk', async () => {
+    const home = trackTmp('podium-usage-sources-')
+    const dir = join(home, '.claude', 'projects', '-src-app')
+    mkdirSync(dir, { recursive: true })
+    const path = join(dir, 'conv.jsonl')
+    writeFileSync(
+      path,
+      `${[
+        assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+        assistantLine('2026-06-12T11:01:00.000Z', 'claude-opus-5', 30, 40, { requestId: 'r2' }),
+      ].join('\n')}\n`,
+    )
+
+    const { buckets, sources } = await scanHostUsageSources({ sinceMs: 0, homeDir: home })
+    expect(buckets).toHaveLength(2) // two hours
+    expect(sources).toHaveLength(1)
+    const source = sources[0]!
+    expect(source.path).toBe(path)
+    expect(source.harness).toBe('claude-code')
+    expect(source.scannedBytes).toBe(statSync(path).size)
+    expect(source.models).toEqual([
+      expect.objectContaining({ model: 'claude-opus-5', inputTokens: 40, messages: 2 }),
+    ])
+  })
+
+  it('folds the window and the whole file separately — the durable row outlives the window', async () => {
+    const home = trackTmp('podium-usage-window-')
+    const dir = join(home, '.claude', 'projects', '-src-app')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'conv.jsonl'),
+      `${[
+        assistantLine('2026-05-01T10:01:00.000Z', 'claude-opus-5', 999, 999, { requestId: 'old' }),
+        assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'new' }),
+      ].join('\n')}\n`,
+    )
+
+    const { sources } = await scanHostUsageSources({
+      sinceMs: Date.parse('2026-06-10T00:00:00Z'),
+      homeDir: home,
+    })
+    const source = sources[0]!
+    expect(source.models[0]).toMatchObject({ inputTokens: 1_009, messages: 2 })
+    expect(source.windowModels[0]).toMatchObject({ inputTokens: 10, messages: 1 })
+  })
+
+  // The subagent transcripts the one-level read used to miss. On the real box
+  // they carried $85 of Claude spend in a single 7-day window.
+  it('reads a delegate transcript under <nativeId>/subagents/', async () => {
+    const home = trackTmp('podium-usage-subagents-')
+    const dir = join(home, '.claude', 'projects', '-src-app', 'parent-1', 'subagents')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(
+      join(dir, 'agent-a1.jsonl'),
+      `${assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20)}\n`,
+    )
+    const { sources } = await scanHostUsageSources({ sinceMs: 0, homeDir: home })
+    expect(sources.map((s) => s.path)).toEqual([join(dir, 'agent-a1.jsonl')])
+  })
+})
+
+describe('the incremental cursor', () => {
+  const write = (path: string, lines: string[]) => writeFileSync(path, `${lines.join('\n')}\n`)
+  const append = (path: string, lines: string[]) => appendFileSync(path, `${lines.join('\n')}\n`)
+
+  const home = () => {
+    const dir = trackTmp('podium-usage-incr-')
+    mkdirSync(join(dir, '.claude', 'projects', '-src-app'), { recursive: true })
+    return dir
+  }
+
+  it('reaches the same totals as a cold walk after an append', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+    ])
+
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    append(path, [
+      assistantLine('2026-06-12T10:05:00.000Z', 'claude-opus-5', 30, 40, { requestId: 'r2' }),
+    ])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+    expect(warm.buckets).toEqual(cold.buckets)
+    expect(warm.sources[0]!.scannedBytes).toBe(statSync(path).size)
+  })
+
+  it('does not recount a duplicated response that straddles the cursor', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    const dup = (ts: string) =>
+      assistantLine(ts, 'claude-opus-5', 10, 20, { requestId: 'same', messageId: 'same' })
+    write(path, [dup('2026-06-12T10:01:00.000Z')])
+
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    // The second row of the same API response, written after the first scan.
+    append(path, [dup('2026-06-12T10:01:01.000Z')])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    expect(warm.sources[0]!.models[0]).toMatchObject({ inputTokens: 10, messages: 1 })
+  })
+
+  // The cursor stops at the last newline, so a record still being written is
+  // counted for THIS answer and re-read — never lost, never counted twice.
+  it('counts a torn final line once, before and after it is completed', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    const line = assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, {
+      requestId: 'r1',
+    })
+    writeFileSync(path, line) // no trailing newline: a torn write
+
+    const cache = new UsageScanCache()
+    const torn = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    expect(torn.sources[0]!.models[0]).toMatchObject({ inputTokens: 10, messages: 1 })
+    expect(torn.sources[0]!.scannedBytes).toBe(0)
+
+    appendFileSync(path, '\n')
+    const settled = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    expect(settled.sources[0]!.models[0]).toMatchObject({ inputTokens: 10, messages: 1 })
+    expect(settled.sources[0]!.scannedBytes).toBe(statSync(path).size)
+  })
+
+  // "Transcripts are append-only" is load-bearing, and a length test alone does
+  // not check it: a rewrite in place that keeps or grows the size passes it and
+  // then resumes at a cursor pointing into different content.
+  it('cold-reads a file rewritten in place at the SAME size', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    const line = (id: string, input: number) =>
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', input, 20, { requestId: id })
+    write(path, [line('r1', 11), line('r2', 11)])
+
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    // Same byte length, entirely different content — the file was rewritten.
+    write(path, [line('r3', 22), line('r4', 22)])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+    expect(warm.sources[0]!.models[0]).toMatchObject({ inputTokens: 44, messages: 2 })
+  })
+
+  it('cold-reads a file rewritten LONGER with all-new content', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+    ])
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    write(path, [
+      assistantLine('2026-06-12T10:03:00.000Z', 'claude-opus-5', 5, 5, { requestId: 'x1' }),
+      assistantLine('2026-06-12T10:04:00.000Z', 'claude-opus-5', 5, 5, { requestId: 'x2' }),
+      assistantLine('2026-06-12T10:05:00.000Z', 'claude-opus-5', 5, 5, { requestId: 'x3' }),
+    ])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+    expect(warm.sources[0]!.models[0]).toMatchObject({ inputTokens: 15, messages: 3 })
+  })
+
+  // The fingerprint must not defeat the cursor it guards: a file shorter than
+  // the head sample still has to resume incrementally when it merely grows.
+  it('still resumes incrementally on a small file that only grew', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+    ])
+    const cache = new UsageScanCache()
+    const first = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cursor = first.sources[0]!.scannedBytes
+    append(path, [
+      assistantLine('2026-06-12T10:02:00.000Z', 'claude-opus-5', 30, 40, { requestId: 'r2' }),
+    ])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    const cold = await scanHostUsageSources({ sinceMs: 0, homeDir: dir })
+    expect(warm.sources[0]!.scannedBytes).toBeGreaterThan(cursor)
+    expect(warm.sources[0]!.models).toEqual(cold.sources[0]!.models)
+  })
+
+  it('re-reads from zero when a file shrank, rather than trusting a stale cursor', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [
+      assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r1' }),
+      assistantLine('2026-06-12T10:02:00.000Z', 'claude-opus-5', 10, 20, { requestId: 'r2' }),
+    ])
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    write(path, [
+      assistantLine('2026-06-12T10:09:00.000Z', 'claude-opus-5', 7, 7, { requestId: 'r3' }),
+    ])
+    const after = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    expect(after.sources[0]!.models[0]).toMatchObject({ inputTokens: 7, messages: 1 })
+  })
+
+  it('carries the Codex model across the seam a turn_context sits behind', async () => {
+    const dir = trackTmp('podium-usage-incr-codex-')
+    const codexDir = join(dir, '.codex', 'sessions', '2026', '06', '12')
+    mkdirSync(codexDir, { recursive: true })
+    const path = join(codexDir, 'rollout-a.jsonl')
+    write(path, [turnContextLine('gpt-5.6-sol'), tokenCountLine('2026-06-12T10:01:00.000Z', LAST)])
+
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    append(path, [tokenCountLine('2026-06-12T10:02:00.000Z', LAST)])
+    const warm = await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+
+    expect(warm.sources[0]!.models.map((m) => m.model)).toEqual(['gpt-5.6-sol'])
+    expect(warm.sources[0]!.models[0]).toMatchObject({ messages: 2 })
+  })
+
+  it('forgets files the window has moved past instead of growing without bound', async () => {
+    const dir = home()
+    const path = join(dir, '.claude', 'projects', '-src-app', 'conv.jsonl')
+    write(path, [assistantLine('2026-06-12T10:01:00.000Z', 'claude-opus-5', 10, 20)])
+    const cache = new UsageScanCache()
+    await scanHostUsageSources({ sinceMs: 0, homeDir: dir, cache })
+    expect(cache.size).toBe(1)
+    await scanHostUsageSources({ sinceMs: Date.now() + 60_000, homeDir: dir, cache })
+    expect(cache.size).toBe(0)
   })
 })

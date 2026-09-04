@@ -58,6 +58,24 @@ describe('pairing envelope codec', () => {
     expect(() => parseMobilePairingUrl(`podium://other/${encoded}`, now)).toThrow()
   })
 
+  it('accepts the empty-authority forms iOS link delivery produces', () => {
+    // Opening podium://pair/… through iOS (simctl, Safari, another app) can
+    // arrive as podium:///pair/… — the authority collapsed into the path.
+    // Observed on-device 2026-08-27; without this the app 404s on every
+    // pairing deep link while QR scanning (which never touches URL routing)
+    // keeps working, masking the break.
+    const encoded = encodePairingEnvelope(pair)
+    const now = Date.parse('2026-08-13T12:00:00.000Z')
+    expect(parseMobilePairingUrl(`podium:///pair/${encoded}`, now)).toEqual(pair)
+    expect(
+      parseMobilePairingUrl(
+        `podium:///pair?url=${encodeURIComponent(mobilePairingUrl(pair))}`,
+        now,
+      ),
+    ).toEqual(pair)
+    expect(() => parseMobilePairingUrl(`podium:///other/${encoded}`, now)).toThrow()
+  })
+
   it('keeps a v2 open envelope credential-free', () => {
     const open = {
       v: 2 as const,

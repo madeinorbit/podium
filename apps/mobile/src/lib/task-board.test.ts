@@ -1,6 +1,7 @@
 import type { IssueWire, IssueWireInput } from '@podium/model'
+import { filterBoardIssues, taskStateWord } from '@podium/client-core/viewmodels'
 import { describe, expect, it } from 'vitest'
-import { taskBoardOrder, taskBoardSections, taskNeighbours } from './task-board'
+import { taskBoardOrder, taskBoardProgress, taskBoardSections, taskNeighbours } from './task-board'
 
 /**
  * The defect this file guards is a POPULATION defect: which rows exist on the
@@ -44,7 +45,7 @@ const rowIds = (sections: ReturnType<typeof taskBoardSections>) =>
   sections.flatMap((s) => s.rows.map((r) => r.issue.id))
 
 describe('taskBoardSections', () => {
-  it('lists roots only — an epic\'s decomposition stays off the tab', () => {
+  it("lists roots only — an epic's decomposition stays off the tab", () => {
     const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
     const kid1 = issue({ id: 'k1', parentId: 'epic', stage: 'in_progress', seq: 2 })
     const kid2 = issue({ id: 'k2', parentId: 'epic', stage: 'done', seq: 3 })
@@ -53,6 +54,135 @@ describe('taskBoardSections', () => {
     expect(rowIds(sections)).toEqual(['epic'])
     expect(sections[0]?.rows[0]).toMatchObject({ depth: 0, childCount: 2, expanded: false })
     expect(sections.map((s) => s.stage)).toEqual(['in_progress'])
+  })
+
+  it("reveals an expanded parent's children under it, whatever stage they are in", () => {
+    // The defect: the phone passed an expanded set that could never grow, so a
+    // sub-task existed on this tab only as a number on its parent while the
+    // desktop board could open the same epic in place.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
+    const kid1 = issue({ id: 'k1', parentId: 'epic', stage: 'backlog', seq: 2 })
+    const kid2 = issue({ id: 'k2', parentId: 'epic', stage: 'review', seq: 3 })
+
+    const sections = taskBoardSections([epic, kid1, kid2], {
+      showDone: false,
+      expanded: new Set(['epic']),
+    })
+
+    // Both children ride in the PARENT's section — their own stage is the row's
+    // glyph, not its lane — and they arrive indented.
+    expect(sections.map((s) => s.stage)).toEqual(['in_progress'])
+    expect(sections[0]?.rows.map((r) => [r.issue.id, r.depth])).toEqual([
+      ['epic', 0],
+      ['k1', 1],
+      ['k2', 1],
+    ])
+    expect(sections[0]?.rows[0]).toMatchObject({ expanded: true, childCount: 2 })
+  })
+
+  it('hides them again when the parent is collapsed', () => {
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const kid = issue({ id: 'k1', parentId: 'epic', stage: 'backlog', seq: 2 })
+    expect(
+      rowIds(taskBoardSections([epic, kid], { showDone: false, expanded: new Set() })),
+    ).toEqual(['epic'])
+  })
+
+  it('keeps a revealed child under its own parent when a promotion re-sorts the lane', () => {
+    // Found in review: the promotion re-ordered the Proposed section ROW by row,
+    // so an expanded root's children were sorted away from it and rendered
+    // indented under whichever unrelated row landed in front.
+    const first = issue({ id: 'first', stage: 'proposed', seq: 10 })
+    const child = issue({ id: 'child', parentId: 'first', stage: 'backlog', seq: 40 })
+    const second = issue({ id: 'second', stage: 'proposed', seq: 30 })
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const promoted = issue({ id: 'promoted', parentId: 'epic', stage: 'proposed', seq: 20 })
+
+    const sections = taskBoardSections([first, child, second, epic, promoted], {
+      showDone: false,
+      expanded: new Set(['first']),
+    })
+    const proposed = sections.find((s) => s.stage === 'proposed')
+    expect(proposed?.rows.map((r) => [r.issue.id, r.depth])).toEqual([
+      ['first', 0],
+      ['child', 1],
+      ['promoted', 0],
+      ['second', 0],
+    ])
+  })
+
+  it('expands a promoted proposal too — its chevron is not a dead control', () => {
+    // The shared derivation only ever emits a root's subtree, and a promoted
+    // proposal is not a root: its sub-task count was rendered with nothing
+    // behind it.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const promoted = issue({ id: 'promoted', parentId: 'epic', stage: 'proposed', seq: 2 })
+    const under = issue({ id: 'under', parentId: 'promoted', stage: 'backlog', seq: 3 })
+
+    const collapsed = taskBoardSections([epic, promoted, under], { showDone: false })
+    expect(collapsed.find((s) => s.stage === 'proposed')?.rows[0]).toMatchObject({
+      childCount: 1,
+      expanded: false,
+    })
+
+    const open = taskBoardSections([epic, promoted, under], {
+      showDone: false,
+      expanded: new Set(['promoted']),
+    })
+    expect(
+      open.find((s) => s.stage === 'proposed')?.rows.map((r) => [r.issue.id, r.depth]),
+    ).toEqual([
+      ['promoted', 0],
+      ['under', 1],
+    ])
+  })
+
+  it('keeps done sub-tasks out of a reveal while Show done is off', () => {
+    // A child rides in its PARENT's section whatever its own stage, so hiding
+    // the Done section is not enough — the filter has to bind the population,
+    // or the count on the chevron promises rows it must not show.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 2 })
+    const open = issue({ id: 'open', parentId: 'epic', stage: 'backlog', seq: 2 })
+    const finished = issue({ id: 'finished', parentId: 'epic', stage: 'done', seq: 3 })
+
+    const hidden = taskBoardSections([epic, open, finished], {
+      showDone: false,
+      expanded: new Set(['epic']),
+    })
+    expect(rowIds(hidden)).toEqual(['epic', 'open'])
+    expect(hidden[0]?.rows[0]).toMatchObject({ childCount: 1 })
+
+    const shown = taskBoardSections([epic, open, finished], {
+      showDone: true,
+      expanded: new Set(['epic']),
+    })
+    expect(rowIds(shown)).toEqual(['epic', 'open', 'finished'])
+  })
+
+  it('lists a promoted proposal once, even while its parent is expanded', () => {
+    // Both paths want the same row on screen: the promotion lifts screenable
+    // proposals into Proposed, and expansion reveals every child in place. A
+    // SectionList keyed by issue id cannot render the row twice, and the
+    // proposal must remain a root decision rather than ordinary mission work.
+    const epic = issue({ id: 'epic', stage: 'in_progress', type: 'epic', childCount: 1 })
+    const proposal = issue({ id: 'prop', parentId: 'epic', stage: 'proposed', seq: 2 })
+
+    const sections = taskBoardSections([epic, proposal], {
+      showDone: false,
+      expanded: new Set(['epic']),
+    })
+    expect(rowIds(sections)).toEqual(['epic', 'prop'])
+    expect(sections.find((section) => section.stage === 'in_progress')?.rows).toEqual([
+      expect.objectContaining({
+        issue: expect.objectContaining({ id: 'epic' }),
+        depth: 0,
+        childCount: 0,
+        expanded: false,
+      }),
+    ])
+    expect(sections.find((section) => section.stage === 'proposed')?.rows).toEqual([
+      expect.objectContaining({ issue: expect.objectContaining({ id: 'prop' }), depth: 0 }),
+    ])
   })
 
   it('promotes a proposal parented under an approved epic into Proposed', () => {
@@ -145,6 +275,109 @@ describe('taskBoardSections', () => {
       'proposed',
       'done',
     ])
+  })
+
+  it('uses the exact shared desktop membership for native search and facets', () => {
+    const xs = [
+      issue({
+        id: 'a',
+        seq: 1234,
+        displayRef: 'POD-1234',
+        title: 'Login bug',
+        priority: 0,
+        type: 'bug',
+        labels: ['ui'],
+      }),
+      issue({
+        id: 'b',
+        seq: 7,
+        displayRef: 'POD-7',
+        title: 'Dark mode',
+        priority: 2,
+        type: 'feature',
+        stage: 'review',
+        blocked: true,
+        ready: false,
+      }),
+    ]
+    const filters = [
+      { text: 'pod 1234' },
+      { priority: 0 },
+      { type: 'feature' },
+      { label: 'ui' },
+      { status: 'blocked' as const },
+    ]
+    for (const filter of filters) {
+      expect(rowIds(taskBoardSections(xs, { showDone: false, filter }))).toEqual(
+        filterBoardIssues(xs, filter).map((candidate) => candidate.id),
+      )
+    }
+  })
+
+  it('keeps root context when only a decomposition child matches', () => {
+    const parent = issue({
+      id: 'parent',
+      title: 'Release readiness',
+      stage: 'in_progress',
+      childCount: 1,
+    })
+    const child = issue({
+      id: 'child',
+      parentId: 'parent',
+      title: 'Needle-only decomposition',
+      stage: 'planning',
+      seq: 2,
+    })
+
+    const rows = taskBoardSections([parent, child], {
+      showDone: false,
+      filter: { text: 'Needle-only' },
+    })
+    expect(rowIds(rows)).toEqual(['parent'])
+    expect(rows[0]?.rows[0]).toMatchObject({ depth: 0, issue: { id: 'parent' } })
+  })
+
+  it('ranks a root as working when only a grandchild has a confirmed worker', () => {
+    const root = issue({ id: 'root', type: 'epic', stage: 'in_progress', childCount: 1 })
+    const child = issue({
+      id: 'child',
+      parentId: 'root',
+      stage: 'planning',
+      childCount: 1,
+      seq: 2,
+    })
+    const grandchild = issue({
+      id: 'grandchild',
+      parentId: 'child',
+      stage: 'in_progress',
+      seq: 3,
+    })
+    const sections = taskBoardSections([root, child, grandchild], { showDone: false })
+    const progress = taskBoardProgress(
+      [root, child, grandchild],
+      sections,
+      new Map([['grandchild', 1]]),
+    )
+
+    expect(progress.get('root')).toEqual({ total: 2, done: 0, liveAgents: 1 })
+    expect(taskStateWord(root, 0, progress.get('root'))).toEqual({
+      text: '1 working',
+      tone: 'live',
+    })
+
+    const progressWithRootWorker = taskBoardProgress(
+      [root, child, grandchild],
+      sections,
+      new Map([
+        ['root', 1],
+        ['grandchild', 1],
+      ]),
+    )
+    expect(progressWithRootWorker.get('root')?.liveAgents).toBe(1)
+    expect(taskStateWord(root, 1, progressWithRootWorker.get('root'))).toEqual({
+      text: '2 working',
+      tone: 'live',
+    })
   })
 })
 

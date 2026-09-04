@@ -1,0 +1,36 @@
+ok  server pid=2437211 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 53be0c5
+  ok  daemon pid=2437952 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 53be0c5
+  ok  exactly one daemon (pid 2437952) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 53be0c55d7261d72ab0a9e497bb18154081cc45a; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 53be0c5
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"53be0c55d7261d72ab0a9e497bb18154081cc45a","short":"53be0c5","spawnedSha":"53be0c55d7261d72ab0a9e497bb18154081cc45a","serverPid":2437211,"daemonPid":2437952,"webSourceSha":"53be0c5","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 53be0c55d7261d72ab0a9e497bb18154081cc45a in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                53be0c55d7261d72ab0a9e497bb18154081cc45a (web bundle 53be0c5, server pid 2437211, daemon pid 2437952)
+==============================================================================
+session 435acd57-1f15-4ce7-8372-3969e2a373d5 created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 7.8s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-YM5VSY. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-YM5VSY — a blank session cannot produce this by luck
+   REPLY             arrived after 7785ms
+   ASSISTANT TEXT    13 chars: "PODIUM-YM5VSY"
+   ELAPSED           7899ms
+
+==============================================================================
+RESULT  opencode / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 7.8s
+==============================================================================
+written /tmp/pod-2777/results/opencode.terminal.json

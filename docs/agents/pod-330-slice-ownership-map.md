@@ -229,7 +229,10 @@ and — far more dangerous — **any green measured here before `bun install` wa
 from the wrong tree is indistinguishable from green.
 
 Check `ls node_modules/@podium` in a fresh worktree before quoting any result from it. The linker
-is `hoisted` (see `bunfig.toml`), so the links land at the repo root, not under `apps/*`.
+is `isolated` with `hoist = false` (see `bunfig.toml`), so each workspace gets its own links —
+`apps/*/node_modules` and `packages/*/node_modules` alongside the repo root, not a single hoisted
+root tree. Create the worktree with `bun run setup:worktree`; an undeclared dependency does not
+resolve at all under this layout, rather than silently falling back to a root copy.
 
 ## 4a. The publication mechanism, and the bar it had to clear
 

@@ -1,21 +1,15 @@
 import { LinearGradient } from 'expo-linear-gradient'
 import { type ReactNode, useMemo, useRef, useState } from 'react'
-import {
-  Linking,
-  ScrollView,
-  type StyleProp,
-  StyleSheet,
-  Text,
-  type TextStyle,
-  View,
-} from 'react-native'
+import { ScrollView, type StyleProp, StyleSheet, Text, type TextStyle, View } from 'react-native'
 import {
   type MarkdownTableCell,
   type MarkdownToken,
   parseMarkdown,
   safeExternalUrl,
+  safeLinkUrl,
   splitPodiumRefs,
 } from '../lib/markdown'
+import { followPodiumLink } from '../lib/podium-link'
 import { selectableProps } from '../lib/selectable'
 import { alpha } from '../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../theme/theme'
@@ -37,9 +31,11 @@ function plainText(token: MarkdownToken): string {
   return token.raw ?? ''
 }
 
-function openExternal(href: string | undefined): void {
-  const safe = safeExternalUrl(href)
-  if (safe) void Linking.openURL(safe)
+/** A Podium address opens the screen it names; everything else goes to the OS
+ *  (POD-1606). `safeLinkUrl` rejects executable and data schemes first. */
+function followLink(href: string | undefined): void {
+  const safe = safeLinkUrl(href)
+  if (safe) followPodiumLink(safe)
 }
 
 function renderText(text: string, ctx: RenderContext, key: string): ReactNode[] {
@@ -94,13 +90,13 @@ function renderInline(
           </Text>
         )
       case 'link': {
-        const safe = safeExternalUrl(token.href)
+        const safe = safeLinkUrl(token.href)
         return (
           <Text
             key={tokenKey}
             accessibilityRole={safe ? 'link' : undefined}
             style={safe ? styles.link : undefined}
-            onPress={safe ? () => openExternal(token.href) : undefined}
+            onPress={safe ? () => followLink(token.href) : undefined}
             suppressHighlighting
           >
             {renderInline(token.tokens ?? [], ctx, tokenKey)}
@@ -118,7 +114,7 @@ function renderInline(
             accessibilityRole="link"
             accessibilityLabel={token.text || 'Open image'}
             style={styles.link}
-            onPress={() => openExternal(safe)}
+            onPress={() => followLink(safe)}
           >
             {token.text ? `[image: ${token.text}]` : '[open image]'}
           </Text>
@@ -218,6 +214,7 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
   const rows = token.rows ?? []
   const [overflow, setOverflow] = useState(false)
   const [atEnd, setAtEnd] = useState(false)
+  const atEndRef = useRef(false)
   const viewport = useRef(0)
   const content = useRef(0)
   const measure = () => setOverflow(content.current > viewport.current + 1)
@@ -239,7 +236,10 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
         }}
         onScroll={(e) => {
           const { contentOffset, contentSize, layoutMeasurement } = e.nativeEvent
-          setAtEnd(contentOffset.x + layoutMeasurement.width >= contentSize.width - 2)
+          const nextAtEnd = contentOffset.x + layoutMeasurement.width >= contentSize.width - 2
+          if (nextAtEnd === atEndRef.current) return
+          atEndRef.current = nextAtEnd
+          setAtEnd(nextAtEnd)
         }}
         contentContainerStyle={styles.table}
         accessibilityLabel={`Markdown table, ${header.length} columns and ${rows.length} rows`}
@@ -265,7 +265,7 @@ function MarkdownTable({ token, ctx }: { token: MarkdownToken; ctx: RenderContex
       {overflow && !atEnd ? (
         <LinearGradient
           pointerEvents="none"
-          colors={[alpha(color.bg, 0), color.bg]}
+          colors={[color.clear, color.bg]}
           start={{ x: 0, y: 0.5 }}
           end={{ x: 1, y: 0.5 }}
           style={styles.tableFade}

@@ -1,0 +1,36 @@
+ok  server pid=2110748 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 6685c59
+  ok  daemon pid=2110818 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 6685c59
+  ok  exactly one daemon (pid 2110818) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 6685c595619a2556894b106994da2fb48be79c2f; product tree clean (apps/ packages/ scripts/ …), 1 uncommitted file(s) in the rig's own docs/evidence/pod-2777/ (excluded by design)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 6685c59
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"6685c595619a2556894b106994da2fb48be79c2f","short":"6685c59","spawnedSha":"6685c595619a2556894b106994da2fb48be79c2f","serverPid":2110748,"daemonPid":2110818,"webSourceSha":"6685c59","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 6685c595619a2556894b106994da2fb48be79c2f in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                6685c595619a2556894b106994da2fb48be79c2f (web bundle 6685c59, server pid 2110748, daemon pid 2110818)
+==============================================================================
+session b1e2a0fb-9306-4e85-9e57-86080135477a created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 6.4s
+   control: FIRED — 1 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-X8A21H. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-X8A21H — a blank session cannot produce this by luck
+   REPLY             arrived after 6449ms
+   ASSISTANT TEXT    13 chars: "PODIUM-X8A21H"
+   ELAPSED           6662ms
+
+==============================================================================
+RESULT  codex / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 6.4s
+==============================================================================
+written /tmp/pod-2777/results/codex.terminal.json

@@ -1,0 +1,15 @@
+==============================================================================
+POD-2875 follow-up — does a parked turn survive a daemon restart?  harness=codex
+==============================================================================
+session 5afe5799-ae36-4204-b926-19eedbe2e193
+BOUND DRIVER       generic-pty (family terminal)
+
+SENT under a declared native view
+  returned         {"ok":true,"disposition":"delivered"}
+  after 45s     transcript items=2 deltas=2 nonce present=true phase=idle
+
+REFUSED — control C1 did not fire.
+  control watched: the turn PARKING, i.e. POD-2875 reproducing on this arm
+  control saw:     the turn was delivered normally, so nothing was parked
+  Nothing parked cannot be shown to survive or be lost. This is a
+  legitimate result about codex on this arm: POD-2875 does not reproduce here.

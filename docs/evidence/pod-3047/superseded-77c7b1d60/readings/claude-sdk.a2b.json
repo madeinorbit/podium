@@ -1,0 +1,102 @@
+{
+  "cell": "A2B",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a2b",
+  "at": "2026-08-28T14:06:35.533Z",
+  "pin": {
+    "cell": "A2B",
+    "at": "2026-08-28T14:06:35.559Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1287371",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17351256 kB",
+      "SwapFree": "40944248 kB"
+    },
+    "rootFreeKiB": 83098864,
+    "load1m": 9.21,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "fresh session reported idle at boot",
+  "control": {
+    "fired": true,
+    "what": "new session attach/output/bind evidence independent of the status value",
+    "detail": "created={\"sessionId\":\"3961c937-720e-4152-b36e-809d62121474\",\"agentId\":\"3961c937-720e-4152-b36e-809d62121474\",\"harness\":\"claude-code\",\"model\":null,\"effort\":null,\"machine\":\"flatblock\",\"machineId\":\"0478899a-47b3-4aaa-9640-500eb92aee97\",\"accountId\":\"native:claude-code\"}; attached=1; driver=claude-sdk"
+  },
+  "evidence": [
+    "STATUS            {\"sessionId\":\"3961c937-720e-4152-b36e-809d62121474\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a",
+    "SESSION ROW       {\"sessionId\":\"3961c937-720e-4152-b36e-809d62121474\",\"agentKind\":\"claude-code\",\"accountId\":\"native:claude-code\",\"title\":\"claude-sdk-a2b\",\"cwd\":\"/tmp/pod-3047n/probes/claude-sdk-a2b\",\"status\":\"live\",\"agentState\":{\"phase\":\"idle\",\"since\":\"2026-08-28T14:06:35.621Z\"",
+    "FRAME TYPES       sessionAgentStateChanged=3 welcome=1 machinesChanged=1 approvalsChanged=1 hostMetricsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+  ],
+  "data": {
+    "sid": "3961c937-720e-4152-b36e-809d62121474",
+    "status": {
+      "sessionId": "3961c937-720e-4152-b36e-809d62121474",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-sdk",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "681e38c probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

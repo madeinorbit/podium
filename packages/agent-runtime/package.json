@@ -1,0 +1,53 @@
+{
+  "name": "@podium/agent-runtime",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The Agent Runtime contract: the typed primitive surface every harness driver sits behind (lifecycle, turns, interactions, observation, transcript, attach, export), its zod wire projection, the driver-conformance corpus and its permitted-failures table.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "./dist/index.js",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./metadata": {
+      "@podium/source": "./src/metadata.ts",
+      "types": "./dist/metadata.d.ts",
+      "import": "./dist/metadata.js"
+    },
+    "./testing": {
+      "@podium/source": "./src/testing/index.ts",
+      "types": "./dist/testing/index.d.ts",
+      "import": "./dist/testing/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@podium/harness": "workspace:*",
+    "@podium/model": "workspace:*",
+    "@podium/protocol": "workspace:*",
+    "@podium/transcript": "workspace:*",
+    "zod": "^3.24.1"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/agent-runtime:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests",
+    "clean": "rm -rf dist"
+  },
+  "devDependencies": {
+    "tsup": "^8.5.1",
+    "typescript": "^6.0.3"
+  }
+}

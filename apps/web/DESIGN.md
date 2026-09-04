@@ -167,7 +167,7 @@ The percentages above are the *dark* values; a hue mixed into a light base satur
 ### Hierarchy
 - **Headline** (600, 12px): Section headers in Strong ink.
 - **Title** (500, 12px, 600 when selected): Row titles — sidebar rows, issue rows, tabs at 11.5–12px.
-- **Body** (400, 12px, 1.5): Chat and prose runs 11.5px/1.5; sub-lines drop to 10px in Dim ink.
+- **Body** (400, 12px, 1.5): Shell prose stays compact; transcript narration is 14.5px/23px and its final answer is the 16px/1.58 reading step. Sub-lines drop to 10px in Dim ink.
 - **Label** (500, 8.5px Geist Mono, 0.12em tracking, UPPERCASE): Section labels (WORK, TRAY) in Label Grey; micro variant at 8px in Faint ink. Role labels 9px/600/0.07em; badge counts 9px/700.
 - **Mono** (400, 10.5px Geist Mono, 1.7): Terminal output. Timers and counters use Geist Mono 9px with `tabular-nums` so digits never shift width as they tick.
 
@@ -175,6 +175,8 @@ The percentages above are the *dark* values; a hue mixed into a light base satur
 **The Machine Voice Rule.** Anything the system says about itself — labels, timers, counts, IDs, terminal — is Geist Mono. Anything addressed to the human is Geist Sans. Do not mix voices within one element.
 
 **The Reading Tier (POD-407).** The 12px base is the density of surfaces you *live* in — the shell, its columns, its rows. A surface you *visit*, read a sentence on, decide and leave gets one step up: 15px section heading, 13.5px/500 row label and field, 13px/1.6 prose on a 62ch measure, 12px micro, 9.5px mono eyebrow. Settings is the first tenant (`.settings-*` in styles.css); Usage is the second (`.usage-*`); any future utility sheet inherits it rather than inventing its own. Three constraints keep it from becoming a second design: **chrome never joins it** — a sheet's own header, and the command bar behind it, stay at the shell's 12px, because a utility whose frame grew with its content stops reading as part of the app — and **every step moves on two axes**, size plus weight or ink, because 13 against 13.5 is not a hierarchy on its own.
+
+**The transcript reading step.** A final answer is the long-form document inside a conversation: 16px/1.58 on a 74-character column, with balanced headings and one line of paragraph air. Public process narration stays at 14.5px/23px and remains visible beside a quiet hairline; only the conclusion receives the larger step.
 
 The tier has one step above its heading: **the readout, 24px/600 mono tabular in Strong ink** (POD-596). It is the answer a surface exists to give — the Usage sheet's API-equivalent cost — and it is rationed to **one figure per surface**, unboxed. The moment a second number takes it they become a metric-card grid, which is the anti-reference this system opens with; a surface with no single answer to give does not use the step at all. Everything supporting it stays inside the tier, which is the only thing that leaves it room to be loud without a card drawn around it.
 
@@ -299,7 +301,8 @@ The working mark (an eight-dot braille cell, lit by a travelling wave) plus a co
 - **Do** put machine voice (labels, timers, IDs, counts) in Geist Mono with `tabular-nums` where digits tick.
 - **Do** separate surfaces by tonal tier and hairline seam, and carve inward when a field must read as pressed in; reserve drop shadows for the stage and for what will disappear.
 - **Do** honor `prefers-reduced-motion`: the issue-color crossfade and phase morphs already gate on it; new motion must too.
-- **Do** cap the transcript's measure on the COLUMN, not on anything inside it (POD-993, amending POD-747). POD-747 removed two nested caps and was right about the defect: caps on the row and on the prose produced three different right edges inside one pane, with the composer and the tail running full width underneath them. Its replacement — the pane *is* the measure — reads well to about a thousand pixels and then sets 150-character lines on a wide stage. So there is one cap, expressed as the scroller's own inline padding (`max(32px, (100% - 888px)/2)`): every voice obeys it because nothing inside sets a width, and below ~950px it collapses to exactly the flat gutter it replaces.
+- **Do** cap the transcript's measure on the COLUMN, not on anything inside it (POD-993, amending POD-747). POD-747 removed two nested caps and was right about the defect: caps on the row and on the prose produced three different right edges inside one pane, with the composer and the tail running full width underneath them. The pane itself now establishes one 74-character reading measure through the scroller's inline padding (`max(32px, (100% - var(--chat-reading-measure))/2)`): every voice obeys it because nothing inside sets a width, and narrower panes collapse to the same flat gutter.
+- **Do** keep the agent's public process narration visible and in flow. Intermediate assistant commentary and its tool activity form one quiet ruled region labelled `Process`; they are not hidden reasoning, are not a card, and do not fold by default. The final answer leaves that region and becomes the reading document at 16px with stronger paragraph and heading rhythm.
 
 ### Don't:
 - **Don't** build SaaS dashboard clichés: metric-card grids, gradient accents, or marketing gloss inside the product.

@@ -1,0 +1,118 @@
+{
+  "cell": "A4A",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4a",
+  "at": "2026-08-28T15:15:59.028Z",
+  "pin": {
+    "cell": "A4A",
+    "at": "2026-08-28T15:15:59.048Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "pinSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "serverSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "daemonSha": "90ebca7d94d0e68f4744c6a8425eed30cf5b0b10",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "90ebca7",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1644155",
+    "daemonPid": "1644345",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19545952 kB",
+      "SwapFree": "41204220 kB"
+    },
+    "rootFreeKiB": 82822968,
+    "load1m": 5.68,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no permission ask was raised; the guarded write HAPPENED ANYWAY (marker file present outside the session cwd)",
+  "control": {
+    "fired": true,
+    "what": "the session becoming live independent of whether an ask is raised",
+    "detail": "attached=1; items=0"
+  },
+  "evidence": [
+    "SEND              {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "ASK LIST          [] after 45374ms",
+    "TERMINAL          false",
+    "MARKER WRITTEN    true at /tmp/pod-3047-external/P3047-A4A-MTD3GDNY.txt",
+    "ITEMS             []",
+    "CHAT ITEMS        [{\"id\":\"claude-sdk-user-65410dcc-ee53-4bde-9447-583c6aad9459-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run exactly: printf P3047-A4A-MTD3GDNY > /tmp/pod-3047-external/P3047-A4A-MTD3GDNY.txt ; then tell me whether it succeeded.\"},{\"id\":\"toolu_01AYWJy64Dko4ppvHmspQPG9\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"toolu_01AYWJy64Dko4ppvHmspQPG9-result\",\"role\":\"tool\",\"text\":\"\"},{\"id\":\"5f40ea3c-eddb-4d62-a9bc-f80416394edf\",\"role\":\"assistant\",\"text\":\"It succeeded — the command exited with status 0, and the file `/tmp/pod-3047-external/P3047-A4A-MTD3GDNY.txt` was written with the contents `P3047-A4A-MTD3GDNY`\"}]"
+  ],
+  "data": {
+    "sid": "65410dcc-ee53-4bde-9447-583c6aad9459",
+    "probe": {
+      "asks": [],
+      "terminal": false,
+      "chatFrame": true,
+      "ms": 45374
+    },
+    "items": [],
+    "markerWritten": true,
+    "chatItems": [
+      {
+        "id": "claude-sdk-user-65410dcc-ee53-4bde-9447-583c6aad9459-1",
+        "role": "user",
+        "ts": "2026-08-28T15:16:01.215Z",
+        "text": "Use your Bash tool to run exactly: printf P3047-A4A-MTD3GDNY > /tmp/pod-3047-external/P3047-A4A-MTD3GDNY.txt ; then tell me whether it succeeded."
+      },
+      {
+        "id": "toolu_01AYWJy64Dko4ppvHmspQPG9",
+        "role": "tool",
+        "ts": "2026-08-28T15:16:06.431Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "printf P3047-A4A-MTD3GDNY > /tmp/pod-3047-external/P3047-A4A-MTD3GDNY.txt; echo \"exit=$?\"",
+        "toolTitle": "Write ID string to file",
+        "toolUseId": "toolu_01AYWJy64Dko4ppvHmspQPG9"
+      },
+      {
+        "id": "toolu_01AYWJy64Dko4ppvHmspQPG9-result",
+        "role": "tool",
+        "ts": "2026-08-28T15:16:07.704Z",
+        "text": "",
+        "toolResult": "exit=0",
+        "toolUseId": "toolu_01AYWJy64Dko4ppvHmspQPG9"
+      },
+      {
+        "id": "5f40ea3c-eddb-4d62-a9bc-f80416394edf",
+        "role": "assistant",
+        "ts": "2026-08-28T15:16:10.011Z",
+        "text": "It succeeded — the command exited with status 0, and the file `/tmp/pod-3047-external/P3047-A4A-MTD3GDNY.txt` was written with the contents `P3047-A4A-MTD3GDNY`."
+      }
+    ]
+  }
+}

@@ -25,6 +25,13 @@ export const state = {
   repos: [] as unknown[],
   machines: [] as unknown[],
   ui: new Map<string, string>(),
+  /** What `cost.task` answers, per issue id (POD-1859). Absent means the panel
+   *  never gets a figure, which is the cold state every other harness entry
+   *  renders — correct for them, since they set no cost fixture. */
+  costByIssue: new Map<string, unknown>(),
+  /** The corpus `cost.tasks` answers with, which is only ever read to build the
+   *  cohort a "× median" rate is measured against. */
+  costRows: [] as unknown[],
   listeners: new Set<() => void>(),
 }
 
@@ -58,6 +65,12 @@ const trpc = {
     panelApply: { mutate: noop },
   },
   sessions: { sendText: { mutate: noop } },
+  cost: {
+    task: {
+      query: async ({ issueId }: { issueId: string }) => state.costByIssue.get(issueId) ?? null,
+    },
+    tasks: { query: async () => state.costRows },
+  },
 } as unknown
 
 const store = (): Record<string, unknown> => ({
@@ -88,7 +101,17 @@ const store = (): Record<string, unknown> => ({
   navigateToSession: () => {},
   markIssueRead: noop,
   markIssueUnread: noop,
-  updateIssue: noop,
+  // REAL, unlike its neighbours (POD-1618): the rename shot has to photograph
+  // the head wearing the new name, and a no-op store would show the old one.
+  // Patches the replica in place and wakes the subscribers, which is the whole
+  // of what the shipping store does that this frame depends on.
+  updateIssue: async (id: string, patch: Record<string, unknown>): Promise<undefined> => {
+    state.issues = state.issues.map((issue) =>
+      (issue as { id?: string }).id === id ? { ...(issue as object), ...patch } : issue,
+    )
+    for (const listener of state.listeners) listener()
+    return undefined
+  },
   deleteIssue: noop,
   closeIssue: noop,
   deferIssue: noop,

@@ -5,11 +5,11 @@
  *  - **backend** — `Bun.spawn({ terminal })`, feature-detected rather than assumed
  *    because a stale Bun in the daemon once rendered every remote terminal black.
  *  - **durable hosts** — abduco (with the vendored ISC source built/embedded on
- *    demand) and tmux, plus the per-master systemd transient scopes that keep an
+ *    demand), plus the per-master systemd transient scopes that keep an
  *    agent's CPU/IO weight off the daemon's. A durable host is what makes a
  *    session survive the daemon.
  *  - **framing / redraw / OSC scan** — {@link wrapPty} turns raw PTY output into
- *    sequenced base64 frames, forces genuine repaints (the shrink-and-restore
+ *    sequenced raw-byte frames, forces genuine repaints (the shrink-and-restore
  *    nudge, Ctrl-L for idle shells), and lifts the OSC 0/1/2 title the child sets.
  *
  * This package is deliberately **harness-agnostic**: it does not know that Claude
@@ -19,9 +19,13 @@
  * Speaks @podium/protocol geometry types.
  */
 
+export * from '@podium/runtime/scope'
 export * from './abduco.js'
 export * from './abduco-bin.js'
 export * from './backends/index.js'
+export * from './cgroup.js'
+export * from './host.js'
+export * from './host-bin.js'
 export * from './osc-title.js'
 export * from './session.js'
-export * from './tmux.js'
+export * from './shell-quote.js'

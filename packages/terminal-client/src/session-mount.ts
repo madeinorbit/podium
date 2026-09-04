@@ -6,14 +6,16 @@ import type {
 import { extractCodexPromptDraft } from '@podium/composer'
 import type { SessionId } from '@podium/model'
 import { DomViewportSource } from './dom-viewport'
-import { decideResizeAction, type Grid } from './session-viewport'
+import type { Grid } from './session-viewport'
 import {
   createTerminalDiagnosticRecorder,
   terminalDiagnosticsSnapshot,
 } from './terminal-diagnostics'
 import {
   colorSchemeReport,
+  DEFAULT_FONT_SIZE,
   DEFAULT_THEME,
+  MONO_STACK,
   type TerminalAppearance,
   TerminalView,
 } from './terminal-view'
@@ -82,7 +84,49 @@ export interface MountSessionOptions {
    * crop/pan; it reports its fitted viewport for a later explicit takeover but
    * does not preempt another device merely because the pane became visible.
    */
-  gridMode?: 'control' | 'server-grid'
+  /**
+   * HOW THIS VIEWER PRESENTS A BOX THAT IS NOT W (POD-3239 B3 / MODEL rule 2).
+   *
+   * `clip` (default, desktop): the box hides what does not fit. `scroll`
+   * (mobile): the box scrolls over it. Both use the same two-element structure —
+   * an outer viewport that IS the box, and an inner host xterm sizes to
+   * cols x cell — and in both, a box LARGER than W pads with the terminal
+   * background rather than stretching anything.
+   *
+   * EXPLICIT, never inferred from CSS. It also picks the renderer, and getting
+   * that wrong is invisible until someone scrolls: xterm's WebGL canvas does not
+   * repaint regions revealed by scrolling an independent overflow ancestor, so
+   * `scroll` must be on the DOM renderer.
+   *
+   * There is no `transform: scale` in either mode. A scaled terminal is a
+   * picture of a terminal.
+   *
+   * It is ALSO the one thing that separates the two claiming policies
+   * (`claimsOnReveal` below), which is why it replaced `gridMode` outright
+   * rather than sitting beside it. See the note there.
+   */
+  crop?: 'clip' | 'scroll'
+  /**
+   * THE SIZE THIS BUFFER IS BORN AT (POD-3239 B1 / MODEL rule 2).
+   *
+   * The session's last-known grid W, straight from the store. A terminal that
+   * knows W constructs at W, so the very first painted frame is already the right
+   * shape — no default is ever painted and nothing has to move it afterwards.
+   *
+   * Omitted only when there is genuinely no last-known grid (an older server that
+   * does not send one). xterm's own 80x24 default then stands, and the attach
+   * corrects it.
+   */
+  initialGeometry?: { cols: number; rows: number }
+  /**
+   * What {@link initialGeometry} is WORTH (MODEL rule 6). `unknown` — the
+   * default — RENDERS: inside the system W can only change through the daemon,
+   * so last-known is right until the first ask corrects it. `absent` means there
+   * is no pty and the caller should not be mounting at all; the panel's own gate
+   * owns that decision, and this is here so a mount cannot silently paint a grid
+   * for a session that has none.
+   */
+  geometryState?: 'current' | 'unknown' | 'absent'
 }
 
 export interface MountedSession {
@@ -136,16 +180,21 @@ export function codexInputReady(
 
 export function mountSession(el: HTMLElement, opts: MountSessionOptions): MountedSession {
   const { hub, sessionId } = opts
-  const gridMode = opts.gridMode ?? 'control'
+  const crop = opts.crop ?? 'clip'
   const viewportEl = opts.viewportEl ?? el
   const diagnostics = createTerminalDiagnosticRecorder(sessionId)
+  // BORN AT W (B1). `absent` is the one state that must not paint a grid — there
+  // is no pty behind the row — so it falls back to xterm's own default, which the
+  // panel keeps behind its transcript/overlay.
+  const birthGeometry = opts.geometryState === 'absent' ? undefined : opts.initialGeometry
   const view = new TerminalView({
     ...(opts.appearance ?? {}),
+    ...(birthGeometry ? { cols: birthGeometry.cols, rows: birthGeometry.rows } : {}),
     // xterm's WebGL canvas does not repaint sections revealed by scrolling an
-    // independent overflow ancestor. Server-grid mode deliberately uses that
-    // crop layout, so keep its rendering phone-local and deterministic with the
-    // built-in DOM renderer; ordinary fitted terminals retain WebGL.
-    renderer: gridMode === 'server-grid' ? 'dom' : 'auto',
+    // independent overflow ancestor, so a scrolling crop must be on the DOM
+    // renderer. Keyed off the EXPLICIT presentation mode (B3) rather than off a
+    // policy flag that happened to imply it, or off CSS nobody reads back.
+    renderer: crop === 'scroll' ? 'dom' : 'auto',
     diagnostics: (event, data) => diagnostics.record(event, data),
   })
   view.mount(el)
@@ -156,6 +205,18 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   let lastBackground = (opts.appearance?.theme ?? DEFAULT_THEME).background
 
   let active = opts.active ?? true
+  /**
+   * HAS THE SERVER TOLD US ANYTHING YET? (POD-3239 B2 / MODEL rule 1.)
+   *
+   * False until `onAttached`. Before that, every `onState` is ignored FOR
+   * GEOMETRY — a pre-attach state carries no grid at all now, and the emits that
+   * used to carry a fabricated one (`requestControl`, `welcome`) are exactly how
+   * a mounted terminal got dragged to 80x24 before the attach had said anything.
+   *
+   * After it, the attach snapshot is W and the buffer follows the server
+   * unconditionally: visible or hidden, controller or spectator.
+   */
+  let authoritative = false
   let serverGrid: Grid = { cols: view.cols(), rows: view.rows() }
   const pageVisible = (): boolean =>
     typeof document === 'undefined' || document.visibilityState === 'visible'
@@ -165,235 +226,216 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       active,
       pageVisible: pageVisible(),
       eligible: eligible(),
+      authoritative,
       serverGrid: { ...serverGrid },
-      gridMode,
+      crop,
       ...data,
       view: view.diagnosticSnapshot(),
     })
   }
-  trace('mount')
+  const sameGrid = (left: Grid, right: Grid): boolean =>
+    left.cols === right.cols && left.rows === right.rows
 
-  // fit-with-retry: a measurable container fits immediately; an unmeasurable one
-  // (just-revealed, layout not settled) retries across rAFs, then falls back to a
-  // few longer timeouts — layout after a heavy workspace remount (or a web-font
-  // load) can take well past 10 frames, and a fixed rAF cap that then gives up
-  // FOREVER left panes wrapped at a stale tiny grid until a window resize (#29).
-  // A new request RESTARTS the schedule with the newest onMeasured (it never
-  // drops the request — the old code silently discarded fits that arrived while
-  // a retry loop was in flight, so the ResizeObserver backstop could lose the
-  // one event that carried the real size). onMeasured runs once a grid is
-  // obtained; a request that outlives every backstop is abandoned — the next
-  // viewport change or reveal schedules a fresh one.
-  const RAF_FIT_RETRIES = 10
-  const SLOW_FIT_DELAYS_MS = [250, 500, 1000]
-  let fitAttempt = 0
-  let fitRaf: number | undefined
-  let fitTimer: ReturnType<typeof setTimeout> | undefined
-  let measureFit = (): Grid | undefined => view.fit()
-  let onFitMeasured: ((grid: Grid) => void) | null = null
-  function cancelScheduledFit(): void {
-    if (fitRaf !== undefined) cancelAnimationFrame(fitRaf)
-    if (fitTimer !== undefined) clearTimeout(fitTimer)
-    fitRaf = undefined
-    fitTimer = undefined
-    onFitMeasured = null
-  }
-  function tryScheduledFit(): void {
-    fitRaf = undefined
-    fitTimer = undefined
-    // Hidden again mid-schedule: abandon — a hidden pane must never drive the PTY
-    // size. The next reveal/viewport change schedules a fresh fit.
-    if (!eligible()) {
-      onFitMeasured = null
-      trace('fit:cancelled', { attempt: fitAttempt, reason: 'ineligible' })
-      return
-    }
-    const grid = measureFit()
-    if (grid) {
-      const cb = onFitMeasured
-      onFitMeasured = null
-      trace('fit:measured', {
-        phase: fitAttempt === 0 ? 'immediate' : 'retry',
-        attempts: fitAttempt,
-        grid,
-      })
-      cb?.(grid)
-      return
-    }
-    fitAttempt += 1
-    if (fitAttempt <= RAF_FIT_RETRIES) {
-      fitRaf = requestAnimationFrame(tryScheduledFit)
-      return
-    }
-    const delay = SLOW_FIT_DELAYS_MS[fitAttempt - RAF_FIT_RETRIES - 1]
-    if (delay !== undefined) fitTimer = setTimeout(tryScheduledFit, delay)
-    else {
-      onFitMeasured = null
-      trace('anomaly:fit-retries-exhausted', { attempts: fitAttempt })
-    }
-  }
-  function fitWithRetry(
-    onMeasured: (grid: Grid) => void,
-    measure: () => Grid | undefined = () => view.fit(),
-  ): void {
-    if (onFitMeasured) trace('fit:superseded', { attempt: fitAttempt })
-    cancelScheduledFit()
-    fitAttempt = 0
-    measureFit = measure
-    onFitMeasured = onMeasured
-    trace('fit:retry-start')
-    tryScheduledFit()
-  }
+  // WHAT THIS MOUNT WAS ASKED FOR, beside what it ended up at (`view.grid` in
+  // every entry). The two disagreeing is the whole diagnosis of a terminal born
+  // at the wrong size: a missing `initialGeometry` is a wiring gap somewhere
+  // above, an ignored one is a bug here.
+  trace('mount', {
+    initialGeometry: opts.initialGeometry ?? null,
+    geometryState: opts.geometryState ?? null,
+  })
 
-  let reportedViewport: Grid | null = null
   const proposeViewport = (): Grid | undefined =>
     viewportEl === el ? view.proposeFit() : view.proposeFitIn(viewportEl)
-  function reportViewport(): void {
+
+  /**
+   * THE ONE ASK (POD-3239 B4 / MODEL rules 3 and 4).
+   *
+   * Every trigger that used to have its own path — reveal, reconnect, a box
+   * change, an appearance change, a font arriving — ends here, sends one
+   * message, and waits for nothing. There is no ladder because nothing is
+   * waiting on this measurement to RENDER: the buffer is already at W and stays
+   * there until the server reports otherwise, so a measurement that is not
+   * available yet costs nothing. The ResizeObserver on the box fires when the
+   * layout the ladder used to poll for actually happens, and asks then.
+   *
+   * An unmeasurable box still ASKS when the ask is a claim, carrying the current
+   * W — because the claim is the point (rule 4) and "I want control, at the size
+   * you already have" is exactly the honest request there.
+   */
+  function ask(reason: string, claimControl: boolean): void {
     if (!eligible()) {
-      trace('viewport-report:skipped', { reason: 'ineligible' })
+      trace('ask:skipped', { reason, claimControl, cause: 'ineligible' })
       return
     }
-    fitWithRetry((grid) => {
-      if (reportedViewport?.cols === grid.cols && reportedViewport.rows === grid.rows) return
-      reportedViewport = grid
-      trace('viewport-report:send', { grid })
-      // The server records every client's resize even when it is not controller.
-      // It does not apply this grid until an explicit takeover.
-      connection.reportViewport(grid.cols, grid.rows)
-    }, proposeViewport)
+    const measured = proposeViewport()
+    if (!measured && !claimControl) {
+      // Nothing to say and nothing to claim. The observer will ask once the box
+      // has a size.
+      trace('ask:skipped', { reason, claimControl, cause: 'unmeasurable' })
+      return
+    }
+    if (measured) everMeasured = true
+    const geometry = measured ?? { ...serverGrid }
+    // A NON-CLAIMING ASK REPEATS NOTHING. A reveal fires the box observer as
+    // well (display:none → visible is a resize), so the settling burst that
+    // follows would otherwise re-state a box nobody has changed. A CLAIM always
+    // sends: the claim is the point, and the size is incidental to it (rule 4).
+    if (!claimControl && lastAsked && sameGrid(lastAsked, geometry)) {
+      trace('ask:skipped', { reason, geometry, cause: 'unchanged' })
+      return
+    }
+    lastAsked = { ...geometry }
+    trace('ask:sent', { reason, geometry, claimControl, measured: measured !== undefined })
+    connection.sendViewportRequest({
+      geometry,
+      // This mount IS the native renderer, and it only asks while eligible —
+      // which is what `visible` means. Read by the server FROM THE MESSAGE, so a
+      // request that overtakes its own `viewState` is still judged correctly.
+      visible: true,
+      mode: 'native',
+      claimControl,
+    })
   }
 
-  function applyFit(forceRedrawIfSame: boolean): void {
-    if (!eligible()) {
-      trace('fit:skipped', { reason: 'ineligible', forceRedrawIfSame })
-      return
-    }
-    fitWithRetry(
-      (grid) => {
-        // server-grid: do NOT optimistically resize the local xterm to the phone
-        // viewport. Attach replay and live frames still encode the server's
-        // authoritative geometry until the resize is applied and the TUI
-        // repaints; shrinking first reflows that stream into shredded fragments
-        // (Grok/Claude multi-pane TUIs on mobile). Keep the local grid on
-        // serverGrid (crop-and-pan) and only sendResize — onState applies the
-        // new geometry when the server broadcasts it.
-        const action = decideResizeAction(grid, serverGrid, { forceRedrawIfSame })
-        trace('fit:action', { grid, action, forceRedrawIfSame })
-        if (action.kind === 'resize') {
-          if (gridMode === 'server-grid') {
-            // A controller phone repairs geometry through the same atomic claim
-            // as an explicit takeover. This is intentionally idempotent when it
-            // already owns control: the server still applies/acknowledges this
-            // viewport without bumping the controller epoch.
-            connection.requestControl({ cols: action.cols, rows: action.rows })
-          } else {
-            connection.sendResize(action.cols, action.rows)
-          }
-        } else if (action.kind === 'redraw') {
-          connection.redraw()
-        }
-      },
-      gridMode === 'server-grid' ? proposeViewport : undefined,
-    )
-  }
+  /**
+   * WHO CLAIMS ON REVEAL (MODEL rule 4 / B5) — today's policy, unchanged.
+   *
+   * Desktop takes control by being foregrounded (last-foregrounded-wins). A
+   * phone is a spectator that states its box and claims only when the operator
+   * says so, because a phone glancing at a session must not resize the desk it
+   * is watching.
+   *
+   * READ OFF `crop`, and this is the ONLY place that inference is made. It is
+   * the whole of what `gridMode` used to decide, and the flag is gone (B8): a
+   * scrolling crop and a spectator claim policy are the same client — the
+   * phone — and a fourth combination has no product behind it. If one ever does,
+   * it is this line that grows an option, not five call sites that re-derive one.
+   */
+  const claimsOnReveal = (): boolean => crop !== 'scroll'
 
-  function becomeEligible(): void {
+  /** The last box this mount stated, so a repeat is not re-sent. Cleared on a
+   *  reconnect: a new server has heard nothing from us. */
+  let lastAsked: Grid | null = null
+  /**
+   * Has this mount ever successfully measured its box?
+   *
+   * The one case the box observer cannot cover: the VIEWPORT has a size, but
+   * xterm has not rendered yet, so there is no `.xterm-screen` to derive a cell
+   * size from and the measurement fails. No later resize of the box follows —
+   * nothing about the box changed — so without this the pane would sit at
+   * whatever the server last said until the operator moved something. xterm's
+   * first render is the event that makes it measurable, and it is what asks.
+   */
+  let everMeasured = false
+
+  // FONT READINESS. A web font that has not loaded yet measures at the fallback
+  // metrics, so the box reads a grid the terminal will not actually have once
+  // the real face arrives — and nothing else would ever re-ask, because no box
+  // changed. Bounded at 3 s: a font that never arrives must not leave the pane
+  // waiting on it, and the measurement it would have corrected is at worst one
+  // ask stale.
+  const FONT_READY_TIMEOUT_MS = 3000
+  let fontGeneration = 0
+  let currentAppearance: TerminalAppearance = opts.appearance ?? {}
+  function awaitFontReadiness(): void {
+    const generation = ++fontGeneration
+    const fonts = (document as unknown as { fonts?: FontFaceSet }).fonts
+    if (typeof document === 'undefined' || !fonts || typeof fonts.load !== 'function') return
+    const size = currentAppearance.fontSize ?? DEFAULT_FONT_SIZE
+    // `fontFamily` is a comma list ending in `monospace`; each face has to be
+    // asked for by name, so the list is split rather than passed through whole.
+    const families = (currentAppearance.fontFamily ?? MONO_STACK)
+      .split(',')
+      .map((family: string) => family.trim().replace(/^['"]|['"]$/g, ''))
+      .filter((family: string) => family.length > 0 && family !== 'monospace')
+    const settle = (source: string): void => {
+      if (generation !== fontGeneration) return
+      trace('font:ready', { source, families })
+      ask('font-ready', false)
+    }
+    // One generation-guarded listener, so a face that finishes after the bound
+    // still triggers the re-measure instead of being lost.
+    const onLoadingDone = (): void => {
+      fonts.removeEventListener?.('loadingdone', onLoadingDone)
+      settle('loadingdone')
+    }
+    fonts.addEventListener?.('loadingdone', onLoadingDone)
+    fontDisposers.push(() => fonts.removeEventListener?.('loadingdone', onLoadingDone))
+    void Promise.race([
+      Promise.all(
+        families.map((family: string) =>
+          fonts.load(`${size}px "${family}"`).catch(() => undefined),
+        ),
+      ),
+      new Promise((resolve) => setTimeout(resolve, FONT_READY_TIMEOUT_MS)),
+    ]).then(() => settle('load'))
+  }
+  const fontDisposers: Array<() => void> = []
+
+  /**
+   * This pane became the foreground of a visible page — a reveal, or a mount
+   * that started active. One ask, and a repaint for the canvas that a hidden
+   * pane's `display:none` may have freed.
+   */
+  function becomeEligible(reason: string): void {
     if (!eligible()) {
-      trace('eligible:skipped')
+      trace('eligible:skipped', { reason })
       return
     }
-    trace('eligible:became')
-    if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
-      reportViewport()
-      view.forceRepaint()
-      return
-    }
-    if (gridMode === 'server-grid') {
-      applyFit(true)
-      view.repaintRecover()
-      return
-    }
-    if (gridMode === 'control') connection.requestControl() // last-foregrounded-wins
-    applyFit(true) // force a repaint on reveal even when the size is unchanged
+    trace('eligible:became', { reason })
     view.forceRepaint()
+    ask(reason, claimsOnReveal())
   }
 
-  // Retry a fit across animation frames until the container is genuinely measurable — a
-  // just-revealed panel (display:none → flex) hasn't laid out yet, so an immediate fit reads
-  // a zero/stale size and view.fit() returns undefined. Reports whether the fit actually
-  // CHANGED the local grid: xterm resizes optimistically inside fit(), and a real size change
-  // recomputes pixel geometry, clears the renderer model and repaints in full — so a changed
-  // grid has already recovered the canvas, while an unchanged one has not. The DomViewportSource
-  // ResizeObserver is the longer-term backstop, so giving up after ~1s is safe.
-  const MAX_REVEAL_FIT_RETRIES = 60
-  function whenMeasurable(onMeasured: (grid: Grid, gridChanged: boolean) => void): void {
-    const tryFit = (attempt: number): void => {
-      if (!eligible()) {
-        trace('reveal:cancelled', { attempt })
-        return // hidden again before layout settled
-      }
-      const before = { cols: view.cols(), rows: view.rows() }
-      const grid = view.fit()
-      if (grid) {
-        const gridChanged = grid.cols !== before.cols || grid.rows !== before.rows
-        trace('reveal:measured', { attempt, before, grid, gridChanged })
-        onMeasured(grid, gridChanged)
-        return
-      }
-      if (attempt < MAX_REVEAL_FIT_RETRIES) requestAnimationFrame(() => tryFit(attempt + 1))
-      else {
-        trace('anomaly:reveal-fit-retries-exhausted', { attempts: attempt + 1 })
-      }
-    }
-    tryFit(0)
-  }
-
-  // A true REVEAL — the panel was hidden with display:none (a tab switch) or the page was
-  // backgrounded, either of which frees the WebGL canvas's backing store so it comes back blank.
-  // Re-claim control, then once the container is laid out, fit it:
-  //   - If the fit CHANGES the grid, xterm's resize has already recomputed geometry, cleared the
-  //     renderer model and repainted in full — the same path a browser-window resize takes, which
-  //     is exactly what recovers a freed canvas. Nothing more to do (and we inform the server when
-  //     our viewport differs from its authoritative grid).
-  //   - If the grid is UNCHANGED, a same-size resize is a no-op that won't repaint the freed
-  //     canvas, so clear the live renderer's atlas/model and repaint it in place. Swapping the
-  //     renderer would stale xterm's wheel-scroll dimensions and churn limited WebGL contexts.
-  // Sizing waits for real layout (no fixed-frame guess), so the recompute can't run against a
-  // still-hidden/zero-size canvas; whenMeasurable re-checks eligibility each frame.
+  /**
+   * A true REVEAL — the panel was hidden with `display:none` (a tab switch) or
+   * the page was backgrounded, either of which frees the WebGL canvas's backing
+   * store so it comes back blank.
+   *
+   * There is no sizing to catch up on: the buffer followed the server while it
+   * was hidden (rule 2). So a reveal is a repaint plus one ask, and on the
+   * desktop that ask carries a claim even when the size has not moved, because
+   * the claim is the point (rule 4).
+   */
   function reveal(): void {
     if (!eligible()) {
       trace('reveal:skipped')
       return
     }
     trace('reveal:start')
-    if (gridMode === 'server-grid' && connection.state().role === 'spectator') {
-      reportViewport()
-      view.repaintRecover()
-      return
-    }
-    if (gridMode === 'server-grid') {
-      applyFit(true)
-      view.repaintRecover()
-      return
-    }
-    if (gridMode === 'control') connection.requestControl() // last-foregrounded-wins
-    whenMeasurable((grid, gridChanged) => {
-      if (!eligible()) {
-        trace('reveal:cancelled', { phase: 'measured-callback' })
-        return
-      }
-      if (grid.cols !== serverGrid.cols || grid.rows !== serverGrid.rows) {
-        trace('reveal:resize-send', { grid, gridChanged })
-        connection.sendResize(grid.cols, grid.rows)
-      }
-      if (!gridChanged) {
-        trace('reveal:recover-renderer', { grid })
-        view.repaintRecover()
-      }
-    })
+    // The canvas comes back blank whatever the size turns out to be, so recover
+    // it FIRST rather than making the repaint conditional on a measurement.
+    view.repaintRecover()
+    ask('reveal', claimsOnReveal())
+  }
+
+  /**
+   * Move the buffer to the server's grid, and only ever to the server's grid
+   * (MODEL rule 2). The clear + repaint are kept: xterm reflows the old buffer
+   * into the new shape, and for an alt-screen TUI that content is garbage until
+   * the app's own SIGWINCH repaint arrives, so blank-then-clean beats shredded
+   * mid-width fragments.
+   */
+  function applyServerGrid(state: ConnectionState, source: string): void {
+    const { cols, rows } = state
+    if (cols === undefined || rows === undefined) return
+    serverGrid = { cols, rows }
+    if (view.cols() === cols && view.rows() === rows) return
+    trace('geometry:applied', { state, source })
+    view.resize(cols, rows)
+    view.clear()
+    // A resize/reflow can leave the GPU canvas showing only the cells that moved
+    // or changed (the "caret at top, my text at bottom, rest black" symptom).
+    view.forceRepaint()
   }
 
   let lastEpoch = -1
+  // Defense in depth for embedders that deliver onState directly. Production
+  // geometry ordering is enforced before emission by
+  // SessionConnection.acceptGeometryRevision.
+  let lastGeometryRevision: number | undefined
+  let geometryTimelineResetPending = false
   let firstFrameSeen = false
   // Tracks whether we've seen an attach before, so onAttached can tell a fresh mount
   // (sizing already driven by the mount/setActive path) from a RECONNECT (where we must
@@ -420,19 +462,28 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onAttached: () => {
       trace('connection:attached', { reconnect: everAttached, connection: connection.state() })
       markReady('attach')
-      // RECONNECT re-fit. A server reload rebuilds the session at the 80×24 default and
-      // the 'attached' message carries that grid; _ingest emits onState (serverGrid →
-      // 80×24, the view shrinks) BEFORE this callback, so re-fitting here sees the
-      // mismatch and re-asserts our real viewport (and re-claims control, which the
-      // restarted server also reset). Without this the terminal stays stuck quarter-
-      // sized until a manual resize/tab-switch. Skip the first attach — the mount /
-      // setActive path already sized it, and re-running would double-bump the epoch.
-      if (everAttached && eligible()) becomeEligible()
+      geometryTimelineResetPending = false
+      // THE ATTACH SNAPSHOT IS THE FIRST AUTHORITATIVE W, AND IT IS APPLIED HERE
+      // (B2). `attached` sets cols/rows and emits its state BEFORE this callback
+      // runs (0b C3), so there is no later event to wait for — a mount that
+      // waited would sit at its birth grid until something unrelated moved it.
+      authoritative = true
+      // A NEW SERVER HAS HEARD NOTHING FROM US, so the dedup memory goes with
+      // the old one — otherwise a reconnect's ask would be suppressed as a
+      // repeat of something only the previous server was ever told.
+      lastAsked = null
+      applyServerGrid(connection.state(), 'attach')
+      // RECONNECT IS AN ASK (B4). A restarted server rebuilt this session and
+      // reset who was driving; the buffer has already followed its attach
+      // snapshot above, and this says what box we actually have and re-claims.
+      // Skip the FIRST attach — the mount/setActive path has just asked, and a
+      // second identical claim would bump the controller epoch for nothing.
+      if (everAttached && eligible()) becomeEligible('reconnect')
       everAttached = true
     },
-    onFrame: (text) => {
-      view.write(text)
-      if (!firstFrameSeen && text.length > 0) {
+    onFrame: (bytes) => {
+      view.write(bytes)
+      if (!firstFrameSeen && bytes.length > 0) {
         firstFrameSeen = true
         opts.onFirstFrame?.()
         markReady('frame')
@@ -446,7 +497,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     onReset: () => {
       trace('connection:reset', { connection: connection.state() })
       lastEpoch = connection.state().epoch
+      lastGeometryRevision = undefined
+      geometryTimelineResetPending = false
       view.clear()
+    },
+    onGeometryTimelineReset: () => {
+      // A restarted server may resume with no frames; reset ordering without
+      // clearing the screen. onReset owns the full-replay clear below.
+      lastGeometryRevision = undefined
+      geometryTimelineResetPending = true
     },
     onState: (state) => {
       const signature = JSON.stringify([
@@ -456,39 +515,51 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
         state.rows,
         state.epoch,
         state.controllerId,
+        state.geometryRevision ?? null,
+        state.requestedGeometry?.cols ?? null,
+        state.requestedGeometry?.rows ?? null,
         state.outputSeen,
       ])
       if (signature !== lastTracedState) {
         lastTracedState = signature
         trace('connection:state', { state })
       }
-      if (view.cols() !== state.cols || view.rows() !== state.rows) {
-        trace('connection:apply-server-grid', { state })
-        view.resize(state.cols, state.rows)
-        // xterm reflows the existing buffer into the new grid. For alt-screen
-        // agent TUIs that content was painted at the previous winsize and is
-        // garbage at the new size until the app's SIGWINCH repaint arrives —
-        // wipe so the operator sees blank→clean rather than shredded mid-width
-        // fragments. Control-mode fits already match local size before geometry
-        // acks, so this branch is mostly the server-grid phone path (and genuine
-        // controller takeovers that change winsize).
-        view.clear()
-        // A resize/reflow can leave the GPU canvas showing only the cells that moved or
-        // changed (the "caret at top, my text at bottom, rest black" symptom). Force a
-        // full repaint so the whole grid redraws at the new geometry.
-        view.forceRepaint()
+      const geometryRevision = state.geometryRevision
+      const staleGeometry =
+        geometryRevision !== undefined &&
+        lastGeometryRevision !== undefined &&
+        geometryRevision < lastGeometryRevision
+      if (staleGeometry) {
+        trace('connection:stale-geometry-state', {
+          state,
+          acceptedRevision: lastGeometryRevision,
+        })
+      } else if (geometryRevision !== undefined) {
+        lastGeometryRevision = geometryRevision
       }
-      serverGrid = { cols: state.cols, rows: state.rows }
+      const geometrySuppressed = geometryTimelineResetPending || staleGeometry
+      // THE FENCES ARE GONE (POD-3239 B3/B8), and they are gone because their
+      // premise is. `assertedControlGrid`, `pendingRequestedGrid` and
+      // `holdClaimedGrid` all existed to protect a grid this client had applied
+      // OPTIMISTICALLY from its own measurement, against a server state that had
+      // not caught up. Nothing applies a local measurement any more (rule 2), so
+      // there is never a local grid to hold and never a disagreement to arbitrate:
+      // the only ordering question left is "is this state stale?", and the
+      // geometry revision above answers it.
+      if (authoritative && !geometrySuppressed) applyServerGrid(state, 'state')
       const roleChanged = state.role !== lastRole
       // Update before an atomic claim emits its local pending state; otherwise
       // that nested notification would look like a second role transition and
       // recursively claim again.
       lastRole = state.role
-      if (gridMode === 'server-grid' && roleChanged && eligible()) {
-        // The first attached client is made controller by the server. It should
-        // still fit a phone-only session; only a spectator follows/crops.
-        if (state.role === 'controller') applyFit(false)
-        else reportViewport()
+      if (roleChanged && eligible()) {
+        // The server made this client the controller (it is the only viewer), or
+        // took it away again. Either way its box is worth stating: as a
+        // controller it can be sized to, and as a spectator its recorded
+        // viewport is what a later sole-renderer promotion needs. Not
+        // platform-conditional — it is true of any viewer whose role moved — and
+        // the dedup makes it free when the box was already stated.
+        ask('role-change', false)
       }
       // Clear only on an in-session epoch bump — a controller takeover repaints the
       // grid for the new owner. The (re)attach clear is owned by onReset above, so a
@@ -541,6 +612,8 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   const offEchoRender =
     typeof view.onRender === 'function'
       ? view.onRender(() => {
+          // FIRST RENDER = FIRST MEASURABLE (B4). See `everMeasured`.
+          if (!everMeasured) ask('first-render', false)
           if (!connection.echoPaintPending?.() || echoPaintRaf !== undefined) return
           echoPaintRaf = requestAnimationFrame(() => {
             echoPaintRaf = undefined
@@ -550,10 +623,13 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       : () => {}
 
   // Becoming the active tab of a visible page claims control (last-foregrounded-wins)
-  // and fits the terminal to THIS client's viewport. We never resize/redraw/requestControl
-  // while ineligible, so a hidden tab can't pin the shared PTY to its stale grid.
+  // and states this client's box. We never ask while ineligible, so a hidden tab
+  // cannot pin the shared PTY to its stale grid.
   syncRendererLease()
-  if (active) becomeEligible()
+  if (active) becomeEligible('mount')
+  // A web font that has not loaded yet measures at fallback metrics, so ask
+  // again when the real faces arrive (B4).
+  awaitFontReadiness()
 
   // The takeover itself, shared by the implicit path (first keystroke) and the
   // explicit one a client can offer as an action (POD-724). Whichever triggers
@@ -563,23 +639,22 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   // immediately follows a rotation or a keyboard change must not pin the shared
   // PTY to the previous size. The role transition in onState then fits/repaints.
   function takeControl(): void {
-    if (gridMode === 'server-grid') {
-      const grid = proposeViewport()
-      if (grid) {
-        reportedViewport = grid
-        connection.requestControl(grid)
-        return
-      }
-    }
-    connection.requestControl()
+    ask('take-control', true)
   }
 
   // Paste + arrows now live in the panel's React action row / D-pad above the key
   // bar, so the bar itself no longer renders a Paste key.
   const sendInput = (data: string, inputEventAt?: number): void => {
-    // A spectator that starts typing means it: take control first so the first
-    // byte lands as controller, on this client's own grid.
-    if (gridMode === 'server-grid' && connection.state().role === 'spectator') takeControl()
+    // THE REVEAL MOUSE FENCE IS GONE (POD-3239 B8). It withheld SGR motion
+    // reports through a reveal because the buffer might still be at a grid the
+    // pty had left, so a mouse coordinate would name the wrong cell. Under rule
+    // 2 the buffer is ALWAYS at W — it followed the server while it was hidden —
+    // so the precondition it waited for now holds by construction, and holding
+    // input on it would only ever be a delay.
+    //
+    // A spectator that starts typing means it, on any platform: take control
+    // first so the first byte lands as controller, on this client's own grid.
+    if (connection.state().role === 'spectator') takeControl()
     connection.sendInput(data, inputEventAt)
   }
 
@@ -604,18 +679,30 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
     if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
     viewportFitTimer = setTimeout(() => {
       viewportFitTimer = undefined
-      if (gridMode === 'server-grid' && connection.state().role === 'spectator') reportViewport()
-      else applyFit(false)
+      // A BOX CHANGE NEVER CLAIMS (B4). The window got wider, or a dock opened;
+      // that is a reason to ask for a different size, never a reason to take a
+      // session away from whoever is driving it.
+      ask('box-change', false)
     }, VIEWPORT_FIT_DEBOUNCE_MS)
   })
 
-  const onVisibility = (): void => {
-    trace('page:visibility-change')
+  const onPageResume = (source: 'visibility-change' | 'focus' | 'pageshow'): void => {
+    trace(`page:${source}`)
     syncRendererLease()
     if (eligible()) reveal() // page returning to the foreground is a reveal (canvas was freed)
   }
+  const onVisibility = (): void => onPageResume('visibility-change')
+  const onWindowFocus = (): void => onPageResume('focus')
+  const onPageShow = (): void => onPageResume('pageshow')
   if (typeof document !== 'undefined') {
     document.addEventListener('visibilitychange', onVisibility)
+  }
+  if (typeof window !== 'undefined') {
+    // Some Chromium/PWA paths restore focus without delivering a useful
+    // visibility transition to the app. These events are cheap, and reveal's
+    // generation guard coalesces duplicate callbacks from one tab return.
+    window.addEventListener('focus', onWindowFocus)
+    window.addEventListener('pageshow', onPageShow)
   }
 
   if (opts.focusOnMount !== false) view.focus()
@@ -624,6 +711,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
   if (opts.test) {
     const api = {
       state: () => connection.state(),
+      /**
+       * THE LOCAL GRID — what xterm is actually at (POD-3239).
+       *
+       * `state()` above returns the SERVER's grid, which is a different fact, and
+       * 0a's capture had to scrape `.xterm-screen`'s pixel box to get this one —
+       * a reading that depends on which renderer loaded and on the font. The two
+       * disagreeing is the whole subject of this issue, so both are readable.
+       */
+      grid: () => ({ cols: view.cols(), rows: view.rows() }),
       echoLatency: () => connection.echoLatency(),
       diagnostics: () => terminalDiagnosticsSnapshot(sessionId),
       // Client switch-latency traces [POD-701]. Read through the introspection
@@ -665,10 +761,9 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
           viewportEl.style.height = ''
           void viewportEl.offsetHeight
         }
-        const grid = gridMode === 'server-grid' ? proposeViewport() : view.fit()
-        // Mirror applyFit: server-grid keeps the local grid on the server until
-        // geometry acks; only the PTY is asked to move.
-        if (grid) connection.sendResize(grid.cols, grid.rows)
+        // The same one ask the product sends, so a browser test cannot pass
+        // against a path nothing ships (POD-3239 B4).
+        ask('simulate-keyboard', false)
       },
     }
     testApi = api
@@ -714,13 +809,15 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       }
       lastBackground = nextBackground
       view.setAppearance(appearance)
+      currentAppearance = appearance
       trace('appearance:change')
-      // A font-metric change altered the cell size — reconcile the grid to the
-      // container and inform the server (eligibility-gated inside applyFit, so
-      // a hidden panel never drives the shared PTY). A theme-only change leaves
-      // the grid identical and applyFit decides 'same' → nothing further.
-      if (gridMode === 'server-grid' && connection.state().role === 'spectator') reportViewport()
-      else applyFit(false)
+      // A font-metric change altered the cell size, so the same box now holds a
+      // different grid — ask (B4). A theme-only change measures the same and the
+      // server finds the request equal to W, which costs nothing.
+      ask('appearance', false)
+      // …and the new family may not be loaded yet, so re-arm the readiness
+      // probe. Its generation guard retires the previous one.
+      awaitFontReadiness()
     },
     dispose() {
       trace('dispose')
@@ -728,9 +825,14 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       if (viewportFitTimer !== undefined) clearTimeout(viewportFitTimer)
       releaseRendererLease?.()
       releaseRendererLease = null
-      cancelScheduledFit()
+      fontGeneration += 1
+      while (fontDisposers.length) fontDisposers.pop()?.()
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)
+      }
+      if (typeof window !== 'undefined') {
+        window.removeEventListener('focus', onWindowFocus)
+        window.removeEventListener('pageshow', onPageShow)
       }
       offInput()
       offEchoRender()

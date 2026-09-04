@@ -1,0 +1,61 @@
+==============================================================================
+A2b / A5 / A10   harness=grok
+==============================================================================
+
+A2b  status at boot
+------------------------------------------------------------------------------
+  session e8abbc8f-8e7f-4494-8b50-b6d50a3a8ccd
+  phase timeline (only changes are printed):
+    t+    11ms  status=starting    phase=(blank)   driver=(none)
+    t+  1550ms  status=live        phase=idle      driver=grok-acp
+  CONTROL          the session bound a driver and is live: true
+
+  A2b PASS
+      settles on idle:                       true
+      ever reported 'working' before any use: false
+      ever blank after a driver was bound:    false
+
+A10  driver identity
+------------------------------------------------------------------------------
+  reports          driverId=grok-acp  driverFamily=server
+  expected here    grok-acp / family 'server'
+  half 1 (reports server family): PASS
+
+  half 2 (PODIUM_RUNTIME_DRIVER=generic-pty demotes it): PARTIAL — measured,
+  but not to the row's full wording, and the reason is POD-2853.
+  On this rig the terminal arm was driven (drive-up.sh with P2777_DRIVER=
+  generic-pty; drive-verify.sh read generic-pty back out of the RUNNING
+  daemon's /proc/<pid>/environ, so the arm is the daemon's, not a script's
+  intention). Under it the session did NOT bind a server driver — it took
+  the abduco path and died there:
+      status=exited  exitCode=-1  driverId=(none)
+      spawnFailure="…/bin/abduco exited 1: create-session: File name too long"
+      label=podium-p2777-2591ded6-bfe5-42d7-965b-80d99fd9916f
+  The escape hatch DID demote — abduco is the terminal path and a server
+  driver would never have touched it. What cannot be read is the demoted
+  session's reported driver identity, because the session does not survive
+  long enough to report one. PASS on "demotes", unread on "and reports it".
+
+A5  transcript — tool calls paired to results, and a reload shows the same history
+------------------------------------------------------------------------------
+  turn completed   false
+  CONTROL          3 transcript item(s), 1 tool item(s), 3 delta frame(s)
+    toolUseId call-0af07ef8-dca3-4bb2-811e tool=tool     items=1 call=true result=false  ""
+  provider result live null
+
+  reload           live had 3 item(s); a fresh socket was served 3
+                   0 live item(s) missing after reload
+                   the turn's nonce is still in the reloaded history: false
+                   tool items after reload: 1 (live: 1)
+  provider result reload null
+  paired after reload false; exact tool history true
+
+  A5 FAIL
+      tool calls paired to provider results live: false (1 distinct toolUseId(s))
+      paired provider payload survives reload: false
+      reload shows the same history: false
+      control FIRED — the turn produced 1 tool item(s)
+
+==============================================================================
+done
+==============================================================================

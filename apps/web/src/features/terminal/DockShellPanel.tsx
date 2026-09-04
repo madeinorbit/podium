@@ -9,9 +9,9 @@ import { useReplicaIssues, useStoreSelector } from '@/app/store'
 import { Badge } from '@/components/ui/badge'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
-import { prettyCwd } from './AgentPanel'
 import { TERMINAL_DEFAULTS } from './appearance'
 import { dockShellIsDead } from './dock-shell-lifecycle'
+import { prettyCwd } from './pretty-cwd'
 import { useTerminalAppearance } from './use-terminal-appearance'
 
 /**
@@ -140,7 +140,7 @@ export function DockShellPanel({
       {terminalShown && mapped ? (
         // 'starting' holds the mount: the PTY may not exist server-side yet, and
         // the terminal's one-shot attach would be dropped and never retried.
-        <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} />
+        <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} session={session} />
       ) : (
         <div className="p-3 text-xs text-muted-foreground/70">Starting shell…</div>
       )}
@@ -166,20 +166,28 @@ export function resolveShellMachineLabel(
 function DockShellTerminal({
   sessionId,
   hub,
+  session,
 }: {
   sessionId: SessionId
   hub: Parameters<typeof useTerminalSession>[0]['hub']
+  /** The row this shell's grid comes from (POD-3239 B1). */
+  session: SessionMeta | undefined
 }): JSX.Element {
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background
   const issues = useReplicaIssues()
   const issuesRef = useRef(issues)
   issuesRef.current = issues
-  const { containerRef, ready, mountedRef } = useTerminalSession({
+  const { containerRef, viewportRef, ready, mountedRef } = useTerminalSession({
     hub,
     sessionId,
     appearance,
     focusWhenReady: true,
+    // Born at W, exactly as the agent panel is (POD-3239 B1). A dock shell is a
+    // terminal like any other; constructing it at 80x24 and moving it is the
+    // same wrong first frame.
+    ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+    geometryState: session?.geometryState ?? 'unknown',
     // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
     // live stage-coloured underlines when the issue is known.
     onMounted: (mounted) => {
@@ -205,7 +213,11 @@ function DockShellTerminal({
       className="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
       style={{ backgroundColor: termBg }}
     >
-      <div ref={containerRef} className="term min-h-0 min-w-0 flex-1 overflow-hidden px-2 py-1.5" />
+      {/* The BOX and the HOST (POD-3239 B3): the outer element clips, carries the
+      inset and is what gets measured; xterm sizes the inner one. */}
+      <div ref={viewportRef} className="term-viewport min-h-0 min-w-0 flex-1 px-2 py-1.5">
+        <div ref={containerRef} className="term" />
+      </div>
       {!ready && (
         <div
           className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/70"

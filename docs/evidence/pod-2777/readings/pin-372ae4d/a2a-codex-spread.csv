@@ -1,0 +1,4 @@
+run,load,send_rt_ms,first_working_ms
+1,20.77,156,398  verdict=PASS
+2,19.84,144,365  verdict=PASS
+3,18.34,337,205  verdict=PASS

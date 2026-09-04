@@ -1,0 +1,900 @@
+{
+  "schema": "pod-3097-a11-v1",
+  "issue": "POD-3097",
+  "cell": "opencode",
+  "verdict": "FAIL",
+  "startedAt": "2026-08-29T21:52:42.565Z",
+  "finishedAt": "2026-08-29T21:55:07.997Z",
+  "control": {
+    "marker": "P3097-OPENCODE-CONTROL-872YRK7",
+    "startedAt": "2026-08-29T21:52:50.168Z",
+    "finishedAt": "2026-08-29T21:52:53.948Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+      "status": "live",
+      "phase": "idle",
+      "driverId": "opencode-server",
+      "driverFamily": "server",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+      }
+    },
+    "fired": true
+  },
+  "expectedDriver": "opencode-server",
+  "before": {
+    "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+    }
+  },
+  "target": {
+    "model": "opencode-go/kimi-k3",
+    "effort": "max"
+  },
+  "configuredAt": "2026-08-29T21:53:24.365Z",
+  "configureOutcome": {
+    "ok": true,
+    "effective": "next-turn"
+  },
+  "immediate": {
+    "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "opencode-go/kimi-k3",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+    }
+  },
+  "nextTurn": {
+    "marker": "P3097-OPENCODE-CONFIGURED-J4SLQ7R",
+    "startedAt": "2026-08-29T21:53:24.434Z",
+    "finishedAt": "2026-08-29T21:53:31.257Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+      "agentKind": "opencode",
+      "accountId": "native:claude-code",
+      "title": "repo",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T21:53:31.109Z",
+        "workingMsTotal": 6567,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c1",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T21:52:45.588Z",
+      "lastActiveAt": "2026-08-29T21:53:31.109Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+      },
+      "transcriptAvailable": true,
+      "requestedModel": "opencode-go/kimi-k3",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "opencode-server",
+      "driverFamily": "server",
+      "conversationPodiumId": "conv_6790cd45-6998-4e4c-a7b5-0195e7b510b5",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": false,
+      "harnessPromptModeHints": false
+    }
+  },
+  "afterTurn": {
+    "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "opencode-go/kimi-k3",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+    }
+  },
+  "reloaded": {
+    "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "opencode-go/kimi-k3",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+    }
+  },
+  "restarted": {
+    "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "opencode-go/kimi-k3",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+    }
+  },
+  "persistenceTurn": {
+    "marker": "P3097-OPENCODE-PERSISTED-HLETARX",
+    "startedAt": "2026-08-29T21:54:19.375Z",
+    "finishedAt": "2026-08-29T21:54:21.660Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+      "agentKind": "opencode",
+      "accountId": "native:claude-code",
+      "title": "repo",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T21:54:21.456Z",
+        "workingMsTotal": 6567,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c0",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T21:52:45.588Z",
+      "lastActiveAt": "2026-08-29T21:54:21.456Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+      },
+      "transcriptAvailable": true,
+      "requestedModel": "opencode-go/kimi-k3",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "opencode-server",
+      "driverFamily": "server",
+      "conversationPodiumId": "conv_6790cd45-6998-4e4c-a7b5-0195e7b510b5",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": false,
+      "harnessPromptModeHints": false
+    }
+  },
+  "final": {
+    "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "opencode-go/kimi-k3",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+    }
+  },
+  "initialPins": {
+    "at": "2026-08-29T21:52:42.580Z",
+    "head": "bc5b2d1432ca631ae7a056b217c41f73fc90809f",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "nonEvidenceChanges": [],
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1541579",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1542073",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T215016Z",
+    "capacity": {
+      "load1m": 4.51,
+      "memAvailable": "18858740 kB",
+      "rootFreeKiB": 76834632
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "finalPins": {
+    "at": "2026-08-29T21:55:07.016Z",
+    "head": "bc5b2d1432ca631ae7a056b217c41f73fc90809f",
+    "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+    "nonEvidenceChanges": [],
+    "trees": {
+      "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+      "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+      "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "737208997d531cc3",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T21:24:46.534Z",
+      "appVersion": "dev+fbc2f18",
+      "sourceSha": "fbc2f18",
+      "bundleVersion": "bundle+s8ci-irf"
+    },
+    "server": {
+      "pid": "1561423",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1561566",
+      "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T215417Z",
+    "capacity": {
+      "load1m": 7.11,
+      "memAvailable": "18034520 kB",
+      "rootFreeKiB": 76505260
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "events": [
+    {
+      "at": "2026-08-29T21:52:42.565Z",
+      "event": "cell-start",
+      "detail": {
+        "cell": "opencode"
+      }
+    },
+    {
+      "at": "2026-08-29T21:52:43.514Z",
+      "event": "initial-pins-proved",
+      "detail": {
+        "at": "2026-08-29T21:52:42.580Z",
+        "head": "bc5b2d1432ca631ae7a056b217c41f73fc90809f",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "nonEvidenceChanges": [],
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1541579",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1542073",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T215016Z",
+        "capacity": {
+          "load1m": 4.51,
+          "memAvailable": "18858740 kB",
+          "rootFreeKiB": 76834632
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:52:45.579Z",
+      "event": "live-catalog-read",
+      "detail": {
+        "fetchedAt": 1788040365570,
+        "counts": {
+          "grok": 2,
+          "cursor": 0,
+          "opencode": 32,
+          "codex": 7,
+          "claude-code": 10
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:52:45.599Z",
+      "event": "session-created",
+      "detail": {
+        "sid": "4b41f261-21da-463e-84ea-653b38580b50",
+        "agentKind": "opencode"
+      }
+    },
+    {
+      "at": "2026-08-29T21:52:50.163Z",
+      "event": "driver-bound",
+      "detail": {
+        "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "opencode-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "resume": {
+          "kind": "opencode-session",
+          "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:53:24.357Z",
+      "event": "independent-positive-control",
+      "detail": {
+        "marker": "P3097-OPENCODE-CONTROL-872YRK7",
+        "startedAt": "2026-08-29T21:52:50.168Z",
+        "finishedAt": "2026-08-29T21:52:53.948Z",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "userObserved": true,
+        "assistantObserved": true,
+        "row": {
+          "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "opencode-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "resume": {
+            "kind": "opencode-session",
+            "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+          }
+        },
+        "fired": true
+      }
+    },
+    {
+      "at": "2026-08-29T21:53:24.365Z",
+      "event": "configure-request",
+      "detail": {
+        "model": "opencode-go/kimi-k3",
+        "effort": "max"
+      }
+    },
+    {
+      "at": "2026-08-29T21:53:24.434Z",
+      "event": "configure-reply",
+      "detail": {
+        "configureOutcome": {
+          "ok": true,
+          "effective": "next-turn"
+        },
+        "immediate": {
+          "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "opencode-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "opencode-go/kimi-k3",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "opencode-session",
+            "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:54:16.358Z",
+      "event": "next-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-OPENCODE-CONFIGURED-J4SLQ7R",
+          "startedAt": "2026-08-29T21:53:24.434Z",
+          "finishedAt": "2026-08-29T21:53:31.257Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+            "agentKind": "opencode",
+            "accountId": "native:claude-code",
+            "title": "repo",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T21:53:31.109Z",
+              "workingMsTotal": 6567,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c1",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T21:52:45.588Z",
+            "lastActiveAt": "2026-08-29T21:53:31.109Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "opencode-session",
+              "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+            },
+            "transcriptAvailable": true,
+            "requestedModel": "opencode-go/kimi-k3",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "opencode-server",
+            "driverFamily": "server",
+            "conversationPodiumId": "conv_6790cd45-6998-4e4c-a7b5-0195e7b510b5",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": false,
+            "harnessPromptModeHints": false
+          }
+        },
+        "row": {
+          "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "opencode-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "opencode-go/kimi-k3",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "opencode-session",
+            "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:54:16.403Z",
+      "event": "fresh-client-reload",
+      "detail": {
+        "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "opencode-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "opencode-go/kimi-k3",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "opencode-session",
+          "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:54:16.654Z",
+      "event": "isolated-restart-start"
+    },
+    {
+      "at": "2026-08-29T21:54:19.295Z",
+      "event": "isolated-restart-complete",
+      "detail": {
+        "stdout": ""
+      }
+    },
+    {
+      "at": "2026-08-29T21:54:19.368Z",
+      "event": "post-server-daemon-restart",
+      "detail": {
+        "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "opencode-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "opencode-go/kimi-k3",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "opencode-session",
+          "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:55:06.996Z",
+      "event": "post-restart-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-OPENCODE-PERSISTED-HLETARX",
+          "startedAt": "2026-08-29T21:54:19.375Z",
+          "finishedAt": "2026-08-29T21:54:21.660Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+            "agentKind": "opencode",
+            "accountId": "native:claude-code",
+            "title": "repo",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T21:54:21.456Z",
+              "workingMsTotal": 6567,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c0",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T21:52:45.588Z",
+            "lastActiveAt": "2026-08-29T21:54:21.456Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "opencode-session",
+              "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+            },
+            "transcriptAvailable": true,
+            "requestedModel": "opencode-go/kimi-k3",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "opencode-server",
+            "driverFamily": "server",
+            "conversationPodiumId": "conv_6790cd45-6998-4e4c-a7b5-0195e7b510b5",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": false,
+            "harnessPromptModeHints": false
+          }
+        },
+        "row": {
+          "sessionId": "4b41f261-21da-463e-84ea-653b38580b50",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "opencode-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "opencode-go/kimi-k3",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "opencode-session",
+            "value": "ses_fb07d28c0ffe0t2oyO9OnlZT56"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T21:55:07.997Z",
+      "event": "final-pins-proved",
+      "detail": {
+        "at": "2026-08-29T21:55:07.016Z",
+        "head": "bc5b2d1432ca631ae7a056b217c41f73fc90809f",
+        "integrationTip": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "mergeBase": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+        "nonEvidenceChanges": [],
+        "trees": {
+          "server": "a6f3ff7c486789d88bd164019a305c83b447c0db",
+          "daemon": "db91eae2e746045aae924a056c36a10d8073ef30",
+          "web": "08a39cf1ae65ee5029e70c4c1d6574164500ad12"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "737208997d531cc3",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T21:24:46.534Z",
+          "appVersion": "dev+fbc2f18",
+          "sourceSha": "fbc2f18",
+          "bundleVersion": "bundle+s8ci-irf"
+        },
+        "server": {
+          "pid": "1561423",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1561566",
+          "sha": "fbc2f18baf77d74d370c6469444b3c3d800b0a71",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T215417Z",
+        "capacity": {
+          "load1m": 7.11,
+          "memAvailable": "18034520 kB",
+          "rootFreeKiB": 76505260
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    }
+  ]
+}

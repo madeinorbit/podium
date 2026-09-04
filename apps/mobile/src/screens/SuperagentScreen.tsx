@@ -1,15 +1,25 @@
 import { useModelCatalog, useSlice } from '@podium/client-core/react'
 import {
+  buildImagePrompt,
   mergeTranscriptItems,
   prependTranscriptItems,
   superagentSlice,
 } from '@podium/client-core/viewmodels'
 import { asThreadId, type SessionId, type TranscriptItem } from '@podium/model'
 import * as Haptics from 'expo-haptics'
-import { Eraser } from 'lucide-react-native'
+import { Eraser } from '../components/icons'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { KeyboardAvoidingView, Platform, StyleSheet, Text, View } from 'react-native'
-import { readTranscriptPage, useBooting, useHub, useMobileStore } from '../client/hooks'
+import { StyleSheet, Text, View } from 'react-native'
+import {
+  readTranscriptPage,
+  useBooting,
+  useHttpOrigin,
+  useHub,
+  useReplica,
+  useSessions,
+  useStoreActions,
+  useTrpc,
+} from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { Composer } from '../components/Composer'
 import { Icon } from '../components/Icon'
@@ -20,15 +30,21 @@ import { HeaderButton, Screen } from '../components/Screen'
 import { SuperagentBackendRail } from '../components/SuperagentBackendRail'
 import { type PendingTurn, TranscriptList } from '../components/TranscriptList'
 import { EmptyState } from '../components/ui'
+import { useKeyboardLift } from '../hooks/useKeyboardHeight'
+import {
+  type SentAttachment,
+  useComposerAttachments,
+} from '../components/useComposerAttachments'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
+import { humanizeSendFailure } from '../lib/send-failure'
 import {
   applySuperagentModelPick,
   resolveSuperagentBackend,
   type SuperagentBackendPick,
   superagentTurnChoice,
 } from '../lib/superagent-backend'
-import { dropEchoedTurns, markTurnsFailed, renderedTranscript } from '../lib/superagent-transcript'
+import { dropEchoedTurns, liveTranscriptItem, markTurnsFailed } from '../lib/superagent-transcript'
 import { color, font, sans, space } from '../theme/theme'
 
 /**
@@ -51,9 +67,16 @@ import { color, font, sans, space } from '../theme/theme'
  */
 const THREAD_ID = asThreadId('global')
 
+type LocalPendingTurn = PendingTurn & { wire: string }
+
 export function SuperagentScreen() {
-  const store = useMobileStore()
-  const trpc = store.trpc
+  // Narrow subscriptions: everything this screen reads off the store is
+  // either an identity-stable static or the sessions slice it paints from.
+  const trpc = useTrpc()
+  const { refreshSuperThreads } = useStoreActions()
+  const replica = useReplica()
+  const httpOrigin = useHttpOrigin()
+  const sessions = useSessions()
   const hub = useHub()
   const booting = useBooting()
   // The signed-in user's threads, from the store's published slice — the same
@@ -75,6 +98,11 @@ export function SuperagentScreen() {
   const [transcriptLoaded, setTranscriptLoaded] = useState(false)
   const [threadsLoaded, setThreadsLoaded] = useState(false)
   const [liveText, setLiveText] = useState('')
+  const pendingLiveText = useRef('')
+  const pendingLiveTextActivity = useRef(0)
+  const liveTextFrame = useRef<number | null>(null)
+  const liveTextCommit = useRef(0)
+  const activityVersion = useRef(0)
   const [statusLabel, setStatusLabel] = useState<string | null>(null)
   const [running, setRunning] = useState(false)
   // The hand-off is already visible work. Keep it separate from the server's
@@ -91,9 +119,15 @@ export function SuperagentScreen() {
   // The thread's headless session: the slice's answer, until a turn's ack hands
   // back a fresher one (the FIRST turn learns its session from the ack alone).
   const [ackedSid, setAckedSid] = useState<SessionId | undefined>(undefined)
-  const podiumSid = ackedSid ?? superagent.activeSessionId
+  // A successful clear kills the old headless session before the store refresh
+  // necessarily removes its binding. Keep that stale id hidden locally so an
+  // immediate attachment cannot revive it during the refresh window.
+  const [clearedSid, setClearedSid] = useState<SessionId | undefined>(undefined)
+  const publishedSid =
+    superagent.activeSessionId === clearedSid ? undefined : superagent.activeSessionId
+  const podiumSid = ackedSid ?? publishedSid
   const transcriptSession = podiumSid
-    ? store.sessions.find((session) => session.sessionId === podiumSid)
+    ? sessions.find((session) => session.sessionId === podiumSid)
     : undefined
   const modelCatalog = useModelCatalog<MobileTrpc>(transcriptSession?.machineId)
   const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
@@ -101,9 +135,23 @@ export function SuperagentScreen() {
     () => resolveSuperagentBackend(superagent.active, backendPick),
     [superagent.active, backendPick],
   )
-  const [pendingTurns, setPendingTurns] = useState<PendingTurn[]>([])
+  const [pendingTurns, setPendingTurns] = useState<LocalPendingTurn[]>([])
+  const prepareAttachmentSession = useCallback(async (): Promise<SessionId> => {
+    if (podiumSid) return podiumSid
+    const result = await trpc.superagent.ensureSession.mutate({ threadId: THREAD_ID })
+    if (!result.podiumSessionId) throw new Error('Superagent could not prepare this attachment.')
+    setAckedSid(result.podiumSessionId)
+    return result.podiumSessionId
+  }, [podiumSid, trpc.superagent.ensureSession])
+  const attachments = useComposerAttachments(podiumSid, {
+    prepareSession: prepareAttachmentSession,
+  })
   const [draftInsertion, setDraftInsertion] = useState<{ id: number; text: string } | null>(null)
   const insertionSeq = useRef(0)
+  // Each send re-pins the feed to its tail so the just-written turn is on
+  // screen even if the operator had scrolled up (the web chat's pinToBottom).
+  const [pinRequest, setPinRequest] = useState(0)
+  const keyboardLift = useKeyboardLift()
   // Monotonic per-mount counter behind each optimistic row's id. Date.now()
   // alone collides when two sends land in the same millisecond.
   const turnSeq = useRef(0)
@@ -114,13 +162,47 @@ export function SuperagentScreen() {
     loading: false,
   })
 
+  const cancelLiveTextFrame = useCallback(() => {
+    // A callback can already be dequeued when cancellation runs. Invalidate its
+    // commit token as well as asking the host to cancel it.
+    liveTextCommit.current += 1
+    if (liveTextFrame.current === null) return
+    cancelAnimationFrame(liveTextFrame.current)
+    liveTextFrame.current = null
+  }, [])
+
+  const clearLiveText = useCallback(() => {
+    activityVersion.current += 1
+    cancelLiveTextFrame()
+    pendingLiveText.current = ''
+    setLiveText('')
+  }, [cancelLiveTextFrame])
+
+  // Headless partial-text frames are cumulative and can arrive much faster than
+  // the display. Keep only the newest frame and let React parse/paint it once in
+  // the next animation frame instead of doing that work for every socket event.
+  const queueLiveText = useCallback((text: string, eventVersion: number) => {
+    pendingLiveText.current = text
+    pendingLiveTextActivity.current = eventVersion
+    if (liveTextFrame.current !== null) return
+    const commit = ++liveTextCommit.current
+    liveTextFrame.current = requestAnimationFrame(() => {
+      if (commit !== liveTextCommit.current) return
+      liveTextFrame.current = null
+      const next = pendingLiveText.current
+      setLiveText((current) => (current === next ? current : next))
+      // A status event received after this partial owns the label. The delayed
+      // text paint may update prose, but it must not erase newer activity.
+      if (pendingLiveTextActivity.current === activityVersion.current) setStatusLabel(null)
+    })
+  }, [])
+
   // The store owns the thread list; this completion bit only distinguishes an
   // unresolved first read from a genuinely empty global thread. The engine's
   // boot refresh may already have won, in which case this is a cheap refresh.
   useEffect(() => {
     let alive = true
-    void store
-      .refreshSuperThreads()
+    void refreshSuperThreads()
       .catch(() => {})
       .finally(() => {
         if (alive) setThreadsLoaded(true)
@@ -128,7 +210,7 @@ export function SuperagentScreen() {
     return () => {
       alive = false
     }
-  }, [store.refreshSuperThreads])
+  }, [refreshSuperThreads])
 
   // Opening the tab mid-turn shows the mark: the thread carries a query-backed
   // running flag for exactly this late-join case, because headlessActivity
@@ -145,10 +227,10 @@ export function SuperagentScreen() {
     if (superagent.active?.turnRunning === false && querySawRunning.current) {
       querySawRunning.current = false
       setRunning(false)
-      setLiveText('')
+      clearLiveText()
       setStatusLabel(null)
     }
-  }, [superagent.active?.turnRunning])
+  }, [clearLiveText, superagent.active?.turnRunning])
 
   // The conversation itself, read and streamed from the thread's headless
   // session exactly as SessionScreen does for a normal chat.
@@ -160,7 +242,7 @@ export function SuperagentScreen() {
     }
     let alive = true
     let unsubscribe: (() => void) | null = null
-    const cached = store.replica.transcriptWindow(podiumSid)
+    const cached = replica.transcriptWindow(podiumSid)
     setItems(cached?.items ?? [])
     setTranscriptLoaded(false)
     paging.current = { hasMore: false, loading: false }
@@ -175,7 +257,7 @@ export function SuperagentScreen() {
         if (!alive) return
         setItems(page.items)
         setTranscriptLoaded(true)
-        if (page.items.length > 0) store.replica.putTranscriptWindow(podiumSid, page.items)
+        if (page.items.length > 0) replica.putTranscriptWindow(podiumSid, page.items)
         paging.current = { head: page.head, hasMore: page.hasMore, loading: false }
         attach(page.tail)
       })
@@ -188,12 +270,12 @@ export function SuperagentScreen() {
       alive = false
       unsubscribe?.()
     }
-  }, [trpc, hub, podiumSid, store.replica])
+  }, [trpc, hub, podiumSid, replica])
 
   useEffect(() => {
     if (!podiumSid || items.length === 0) return
-    store.replica.putTranscriptWindow(podiumSid, items)
-  }, [items, podiumSid, store.replica])
+    replica.putTranscriptWindow(podiumSid, items)
+  }, [items, podiumSid, replica])
 
   const loadOlder = useCallback(() => {
     const p = paging.current
@@ -214,17 +296,18 @@ export function SuperagentScreen() {
   // put the chrome back.
   useEffect(() => {
     if (!podiumSid) return
-    return hub.subscribeHeadless(podiumSid, (event) => {
+    const unsubscribe = hub.subscribeHeadless(podiumSid, (event) => {
+      const eventVersion = ++activityVersion.current
       if (event.kind === 'turn-start') {
         setRunning(true)
         setJustSent(false)
-        setLiveText('')
+        clearLiveText()
         setStatusLabel('starting')
       } else if (event.kind === 'turn-end') {
         setRunning(false)
         setJustSent(false)
         querySawRunning.current = false
-        setLiveText('')
+        clearLiveText()
         setStatusLabel(null)
         if (event.error) {
           const reason = event.error
@@ -236,17 +319,20 @@ export function SuperagentScreen() {
           // dropEchoedTurns to match. Without this the row says "sending…" for
           // ever. The writer lock is released at turn-end and the server refuses
           // a second concurrent turn, so anything still pending is this turn's.
-          setPendingTurns((prev) => markTurnsFailed(prev, reason) as PendingTurn[])
+          setPendingTurns((prev) => [...markTurnsFailed(prev, reason)])
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         }
       } else if (event.kind === 'status') {
         setStatusLabel(event.status === 'tool' ? (event.label ?? 'tool') : event.status)
       } else if ('text' in event && typeof event.text === 'string') {
-        setLiveText(event.text)
-        setStatusLabel(null)
+        queueLiveText(event.text, eventVersion)
       }
     })
-  }, [hub, podiumSid])
+    return () => {
+      unsubscribe()
+      cancelLiveTextFrame()
+    }
+  }, [cancelLiveTextFrame, clearLiveText, hub, podiumSid, queueLiveText])
 
   // headlessActivity frames are ephemeral, and the FIRST turn only learns its
   // session from the ack — so the subscription can attach after that turn's
@@ -257,9 +343,9 @@ export function SuperagentScreen() {
     if (!working) return
     // Refresh the STORE's thread list rather than querying a private copy: the
     // slice above then reports the flag, and one refetch serves every reader.
-    const id = setInterval(() => void store.refreshSuperThreads().catch(() => {}), 5000)
+    const id = setInterval(() => void refreshSuperThreads().catch(() => {}), 5000)
     return () => clearInterval(id)
-  }, [working, store.refreshSuperThreads])
+  }, [working, refreshSuperThreads])
 
   // The settled conversation IS the session transcript — see superagent-transcript.ts
   // for why the legacy buffer is not folded in.
@@ -268,7 +354,7 @@ export function SuperagentScreen() {
   // Drop an optimistic turn once the transcript carries it.
   useEffect(() => {
     if (pendingTurns.length === 0) return
-    setPendingTurns((prev) => dropEchoedTurns(prev, settled) as PendingTurn[])
+    setPendingTurns((prev) => [...dropEchoedTurns(prev, settled)])
   }, [settled, pendingTurns.length])
 
   // Once the transcript has echoed the optimistic row, transport is complete.
@@ -283,16 +369,17 @@ export function SuperagentScreen() {
   // (POD-346) — the old path only set a banner, which reads as "nothing
   // happened" when the reason is a stuck turn or an offline server.
   const dispatch = useCallback(
-    (id: string, text: string) => {
+    (id: string, wire: string) => {
       setJustSent(true)
+      setPinRequest((count) => count + 1)
       void trpc.superagent.sendTurn
-        .mutate({ threadId: THREAD_ID, text, ...superagentTurnChoice(backend) })
+        .mutate({ threadId: THREAD_ID, text: wire, ...superagentTurnChoice(backend) })
         .then((ack) => {
           if (ack?.podiumSessionId) setAckedSid(ack.podiumSessionId)
-          void store.refreshSuperThreads().catch(() => {})
+          void refreshSuperThreads().catch(() => {})
         })
         .catch((e: unknown) => {
-          const message = e instanceof Error ? e.message : String(e)
+          const message = humanizeSendFailure(e)
           setRunning(false)
           setJustSent(false)
           setPendingTurns((prev) =>
@@ -301,31 +388,50 @@ export function SuperagentScreen() {
           void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
         })
     },
-    [trpc, backend, store.refreshSuperThreads],
+    [trpc, backend, refreshSuperThreads],
   )
 
   const send = useCallback(
-    (text: string) => {
+    (text: string, files?: readonly SentAttachment[]) => {
       const trimmed = text.trim()
-      if (!trimmed) return
+      const attached = files ?? []
+      if (!trimmed && attached.length === 0) return
       setError(null)
       // Counter, not text length: two identical messages inside one millisecond
       // would share an id, and `failed`/retry address a row BY id.
       const id = `${Date.now()}:${turnSeq.current++}`
-      setPendingTurns((prev) => [...prev, { id, text: trimmed }])
-      dispatch(id, trimmed)
+      const wire = buildImagePrompt(
+        attached.map((file) => file.path),
+        trimmed,
+      )
+      setPendingTurns((prev) => [
+        ...prev,
+        {
+          id,
+          text: trimmed,
+          wire,
+          ...(attached.length > 0 ? { files: attached } : {}),
+        },
+      ])
+      dispatch(id, wire)
     },
     [dispatch],
   )
 
   const retry = useCallback(
     (turn: PendingTurn) => {
+      const local = pendingTurns.find((candidate) => candidate.id === turn.id)
+      if (!local) return
       setPendingTurns((prev) =>
-        prev.map((t) => (t.id === turn.id ? { id: t.id, text: t.text } : t)),
+        prev.map((t) => {
+          if (t.id !== turn.id) return t
+          const { failed: _failed, ...retrying } = t
+          return retrying
+        }),
       )
-      dispatch(turn.id, turn.text)
+      dispatch(local.id, local.wire)
     },
-    [dispatch],
+    [dispatch, pendingTurns],
   )
 
   const interrupt = useCallback(async () => {
@@ -346,29 +452,35 @@ export function SuperagentScreen() {
       // session's transcript is no longer this thread's: forget it and let the
       // next turn's ack hand back a fresh session.
       setItems([])
+      setClearedSid(podiumSid)
       setAckedSid(undefined)
-      void store.refreshSuperThreads().catch(() => {})
+      attachments.clear()
+      void refreshSuperThreads().catch(() => {})
       setPendingTurns([])
-      setLiveText('')
+      clearLiveText()
       setRunning(false)
       setJustSent(false)
       querySawRunning.current = false
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
+      setError(humanizeSendFailure(e))
     }
-  }, [trpc, store.refreshSuperThreads])
+  }, [attachments.clear, clearLiveText, podiumSid, refreshSuperThreads, trpc])
 
-  // The streaming answer rides the transcript as a live assistant item, so the
-  // in-progress turn wears the same prose voice as the settled one.
-  const rendered = useMemo(
-    () => renderedTranscript(settled, liveText, running),
-    [settled, liveText, running],
-  )
+  // Keep the high-frequency live row outside the settled transcript. This
+  // preserves the settled array's identity and its cached paired/row model.
+  const liveItem = useMemo(() => liveTranscriptItem(liveText, running), [liveText, running])
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
-  const transcriptResolved = podiumSid ? transcriptLoaded || rendered.length > 0 : threadsLoaded
+  const transcriptResolved = podiumSid
+    ? transcriptLoaded || settled.length > 0 || liveItem !== undefined
+    : threadsLoaded
   const resolved = !booting && transcriptResolved
-  const empty = resolved && rendered.length === 0 && pendingTurns.length === 0 && !working
+  const empty =
+    resolved &&
+    settled.length === 0 &&
+    liveItem === undefined &&
+    pendingTurns.length === 0 &&
+    !working
 
   return (
     <Screen
@@ -393,10 +505,9 @@ export function SuperagentScreen() {
       }
     >
       <View style={styles.column}>
-        <KeyboardAvoidingView
-          style={styles.flex}
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        >
+        {/* The composer rides the keyboard on the view's own bottom edge — see
+            useKeyboardHeight for why this is not a KeyboardAvoidingView. */}
+        <View style={[styles.flex, { paddingBottom: keyboardLift }]}>
           {error ? <Text style={styles.error}>{error}</Text> : null}
           <BootstrapCrossfade resolved={resolved} placeholder={<TranscriptSkeleton />}>
             <PullToRefreshBoundary
@@ -405,22 +516,24 @@ export function SuperagentScreen() {
               onRefresh={onRefresh}
             >
               <TranscriptList
-                items={rendered}
+                items={settled}
+                liveItem={liveItem}
                 live={working}
                 collapseContext
                 assetContext={
                   podiumSid && transcriptSession
                     ? {
-                        httpOrigin: store.httpOrigin,
+                        httpOrigin,
                         sessionId: podiumSid,
                         cwd: transcriptSession.cwd,
                       }
                     : undefined
                 }
                 pendingTurns={pendingTurns}
+                pinRequest={pinRequest}
                 onRetryPending={retry}
                 onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-                streaming={running && liveText.trim().length > 0}
+                streaming={liveItem !== undefined}
                 tail={{
                   label: working
                     ? justSent && !running
@@ -461,8 +574,9 @@ export function SuperagentScreen() {
             placeholder="Delegate a task…"
             onSend={send}
             draftInsertion={draftInsertion}
+            attachments={attachments}
             bottomInset={tabBarInset}
-            below={
+            leading={
               <SuperagentBackendRail
                 backend={backend}
                 modelCatalog={modelCatalog}
@@ -473,7 +587,7 @@ export function SuperagentScreen() {
               />
             }
           />
-        </KeyboardAvoidingView>
+        </View>
       </View>
     </Screen>
   )
@@ -491,12 +605,12 @@ const styles = StyleSheet.create({
   },
   stop: {
     ...sans(700),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.lg,
     paddingBottom: space.xs,

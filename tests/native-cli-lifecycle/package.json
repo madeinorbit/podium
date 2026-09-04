@@ -1,0 +1,23 @@
+{
+  "name": "@podium/native-cli-lifecycle-bench",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Podium-independent live timing harness for native agent CLI start, drive, and attach paths.",
+  "scripts": {
+    "bench": "bun benchmark.ts",
+    "compare-drivers": "bun driver-comparison.ts",
+    "typecheck": "tsgo --noEmit",
+    "typecheck:tsc": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@xterm/headless": "^5.5.0",
+    "@anthropic-ai/claude-agent-sdk": "^0.3.201",
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.9.1",
+    "@types/ws": "^8.5.13",
+    "typescript": "^6.0.3"
+  }
+}

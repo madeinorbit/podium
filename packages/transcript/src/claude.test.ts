@@ -3,6 +3,8 @@ import {
   claudeRecordColor,
   claudeRecordModel,
   claudeRecordToItems,
+  claudeToolCallItem,
+  claudeToolResultItem,
   toolInputPreview,
 } from './claude'
 
@@ -72,9 +74,72 @@ describe('claudeRecordToItems', () => {
     expect(items).toHaveLength(1)
     expect(items[0]).toMatchObject({
       role: 'user',
-      text: '[Image #1]does this look right?',
+      text: 'does this look right?',
       toolPaths: ['/home/u/.podium/uploads/s1/abc.png'],
       tags: [{ kind: 'image', label: 'abc.png' }],
+    })
+  })
+
+  it('strips the bare [Image #N] placeholder that sits ahead of the prompt', () => {
+    // POD-1605: the placeholder carries no path, so path harvesting left it in
+    // place and every pasted screenshot showed a literal "[Image #1]" glued to
+    // the front of the message. Two images means two placeholders, and the
+    // numbered source form must still win the paths.
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u9',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'BBBB' } },
+          {
+            type: 'text',
+            text:
+              '[Image #1][Image #2]compare these\n' +
+              '[Image #1: source: /home/u/.podium/uploads/s1/a.png]\n' +
+              '[Image #2: source: /home/u/.podium/uploads/s1/b.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: 'compare these',
+      toolPaths: ['/home/u/.podium/uploads/s1/a.png', '/home/u/.podium/uploads/s1/b.png'],
+      tags: [
+        { kind: 'image', label: 'a.png' },
+        { kind: 'image', label: 'b.png' },
+      ],
+    })
+  })
+
+  it('keeps a placeholder-only turn as a text-less media item', () => {
+    // The human pasted a screenshot and typed nothing. Stripping both markers
+    // empties the text — the item must survive on its tags, not vanish.
+    const items = claudeRecordToItems({
+      type: 'user',
+      uuid: 'u10',
+      timestamp: '2026-06-12T10:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          {
+            type: 'text',
+            text: '[Image #1]\n[Image: source: /home/u/.podium/uploads/s1/only.png]',
+          },
+        ],
+      },
+    })
+    expect(items).toHaveLength(1)
+    expect(items[0]).toMatchObject({
+      role: 'user',
+      text: '',
+      toolPaths: ['/home/u/.podium/uploads/s1/only.png'],
+      tags: [{ kind: 'image', label: 'only.png' }],
     })
   })
 
@@ -262,9 +327,7 @@ describe('claudeRecordToItems', () => {
 describe('toolInputPreview', () => {
   it('prefers the human-meaningful field', () => {
     expect(toolInputPreview({ command: 'bun test', description: 'Run tests' })).toBe('bun test')
-    expect(toolInputPreview({ cmd: 'bun run test:web', workdir: '/repo' })).toBe(
-      'bun run test:web',
-    )
+    expect(toolInputPreview({ cmd: 'bun run test:web', workdir: '/repo' })).toBe('bun run test:web')
     expect(toolInputPreview({ file_path: '/a/b.ts' })).toBe('/a/b.ts')
     expect(toolInputPreview({ target_file: '/repo/chat.ts', offset: 10 })).toBe('/repo/chat.ts')
     expect(toolInputPreview({ target_directory: '/repo/packages/transcript' })).toBe(
@@ -829,5 +892,68 @@ describe('claudeRecordToItems toolPaths', () => {
     })
     expect(items[0]).toMatchObject({ role: 'tool', toolName: 'SendUserFile' })
     expect(items[0]!.toolPaths).toEqual(['/tmp/a.png', '/tmp/b.png'])
+  })
+})
+
+describe('one shape for a tool item, live and on reload (POD-3050)', () => {
+  // The Claude SDK driver publishes a tool call the moment the model issues it;
+  // a reload re-reads the same call from the harness's own JSONL. Two code
+  // paths, one item — if they drift, the same conversation renders one way live
+  // and another way after a refresh. These assert they agree by construction.
+  const INPUT = { command: 'cat /tmp/fixture.txt', description: 'read the fixture' }
+
+  it('builds the same call item the JSONL parser does', () => {
+    const [fromRecord] = claudeRecordToItems({
+      type: 'assistant',
+      uuid: 'rec-1',
+      timestamp: '2026-08-28T00:00:00.000Z',
+      message: {
+        content: [{ type: 'tool_use', id: 'toolu_live', name: 'Bash', input: INPUT }],
+      },
+    })
+    const live = claudeToolCallItem({
+      id: 'toolu_live',
+      toolName: 'Bash',
+      input: INPUT,
+      ts: '2026-08-28T00:00:00.000Z',
+      toolUseId: 'toolu_live',
+    })
+    expect(live).toStrictEqual(fromRecord)
+    // Not a bare shape check: the fields a renderer actually reads are present.
+    expect(live).toMatchObject({
+      role: 'tool',
+      text: '',
+      toolName: 'Bash',
+      toolInput: 'cat /tmp/fixture.txt',
+      toolTitle: 'read the fixture',
+      toolUseId: 'toolu_live',
+    })
+  })
+
+  it('builds the same result item the JSONL parser does', () => {
+    const [fromRecord] = claudeRecordToItems({
+      type: 'user',
+      uuid: 'rec-2',
+      timestamp: '2026-08-28T00:00:01.000Z',
+      message: {
+        content: [{ type: 'tool_result', tool_use_id: 'toolu_live', content: 'MARKER-OK' }],
+      },
+    })
+    const live = claudeToolResultItem({
+      id: 'rec-2-result-toolu_live',
+      output: 'MARKER-OK',
+      ts: '2026-08-28T00:00:01.000Z',
+      toolUseId: 'toolu_live',
+    })
+    expect(live).toStrictEqual(fromRecord)
+  })
+
+  it('gives an output-less tool an empty result rather than none', () => {
+    // Absent content and empty content are the same fact: the call returned.
+    expect(claudeToolResultItem({ id: 'r', output: undefined, toolUseId: 't' }).toolResult).toBe('')
+    expect(claudeToolResultItem({ id: 'r', output: [], toolUseId: 't' }).toolResult).toBe('')
+    expect(claudeToolResultItem({ id: 'r', output: '', toolUseId: 't' })).toHaveProperty(
+      'toolResult',
+    )
   })
 })

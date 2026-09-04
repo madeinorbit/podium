@@ -18,10 +18,10 @@ import {
 import type { AgentKind, MachineId } from '@podium/model'
 import { lastUsedMachine } from '@podium/model'
 import { usePathname, useRouter } from 'expo-router'
-import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from 'lucide-react-native'
+import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { useMobileStore, useSessions } from '../client/hooks'
+import { useMachines, useSessions, useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import {
@@ -41,6 +41,7 @@ import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
+import { NativePicker, type NativePickerOption } from './action-sheet-native'
 import { BottomSheet } from './BottomSheet'
 import { Icon } from './Icon'
 import { PressableScale } from './PressableScale'
@@ -87,11 +88,13 @@ const writeString = (value: string | null): string | null => value
 export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const store = useMobileStore()
+  const { spawnDraftAgent } = useStoreActions()
+  const machines = useMachines()
   const sessions = useSessions()
   const { sections } = useSlice(worklistSlice)
   const [step, setStep] = useState<PickerStep>(null)
   const [query, setQuery] = useState('')
+  const [prompt, setPrompt] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,
     readString,
@@ -121,7 +124,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
   // the automations form and the execution-profile picker use. Two spellings of
   // "may I run here" is exactly how one surface comes to offer a machine
   // another refuses.
-  const machineViews = useMemo(() => machineViewsFromWire(store.machines), [store.machines])
+  const machineViews = useMemo(() => machineViewsFromWire(machines), [machines])
   const usable = useMemo(() => usableMachines(machineViews), [machineViews])
   const showMachine = machineViews.length > 1
   const machineId =
@@ -208,15 +211,21 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     if (targetMachine === null) return
     const { worktree } = spawnTargetForRepo(repo, targetMachine)
     const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
+    const firstPrompt = prompt.trim()
     setRepoPick(repo.path)
-    const { sessionId } = store.spawnDraftAgent({
+    const launch = spawnDraftAgent({
       target: worktree,
       agentKind: harness,
+      ...(!isShell && firstPrompt ? { firstPrompt } : {}),
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
     })
+    void launch.settled.then((confirmed) => {
+      if (!confirmed) return
+      setPrompt((current) => (current.trim() === firstPrompt ? '' : current))
+    })
     close()
-    router.push(sessionHref(sessionId, pathname))
+    router.push(sessionHref(launch.sessionId, pathname))
   }
 
   const applyModel = (value: string) => {
@@ -288,6 +297,12 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
     setStep('launch')
   }
 
+  const applyEffort = (value: string) => {
+    setEffortPick(value)
+    setStep('launch')
+  }
+
+  const canChooseRepo = !onlyOneRepo && visibleRepos.length > 0
   return (
     <>
       <HeaderButton label="New work" onPress={() => setStep('launch')} size={size}>
@@ -324,13 +339,39 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
       >
         {step === 'launch' ? (
           <>
-            <FieldSelect label="Model" value={modelValue} onPress={() => setStep('model')} />
+            {!isShell ? (
+              <View style={styles.field}>
+                <Text style={styles.fieldLabel}>First prompt · optional</Text>
+                <TextInput
+                  accessibilityLabel="First prompt, optional"
+                  value={prompt}
+                  onChangeText={setPrompt}
+                  placeholder="Fix the login race"
+                  placeholderTextColor={color.textMicro}
+                  multiline
+                  textAlignVertical="top"
+                  style={styles.promptInput}
+                />
+              </View>
+            ) : null}
+
+            <FieldSelect
+              label="Model"
+              value={modelValue}
+              onPress={() => setStep('model')}
+              picker={{
+                options: modelOptions,
+                selected: effectiveModel,
+                onSelect: applyModel,
+              }}
+            />
 
             {effortChoices.length > 0 ? (
               <FieldSelect
                 label="Effort"
                 value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
                 onPress={() => setStep('effort')}
+                picker={{ options: effortChoices, selected: effort, onSelect: applyEffort }}
               />
             ) : null}
 
@@ -339,6 +380,18 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                 label="Machine"
                 value={selectedMachine?.machine.name ?? 'Choose a machine'}
                 onPress={() => setStep('machine')}
+                picker={{
+                  options: machineViews.map((view) => ({
+                    value: view.machine.id,
+                    label:
+                      view.availability === 'available'
+                        ? view.machine.name
+                        : `${view.machine.name} · ${view.availability === 'unauthorized' ? 'No access' : 'Offline'}`,
+                    disabled: view.availability !== 'available',
+                  })),
+                  selected: machineId ?? '',
+                  onSelect: (value) => pickMachine(value as MachineId),
+                }}
               />
             ) : null}
 
@@ -348,9 +401,22 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
             <FieldSelect
               label="Project"
               value={selectedRepo?.name ?? 'No repositories available'}
-              {...(onlyOneRepo || visibleRepos.length === 0
-                ? {}
-                : { onPress: () => setStep('repo') })}
+              onPress={canChooseRepo ? () => setStep('repo') : undefined}
+              picker={
+                canChooseRepo
+                  ? {
+                      options: visibleRepos.map((repo) => ({
+                        value: repo.path,
+                        label: repo.name,
+                      })),
+                      selected: selectedRepo?.path ?? '',
+                      onSelect: (value) => {
+                        setRepoPick(value)
+                        setStep('launch')
+                      },
+                    }
+                  : undefined
+              }
             />
 
             <PressableScale
@@ -390,10 +456,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
           <OptionList
             groups={[{ options: effortChoices }]}
             selected={effort}
-            onPick={(value) => {
-              setEffortPick(value)
-              setStep('launch')
-            }}
+            onPick={applyEffort}
           />
         ) : null}
 
@@ -413,7 +476,14 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                   key={view.machine.id}
                   accessibilityRole="button"
                   accessibilityLabel={view.machine.name}
+                  // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+                  // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+                  // so the web build announced no state at all; and `aria-selected` is only
+                  // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+                  // browser-visible way to say a button is the chosen one is `aria-pressed`.
+                  // React Native still reads `accessibilityState` on device. [POD-1664]
                   accessibilityState={{ disabled: !ok, selected }}
+                  aria-pressed={selected}
                   disabled={!ok}
                   scaleTo={0.99}
                   onPress={() => pickMachine(view.machine.id)}
@@ -465,6 +535,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
                     accessibilityRole="button"
                     accessibilityLabel={repo.name}
                     accessibilityState={{ selected: repo.path === selectedRepo?.path }}
+                    aria-pressed={repo.path === selectedRepo?.path}
                     onPress={() => {
                       setRepoPick(repo.path)
                       setStep('launch')
@@ -555,12 +626,18 @@ function FieldSelect({
   label,
   value,
   onPress,
+  picker,
 }: {
   label: string
   value: string
   /** Absent renders the field as a STATEMENT — no chevron, no press target.
    *  A control that opens a list of one is worse than no control. */
   onPress?: () => void
+  picker?: {
+    options: readonly NativePickerOption[]
+    selected: string
+    onSelect: (value: string) => void
+  }
 }) {
   const body = (
     <>
@@ -570,19 +647,31 @@ function FieldSelect({
       {onPress ? <Icon as={ChevronDown} size={16} color={color.textMicro} /> : null}
     </>
   )
+  const trigger = (triggerPress: (() => void) | undefined) => (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`${label}, ${value}`}
+      onPress={triggerPress}
+      scaleTo={0.99}
+      style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
+    >
+      {body}
+    </PressableScale>
+  )
   return (
     <View style={styles.field}>
       <Text style={styles.fieldLabel}>{label}</Text>
-      {onPress ? (
-        <PressableScale
-          accessibilityRole="button"
-          accessibilityLabel={`${label}, ${value}`}
-          onPress={onPress}
-          scaleTo={0.99}
-          style={({ pressed }) => [styles.select, pressed && styles.selectPressed]}
+      {onPress && picker ? (
+        <NativePicker
+          label={label}
+          options={picker.options}
+          selected={picker.selected}
+          onSelect={picker.onSelect}
+          onOpenFallback={onPress}
+          style={styles.pickerHost}
         >
-          {body}
-        </PressableScale>
+          {trigger}
+        </NativePicker>
       ) : (
         <View
           accessibilityLabel={`${label}, ${value}`}
@@ -617,6 +706,7 @@ function OptionList({
                 accessibilityRole="button"
                 accessibilityLabel={option.group ? `${option.group} ${option.label}` : option.label}
                 accessibilityState={{ selected: on }}
+                aria-pressed={on}
                 onPress={() => onPick(option.value)}
                 scaleTo={0.99}
                 style={({ pressed }) => [
@@ -678,6 +768,21 @@ const styles = StyleSheet.create({
     ...monoLabel(),
     color: color.textFaint,
     marginBottom: space.xs,
+  },
+  pickerHost: {
+    alignSelf: 'stretch',
+  },
+  promptInput: {
+    ...sans(400),
+    minHeight: 88,
+    color: color.text,
+    fontSize: font.body,
+    backgroundColor: color.bgSunken,
+    borderRadius: radius.lg,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: color.borderStrong,
+    paddingHorizontal: space.md,
+    paddingVertical: space.sm + 2,
   },
   select: {
     minHeight: 48,

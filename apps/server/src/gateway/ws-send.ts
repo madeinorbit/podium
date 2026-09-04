@@ -23,6 +23,7 @@ export interface SendSocket {
   readyState: number
   bufferedAmount: number
   send(data: string, compress?: boolean): unknown
+  sendBinary?(data: Uint8Array, compress?: boolean): unknown
   terminate(): void
 }
 
@@ -56,9 +57,12 @@ function mustStayIdentity(msg: unknown): boolean {
   )
 }
 
-export function shouldCompressWebSocketFrame(bytes: string, msg?: unknown): boolean {
+export function shouldCompressWebSocketFrame(
+  bytes: string | ArrayBufferView,
+  msg?: unknown,
+): boolean {
   if (mustStayIdentity(msg)) return false
-  const byteLength = Buffer.byteLength(bytes)
+  const byteLength = typeof bytes === 'string' ? Buffer.byteLength(bytes) : bytes.byteLength
   return byteLength >= WS_COMPRESSION_MIN_BYTES && byteLength <= WS_COMPRESSION_MAX_BYTES
 }
 
@@ -77,6 +81,37 @@ export function safeSendLossy(
   try {
     const bytes = encode(msg)
     ws.send(bytes, shouldCompressWebSocketFrame(bytes, msg))
+    return true
+  } catch {
+    return false
+  }
+}
+
+/** Binary counterpart of {@link safeSendEncoded}: same cap and containment. */
+export function safeSendBinary(ws: SendSocket, bytes: Uint8Array, limit: number): void {
+  if (ws.readyState !== 1 /* OPEN */) return
+  if (ws.bufferedAmount > limit) {
+    ws.terminate()
+    return
+  }
+  if (!ws.sendBinary) {
+    ws.terminate()
+    return
+  }
+  try {
+    ws.sendBinary(bytes, shouldCompressWebSocketFrame(bytes))
+  } catch {
+    // The socket disappeared between the checks and send; the heartbeat reaps it.
+  }
+}
+
+/** Lossy binary stream send: pressure drops this frame and never terminates. */
+export function safeSendBinaryLossy(ws: SendSocket, bytes: Uint8Array, limit: number): boolean {
+  if (ws.readyState !== 1 /* OPEN */ || ws.bufferedAmount > limit || ws.sendBinary === undefined) {
+    return false
+  }
+  try {
+    ws.sendBinary(bytes, shouldCompressWebSocketFrame(bytes))
     return true
   } catch {
     return false

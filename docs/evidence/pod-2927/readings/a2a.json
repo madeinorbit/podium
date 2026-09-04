@@ -1,0 +1,44 @@
+{
+  "instance": "grok2927",
+  "arm": "headless",
+  "result": {
+    "id": "A2a",
+    "verdict": "PASS",
+    "summary": "working appeared within 2s, did not flicker idle mid-turn, and returned idle after the answer",
+    "control": {
+      "fired": true,
+      "detail": "exact BADGE-LRXR61 reply completed"
+    },
+    "driver": {
+      "driverId": "grok-acp",
+      "driverFamily": "server"
+    },
+    "clauses": {
+      "sendRoundTripMs": 80,
+      "firstWorkingMs": 199,
+      "workingWithin2s": true,
+      "flickerSamples": [],
+      "finalIdle": true,
+      "turnElapsedMs": 3105
+    },
+    "cwd": "/tmp/pod-2927-grok/cells/headless-a2a-authoritative",
+    "sessionId": "583806d2-3750-4ca7-a793-c3adc3ee3dc3",
+    "admission": {
+      "diskFreeKb": 12836588,
+      "memAvailableKb": 5010576,
+      "load1": 8.48,
+      "lease": "test:heavy free"
+    },
+    "pin": {
+      "codeCommit": "c26c267be1c4b2f8cc6ccc2e66ea675e84024587",
+      "codeTree": "7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4",
+      "runtimeHead": "95900a46a875618db9721a080d881f17f995916a",
+      "nonDocDiff": 0,
+      "serverPid": 1851034,
+      "daemonPid": 1851119,
+      "webSourceSha": "c26c267"
+    },
+    "scorerNote": "The older Grok aggregate scorer falsely marked the final working-to-idle transition as flicker. The current dedicated A2a scorer counts flicker only between first and last working samples and is authoritative.",
+    "recordedAtLocal": "2026-08-27 11:28:00 CEST"
+  }
+}

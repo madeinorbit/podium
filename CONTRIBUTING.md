@@ -16,8 +16,11 @@ bot: just open a pull request.
   `Bun.Terminal`.
 - **macOS:** Xcode Command Line Tools (`xcode-select --install`). A C compiler (`cc`/clang) compiles
   the vendored `abduco` session helper into `~/.podium/bin/` on first daemon start; without it,
-  sessions don't survive a daemon restart. `tmux` is used as a fallback, or set
-  `PODIUM_ABDUCO=/path/to/abduco` to point at a prebuilt binary.
+  sessions don't survive a daemon restart. Set `PODIUM_ABDUCO=/path/to/abduco` to point at a
+  prebuilt binary instead.
+- **Windows desktop:** Microsoft C++ Build Tools with the "Desktop development with C++"
+  workload, Microsoft Edge WebView2, and the Rust MSVC host toolchain. Windows sessions use
+  ConPTY, so they do not need the POSIX `abduco` compiler prerequisite.
 - (Optional) **Rust + Tauri CLI** — only needed to build the desktop app (`apps/desktop`); the
   desktop build runs a preflight that checks for it.
 
@@ -27,8 +30,8 @@ bot: just open a pull request.
 bun run setup:worktree
 ```
 
-This runs `bun install --frozen-lockfile` and follows the linker setting tracked in `bunfig.toml`,
-currently strict isolated linking backed by Bun's global store. Each checkout keeps its own
+This runs `bun install --frozen-lockfile` and follows the linker setting tracked in `bunfig.toml`:
+strict isolated linking backed by Bun's global store. Each checkout keeps its own
 `node_modules` link graph while immutable package payloads are reused across worktrees. Never
 share, copy, symlink, or bind-mount a complete `node_modules` tree between checkouts.
 
@@ -70,7 +73,7 @@ Rust + Tauri toolchain (the build runs a preflight that checks for it):
 
 ```bash
 bun run --cwd apps/desktop dev                  # dev: stage the compiled backend + web, open the window
-bun run --cwd apps/desktop build                # release build (.app/.dmg on macOS, deb/AppImage on Linux)
+bun run --cwd apps/desktop build                # release build (.app/.dmg, deb/AppImage, or Windows installer)
 ```
 
 ## Everyday commands
@@ -146,7 +149,8 @@ For a fresh checkout, run:
 bun run setup:worktree
 ```
 
-For a damaged or mixed-linker install, stop processes using this checkout's dependencies and run:
+If this checkout's dependency tree is damaged or out of sync with the lockfile, stop processes
+using it and run:
 
 ```bash
 bun run deps:repair
@@ -160,9 +164,7 @@ error and rerun the repair before starting the checkout.
 Neither command deletes Bun or Turbo caches. The cleanup is anchored to the checkout containing
 the script, and the reinstall may reuse or populate the shared Bun cache but does not remove it.
 Never add `bun pm cache rm`, delete `~/.bun/install/cache` (or the configured global Bun cache), or
-delete the shared Turbo cache to a repair procedure. Only `deps:rollback-hoisted` intentionally
-forces `--linker=hoisted` for explicit linker rollback compatibility; `deps:repair` is the normal
-repair command.
+delete the shared Turbo cache to a repair procedure.
 
 ## Cross-package imports
 

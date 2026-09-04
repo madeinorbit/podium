@@ -1,0 +1,75 @@
+{
+  "issue": "POD-3112",
+  "kind": "r18-a7a-continuity-pass",
+  "verdict": "PASS",
+  "scored": true,
+  "integrationPin": "b80b8408de006ccc329ddb2b6dcf667f3e4fa40d",
+  "web": {
+    "sourceSha": "b80b840",
+    "appVersion": "dev+b80b840",
+    "bundleVersion": "bundle+BZTkVqZf",
+    "wireSchemaDigest": "325e219a891fc6c8",
+    "classification": "canonical exact-tip re-stamp of byte-identical existing build"
+  },
+  "instance": {
+    "name": "p3112-a7a-b80b84-r1",
+    "base": "/tmp/pod-3112-a7a-b80b84-r1",
+    "ports": [22651, 49651, 49652],
+    "machineId": "88a75919-a20a-441d-983b-27f492120d21",
+    "updateChannel": "edge",
+    "dummyCommit": "7612e97e4998461a0ebc92d029a62b7aba6fec6e"
+  },
+  "identity": {
+    "sessionId": "89ebc6dd-10d5-490e-a404-16c6ccecb83c",
+    "createdAt": "2026-08-30T16:05:24.653Z",
+    "driverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": "ses_fac94cc36ffe2KwaZSUApaSoiK",
+    "processKey": "podium-oc-89ebc6dd-10d5-490e-a404-16c6ccecb83c",
+    "providerPid": 938239,
+    "providerExactBeforeAndAfterRestart": true
+  },
+  "seedControls": {
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "nativeMarkerOccurrences": 2,
+    "nativeNormalizedLength": 328,
+    "native": true,
+    "chat": true
+  },
+  "restartControls": {
+    "oldDaemonPid": 934259,
+    "newDaemonPid": 942734,
+    "exactPinRetained": true,
+    "adoptMs": 63.696217999997316,
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "sameSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true,
+    "restoredExactProjectIssueRow": true,
+    "postRestartNative": true,
+    "postRestartChat": true,
+    "postRestartNativeMarkerOccurrences": 2,
+    "postRestartChatMarkerOccurrences": 2,
+    "recallRemembered": true,
+    "recallMs": 1714.4637809999986,
+    "redactedPostRestartNativeTail": "┃┃RememberthecodewordR18-MTG03SL5.ReplywithexactlyP3112-R18-SEED-MTG03SL5.Donotuse┃tools.┃P3112-R18-SEED-MTG03SL5▣Build·GPT-5.6Luna·3.6s┃┃┃┃Build·GPT-5.6LunaOpenCodeGo╹▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀/tmp/pod-3112-a7a-b80b84-r1/dummy-repo6.6K(1%)·$0.00ctrl+pcommands"
+  },
+  "fences": {
+    "a7aReadyCreated": true,
+    "a7aContinueCreated": false,
+    "a7bAttempted": false,
+    "acceptanceRowsWritten": 1
+  },
+  "teardown": {
+    "harnessStoppedAtA7aReady": true,
+    "driveDownCompleted": true,
+    "ownedProviderPidsStopped": [938239, 938497, 938498],
+    "portsClear": true,
+    "credentialSymlinkRemoved": true,
+    "outsideNamedInstanceTouched": false
+  }
+}

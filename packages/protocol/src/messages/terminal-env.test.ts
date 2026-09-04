@@ -66,7 +66,7 @@ it('carries an optional observation checkpoint across spawn and reattach', () =>
       durableLabel: 'podium-s1',
       agentKind: 'claude-code',
       cwd: '/tmp',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
       observationCheckpoint: checkpoint,
     }).observationCheckpoint,
   ).toEqual(checkpoint)

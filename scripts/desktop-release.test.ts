@@ -23,6 +23,11 @@ const linuxArtifact = {
   artifactName: 'Podium_0.2.0-edge.1_amd64.AppImage',
   signature: 'LINUX-SIGNATURE',
 }
+const windowsArtifact = {
+  target: 'windows-x86_64' as const,
+  artifactName: 'Podium_0.2.0-edge.1_x64-setup.exe',
+  signature: 'WINDOWS-SIGNATURE',
+}
 const macArtifact = {
   target: 'darwin-aarch64' as const,
   artifactName: 'Podium_0.2.0-edge.1_aarch64.app.tar.gz',
@@ -33,10 +38,10 @@ const macIntelArtifact = {
   artifactName: 'Podium_0.2.0-edge.1_x64.app.tar.gz',
   signature: 'MAC-INTEL-SIGNATURE',
 }
-const releaseArtifacts = [linuxArtifact, macArtifact, macIntelArtifact]
+const releaseArtifacts = [linuxArtifact, windowsArtifact, macArtifact, macIntelArtifact]
 
 describe('desktop release manifest', () => {
-  it('publishes Linux, Apple Silicon, and Intel mac updater artifacts to the rolling edge release', () => {
+  it('publishes Windows, Linux, and both macOS updater architectures to the rolling edge release', () => {
     const text = buildDesktopManifest({
       version: '0.2.0-edge.1',
       channel: 'edge',
@@ -51,6 +56,10 @@ describe('desktop release manifest', () => {
         'linux-x86_64': {
           url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.2.0-edge.1_amd64.AppImage',
           signature: 'LINUX-SIGNATURE',
+        },
+        'windows-x86_64': {
+          url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.2.0-edge.1_x64-setup.exe',
+          signature: 'WINDOWS-SIGNATURE',
         },
         'darwin-aarch64': {
           url: 'https://github.com/madeinorbit/podium/releases/download/edge/Podium_0.2.0-edge.1_aarch64.app.tar.gz',
@@ -130,6 +139,7 @@ describe('desktop release manifest', () => {
         channel: 'edge',
         artifacts: [
           linuxArtifact,
+          windowsArtifact,
           { ...macArtifact, signature: 'DIFFERENT-MAC-SIGNATURE' },
           macIntelArtifact,
         ],
@@ -152,11 +162,14 @@ describe('desktop release manifest', () => {
     ).toThrow('manifest platform mismatch')
   })
 
-  it('prepares signed Linux and macOS updater artifacts plus the macOS DMGs', () => {
+  it('prepares signed Windows, Linux, and macOS updater artifacts plus the macOS DMGs', () => {
     const root = mkdtempSync(join(tmpdir(), 'podium-desktop-release-'))
     scratch.push(root)
     const bundleDir = join(root, 'bundle')
     const linuxDir = join(bundleDir, 'linux')
+    // actions/upload-artifact strips the common `bundle/nsis/` upload root, so the
+    // downloaded Windows artifact is flat under its `desktop-windows-x86_64` directory.
+    const windowsDir = join(bundleDir, 'windows')
     const macUpdaterDir = join(bundleDir, 'aarch64-apple-darwin', 'macos')
     const macDmgDir = join(bundleDir, 'aarch64-apple-darwin', 'dmg')
     // The Intel bundle mirrors the CI artifact layout: the rust target triple in the path is
@@ -165,12 +178,15 @@ describe('desktop release manifest', () => {
     const macIntelDmgDir = join(bundleDir, 'x86_64-apple-darwin', 'dmg')
     const outputDir = join(root, 'out')
     mkdirSync(linuxDir, { recursive: true })
+    mkdirSync(windowsDir, { recursive: true })
     mkdirSync(macUpdaterDir, { recursive: true })
     mkdirSync(macDmgDir, { recursive: true })
     mkdirSync(macIntelUpdaterDir, { recursive: true })
     mkdirSync(macIntelDmgDir, { recursive: true })
     writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage'), 'APPIMAGE')
     writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage.sig'), '  LINUX-SIGNATURE\n')
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_x64-setup.exe'), 'WINDOWS-INSTALLER')
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_x64-setup.exe.sig'), '  WINDOWS-SIGNATURE\n')
     writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz'), 'MAC-UPDATER')
     writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-SIGNATURE\n')
     writeFileSync(join(macDmgDir, 'Podium_0.2.0_aarch64.dmg'), 'DMG')
@@ -188,11 +204,13 @@ describe('desktop release manifest', () => {
 
     expect(result.artifactPaths.map((path) => basename(path))).toEqual([
       'Podium_0.2.0_amd64.AppImage',
+      'Podium_0.2.0_x64-setup.exe',
       'Podium_0.2.0_aarch64.app.tar.gz',
       'Podium_0.2.0_x64.app.tar.gz',
     ])
     expect(result.signaturePaths.map((path) => basename(path))).toEqual([
       'Podium_0.2.0_amd64.AppImage.sig',
+      'Podium_0.2.0_x64-setup.exe.sig',
       'Podium_0.2.0_aarch64.app.tar.gz.sig',
       'Podium_0.2.0_x64.app.tar.gz.sig',
     ])
@@ -212,6 +230,10 @@ describe('desktop release manifest', () => {
       url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_amd64.AppImage',
       signature: 'LINUX-SIGNATURE',
     })
+    expect(manifest.platforms['windows-x86_64']).toEqual({
+      url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_x64-setup.exe',
+      signature: 'WINDOWS-SIGNATURE',
+    })
     expect(manifest.platforms['darwin-aarch64']).toEqual({
       url: 'https://github.com/madeinorbit/podium/releases/download/v0.2.0/Podium_0.2.0_aarch64.app.tar.gz',
       signature: 'MAC-SIGNATURE',
@@ -222,6 +244,103 @@ describe('desktop release manifest', () => {
     })
   })
 
+  /**
+   * Windows is not in the build matrix, so every real run now arrives here with no Windows
+   * bundle. This used to throw `expected exactly one windows-x86_64 updater artifact`, which
+   * withheld the ENTIRE release — Linux and both Macs had built and signed fine, and none of
+   * them reached a manifest. v0.1.1-edge.3 failed exactly this way.
+   */
+  it('publishes the platforms that built when the optional Windows bundle is absent', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-desktop-release-no-windows-'))
+    scratch.push(root)
+    const bundleDir = join(root, 'bundle')
+    const linuxDir = join(bundleDir, 'linux')
+    const macUpdaterDir = join(bundleDir, 'aarch64-apple-darwin', 'macos')
+    const macDmgDir = join(bundleDir, 'aarch64-apple-darwin', 'dmg')
+    const macIntelUpdaterDir = join(bundleDir, 'x86_64-apple-darwin', 'macos')
+    const macIntelDmgDir = join(bundleDir, 'x86_64-apple-darwin', 'dmg')
+    const outputDir = join(root, 'out')
+    for (const dir of [linuxDir, macUpdaterDir, macDmgDir, macIntelUpdaterDir, macIntelDmgDir]) {
+      mkdirSync(dir, { recursive: true })
+    }
+    writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage'), 'APPIMAGE')
+    writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage.sig'), '  LINUX-SIGNATURE\n')
+    writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz'), 'MAC-UPDATER')
+    writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-SIGNATURE\n')
+    writeFileSync(join(macDmgDir, 'Podium_0.2.0_aarch64.dmg'), 'DMG')
+    writeFileSync(join(macIntelUpdaterDir, 'Podium.app.tar.gz'), 'MAC-INTEL-UPDATER')
+    writeFileSync(join(macIntelUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-INTEL-SIGNATURE\n')
+    writeFileSync(join(macIntelDmgDir, 'Podium_0.2.0_x64.dmg'), 'INTEL-DMG')
+
+    const result = prepareDesktopRelease({
+      version: '0.2.0',
+      channel: 'edge',
+      bundleDir,
+      outputDir,
+    })
+
+    const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8'))
+    expect(Object.keys(manifest.platforms).sort()).toEqual([
+      'darwin-aarch64',
+      'darwin-x86_64',
+      'linux-x86_64',
+    ])
+    expect(manifest.platforms['windows-x86_64']).toBeUndefined()
+    expect(result.artifactPaths.map((path) => basename(path))).toEqual([
+      'Podium_0.2.0_amd64.AppImage',
+      'Podium_0.2.0_aarch64.app.tar.gz',
+      'Podium_0.2.0_x64.app.tar.gz',
+    ])
+  })
+
+  /**
+   * Optional must mean "absent is fine", never "anything goes": two candidate installers is a
+   * packaging mistake whichever platform produced it, and skipping it silently would publish a
+   * manifest pointing at whichever file happened to sort first.
+   */
+  it('still refuses an ambiguous Windows bundle rather than skipping it', () => {
+    const root = mkdtempSync(join(tmpdir(), 'podium-desktop-release-two-windows-'))
+    scratch.push(root)
+    const bundleDir = join(root, 'bundle')
+    const linuxDir = join(bundleDir, 'linux')
+    const windowsDir = join(bundleDir, 'windows')
+    const macUpdaterDir = join(bundleDir, 'aarch64-apple-darwin', 'macos')
+    const macDmgDir = join(bundleDir, 'aarch64-apple-darwin', 'dmg')
+    const macIntelUpdaterDir = join(bundleDir, 'x86_64-apple-darwin', 'macos')
+    const macIntelDmgDir = join(bundleDir, 'x86_64-apple-darwin', 'dmg')
+    for (const dir of [
+      linuxDir,
+      windowsDir,
+      macUpdaterDir,
+      macDmgDir,
+      macIntelUpdaterDir,
+      macIntelDmgDir,
+    ]) {
+      mkdirSync(dir, { recursive: true })
+    }
+    writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage'), 'APPIMAGE')
+    writeFileSync(join(linuxDir, 'Podium_0.2.0_amd64.AppImage.sig'), '  LINUX-SIGNATURE\n')
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_x64-setup.exe'), 'WINDOWS-INSTALLER')
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_x64-setup.exe.sig'), '  WINDOWS-SIGNATURE\n')
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_arm64-setup.exe'), 'SECOND-INSTALLER')
+    writeFileSync(join(windowsDir, 'Podium_0.2.0_arm64-setup.exe.sig'), '  SECOND-SIGNATURE\n')
+    writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz'), 'MAC-UPDATER')
+    writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-SIGNATURE\n')
+    writeFileSync(join(macDmgDir, 'Podium_0.2.0_aarch64.dmg'), 'DMG')
+    writeFileSync(join(macIntelUpdaterDir, 'Podium.app.tar.gz'), 'MAC-INTEL-UPDATER')
+    writeFileSync(join(macIntelUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-INTEL-SIGNATURE\n')
+    writeFileSync(join(macIntelDmgDir, 'Podium_0.2.0_x64.dmg'), 'INTEL-DMG')
+
+    expect(() =>
+      prepareDesktopRelease({
+        version: '0.2.0',
+        channel: 'edge',
+        bundleDir,
+        outputDir: join(root, 'out'),
+      }),
+    ).toThrow('expected exactly one windows-x86_64 updater artifact')
+  })
+
   it('lists desktop assets from earlier edge builds as stale', () => {
     // Version-named desktop pairs are never clobbered, so each edge publish leaves the previous
     // build's installers and updater archives behind — including pre-notarization installers.
@@ -229,11 +348,15 @@ describe('desktop release manifest', () => {
       'Podium_0.1.2-edge.1_aarch64.dmg',
       'Podium_0.1.4-edge.3_amd64.AppImage',
       'Podium_0.1.4-edge.3_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.3_x64-setup.exe',
+      'Podium_0.1.4-edge.3_x64-setup.exe.sig',
       'Podium_0.1.4-edge.3_aarch64.app.tar.gz',
       'Podium_0.1.4-edge.3_aarch64.app.tar.gz.sig',
       'Podium_0.1.4-edge.4_aarch64.dmg',
       'Podium_0.1.4-edge.4_amd64.AppImage',
       'Podium_0.1.4-edge.4_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.4_x64-setup.exe',
+      'Podium_0.1.4-edge.4_x64-setup.exe.sig',
       'Podium_0.1.4-edge.4_aarch64.app.tar.gz',
       'Podium_0.1.4-edge.4_aarch64.app.tar.gz.sig',
       'latest.json',
@@ -242,6 +365,8 @@ describe('desktop release manifest', () => {
       'Podium_0.1.4-edge.4_aarch64.dmg',
       'Podium_0.1.4-edge.4_amd64.AppImage',
       'Podium_0.1.4-edge.4_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.4_x64-setup.exe',
+      'Podium_0.1.4-edge.4_x64-setup.exe.sig',
       'Podium_0.1.4-edge.4_aarch64.app.tar.gz',
       'Podium_0.1.4-edge.4_aarch64.app.tar.gz.sig',
       'latest.json',
@@ -250,6 +375,8 @@ describe('desktop release manifest', () => {
       'Podium_0.1.2-edge.1_aarch64.dmg',
       'Podium_0.1.4-edge.3_amd64.AppImage',
       'Podium_0.1.4-edge.3_amd64.AppImage.sig',
+      'Podium_0.1.4-edge.3_x64-setup.exe',
+      'Podium_0.1.4-edge.3_x64-setup.exe.sig',
       'Podium_0.1.4-edge.3_aarch64.app.tar.gz',
       'Podium_0.1.4-edge.3_aarch64.app.tar.gz.sig',
     ])
@@ -311,6 +438,10 @@ describe('desktop release manifest', () => {
     mkdirSync(bundleDir)
     writeFileSync(join(bundleDir, 'Podium.AppImage'), 'LINUX')
     writeFileSync(join(bundleDir, 'Podium.AppImage.sig'), 'LINUX-SIGNATURE')
+    // No _x64 marker: the darwin-x86_64 bundle claims any path matching it, and this
+    // fixture must reach the darwin-aarch64 DMG check, not trip an earlier target.
+    writeFileSync(join(bundleDir, 'Podium-setup.exe'), 'WINDOWS')
+    writeFileSync(join(bundleDir, 'Podium-setup.exe.sig'), 'WINDOWS-SIGNATURE')
     writeFileSync(join(bundleDir, 'Podium.app.tar.gz'), 'MAC')
     writeFileSync(join(bundleDir, 'Podium.app.tar.gz.sig'), 'MAC-SIGNATURE')
     expect(() =>

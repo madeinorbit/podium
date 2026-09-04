@@ -1,0 +1,101 @@
+# Known-red server tests on issue/1761-agent-runtime
+#
+# Captured 2026-08-27 00:55 CEST from a full run of
+#   PODIUM_TEST_WORKERS=1 bun run test:unit -- --filter @podium/server
+# on the epic tip 0d00f6c34 (13m32s). See Decision 18 in docs/plans/pod-1761-decisions.md.
+#
+# WHY THIS FILE EXISTS: these 80 have been red for days. Every session that meets
+# them spends an hour deciding whether they are its fault; two did tonight. The
+# value is not the 80 — it is that a real regression currently arrives as "81
+# failures" against an expected 80 and nobody sees it.
+#
+# HOW TO USE IT: after your own run, diff your failing names against this list.
+# A name here that you also see is inherited. A name NOT here is YOURS.
+# PODIUM_TEST_WORKERS=1 matters — that variable decides whether this gate is red
+# at all, so a run without it is not comparable to this file.
+#
+# THIS IS A SNAPSHOT, NOT A GATE. Nothing compares against it automatically yet;
+# that is the session-day of work Decision 18 puts to the operator.
+#
+# format: <task>\t<test name>
+
+boundary	'auto' means no flag — neither model nor effort is set
+boundary	Auto after an explicit pick returns the thread to the settings harness
+boundary	a failed turn records a persisted notice, broadcasts the error, and unlocks
+boundary	acknowledges an exact native binding back to its owner after storing it
+boundary	acks before completion, creates the headless session, and dispatches the turn
+boundary	allows a same-issue child spawn and bounded await through the relay (#475)
+boundary	binds the harness session even when the FIRST turn fails — the thread keeps its conversation
+boundary	carries {seq, title} for sessions inside an issue worktree, absent otherwise
+boundary	clones and registers the repository before handing off to a fresh target
+boundary	clones and remaps the cwd before creating a new session on a fresh target
+boundary	cursor carries a model but never an effort flag
+boundary	delivers an issue-addressed send to the live agent and threads its reply back
+boundary	delivers only to clients whose scoped world may see the session
+boundary	does not switch when the setting is unchanged (resumes)
+boundary	drops open intents forged by a daemon that does not own the session
+boundary	exposes per-channel checked-at and outcome on the fleet payload
+boundary	forwards an explicit model + effort override
+boundary	gates issue_create --start behind confirmed, refusing BEFORE any mutation
+boundary	ignores a stale source cwd frame after handoff
+boundary	invalidates the repo lists on both machines so the moved session stays handoff-eligible
+boundary	keeps a model override on its frozen harness when settings later change
+boundary	leaves the issue's home alone when the daemon is too old to report the worktree
+boundary	moves the issue's home to the target worktree, not the agent's subdir (POD-824)
+boundary	opens a normal PTY session with the per-agent resume ref and locks the thread
+boundary	oracle-ask-upload.test.ts: every characterization opens with a tag helper
+boundary	parks an intent until the next successful session-room join
+boundary	persists the harness session id as the resume value after the first turn
+boundary	plumbs harnessEffort into the turn request; auto sends none
+boundary	protects worktrees owned by another target session during import
+boundary	re-homes the canonical row and resumes it on the target
+boundary	rejects a native binding and acknowledgement from a non-owner daemon
+boundary	resolves the source repo from the issue worktree when rollback restored a stale cwd
+boundary	restartThread resets the harness session so the next turn is fresh
+boundary	resumes the unchanged source row when export fails
+boundary	routes a capability-scoped re-probe to the selected online machine
+boundary	routes an explicit host id to the host daemon when another daemon is the fleet default
+boundary	routes the open/result family only through session-room subscriptions
+boundary	routes to the owning daemon and stamps resolver identity from the transport
+boundary	sessions.create accepts and forwards machineId
+boundary	stamps the reporting machine when a remote session adopts its worktree
+boundary	stays live across a restart and rebinds tails via headlessBind (no reattach probe)
+boundary	switches harness from a prompt-box agentKind without a settings change
+boundary	switches the harness when the setting changes, starting a fresh session
+boundary	unstarted issue spawn preserves the exact initiating superagent thread
+boundary	uses a native Codex superagent model even when coding uses another harness
+contracts	production has no unapproved full-list point lookup
+services	answerAskUserQuestion records WHICH human answered, and a payload identity is inert
+services	must-not-change: CONCURRENT duplicate dispatch to the same target is SINGLE-FLIGHTED — one export, one import, one spawn
+services	must-not-change: a FAILED transfer releases the single-flight slot, so the move can be retried instead of being wedged
+services	must-not-change: a KNOWN session's machine still wins over a caller-named one
+services	must-not-change: a SECOND handoff after the first completed is refused as already-there, not run twice
+services	must-not-change: a caller JOINING an in-flight transfer is authorized with its OWN rights, not the initiator's
+services	must-not-change: a caller that may use the SOURCE but not the TARGET is denied, and the session is not retargeted anywhere
+services	must-not-change: a concurrent dispatch to a DIFFERENT target is refused rather than racing two targets for one session
+services	must-not-change: a different importing human does not become the session's human
+services	must-not-change: a grant REVOKED MID-TRANSFER refuses the import at APPLY time and rolls back to the source
+services	must-not-change: a machine the caller may use but that is OFFLINE says so — denied and unreachable are different answers
+services	must-not-change: a machineId that does not exist is refused with the SAME message as one the caller may not SEE
+services	must-not-change: a revocation landing DURING the base handshake refuses before the kill, with the live process untouched
+services	must-not-change: a session with no resume ref cannot be handed off — the conversation would not survive
+services	must-not-change: a target claimant whose use right is revoked after import loses at first ownership apply
+services	must-not-change: after an authorized target claim, a lost source-finalize result leaves the deterministic target winner hibernated
+services	must-not-change: an EXITED peer's worktree is not treated as occupied — a dead session must not hold a checkout hostage
+services	must-not-change: an exited AGENT with no resume ref cannot be resurrected; a shell can (a fresh spawn IS its recovery)
+services	must-not-change: an export failure rolls the session back onto the SOURCE and re-resurrects it there
+services	must-not-change: an upload is routed to the SESSION's machine, not the default one
+services	must-not-change: denied and offline are distinct, neither spawns, and the same online machine succeeds when use is allowed
+services	must-not-change: handing a session to the machine it is already on is refused
+services	must-not-change: identity fields smuggled into the command INPUT are inert — the record still comes from the transport
+services	must-not-change: no verified common bundle base ⇒ refuse, with the session untouched on the source (the d73e9121 class)
+services	must-not-change: the durable record names the ACTOR and the ON-BEHALF-OF human, and an agent-initiated move is distinguishable from a human one
+services	must-not-change: the import is told which target worktrees are OCCUPIED so it never resets a live peer's workspace
+services	must-not-change: the moved row changes ONLY its placement — no owner, provenance or identity field moves with it
+services	must-not-change: the row is re-homed onto the target and resumed there, and the source is told to kill
+services	must-not-change: the source finishes releasing BEFORE the export reads its worktree
+services	must-not-change: the whole two-machine step sequence, in order — nothing irreversible happens before the TARGET verified a common base
+services	resurrect recreates a freed worktree from the preserved branch
+services	will-change POD-1075 (attribution becomes (actor, on-behalf-of); today no field names a person): PTY frames carry inputOrigin — 'human' for direct terminal input, 'controller' for a chat send
+services	will-change POD-1079 (machine rows gain real owners and grants; today every row resolves to the one instance account): with the DEFAULT fleet any authenticated caller may hand off, because there is only one account to own anything
+services	will-change POD-1079 (machines become owned compute; 'use' defaults to the owner only): nothing checks whether the caller may USE the machine an upload lands on

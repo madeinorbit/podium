@@ -6,6 +6,7 @@ import { join } from 'node:path'
 import { constants, gunzipSync, gzipSync, inflateRawSync } from 'node:zlib'
 import { asSessionId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { noJanitorWorkerForTests } from './janitor-host'
 import type { ServerHandle } from './server'
 import { startServer } from './server'
 
@@ -287,6 +288,7 @@ describe('transport compression on real Bun wires', () => {
     process.env.PODIUM_WEB_DIR = webDir
     process.env.PODIUM_MOBILE_WEB_DIR = mobileDir
     server = await startServer({
+      janitorWorkerForTests: noJanitorWorkerForTests,
       port: 0,
       plugins: [
         {
@@ -419,5 +421,4 @@ describe('transport compression on real Bun wires', () => {
     )
     daemon.socket.destroy()
   })
-
 })

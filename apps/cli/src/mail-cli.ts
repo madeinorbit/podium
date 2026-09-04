@@ -127,6 +127,8 @@ interface MessageWire {
   deliveredTo?: string | null
   readAt?: string | null
   deadLetteredAt?: string | null
+  deliveryDeferredAt?: string | null
+  deliveryDeferredReason?: string | null
   expiresAt?: string | null
   // A reply was requested [POD-835] — the reader owes a response.
   expectsResponse?: boolean
@@ -189,7 +191,14 @@ function renderLifecycle(m: MessageWire): string {
     read: anonymous
       ? 'opened from an inbox, but NO recipient session was named'
       : 'the recipient opened its inbox and read it',
-    dead_letter: 'target was gone — dead-lettered, not dropped',
+    // The drain reasons name what actually happened to the target [POD-2132,
+    // POD-2202]; without one, the plain "gone" story is the right one.
+    dead_letter:
+      m.deliveryDeferredReason === 'never-live'
+        ? 'the session never became ready within the deadline — never typed, not dropped'
+        : m.deliveryDeferredReason === 'teardown'
+          ? 'the session was torn down before it could be typed into — never typed, not dropped'
+          : 'target was gone — dead-lettered, not dropped',
     expired: 'sat undelivered past its TTL',
     cancelled: 'withdrawn',
   }
@@ -197,6 +206,8 @@ function renderLifecycle(m: MessageWire): string {
     m.deliveredAt ? `delivered=${m.deliveredAt}` : null,
     m.readAt ? `read=${m.readAt}` : null,
     m.deadLetteredAt ? `dead-lettered=${m.deadLetteredAt}` : null,
+    m.deliveryDeferredAt ? `deferred=${m.deliveryDeferredAt}` : null,
+    m.deliveryDeferredReason ? `deferred-reason=${m.deliveryDeferredReason}` : null,
     m.deliveredTo ? `to-session=${m.deliveredTo}` : null,
   ].filter(Boolean)
   return [

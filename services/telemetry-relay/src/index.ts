@@ -28,7 +28,7 @@ import { TelemetryReport, tierOf } from '@podium/telemetry/schema'
 export interface Env {
   /** PostHog project API key (server-side, set as a Worker secret). */
   POSTHOG_API_KEY: string
-  /** PostHog ingest host, e.g. https://us.i.posthog.com. */
+  /** PostHog ingest host, e.g. https://eu.i.posthog.com. */
   POSTHOG_HOST: string
 }
 
@@ -40,6 +40,9 @@ const CORS = {
   'access-control-allow-methods': 'POST, OPTIONS',
   'access-control-allow-headers': 'content-type',
 }
+
+/** The canonical public path; `/` is reserved for the future analysis site. */
+const TELEMETRY_PATH = '/v1/u'
 
 /**
  * Turn a validated report into a PostHog event.
@@ -76,6 +79,11 @@ export function toPostHogEvent(report: TelemetryReport): Record<string, unknown>
  * user cannot verify for themselves, and therefore the one we keep simplest.
  */
 export async function handleRequest(request: Request, env: Env): Promise<Response> {
+  const pathname = new URL(request.url).pathname
+  if (pathname !== TELEMETRY_PATH) {
+    return new Response('not found', { status: 404, headers: CORS })
+  }
+
   if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: CORS })
   if (request.method !== 'POST') {
     return new Response('method not allowed', { status: 405, headers: CORS })

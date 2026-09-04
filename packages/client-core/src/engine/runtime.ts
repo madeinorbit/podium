@@ -67,7 +67,6 @@ import { createReadPositionClient, type ReadPositionPort } from '../read-positio
 import type { Replica } from '../replica/replica'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
 import { NotificationSounder } from '../sound/notification-sounds'
-import type { SpawnTarget } from '../spawn-agent'
 import { createSubscriptionStore, type SubscriptionStore } from '../store'
 import {
   createRouterUiState,
@@ -126,6 +125,11 @@ import {
   type EngineOutbox,
   type OutboxKinds,
 } from './wiring'
+
+const LOCAL_ONLY_ONLINE_EVENTS: OnlineEvents = {
+  add: () => {},
+  remove: () => {},
+}
 
 /**
  * The replica factory, PARAMETERIZED BY PRINCIPAL.
@@ -193,6 +197,8 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   heartbeatIntervalMs?: number
   /** Platform-owned persistence/navigation for a promoted server endpoint. */
   onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
+  /** Open the local runtime without contacting the configured authority. */
+  networkEnabled?: boolean
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
   spawnConfirmGraceMs?: number
   /** Test seam: overrides WORKSPACE_PRUNE_GRACE_MS (POD-710). */
@@ -302,6 +308,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private draftPersistTimer: ReturnType<typeof setTimeout> | null = null
   private readonly draftSendDebounceMs: number
   private readonly draftPersistDebounceMs: number
+  private readonly networkEnabled: boolean
   /** One-time boot fetches (repos/pins/tab-orders/settings) — once per runtime,
    *  even across a StrictMode dispose/re-start cycle. */
   private booted = false
@@ -315,6 +322,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.httpOrigin = init.config.httpOrigin
     this.draftSendDebounceMs = init.draftSendDebounceMs ?? DRAFT_SEND_DEBOUNCE_MS
     this.draftPersistDebounceMs = init.draftPersistDebounceMs ?? DRAFT_PERSIST_DEBOUNCE_MS
+    this.networkEnabled = init.networkEnabled ?? true
     // The runtime type is only half the guard — an untyped caller omitting the
     // factory must fail LOUDLY here rather than quietly adopt ambient storage.
     if (typeof init.createReplicaFn !== 'function') {
@@ -348,8 +356,12 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       replica: this.replica,
       // Platform connectivity, when the root knows better than the browser
       // defaults `createEngineOutbox` would reach for (native: NetInfo).
-      ...(init.onlineEvents !== undefined ? { onlineEvents: init.onlineEvents } : {}),
-      ...(init.isOnline !== undefined ? { isOnline: init.isOnline } : {}),
+      ...(this.networkEnabled
+        ? {
+            ...(init.onlineEvents !== undefined ? { onlineEvents: init.onlineEvents } : {}),
+            ...(init.isOnline !== undefined ? { isOnline: init.isOnline } : {}),
+          }
+        : { onlineEvents: LOCAL_ONLY_ONLINE_EVENTS, isOnline: () => false }),
       notices: { error: (m) => this.notices.error(m), info: (m, d) => this.notices.info(m, d) },
       // Overlay lifecycle (#263): drain success hands the entry's overlay to
       // the awaiting-truth stage; a poison drop repaints without it.
@@ -451,6 +463,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       issues: seededIssueFold.rows,
       issueProjections: seededProjectionFold.rows,
       issueEvents: replicaSeed.issueEvents,
+      pendingInteractions: replicaSeed.pendingInteractions,
       shipOrders: replicaSeed.shipOrders,
       conversations: replicaSeed.conversations,
       automations: replicaSeed.automations,
@@ -596,17 +609,29 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // (host metrics, machines, drafts) mirrors hub events into the snapshot.
     offs.push(this.hub.on('hostMetrics', (m) => this.apply({ hostMetrics: m })))
     offs.push(this.hub.on('approvals', (a) => this.apply({ approvals: a })))
-    // Repos are only scannable through a connected daemon, so a machine coming
-    // online (e.g. the split daemon reconnecting after a restart) can make
-    // previously-empty repos available. Refetch when the online count climbs, so
-    // the workspace isn't stuck on the "add a repo" empty state until a reload.
-    let onlineMachines = 0
+    // Apply the scoped machine snapshot immediately so a SEE revocation hides
+    // its repositories, then reconcile repos and machines from one authorized
+    // server snapshot when visibility, reachability, or USE changed. Full
+    // machine broadcasts also carry inventory/build metadata; treating those as
+    // repo invalidations repeatedly supersedes an in-flight scan-backed refresh
+    // and can starve its durable fallback during daemon rebind. The id+online+use
+    // set detects equal-count replacement, SEE revocation, and scan-authority
+    // changes without including unrelated metadata.
+    let machineScopeSignature: string | undefined
     offs.push(
       this.hub.on('machines', (m) => {
         this.apply({ machines: m })
-        const online = m.reduce((n, x) => n + (x.online ? 1 : 0), 0)
-        if (online > onlineMachines) void this.boot.refreshRepos().catch(() => {})
-        onlineMachines = online
+        const nextSignature = m
+          .map(
+            (machine) =>
+              `${machine.id}:${machine.online ? 'online' : 'offline'}:${machine.use ?? 'unknown'}`,
+          )
+          .sort()
+          .join('|')
+        if (nextSignature !== machineScopeSignature) {
+          machineScopeSignature = nextSignature
+          void this.boot.refreshRepos().catch(() => {})
+        }
       }),
     )
     // An arriving composer document. It is OFFERED to the ledger rather than
@@ -702,14 +727,14 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         // A client that slept through its heartbeat deadline reconnects the
         // moment it is looked at again, instead of waiting out up to 10s of
         // backoff with the feed and every terminal dark.
-        if (this.visibility.isVisible()) this.hub.connectNow()
+        if (this.networkEnabled && this.visibility.isVisible()) this.hub.connectNow()
       }),
     )
     // The OS knows the network came back long before the backoff timer does.
     // Feature-detected rather than assumed: React Native defines `window` as the
     // global object, without DOM listeners on it (POD-2055 F4) — where this
     // declines, the platform's own signal is injected instead (mobile: NetInfo).
-    if (hasDomWindow()) {
+    if (this.networkEnabled && hasDomWindow()) {
       const dom = window
       const onOnline = (): void => this.hub.connectNow()
       dom.addEventListener('online', onOnline)
@@ -722,34 +747,38 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     // is long gone. Idempotent: it re-arms its own timer.
     this.reactions.pruneWorkspaces()
 
-    this.connectTimer = setTimeout(() => {
-      this.connectTimer = null
-      try {
-        this.hub.connect()
-      } catch (e) {
-        this.onFatalError(this.formatError(e, 'WebSocket connection failed'))
-      }
-    }, 0)
+    if (this.networkEnabled) {
+      this.connectTimer = setTimeout(() => {
+        this.connectTimer = null
+        try {
+          this.hub.connect()
+        } catch (e) {
+          this.onFatalError(this.formatError(e, 'WebSocket connection failed'))
+        }
+      }, 0)
+    }
 
     if (!this.booted) {
-      void this.replicatedLayout.hydrate().catch(() => {})
-      void this.readPosition.hydrate().catch(() => {})
       this.booted = true
-      // Sidebar prefs load out of band so boot fans out only repos + pins + tab
-      // orders (never gated on settings or a conversation scan).
-      void this.boot.refreshPersonalSettings().catch(() => {})
-      // These enrichments are network-derived, not the source of truth for the
-      // principal slice. A cold offline boot must keep serving the persisted
-      // replica instead of replacing it with a fatal connection screen.
-      void Promise.all([
-        this.boot.refreshRepos(),
-        this.boot.refreshPins(),
-        this.boot.refreshTabOrders(),
-        // The superagent column is the desktop shell's centre and its thread
-        // list used to be fetched by the view itself. It is store state now, so
-        // it loads with the rest of the boot fan-out.
-        this.boot.refreshSuperThreads(),
-      ]).catch(() => {})
+      if (this.networkEnabled) {
+        void this.replicatedLayout.hydrate().catch(() => {})
+        void this.readPosition.hydrate().catch(() => {})
+        // Sidebar prefs load out of band so boot fans out only repos + pins + tab
+        // orders (never gated on settings or a conversation scan).
+        void this.boot.refreshPersonalSettings().catch(() => {})
+        // These enrichments are network-derived, not the source of truth for the
+        // principal slice. A cold offline boot must keep serving the persisted
+        // replica instead of replacing it with a fatal connection screen.
+        void Promise.all([
+          this.boot.refreshRepos(),
+          this.boot.refreshPins(),
+          this.boot.refreshTabOrders(),
+          // The superagent column is the desktop shell's centre and its thread
+          // list used to be fetched by the view itself. It is store state now, so
+          // it loads with the rest of the boot fan-out.
+          this.boot.refreshSuperThreads(),
+        ]).catch(() => {})
+      }
     }
 
     // Normalize the URL through the same owner that hydrates and flushes state.
@@ -912,13 +941,19 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       this.routerUi.mirrorWorkspaceRoute(workspaceUiSnapshot(this.state))
     // View-state report to the server. `workspaces` is a trigger in its own
     // right: a third pane's active tab changes what is on screen without moving
-    // `paneA`/`paneB`.
-    if (any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'dockVisibleSession'))
+    // `paneA`/`paneB`. `panelMode` is equally live: switching Native → Chat must
+    // release the client terminal's takeover lease before a Chat turn can reach
+    // the headless engine.
+    if (
+      any('paneA', 'paneB', 'split', 'focusedPane', 'workspaces', 'dockVisibleSession', 'panelMode')
+    )
       this.reactions.reportViewState()
     // Mark-the-viewed-session-read reaction.
     if (any('sessions', 'paneA', 'paneB', 'split', 'focusedPane', 'workspaces'))
       this.reactions.updateMarkReadTimer()
     // …and the same for the issue the operator has in the foreground (POD-272).
+    if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
+      this.reactions.updateIssueVisitBaseline()
     if (any('issues', 'sessions', 'view', 'selectedIssueId', 'openIssueId'))
       this.reactions.updateIssueMarkReadTimer()
   }
@@ -1050,6 +1085,8 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       }
       const patch: Partial<EngineState> = {}
       if (changed.has('issueEvents')) patch.issueEvents = snapshot.issueEvents
+      if (changed.has('pendingInteractions'))
+        patch.pendingInteractions = snapshot.pendingInteractions
       if (changed.has('shipOrders')) patch.shipOrders = snapshot.shipOrders
       if (changed.has('conversations')) patch.conversations = snapshot.conversations
       if (changed.has('automations')) patch.automations = snapshot.automations
@@ -1268,11 +1305,10 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
         this.optimism.enqueueOverlayed(kind, input),
       revealFileTab: (args) => this.revealFileTab(args),
       recordRecentFile: (entry) => this.recordRecentFile(entry),
-      spawnDraftAgent: (args: {
-        target: SpawnTarget
-        agentKind: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]['agentKind']
-        firstPrompt?: string
-      }) => this.optimism.spawnDraftAgent(args),
+      spawnDraftAgent: (args: Parameters<OptimismLedger<TApi>['spawnDraftAgent']>[0]) =>
+        this.optimism.spawnDraftAgent(args),
+      spawnIssueAgent: (args: Parameters<OptimismLedger<TApi>['spawnIssueAgent']>[0]) =>
+        this.optimism.spawnIssueAgent(args),
       waitForSpawnConfirmed: (sessionId) => this.optimism.waitForSpawnConfirmed(sessionId),
       // ONE KEYSTROKE. The store write is synchronous and unconditional — it is
       // what the caret is attached to. Everything else about this edit (when it

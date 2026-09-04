@@ -17,6 +17,7 @@ import {
   RequestControlMessage,
   ResizeMessage,
   SetSessionDraftMessage,
+  ViewportRequestMessage,
   ViewStateMessage,
 } from './terminal'
 import { TranscriptSubscribeMessage, TranscriptUnsubscribeMessage } from './transcript'
@@ -29,6 +30,7 @@ export const ClientMessage = z.discriminatedUnion('type', [
   InputMessage,
   ResizeMessage,
   RequestControlMessage,
+  ViewportRequestMessage,
   RedrawRequestMessage,
   PingMessage,
   PresenceMessage,

@@ -22,7 +22,7 @@ test('Expo opens on Work and keeps decisions in their source context', async ({ 
   await page.screenshot({ path: resolve(ARTIFACTS, 'mobile-work-home.png'), fullPage: true })
 
   await page.getByRole('button', { name: 'Tasks', exact: true }).click()
-  await page.getByRole('button', { name: 'Issue 87: OAuth refresh loop logs users out' }).click()
+  await page.getByRole('button', { name: 'Task 87: OAuth refresh loop logs users out' }).click()
   await expect(page.getByTestId('issue-question-card')).toContainText(
     'Should refresh tokens rotate on every use, or only on expiry?',
   )

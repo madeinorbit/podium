@@ -19,6 +19,7 @@ import {
   Roles,
   Sidebar,
   StewardPolicy,
+  TranscriptPolicy,
   WorktreeGcPolicy,
 } from '@podium/model'
 import { z } from 'zod'
@@ -102,6 +103,7 @@ export {
   Roles,
   Sidebar,
   StewardPolicy,
+  TranscriptPolicy,
   WorktreeGcPolicy,
 }
 
@@ -340,6 +342,9 @@ export const PodiumSettings = z.object({
    *  slotted after `hibernation`: the key order here is a persisted blob's
    *  serialized order. */
   worktreeGc: WorktreeGcPolicy.default({}),
+  /** Whether this server mirrors daemon transcripts into its lake (PDM-26).
+   *  `PODIUM_TRANSCRIPT_LAKE` and `config.transcriptLake` sit above this row. */
+  transcripts: TranscriptPolicy.default({}),
 })
 export type PodiumSettings = z.infer<typeof PodiumSettings>
 

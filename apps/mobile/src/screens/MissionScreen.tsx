@@ -1,56 +1,39 @@
-import { useSlice } from '@podium/client-core/react'
 import {
-  agentFleetStatus,
-  candidateFromAvailability,
   isSessionWorking,
-  machineViewsFromWire,
   type MissionProgress,
   missionCrewLabel,
   missionProgress,
-  panelLabel,
   missionRootFor,
   missionSessions as missionSessionsOf,
-  reposToViews,
+  panelLabel,
   sessionNeedsHuman,
-  spawnIssueAgent,
-  worklistSlice,
 } from '@podium/client-core/viewmodels'
-import {
-  type AgentKind,
-  asIssueId,
-  type IssueId,
-  type IssueWire,
-  type SessionId,
-  type SessionMeta,
-} from '@podium/model'
+import { asIssueId, type IssueWire, type SessionId, type SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronDown, MoreVertical, SquareTerminal } from 'lucide-react-native'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Animated, Dimensions, StyleSheet, Text, View } from 'react-native'
-import { GestureDetector, usePanGesture } from 'react-native-gesture-handler'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { StyleSheet, Text, View } from 'react-native'
 import { useBooting, useIssues, useMobileStore, useSessions } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
+import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { Icon } from '../components/Icon'
-import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
+import { IssueColorSheet } from '../components/IssueColorSheet'
+import { ChevronRight, MoreVertical, SquareTerminal } from '../components/icons'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
-import { MissionDeck } from '../components/MissionDeck'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
 import { SessionConversation } from '../components/SessionConversation'
 import { TaskSheet } from '../components/TaskSheet'
 import { EmptyState } from '../components/ui'
 import { WorkingMark } from '../components/WorkingMark'
-import { useReduceMotion } from '../hooks/useReduceMotion'
 import { issueAgentKind, modelLabel } from '../lib/agent-models'
-import { mostRelevantSession } from '../lib/mission-session'
 import { issueCloseBlockers } from '../lib/issue-close'
-import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
+import { mostRelevantSession } from '../lib/mission-session'
 import { alpha } from '../theme/mix'
-import { color, font, mono, monoLabel, radius, space, spring } from '../theme/theme'
+import { color, font, mono, monoLabel, space } from '../theme/theme'
 
 /**
  * THE TASK, AS THE PHONE SHOULD OPEN IT [POD-724].
@@ -63,31 +46,16 @@ import { color, font, mono, monoLabel, radius, space, spring } from '../theme/th
  * ends in the transcript, and every one of them was paying two navigations for
  * it.
  *
- * So the mission screen IS the conversation of whoever is most worth talking to
- * on this mission, and the deck is a panel that pulls down over it from a bar
- * that is always on screen. Three things follow, and they are the reason this
- * is not merely "the chat screen with a button":
- *
- *  1. THE BAR IS THE DECK, COLLAPSED. Even shut, it carries the mission's vital
- *     signs — progress, who is working, how many are asking. You do not open the
- *     panel to find out whether you need to; the bar already told you.
- *  2. THE PANEL SWITCHES THE TRANSCRIPT IN PLACE. Tapping an agent band swaps
- *     the conversation underneath and closes the panel. No push, no back stack,
- *     no losing your place in a twenty-row spine. This is the thing a phone can
- *     do that the desktop's fixed three columns cannot, and it is what makes
- *     the deck worth having in a pocket at all.
- *  3. IT OPENS FROM A FIXED PLACE, downward, under the navigation bar — the
- *     mailbox-switcher gesture, not a second modal. A bottom sheet would have
- *     fought the composer for the one edge the thumb owns.
+ * The conversation stays first. The mission bar keeps its vital signs visible,
+ * while the full deck now opens in a native form sheet with system detents,
+ * dismissal, focus containment, and keyboard behavior.
  */
 
-/** How much of the screen the deck panel may claim when fully open. */
-const PANEL_FRACTION = 0.62
-/** Past this velocity the flick decides, not the position. */
-const FLICK_VELOCITY = 450
-
 export function MissionScreen() {
-  const params = useLocalSearchParams<{ missionId: string | string[] }>()
+  const params = useLocalSearchParams<{
+    missionId: string | string[]
+    sessionId?: string | string[]
+  }>()
   const raw = Array.isArray(params.missionId) ? params.missionId[0] : (params.missionId ?? '')
   const selectedId = asIssueId(decodeURIComponent(raw))
   const router = useRouter()
@@ -95,12 +63,6 @@ export function MissionScreen() {
   const booting = useBooting()
   const issues = useIssues()
   const sessions = useSessions()
-  // The worktree-path index the worklist already derives once per snapshot —
-  // deriving it a second time here is exactly the per-consumer cost the
-  // published slice exists to remove.
-  const { allWorktreePaths } = useSlice(worklistSlice)
-  const reduceMotion = useReduceMotion()
-
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
@@ -113,7 +75,12 @@ export function MissionScreen() {
     [issues, root, sessions],
   )
 
-  const [pinnedSessionId, setPinnedSessionId] = useState<SessionId | null>(null)
+  const requestedSessionId = Array.isArray(params.sessionId)
+    ? params.sessionId[0]
+    : params.sessionId
+  const [pinnedSessionId, setPinnedSessionId] = useState<SessionId | null>(
+    requestedSessionId ? (requestedSessionId as SessionId) : null,
+  )
   const [peek, setPeek] = useState<IssueWire | null>(null)
   const [menuOpen, setMenuOpen] = useState(false)
   const [launchOpen, setLaunchOpen] = useState(false)
@@ -129,6 +96,9 @@ export function MissionScreen() {
     missionSessions.find((s) => s.sessionId === pinnedSessionId) ??
     missionSessions.find((s) => s.sessionId === auto?.sessionId) ??
     auto
+  useEffect(() => {
+    if (requestedSessionId) setPinnedSessionId(requestedSessionId as SessionId)
+  }, [requestedSessionId])
   const currentIssue = useMemo(
     () => issues.find((i) => i.id === current?.issueId) ?? root,
     [current?.issueId, issues, root],
@@ -143,56 +113,10 @@ export function MissionScreen() {
   const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
   const working = missionSessions.filter(isSessionWorking).length
 
-  const accent = root ? (issueColorHex(root.color) ?? FLOW_HEX) : undefined
-
   const openSession = useCallback((session: SessionMeta) => {
     setPinnedSessionId(session.sessionId)
     void Haptics.selectionAsync().catch(() => {})
   }, [])
-
-  const launch = useCallback(
-    (agentKind?: AgentKind) => {
-      if (!root) return
-      const input = agentKind ? { id: root.id, agentKind } : { id: root.id }
-      void spawnIssueAgent(store.trpc.issues, input).catch(() => {})
-    },
-    [root, store.trpc],
-  )
-
-  /** The same host-capability reading as the desktop deck. This launch sheet
-   * cannot become a login pane after the pick, so its signed-out warning is a
-   * disabled row here; the visible hint still says how to repair it. */
-  const launchHosts = useMemo(() => {
-    if (!root) return []
-    const views = machineViewsFromWire(store.machines)
-    if (root.machineId) return views.filter((view) => view.machine.id === root.machineId)
-    const repo = reposToViews(store.repos).find((candidate) => candidate.path === root.repoPath)
-    const ids = new Set((repo?.machines ?? []).map((machine) => machine.machineId))
-    return views.filter((view) => ids.has(view.machine.id))
-  }, [root, store.machines, store.repos])
-  const launchActions = useMemo<SheetAction[]>(
-    () =>
-      LAUNCHABLE.map(({ kind, label }) => {
-        // No recorded hosts means inventory has not arrived; keep the option
-        // offered, matching the desktop's fail-open rule for unknown inventory.
-        const status =
-          launchHosts.length === 0
-            ? {}
-            : agentFleetStatus(
-                launchHosts.map((view) =>
-                  candidateFromAvailability(view.machine, view.availability, kind),
-                ),
-                label,
-              )
-        return {
-          label,
-          ...(status.hint ? { hint: status.hint } : {}),
-          disabled: status.reason !== undefined || status.warning !== undefined,
-          onPress: () => launch(kind),
-        }
-      }),
-    [launch, launchHosts],
-  )
 
   const closeAndTuckRoot = useCallback(() => {
     if (!root) return
@@ -296,27 +220,18 @@ export function MissionScreen() {
       <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
         {root ? (
           <MissionBody
-            root={root}
-            issues={issues}
-            sessions={sessions}
-            allWorktreePaths={allWorktreePaths}
             current={current}
             currentIssue={currentIssue}
             progress={progress}
             live={live}
             working={working}
             attention={attention}
-            accent={accent ?? FLOW_HEX}
-            reduceMotion={reduceMotion}
             findRequest={findRequest}
-            onOpenSession={openSession}
-            onOpenTask={setPeek}
-            onLaunchAgent={() => setLaunchOpen(true)}
-            onTuckRoot={() => {
-              void store.setIssueTucked(root.id, true).catch(() => {})
-            }}
-            onFileRoot={fileRoot}
-            onOpenDeparture={(issueId) => router.push(`/mission/${encodeURIComponent(issueId)}`)}
+            onOpenDetails={() =>
+              router.push(
+                `/mission/${encodeURIComponent(root.id)}/details${current ? `?sessionId=${encodeURIComponent(current.sessionId)}` : ''}`,
+              )
+            }
           />
         ) : (
           <EmptyState title="Mission not found." />
@@ -336,21 +251,13 @@ export function MissionScreen() {
       />
       <ActionSheet
         visible={menuOpen}
+        testID="mission-actions-sheet"
         title={root ? `${issueDisplayRef(root)} ${root.title}` : ''}
         actions={menuActions}
         onClose={() => setMenuOpen(false)}
       />
-      <ActionSheet
-        visible={launchOpen}
-        title="Launch an agent"
-        subtitle={
-          root?.worktreePath
-            ? 'Joins this task’s existing worktree.'
-            : root?.branch
-              ? 'Restores this task’s worktree first.'
-              : 'Creates the task’s branch and worktree first.'
-        }
-        actions={launchActions}
+      <ConfiguredIssueLaunchSheet
+        issue={launchOpen ? (root ?? null) : null}
         onClose={() => setLaunchOpen(false)}
       />
       <IssueColorSheet
@@ -370,127 +277,34 @@ export function MissionScreen() {
   )
 }
 
-const LAUNCHABLE: { kind: AgentKind; label: string }[] = [
-  { kind: 'claude-code', label: 'Claude Code' },
-  { kind: 'codex', label: 'Codex' },
-  { kind: 'grok', label: 'Grok' },
-  { kind: 'opencode', label: 'OpenCode' },
-  { kind: 'cursor', label: 'Cursor' },
-  { kind: 'shell', label: 'Shell' },
-]
-
 function MissionBody({
-  root,
-  issues,
-  sessions,
-  allWorktreePaths,
   current,
   currentIssue,
   progress,
   live,
   working,
   attention,
-  accent,
-  reduceMotion,
   findRequest,
-  onOpenSession,
-  onOpenTask,
-  onLaunchAgent,
-  onTuckRoot,
-  onFileRoot,
-  onOpenDeparture,
+  onOpenDetails,
 }: {
-  root: IssueWire
-  issues: readonly IssueWire[]
-  sessions: readonly SessionMeta[]
-  allWorktreePaths: string[]
   current: SessionMeta | undefined
   currentIssue: IssueWire | undefined
   progress: MissionProgress
   live: number
   working: number
   attention: number
-  accent: string
-  reduceMotion: boolean
   findRequest: number
-  onOpenSession: (session: SessionMeta) => void
-  onOpenTask: (issue: IssueWire) => void
-  onLaunchAgent: () => void
-  onTuckRoot: () => void
-  onFileRoot: () => void
-  onOpenDeparture: (issueId: IssueId) => void
+  onOpenDetails: () => void
 }) {
-  const panelHeight = Math.round(Dimensions.get('window').height * PANEL_FRACTION)
-  const y = useRef(new Animated.Value(-panelHeight)).current
-  const yValue = useRef(-panelHeight)
-  const dragStart = useRef(-panelHeight)
-  const [open, setOpen] = useState(false)
-
-  useEffect(() => {
-    const id = y.addListener(({ value }) => {
-      yValue.current = value
-    })
-    return () => y.removeListener(id)
-  }, [y])
-
-  const settle = useCallback(
-    (next: boolean) => {
-      setOpen(next)
-      void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {})
-      Animated.spring(y, {
-        toValue: next ? 0 : -panelHeight,
-        // JS driver on purpose: the drag below feeds this same node through
-        // Animated.Value.setValue, which a native-driven node rejects.
-        useNativeDriver: false,
-        ...(reduceMotion ? spring.smooth : spring.snappy),
-      }).start()
-    },
-    [panelHeight, reduceMotion, y],
-  )
-
-  const pan = usePanGesture({
-    activeOffsetY: [-4, 4],
-    failOffsetX: [-8, 8],
-    runOnJS: true,
-    onActivate: () => {
-      y.stopAnimation()
-      dragStart.current = yValue.current
-    },
-    onUpdate: ({ translationY }) => {
-      const raw = dragStart.current + translationY
-      // Rubber-band past fully open: the panel can be pulled further, but at a
-      // fraction of the finger, so the stop is felt rather than merely obeyed.
-      y.setValue(raw > 0 ? raw * 0.3 : Math.max(raw, -panelHeight))
-    },
-    onDeactivate: ({ canceled, translationX, translationY, velocityY }) => {
-      if (canceled) return settle(open)
-      if (Math.abs(translationY) < 6 && Math.abs(translationX) < 6) return settle(!open)
-      if (velocityY > FLICK_VELOCITY) return settle(true)
-      if (velocityY < -FLICK_VELOCITY) return settle(false)
-      settle(dragStart.current + translationY > -panelHeight / 2)
-    },
-  })
-
-  const scrim = y.interpolate({
-    inputRange: [-panelHeight, 0],
-    outputRange: [0, 0.55],
-    extrapolate: 'clamp',
-  })
-
   return (
     <View style={styles.body}>
-      <GestureDetector gesture={pan} touchAction="none" userSelect="none">
-        <View>
-          <MissionBar
-            progress={progress}
-            live={live}
-            working={working}
-            attention={attention}
-            open={open}
-            onToggle={() => settle(!open)}
-          />
-        </View>
-      </GestureDetector>
+      <MissionBar
+        progress={progress}
+        live={live}
+        working={working}
+        attention={attention}
+        onOpen={onOpenDetails}
+      />
 
       <View style={styles.stage}>
         {current ? (
@@ -504,64 +318,9 @@ function MissionBody({
           <EmptyState
             fill
             title="No agent on this task yet"
-            body="Pull the deck down to see the mission, or launch an agent to get it moving."
+            body="Open mission details to review the deck, or launch an agent to get it moving."
           />
         )}
-
-        {/* The scrim is the panel's own shadow on the conversation: it fades in
-            with the pull, and it is only interactive once the panel is actually
-            open, so a shut deck never eats a tap meant for the transcript. */}
-        <Animated.View
-          style={[styles.scrim, { opacity: scrim }]}
-          pointerEvents={open ? 'auto' : 'none'}
-          onTouchEnd={() => settle(false)}
-        />
-
-        <Animated.View
-          style={[styles.panel, { height: panelHeight, transform: [{ translateY: y }] }]}
-          pointerEvents={open ? 'auto' : 'none'}
-          accessibilityViewIsModal={open}
-        >
-          <MissionDeck
-            root={root}
-            issues={issues}
-            sessions={sessions}
-            allWorktreePaths={allWorktreePaths}
-            accent={accent}
-            currentSessionId={current?.sessionId}
-            onOpenSession={(session) => {
-              onOpenSession(session)
-              settle(false)
-            }}
-            onOpenTask={(issue) => {
-              onOpenTask(issue)
-              settle(false)
-            }}
-            onLaunchAgent={() => {
-              onLaunchAgent()
-              settle(false)
-            }}
-            onTuckRoot={() => {
-              onTuckRoot()
-              settle(false)
-            }}
-            onFileRoot={() => {
-              onFileRoot()
-              settle(false)
-            }}
-            onOpenDeparture={(issueId) => {
-              onOpenDeparture(issueId)
-              settle(false)
-            }}
-          />
-          {/* The panel's own grab edge, so closing it is the same gesture as
-              opening it rather than a hunt for the bar underneath. */}
-          <GestureDetector gesture={pan} touchAction="none" userSelect="none">
-            <View style={styles.panelGrab}>
-              <View style={styles.panelGrabber} />
-            </View>
-          </GestureDetector>
-        </Animated.View>
       </View>
     </View>
   )
@@ -581,15 +340,13 @@ function MissionBar({
   live,
   working,
   attention,
-  open,
-  onToggle,
+  onOpen,
 }: {
   progress: MissionProgress
   live: number
   working: number
   attention: number
-  open: boolean
-  onToggle: () => void
+  onOpen: () => void
 }) {
   const total = Math.max(1, progress.total)
   const pct = (n: number) => `${Math.round((n / total) * 10000) / 100}%` as const
@@ -598,10 +355,9 @@ function MissionBar({
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityState={{ expanded: open }}
-      accessibilityLabel="Flight deck"
+      accessibilityLabel="Mission details"
       accessibilityHint={`${progress.done} of ${progress.total} tasks done, ${crew}${progress.stall > 0 ? `, ${progress.stall} stalled` : ''}${attention > 0 ? `, ${attention} asking` : ''}`}
-      onPress={onToggle}
+      onPress={onOpen}
       scaleTo={0.995}
       haptic={false}
       style={({ pressed }) => [styles.bar, pressed && styles.barPressed]}
@@ -618,14 +374,12 @@ function MissionBar({
       ) : null}
       {attention > 0 ? <Text style={styles.barAsk}>{`${attention} asking`}</Text> : null}
       <View style={styles.barSpacer} />
-      <View style={open ? styles.chevronOpen : undefined}>
-        <Icon as={ChevronDown} size={16} color={color.textDim} />
-      </View>
+      <Icon as={ChevronRight} size={16} color={color.textDim} />
       {/* The bar's baseline rule IS the mission meter — it costs no height, and
           it sits at the seam where the deck will emerge. */}
       <View style={styles.barMeter}>
         <View
-          style={[styles.barSeg, { width: pct(progress.done), backgroundColor: color.working }]}
+          style={[styles.barSeg, { width: pct(progress.done), backgroundColor: color.workingText }]}
         />
         <View
           style={[
@@ -681,7 +435,7 @@ const styles = StyleSheet.create({
   },
   barLiveText: {
     ...mono(500),
-    color: color.working,
+    color: color.workingText,
     fontSize: font.micro,
   },
   barAsk: {
@@ -691,9 +445,6 @@ const styles = StyleSheet.create({
   },
   barSpacer: {
     flex: 1,
-  },
-  chevronOpen: {
-    transform: [{ rotate: '180deg' }],
   },
   barMeter: {
     position: 'absolute',
@@ -711,38 +462,5 @@ const styles = StyleSheet.create({
     flex: 1,
     minHeight: 0,
     overflow: 'hidden',
-  },
-  scrim: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: '#000',
-  },
-  panel: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    top: 0,
-    backgroundColor: color.bg,
-    borderBottomLeftRadius: radius.xl + 4,
-    borderBottomRightRadius: radius.xl + 4,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: color.borderStrong,
-    overflow: 'hidden',
-  },
-  panelGrab: {
-    height: 22,
-    alignItems: 'center',
-    justifyContent: 'center',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: color.hairline,
-  },
-  panelGrabber: {
-    width: 36,
-    height: 5,
-    borderRadius: 3,
-    backgroundColor: color.borderStrong,
   },
 })

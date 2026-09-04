@@ -12,6 +12,7 @@ import { ToolbarSlot } from '@/app/ToolbarSlot'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
+import { useNow } from '@/lib/useNow'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { cn } from '@/lib/utils'
 import { BoardShortcutSheet } from './BoardShortcutSheet'
@@ -51,6 +52,7 @@ const ResponsiveIssuesKanban = memo(IssuesKanban)
 export function IssuesView(): JSX.Element {
   const issues = useReplicaIssues()
   const openIssueId = useStoreSelector((store) => store.openIssueId)
+  const sessions = useStoreSelector((store) => store.sessions)
   const setOpenIssueId = useStoreSelector((store) => store.setOpenIssueId)
   const trpc = useStoreSelector((store) => store.trpc)
   // The board's own writes ride the outbox-as-overlay too (POD-781) — the same
@@ -61,6 +63,7 @@ export function IssuesView(): JSX.Element {
   const deleteIssue = useStoreSelector((store) => store.deleteIssue)
   const closeIssue = useStoreSelector((store) => store.closeIssue)
   const isMobile = useIsMobile()
+  const now = useNow(60_000)
   // Display options are per-user REPLICATED, so they are subscribed rather than
   // seeded — a `useState` initializer reads the key before the replica has the
   // row and the board is stuck on the defaults for the session (POD-540).
@@ -136,13 +139,15 @@ export function IssuesView(): JSX.Element {
     () =>
       deriveIssuesViewModel({
         issues,
+        sessions,
+        now,
         display,
         filter: deferredFilter,
         expanded,
         isMobile,
         openIssueId,
       }),
-    [issues, display, deferredFilter, expanded, isMobile, openIssueId],
+    [issues, sessions, now, display, deferredFilter, expanded, isMobile, openIssueId],
   )
 
   const runMut = useCallback((promise: Promise<unknown>): void => {
@@ -461,6 +466,8 @@ export function IssuesView(): JSX.Element {
         <ResponsiveIssuesKanban
           columns={view.orderedByStage}
           allIssues={issues}
+          sessions={sessions}
+          now={now}
           badges={display.badges}
           ordering={display.ordering}
           stageCounts={view.stageCounts}

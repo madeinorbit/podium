@@ -2,13 +2,20 @@ import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/viewmodels'
 import type { IssueWire, SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
-import { Inbox as InboxIcon, Settings } from 'lucide-react-native'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import { useBooting, useIssues, useMobileStore, useSessions, useTrpc } from '../client/hooks'
+import {
+  useBooting,
+  useIssues,
+  useOutboxSize,
+  useSessions,
+  useStoreActions,
+  useTrpc,
+} from '../client/hooks'
 import { useMobileShell } from '../client/shell'
 import { AskQuestionCard } from '../components/AskQuestionCard'
 import { Icon } from '../components/Icon'
+import { Inbox as InboxIcon, Settings } from '../components/icons'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PressableScale } from '../components/PressableScale'
@@ -19,6 +26,7 @@ import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { StorageNoticeAlert } from '../components/StorageNoticeAlert'
 import { EmptyState } from '../components/ui'
+import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { usePendingQuestion } from '../hooks/usePendingQuestion'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { sessionHref } from '../lib/session-route'
@@ -39,7 +47,7 @@ function NeedsYouCard({
 }) {
   const router = useRouter()
   const trpc = useTrpc()
-  const continueSession = useMobileStore().continueSession
+  const continueSession = useStoreActions().continueSession
   const needsQuestion = session.agentState?.phase === 'needs_user'
   const fromTranscript = usePendingQuestion(
     session.sessionId,
@@ -69,6 +77,7 @@ function NeedsYouCard({
     <SessionCard
       model={model}
       issue={issue}
+      session={session}
       agentColor={session.agentColor}
       onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
     >
@@ -114,8 +123,9 @@ export function InboxScreen() {
   const issues = useIssues()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
+  const bottomInset = useContentBottomInset()
   const booting = useBooting()
-  const outboxSize = useMobileStore().outboxSize
+  const outboxSize = useOutboxSize()
   const { error } = useMobileShell()
   const now = Date.now()
 
@@ -189,6 +199,7 @@ export function InboxScreen() {
                 <SessionCard
                   model={sessionCardModel(session, issueFor(session), now)}
                   issue={issueFor(session)}
+                  session={session}
                   agentColor={session.agentColor}
                   onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
                 />
@@ -210,7 +221,7 @@ export function InboxScreen() {
                 />
               )
             }
-            contentContainerStyle={styles.listContent}
+            contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
           />
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
@@ -219,8 +230,10 @@ export function InboxScreen() {
 }
 
 const styles = StyleSheet.create({
+  // Bottom padding is paid inline from useContentBottomInset: the last card has
+  // to scroll clear of the tab bar, whose height is a runtime measurement, not
+  // a constant.
   listContent: {
-    paddingBottom: 120,
     flexGrow: 1,
   },
   sectionHeader: {
@@ -254,7 +267,7 @@ const styles = StyleSheet.create({
     fontSize: font.tiny,
   },
   error: {
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.small,
     paddingHorizontal: space.xl,
     paddingBottom: space.sm,

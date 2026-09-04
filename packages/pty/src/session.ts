@@ -1,7 +1,7 @@
 import { StringDecoder } from 'node:string_decoder'
+import type { Geometry } from '@podium/model'
 import { defaultPtyBackend } from './backends/index.js'
 import type { PtyBackend, PtyProcess } from './backends/types.js'
-import type { Geometry } from '@podium/model'
 import { createTitleScanner } from './osc-title.js'
 
 const CTRL_L = Uint8Array.of(0x0c)
@@ -13,12 +13,18 @@ export interface SpawnOptions {
   rows: number
   cwd?: string
   env?: Record<string, string>
+  /** Variables to REMOVE from what the child inherits. `env` cannot express this:
+   *  an empty `ANTHROPIC_API_KEY` is still a set one to a CLI that tests presence.
+   *  Same contract as {@link spawnAbducoAgent}'s option of the same name — all
+   *  three backends must honour it or the guarantee depends on which one a
+   *  machine happens to run. */
+  stripEnv?: readonly string[]
 }
 
 export interface AgentFrame {
   seq: number
-  /** base64 of raw PTY output bytes */
-  data: string
+  /** Raw PTY output bytes, copied from the backend-owned read buffer. */
+  data: Uint8Array
 }
 
 export interface AgentSession {
@@ -27,8 +33,10 @@ export interface AgentSession {
   /** Live terminal title (OSC 0/1/2) the agent set, emitted on each change. */
   onTitle(cb: (title: string) => void): () => void
   onExit(cb: (code: number) => void): () => void
-  /** base64 of input bytes to inject into the PTY */
+  /** Legacy base64 adapter for input bytes; new callers should use writeBytes. */
   write(dataBase64: string): void
+  /** Canonical PTY input boundary: write the exact bytes without text conversion. */
+  writeBytes(data: Uint8Array): void
   resize(cols: number, rows: number): void
   /**
    * Force a real repaint even when geometry is unchanged. `hard` additionally
@@ -37,6 +45,11 @@ export interface AgentSession {
    * mishandle a stray ^L in their input.
    */
   redraw(opts?: { hard?: boolean }): void
+  /** Queue a repaint until the transport has acknowledged attachment. Optional:
+   * direct PTYs are ready immediately; durable multiplexers implement this when
+   * an early resize can be lost while their attach client is still connecting. */
+  redrawWhenReady?(): void
+
   geometry(): Geometry
   dispose(): void
   /**
@@ -46,6 +59,13 @@ export interface AgentSession {
    * than report a fresh launch.
    */
   readonly adopted?: boolean
+  /**
+   * The geometry this attach ANNOUNCED to the running program, when it announced
+   * one. Absent on a size-neutral attach, which applies nothing — so a caller
+   * reporting "what I applied" reports exactly this and nothing when it is
+   * absent [spec:SP-6144].
+   */
+  readonly appliedGeometry?: Geometry
 }
 
 /**
@@ -63,6 +83,15 @@ export function spawnAgent(
   opts: SpawnOptions,
   backend: PtyBackend = defaultPtyBackend(),
 ): AgentSession {
+  const childEnv = {
+    ...process.env,
+    TERM: 'xterm-256color',
+    COLORTERM: 'truecolor',
+    ...opts.env,
+  } as Record<string, string>
+  // After the merge, so a caller cannot strip a variable it also set — the same
+  // ordering rule (and reason) as the abduco path.
+  for (const key of opts.stripEnv ?? []) delete childEnv[key]
   const proc = backend.spawn({
     file: opts.cmd,
     args: opts.args ?? [],
@@ -75,20 +104,37 @@ export function spawnAgent(
     // without it agents like Claude Code degrade to a 256-color approximation. We assert
     // both after process.env (the frontend's capability doesn't depend on how the daemon
     // was launched) but before opts.env so callers/tests can still override.
-    env: { ...process.env, TERM: 'xterm-256color', COLORTERM: 'truecolor', ...opts.env } as Record<
-      string,
-      string
-    >,
+    env: childEnv,
   })
   return wrapPty(proc, { cols: opts.cols, rows: opts.rows })
 }
 
-export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }): AgentSession {
+export function wrapPty(
+  proc: PtyProcess,
+  init: {
+    cols: number
+    rows: number
+    /**
+     * This pty's size is not an opinion about the program's size — set on an
+     * abduco attach that carries `-N`, whose pty is opened at a sentinel size
+     * [spec:SP-6144]. Until a viewer asks, `redraw()` therefore does not nudge:
+     * the nudge is a REAL resize of the attach pty, the attach client forwards
+     * it, and the master applies it to the program, so a reconnect would push a
+     * size nobody asked for onto a running agent (measured: the restore lands on
+     * the next frame from a chatty agent and moves it).
+     */
+    sizeNeutral?: boolean
+  },
+): AgentSession {
   let cols = init.cols
   let rows = init.rows
   let seq = 0
   let disposed = false
   let cancelNudge: (() => void) | undefined
+  // Whether a viewer has asked this session for a size yet. Always true for an
+  // ordinary attach, whose pty size IS the program's; a size-neutral one starts
+  // at a sentinel and stays silent until the first ask.
+  let announced = !init.sizeNeutral
   const frameCbs = new Set<(f: AgentFrame) => void>()
   const exitCbs = new Set<(code: number) => void>()
   const titleCbs = new Set<(t: string) => void>()
@@ -100,7 +146,7 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
 
   proc.onData((bytes: Uint8Array) => {
     const buf = Buffer.from(bytes)
-    const frame: AgentFrame = { seq, data: buf.toString('base64') }
+    const frame: AgentFrame = { seq, data: buf }
     seq += 1
     for (const cb of [...frameCbs]) cb(frame)
     for (const raw of titleScanner.push(decoder.write(buf))) {
@@ -133,6 +179,10 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
       exitCbs.add(cb)
       return () => exitCbs.delete(cb)
     },
+    writeBytes(data) {
+      if (disposed) return
+      proc.write(data)
+    },
     write(dataBase64) {
       if (disposed) return
       proc.write(Buffer.from(dataBase64, 'base64'))
@@ -141,6 +191,7 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
       if (disposed) return
       cols = c
       rows = r
+      announced = true
       proc.resize(c, r)
     },
     redraw(opts) {
@@ -149,6 +200,13 @@ export function wrapPty(proc: PtyProcess, init: { cols: number; rows: number }):
       // redraw the prompt regardless. Sent before the resize so the shrink's ack
       // frame (the restore trigger) is the repaint we just forced.
       if (opts?.hard) proc.write(CTRL_L)
+      // A size-neutral attach has no size to nudge WITH until a viewer has asked
+      // for one — its pty is a sentinel, deliberately unrelated to the program's
+      // size. Nudging from it would move the program, which is the whole thing
+      // this attach exists to avoid; and no repaint is owed, because the ask
+      // itself repaints (the master signals the program on every resize packet,
+      // even a same-size one). Shells still got their Ctrl-L just above.
+      if (init.sizeNeutral && !announced) return
       if (rows <= 1) {
         if (!opts?.hard) proc.write(CTRL_L) // Ctrl-L fallback when a one-row nudge is impossible
         return

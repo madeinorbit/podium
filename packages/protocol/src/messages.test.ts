@@ -36,8 +36,28 @@ import {
   parseServerMessageLenient,
   ServerMessage,
 } from './messages'
+// Daemon-plane frame: reachable only through the daemon subpath since POD-2470.
+import { RuntimeQueueDrainAbandonedMessage } from './messages/runtime'
 
 describe('shared schemas', () => {
+  it('names an at-least-once queue teardown report distinctly from a never-live deadline', () => {
+    expect(
+      RuntimeQueueDrainAbandonedMessage.parse({
+        type: 'runtimeQueueDrainAbandoned',
+        reportId: 'report-1',
+        sessionId: asSessionId('s1'),
+        turnIds: ['msg-1'],
+        reason: 'teardown',
+      }),
+    ).toEqual({
+      type: 'runtimeQueueDrainAbandoned',
+      reportId: 'report-1',
+      sessionId: asSessionId('s1'),
+      turnIds: ['msg-1'],
+      reason: 'teardown',
+    })
+  })
+
   it('round-trips a SessionMeta (spawn origin)', () => {
     const meta = {
       sessionId: asSessionId('s1'),
@@ -615,6 +635,9 @@ describe('DaemonMessage (daemon -> server)', () => {
       cwd: '/w',
       agentKind: 'claude-code',
       geometry,
+      runtimeContract: true,
+      driverId: 'claude-pty',
+      requestedDriverId: 'opencode-server',
     },
     {
       type: 'bind',
@@ -624,8 +647,19 @@ describe('DaemonMessage (daemon -> server)', () => {
       agentKind: 'grok',
       geometry,
     },
+    // A BIND THAT APPLIED NOTHING (POD-3279). The reattach shape: the daemon
+    // attached size-neutrally to a survivor and reports no geometry at all, which
+    // is a different statement from reporting a size — the case above is the old
+    // daemon's shape, and both have to parse.
+    {
+      type: 'bind',
+      sessionId: asSessionId('s-reattached'),
+      cmd: 'abduco -a podium-s-reattached',
+      cwd: '/w',
+      agentKind: 'claude-code',
+    },
     { type: 'agentFrame', sessionId: asSessionId('s1'), seq: 0, data: 'eA==' },
-    { type: 'agentExit', sessionId: asSessionId('s1'), code: 0 },
+    { type: 'agentExit', sessionId: asSessionId('s1'), code: 0, observerGeneration: 7 },
     {
       type: 'sessionResumeRef',
       sessionId: asSessionId('s1'),
@@ -748,7 +782,8 @@ describe('Layer 3 reattach messages', () => {
       durableLabel: 'podium-s1',
       agentKind: 'claude-code' as const,
       cwd: '/p',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
+      requestedDriverId: 'opencode-server',
     }
     expect(parseControlMessage(encode(msg))).toEqual(msg)
   })
@@ -757,7 +792,7 @@ describe('Layer 3 reattach messages', () => {
     const msg = {
       type: 'reattachFailed' as const,
       sessionId: asSessionId('s1'),
-      reason: 'no tmux session',
+      reason: 'no abduco session',
     }
     expect(parseDaemonMessage(encode(msg))).toEqual(msg)
   })
@@ -1200,7 +1235,12 @@ describe('output-scheduling protocol', () => {
     expect((parsed as { modes?: unknown }).modes).toBeUndefined()
   })
   it('round-trips sessionPriority (server→daemon)', () => {
-    const m = { type: 'sessionPriority' as const, sessionId: asSessionId('s1'), priority: 0 }
+    const m = {
+      type: 'sessionPriority' as const,
+      sessionId: asSessionId('s1'),
+      priority: 0,
+      nativeView: true,
+    }
     expect(parseControlMessage(encode(m))).toEqual(m)
   })
   it('rejects out-of-range / non-int sessionPriority', () => {

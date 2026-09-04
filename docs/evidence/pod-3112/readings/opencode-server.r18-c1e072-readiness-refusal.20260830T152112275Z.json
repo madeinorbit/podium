@@ -1,0 +1,116 @@
+{
+  "at": "2026-08-30T15:19:39.277Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "integrationTip": "c1e07223c18bdfa6eb835081c58e6a11feece86a",
+  "productPins": {
+    "server": "c1e07223c18bdfa6eb835081c58e6a11feece86a",
+    "daemon": "c1e07223c18bdfa6eb835081c58e6a11feece86a",
+    "web": "c1e0722"
+  },
+  "instance": "p3112-a7a-c1e072-r1",
+  "ports": [22341, 49341, 49342],
+  "machine": {
+    "id": "5bc5dfd3-0ce1-451b-90e9-4137dc821479",
+    "use": "granted",
+    "online": true,
+    "updateChannel": "edge",
+    "registeredRepo": "/tmp/pod-3112-a7a-c1e072-r1/dummy-repo"
+  },
+  "providerPrompts": 1,
+  "identity": {
+    "sessionId": "cc12865f-0ac9-486c-b193-fbc4a5024fb4",
+    "createdAt": "2026-08-30T15:19:43.092Z",
+    "driverId": "opencode-server",
+    "requestedDriverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_facbea1f2ffeYxcFx1w60oLwOg"
+    },
+    "cwd": "/tmp/pod-3112-a7a-c1e072-r1/dummy-repo"
+  },
+  "seed": {
+    "codeword": "R18-MTFYH0EN",
+    "nonce": "P3112-R18-SEED-MTFYH0EN",
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "initialScreenLength": 3200
+  },
+  "beforeRestart": {
+    "journal": {
+      "opencodeSessionId": "ses_facbea1f2ffeYxcFx1w60oLwOg",
+      "process": {
+        "key": "podium-oc-cc12865f-0ac9-486c-b193-fbc4a5024fb4",
+        "pid": 738546
+      },
+      "workdir": "/tmp/pod-3112-a7a-c1e072-r1/dummy-repo",
+      "seq": 21,
+      "turnEpoch": 1,
+      "bindingVersion": 1
+    },
+    "providerExact": true,
+    "chatMarkerOccurrences": 2,
+    "native": {
+      "passed": false,
+      "sampleCount": 21,
+      "firstSampleMs": 179.70542099999875,
+      "lastSampleMs": 7021.402598000001,
+      "normalizedLengths": [213],
+      "markerOccurrences": [0],
+      "terminalConnected": true,
+      "terminalRole": "controller",
+      "lastSeq": 187,
+      "outputSeen": true
+    },
+    "daemonPid": 735031
+  },
+  "restart": {
+    "oldPid": 735031,
+    "newPid": 742422,
+    "newDaemonConnected": true
+  },
+  "workspaceDiagnostic": {
+    "reason": "REFUSED registered project readiness 0",
+    "refreshReposProbe": {
+      "httpStatus": 400,
+      "code": "BAD_REQUEST",
+      "message": "Expected void, received object"
+    },
+    "renderedProjectGroups": [
+      {
+        "text": "DUMMY-REPO\n1",
+        "ariaExpanded": "true",
+        "hidden": false,
+        "display": "flex",
+        "visibility": "visible",
+        "opacity": "1",
+        "width": 306,
+        "height": 35
+      }
+    ],
+    "replicaPath": "kernel",
+    "loadingElements": []
+  },
+  "verdict": "REFUSED",
+  "score": "UNSCORED_DIAGNOSTIC",
+  "reasons": [
+    "Pre-restart Native seed marker continuity was absent across all timed samples.",
+    "After restart the corrected selector found the populated project group, but neither the expected worktree row nor an empty-project start-first-task row matched, yielding registered project readiness 0.",
+    "The refusal-time refreshRepos diagnostic probe passed an object to a void-input procedure and returned BAD_REQUEST; it is not a valid refresh response."
+  ],
+  "a7aReadyCreated": false,
+  "a7aContinueCreated": false,
+  "a7bAttempted": false,
+  "resultRowAppended": false,
+  "teardown": {
+    "serverStopped": true,
+    "daemonStopped": true,
+    "credentialSymlinkRemoved": true,
+    "ownedProviderPidsStopped": [738546, 738861, 738862],
+    "portsClear": [22341, 49341, 49342]
+  },
+  "finishedAt": "2026-08-30T15:21:12.275Z"
+}

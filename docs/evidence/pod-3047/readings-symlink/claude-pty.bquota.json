@@ -1,0 +1,126 @@
+{
+  "cell": "BQUOTA",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3047n/probes/claude-pty-bquota",
+  "at": "2026-08-28T16:52:38.312Z",
+  "pin": {
+    "cell": "BQUOTA",
+    "at": "2026-08-28T16:52:38.337Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "e4d4ecf097da9191cd6c9a953b36f5acbc40b17d",
+    "pinSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "serverSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "daemonSha": "ad02520c22a9cba42db7fc1dd8c44620f29f4509",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "e4d4ecf",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1989048",
+    "daemonPid": "2028082",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "19010652 kB",
+      "SwapFree": "41213764 kB"
+    },
+    "rootFreeKiB": 82350556,
+    "load1m": 1.77,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "posture": "symlink"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-pty-bquota",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-pty-bquota",
+      "exists": false,
+      "files": 0
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "provider classed as usage_limit; reset not observed as recovered",
+  "control": {
+    "fired": true,
+    "what": "a delivered send, reply needle, quota text, auth text, or structured error from a live session",
+    "detail": "user=true; assistant=true; class=usage_limit"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "CLASS             {\"errorClass\":\"usage_limit\",\"retryable\":false}",
+    "ERROR             null",
+    "ASSISTANT         true",
+    "SCREEN            \"ontext)  Claude Max  Added`--restricted`(mike.wirth@gmail.com's OrganizationAdded`experimental.ca/tmp/pod-3047n/probes/claude-pty-bquota/release-notes for moreFable 5 is now a standard part of your Max planYoucanuseupto50%ofyourweeklyusagelimitonFable5.Ifyouhityourlimit,youcancontinueonFable5withusagecredits.Fable5drawsdownusagefasterthanOpus5.Run/modelandselectFabletouseit.Learnmore:https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-access+2 more  /status high  /effortTry \\\"edit <filepath> to...\\\" auto mode on (shift+tab to cycle)   for agents/rc connecting     /rc active(B(B Update installed  Restart to update(B                                                  Tips for getting        Welcome back Michael!started                               Run /inittocreatea What's new                  Bug fixes andreliabilOpus 5 (1M context)  Claude Max  Added `--restricted` (mike.wirth@gmail.com's Organiztionexprimenal.ca/tp/pod-3047n/probes/claude-pty-bquota/release-notes for moreFable 5 is now a standard part of your Max planYou can use up to 50% of your weekly usage limitonFable5.Ifyouhityourlimit, you cancntinue on Fabl 5 with usage credits. Fable5 draws downusage faster than Opus 5. Run /model and elct Fable to usit. Learn more:https://upport.claude.com/e/artices/15424964-claude-fabl-5-promotional-access +2 more  /status                  Update installed  Restart to updateReply with exactly this word and nothing else: P3047-BQUOTA-MTD6X6C5. Do not  use tools.               ]0; Claude CodeOpus 5 (1M context)  Claude Max  Added `--restricted`(mike.wirth@gmail.com's OrganizationAdded `experimental.ca/tmp/pod-3047n/probes/claude-pty-bquota/release-notes for more Fable 5 is now a standard part of your Max plan Youcan use up to 50% of your weekly usagelimitonFable5. If you hit your limit, you can continue on Fable 5 with usagecredits. Fable 5 draws down  usage faster than Opus 5. Run /model and select Fable to use it. Learn more:https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-access +2 more  /status Reply with exactly this word and nothing else: P3047-BQUOTA-MTD6X6C5. Do not    use tools.                                                                    Grooving    auto mode on (shift+tab to cycle)  esc to interrupt   for agents                                         Bugfixesandreliabilg*ni]0; P3047-BQUOTA-MTD6X6C5]0; P3047-BQUOTA-MTD6X6C5Philosophising i/tm/pod-3047n/probes/claude-pty-bquota/release-notes for more  Fable 5 is now a standard part of your Max planYoucanuseupto50%ofyourweeklyusagelimitonFable5.Ifyouhityourlimit, you can continue on Fable 5 with usage credits.Fable5drawsdownusage fastr thanOpus 5. Rn/modeland seect Fable to useit. Learn more:https://spport.claude.cm/en/articles/15424964-claude-f--pomotinal-access +2 more  /status Reply with exactly this word and nothing else: P3047-BQUOTA-MTD6X6C5. Do not    use tools.                                                                    mike.wirth@gmail.com's OrganizationAdded`experimental.cah*PP3047-BQUOTA-MTD6X6C5Philosophising(running stop hook  1s  7 tokens)]0; P3047-BQUOTA-MTD6X6C5Opus 5 (1M context)  Claude Mx  --rstriced` (  ike.wirth@gmail.com's Organization  Added `experimental.ca       /tmp/pod-3047n/probes/claude-pty-bquota       /release-notes for more Fable 5 is now a standard part of your Max planYou can use upt 50% of your wekly usage limit on Fable 5.If you hit yourlimit, you can continue on Fable 5 with uag credits. Fabl5 draws downusage fater than Opus 5. Ru /mode and select Fable to us it. Learn more:https://support.claude.com/en/articles/15424964-claude-fable-5-promotional-access+2 more  /status Reply with exactly this word and nothing else: P3047-BQUOTA-MTD6X6C5. Do not   use tools.                                                                    P3047-BQUOTA-MTD6X6C5Cogitated for 1s                                         Update installed  Restart to update auto mode on (shift+tab to cycle)   for agents\""
+  ],
+  "data": {
+    "sid": "b5cb87b0-1f03-4273-9b97-89ceeddf46a1",
+    "needle": "P3047-BQUOTA-MTD6X6C5",
+    "class": {
+      "errorClass": "usage_limit",
+      "retryable": false
+    },
+    "user": true,
+    "assistant": true,
+    "row": {
+      "sessionId": "b5cb87b0-1f03-4273-9b97-89ceeddf46a1",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "idle",
+      "machine": "flatblock",
+      "model": "claude-opus-5",
+      "effort": "high",
+      "contextUsagePercent": null,
+      "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "2830d8b probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

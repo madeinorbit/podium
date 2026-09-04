@@ -1,0 +1,93 @@
+{
+  "cell": "READ",
+  "driver": "claude-sdk",
+  "arm": "fix",
+  "cwd": "/tmp/pod-3057n/probes/read-check-fix",
+  "at": "2026-08-28T15:28:59.639Z",
+  "pin": {
+    "arm": "fix",
+    "at": "2026-08-28T15:28:59.662Z",
+    "checkoutSha": "96f53857ea743e8d10ddb09e57d012c48fbf4301",
+    "productTreeClean": true,
+    "serverSha": "96f53857ea743e8d10ddb09e57d012c48fbf4301",
+    "daemonSha": "96f53857ea743e8d10ddb09e57d012c48fbf4301",
+    "serverPid": "1747937",
+    "daemonPid": "1748065",
+    "tosOnDaemon": true,
+    "agentHome": "/home/mgw/.local/state/podium/p3057n/agent-home",
+    "port": "19958"
+  },
+  "verdict": "PASS",
+  "summary": "sessions.read returns the conversation the session stream showed",
+  "control": {
+    "fired": true,
+    "what": "a real assistant reply carrying the needle on the session stream",
+    "detail": "assistant=true; streamItems=2"
+  },
+  "evidence": [
+    "DRIVER            {\"sessionId\":\"4bc21bb7-4549-41d1-a652-6a97913202e4\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblo",
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "NEEDLE            P3057-MTD3X3ZQ",
+    "STREAM ITEMS      2 (needle=true)",
+    "SESSIONS.READ     2 items (needle=true)",
+    "SESSIONS.RECAP    {\"sessionId\":\"4bc21bb7-4549-41d1-a652-6a97913202e4\",\"recap\":\"Recap: 1 user / 1 assistant turns, 0 tool calls\\n\\nLatest activity (2 items):\\n[2026-08-28T15:29:03.848Z · 4285ef2d-6e2d-48d2-9e45-92d76041b924] user: Reply with exactly this token and nothing else: P3057-MTD3X3ZQ\\n[2026-08-28T15:29:05.722Z · 7f6cb51d-6676-4d9c-8cee-1bc19a4a9909] assistant: P3057-MTD3X3ZQ\",\"watermark\":\"WyIxZWYxZTQwYjY2Zj",
+    "DISK reader home  {\"dir\":\"/home/mgw/.local/state/podium/p3057n/agent-home/.claude/projects/-tmp-pod-3057n-probes-read-check-fix\",\"present\":true,\"files\":[\"417543d0-0e4a-4319-9917-91adf3891b01.jsonl\"],\"withNeedle\":[\"417543d0-0e4a-4319-9917-91adf3891b01.jsonl\"]}",
+    "DISK operator home{\"dir\":\"/home/mgw/.claude/projects/-tmp-pod-3057n-probes-read-check-fix\",\"present\":false,\"files\":[],\"withNeedle\":[]}"
+  ],
+  "data": {
+    "sid": "4bc21bb7-4549-41d1-a652-6a97913202e4",
+    "needle": "P3057-MTD3X3ZQ",
+    "cwd": "/tmp/pod-3057n/probes/read-check-fix",
+    "streamItems": [
+      {
+        "id": "claude-sdk-user-4bc21bb7-4549-41d1-a652-6a97913202e4-1",
+        "role": "user",
+        "ts": "2026-08-28T15:29:01.905Z",
+        "text": "Reply with exactly this token and nothing else: P3057-MTD3X3ZQ"
+      },
+      {
+        "id": "2aaa15b4-8db0-4f29-81c6-d87ed962c301",
+        "role": "assistant",
+        "ts": "2026-08-28T15:29:06.366Z",
+        "text": "P3057-MTD3X3ZQ"
+      }
+    ],
+    "readItems": [
+      {
+        "role": "user",
+        "text": "Reply with exactly this token and nothing else: P3057-MTD3X3ZQ",
+        "ts": "2026-08-28T15:29:03.848Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P3057-MTD3X3ZQ",
+        "ts": "2026-08-28T15:29:05.722Z"
+      }
+    ],
+    "disk": {
+      "readerHome": {
+        "dir": "/home/mgw/.local/state/podium/p3057n/agent-home/.claude/projects/-tmp-pod-3057n-probes-read-check-fix",
+        "present": true,
+        "files": [
+          "417543d0-0e4a-4319-9917-91adf3891b01.jsonl"
+        ],
+        "withNeedle": [
+          "417543d0-0e4a-4319-9917-91adf3891b01.jsonl"
+        ]
+      },
+      "operatorHome": {
+        "dir": "/home/mgw/.claude/projects/-tmp-pod-3057n-probes-read-check-fix",
+        "present": false,
+        "files": [],
+        "withNeedle": []
+      }
+    },
+    "recap": {
+      "sessionId": "4bc21bb7-4549-41d1-a652-6a97913202e4",
+      "recap": "Recap: 1 user / 1 assistant turns, 0 tool calls\n\nLatest activity (2 items):\n[2026-08-28T15:29:03.848Z · 4285ef2d-6e2d-48d2-9e45-92d76041b924] user: Reply with exactly this token and nothing else: P3057-MTD3X3ZQ\n[2026-08-28T15:29:05.722Z · 7f6cb51d-6676-4d9c-8cee-1bc19a4a9909] assistant: P3057-MTD3X3ZQ",
+      "watermark": "WyIxZWYxZTQwYjY2ZjgiLDEwOTQ5LCI3ZjZjYjUxZC02Njc2LTRkOWMtOGNlZS0xYmMxOWE0YTk5MDkiLDBd",
+      "newItems": 2,
+      "delta": false
+    }
+  }
+}

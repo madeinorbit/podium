@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { parseMeminfo, sampleHostLoad, sampleHostMemory } from './host-metrics'
+import { parseMeminfo, sampleHostDisk, sampleHostLoad, sampleHostMemory } from './host-metrics'
 
 const MEMINFO = `MemTotal:       24608580 kB
 MemFree:         1360324 kB
@@ -59,5 +59,28 @@ describe('sampleHostLoad', () => {
     expect(load.five).toBeGreaterThanOrEqual(0)
     expect(load.fifteen).toBeGreaterThanOrEqual(0)
     expect(load.cpuCount).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('sampleHostDisk', () => {
+  it('produces a schema-valid sample of the volume a path sits on', () => {
+    const d = sampleHostDisk()
+    // Every platform CI runs on has statfs; a host without it is the undefined
+    // branch below, and there is nothing to assert about the numbers then.
+    if (!d) return
+    expect(d.totalBytes).toBeGreaterThan(0)
+    expect(d.usedBytes).toBeGreaterThanOrEqual(0)
+    expect(d.availableBytes).toBeGreaterThanOrEqual(0)
+    // used + available may fall SHORT of total (the root reserve) but can never
+    // exceed it — the invariant the panel's percentage rests on.
+    expect(d.usedBytes + d.availableBytes).toBeLessThanOrEqual(d.totalBytes)
+    expect(d.path).toBeTruthy()
+  })
+
+  it('falls back to the root volume when the path itself cannot be read', () => {
+    const d = sampleHostDisk('/nonexistent/path/for/this/test')
+    if (!d) return
+    expect(d.path).toBe('/')
+    expect(d.totalBytes).toBeGreaterThan(0)
   })
 })

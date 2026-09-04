@@ -24,10 +24,6 @@
  * squircle, so feeding it icon-browser.svg would draw a second rounded frame.
  * Re-run this script after either platform-masked source is recut and commit both
  * PNGs. The maskable SVG is web's copy of the shared mobile master.
- *
- * `sharp` is not a declared dependency here — it arrives hoisted as a transitive
- * dependency of @vite-pwa/assets-generator, which is the same way
- * apps/mobile/scripts/generate-web-icons.ts reaches it.
  */
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'

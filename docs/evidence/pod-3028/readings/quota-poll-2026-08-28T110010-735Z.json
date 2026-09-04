@@ -1,0 +1,165 @@
+{
+  "at": "2026-08-28T11:00:10.735Z",
+  "seam": "GET https://api.anthropic.com/api/oauth/usage (apps/daemon/src/quota-claude.ts)",
+  "credential": {
+    "path": "/home/mgw/.claude/.credentials.json",
+    "mtime": "2026-08-28T06:20:34.463Z",
+    "mode": "100600",
+    "sizeBytes": 962,
+    "subscriptionType": "max",
+    "rateLimitTier": "default_claude_max_20x",
+    "scopes": [
+      "user:file_upload",
+      "user:inference",
+      "user:mcp_servers",
+      "user:profile",
+      "user:sessions:claude_code"
+    ],
+    "expiresAtIso": "2026-08-28T14:20:34.109Z",
+    "refreshTokenExpiresAtIso": "2026-09-09T23:01:08.115Z",
+    "expired": false,
+    "remainingMinutes": 200,
+    "insideTenMinuteFloor": false,
+    "hasAccessToken": true,
+    "hasRefreshToken": true
+  },
+  "usageHttpStatus": 200,
+  "classification": "provider-quota-not-exhausted; honest window classification; do not manufacture a failure",
+  "exhaustedWindows": [],
+  "monthlyWindows": [],
+  "weeklyWindows": [
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 0,
+      "resetsAt": null,
+      "labels": [],
+      "severity": "normal",
+      "isActive": false
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "percent": 0,
+      "resetsAt": null,
+      "labels": [
+        "Fable"
+      ],
+      "severity": "normal",
+      "isActive": false
+    }
+  ],
+  "usage": {
+    "windowCount": 3,
+    "windows": [
+      {
+        "kind": "session",
+        "group": "session",
+        "percent": 0,
+        "resetsAt": null,
+        "labels": [],
+        "severity": "normal",
+        "isActive": true
+      },
+      {
+        "kind": "weekly_all",
+        "group": "weekly",
+        "percent": 0,
+        "resetsAt": null,
+        "labels": [],
+        "severity": "normal",
+        "isActive": false
+      },
+      {
+        "kind": "weekly_scoped",
+        "group": "weekly",
+        "percent": 0,
+        "resetsAt": null,
+        "labels": [
+          "Fable"
+        ],
+        "severity": "normal",
+        "isActive": false
+      }
+    ],
+    "fiveHour": {
+      "utilization": 0,
+      "resets_at": null,
+      "limit_dollars": null,
+      "used_dollars": null,
+      "remaining_dollars": null
+    },
+    "sevenDay": {
+      "utilization": 0,
+      "resets_at": null,
+      "limit_dollars": null,
+      "used_dollars": null,
+      "remaining_dollars": null
+    },
+    "extraUsage": {
+      "is_enabled": false,
+      "monthly_limit": 0,
+      "used_credits": 0,
+      "utilization": null,
+      "currency": "USD",
+      "decimal_places": 2,
+      "disabled_reason": "org_level_disabled_until",
+      "user_disabled": false,
+      "spend_limit_reached": false,
+      "credits_ever_enabled": true,
+      "daily": null,
+      "weekly": null
+    },
+    "spend": {
+      "used": {
+        "amount_minor": 0,
+        "currency": "USD",
+        "exponent": 2
+      },
+      "limit": {
+        "amount_minor": 0,
+        "currency": "USD",
+        "exponent": 2
+      },
+      "percent": 0,
+      "severity": "normal",
+      "enabled": false,
+      "disabled_reason": "org_level_disabled_until",
+      "cap": {
+        "money": null,
+        "credits": {
+          "amount_minor": 0,
+          "exponent": 2
+        }
+      },
+      "balance": null,
+      "auto_reload": null,
+      "disclaimer": "Usage credits cover you when you hit your plan limits. [Learn more](https://support.claude.com/articles/12429409)",
+      "can_purchase_credits": false,
+      "can_toggle": false
+    },
+    "topLevelKeys": [
+      "amber_ladder",
+      "cinder_cove",
+      "extra_usage",
+      "five_hour",
+      "iguana_necktie",
+      "juniper_tide",
+      "limits",
+      "member_dashboard_available",
+      "nimbus_quill",
+      "omelette_promotional",
+      "seven_day",
+      "seven_day_cowork",
+      "seven_day_oauth_apps",
+      "seven_day_omelette",
+      "seven_day_opus",
+      "seven_day_sonnet",
+      "spend",
+      "tangelo"
+    ]
+  },
+  "pin": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+  "scheduledResetUtc": "2026-08-28T11:00:00Z",
+  "queriedAtAbsoluteUtc": "2026-08-28T11:00:10.735Z"
+}

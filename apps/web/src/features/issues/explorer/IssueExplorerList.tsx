@@ -334,7 +334,11 @@ function ExplorerRow({
   onStatusPick: (value: string) => void
 }): JSX.Element {
   const closed = issue.stage === 'done' || Boolean(issue.closedReason)
-  const needs = state.state === 'needs-you'
+  // An errored task is a needs-you with a cause (POD-1601): the row's own
+  // `data-needs-you` tint is what makes it findable in a long list, and an
+  // agent that died is exactly the row you would rather not scroll past.
+  const errored = state.state === 'error'
+  const needs = state.state === 'needs-you' || errored
   return (
     <button
       data-pressable
@@ -373,7 +377,12 @@ function ExplorerRow({
         className={cn(
           DOCK_STAMP,
           'flex-none',
-          needs ? 'font-semibold text-attention' : 'text-text-dim',
+          // Amber asks, red broke. `Agent overloaded` in the same ochre as
+          // `Needs you` reads as one more thing in the queue; in red it reads as
+          // the thing that stopped (POD-1601).
+          errored ? 'font-semibold text-destructive' : undefined,
+          needs && !errored ? 'font-semibold text-attention' : undefined,
+          !needs && 'text-text-dim',
         )}
       >
         {needs ? state.label : relativeTime(issue.updatedAt, Date.now())}

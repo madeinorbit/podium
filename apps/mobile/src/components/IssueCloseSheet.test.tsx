@@ -22,13 +22,6 @@ vi.mock('react-native-safe-area-context', () => ({
   useSafeAreaInsets: () => ({ top: 20, right: 0, bottom: 34, left: 0 }),
 }))
 vi.mock('../hooks/useReduceMotion', () => ({ useReduceMotion: () => true }))
-vi.mock('lucide-react-native', () => ({
-  AlertTriangle: () => null,
-  GitBranch: () => null,
-  GitCommit: () => null,
-  MessageCircleQuestion: () => null,
-  Users: () => null,
-}))
 // The sheet's physics belong to `BottomSheet` and are tested there; what this
 // file is about is what the guard SAYS.
 vi.mock('./BottomSheet', () => ({

@@ -958,7 +958,7 @@ async function persistTargetConfig(
   bindHost: ServerBindHost,
   port: number,
 ): Promise<void> {
-  applySetup({ mode: 'server', publicUrl, bindHost, port })
+  applySetup({ mode: 'server', publicUrl, bindHost, port, confirmUrlChange: true })
   const path = configPath()
   const handle = await open(path, 'r')
   try {

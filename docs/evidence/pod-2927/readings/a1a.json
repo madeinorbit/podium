@@ -1,0 +1,46 @@
+{
+  "instance": "grok2927",
+  "arm": "headless",
+  "results": [
+    {
+      "id": "A1a",
+      "arm": "headless",
+      "verdict": "PASS",
+      "summary": "idle send replied and returned a sent/delivered disposition",
+      "control": {
+        "fired": true,
+        "what": "the same socket receiving the probe prompt as a durable user transcript item",
+        "detail": "user=true answer=true transcriptDelta=2 assistantChars=11"
+      },
+      "evidence": [
+        "PRODUCT DRIVER    driverId=grok-acp family=server",
+        "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+        "DISPOSITION       delivered",
+        "REPLY             true after 2069ms",
+        "USER DURABLE      true"
+      ],
+      "data": {
+        "driverId": "grok-acp",
+        "driverFamily": "server",
+        "disposition": "delivered",
+        "sent": true,
+        "replied": true,
+        "token": "IDLE-INZWQI"
+      },
+      "cwd": "/tmp/pod-2927-grok/cells/headless-a1a",
+      "memoryMb": 5712,
+      "pin": "PIN OK row=A1a arm=headless instance=grok2927 serverPid=1851034 daemonPid=1851119 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 runtimeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+      "sessionIds": [
+        "61c99352-edf2-418b-9251-bb6f05e25fc8"
+      ],
+      "at": "2026-08-27T09:20:01.086Z"
+    }
+  ],
+  "admission": {
+    "diskFreeKb": 12863088,
+    "memAvailableKb": 5858124,
+    "load1": 7.92,
+    "lease": "test:heavy free"
+  },
+  "recordedAtLocal": "2026-08-27 11:20:36 CEST"
+}

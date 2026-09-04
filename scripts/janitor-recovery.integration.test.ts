@@ -1,12 +1,13 @@
-import { asThreadId } from '@podium/model'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asThreadId } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { startJanitor, type JanitorHandle } from '../apps/janitor/src/janitor'
-import { startServer, type ServerHandle } from '../apps/server/src/server'
-import { SessionStore, type MessageRow } from '../apps/server/src/store'
+import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
+import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import { type JanitorHandle, startJanitor } from '../packages/janitor/src/janitor'
 
 function messageStatus(dbPath: string): string | undefined {
   const db = openDatabase(dbPath, { readOnly: true })
@@ -78,7 +79,7 @@ describe('janitor process recovery [spec:SP-c29e]', () => {
       seed.close()
 
       expect(messageStatus(dbPath)).toBe('queued')
-      server = await startServer({ port: 0 })
+      server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
       janitor = await startJanitor({
         serverUrl: `http://127.0.0.1:${server.port}`,
         token: server.bootstrapToken,

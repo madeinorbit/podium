@@ -487,3 +487,51 @@ describe('registerWebStatic', () => {
     }
   })
 })
+
+/**
+ * `appUrl` (PDM-26). An API-only deployment has no page to give a browser, so
+ * these routes 404 or bounce between `/` and `/desktop` today: the operator
+ * typed the address they were handed and got nothing.
+ */
+describe('a server whose web UI lives somewhere else', () => {
+  const mount = () => {
+    const app = new Hono()
+    registerMobileRouting(app, {
+      expoMobilePresent: () => false,
+      appUrl: () => 'https://app.example',
+    })
+    return app
+  }
+
+  it('sends the root, the desktop shell and the phone entry to the app URL', async () => {
+    const app = mount()
+    for (const path of ['/', '/desktop', '/mobile', '/mobile/tasks/7']) {
+      const response = await app.request(path)
+      expect(response.status).toBe(302)
+      expect(response.headers.get('location')).toBe(`https://app.example${path}`)
+    }
+  })
+
+  it('carries the query string through, so a deep link survives the hop', async () => {
+    const response = await mount().request('/mobile/tasks/7?server=wss://x&e2e=1')
+    expect(response.headers.get('location')).toBe(
+      'https://app.example/mobile/tasks/7?server=wss://x&e2e=1',
+    )
+  })
+
+  it('does not redirect when this server has no app URL — nothing changes', async () => {
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => false })
+    app.get('/', (c) => c.text('web shell'))
+    expect(await (await app.request('/')).text()).toBe('web shell')
+  })
+
+  it('never takes a UI this server IS serving away from the operator in front of it', async () => {
+    // The composition root passes `undefined` whenever a bundle is present, so a
+    // served page keeps being served. This pins the port's contract.
+    const app = new Hono()
+    registerMobileRouting(app, { expoMobilePresent: () => false, appUrl: () => undefined })
+    app.get('/', (c) => c.text('web shell'))
+    expect(await (await app.request('/')).text()).toBe('web shell')
+  })
+})

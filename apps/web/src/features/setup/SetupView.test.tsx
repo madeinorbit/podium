@@ -55,7 +55,12 @@ beforeEach(() => {
     command: 'tailscale funnel 18787',
     hint: 'Then paste the https URL it prints.',
   })
-  trpcMock.info.mockResolvedValue({ mode: null, publicUrl: null, serverUrl: null }) // first run
+  trpcMock.info.mockResolvedValue({
+    mode: null,
+    publicUrl: null,
+    networkOption: null,
+    serverUrl: null,
+  }) // first run
   trpcMock.complete.mockResolvedValue({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
   trpcMock.connect.mockResolvedValue({ mode: 'all-in-one' })
   // POD-1554 made "a password is already set" PER-ACCOUNT: SetupView reads
@@ -241,7 +246,7 @@ describe('SetupView', () => {
     ).toBe(true)
     expect(view.queryByText(/I understand that anyone who can reach this Podium URL/i)).toBeNull()
 
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     fireEvent.click(view.getByRole('radio', { name: /run without a podium password/i }))
@@ -255,6 +260,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
       acknowledgeNoPassword: true,
     })
     expect(onSaved).toHaveBeenCalled()
@@ -269,7 +275,7 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     fireEvent.change(view.getByLabelText(/^login password$/i), {
@@ -282,6 +288,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
       password: 'launch-code',
     })
   })
@@ -300,7 +307,7 @@ describe('SetupView', () => {
     expect(
       (view.getByRole('radio', { name: /keep current password/i }) as HTMLInputElement).checked,
     ).toBe(true)
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     await act(async () => {
@@ -311,6 +318,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://box.ts.net',
       mode: 'all-in-one',
+      networkOption: 'tailscale-funnel',
     })
   })
 
@@ -352,12 +360,12 @@ describe('SetupView', () => {
       await flush()
     })
     // Stable URL: no warning.
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://box.ts.net' },
     })
     expect(view.queryByText(/quick tunnel/i)).toBeNull()
     // Quick-tunnel URL: inline warning, but the flow is not blocked.
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://random-words.trycloudflare.com' },
     })
     expect(view.getByText(/quick tunnel/i)).toBeTruthy()
@@ -430,7 +438,7 @@ describe('SetupView', () => {
       fireEvent.click(view.getByRole('button', { name: /continue/i }))
       await flush()
     })
-    fireEvent.change(view.getByLabelText(/public url/i), {
+    fireEvent.change(view.getByLabelText(/podium url/i), {
       target: { value: 'https://relay.ts.net' },
     })
     fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })
@@ -441,6 +449,7 @@ describe('SetupView', () => {
     expect(trpcMock.complete).toHaveBeenCalledWith({
       publicUrl: 'https://relay.ts.net',
       mode: 'server',
+      networkOption: 'tailscale-funnel',
       password: 'pw',
     })
     // …and takes a cookie for it before handing back, or the guard the password just enabled
@@ -463,7 +472,7 @@ describe('SetupView', () => {
         fireEvent.click(view.getByRole('button', { name: /continue/i }))
         await flush()
       })
-      fireEvent.change(view.getByLabelText(/public url/i), {
+      fireEvent.change(view.getByLabelText(/podium url/i), {
         target: { value: 'https://box.ts.net' },
       })
       fireEvent.change(view.getByLabelText(/^login password$/i), { target: { value: 'pw' } })
@@ -477,5 +486,38 @@ describe('SetupView', () => {
       expect(onSaved).toHaveBeenCalledOnce()
       expect(view.queryByText(/anonymous telemetry/i)).toBeNull()
     })
+  })
+})
+
+/**
+ * `PODIUM_MODE` (PDM-26). A dead control is worse on this screen than anywhere
+ * else in the product: it is the one screen a first-time operator has no context
+ * to interpret, and a disabled row of mode buttons reads as "something is
+ * broken" rather than "the deployment already answered".
+ */
+describe('SetupView when the deployment set the mode', () => {
+  it('skips the mode step entirely and opens on reachability', async () => {
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} modeForcedByEnv />)
+    expect(screen.queryByText(/how should this install run/i)).toBeNull()
+    expect(screen.queryAllByRole('radio', { name: /run podium on this machine/i })).toHaveLength(0)
+    // …and lands straight on the reachability step, which is the next thing the
+    // deployment has NOT already answered.
+    await act(async () => {
+      await flush()
+    })
+    expect(screen.getByLabelText(/podium url/i)).toBeTruthy()
+  })
+
+  it('offers no way back to a step that does not exist', async () => {
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} modeForcedByEnv />)
+    await act(async () => {
+      await flush()
+    })
+    expect(screen.queryByRole('button', { name: /^back$/i })).toBeNull()
+  })
+
+  it('without the flag the mode step is still the first thing shown', () => {
+    render(<SetupView httpOrigin="http://localhost:18787" onSaved={() => {}} />)
+    expect(screen.getByText(/how should this install run/i)).toBeTruthy()
   })
 })

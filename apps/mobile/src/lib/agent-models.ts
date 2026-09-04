@@ -15,6 +15,7 @@ export const ISSUE_AGENT_KINDS = [
   'grok',
   'opencode',
   'cursor',
+  'pi',
 ] as const satisfies readonly IssueAgentKind[]
 
 export const ISSUE_AGENT_LABELS: Record<IssueAgentKind, string> = {
@@ -23,6 +24,7 @@ export const ISSUE_AGENT_LABELS: Record<IssueAgentKind, string> = {
   grok: 'Grok',
   opencode: 'OpenCode',
   cursor: 'Cursor',
+  pi: 'Pi',
 }
 
 export const AUTO = 'auto'
@@ -110,6 +112,8 @@ const AGENT_MODELS: Record<IssueAgentKind, ModelChoice[]> = {
     { value: 'gpt-5.2', label: 'GPT-5.2' },
     { value: 'claude-opus-4-8-thinking-high', label: 'Claude Opus 4.8 Thinking' },
   ],
+  // Live-enumerated via `pi --list-models`; no static fallback.
+  pi: [],
 }
 
 const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
@@ -124,6 +128,15 @@ const AGENT_EFFORTS: Record<IssueAgentKind, Choice[]> = {
     { value: 'max', label: 'Max' },
   ],
   cursor: [],
+  pi: [
+    { value: 'off', label: 'Off' },
+    { value: 'minimal', label: 'Minimal' },
+    { value: 'low', label: 'Low' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High' },
+    { value: 'xhigh', label: 'Extra high' },
+    { value: 'max', label: 'Max' },
+  ],
 }
 
 export function issueAgentKind(value: string | null | undefined): IssueAgentKind | null {

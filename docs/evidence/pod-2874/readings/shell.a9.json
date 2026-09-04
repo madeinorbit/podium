@@ -1,0 +1,76 @@
+{
+  "cell": "A9",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2874/probes/shell-a9",
+  "at": "2026-08-26T12:31:47.704Z",
+  "pin": {
+    "cell": "A9",
+    "at": "2026-08-26T12:31:47.764Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2438263",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4003696 kB",
+      "SwapFree": "37351944 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session process tree was gone immediately and after five minutes",
+  "control": {
+    "fired": true,
+    "what": "target session process tree existing before kill",
+    "detail": "processes=1; screenBytes=100"
+  },
+  "evidence": [
+    "KILL              {\"result\":{}}",
+    "BEFORE            [\"2444251 2444244 /bin/bash\"]",
+    "IMMEDIATE         [[],[],[],[],[],[],[],[],[],[]]",
+    "AFTER 5 MIN       []",
+    "SERVER/DAEMON      true/true"
+  ],
+  "data": {
+    "sid": "25788f60-a8e2-4d2f-a9fd-d4d95af59442",
+    "before": [
+      "2444251 2444244 /bin/bash"
+    ],
+    "killed": {
+      "result": {}
+    },
+    "immediate": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "after": [],
+    "waitedMs": 300000
+  }
+}

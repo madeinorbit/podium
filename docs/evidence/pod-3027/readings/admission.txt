@@ -1,0 +1,30 @@
+NOW=2026-08-28 11:54:03 CEST
+HEAD=be0334e77b1d82cb27b3df991429359f31048682
+EPIC=45323df366cb9ac7156f7d1b4c02c39c706aaf33
+WANT_EPIC=45323df366cb9ac7156f7d1b4c02c39c706aaf33
+PRODUCT_DIFF=
+---- df ----
+/dev/sda1      303624428 207411184  96196860  69% /
+---- free ----
+               total        used        free      shared  buff/cache   available
+Mem:            23Gi       3.7Gi       1.6Gi       5.6Mi        18Gi        19Gi
+Swap:           39Gi          0B        39Gi
+---- vmstat ----
+procs -----------memory---------- ---swap-- -----io---- -system-- -------cpu-------
+ r  b   swpd   free   buff  cache   si   so    bi    bo   in   cs us sy id wa st gu
+ 6  0      0 1712392 5143872 14251304    0    0  3609  5180 26893   57 21 11 67  2  0  0
+11  0      0 1141188 5194880 14669680    0    0  2440 73716 28027 32079 20 47 15 17  0  0
+ 6  0      0 885552 5222732 14815480    0    0  1692 97428 32138 30056 22 45 25  8  0  0
+ 3  0      0 712888 5254168 14990688    0    0   864 82780 31012 29772 22 39 33  5  0  0
+---- lock ----
+'test:heavy' is free
+STOP: swap in use ( kB)
+NOW=2026-08-28 11:54:36 CEST
+HEAD=be0334e77b1d82cb27b3df991429359f31048682
+EPIC=45323df366cb9ac7156f7d1b4c02c39c706aaf33
+SWAP_USED_KB=0
+/dev/sda1      303624428 209975484  93632560  70% /
+               total        used        free      shared  buff/cache   available
+Mem:            23Gi       3.6Gi       568Mi       5.5Mi        19Gi        19Gi
+Swap:           39Gi          0B        39Gi
+ADMISSION_OK

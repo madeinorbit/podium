@@ -142,7 +142,6 @@ function setup(
   })
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
     issuesNormalized: extra.issuesNormalized,
     legacyFeed: new LegacyWireV1Feed({
@@ -172,7 +171,6 @@ describe('SocketHub metadata delta mode', () => {
     const plain = new FakeSocket()
     const legacy = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => plain,
     })
     legacy.connect()
@@ -197,7 +195,6 @@ describe('SocketHub metadata delta mode', () => {
     const opted = new FakeSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => opted,
       legacyFeed: new LegacyWireV1Feed({
         fetchChangesSince: async () => snapshot(0),
@@ -350,7 +347,6 @@ describe('SocketHub metadata delta mode', () => {
     const sock = new FakeSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       legacyFeed: new LegacyWireV1Feed({
         fetchChangesSince: () =>

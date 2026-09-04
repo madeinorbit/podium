@@ -86,6 +86,7 @@ function render(
         restoredQueued={[]}
         onRetractQueued={async () => {}}
         overlay={null}
+        turnPreview={null}
         activity={activity}
         attribution={{} as never}
       />,

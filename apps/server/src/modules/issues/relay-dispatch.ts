@@ -32,7 +32,13 @@
  */
 
 import { isExposedOn, sessionCommandPlane, sessionHandoffInput } from '@podium/commands'
-import { asSessionId, isSpawnedBy, type SessionMeta, type SessionId } from '@podium/model'
+import {
+  asMachineId,
+  asSessionId,
+  isSpawnedBy,
+  type SessionMeta,
+  type SessionId,
+} from '@podium/model'
 import { bareSelfRefCount, selfRefNudge, sessionTitleRule } from '@podium/protocol'
 import type { getFeatureStates, isFeatureEnabled } from '../../features'
 import { type Capability, checkIssueAccess } from '../../issue-authz'
@@ -201,6 +207,20 @@ export function makeAgentRelayDispatch(
     }
     if (router === 'machines' && proc === 'listWithRepos') {
       return Promise.resolve(fleetViewFor(modules(), capability, listRepos()))
+    }
+    if (router === 'machines' && proc === 'reprobe') {
+      const raw = (input ?? {}) as Record<string, unknown>
+      if (typeof raw.id !== 'string' || !raw.id) throw new Error('machine id is required')
+      const machine = visibleMachinesFor(modules(), capability).find(
+        (candidate) => candidate.id === raw.id,
+      )
+      if (!machine) throw new Error(`no visible machine with id '${raw.id}'`)
+      if (machine.use !== 'granted') {
+        throw new Error(`you do not have access to re-probe machine '${machine.name}'`)
+      }
+      if (!machine.online) throw new Error(`machine '${machine.name}' is offline`)
+      modules().machines.toMachine(asMachineId(machine.id), { type: 'inventoryRequest' })
+      return Promise.resolve({ machineId: machine.id, requested: true })
     }
     if (router === 'specs') {
       return specs.has(proc) ? (specs.invoke(proc, input) as Promise<unknown>) : undefined

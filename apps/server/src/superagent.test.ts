@@ -774,3 +774,54 @@ describe('session-steering tool belt (issue #62)', () => {
     expect(rows[0]).toMatchObject({ sessionId, spawnedBy: 'user', snoozedUntil: null })
   })
 })
+
+/**
+ * THE TURN REAPER MUST STOP BEFORE THE STORE CLOSES (POD-2772).
+ *
+ * `reapStaleTurns` runs on a `setInterval` and reads `listPendingTurns` on every
+ * tick. `SuperagentService` has always had a `dispose()` that clears it — but the
+ * service is built from `registry.modules`, so it exists only AFTER the registry,
+ * which means it is not one of the modules `SessionRegistry.dispose()` names, and
+ * nothing else was calling it. Every close path therefore left the interval armed
+ * over a store it had just closed, and each e2e file ended with two or three
+ * `RangeError: Cannot use a closed database` thrown from inside the timer. Vitest
+ * counts those as unhandled errors and fails the FILE, so a lane whose every
+ * assertion passed still reported red.
+ *
+ * Asserted on the STORE READ rather than on a `dispose()` spy: a spy proves the
+ * call was made, and what the bug was actually about is whether anything still
+ * touches the database after it is gone.
+ */
+describe('superagent turn reaper disposal (POD-2772)', () => {
+  const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+  it('stops reading the store once the registry it was adopted by is disposed', async () => {
+    const registry = new SessionRegistry(undefined, undefined, { instanceId: 'default' })
+    const store = registry.sessionStore
+    const repos = new RepoRegistry(registry, store)
+    // Fast enough to observe within a test, slow enough to tick more than once.
+    const sa = new SuperagentService(registry.modules, repos, store, { reapIntervalMs: 5 })
+    registry.adoptSuperagent(sa)
+
+    let reads = 0
+    const readPendingTurns = store.superagent.listPendingTurns.bind(store.superagent)
+    store.superagent.listPendingTurns = () => {
+      reads += 1
+      return readPendingTurns()
+    }
+
+    // FIRST prove the reaper is actually running, or the assertion below passes
+    // for the wrong reason on any change that stops it from ever starting.
+    await settle(60)
+    expect(reads).toBeGreaterThan(0)
+
+    registry.dispose()
+    const readsAtDisposal = reads
+    // The real shutdown order: `registry.dispose()` sits in the persist list
+    // directly above `store.close()`. A tick after this line is the RangeError.
+    store.close()
+    await settle(60)
+
+    expect(reads).toBe(readsAtDisposal)
+  })
+})

@@ -1,0 +1,54 @@
+{
+  "cell": "A1A",
+  "at": "2026-08-30T01:26:31.761Z",
+  "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+  "checkoutSha": "06177b035f2e534e4dee658f3c57a5468e94494c",
+  "pinSha": "d35c7ef7b630730f727365f25323427c67614386",
+  "serverSha": "d35c7ef7b630730f727365f25323427c67614386",
+  "daemonSha": "d35c7ef7b630730f727365f25323427c67614386",
+  "web": {
+    "wireSchemaDigest": "4c6f2e46828ec294",
+    "wireVersion": 2,
+    "appVersion": "dev+f3d3d8f",
+    "sourceSha": "f3d3d8f",
+    "bundleVersion": "bundle+DNK9bZVy"
+  },
+  "webReuseProof": {
+    "servedSourceSha": "f3d3d8f",
+    "headShort": "06177b0",
+    "appsWebIdentical": true
+  },
+  "serverPid": "2423044",
+  "daemonPid": "2423166",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+  "tosOnDaemon": false,
+  "freeMemory": {
+    "MemTotal": "24603312 kB",
+    "MemAvailable": "18463080 kB",
+    "SwapFree": "40418464 kB"
+  },
+  "rootFreeKiB": 69941604,
+  "load1m": 4.08,
+  "credential": {
+    "live": {
+      "present": true,
+      "path": "/home/mgw/.local/share/opencode/auth.json",
+      "mtime": "2026-08-04T12:46:44.680Z",
+      "size": 126
+    },
+    "isolated": {
+      "present": true,
+      "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r3/agent-home/.local/share/opencode/auth.json",
+      "mtime": "2026-08-04T12:46:44.680Z",
+      "size": 126
+    }
+  },
+  "forbiddenOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "PODIUM_RUNTIME_DRIVER": null
+  }
+}

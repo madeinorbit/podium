@@ -2,8 +2,8 @@ import { existsSync, readFileSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import { StageGlyph } from './issue-glyphs'
 import { IssueStatusIcon } from './IssueStatusIcon'
+import { StageGlyph } from './issue-glyphs'
 
 const stylesPath = ['src/styles.css', 'apps/web/src/styles.css']
   .map((path) => resolve(process.cwd(), path))
@@ -27,6 +27,14 @@ describe('StageGlyph', () => {
     expect(start, `${selector} not found in styles.css`).toBeGreaterThan(-1)
     expect(rule).toContain('rgb(59 130 246)')
     expect(rule).not.toContain('rgb(245 158 11)')
+  })
+
+  it('keeps transcript shipping and availability states visibly distinct', () => {
+    expect(styles).toContain('a.ref-link--issue[data-issue-stage="shipping"] {')
+    expect(styles).toContain('--ref-stage-color: rgb(139 92 246)')
+    expect(styles).toContain('a.ref-link--issue[data-issue-availability="archived"] {')
+    expect(styles).toContain('a.ref-link--issue[data-issue-availability="deleted"] {')
+    expect(styles).toContain('a.ref-link--issue[data-issue-availability="unavailable"] {')
   })
 })
 

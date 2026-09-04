@@ -79,11 +79,21 @@ export interface TranscriptTailOptions {
   maxInitialItems?: number
   /** Chunk size for backfill reads (test seam); defaults to READ_CHUNK_BYTES. */
   readChunkBytes?: number
+  /** Test seam for the cheap pre-seed existence check. */
+  initialPathStat?: (path: string) => Promise<unknown>
+  /** Test seam for a successfully acquired descriptor whose operations may fail. */
+  openFile?: (path: string) => ReturnType<typeof open>
   /** Test/attribution seam: fires only when a changed file requires a descriptor. */
   onReadOpen?: () => void
+  /** Bounded lifecycle visibility: one first-emission event and one event per distinct error. */
+  onStatus?: (event: TranscriptTailStatus) => void
 }
 
 /** Metadata accompanying each `onItems` delta. */
+export type TranscriptTailStatus =
+  | { kind: 'first-emission'; path: string; items: number; reset: boolean }
+  | { kind: 'error'; path: string; error: unknown }
+
 export interface TranscriptTailMeta {
   /** True when consumers should CLEAR their window and treat `items` as the new
    *  seed (first read, or after a truncation/replacement). */
@@ -196,6 +206,24 @@ export function tailTranscript(
     return stampCursors(recordToItems(record), fileId, lineOffset, recordUuid(record))
   }
 
+  let firstEmissionReported = false
+  let lastErrorKey: string | undefined
+  const reportStatus = (status: TranscriptTailStatus): void => {
+    try {
+      opts.onStatus?.(status)
+    } catch {
+      // Diagnostics are observational only: they must never alter tail delivery,
+      // cursor advancement, retry, or recovery semantics.
+    }
+  }
+  const reportError = (error: unknown): void => {
+    const code = error instanceof Error ? (error as NodeJS.ErrnoException).code : undefined
+    const key = code ?? (error instanceof Error ? error.message : String(error))
+    if (key === lastErrorKey) return
+    lastErrorKey = key
+    reportStatus({ kind: 'error', path, error })
+  }
+
   const readNew = async (): Promise<void> => {
     if (reading || stopped) return
     reading = true
@@ -207,9 +235,13 @@ export function tailTranscript(
       // one descriptor snapshot below so truncation and bounded reads stay
       // coherent if an append races this check.
       const observed = await stat(path)
-      if (!first && observed.size === offset + leftover.length) return
+      if (!first && observed.size === offset + leftover.length) {
+        lastErrorKey = undefined
+        return
+      }
       opts.onReadOpen?.()
-      const handle = await open(path, 'r')
+      const handle = await (opts.openFile ? opts.openFile(path) : open(path, 'r'))
+      let cycleSucceeded = false
       try {
         const { size } = await handle.stat()
         let reset = false
@@ -235,7 +267,10 @@ export function tailTranscript(
           flushedOffset = -1
           reset = true
         }
-        if (size === offset + leftover.length && !reset) return
+        if (size === offset + leftover.length && !reset) {
+          cycleSucceeded = true
+          return
+        }
         let items: TranscriptItem[] = []
         // CHUNKED read + parse: one bounded allocation and one bounded synchronous
         // parse slice per chunk; the await on each chunk read yields the event
@@ -301,12 +336,21 @@ export function tailTranscript(
         if (reset && items.length > maxInitialItems) items = items.slice(-maxInitialItems)
         if (items.length > 0 || reset) {
           onItems(items, { reset, tail: items.at(-1)?.cursor })
+          if (!firstEmissionReported) {
+            firstEmissionReported = true
+            reportStatus({ kind: 'first-emission', path, items: items.length, reset })
+          }
         }
+        cycleSucceeded = true
       } finally {
         await handle.close()
+        if (cycleSucceeded) lastErrorKey = undefined
       }
-    } catch {
-      // file missing (not created yet / rotated away) — keep polling
+    } catch (error) {
+      // File missing (not created yet / rotated away) remains retryable, but is no
+      // longer invisible. Deduplicate identical failures so the shared tick cannot
+      // turn one absent path into an unbounded log stream.
+      reportError(error)
     } finally {
       reading = false
     }
@@ -323,9 +367,23 @@ export function tailTranscript(
     { statTick: opts.statTick, pollMs: opts.pollMs ?? POLL_MS },
   )
   const seedGate = opts.seedGate ?? ((fn: () => Promise<void>) => fn())
-  void seedGate(() => readNew()).finally(() => {
-    seeded = true
-  })
+  // An observer can bind before its provider creates the transcript file. Do
+  // not park that missing-path retry behind the reattach seed queue: shared
+  // ticks are otherwise disabled for the lifetime of a delayed gate. Existing
+  // files still take the paced seed path; a later-created file gets the same
+  // bounded first-read window on the first shared tick that can stat it.
+  const pacedSeed = (): Promise<void> =>
+    seedGate(() => readNew()).finally(() => {
+      seeded = true
+    })
+  void (opts.initialPathStat ?? stat)(path).then(
+    () => pacedSeed(),
+    (error: unknown) => {
+      reportError(error)
+      if (isMissingPathError(error)) seeded = true
+      else void pacedSeed()
+    },
+  )
 
   return {
     path,
@@ -334,4 +392,10 @@ export function tailTranscript(
       stopPolling()
     },
   }
+}
+
+function isMissingPathError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false
+  const code = (error as NodeJS.ErrnoException).code
+  return code === 'ENOENT' || code === 'ENOTDIR'
 }

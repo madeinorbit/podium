@@ -1,3 +1,5 @@
+import { fadeDynamicColor } from './platform-colors'
+
 /**
  * JS equivalent of CSS `color-mix(in srgb, …)` for React Native, which has no
  * color-mix. Mixing happens on gamma-encoded sRGB channels — the same space the
@@ -34,6 +36,12 @@ export function mix(colour: string, percent: number, base: string): string {
 
 /** `alpha('#d9b477', 0.45)` → `rgba(217,180,119,0.45)` (CSS `rgba(C, .45)`). */
 export function alpha(hex: string, a: number): string {
+  const value = hex as unknown
+  const dynamic = fadeDynamicColor(value, a, alpha)
+  if (dynamic) return dynamic
+  // UIKit semantic colors already include platform opacity. Preserve those
+  // opaque tokens rather than trying to infer an RGB value from a name.
+  if (typeof value !== 'string') return hex
   const [r, g, b] = parseHex(hex)
   return `rgba(${r}, ${g}, ${b}, ${a})`
 }

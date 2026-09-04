@@ -30,12 +30,12 @@ function exactSiteEntries(siteDir: string): Array<[string, string]> {
     throw new Error(`${siteDir} has no readable ${CLIENT_BUILD_MANIFEST_FILE}: ${String(error)}`)
   }
   if (
-    manifest.manifestVersion !== 1 ||
+    manifest.manifestVersion !== 2 ||
     typeof manifest.files !== 'object' ||
     !manifest.files ||
     Object.keys(manifest.files).length === 0
   ) {
-    throw new Error(`${manifestPath} has no v1 file inventory`)
+    throw new Error(`${manifestPath} has no v2 file inventory`)
   }
   const expected = manifest.files as Record<string, unknown>
   const actual = new Map<string, string>()

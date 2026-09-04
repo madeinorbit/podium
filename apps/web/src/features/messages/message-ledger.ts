@@ -19,6 +19,8 @@ export interface LedgerMessage {
   body: string
   createdAt: string
   status: string
+  /** Current 1-based position in the recipient session FIFO at read time. */
+  queuePosition?: number
   ackedBy: string | null
   deliveredAt: string | null
   deliveredTo: string | null
@@ -28,6 +30,8 @@ export interface LedgerMessage {
   // Message-lifecycle timestamps (#834 [POD-834 §04d]).
   readAt?: string | null
   deadLetteredAt?: string | null
+  deliveryDeferredAt?: string | null
+  deliveryDeferredReason?: string | null
 }
 
 export interface ClampSummary {
@@ -57,6 +61,16 @@ export function clampSummary(m: LedgerMessage): ClampSummary | null {
 
 export type LedgerStatusTone = 'queued' | 'ok' | 'dead'
 
+/** Why a terminal chat delivery never reached its session. Kept separate from
+ * {@link deliveryLine} so the chat transcript can render the same explanation
+ * without manufacturing a complete ledger row. */
+export function deadLetterDeliveryLine(reason: string | null | undefined): string {
+  if (reason === 'never-live') return 'not delivered · session never became ready'
+  if (reason === 'teardown') return 'not delivered · session torn down'
+  if (reason === 'delivery-failed') return 'not delivered · delivery failed'
+  return 'dead-lettered · target gone'
+}
+
 /** Chip tone for a delivery status: queued = pending amber; delivered/read = ok
  *  (the agent has it, pushed or pulled [POD-834]); expired/cancelled/dead_letter
  *  = dead. */
@@ -77,8 +91,18 @@ export function deliveryLine(m: LedgerMessage): string {
     const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
     return `read${to}${m.ackedBy ? ` · acked by ${m.ackedBy}` : ''}`
   }
-  if (m.status === 'queued') return m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'
-  if (m.status === 'dead_letter') return 'dead-lettered · target gone'
+  if (m.status === 'queued') {
+    const position =
+      typeof m.queuePosition === 'number' &&
+      Number.isInteger(m.queuePosition) &&
+      m.queuePosition > 0
+        ? ` · queue position ${m.queuePosition}`
+        : ''
+    return `${m.expiresAt ? `queued · expires ${m.expiresAt}` : 'queued'}${position}`
+  }
+  // A dead letter says WHY when the daemon told us why [POD-2132, POD-2202]: the
+  // drain gave up, so this row is terminal rather than waiting on anything.
+  if (m.status === 'dead_letter') return deadLetterDeliveryLine(m.deliveryDeferredReason)
   if (m.status === 'expired') return 'expired undelivered'
   return m.status
 }

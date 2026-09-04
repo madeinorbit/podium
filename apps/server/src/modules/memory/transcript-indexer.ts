@@ -127,6 +127,10 @@ export class TranscriptIndexer {
   backfillMachine(machineId: MachineId, lakePathFor: (nativeId: string) => string): void {
     if (this.stopped) return
     if (this.backfilling.has(machineId)) return
+    // Unavailable for either of two reasons: this SQLite build has no FTS5, or
+    // search is off for this boot (`command-palette`, PDM-25). Both mean the same
+    // thing here — index nothing, and let `indexed_bytes` sit where it is so a
+    // later boot with the index back on resumes from that cursor.
     if (!this.deps.index.isAvailable) return
     // Unchanged-gap skip: drop segments whose (mirrored, indexed) pair is exactly
     // where the last attempt left it — that gap is a partial trailing line the

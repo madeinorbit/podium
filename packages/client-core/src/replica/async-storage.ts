@@ -5,14 +5,15 @@
  * Promise-only. The standard bridge: hydrate every namespaced key into an
  * in-memory map up front (await `createAsyncStorageReplicaStorage` before
  * constructing the replica), then serve reads from the map and write through
- * to the async backing behind a per-key serialization queue.
+ * to the async backing behind one ordered writer.
  *
  * Durability is write-behind: a crash between the sync write and the flush
  * loses at most the tail of the queue — the same "best effort, cold-start on
  * loss" posture the replica already has for quota-degraded web storage. The
- * cursor honesty invariant is preserved by ordering: setItem calls flush in
- * issue order, so the cursor key never lands before the entity blobs queued
- * ahead of it.
+ * Callers may mark hot, best-effort keys as coalescible. Those keys wait for a
+ * short quiet window and retain only their latest pending value. Every other
+ * key is an ordering fence: pending hot writes are sealed before it, so cursor,
+ * migration and authored-work families retain their issue order.
  */
 
 import type { StorageApi } from '@tanstack/db'
@@ -35,6 +36,19 @@ export interface AsyncReplicaStorage {
   flush(): Promise<void>
 }
 
+export interface AsyncReplicaStorageOptions {
+  /** Hot keys whose pending writes may collapse to their latest operation. */
+  coalesce?: (key: string) => boolean
+  /** Quiet window before coalesced writes start. Defaults to 250ms. */
+  settleMs?: number
+}
+
+interface PendingOperation {
+  readonly key: string
+  readonly sequence: number
+  readonly run: () => Promise<void>
+}
+
 /**
  * Hydrate all keys under `prefixes` from the async backing and return a
  * synchronous write-through StorageApi. Must be awaited BEFORE `createReplica`.
@@ -42,6 +56,7 @@ export interface AsyncReplicaStorage {
 export async function createAsyncStorageReplicaStorage(
   backing: AsyncKeyValueStorage,
   prefixes: readonly string[] = [REPLICA_KEY_PREFIX],
+  options: AsyncReplicaStorageOptions = {},
 ): Promise<AsyncReplicaStorage> {
   const cache = new Map<string, string>()
   try {
@@ -58,25 +73,123 @@ export async function createAsyncStorageReplicaStorage(
     // A failed hydrate cold-starts (spec invariant 2) — the cache stays empty
     // and the session runs write-through from scratch.
   }
-  // FIFO write-behind queue: preserves issue order across keys (cursor-after-
-  // data), collapses nothing (writes are small), never throws into callers.
-  let tail: Promise<void> = Promise.resolve()
-  const enqueue = (op: () => Promise<void>): void => {
-    tail = tail.then(op).catch(() => {})
+  const coalesce = options.coalesce ?? (() => false)
+  const settleMs = options.settleMs ?? 250
+  const pending = new Map<string, PendingOperation>()
+  const batches: PendingOperation[][] = []
+  const flushWaiters = new Set<{ sequence: number; resolve: () => void }>()
+  let settleTimer: ReturnType<typeof setTimeout> | undefined
+  let pendingSettled = false
+  let running = false
+  let issuedSequence = 0
+  let completedSequence = 0
+
+  const resolveFlushWaiters = (): void => {
+    for (const waiter of flushWaiters) {
+      if (completedSequence < waiter.sequence) continue
+      flushWaiters.delete(waiter)
+      waiter.resolve()
+    }
   }
+
+  const runBatches = async (): Promise<void> => {
+    if (running) return
+    running = true
+    try {
+      while (batches.length > 0) {
+        const batch = batches.shift()
+        if (batch === undefined) continue
+        for (const operation of batch) {
+          try {
+            await operation.run()
+          } catch {
+            // Best-effort, matching the bridge's previous write-behind queue.
+          }
+        }
+        completedSequence = Math.max(
+          completedSequence,
+          ...batch.map((operation) => operation.sequence),
+        )
+        resolveFlushWaiters()
+      }
+    } finally {
+      running = false
+      if (pendingSettled) {
+        pendingSettled = false
+        sealPending()
+      }
+    }
+  }
+
+  const queueBatch = (batch: PendingOperation[]): void => {
+    if (batch.length === 0) return
+    batches.push(batch)
+    void runBatches()
+  }
+
+  const sealPending = (): void => {
+    if (settleTimer !== undefined) {
+      clearTimeout(settleTimer)
+      settleTimer = undefined
+    }
+    if (pending.size === 0) return
+    const batch = [...pending.values()].sort((a, b) => a.sequence - b.sequence)
+    pending.clear()
+    queueBatch(batch)
+  }
+
+  const schedulePending = (): void => {
+    if (settleTimer !== undefined) clearTimeout(settleTimer)
+    pendingSettled = false
+    settleTimer = setTimeout(() => {
+      settleTimer = undefined
+      // Do not retain one sealed batch for every quiet interval while native
+      // storage is slow. Keep coalescing in the map until the writer catches up.
+      if (running || batches.length > 0) {
+        pendingSettled = true
+        return
+      }
+      sealPending()
+    }, settleMs)
+    settleTimer.unref?.()
+  }
+
+  const operation = (key: string, run: () => Promise<void>): PendingOperation => ({
+    key,
+    sequence: ++issuedSequence,
+    run,
+  })
+
+  const enqueue = (next: PendingOperation): void => {
+    if (coalesce(next.key)) {
+      pending.set(next.key, next)
+      schedulePending()
+      return
+    }
+    // Ordered families fence the coalesced side cache on both sides. This keeps
+    // cursor-after-data and copy-before-retire behavior byte-for-byte ordered.
+    sealPending()
+    queueBatch([next])
+  }
+
   return {
     storage: {
       getItem: (k) => cache.get(k) ?? null,
       setItem: (k, v) => {
         cache.set(k, v)
-        enqueue(() => backing.setItem(k, v))
+        enqueue(operation(k, () => backing.setItem(k, v)))
       },
       removeItem: (k) => {
         cache.delete(k)
-        enqueue(() => backing.removeItem(k))
+        enqueue(operation(k, () => backing.removeItem(k)))
       },
     },
     keys: () => [...cache.keys()],
-    flush: () => tail,
+    flush: () => {
+      const through = issuedSequence
+      sealPending()
+      if (completedSequence >= through) return Promise.resolve()
+      return new Promise<void>((resolve) => flushWaiters.add({ sequence: through, resolve }))
+    },
   }
 }

@@ -1,0 +1,56 @@
+{
+  "cell": "A8",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a8",
+  "at": "2026-08-26T12:12:17.048Z",
+  "pin": {
+    "cell": "A8",
+    "at": "2026-08-26T12:12:17.100Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2344213",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5070472 kB",
+      "SwapFree": "37405608 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "login path is visible; completing external OAuth is outside this rig",
+  "control": {
+    "fired": true,
+    "what": "logged-out Claude spawn producing a live terminal surface",
+    "detail": "attached=1; screenBytes=2122"
+  },
+  "evidence": [
+    "SCREEN            \"78]0; Claude CodeClaudeCodev2.1.231\\nTipsforgetting\\nWelcomebackMichael!started\\nAskClaudetocreatea\\nWhat'snew\\nAddedastartupwarnin\\nOpus5(1Mcontext)APIUsageBillingAddedanAutomodetab\\nmike.wirth@gmail.com'sOrganizationAddedtheturn'scompl\\n/tmp/pod-2874/probes/claude-a8/release-notesformore\\nTry\\\"createautillogging.pythat...\\\"\\nautomodeon(shift+tabtocycle)foragents\\nNotloggedinRun/login\\nhigh/effort\\n]11;?[>0q\"",
+    "LOGIN PATH        true",
+    "STATUS            {\"sessionId\":\"d82c6856-3d6f-4d98-85e8-994876abd981\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":"
+  ],
+  "data": {
+    "sid": "d82c6856-3d6f-4d98-85e8-994876abd981",
+    "loginPath": true,
+    "screen": "78]0; Claude CodeClaudeCodev2.1.231\nTipsforgetting\nWelcomebackMichael!started\nAskClaudetocreatea\nWhat'snew\nAddedastartupwarnin\nOpus5(1Mcontext)APIUsageBillingAddedanAutomodetab\nmike.wirth@gmail.com'sOrganizationAddedtheturn'scompl\n/tmp/pod-2874/probes/claude-a8/release-notesformore\nTry\"createautillogging.pythat...\"\nautomodeon(shift+tabtocycle)foragents\nNotloggedinRun/login\nhigh/effort\n]11;?[>0q"
+  }
+}

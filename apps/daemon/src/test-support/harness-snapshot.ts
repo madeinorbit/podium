@@ -7,6 +7,7 @@ const defaults: Record<BuiltinHarnessKind, string> = {
   grok: '/opt/grok',
   opencode: '/opt/opencode',
   cursor: '/opt/cursor-agent',
+  pi: '/opt/pi',
 }
 
 export function testHarnessSnapshot(

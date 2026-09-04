@@ -1,0 +1,81 @@
+{
+  "at": "2026-08-30T14:45:52.925Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "integrationTip": "41d93f266b36681fd48e64ff8ab3493766c25f22",
+  "productPins": {
+    "server": "41d93f266b36681fd48e64ff8ab3493766c25f22",
+    "daemon": "41d93f266b36681fd48e64ff8ab3493766c25f22",
+    "web": "41d93f2"
+  },
+  "instance": "p3112-a7a-41d93f-r1",
+  "ports": [22231, 49231, 49232],
+  "machine": {
+    "id": "d3f8eb1e-db07-472c-a529-a5e21b1d7006",
+    "updateChannel": "edge",
+    "registeredRepo": "/tmp/pod-3112-a7a-41d93f-r1/dummy-repo"
+  },
+  "providerPrompts": 1,
+  "identity": {
+    "sessionId": "7d6eb289-2c7d-496a-ae95-b7478a3b2ac0",
+    "createdAt": "2026-08-30T14:45:56.452Z",
+    "driverId": "opencode-server",
+    "requestedDriverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_facdd8e6effed5Ln61dVJngoc4"
+    },
+    "cwd": "/tmp/pod-3112-a7a-41d93f-r1/dummy-repo"
+  },
+  "seed": {
+    "codeword": "R18-MTFX9KRM",
+    "nonce": "P3112-R18-SEED-MTFX9KRM",
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "initialScreenLength": 3200
+  },
+  "beforeRestart": {
+    "journal": {
+      "opencodeSessionId": "ses_facdd8e6effed5Ln61dVJngoc4",
+      "process": {
+        "key": "podium-oc-7d6eb289-2c7d-496a-ae95-b7478a3b2ac0",
+        "pid": 603313
+      },
+      "workdir": "/tmp/pod-3112-a7a-41d93f-r1/dummy-repo",
+      "seq": 21,
+      "turnEpoch": 1,
+      "bindingVersion": 1
+    },
+    "providerExact": true,
+    "chatMarkerOccurrences": 2,
+    "nativeMarkerOccurrences": 0,
+    "nativeSeedControl": false,
+    "daemonPid": 600499
+  },
+  "restart": {
+    "oldPid": 600499,
+    "newPid": 606092,
+    "newDaemonConnected": true
+  },
+  "verdict": "REFUSED",
+  "score": "UNSCORED_DIAGNOSTIC",
+  "reasons": [
+    "Pre-restart Native seed marker continuity was absent.",
+    "Post-restart workspace restoration timed out waiting for the dummy-repo project group to become visible."
+  ],
+  "a7aReadyCreated": false,
+  "a7aContinueCreated": false,
+  "a7bAttempted": false,
+  "resultRowAppended": false,
+  "teardown": {
+    "serverStopped": true,
+    "daemonStopped": true,
+    "credentialSymlinkRemoved": true,
+    "ownedProviderPidsStopped": [603313, 603434, 603435],
+    "portsClear": [22231, 49231, 49232]
+  },
+  "finishedAt": "2026-08-30T14:47:37.802Z"
+}

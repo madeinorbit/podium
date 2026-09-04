@@ -1,0 +1,159 @@
+{
+  "cell": "A1B",
+  "driver": "default-headed",
+  "cwd": "/tmp/pod-3112-paired-r3/probes/default-headed-a1b",
+  "at": "2026-08-30T01:36:39.253Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-30T01:36:39.285Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "422b645a5699e1d1cbd0c2a14aa36516e756ccc2",
+    "pinSha": "d35c7ef7b630730f727365f25323427c67614386",
+    "serverSha": "d35c7ef7b630730f727365f25323427c67614386",
+    "daemonSha": "d35c7ef7b630730f727365f25323427c67614386",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "422b645",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2457491",
+    "daemonPid": "2457645",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18526728 kB",
+      "SwapFree": "40418484 kB"
+    },
+    "rootFreeKiB": 69928760,
+    "load1m": 4.7,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r3/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "busy send did not show a durable queue position or did not answer after reload",
+  "control": {
+    "fired": true,
+    "what": "the first busy-turn send delivering and the session producing an in-flight signal",
+    "detail": "first user turn=true; preview=true; working=true at 2873ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SECOND SEND       {\"ok\":true,\"queued\":false,\"position\":1,\"disposition\":\"delivered\"}",
+    "QUEUE POSITION    1",
+    "POSITION FIELD    true",
+    "RELOADED USER     true in 40ms",
+    "RELOADED REPLY    true in 1570ms"
+  ],
+  "data": {
+    "sid": "d007b29b-cdff-4114-8d54-64fdb27a10a0",
+    "first": "P3112-A1B-FIRST-MTF52LHK",
+    "queued": "P3112-A1B-QUEUED-MTF52LHK",
+    "firstUser": true,
+    "working": [
+      {
+        "ms": 33,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 303,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 620,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 910,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 1183,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 1464,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 1749,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 2043,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 2320,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 2595,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "generic-pty"
+      },
+      {
+        "ms": 2873,
+        "phase": "working",
+        "status": "live",
+        "driverId": "generic-pty"
+      }
+    ],
+    "second": {
+      "ok": true,
+      "queued": false,
+      "position": 1,
+      "disposition": "delivered"
+    },
+    "secondUser": true,
+    "secondAssistant": true,
+    "position": 1,
+    "hasPositionField": true
+  }
+}

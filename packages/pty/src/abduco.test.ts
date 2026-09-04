@@ -1,6 +1,6 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
+import { hostname, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -93,19 +93,135 @@ describe('abduco command builders', () => {
       session.dispose()
     }
   })
+  it('queues a recovery redraw until the abduco attach client acknowledges readiness', () => {
+    let emit: ((data: Uint8Array) => void) | undefined
+    const resizes: Array<{ cols: number; rows: number }> = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: (cb) => {
+        emit = cb
+      },
+      onExit: () => {},
+      write: () => {},
+      resize: (cols, rows) => resizes.push({ cols, rows }),
+      kill: () => {},
+    }
+    const session = attachAbducoAgent({
+      label: 'podium-ready-redraw',
+      cols: 80,
+      rows: 24,
+      backend: { name: 'bun-terminal', spawn: () => proc },
+      repaintOnAttach: false,
+    })
+
+    session.redrawWhenReady?.()
+    expect(resizes).toEqual([])
+
+    emit?.(Buffer.from('\x1b[?1049h\x1b[H', 'latin1'))
+    expect(resizes).toEqual([{ cols: 80, rows: 23 }])
+    session.dispose()
+  })
+
+  it('adopting a live master applies nothing and repaints nothing', async () => {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-abduco-adopt-policy-'))
+    const label = 'podium-adopt-policy'
+    const socketPath = join(dir, `${label}@${hostname()}`)
+    writeFileSync(socketPath, '')
+    chmodSync(socketPath, 0o600)
+
+    const resizes: Array<{ cols: number; rows: number }> = []
+    const writes: string[] = []
+    const proc: PtyProcess = {
+      pid: 4242,
+      onData: () => {},
+      onExit: () => {},
+      write: (data: Uint8Array) => writes.push(Buffer.from(data).toString('hex')),
+      resize: (cols: number, rows: number) => resizes.push({ cols, rows }),
+      kill: () => {},
+    }
+    const backend: PtyBackend = {
+      name: 'bun-terminal',
+      spawn: () => proc,
+    }
+
+    try {
+      const replaying = await spawnAbducoAgent({
+        label,
+        cmd: 'unused-for-live-master',
+        cols: 80,
+        rows: 24,
+        env: { ABDUCO_SOCKET_DIR: dir },
+        backend,
+      })
+      expect(replaying.adopted).toBe(true)
+      expect(resizes).toEqual([])
+      expect(writes).toEqual([]) // no attach-time repaint at all
+
+      // Even an explicit redraw stays silent while nothing has been asked of this
+      // session: its pty is a sentinel, so the nudge would move a program nobody
+      // asked to move, and the ask itself repaints [spec:SP-6144].
+      replaying.redraw()
+      expect(writes).toEqual([])
+      expect(resizes).toEqual([])
+
+      // Once a viewer HAS asked, the session is an ordinary one again: that one
+      // resize, and then a real nudge on demand.
+      replaying.resize(80, 24)
+      expect(resizes).toEqual([{ cols: 80, rows: 24 }])
+      replaying.redraw()
+      expect(resizes).toEqual([
+        { cols: 80, rows: 24 },
+        { cols: 80, rows: 23 },
+      ])
+      replaying.dispose()
+
+      resizes.length = 0
+      writes.length = 0
+      const ordinary = await spawnAbducoAgent({
+        label,
+        cmd: 'unused-for-live-master',
+        cols: 80,
+        rows: 24,
+        env: { ABDUCO_SOCKET_DIR: dir },
+        backend,
+      })
+      expect(ordinary.adopted).toBe(true)
+      // An ordinary adoption asks for the attach-time repaint, and on this path
+      // that repaint is now nothing at all: adopting a live master may not touch
+      // the program, and the first viewport request is what repaints it. Give the
+      // deferred-repaint fallback time to prove it stays silent.
+      await new Promise((r) => setTimeout(r, 1500))
+      expect(writes).toEqual([])
+      expect(resizes).toEqual([])
+      ordinary.dispose()
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
 
   it('wraps the create command in a named transient --user scope (the cgroup that survives redeploy)', () => {
     // The master must land in a sibling cgroup, not the daemon's service cgroup,
     // or `systemctl restart` (KillMode=control-group) takes it down on every redeploy.
+    // Slice and budget are passed explicitly so this asserts the SHAPE rather
+    // than this host's RAM; the derived defaults have their own test in
+    // `scope.test.ts`.
     expect(
-      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')]),
+      systemdScopeArgv('podium-1.scope', ['abduco', ...abducoCreateArgv('podium-1', 'claude')], {
+        slice: 'podium-sessions.slice',
+        budget: { memoryHighBytes: 900, memoryMaxBytes: 1000, tasksMax: 64 },
+      }),
     ).toEqual([
       '--user',
       '--scope',
       '--collect',
       '--quiet',
+      '--slice=podium-sessions.slice',
       '--property=CPUWeight=50',
       '--property=IOWeight=100',
+      '--property=MemoryHigh=900',
+      '--property=MemoryMax=1000',
+      '--property=TasksMax=64',
+      '--property=OOMPolicy=continue',
       '--unit=podium-1.scope',
       '--',
       'abduco',
@@ -281,6 +397,7 @@ describe('alt-screen chrome stripper', () => {
 })
 
 const hasAbduco = isAbducoAvailable()
+const hasScopeMaster = hasAbduco && (await canScopeMaster())
 
 // POD-107: the in-test killAbducoSession calls sit on the happy path — a failed
 // assertion or timeout leaks the detached master for days. Sweep every label this
@@ -320,7 +437,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     let out = ''
     let title = ''
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     session.onTitle((t) => {
       title = t
@@ -329,7 +446,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     while (!out.includes('READY') && Date.now() - readyStart < 8000) await wait(25)
     expect(out).toContain('READY') // byte-transparency
     expect(out).not.toContain('\x1b[?1049h') // client attach chrome stripped
-    expect(title).toContain('FIXTURE-TITLE') // OSC passes through verbatim (no tmux set-titles needed)
+    expect(title).toContain('FIXTURE-TITLE') // OSC passes through verbatim
 
     session.write(Buffer.from('hi\r', 'utf8').toString('base64'))
     await wait(500)
@@ -345,7 +462,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24 })
     let out2 = ''
     re.onFrame((f) => {
-      out2 += Buffer.from(f.data, 'base64').toString('utf8')
+      out2 += Buffer.from(f.data).toString('utf8')
     })
     await wait(500)
     re.write(Buffer.from('yo\r', 'utf8').toString('base64'))
@@ -381,7 +498,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
     const re = attachAbducoAgent({ label, cols: 80, rows: 24 }) // same geometry
     let out = ''
     re.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     await wait(1200)
     expect(out).toContain('PODIUM-FIXTURE') // repainted despite unchanged size
@@ -419,7 +536,7 @@ describe.skipIf(!hasAbduco)('abduco integration', () => {
   }, 15000)
 })
 
-describe.skipIf(!hasAbduco || !canScopeMaster())('scope reclaim before respawn', () => {
+describe.skipIf(!hasScopeMaster)('scope reclaim before respawn', () => {
   // Reproduces the diagnosed "agent keeps getting shut down" loop: a session's
   // deterministic scope (`<label>.scope`) is left ACTIVE by orphaned grandchildren the
   // agent spawned (a leaked sub-stack, stray Xvfb …). The same-named systemd-run then
@@ -503,7 +620,7 @@ describe.skipIf(!hasAbduco)('abduco input-fidelity parity', () => {
       session = spawnAgent({ cmd: bunBin, args: [HEX_FIXTURE], cols: 80, rows: 24 }, bunPty)
     }
     session.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     // Probe with a non-control byte first so setRawMode is live before Ctrl-C (0x03).
     session.write(Buffer.from([0x61]).toString('base64')) // 'a'

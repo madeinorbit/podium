@@ -1,0 +1,179 @@
+{
+  "schemaVersion": 1,
+  "redaction": "Prompt text, codeword/nonces, cookies, credentials, and raw transcript payloads omitted.",
+  "sourceEvidence": {
+    "a7aJsonSha256": "2dfc2f401c18252e6cbb48399ea7e8745269a9aec90d7d16d6c9fa375cb5a53c",
+    "r18ReadingJsonSha256": "95d9569cd5fb16298df4d9e6b9c5e7948e7c23347427234899a458a8671c1b6c"
+  },
+  "at": "2026-08-30T09:47:32.872Z",
+  "finishedAt": "2026-08-30T09:47:58.038Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "36c5605976714873cb971121d9e892b60147ef71",
+  "instance": "p3112-oc-continuity-r18",
+  "ports": [
+    20328,
+    47344,
+    47345
+  ],
+  "providerPrompts": 2,
+  "overall": {
+    "verdict": "REFUSED",
+    "reason": "Error: A7a control failed"
+  },
+  "launch": {
+    "identity": {
+      "sessionId": "f004237b-a234-43ea-8683-703c037df2e5",
+      "createdAt": "2026-08-30T09:47:33.945Z",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fadeebb08ffegdowbVw1y973QC"
+      },
+      "providerSessionId": null,
+      "conversationId": null,
+      "providerPid": null,
+      "cwd": "/tmp/pod-3112-oc-continuity-r18/dummy-repo"
+    },
+    "nativeFirst": true,
+    "screenLength": 3200
+  },
+  "seedControl": {
+    "workingMs": 3885.4948719999993,
+    "growthMs": 3885.4948719999993,
+    "replyMs": 3322.985401,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "beforeRestart": {
+    "identity": {
+      "sessionId": "f004237b-a234-43ea-8683-703c037df2e5",
+      "createdAt": "2026-08-30T09:47:33.945Z",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fadeebb08ffegdowbVw1y973QC"
+      },
+      "providerSessionId": null,
+      "conversationId": null,
+      "providerPid": null,
+      "cwd": "/tmp/pod-3112-oc-continuity-r18/dummy-repo"
+    },
+    "journal": {
+      "opencodeSessionId": "ses_fadeebb08ffegdowbVw1y973QC",
+      "process": {
+        "key": "podium-oc-f004237b-a234-43ea-8683-703c037df2e5",
+        "pid": 3883771
+      },
+      "workdir": "/tmp/pod-3112-oc-continuity-r18/dummy-repo",
+      "seq": 19,
+      "turnEpoch": 1,
+      "bindingVersion": 1
+    },
+    "provider": {
+      "pid": 3883771,
+      "live": true,
+      "cwd": "/tmp/pod-3112-oc-continuity-r18/dummy-repo",
+      "instance": true,
+      "exact": true
+    },
+    "views": {
+      "native": true,
+      "chat": true,
+      "terminalNormalizedMarkerOccurrences": 2,
+      "terminalNormalizedLength": 345,
+      "chatMarkerOccurrences": 2,
+      "chatLength": 152
+    },
+    "daemonPid": 3850496
+  },
+  "a7a": {
+    "verdict": "FAIL",
+    "restart": {
+      "oldPid": 3850496,
+      "newPid": 3884418,
+      "sha": "36c5605976714873cb971121d9e892b60147ef71",
+      "at": "2026-08-30T11:47:50+02:00"
+    },
+    "adoptMs": 1367.4450069999984,
+    "before": {
+      "sessionId": "f004237b-a234-43ea-8683-703c037df2e5",
+      "createdAt": "2026-08-30T09:47:33.945Z",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fadeebb08ffegdowbVw1y973QC"
+      },
+      "providerSessionId": null,
+      "conversationId": null,
+      "providerPid": null,
+      "cwd": "/tmp/pod-3112-oc-continuity-r18/dummy-repo"
+    },
+    "after": {
+      "sessionId": "f004237b-a234-43ea-8683-703c037df2e5",
+      "createdAt": "2026-08-30T09:47:33.945Z",
+      "status": "live",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server",
+      "accountId": "native:opencode",
+      "resume": {
+        "kind": "opencode-session",
+        "value": "ses_fadeebb08ffegdowbVw1y973QC"
+      },
+      "providerSessionId": null,
+      "conversationId": null,
+      "providerPid": null,
+      "cwd": "/tmp/pod-3112-oc-continuity-r18/dummy-repo"
+    },
+    "journal": {
+      "opencodeSessionId": "ses_fadeebb08ffegdowbVw1y973QC",
+      "process": {
+        "key": "podium-oc-f004237b-a234-43ea-8683-703c037df2e5",
+        "pid": 3883771
+      },
+      "workdir": "/tmp/pod-3112-oc-continuity-r18/dummy-repo",
+      "seq": 20,
+      "turnEpoch": 1,
+      "bindingVersion": 2
+    },
+    "provider": {
+      "pid": 3883771,
+      "live": true,
+      "cwd": "/tmp/pod-3112-oc-continuity-r18/dummy-repo",
+      "instance": true,
+      "exact": true
+    },
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "sameSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true,
+    "views": {
+      "native": false,
+      "chat": true,
+      "terminalNormalizedMarkerOccurrences": 0,
+      "terminalNormalizedLength": 217,
+      "chatMarkerOccurrences": 2,
+      "chatLength": 152
+    },
+    "recall": {
+      "ms": 1400.7403339999983,
+      "remembered": true
+    }
+  }
+}

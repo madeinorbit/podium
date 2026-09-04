@@ -25,6 +25,7 @@ export const logsFamilyProcedures = (): LogsProcedures =>
     service: (state) => ({
       ingest: state.modules.logs,
       levels: state.modules.clientLogLevels,
+      fleetLevels: state.modules.fleetLogLevels,
       telemetry: state.telemetry?.emitter,
     }),
     commands: LOGS_COMMANDS_TRPC,

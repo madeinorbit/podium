@@ -1,10 +1,15 @@
 import { shallowEqual } from '@podium/client-core/store'
+import {
+  FLIGHT_DECK_DISPLAY_KEY,
+  FLIGHT_DECK_EXPANDED_WIDTH_KEY,
+} from '@podium/client-core/ui-state'
 import { selectedMissionRoot } from '@podium/client-core/viewmodels'
-import { ChevronLeft, ChevronRight } from 'lucide-react'
+import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { flushSync } from 'react-dom'
 import { toast } from 'sonner'
+import { PodiumLinkHost } from '@/components/PodiumLinkHost'
 import { Toaster } from '@/components/ui/sonner'
 import { TooltipProvider } from '@/components/ui/tooltip'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -20,14 +25,14 @@ import { useActivationRoute } from '@/features/setup/use-activation-route'
 import { useConfirmedVpsActivation } from '@/features/setup/use-vps-activation'
 import { checkServedAssets, recoverFromWireSkew } from '@/features/setup/version-guard'
 import { vpsIntroState } from '@/features/setup/vps-activation'
-import { loadAgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { loadAgentPanel } from '@/features/terminal/AgentPanelBoundary'
 import { DockShellLifecycle } from '@/features/terminal/dock-shell-lifecycle'
 import { UpdatesProvider } from '@/features/updates/updates-context'
-import { SidebarRail } from '@/features/worklist/SidebarRail'
+import { CollapsedSidebar } from '@/features/worklist/CollapsedSidebar'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
 import {
-  COLLAPSE_EASE,
-  COLLAPSE_MS,
+  COLUMN_FOLD_EASE,
+  COLUMN_FOLD_MS,
   ResizableAside,
   ResizableColumn,
   SIDEBAR_RAIL_WIDTH,
@@ -46,6 +51,7 @@ import { onReconnect } from '@/lib/on-reconnect'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
+import { useFileDropGuard } from '@/lib/use-file-drop-guard'
 import { type AuthBootstrap, useKernelReplica } from '@/lib/use-kernel-replica'
 import { usePersistedUiState, usePersistedUiValue } from '@/lib/use-persisted-ui-state'
 import { useReducedMotion } from '@/lib/use-reduced-motion'
@@ -56,6 +62,13 @@ import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
+import {
+  FLIGHT_DECK_COMPACT_WIDTH,
+  FLIGHT_DECK_EXPANDED_WIDTH,
+  type FlightDeckDisplay,
+  isComplexFlightDeckMission,
+  readFlightDeckDisplay,
+} from './flight-deck-display'
 import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import { LoadingScreen } from './LoadingScreen'
 import { OperatorFocusProvider } from './operator-focus'
@@ -85,7 +98,6 @@ import { ToolbarSlotProvider } from './ToolbarSlot'
 import { TopBar } from './TopBar'
 import { ThemeUiStateMirror } from './theme'
 import { makeTrpc, serverConfig } from './trpc'
-import { Workspace } from './Workspace'
 
 /**
  * EVERY LAZY SURFACE GOES THROUGH `throughRestarts` (POD-2762).
@@ -97,6 +109,11 @@ import { Workspace } from './Workspace'
  * clicked, and it is deliberately shaped to leave these declarations reading
  * the way they always did.
  */
+// The app lands on the work list. Loading Workspace here used to pull the chat,
+// terminal and editor stack into first paint before a workspace was selected.
+const Workspace = lazy(() =>
+  throughRestarts(() => import('./Workspace')).then((module) => ({ default: module.Workspace })),
+)
 const SettingsView = lazy(() =>
   throughRestarts(() => import('@/features/settings/SettingsView')).then((module) => ({
     default: module.SettingsView,
@@ -242,9 +259,42 @@ function KernelHubAttach({
   return null
 }
 
-export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
+function ReplicaReadyPodiumLinkHost({
+  syncProgress,
+  initialHref,
+  onInitialHrefConsumed,
+}: {
+  syncProgress: SyncProgressStore
+  initialHref: string | null
+  onInitialHrefConsumed: () => void
+}): JSX.Element {
+  const sync = useSyncExternalStore(syncProgress.subscribe, syncProgress.getSnapshot)
+  return (
+    <PodiumLinkHost
+      initialHref={initialHref}
+      onInitialHrefConsumed={onInitialHrefConsumed}
+      replicaReady={!sync.firstSync || sync.phase === 'ready'}
+    />
+  )
+}
+
+export function AppShell({
+  auth,
+  initialPodiumHref = null,
+  onInitialPodiumHrefConsumed,
+}: {
+  auth: AuthBootstrap
+  initialPodiumHref?: string | null
+  onInitialPodiumHrefConsumed: () => void
+}): JSX.Element {
+  // Whole-window, and mounted at the top so it also covers the boot and error
+  // screens — a drag released over a loading app would navigate it away too.
+  useFileDropGuard()
   const [config] = useState(() => serverConfig(window.location))
   const [appError, setAppError] = useState<string | null>(null)
+  // Keep the current value above AppShell's own error/provider branches. The
+  // parent owns the same handoff above LoginGate for a whole-shell replacement.
+  const pendingInitialPodiumHref = useRef(initialPodiumHref)
   // One tRPC client for the gate, memoized on the origin so the gate's effect
   // does not re-run (and re-open IndexedDB) on every render.
   const [gateTrpc] = useState(() => makeTrpc(config.httpOrigin))
@@ -330,6 +380,14 @@ export function AppShell({ auth }: { auth: AuthBootstrap }): JSX.Element {
                 }}
               >
                 <KernelHubAttach assembly={kernel.assembly} httpOrigin={config.httpOrigin} />
+                <ReplicaReadyPodiumLinkHost
+                  syncProgress={kernel.assembly.progress}
+                  initialHref={pendingInitialPodiumHref.current}
+                  onInitialHrefConsumed={() => {
+                    pendingInitialPodiumHref.current = null
+                    onInitialPodiumHrefConsumed()
+                  }}
+                />
                 <RoutedDensityProvider>
                   <ThemeUiStateMirror />
                   <BrowserOpenOverlay />
@@ -421,7 +479,8 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   const closeOverlay = (): void => setView(baseView)
   const workspaceActive = baseView === 'workspace'
   const sessions = useStoreSelector((s) => s.sessions)
-  const flightDeckMissionId = selectedMissionRoot(issues, sessions, selectedIssueId)?.id ?? 'empty'
+  const flightDeckMission = selectedMissionRoot(issues, sessions, selectedIssueId)
+  const flightDeckMissionId = flightDeckMission?.id ?? 'empty'
   const trpc = useStoreSelector((s) => s.trpc)
   const {
     state: activationState,
@@ -542,6 +601,9 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   // the column's WIDTH persisted while its mode did not. Goes through the one
   // shared subscribe hook every replicated key now uses.
   const flightDeckCollapsed = usePersistedUiValue(SUPERAGENT_MODE_KEY, readFlightDeckCollapsed)
+  const flightDeckDisplay = usePersistedUiValue(FLIGHT_DECK_DISPLAY_KEY, (raw) =>
+    readFlightDeckDisplay(raw, isComplexFlightDeckMission(flightDeckMission)),
+  )
   const reduceMotion = useReducedMotion()
   const flightDeckShellRef = useRef<HTMLDivElement>(null)
   const flightDeckOpenWidth = useRef(0)
@@ -582,9 +644,15 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   const setFlightDeckCollapsed = (collapsed: boolean): void => {
     uiState.set(SUPERAGENT_MODE_KEY, collapsed ? 'folded' : 'open')
   }
-  const persistedFlightDeckWidth = (): number => {
-    const stored = Number(uiState.get('podium:superagent:width'))
-    return Number.isFinite(stored) && stored >= 300 && stored <= 620 ? stored : 366
+  const persistedFlightDeckWidth = (display: FlightDeckDisplay = flightDeckDisplay): number => {
+    const expanded = display === 'expanded'
+    const stored = Number(
+      uiState.get(expanded ? FLIGHT_DECK_EXPANDED_WIDTH_KEY : 'podium:superagent:width'),
+    )
+    const min = expanded ? 540 : 300
+    const max = expanded ? 760 : 620
+    const fallback = expanded ? FLIGHT_DECK_EXPANDED_WIDTH : FLIGHT_DECK_COMPACT_WIDTH
+    return Number.isFinite(stored) && stored >= min && stored <= max ? stored : fallback
   }
   const animateFlightDeckWidth = (from: number, to: number, onFinish?: () => void): void => {
     const shell = flightDeckShellRef.current
@@ -594,8 +662,11 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
     }
     flightDeckAnimation.current?.cancel()
     const animation = shell.animate([{ width: `${from}px` }, { width: `${to}px` }], {
-      duration: COLLAPSE_MS,
-      easing: COLLAPSE_EASE,
+      // The left column's curve, since POD-1672 gave the shell's folds one that
+      // is not the drawer's (`COLUMN_FOLD_EASE`). Two columns of one shell decelerating
+      // differently is how a window stops feeling like a single object.
+      duration: COLUMN_FOLD_MS,
+      easing: COLUMN_FOLD_EASE,
       fill: 'both',
     })
     flightDeckAnimation.current = animation
@@ -641,6 +712,25 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
       setFlightDeckWidth(target)
     })
     animateFlightDeckWidth(44, target, () => setFlightDeckWidth(null))
+  }
+  const setFlightDeckDisplay = (next: FlightDeckDisplay): void => {
+    if (next === flightDeckDisplay) return
+    const measured = Math.round(
+      flightDeckShellRef.current?.getBoundingClientRect().width ??
+        persistedFlightDeckWidth(flightDeckDisplay),
+    )
+    const target = persistedFlightDeckWidth(next)
+    flightDeckOpenWidth.current = target
+    if (reduceMotion || flightDeckCollapsed) {
+      uiState.set(FLIGHT_DECK_DISPLAY_KEY, next)
+      setFlightDeckWidth(flightDeckCollapsed ? 44 : null)
+      return
+    }
+    flushSync(() => {
+      uiState.set(FLIGHT_DECK_DISPLAY_KEY, next)
+      setFlightDeckWidth(target)
+    })
+    animateFlightDeckWidth(measured, target, () => setFlightDeckWidth(null))
   }
 
   // THE LEFT FOLD (POD-1584). The work list and the identity rail are separate
@@ -713,6 +803,14 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
   useEffect(() => {
     const cancels = [
       prefetchAfterFirstPaint(loadAgentPanel),
+      // AgentPanel deliberately keeps chat-first sessions free of a hidden PTY.
+      // Warm only the renderer bytes here: preloadTerminalRuntime neither mounts
+      // xterm nor attaches a session, so the first CLI click avoids the cold
+      // chunk without changing view leases or message delivery while Chat runs.
+      prefetchAfterFirstPaint(async () => {
+        const { preloadTerminalRuntime } = await import('@podium/terminal-client-react')
+        await preloadTerminalRuntime()
+      }),
       prefetchAfterFirstPaint(() => import('@/components/RefMiniview')),
       prefetchAfterFirstPaint(() => import('@/features/settings/SettingsView')),
     ]
@@ -890,22 +988,7 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
               style={{ width: sidebarFold.width ?? undefined }}
             >
               {sidebarCollapsed && !sidebarFold.folding ? (
-                <aside className="collapsed-sidebar" aria-label="Collapsed work sidebar">
-                  <button
-                    data-pressable
-                    type="button"
-                    className="collapsed-sidebar-expand"
-                    aria-label="Expand sidebar"
-                    title="Expand sidebar"
-                    onClick={() => sidebarFold.fold(false)}
-                  >
-                    {/* 15px, not 13: the control is the column's whole header
-                        band now (POD-1178), and a 13px glyph read as a speck
-                        parked in the middle of it. */}
-                    <ChevronRight size={15} aria-hidden="true" />
-                  </button>
-                  <SidebarRail />
-                </aside>
+                <CollapsedSidebar onExpand={() => sidebarFold.fold(false)} />
               ) : (
                 <div className="relative z-10 flex min-w-0 flex-[0_1_auto]">
                   <ResizableAside>
@@ -923,36 +1006,78 @@ function AppBody({ syncProgress }: { syncProgress: SyncProgressStore }): JSX.Ele
                   </button>
                 </div>
               )}
+              {/* THE GHOST OF THE FOLDED COLUMN (POD-1658). Rendered only while
+                  the fold runs, pinned over the clip, and dissolved in or out by
+                  the hook. It is what the swap at the end of the gesture happens
+                  UNDERNEATH: by then this is already an opaque rail sitting on
+                  the pixels the real one is about to occupy, so the frame where
+                  the work list becomes the rail has nothing visible in it. Inert
+                  and aria-hidden — there are briefly two rails in the tree and
+                  only one of them is the column. */}
+              {sidebarFold.folding && (
+                <div ref={sidebarFold.ghostRef} className="sidebar-fold-ghost" aria-hidden="true">
+                  {/* The lid and what is on it are two layers (POD-1672). The
+                      ghost holds still and carries the opacity and the blur —
+                      it is what covers the clip, and a cover that moves is a
+                      gap. This node carries the slide that makes the rail
+                      ARRIVE instead of appear. */}
+                  <div ref={sidebarFold.ghostContentRef} className="sidebar-fold-ghost-inner">
+                    <CollapsedSidebar />
+                  </div>
+                </div>
+              )}
             </div>
             {workspaceActive && (
               <div
                 ref={flightDeckShellRef}
                 className="flex min-h-0 min-w-0 flex-[0_1_auto] overflow-hidden"
                 data-flight-deck-shell={flightDeckCollapsed ? 'folded' : 'open'}
+                data-flight-deck-display={flightDeckDisplay}
                 style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
               >
                 {flightDeckCollapsed ? (
                   <FoldedFlightDeckBar onExpand={expandFlightDeck} />
                 ) : (
                   <ResizableColumn
-                    storageKey="podium:superagent:width"
-                    min={300}
-                    max={620}
-                    defaultWidth={366}
+                    key={flightDeckDisplay}
+                    storageKey={
+                      flightDeckDisplay === 'expanded'
+                        ? FLIGHT_DECK_EXPANDED_WIDTH_KEY
+                        : 'podium:superagent:width'
+                    }
+                    min={flightDeckDisplay === 'expanded' ? 540 : 300}
+                    max={flightDeckDisplay === 'expanded' ? 760 : 620}
+                    defaultWidth={
+                      flightDeckDisplay === 'expanded'
+                        ? FLIGHT_DECK_EXPANDED_WIDTH
+                        : FLIGHT_DECK_COMPACT_WIDTH
+                    }
                     handleLabel="Resize Flight Deck"
-                    className="max-w-[45vw]"
+                    className={flightDeckDisplay === 'expanded' ? 'max-w-[62vw]' : 'max-w-[45vw]'}
                   >
                     <Suspense fallback={<RouteFallback />}>
                       {/* The arrival latch and the scrolling node both belong
                           to one mission; carrying either into the next one
                           turns its existing sessions into late arrivals. */}
-                      <FlightDeck key={flightDeckMissionId} onCollapse={collapseFlightDeck} />
+                      <FlightDeck
+                        key={flightDeckMissionId}
+                        onCollapse={collapseFlightDeck}
+                        display={flightDeckDisplay}
+                        onDisplayChange={setFlightDeckDisplay}
+                      />
                     </Suspense>
                   </ResizableColumn>
                 )}
               </div>
             )}
-            <MainViewOutlet workspace={<Workspace />} view={baseView} />
+            <MainViewOutlet
+              workspace={
+                <Suspense fallback={<RouteFallback />}>
+                  <Workspace />
+                </Suspense>
+              }
+              view={baseView}
+            />
             {workspaceActive && (
               <ResizableColumn
                 storageKey="podium:rightdock:width"

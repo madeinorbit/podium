@@ -43,6 +43,22 @@ export function composerFieldHeight(
   return Math.min(Math.max(Math.round(measured), min), composerMaxHeight(line))
 }
 
+/**
+ * Whether the field is at its resting height — one line, nothing typed.
+ *
+ * Against the CURRENT line rather than {@link COMPOSER_MIN_HEIGHT}, which is the
+ * line at the DEFAULT text size. An operator on a larger Dynamic Type size rests
+ * at a taller line, and comparing that to the default one answered "not resting"
+ * for a field with nothing in it — so the resting height was never reported and
+ * the feed underneath never paid for the composer [POD-1666].
+ */
+export function composerAtRest(
+  measured: number | null | undefined,
+  line: number = COMPOSER_LINE,
+): boolean {
+  return composerFieldHeight(measured, line) <= composerLine(line)
+}
+
 /** Whether the content has passed the cap and the field now scrolls internally. */
 export function composerScrolls(
   measured: number | null | undefined,

@@ -23,7 +23,7 @@
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { basename, isAbsolute, join } from 'node:path'
 // Imported from source, not the `@podium/protocol` entry point: that entry resolves to
 // `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
 // bare specifier fails at runtime in CI. Same convention as the other scripts/ imports.
@@ -33,19 +33,23 @@ import {
 } from '../packages/protocol/src/update/target'
 import { HEADLESS_PLATFORMS, type HeadlessPlatform, isHeadlessPlatform } from './abduco-cross'
 import {
-  beginFreshClientPackagingSession,
   BUN_TARGETS,
+  beginFreshClientPackagingSession,
   bunTargetForPlatform,
-  packageHeadlessForFreshClients,
+  type FreshClientPackagingSession,
   type PackagedHeadlessBundle,
+  packageHeadlessForFreshClients,
 } from './build-bun'
 import { extractRelease } from './changelog'
 import {
   assertNoCallerSuppliedClientRootDigest,
   CLIENT_ROOT_DIGEST_FILE,
 } from './client-build-root-digest'
-import { buildManifest } from './release-manifest'
 import { validateReferencedDesktopManifest } from './desktop-release'
+// Via the scripts/ re-export, per the relative-import convention noted above.
+import { timeReleaseBuildSync } from './release-build-timing'
+import { verifyCandidateSnapshot } from './release-candidate-snapshot'
+import { buildManifest } from './release-manifest'
 
 /** Every platform a release publishes a headless bundle for. */
 export const RELEASE_PLATFORMS: readonly HeadlessPlatform[] = HEADLESS_PLATFORMS
@@ -177,6 +181,8 @@ const RELEASE_OPTIONS = {
   '--publish-dir': 'value',
   '--min-required': 'value',
   '--platform': 'repeated',
+  '--artifact': 'repeated',
+  '--record': 'value',
   '--critical': 'flag',
   '--prepare-cross': 'flag',
 } as const satisfies Record<`--${string}`, OptionKind>
@@ -290,8 +296,18 @@ function stagePrepared(p: {
     throw new Error(`headless build did not produce signed artifact ${built}`)
   }
   mkdirSync(p.outDir, { recursive: true })
-  cpSync(built, join(p.outDir, asset))
-  cpSync(builtSig, join(p.outDir, `${asset}.sig`))
+  // The tarball's SECOND copy — build root into the staging dir the publisher reads.
+  timeReleaseBuildSync(
+    { granularity: 'phase', phase: 'artifact-publication', target: p.platform },
+    () =>
+      timeReleaseBuildSync(
+        { granularity: 'task', phase: 'artifact-publication', task: 'stage', target: p.platform },
+        () => {
+          cpSync(built, join(p.outDir, asset))
+          cpSync(builtSig, join(p.outDir, `${asset}.sig`))
+        },
+      ),
+  )
   const prepared: PreparedHeadless = {
     version,
     target: p.platform,
@@ -307,6 +323,84 @@ function stagePrepared(p: {
 }
 
 /**
+ * Read `--artifact <platform>=<absolute path>` into the map {@link prepareHeadlessCross}
+ * packages against.
+ *
+ * A caller that owns an artifact's lifecycle — the development publisher, whose
+ * retention sweep sorts on the build stamp it writes into the file name — names each
+ * platform's output. That used to be `PODIUM_BUNDLE_ARTIFACT` on a per-platform child
+ * process; one coordinator packaging N platforms in ONE process needs N names on the
+ * command line instead.
+ *
+ * It names a PATH and nothing else. Every refusal here is a name that would otherwise
+ * be resolved silently against the wrong thing: an unknown platform (the bundle would
+ * be written under a name no machine asks for), a relative path (resolved against the
+ * coordinator's cwd — the snapshot worktree, which is deleted after the build, so the
+ * publisher would find nothing where it looked), and a platform given twice (the second
+ * write would clobber the first and both descriptors would claim the surviving bytes).
+ */
+export function parseArtifactOverrides(values: readonly string[]): Map<HeadlessPlatform, string> {
+  const overrides = new Map<HeadlessPlatform, string>()
+  for (const value of values) {
+    const equals = value.indexOf('=')
+    if (equals < 0) {
+      throw new Error(`release: --artifact wants <platform>=<absolute path>, got '${value}'`)
+    }
+    const platform = value.slice(0, equals)
+    const path = value.slice(equals + 1)
+    if (!isHeadlessPlatform(platform)) {
+      throw new Error(
+        `release: --artifact names unknown headless platform '${platform}' ` +
+          `(want ${RELEASE_PLATFORMS.join(' | ')})`,
+      )
+    }
+    if (!isAbsolute(path)) {
+      throw new Error(`release: --artifact path for ${platform} must be absolute, got '${path}'`)
+    }
+    if (overrides.has(platform)) {
+      throw new Error(`release: --artifact for ${platform} given twice`)
+    }
+    overrides.set(platform, path)
+  }
+  return overrides
+}
+
+/** The record file the coordinator child writes; the publisher folds it into the record. */
+export const CLIENT_BUILD_RECORD_FILE = 'client.json'
+
+/**
+ * State what the client build proved, for the ledger.
+ *
+ * Taken verbatim off the branded `ClientBuildEvidence` rather than recomputed: the
+ * digest is the provenance M1 minted, and the per-task hash and HIT/MISS are the only
+ * durable answer to "did this release rebuild the clients or restore them?" — a
+ * question the Turbo summary can answer once, in this process, and nowhere afterwards.
+ */
+export function writeClientBuildRecord(
+  recordDir: string,
+  session: FreshClientPackagingSession,
+): void {
+  mkdirSync(recordDir, { recursive: true })
+  const tasks: Record<string, { hash: string; cache: 'HIT' | 'MISS' }> = {}
+  for (const [id, hash] of Object.entries(session.taskHashes ?? {})) {
+    tasks[id] = { hash, cache: session.cache?.[id] ?? 'MISS' }
+  }
+  writeFileSync(
+    join(recordDir, CLIENT_BUILD_RECORD_FILE),
+    `${JSON.stringify(
+      {
+        rootDigest: session.clientRootDigest,
+        sourceCommit: session.sourceCommit,
+        version: session.version,
+        tasks,
+      },
+      null,
+      2,
+    )}\n`,
+  )
+}
+
+/**
  * Build every requested platform from THIS Linux runner and stage them for publish.
  *
  * The client apps are built ONCE and then packed into all four bundles. That is what
@@ -318,10 +412,12 @@ function stagePrepared(p: {
  * path the compiled binary embeds its helper from — so running them concurrently would
  * race to leave the wrong architecture's abduco inside a bundle. See scripts/build-bun.ts.
  */
-export function prepareHeadlessCross(
+export async function prepareHeadlessCross(
   platforms: readonly HeadlessPlatform[] = RELEASE_PLATFORMS,
   outDir = 'dist-bun/release',
-): PreparedHeadless[] {
+  artifacts: ReadonlyMap<HeadlessPlatform, string> = new Map(),
+  recordDir?: string,
+): Promise<PreparedHeadless[]> {
   if (process.platform !== 'linux') {
     throw new Error(
       `headless cross-builds run on linux only; this runner is ${process.platform}/${process.arch}`,
@@ -333,15 +429,25 @@ export function prepareHeadlessCross(
   // each platform bundle by build-bun; dev-host units never belong on this path.
   // Stamp the fresh client output with the FINAL product version before capturing
   // its process-local root; packaging is forbidden from restamping after this point.
-  const session = beginFreshClientPackagingSession([])
+  const session = await beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
+  // The CLIENT HALF of the build ledger, written the moment the clients have been
+  // verified and before a single platform is packaged. That ordering is the point: if
+  // this child dies while cross-building, the caller finds a `client.json` and knows
+  // the clients passed, so the attempt it records is `failed:package` rather than the
+  // vaguer `failed:verify` (apps/server/src/modules/updates/build-record.ts).
+  if (recordDir) writeClientBuildRecord(recordDir, session)
 
   const prepared: PreparedHeadless[] = []
   for (const platform of platforms) {
     const target = bunTargetForPlatform(platform)
     console.log(`[release] cross-building ${platform} (--target=${target})`)
-    const packaged = packageHeadlessForFreshClients(session, [`--target=${target}`])
+    const named = artifacts.get(platform)
+    const packaged = packageHeadlessForFreshClients(session, [
+      `--target=${target}`,
+      ...(named ? [`--artifact=${named}`] : []),
+    ])
     prepared.push(
       stagePrepared({
         platform,
@@ -361,10 +467,10 @@ export function prepareHeadlessCross(
  * stages under the SAME asset name as the cross build, so the two legs must be uploaded
  * to different directories — the publisher rejects two descriptors claiming one platform.
  */
-export function prepareHeadlessArchitecture(
+export async function prepareHeadlessArchitecture(
   arch: HeadlessArch,
   outDir = 'dist-bun/release',
-): PreparedHeadless {
+): Promise<PreparedHeadless> {
   const config = HEADLESS_ARCH[arch]
   if (process.platform !== 'linux' || process.arch !== config.nodeArch) {
     throw new Error(
@@ -373,7 +479,7 @@ export function prepareHeadlessArchitecture(
     )
   }
 
-  const session = beginFreshClientPackagingSession([])
+  const session = await beginFreshClientPackagingSession([])
   mkdirSync(outDir, { recursive: true })
   writeFileSync(join(outDir, CLIENT_ROOT_DIGEST_FILE), `${session.clientRootDigest}\n`)
   const packaged = packageHeadlessForFreshClients(session, [])
@@ -590,6 +696,13 @@ export function publishPreparedHeadless(p: {
     return
   }
 
+  // CI proves the complete stable candidate with a real published v0.1.0
+  // install before this invocation. release.ts deterministically reconstructs
+  // the manifests above; this seal makes that claim exact by refusing if any
+  // byte or file now differs from the directory the old install accepted.
+  const acceptedSnapshot = process.env.PODIUM_RELEASE_CANDIDATE_SNAPSHOT
+  if (acceptedSnapshot) verifyCandidateSnapshot(p.dir, acceptedSnapshot)
+
   // STATED, NOT REFUSED, and after the local-build exit because it is a fact
   // about PUBLISHING rather than about building.
   //
@@ -687,8 +800,11 @@ async function main(): Promise<void> {
         )
       }
     }
-    prepareHeadlessCross(
+    await prepareHeadlessCross(
       requested.length > 0 ? (requested as HeadlessPlatform[]) : RELEASE_PLATFORMS,
+      undefined,
+      parseArtifactOverrides(args.repeated('--artifact')),
+      args.value('--record'),
     )
     return
   }
@@ -696,7 +812,7 @@ async function main(): Promise<void> {
     if (prepareArch !== 'x64' && prepareArch !== 'arm64') {
       throw new Error(`unknown headless architecture ${prepareArch}`)
     }
-    prepareHeadlessArchitecture(prepareArch)
+    await prepareHeadlessArchitecture(prepareArch)
     return
   }
   if (publishDir) {
@@ -717,7 +833,7 @@ async function main(): Promise<void> {
     throw new Error('publishing requires the multi-platform --publish-dir workflow')
   }
   const nativeArch: HeadlessArch = process.arch === 'arm64' ? 'arm64' : 'x64'
-  const prepared = prepareHeadlessArchitecture(nativeArch)
+  const prepared = await prepareHeadlessArchitecture(nativeArch)
   publishPreparedHeadless({
     channel,
     tag,

@@ -1,0 +1,115 @@
+{
+  "cell": "A5",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a5",
+  "at": "2026-08-28T13:30:48.900Z",
+  "pin": {
+    "cell": "A5",
+    "at": "2026-08-28T13:30:48.928Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "59d84a239b95f13168889b334052b225f96c1fb6",
+    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "59d84a2",
+      "appsWebIdentical": true
+    },
+    "serverPid": "989426",
+    "daemonPid": "990109",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "15010564 kB",
+      "SwapFree": "41724912 kB"
+    },
+    "rootFreeKiB": 83723532,
+    "load1m": 16.8,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "the agent DID read the fixture file — its reply carries a marker that exists only inside it — and the transcript published no tool call and no tool result at all",
+  "control": {
+    "fired": true,
+    "what": "the transcript fixture send delivering or a needle appearing",
+    "detail": "user=true; assistant=true; items=2"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "USER              true",
+    "ASSISTANT         true",
+    "TOOL ITEMS        []",
+    "RELOAD SAME       true",
+    "STREAM ITEMS      [{\"id\":\"claude-sdk-user-5abb934b-245f-40ae-b574-303a5ab49d0c-1\",\"role\":\"user\",\"text\":\"Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the te\"},{\"id\":\"4027213c-5f55-4e25-8082-81d509cef7ea\",\"role\":\"assistant\",\"text\":\"P3047-A5-MARKER-MTCZP4PY\"}]",
+    "SERVER READ ITEMS before=0 after=0 (sessions.read, empty on this path)"
+  ],
+  "data": {
+    "sid": "5abb934b-245f-40ae-b574-303a5ab49d0c",
+    "marker": "P3047-A5-MARKER-MTCZP4PY",
+    "before": [
+      {
+        "id": "claude-sdk-user-5abb934b-245f-40ae-b574-303a5ab49d0c-1",
+        "role": "user",
+        "ts": "2026-08-28T13:30:51.055Z",
+        "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains."
+      },
+      {
+        "id": "4027213c-5f55-4e25-8082-81d509cef7ea",
+        "role": "assistant",
+        "ts": "2026-08-28T13:30:57.995Z",
+        "text": "P3047-A5-MARKER-MTCZP4PY"
+      }
+    ],
+    "after": [
+      {
+        "id": "claude-sdk-user-5abb934b-245f-40ae-b574-303a5ab49d0c-1",
+        "role": "user",
+        "ts": "2026-08-28T13:30:51.055Z",
+        "text": "Use your Bash tool to run cat /tmp/pod-3047n/probes/claude-sdk-a5/transcript-fixture.txt and then reply with only the test marker it contains."
+      },
+      {
+        "id": "4027213c-5f55-4e25-8082-81d509cef7ea",
+        "role": "assistant",
+        "ts": "2026-08-28T13:30:57.995Z",
+        "text": "P3047-A5-MARKER-MTCZP4PY"
+      }
+    ],
+    "serverBefore": [],
+    "serverAfter": [],
+    "toolItems": [],
+    "resultItems": [],
+    "paired": false,
+    "sameHistory": true,
+    "toolRan": true
+  }
+}

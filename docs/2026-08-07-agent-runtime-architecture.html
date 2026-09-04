@@ -1,0 +1,718 @@
+<title>Podium — Agent Runtime: Sessions Become Servers</title>
+<style>
+  :root {
+    --paper: #f6f8f9; --ink: #17222c; --ink-soft: #55636f; --ink-faint: #84919c;
+    --line: #dbe2e8; --line-strong: #17222c; --panel: #edf1f4; --panel-deep: #e3e9ee;
+    --accent: #0c7489; --accent-soft: #dcecf0;
+    --done: #2f7d43; --done-soft: #e0eee2;
+    --half: #a8700d; --half-soft: #f4ead3;
+    --open: #b23c2e; --open-soft: #f5e2de;
+    --code-bg: #131c24; --code-ink: #cfdbe4; --code-accent: #5fd0e0; --code-dim: #6b7c89;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0f151b; --ink: #dfe7ec; --ink-soft: #9fadb8; --ink-faint: #6d7b86;
+      --line: #26313a; --line-strong: #dfe7ec; --panel: #161e26; --panel-deep: #1c2731;
+      --accent: #53c6d8; --accent-soft: #123039;
+      --done: #6fbf82; --done-soft: #17301e;
+      --half: #d9a24a; --half-soft: #342811;
+      --open: #e08573; --open-soft: #3a201b;
+      --code-bg: #0a0f14; --code-ink: #c4d2dc; --code-accent: #5fd0e0; --code-dim: #5c6c78;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0f151b; --ink: #dfe7ec; --ink-soft: #9fadb8; --ink-faint: #6d7b86;
+    --line: #26313a; --line-strong: #dfe7ec; --panel: #161e26; --panel-deep: #1c2731;
+    --accent: #53c6d8; --accent-soft: #123039;
+    --done: #6fbf82; --done-soft: #17301e;
+    --half: #d9a24a; --half-soft: #342811;
+    --open: #e08573; --open-soft: #3a201b;
+    --code-bg: #0a0f14; --code-ink: #c4d2dc; --code-accent: #5fd0e0; --code-dim: #5c6c78;
+  }
+  :root[data-theme="light"] {
+    --paper: #f6f8f9; --ink: #17222c; --ink-soft: #55636f; --ink-faint: #84919c;
+    --line: #dbe2e8; --line-strong: #17222c; --panel: #edf1f4; --panel-deep: #e3e9ee;
+    --accent: #0c7489; --accent-soft: #dcecf0;
+    --done: #2f7d43; --done-soft: #e0eee2;
+    --half: #a8700d; --half-soft: #f4ead3;
+    --open: #b23c2e; --open-soft: #f5e2de;
+    --code-bg: #131c24; --code-ink: #cfdbe4; --code-accent: #5fd0e0; --code-dim: #6b7c89;
+  }
+  * { box-sizing: border-box; }
+  body {
+    background: var(--paper); color: var(--ink);
+    font-family: -apple-system, "Segoe UI", system-ui, "Helvetica Neue", sans-serif;
+    font-size: 16.5px; line-height: 1.62; margin: 0; padding: 0 24px 96px;
+  }
+  .wrap { max-width: 74ch; margin: 0 auto; }
+  .wide { max-width: 102ch; margin-left: auto; margin-right: auto; }
+  .mono, code, pre { font-family: ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace; }
+  code { font-size: 0.84em; background: var(--panel); padding: 0.1em 0.35em; border-radius: 3px; }
+  pre {
+    overflow-x: auto; background: var(--code-bg); color: var(--code-ink);
+    padding: 18px 20px; border-radius: 8px; font-size: 13px; line-height: 1.55;
+  }
+  pre code { background: none; padding: 0; font-size: inherit; color: inherit; }
+  a { color: var(--accent); }
+  p { margin: 0 0 16px; }
+  ul, ol { margin: 0 0 16px; padding-left: 1.3em; }
+  li { margin-bottom: 6px; }
+  hr { border: none; border-top: 1px solid var(--line); margin: 56px 0; }
+  header { padding: 60px 0 30px; border-bottom: 2px solid var(--line-strong); margin-bottom: 8px; }
+  .eyebrow {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12px; letter-spacing: 0.14em; text-transform: uppercase;
+    color: var(--accent); margin: 0 0 16px;
+  }
+  h1 {
+    font-size: clamp(30px, 5vw, 44px); font-weight: 760; letter-spacing: -0.022em;
+    line-height: 1.06; margin: 0 0 14px; text-wrap: balance;
+  }
+  .standfirst { font-size: 19px; color: var(--ink-soft); margin: 0; max-width: 60ch; }
+  .meta-row {
+    display: flex; gap: 24px; flex-wrap: wrap; margin-top: 24px;
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 12.5px; color: var(--ink-faint);
+  }
+  .meta-row b { color: var(--ink-soft); font-weight: 600; }
+  h2 { font-size: 25px; font-weight: 720; letter-spacing: -0.015em; margin: 72px 0 10px; text-wrap: balance; }
+  h2 .sec {
+    font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+    font-size: 13px; font-weight: 500; letter-spacing: 0.1em;
+    color: var(--accent); display: block; margin-bottom: 6px;
+  }
+  h3 { font-size: 18.5px; font-weight: 680; margin: 40px 0 8px; }
+  table { border-collapse: collapse; width: 100%; margin: 20px 0 28px; font-size: 14.5px; }
+  th, td { border: 1px solid var(--line); padding: 8px 12px; text-align: left; vertical-align: top; }
+  th { background: var(--panel); font-weight: 640; }
+  td code { white-space: nowrap; }
+  .tablebox { overflow-x: auto; }
+  .callout {
+    background: var(--panel); border-left: 3px solid var(--accent);
+    padding: 14px 18px; border-radius: 0 6px 6px 0; margin: 20px 0 24px;
+  }
+  .callout p:last-child { margin-bottom: 0; }
+  .decision {
+    background: var(--done-soft); border-left: 3px solid var(--done);
+    padding: 14px 18px; border-radius: 0 6px 6px 0; margin: 20px 0 24px;
+  }
+  .decision p:last-child { margin-bottom: 0; }
+  .risk {
+    background: var(--open-soft); border-left: 3px solid var(--open);
+    padding: 14px 18px; border-radius: 0 6px 6px 0; margin: 20px 0 24px;
+  }
+  .risk p:last-child { margin-bottom: 0; }
+  .pill {
+    display: inline-block; font-family: ui-monospace, Menlo, monospace; font-size: 11.5px;
+    padding: 1px 8px; border-radius: 999px; vertical-align: 1px; margin-right: 4px;
+  }
+  .pill.native { background: var(--done-soft); color: var(--done); }
+  .pill.sdk { background: var(--accent-soft); color: var(--accent); }
+  .pill.pty { background: var(--half-soft); color: var(--half); }
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">Podium · Architecture Proposal · Agent Runtime</p>
+  <h1>Sessions become servers. The terminal becomes an attachment.</h1>
+  <p class="standfirst">An Agent Runtime that runs every harness headless-first behind one driver contract — protocol-native where the harness supports it, user-emulating where it doesn't — with the CLI/TUI demoted to an on-demand attachment, sessions that survive everything, and a topology that extends unchanged to other machines and the cloud.</p>
+  <div class="meta-row">
+    <span><b>status</b> proposal for discussion</span>
+    <span><b>date</b> 2026-08-07</span>
+    <span><b>amended</b> 2026-08-28 — Claude subscription OAuth on Agent SDK allowed; Claude headless first-class</span>
+    <span><b>issue</b> POD-1761</span>
+    <span><b>prior</b> target-architecture v1/v2 · reattachment-design.md</span>
+  </div>
+</header>
+
+<h2><span class="sec">§1</span>The problem: the TUI is the engine, and everything else is scraped around it</h2>
+
+<p>Today a Podium agent session <em>is</em> an interactive CLI in a PTY. The chat view, agent mail, the steward, the superagent, drafts, and state classification are all layered around that terminal by reading its side channels and typing into its input box. The v1/v2 architecture docs deliberately kept this layer ("native substrate, structured intelligence") and it got us to market — but the code now documents its own ceiling:</p>
+
+<ul>
+  <li><b>Sending a message is a heuristic.</b> <code>typeText()</code> in <code>apps/server/src/modules/sessions/inbox.ts</code> wraps the body in bracketed paste, waits 90&nbsp;ms, sends <code>\r</code>, then polls the transcript for 1.6&nbsp;s and re-sends <code>\r</code> up to twice because we cannot observe whether the TUI accepted the submit. That workaround is promoted to a manifest capability (<code>submitVerification</code>).</li>
+  <li><b>Reading the input box requires a second terminal.</b> <code>apps/daemon/src/composer-sync.ts</code> runs a headless <code>@xterm/headless</code> VT emulator per flagged session just to scrape the composer, with two-identical-scrapes stability gating. Injection ("phase 4") is still unbuilt.</li>
+  <li><b>The PTY-as-API is an attack surface.</b> A message body containing <code>ESC[201~</code> escapes the bracketed paste and executes as keystrokes; <code>sanitizeBody()</code> strips control characters at render time as the only defense.</li>
+  <li><b>Blocking interactions are invisible or improvised.</b> A permission menu or <code>AskUserQuestion</code> is classified from hooks and screen state; answering one headlessly means typing menu keystrokes. Grok mail delivery sacrifices a denied tool call because there is no blocking Stop hook.</li>
+  <li><b>Headless is bolted on, not the default.</b> Three headless drivers exist (<code>headless-drivers.ts</code>) but only for superagent threads; a "real" session cannot be driven headless, and a headless thread cannot be attached to.</li>
+</ul>
+
+<p>Meanwhile the product is moving to a world where most agents are <b>background executors</b> — non-native subagents across harnesses, fleet workers, eventually cloud sandboxes. For those, the interactive TUI is pure overhead: it exists so a human <em>could</em> look, at the cost of making every programmatic interaction a screen-scrape. The industry has landed on the opposite shape, and it works with subscriptions where the vendor allows it:</p>
+
+<div class="tablebox"><table class="wide">
+  <tr><th></th><th>Codex</th><th>opencode</th><th>Claude Code</th></tr>
+  <tr><td><b>Headless server</b></td><td><code>codex app-server</code> — JSON-RPC 2.0; Podium uses WebSocket text frames over a private per-session Unix listener, shared with addressable stock-TUI clients; threads, turns, steering, interrupts, streamed items</td><td><code>opencode serve</code> — HTTP + OpenAPI 3.1 + SSE event bus; TUI/web/SDK are all clients</td><td>None. Agent SDK (in-process) and <code>claude -p</code> exist; no server, no attach</td></tr>
+  <tr><td><b>Attach a TUI</b></td><td><code>codex --remote ws://…</code> — the stock TUI as a thin client of a running app-server; resume/fork included</td><td><code>opencode attach http://host:4096 --session &lt;id&gt;</code> — works cross-machine</td><td>Serialized only: TUI and headless can alternately <code>--resume</code> the same session id; never concurrently</td></tr>
+  <tr><td><b>Blocking asks</b></td><td>Server→client JSON-RPC <em>requests</em>: <code>item/commandExecution/requestApproval</code>, elicitation; client answers accept/decline</td><td>Reified server state: <code>permission.updated</code> SSE event + <code>POST …/permissions/:id</code> reply (<code>once</code>/<code>always</code>/<code>reject</code>)</td><td>SDK <code>canUseTool</code> callback (incl. AskUserQuestion); CLI <code>--permission-prompt-tool</code> MCP hook</td></tr>
+  <tr><td><b>Subscription auth headless</b></td><td><b>Yes</b> — ChatGPT auth in <code>~/.codex/auth.json</code> serves <code>exec</code> and app-server alike</td><td>Provider keys; Anthropic <em>subscription</em> tokens in <em>third-party</em> tools remain ToS-prohibited</td><td><b>Yes</b> — operator-authorized 2026-08-28: the persistent Claude Agent SDK path may use the managed subscription credential under an explicit rollout acknowledgement. PTY is the fallback, not the exclusive path. Third-party reuse (e.g. opencode) stays barred. See <code>docs/architecture/claude-subscription-oauth-policy.md</code></td></tr>
+</table></div>
+
+<p>Two pieces of prior art bracket the abstraction space: <b>ACP</b> (Zed's Agent Client Protocol) standardizes exactly the client-facing half — JSON-RPC session updates plus <code>session/request_permission</code> as an agent→client request — and <b>agentapi</b> (Coder) is the degenerate case: an HTTP wrapper around an in-memory terminal emulator for agents with no protocol. Podium needs both ends under one roof, which is precisely what its <code>Declared&lt;T&gt;</code> manifest philosophy was built for.</p>
+
+<div class="callout"><p><b>The inversion, in one sentence:</b> today the interactive process is the session and headless is an emulation; in the target, the <em>headless session object</em> is the session and the interactive terminal is one of several attachments to it.</p></div>
+
+<h2><span class="sec">§2</span>The Agent Runtime: one contract, three driver families</h2>
+
+<p>We introduce one abstraction, the <b>Agent Runtime</b>: the machine-local service that owns agent sessions and exposes them to the rest of Podium through a single driver contract. Podium above the runtime (server modules, steward, superagent, mail, UI) speaks only this contract and never knows how a harness is driven. The contract has exactly six primitive groups:</p>
+
+<ol>
+  <li><b>Lifecycle</b> — create, resume, adopt (rebind after restart), stop, hibernate, kill. Same survival table as today (<code>session-teardown.ts</code>).</li>
+  <li><b>Turns</b> — <code>send(input)</code> with <code>inputOrigin</code> (human / controller / steward / mail / auto_continue / system) and delivery modes incl. <code>steer</code> (append to an in-flight turn where supported), <code>interrupt()</code>.</li>
+  <li><b>Interactions</b> — every blocking ask (permission, question, plan approval, elicitation) reified as a durable, addressable <b>PendingInteraction</b> that anything can answer: policy, superagent, a human in the web UI, or an attached CLI. §4.</li>
+  <li><b>Observation</b> — one event stream per session (state transitions, transcript items, interactions, process events) under the already-approved causal contract of <code>reattachment-design.md</code>: bootstrap snapshot + cursor-fenced live deltas, provenance-tagged. Two watch levels: coarse (durable-synced, always on) and fine (live-only token deltas while a viewer watches) — §5.</li>
+  <li><b>Attach</b> — produce an interactive surface on demand, in whichever mode the driver supports. §5.</li>
+  <li><b>Placement</b> — sessions are addressed as (machine, session); handoff/placement stays a server concern, unchanged.</li>
+</ol>
+
+<p>Under the contract sit three <b>driver families</b>. A harness may implement several; a <em>selection policy</em> (auth mode, platform, availability, user preference) picks per session at spawn:</p>
+
+<div class="tablebox"><table class="wide">
+  <tr><th>Family</th><th>Mechanism</th><th>Determinism</th><th>When chosen</th></tr>
+  <tr><td><span class="pill native">server</span><b>Harness-server</b></td><td>The harness's own protocol surface (<code>codex app-server</code> via JSON-RPC; <code>opencode serve</code> via HTTP/SSE; <code>grok agent stdio</code> via ACP). The runtime is a protocol client; the harness owns the agent loop, its process, and turn state.</td><td>Full where declared: structured turns and approvals, native interrupt, optional steering and harness-TUI attach.</td><td>Default whenever the harness has one and auth/version admission permits (Codex: always, incl. ChatGPT subscription; opencode: always; Grok: when logged in and ACP-admitted).</td></tr>
+  <tr><td><span class="pill sdk">embedded</span><b>Embedded</b></td><td>The harness ships a library, not a server: the runtime hosts the agent loop in a worker process it owns (Claude Agent SDK <code>query()</code> with streaming input, <code>canUseTool</code>, hooks, resume/fork/interrupt). Exists today as the <code>claude-sdk</code> headless driver.</td><td>Full, but the runtime owns the loop, its process, and its memory.</td><td><b>Claude headless is first-class / high-priority</b>, including managed subscription OAuth under the 2026-08-28 acknowledgement, plus API-key / Bedrock / Vertex; any future SDK-first harness.</td></tr>
+  <tr><td><span class="pill pty">terminal</span><b>Terminal-driven</b></td><td>Today's stack, unchanged in mechanism: interactive CLI under abduco, composer scrape/inject, hooks + transcript observation, keystroke answers. "Emulate a user."</td><td>Best-effort; every capability carries a confidence and a <code>Declared&lt;T&gt;</code> gap.</td><td>Claude when the SDK path is unavailable, declined, or a visible TUI is wanted (permanent fallback); harnesses with no admitted server/SDK mode; Grok while logged out or outside ACP version admission; explicit user preference for a visible terminal.</td></tr>
+</table></div>
+
+<div class="decision"><p><b>Decision: the terminal family is a permanent tier, not a deprecation path.</b> It is the permanent fallback for Claude Code (SDK unavailable, declined, or a visible TUI is wanted) and the only way to run harnesses that never grow a protocol. It is <em>not</em> the exclusive subscription-preserving Claude path: operator ruling 2026-08-28 authorizes the persistent Agent SDK path to use the managed subscription credential under an explicit rollout acknowledgement. What changes for the terminal family is its <em>rank</em>: it stops being the definition of a session and becomes one driver behind the same contract, and all its heuristics (submit verification, composer scrape, screen classification) become internals of one driver instead of semantics smeared across server, daemon, and web.</p></div>
+
+<p><b>What this buys the dominant workload, stated honestly.</b> For Claude-on-subscription the <em>preferred</em> executor path is now the embedded Agent SDK — same contract as Codex/Grok server drivers, with the inversion (the session object replacing the process) in force. The PTY path remains when the SDK is unavailable or a human wants the wheel: there the TUI process is still the engine, and the scrape/retry machinery survives inside the terminal driver. The wins on that fallback are <em>containment</em> (one driver owns the heuristics instead of five modules), <em>reified interactions</em> (Claude's 15-event hook channel is the richest of any harness, so hook-sourced asks and hook-anchored receipts approach protocol fidelity), and <em>honest receipts</em> (§3).</p>
+
+<h3>Per-harness selection matrix (initial)</h3>
+
+<div class="tablebox"><table class="wide">
+  <tr><th>Harness</th><th>Subscription auth</th><th>API-key auth</th><th>Attach story</th></tr>
+  <tr><td>Codex</td><td><span class="pill native">server</span> app-server (ChatGPT auth works headless)</td><td><span class="pill native">server</span> same</td><td>Client terminal (<code>codex --remote</code>) on-machine, streamed, warm-parked</td></tr>
+  <tr><td>opencode</td><td>n/a for Anthropic subscription (ToS); other providers per their rules</td><td><span class="pill native">server</span> <code>opencode serve</code></td><td>Client terminal (<code>opencode attach</code>) on-machine, streamed, warm-parked</td></tr>
+  <tr><td>Claude Code</td><td><span class="pill sdk">embedded</span> Agent SDK (first-class / high-priority; managed subscription OAuth allowed under explicit acknowledgement). <span class="pill pty">terminal</span> PTY under abduco is the permanent fallback</td><td><span class="pill sdk">embedded</span> Agent SDK streaming session</td><td>embedded: <b>no terminal</b> — chat/contract only, handover deferred (§5). terminal fallback: engine terminal (today)</td></tr>
+  <tr><td>Grok</td><td colspan="2"><span class="pill native">server</span> <code>grok agent stdio</code> via ACP is implemented and preferred when logged in and version-admitted; structured turn receipts, permission requests, resume, interrupt, durable cursors, transcript history, and fine/coarse observation are implemented. <span class="pill pty">terminal</span> remains the logged-out, out-of-range, and explicit fallback.<br><small><b>Code evidence:</b> <code>packages/harness/src/manifests/grok.ts:211-231</code>; <code>packages/agent-runtime/src/drivers/grok-acp/capabilities.ts:4-47</code>.</small></td><td>No production ACP client terminal yet; the terminal fallback retains its engine terminal</td></tr>
+  <tr><td>Cursor</td><td colspan="2"><span class="pill pty">terminal</span> only (ACP status unverified — the public ACP registry lists Cursor as an agent; verify before amending this row)</td><td>Engine terminal (today)</td></tr>
+</table></div>
+
+<p class="callout" style="display:block"><b>Policy, 2026-08-28:</b> Claude subscription OAuth on the persistent Agent SDK path is operator-authorized under an explicit rollout acknowledgement. Claude headless is first-class. PTY is the fallback. Credential-safety rules (do not mint, rotate, or replay a superseded refresh token) are unchanged. Canonical text: <code>docs/architecture/claude-subscription-oauth-policy.md</code>. Historical "ToS-prohibited / terminal-only" wording in audits and evidence remains historical. The Claude manifest now declares subscription for the embedded SDK; the remaining work is current end-to-end acceptance, not a policy or selector exclusion.</p>
+
+<h2><span class="sec">§3</span>The primitive surface (code-level)</h2>
+
+<p>This is the load-bearing section: the complete set of primitives every harness session sits behind, whatever the family. Podium features may touch a session <em>only</em> through this surface — which is why it is built first, in front of today's PTY stack, and why getting it right makes codex-terminal → codex-server a driver swap no feature notices. Home: new package <code>packages/agent-runtime</code>, depending on <code>@podium/harness</code> (manifests), <code>@podium/pty</code>, <code>@podium/transcript</code>; the daemon composes it; the server sees its wire projection, zod-schema'd in <code>@podium/protocol</code> under a new <code>runtime</code> message family.</p>
+
+<p>Five rules govern what belongs here:</p>
+
+<ol>
+  <li><b>A primitive earns its place</b> only if a Podium feature consumes it, and every family can implement it or honestly decline it (<code>Declared&lt;T&gt;</code> — consumers branch and degrade; no silent substitution).</li>
+  <li><b>Guarantees are family-invariant; fidelity is declared.</b> <code>send()</code> means the same thing on every driver — what varies is the declared mechanism/confidence, never the semantics.</li>
+  <li><b>Every write returns a receipt or a typed refusal.</b> Never fire-and-hope.</li>
+  <li><b>Every read is causally enveloped</b> — <code>(observerGeneration, turnEpoch, cursor, provenance)</code> per <code>reattachment-design.md</code>.</li>
+  <li><b>Machine-transparent</b>: every primitive relays identically over the daemon WS for local, remote, and cloud machines.</li>
+</ol>
+
+<p><b>Two tiers, so rule 1 has counter-pressure.</b> The <b>core contract</b> — lifecycle &amp; identity, turns &amp; control, interactions, observation, transcript, attach &amp; lease, export/import — is what a new driver MUST implement or explicitly decline, and is all the conformance suite pins. The <b>extended tier</b> — draft, machine accounting (quota/usage), open-url, title, accent color — are feature seams carried on the same registry that never block a driver: a driver shipping only the core is complete. New primitives default to extended and must argue their way into core; without this tier boundary, the surface audit's own history shows the contract only ever grows.</p>
+
+<h3>Runtime primitives (per machine)</h3>
+
+<pre><code>runtime.spawn(spec: SessionSpec): AgentSessionHandle
+  // SessionSpec: harness, selection ctx (auth principal, platform, role),
+  // workdir/worktree, model policy (model, effort, Declared subagent-model
+  // override), role profile (interaction policy §4,
+  // permission preset), attributed instruction channel (Declared — the hidden
+  // system channel: --append-system-prompt / developer_instructions / --rules,
+  // re-primed after compaction), mcpServers (Declared transport: path | inline),
+  // env, initial prompt
+runtime.resume(ref: ResumeRef, spec): AgentSessionHandle   // from harness-persisted state
+runtime.import(archive: SessionArchive, spec): AgentSessionHandle  // land its versioned native or semantic payload, then resume()
+runtime.adopt(binding: SessionBinding): AgentSessionHandle // rebind survivors after supervisor restart
+runtime.list(): SessionBinding[]                           // what is actually running (ps)
+runtime.discover(roots): Conversation[]                    // harness-native on-disk history (exists: manifest discovery)
+runtime.inventory(): { binaries, versions, loginState, models }  // exists: manifest inventory
+runtime.quota(harness | principal): QuotaSnapshot   // plan limits read via harness credentials — MACHINE-scoped, not per-session
+runtime.usage(window): UsageBuckets                 // token/cost harvest across the machine's native stores (hour×model)
+runtime.capabilities(harness, driver): DriverCapabilities</code></pre>
+
+<h3>Accounts &amp; login (runtime-level)</h3>
+
+<pre><code>runtime.accounts(harness): Principal[]               // multi-account; loginState per principal
+runtime.login(harness, method): LoginFlow            // sugar over a short-lived terminal-family UTILITY SESSION running the
+                                                     // harness's own loginCommand — attachable like any session, emits
+                                                     // PendingInteractions (kind: login); no parallel interactive machinery
+runtime.logout(harness, principal)
+runtime.exportCredential / seedCredential(harness)   // portableCredential + login-propagation, formalized (cloud seeding)</code></pre>
+
+<p>Accounts are per-machine-per-harness, never per-session. Sessions touch them in exactly two places: <code>SessionSpec.principal</code> selects the account at spawn (and <code>binding</code> records it), and mid-session auth expiry is <em>not a special path</em> — it surfaces as a <code>login</code> interaction plus a turn failure typed <code>auth-expired</code>, answerable and escalatable like everything else. The login-helper mechanics — forwarding agent-opened URLs and OAuth callbacks to the operator's browser (today's browser-open relay) — deliberately stay <em>behind</em> these primitives: they are transport for the login interaction's payload, not surface. A feature never drives a login flow except by answering its interactions.</p>
+
+<h3>Session handle — identity &amp; lifecycle</h3>
+
+<pre><code>handle.binding: SessionBinding    // podium id, harness resume ref, process/scope identity, workdir, driver id
+handle.stop() / hibernate() / kill()       // survival table unchanged; hibernate REFUSES without a resume ref
+handle.snapshot(): SessionSnapshot         // one bootstrap snapshot: state + transcript position + open interactions + draft
+handle.export(): SessionArchive            // versioned native or semantic payload + resume ref + binding metadata
+handle.health(): { alive, memoryBytes, scopeUnit, oomEvents }   // feeds hibernation policy + host metrics</code></pre>
+
+<p><em>Guarantee:</em> the resume ref is captured as early as the harness allows, and the capability declares when that is late (Codex's lazy rollout files). <b>Every supported archive is sufficient for <code>runtime.import</code> → resume to continue the conversation on any machine with the same harness.</b> Archive <em>fidelity</em> is a separate declared capability: <code>byteFaithful: true</code> means exact harness-native bytes suitable for native-store backup and restoration; <code>false</code> means a versioned semantic archive sufficient for conversation handoff but not an exact native-store backup. Claude project JSONL and Codex rollouts are byte-faithful. <code>opencode</code> deliberately exports its per-session messages and parts semantically: its SQLite database is shared by every local <code>opencode</code> session, so copying it would over-export unrelated sessions and extracting a synthetic per-session database would not be byte-faithful. Cross-machine handoff may accept either fidelity; disaster recovery, scheduled backup, or any consumer promising native-store preservation MUST require <code>byteFaithful: true</code>. The archive remains deliberately distinct from the display transcript below. <small><b>Code evidence:</b> <code>packages/agent-runtime/src/drivers/opencode/capabilities.ts:100-117</code>; <code>packages/agent-runtime/src/drivers/opencode/runtime.ts:1006-1034</code>.</small></p>
+
+<p><em>The identity triangle:</em> <code>binding</code> = live identity (who and where the process is), <code>snapshot()</code> = observation bootstrap (what the causal contract needs to resume <em>watching</em>), <code>export()</code> = portable archive (what another machine needs to resume the <em>conversation</em>). Three artifacts, three disjoint consumer sets — implementers must not merge them.</p>
+
+<h3>Turns &amp; control — the one write path</h3>
+
+<pre><code>handle.send(input, { origin, principal, delivery: 'when-ready' | 'queue' | 'interrupt' | 'steer' }): TurnReceipt
+  // principal: the ACTING principal (opaque tag) — carried through queueing so the server's
+  // drain boundary re-authorizes as the real sender, never as a system default (W3-review F3)
+  // TurnInput: text + attachments (refs from stageAttachment) + Declared per-turn overrides (model/effort)
+  // 'steer' appends into the open turn — Declared: native on codex (turn/steer); embedded/terminal degrade to
+  // 'queue', and the receipt REPORTS the downgrade (deliveredAs) — no silent substitution
+handle.stageAttachment(bytes | path): AttachmentRef  // lands the file on the session's machine in the form the harness accepts
+handle.interrupt(): void          // REQUESTS a fence; the fence is emitted only on provider confirmation —
+                                  // never manufactured (reattachment-design invariants: fences are absorbing, state is never fabricated)
+handle.answer(interactionId, answer): void   // idempotent; typed error if expired/already answered</code></pre>
+
+<p><em>Guarantee:</em> <code>send</code> resolves to exactly one of <b>accepted</b> (turn opened; receipt carries the new <code>turnEpoch</code> and the delivery actually used), <b>queued</b> (durably, with position), <b>refused</b> (typed reason: <code>needs_user</code>, lease held, …), or — terminal family only — <b>unverified</b>: the keystrokes were delivered but acceptance could not be proven inside the verification window. Unverified is the two-generals gap made explicit instead of retried into a lie; callers decide (retry, surface, wait for the transcript echo) with the truth in hand. Terminal receipts are <b>hook-anchored where a causal hook exists</b> — Claude's <code>UserPromptSubmit</code> is the accept signal, exactly as reattachment-design anchors turn epochs to it — and fall back to transcript verification only where no hook channel exists. This single verb subsumes today's <code>typeText</code> / <code>queueText</code> / <code>sendTextWhenReady</code> / <code>interruptText</code> — chat, mail, steward, superagent, and auto-continue all become callers of it with different <code>origin</code>.</p>
+
+<h3>Interactions</h3>
+
+<pre><code>handle.interactions(): PendingInteraction[]     // + asked/answered/expired in events()
+// kind: permission | question | plan-approval | elicitation | login | recovery
+// source: protocol | sdk-callback | hook | screen-classifier  →  fidelity is visible
+// may be asked in ANY lifecycle phase, including STARTING (resume-time recovery prompts)</code></pre>
+
+<h3>Observation</h3>
+
+<pre><code>handle.events(after: ProviderCursor | 'bootstrap'): AsyncIterable&lt;RuntimeEvent&gt;
+  // turn | item | state | interaction | process — all causally enveloped
+handle.watch(level: 'coarse' | 'fine')          // refcounted delta cadence — §5
+handle.state(): AgentRuntimeState               // poll-free harness-runtime verdict:
+  // phase, need/error/idle evidence, native-subagent facts (count, identity, awaiting), provenance
+
+export type RuntimeEvent =
+  | { t: 'state';        change: AgentStateEvent }            // existing normalized vocabulary, incl. compaction —
+                                                              // the re-prime boundary for SessionSpec.instructions
+  | { t: 'item';         item: TranscriptItemDelta }
+  | { t: 'interaction';  ev: InteractionAsked | InteractionAnswered | InteractionExpired }
+  | { t: 'turn';         ev: TurnStarted | TurnCompleted | TurnFailed }
+  | { t: 'process';      ev: ProcessExited | ProcessOomKilled | ProcessAdopted }
+  | { t: 'workspace';    ev: CwdChanged | GitActivity }        // cd/EnterWorktree moves; commits + touched files
+  | { t: 'open-url';     ev: { url, intent: 'login' | 'link' } } // forwarded browser opens, manifest-classified
+// every event carries { at, provenance: 'bootstrap'|'live'|'replay', cursor, observerGeneration, turnEpoch }</code></pre>
+
+<div class="decision"><p><b>Decision: G1's product-facing facts belong to the durable session projection, not <code>handle.state()</code>.</b> The server projects observed model/effort/context usage and accent from coarse runtime/transcript events, combines them with Podium-owned open todos, and derives <code>lastActiveAt</code> from event time across all activity families. Clients and family-blind consumers read those fields from the session projection. <code>handle.state()</code> remains the smaller harness-runtime verdict needed for control decisions: phase, idle/need/error evidence, native-subagent state, and observation provenance. A fact has one authoritative projection; it is not copied into both shapes. This boundary is required because open todos are not harness state, recency spans more than state transitions, and the other observed facts already have durable product consumers outside a live handle. <small><b>Code evidence:</b> <code>packages/model/src/entities/session.ts:214-239</code> (runtime verdict) and <code>:295-381</code> (session projection).</small></p></div>
+
+<h3>Transcript</h3>
+
+<pre><code>handle.transcript.history(range): TranscriptItem[]  // normalized user/assistant/tool-call/tool-result/system
+// live tail = item events in the stream (completed items coarse, deltas fine)</code></pre>
+
+<p><em>Guarantee:</em> one item schema across families — the terminal driver fills it from native stores (today's pipeline), server from protocol items, embedded from SDK messages. Everything downstream (chat, conversation index, search) is family-blind. <code>TranscriptItem</code>s are <em>lossy by design</em> (display, index, search); the portable conversation archive lives behind <code>export()</code> above, and exact native bytes are promised only when its capability declares <code>byteFaithful: true</code>. Neither archive form is the display transcript, and the two must not be conflated.</p>
+
+<h3>Draft (the composer, generalized)</h3>
+
+<pre><code>handle.draft.get() / set(text) / draft events       // Declared</code></pre>
+
+<p>Terminal family: composer-sync scrape (read) and the phase-4 injection, wrapped. Server/embedded: there is no native composer, so the draft is Podium-owned state — trivially exact. Cross-device draft sync builds on this one primitive and gets <em>stronger</em> under the new drivers, not weaker.</p>
+
+<h3>Attach &amp; lease</h3>
+
+<pre><code>handle.attach(req): AttachEndpoint                  // engine | client (+ placement, warm) — §5; embedded: declared absent
+handle.lease.acquire(holder) / release() / state()  // controller arbitration: drivers vs attached humans</code></pre>
+
+<h3>Config, accounting, title</h3>
+
+<pre><code>handle.configure({ model?, permissionMode?, effort? })  // Declared mid-session mutability
+  // embedded: setModel/setPermissionMode; codex: per-turn overrides; terminal: typed refusal
+  // rule: configure() is STICKY for the session; TurnInput overrides apply to ONE turn only
+handle.usage(): UsageSnapshot + usage events            // per-turn tokens/cost/quota where the harness reports
+// title signals arrive as events (OSC / transcript-derived / synthetic), event-time stamped</code></pre>
+
+<h3>Failure semantics</h3>
+
+<p>Errors are not a primitive — they are a normalized vocabulary threading through the three channels the surface already has. Every failure is exactly one of:</p>
+
+<ul>
+  <li><b>Refusal</b> (synchronous, expected): a typed reply to a verb — <code>send</code> refused <code>needs_user</code>, <code>configure</code> unsupported per <code>Declared</code>, <code>hibernate</code> without a resume ref. The caller handles it; nothing is "wrong."</li>
+  <li><b>Turn failure</b>: <code>TurnFailed{ reason: rate-limit | auth-expired | context-overflow | provider-error | timeout | interrupted }</code> in the causal stream — a small normalized vocabulary with the harness-specific detail preserved as diagnostic payload (generalizing today's <code>superagent/harness-error.ts</code> mapping to all consumers).</li>
+  <li><b>Process failure</b>: <code>process</code> events — <code>exited</code> with exit classification, <code>oomKilled</code>, <code>adopted</code>.</li>
+</ul>
+
+<p>One routing rule keeps sessions unstuck: <b>every failure is classified <code>retryable | needs-human | fatal</code>, and <code>needs-human</code> failures materialize as PendingInteractions</b> (auth-expired → a <code>login</code> interaction; context-overflow → a <code>recovery</code> interaction). Transport/runtime failures (machine unreachable, driver crash) are deliberately <em>outside</em> session semantics — the session may be alive and adoptable even while the path to it is down; conflating the two is how ghost sessions happen.</p>
+
+<h3>Composites: the procedures layer</h3>
+
+<p>The rule for where an operation lives: <b>primitive</b> if it needs driver-private access or varies per harness in <em>semantics</em>; <b>procedure</b> if it is pure composition whose variance is only mechanism/timing. Procedures form a thin layer inside <code>agent-runtime</code> — above drivers, below features:</p>
+
+<pre><code>procedures.interruptAndSend(handle, input)   // generic: interrupt() → await fence → send()
+procedures.askAndAwait(handle, input)        // send + await the matching turn-completed
+procedures.oneShot(spec, prompt)             // ephemeral spawn → send → await → kill; drivers override with
+                                             // native one-shot forms (claude -p, codex exec --ephemeral)
+// a driver MAY override a procedure when the harness has a native/atomic form
+// or a peculiarity: driver.procedures?.interruptAndSend</code></pre>
+
+<p>Generic implementation by default, declared override when a harness needs one — the same house pattern as the manifests, so peculiarities stay inside the driver that owns them instead of leaking into features. Composites so common they are effectively sends are folded into the surface as delivery modes instead: <code>send(delivery: 'interrupt')</code> <em>is</em> interrupt-and-send, implemented natively per driver (Codex: <code>turn/interrupt</code> + <code>turn/start</code>; terminal: ESC + settle + paste with its timing lore).</p>
+
+<h3>The coverage proof (feature → primitives)</h3>
+
+<div class="tablebox"><table class="wide">
+  <tr><th>Podium feature</th><th>Consumes only</th></tr>
+  <tr><td>Chat view</td><td>events+watch, transcript, send/answer, draft</td></tr>
+  <tr><td>Board / fleet</td><td>state, title, health</td></tr>
+  <tr><td>Steward / auto-continue</td><td>causal events, send <code>when-ready</code>/<code>queue</code></td></tr>
+  <tr><td>Agent mail</td><td>send (delivery modes) + receipts</td></tr>
+  <tr><td>Superagent threads</td><td>spawn + send + events — no attach, ever</td></tr>
+  <tr><td>Hibernation policy</td><td>state, health, hibernate</td></tr>
+  <tr><td>Handoff / placement / backup</td><td>binding + snapshot, export/import, resume</td></tr>
+  <tr><td>Login / accounts</td><td>accounts/login (runtime), login interactions</td></tr>
+  <tr><td>Terminal UI</td><td>attach + lease</td></tr>
+  <tr><td>Usage / quota</td><td>usage</td></tr>
+  <tr><td>History / conversation index</td><td>discover, transcript</td></tr>
+</table></div>
+
+<p><b>Deliberately <em>not</em> in the surface</b> — the things features must stop touching, because they are what makes the current coupling unswappable: raw PTY writes, hook ingest, transcript file paths, abduco socket names, screen/VT state, harness settings files. All of that becomes private to drivers; the frame stream itself appears only inside an <code>AttachEndpoint</code>.</p>
+
+<p><b>Deliberate omissions</b>, stated so they read as decisions rather than oversights: <b>shell sessions</b> are degenerate terminal-family sessions with every capability declined (no transcript, state, draft, interactions) — same surface, no special case; <b>slash commands</b> have no primitive — they are reachable only through terminal attach, and that stays true until a feature actually needs structured commands; <b>capability degradation</b> (e.g. the Codex hook version gate refusing an unrecognized CLI version) surfaces through inventory diagnostics, not a new channel.</p>
+
+<div class="callout"><p><b>The conformance suite is what makes the swap safe.</b> The surface is pinned by one shared driver-conformance corpus — send accepted/queued/refused/unverified, interaction asked→answered, interrupt requests-then-fences, snapshot→adopt round-trip, event causality under restart — that every driver must pass, in the style of the repo's characterization gates. Crucially, the suite also <b>names, per family, what a driver is permitted to fail or decline</b>: the terminal family may return unverified sends, and its classifier-sourced interactions are at-least-once with best-effort identity. A suite without that list proves nothing about the hardest driver. When codex-server lands it passes the same suite, the selection policy flips, and no server module, view-model, or feature changes — because none of them ever knew more than this surface.</p></div>
+
+<h3>The driver interface behind the surface</h3>
+
+<pre><code>// packages/agent-runtime/src/driver.ts
+export type DriverFamily = 'server' | 'embedded' | 'terminal'
+
+export interface RuntimeDriver {
+  readonly id: DriverId                    // 'codex-app-server' | 'opencode-server' | 'claude-sdk' | 'claude-pty' | 'generic-pty' …
+  readonly harness: HarnessKind
+  readonly family: DriverFamily
+  capabilities(): DriverCapabilities       // Declared&lt;T&gt; per axis, same philosophy as AgentManifest
+  create(spec: SessionSpec): Promise&lt;AgentSessionHandle&gt;
+  resume(ref: ResumeRef, spec: SessionSpec): Promise&lt;AgentSessionHandle&gt;
+  adopt(binding: SessionBinding): Promise&lt;AgentSessionHandle&gt;  // rebind a surviving process tree after supervisor restart
+}</code></pre>
+
+<h3>Third-party protocol churn (server family)</h3>
+
+<p>The server family's crown jewels ride pre-1.0, vendor-internal protocols — codex app-server has already renamed its approval methods once; opencode's API is still settling. The stance: (1) each server driver <b>pins the harness versions it speaks</b>, in the house pattern of the codex-hooks minor-version gate — refuse loudly with a machine diagnostic, never guess; (2) drivers carry <b>recorded-fixture contract tests per pinned version</b>, so a vendor rename fails in CI, not in a user's fleet; (3) protocol capability handshakes (app-server <code>initialize</code>) are used for negotiation where offered; (4) <b>the terminal driver is a permanent fallback for every harness that has one</b> — a protocol break degrades Codex sessions to the terminal driver instead of stranding them. Stated consequence: <b>phase 5's deletion list is contingent</b> — the Codex scrape stack leaves the default path, not the tree, until the vendor protocol carries a stability guarantee.</p>
+
+<p>Three things are deliberate here:</p>
+
+<ul>
+  <li><b><code>send()</code> returns a receipt, not hope.</b> For server/embedded drivers the receipt is the protocol ack (e.g. Codex <code>turn/started</code>). For the terminal driver the receipt is hook-anchored where a causal hook exists (Claude's <code>UserPromptSubmit</code>) and <code>submitVerification</code>-derived otherwise — and when neither proves acceptance, the receipt says <b>unverified</b> instead of retrying into a lie. Callers stop caring which mechanism proved delivery; they must care that terminal proof can be inconclusive.</li>
+  <li><b>The event stream reuses the approved causal contract.</b> <code>reattachment-design.md</code> (checkpoints, observer generations, turn epochs, terminal fences, bootstrap-vs-live provenance) was written for the PTY stack but is driver-agnostic. Server drivers get trivially strong cursors (Codex thread id + event seq; opencode session id + event offset) in place of file inode+offset <code>ProviderCursor</code>s. One <code>SessionObservationCheckpointV1</code> shape covers all three families; only the cursor material differs — it is already per-harness.</li>
+  <li><b><code>adopt()</code> is first-class.</b> The supervisor restarting must find surviving session processes (abduco masters today, harness server processes tomorrow), rebind by exact identity, emit one bootstrap snapshot, and continue — the reattach flow stops being a PTY special case and becomes the same verb for every family.</li>
+</ul>
+
+<h3>Manifest integration</h3>
+
+<p>The <code>AgentManifest</code> gains one axis instead of growing more flags:</p>
+
+<pre><code>// packages/harness/src/manifest.ts
+runtime: {
+  server?:   Declared&lt;ServerRuntimeSpec&gt;   // how to launch/address the harness server:
+                                           //   codex:   { kind: 'jsonrpc', spawn: ['codex','app-server'], transport: 'unix-socket' }
+                                           //   opencode:{ kind: 'http-sse', spawn: ['opencode','serve','--port','0'], openapi: '/doc' }
+  embedded?: Declared&lt;EmbeddedRuntimeSpec&gt; // claude: { module: 'claude-agent-sdk', auth: ['api-key','bedrock','vertex'] }
+  terminal:  TerminalRuntimeSpec           // always present: today's launch() + composer + state providers
+  select(ctx: SelectionContext): DriverId  // pure function of { auth, platform, availability, preference }
+}</code></pre>
+
+<p>The existing <code>headless</code>/<code>exec</code> manifest axes fold into this over time: a superagent thread becomes an ordinary runtime session with no attach and a <code>dontAsk</code>-style interaction policy, deleting the parallel <code>headless-drivers.ts</code>/<code>durable-headless.ts</code> plumbing once server drivers carry those harnesses.</p>
+
+<h2><span class="sec">§4</span>PendingInteraction: nothing blocks invisibly, nothing gets stuck</h2>
+
+<p>The single most valuable thing Codex and opencode both did is <b>reify the blocking ask as addressable server state</b>. Podium adopts this as a first-class aggregate, because it is the mechanism that makes fully-headless workers safe:</p>
+
+<pre><code>interface PendingInteraction {
+  id: InteractionId
+  sessionId: PodiumSessionId
+  kind: 'permission' | 'question' | 'plan-approval' | 'elicitation' | 'login' | 'recovery'
+  payload: …                     // tool + input for permission; options for question; plan text; url for login
+  askedAt: number
+  source: 'protocol' | 'sdk-callback' | 'hook' | 'screen-classifier'   // provenance ⇒ confidence
+  answerable: 'structured' | 'keystroke-emulated'
+  policyVerdict?: 'auto-allowed' | 'auto-denied' | 'escalated'
+  expiresAt?: number             // escalation deadline, not auto-deny
+}</code></pre>
+
+<ul>
+  <li><b>Where they come from.</b> Server family: Codex server→client approval requests and opencode <code>permission.updated</code> events map 1:1. Embedded: <code>canUseTool</code> and AskUserQuestion invocations map 1:1 (the callback parks on the interaction and returns when it is answered). Terminal: synthesized from hooks (<code>PermissionRequest</code>, Stop-with-question verdicts) and the screen classifier — flagged <code>keystroke-emulated</code>, answered by the composer/menu driver.</li>
+  <li><b>Who answers.</b> In order: a per-session <b>interaction policy</b> (allow-lists, "always" rules, sandbox-aware auto-answers — the orchestration analog of <code>dontAsk</code>); then optional superagent triage; then escalation to a human as a durable, oplog-synced object that renders in the web UI, the Tray, mobile, and any attached CLI simultaneously. Answering from any surface resolves it everywhere.</li>
+  <li><b>Any lifecycle phase, including STARTING.</b> Resume-time prompts — "session fell out of cache, resume from summary?", trust re-prompts — are <code>kind: 'recovery'</code>, asked while the handle is still <code>starting</code>. Policy default for every role profile: <b>resume the full session</b>; summary-resume is chosen only when the harness offers no full path, and is then recorded on the session. Background executors auto-answer these and never stall on startup.</li>
+  <li><b>Why sessions stop getting stuck.</b> "Stuck" today means a blocking prompt nobody saw. Under this design a blocked session is, by construction, a session with an open PendingInteraction — enumerable (<code>runtime.interactions.list</code>), alertable, escalatable after <code>expiresAt</code>, and answerable without attaching a terminal. The steward's nudge machinery narrows to genuinely idle sessions.</li>
+</ul>
+
+<p><em>Phase-1 deliverable, called out honestly:</em> the per-kind payload and answer schemas — normalizing Codex approval requests, opencode's <code>once/always/reject</code>, the SDK's <code>canUseTool</code>/AskUserQuestion shapes, and classified terminal menus into one typed vocabulary — are the hard part of this aggregate and are specified in phase 1, not in this doc. And interaction identity on the screen-classifier path is best-effort by nature: a re-rendered menu can mint a duplicate ask, and a keystroke answer cannot prove it acted on the exact menu it classified. <code>source</code> makes that visible; consumers of classifier-sourced interactions must treat asked→answered as <b>at-least-once</b>, never exactly-once.</p>
+
+<div class="callout"><p>This also subsumes agent mail's blocking-boundary tricks: mail delivery for server-family drivers is just a <code>send()</code> with delivery <code>steer</code> or <code>queue</code> — no Stop-hook blocking, no sacrificial denied tool call. The Grok workaround survives only inside the Grok terminal driver.</p></div>
+
+<h2><span class="sec">§5</span>The session surface: observation, control, attach</h2>
+
+<p>Everything Podium does with a running session happens on one of three planes. The first two are the contract — always on, for every family, no attach involved. Only the third is "attach," and it means exactly one thing: a live terminal. The litmus separating them: <em>attach acquires something side-effectful on the agent's machine (a process, a lease); observing and writing acquire nothing.</em></p>
+
+<h3>Plane 1 — Observation (read; always on)</h3>
+
+<p>The runtime holds one standing connection per session to its engine regardless of whether anyone is looking (Codex: the JSON-RPC connection to that session's app-server; opencode: the SSE stream; terminal: transcript tail + hooks; embedded: the SDK's own stream). What varies is the <b>watch level</b>, never the connection:</p>
+
+<ul>
+  <li><b>coarse (always):</b> turn started/completed, transcript items <em>as completed</em>, state transitions, interactions, process events — <b>durable-synced</b> through the oplog. These feed the board, recency, notifications, and the steward: the low-cadence keep-everything-up-to-date signals, no viewer required, ever.</li>
+  <li><b>fine (while watched):</b> token-level message deltas — <b>live-only</b> class, never persisted. When at least one chat view is open on the session, client-core subscribes and the server raises the watch level; the driver maps it to the harness mechanism: Codex literally has the knob (<code>optOutNotificationMethods</code> suppresses <code>item/agentMessage/delta</code>; raising watch enables it), opencode's SSE bus streams deltas regardless and the runtime forwards instead of discarding, terminal/embedded streams already flow. Refcounted; closing the last viewer drops back to coarse.</li>
+</ul>
+
+<p>This is where the durable-synced vs. live-only message classes from the v2 protocol taxonomy land their natural tenant: coarse observation is durable-synced, fine deltas are live-only.</p>
+
+<h3>Plane 2 — Control (write; always available)</h3>
+
+<p><code>send()</code> (with its delivery modes), <code>interrupt()</code>, <code>answer()</code> — origin-tagged, receipt-returning, lease-arbitrated. Steward nudges, agent mail, auto-continue, and a human typing into chat are the same verbs with different <code>inputOrigin</code>. Worked example on Codex: type in chat → <code>send()</code> → <code>turn/start</code> → the receipt on <code>turn/started</code> reconciles the optimistic bubble; a mid-turn approval arrives as a server→client request → PendingInteraction → inline card in the same chat → <code>answer()</code> resumes the turn. opencode: identical shape over <code>POST /session/:id/message</code> + SSE + the permission reply endpoint.</p>
+
+<div class="callout"><p><b>The chat view is therefore not a session surface at all:</b> it is Podium's UI over observation(fine) + control. It attaches nothing, spawns nothing, holds no lease, admits unlimited concurrent viewers, and works identically for all three families — which no terminal mode does. If viewing chat required an attach, headless sessions would be broken by definition.</p></div>
+
+<h3>Plane 3 — Attach (a real terminal, on demand)</h3>
+
+<p>One user-facing verb; what you get is a live terminal. Internally the endpoint declares its <b>lifecycle coupling</b> to the session — determined by the driver family, never chosen by the user:</p>
+
+<div class="tablebox"><table class="wide">
+  <tr><th></th><th><b>engine</b> — <span class="pill pty">terminal</span> family</th><th><b>client</b> — <span class="pill native">server</span> family</th></tr>
+  <tr><td>You connect to</td><td>the PTY of the process that <em>is</em> the session: abduco attach → relay → xterm.js or <code>podium attach</code>. Exactly today's path, controller/spectator geometry included.</td><td>a harness TUI spawned on demand as a client of the session's server (<code>codex --remote unix:///…</code>, <code>opencode attach --session &lt;id&gt;</code>)</td></tr>
+  <tr><td>The terminal process is</td><td>the session itself</td><td>disposable furniture</td></tr>
+  <tr><td>Kill the terminal ⇒</td><td>the session dies</td><td>nothing happens to the session</td></tr>
+  <tr><td>Warm-parking</td><td>meaningless — parking the session already covers it</td><td>the whole point (below)</td></tr>
+  <tr><td>Memory accounting</td><td>the session's scope</td><td>separate attach scope, reclaimed first</td></tr>
+  <tr><td>Reaper may touch it</td><td>never</td><td>freely</td></tr>
+</table></div>
+
+<p>The supervisor, reaper, scope hierarchy, and crash handling all branch on this coupling — the distinction exists whether or not it is named, so it is named once, on the endpoint type, and nowhere user-facing: both render as the same "Terminal" tab fed by the same frame stream. (<span class="pill sdk">embedded</span> sessions have no terminal endpoint — observation + control are their whole surface; the handover idea is deferred, see below. The names are deliberately not "cli": both hand you a CLI — what differs is whether you are connected to the engine itself or to a client of it.)</p>
+
+<h3>Placement — a client-endpoint question only</h3>
+
+<p>Engine terminals live where the engine lives, by definition. Placement is a real choice only for <b>client</b> terminals:</p>
+
+<ul>
+  <li><b>on-machine, streamed (the default and the only v1 mode).</b> The runtime spawns the TUI client <em>on the agent's machine</em>, hosted exactly like an interactive session today: in a PTY, under abduco, in its own scope. Its frames stream through the existing relay to every surface Podium already has — web, Tauri desktop, mobile, <code>podium attach</code>. No new transport, no new auth surface; typing latency is identical to today's interactive sessions, so nothing regresses.</li>
+  <li><b>user-local, direct (deferred, evaluate before committing).</b> The TUI process runs on the user's machine and connects over the network (the literal <code>codex --remote ws://…</code>-from-a-laptop shape). <em>Potential</em> input-latency win, but: it doesn't fit the web-wrapped UI at all (desktop is Tauri around web; mobile can't run a harness), it opens a real auth/security surface (exposed sockets, token handling), and the benefit is harness-implementation-dependent. Gate: measure streamed-attach input latency first; build this only if a concrete, felt gap exists — and then only as a power-user CLI path, never a requirement.</li>
+</ul>
+
+<h3>Warm attachments</h3>
+
+<p>Attach must be instant for the sessions a user is actively bouncing between, so client terminals are <b>parked, not killed</b>: on detach (user navigates away, closes the tab), the TUI client stays alive under abduco and the runtime keeps it warm for an idle TTL (default ~30&nbsp;min, configurable). Re-attach within the TTL is an abduco reconnect — milliseconds, same mechanism as parked interactive sessions today. The reaper closes attachments past TTL, and under memory pressure attachments are <em>the first</em> thing reclaimed (they are pure convenience; the session engine is untouched). Attachment lifecycle is strictly subordinate to the session: hibernate/stop/kill the session ⇒ its attachments die with it. (Engine terminals need no warming — they <em>are</em> the session, which is what parking already handles today.)</p>
+
+<div class="risk"><p><b>Deferred: tui-handover for embedded sessions.</b> For harnesses with resume-but-no-server (Claude on the embedded driver), the only way to offer the vendor TUI is a serialized handover: pause headless driving at a turn boundary, release the lease, spawn <code>claude --resume &lt;id&gt;</code>, and reverse on detach. This is an ownership transfer with genuinely hard failure modes (crash mid-handover, mail arriving while a human holds the engine), and the judgment call is that it will be buggy in proportion to how rarely it's used. So: <b>not built until proven necessary</b>. Embedded sessions are chat-only; the honest trade is "best headless fidelity, no native TUI," stated in the UI. The contract keeps the endpoint variant reserved so adding it later is additive.</p></div>
+
+<pre><code>type AttachEndpoint =
+  | { kind: 'engine'; stream: TerminalStreamRef }                            // terminal family; existing frames path
+  | { kind: 'client'; placement: 'on-machine'; stream: TerminalStreamRef;    // TUI client under abduco, streamed
+      warm: { ttlMs: number } }
+  // reserved, deferred: { kind: 'client'; placement: 'user-local'; connect: {…} }
+  // reserved, deferred: { kind: 'handover'; lease: SessionLease; argv: string[] }
+// NOT attach: chat, status signals, mail, steward — those are events()/send() on the session handle</code></pre>
+
+<p><b>One control lease per session</b>, extending the existing binding/lease machinery (<code>binding-store.ts</code>, observation leases): exactly one <em>driver-controller</em> (the runtime) or one <em>human-controller</em> (an attach in take-over mode) holds it; spectators are unlimited. The lease is what makes "the user attached and started typing" and "the steward tried to nudge" impossible to interleave: controller writes are serialized through the same funnel, and headless drivers refuse <code>send()</code> while a human holds take-over (queueing instead, exactly like <code>queueText</code> today). For server-family sessions the harness serializes turns on its side too; the lease still arbitrates Podium's own writers. This generalizes <code>exclusiveInteractiveResume</code> from a Claude quirk into the actual concurrency model.</p>
+
+<p>CLI surface: <code>podium attach &lt;session|issue&gt;</code> resolves the variant from the family (client for server-family, engine for terminal-family; for an embedded session it says so and points to chat), and <code>--takeover</code>/<code>--peek</code> selects controller vs spectator. Uniform across families and machines — for a remote machine the server relays, as PTY frames already relay today.</p>
+
+<h2><span class="sec">§6</span>Process topology: one supervisor per machine, one process tree per session</h2>
+
+<p>Two questions were asked directly: one server per machine, or one process = one server? And how do sessions stay alive independently of Podium without dying together?</p>
+
+<div class="decision"><p><b>Decision: exactly one Runtime Supervisor per (machine × instance) — it is the evolved daemon — and one isolated process tree per session under it.</b> The supervisor is control plane only: it launches, adopts, observes, and brokers. It is never the durability boundary and never shares an OOM fate with sessions.</p></div>
+
+<ul>
+  <li><b>Supervisor = daemon.</b> <code>apps/daemon</code> keeps its identity (instance partitioning of ports/state/HOME per <code>multi-instance.md</code>, WS to server, frame-handler registry per the v2 doc). <code>packages/agent-runtime</code> becomes the heart it composes. No new long-running service is introduced — "runtime" is a role of the daemon, which matters operationally (one thing to install per machine, unchanged).</li>
+  <li><b>Session processes, per family.</b> terminal: the abduco master hosting the CLI (unchanged). server: the harness server process itself (Codex uses a private per-session Unix listener shared by Podium's engine client and addressable stock-TUI clients; <code>grok agent stdio</code> uses inherited stdio; <code>opencode serve</code> uses a loopback port), plus its agent children. embedded: a runtime-owned <b>worker child process</b> running the SDK loop — <em>not</em> in the supervisor's heap, precisely so a runaway embedded session cannot OOM the daemon (today's in-process <code>claude-sdk</code> driver moves out).</li>
+  <li><b>Attachment processes live beside the session, not inside it.</b> An on-machine client-terminal attachment (§5) is a PTY process under abduco like any interactive session, placed in its own scope <em>sibling</em> to the session's (<code>…-sess-&lt;id&gt;-attach.scope</code>): it can be reclaimed independently, its memory never counts against the agent's budget, and it dies automatically when the session does. Warm-parked attachments are simply these scopes outliving their viewer connection until the TTL/reaper closes them.</li>
+  <li><b>Harness transports are isolated according to their real reachability.</b> Codex uses JSON-RPC WebSocket text frames over a per-session Unix listener in the instance state directory; the directory is mode 0700 and the socket mode 0600, so filesystem access is its local authentication boundary and no separate secret is required. Podium's engine client and <code>codex resume --remote</code> may connect concurrently to that one app-server. The fixed machine-global socket managed by <code>codex app-server daemon</code> is a separate control surface and is not used. Grok ACP uses the child process's inherited stdin/stdout and has no addressable endpoint. Any TCP WebSocket listener MUST use Codex's declared authentication and bind policy. <code>opencode</code> binds loopback TCP, so every per-session port <b>requires</b> a per-session random secret via its server-password mechanism. Correlation secrets ride the spawn env, never argv; the multi-user threat model precedes attach shipment; and conformance includes unauthenticated-refusal checks for every addressable endpoint. <small><b>Evidence:</b> production <code>transport: 'unix-socket'</code> in <code>packages/harness/src/manifests/codex.ts</code>; the listener, mode enforcement, WebSocket framing, and stock-client address in <code>apps/daemon/src/runtime/codex-app-server.ts</code>; isolated live probes on Codex 0.147.0, 2026-08-20: two simultaneous initialized WebSocket clients shared one mode-0600 Unix listener, and <code>codex resume --remote unix://PATH</code> loaded the remote session picker.</small></li>
+  <li><b>Dedicated process per session — pooling is a driver-internal placement, not a mode.</b> Codex's app-server can host many threads in one process; the contract doesn't care, because a driver already maps sessionId → (endpoint, thread). But pooling changes real <em>guarantees</em>, not just implementation: per-session <code>MemoryMax</code> and OOM/crash isolation only exist when session = process (a cgroup bounds a process tree, not a thread), and one pooled-server crash becomes N simultaneous <code>process.exited</code> events. So: v1 ships dedicated only; pooled placement is a later, opt-in driver config <em>declared in capabilities</em> (per the <code>Declared&lt;T&gt;</code> rule — a pooled session visibly lacks the per-session isolation guarantee) rather than a new mode in the taxonomy.</li>
+</ul>
+
+<h3>Reliability: cgroups, not luck</h3>
+
+<p>The abduco layer already discovered the right mechanism — <code>systemd-run --user --scope</code> so masters survive daemon redeploys. Generalize it into an explicit hierarchy on Linux:</p>
+
+<pre><code>podium-&lt;instance&gt;.slice
+├─ podium-&lt;instance&gt;-daemon.service|scope        # the supervisor
+└─ podium-&lt;instance&gt;-sessions.slice
+   ├─ podium-&lt;instance&gt;-sess-&lt;id&gt;.scope          # one per session process tree
+   │    MemoryHigh= (throttle)  MemoryMax= (kill THIS session only)
+   │    TasksMax=  OOMPolicy=continue
+   ├─ podium-&lt;instance&gt;-sess-&lt;id&gt;-attach.scope   # warm client-terminal attachments; reclaimed first
+   └─ …</code></pre>
+
+<ul>
+  <li><b>No collective OOM death.</b> Per-scope <code>MemoryMax</code> means the kernel kills the offending session's cgroup, not the box's biggest process (which today can be the daemon or an innocent neighbor). The supervisor observes the scope's oom-kill event and surfaces it as a first-class <code>process.oomKilled</code> runtime event → session goes <code>exited</code> with a stated reason and a one-click resume (state is on disk; server/embedded sessions resume by ref, terminal sessions via the existing revival path).</li>
+  <li><b>Living independently of Podium.</b> Sessions must survive: daemon restart (scope outlives it — true today for abduco, extended to harness servers and embedded workers), server restart (daemon reconnect + reattach gates, unchanged), and full Podium uninstall-grade absence (harness-native state on disk — transcripts, thread stores — plus the durable <code>SessionBinding</code> journal in the state dir means a later supervisor can <code>adopt()</code> or at worst <code>resume()</code>). The reattach storm limiter (<code>reattach-gates.ts</code>) already handles the thundering herd.</li>
+  <li><b>Hibernate / stop / resume.</b> The survival table is unchanged and gets cheaper: for server/embedded drivers, hibernation is "kill the process tree, keep the resume ref" with no terminal-proof gymnastics, because turn state is harness-persisted and there is no screen to prove quiet. The two-pass candidate-signature policy from reattachment-design still gates <em>when</em>; the runtime event stream supplies the required "no open interaction, settled turn, quiet output" evidence directly. Auto-hibernation of idle server-family sessions can therefore be much more aggressive — which is the memory story for hundreds of background executors (Codex's own 30-minute thread unload is prior art).</li>
+  <li><b>Platform degradation, declared.</b> macOS: no cgroups — isolation degrades to separate process trees + supervisor-enforced soft memory watermarks (poll RSS, hibernate-or-kill worst offender first), launchd keep-alive for the daemon. Windows (ConPTY, no abduco): already <code>durable: 'none'</code>; server-family sessions are actually the first durable Windows story, since a harness server + resume ref does not need a PTY multiplexer at all. Degradation is surfaced in capabilities, per the <code>Declared&lt;T&gt;</code> house rule.</li>
+  <li><b>abduco's narrowed role.</b> abduco remains load-bearing wherever a real TUI runs: the terminal family's session engines, and on-machine client-TUI attachments (it is what makes them warm-parkable). Vendored source, systemd scoping, alt-screen stripper all stay. It stops being the universal answer: server and embedded session <em>engines</em> need no VT multiplexer because their durability is process + on-disk state, not a screen.</li>
+</ul>
+
+<h2><span class="sec">§7</span>Cloud and other machines: same runtime, different placement</h2>
+
+<p>Nothing above is machine-local by design, which is the point:</p>
+
+<ul>
+  <li><b>Another machine in Podium</b> is already a daemon enrolled via pairing; it becomes a Runtime Supervisor with zero topology change. Placement (<code>handoff/placement.ts</code>) chooses a machine; the runtime contract rides the existing daemon WS; attach relays as PTY frames do today (engine and on-machine client terminals both ride the same frames path). Handoff between machines reuses the existing coordinator; server-family sessions make it easier (resume ref + thread files instead of screen state) and should extend <code>harnessSupportsHandoff</code> beyond claude-code/codex.</li>
+  <li><b>Cloud</b> is a machine we provision instead of enroll. A cloud sandbox (Firecracker/containers, per provider) boots the same supervisor image with an instance identity, pairs to the hub over the existing peer handshake, and appears as a machine with a <code>cloud</code> capability tag. The provisioning/billing/pool logic is the closed-side orchestrator module behind the <code>PodiumPlugin</code> seam, exactly where the v2 doc parked "cloud sandboxes." Nothing in OSS Podium knows the difference between "Mike's VPS" and "a rented sandbox" beyond that tag.</li>
+  <li><b>Auth in the cloud</b> follows the driver matrix: Codex workers ride subscription <code>auth.json</code> seeded via the existing cross-machine login catalog / propagation work. On a machine that already holds the user's Claude login, the persistent Agent SDK path may use that managed subscription credential under the 2026-08-28 acknowledgement. Claude cloud workers that do <em>not</em> hold that login remain embedded-family on API keys — a credential-placement constraint, not a ToS bar on headless Claude.</li>
+  <li><b>Harness-native clouds</b> (Codex cloud, Claude remote-control/web) are explicitly out of scope for v1 of the runtime: they are a possible fourth driver family later ("external"), and the contract has room for it — a driver whose processes we do not own, only observe.</li>
+</ul>
+
+<h2><span class="sec">§8</span>Code architecture: what lands where</h2>
+
+<div class="tablebox"><table class="wide">
+  <tr><th>Location</th><th>Change</th></tr>
+  <tr><td><code>packages/agent-runtime</code> <b>(new)</b></td><td>The contract (<code>RuntimeDriver</code>, <code>AgentSessionHandle</code>, <code>RuntimeEvent</code>, <code>PendingInteraction</code>, <code>AttachEndpoint</code>, <code>SessionLease</code>) + drivers: <code>drivers/codex-app-server</code> (JSON-RPC client, approval mapping, steer/interrupt), <code>drivers/opencode-server</code> (OpenAPI client + SSE), <code>drivers/claude-sdk</code> (moves out of daemon headless-drivers into a worker-child host), <code>drivers/pty</code> (wraps today's spawn/composer/state stack behind the contract — mostly adapter code, minimal behavior change), <code>supervise/</code> (scopes, adoption scan, memory policy, binding journal).</td></tr>
+  <tr><td><code>packages/harness</code></td><td><code>runtime</code> axis on <code>AgentManifest</code> + <code>select()</code> policy; <code>exec</code>/<code>headless</code> axes deprecated toward it. Agent-state providers unchanged (terminal driver consumes them; server drivers translate protocol events into the same normalized <code>AgentStateEvent</code> vocabulary and shared reducer).</td></tr>
+  <tr><td><code>apps/daemon</code></td><td>Composes the runtime: <code>control/session.ts</code> handlers shrink to contract calls; <code>headless-drivers.ts</code>/<code>durable-headless.ts</code> retire as server drivers absorb their harnesses; hook-ingest, composer-sync, mail/prime injectors move <em>inside</em> the terminal driver's boundary; adoption scan replaces ad-hoc reattach special cases.</td></tr>
+  <tr><td><code>apps/server</code></td><td><code>modules/sessions</code>: spawn passes selection context, one side-effect gate consumes <code>RuntimeEvent</code>s (already the reattachment-design seam). <b>New <code>modules/interactions</code></b> (vertical slice: router/service/repo/events) for PendingInteraction — durable-synced through the write funnel, so mobile/web/CLI all see and answer them. <code>inbox.ts</code>'s <code>typeText</code> becomes the terminal driver's <code>send()</code>; mail/steward consume <code>send</code> receipts instead of ready-poll heuristics. Superagent threads become runtime sessions.</td></tr>
+  <tr><td><code>packages/protocol</code></td><td>New <code>runtime</code> message family under the versioned envelope: session commands, RuntimeEvents (durable-synced), interaction ask/answer (durable-synced), attach negotiation (command/live-only), terminal frames unchanged (bulk).</td></tr>
+  <tr><td><code>packages/client-core</code> + shells</td><td>Interaction inbox view-models (list, badge, answer actions); attach-mode picker; session cards gain driver/family + oom/hibernation affordances. Chat send routes through <code>send()</code> receipts — optimistic bubbles reconcile against turn receipts instead of transcript polling.</td></tr>
+  <tr><td><code>apps/cli</code></td><td><code>podium attach &lt;ref&gt; [--peek|--takeover]</code>, <code>podium interactions [answer]</code>, <code>podium runtime ps</code> (sessions with family, scope, memory, open interactions).</td></tr>
+</table></div>
+
+<h2><span class="sec">§9</span>Migration: seven phases, each ends with something deleted or measurably safer</h2>
+
+<ol>
+  <li><b>Reify interactions on the existing stack.</b> Build <code>modules/interactions</code> + policy engine fed by today's hooks/classifier (source: <code>screen-classifier</code>). No driver work yet. <em>Deleted:</em> the class of invisibly-stuck sessions; steward nudge scope shrinks. This is the highest product value per line and de-risks everything after.</li>
+  <li><b>Extract the contract; wrap today as the terminal driver.</b> <code>packages/agent-runtime</code>; daemon session control speaks the contract. Scoped honestly: this is <b>not</b> a zero-behavior-change wrap — roughly 29 call sites (the messages family, steward, superagent tools, automations, revival) move from ready-poll heuristics to receipt semantics, which changes every caller's failure path. So: caller-by-caller migration behind a flag, characterization suites re-baselined as each caller flips, and the boundary manifest amended deliberately (<code>agent-runtime</code> takes the host capability that hook-ingest/composer-sync move under). <em>Deleted:</em> direct daemon-frame coupling in the sessions module.</li>
+  <li><b>First server driver: opencode.</b> The pilot: simplest protocol to client (HTTP + OpenAPI + SSE), a clean reified permission API, and low-stakes rollout — and the intended background-executor host for non-Claude/non-Codex models. Its <code>permission.updated</code> events map onto the interactions aggregate from phase 1, proving the contract end to end. <em>Proved:</em> a session driven headless-first with structured interactions and zero screen-scraping.</li>
+  <li><b>Process supervision.</b> Slice/scope hierarchy, MemoryHigh/Max, oom events, adoption scan, embedded driver moved to worker children. <em>Deleted:</em> shared-fate OOM; daemon-heap exposure to SDK sessions. <b>Gate:</b> phases 5–7 start only when telemetry from phases 3–4 (driver-family usage share, per-process memory overhead) justifies the fleet-scale bets — §10.3/§10.5 name these as unknowns, so they are measured, not assumed.</li>
+  <li><b>Codex server driver + superagent on the runtime.</b> The subscription-carrying driver: ChatGPT auth works headless, approvals flow as structured interactions, steer replaces mail injection. Superagent threads become runtime sessions. <em>Deleted (for Codex-on-server):</em> submit-verification, composer scrape, blocking-hook mail path — from the <b>default path</b>; the terminal fallback retains them per §3's churn stance. Deleted outright: <code>headless-drivers.ts</code>, <code>durable-headless.ts</code>, doubled superagent send paths.</li>
+  <li><b>Attach v2.</b> Client-terminal attach (on-machine, streamed, warm-parked) + <code>podium attach</code>; control lease unification. Handover stays deferred per §5. <em>Deleted:</em> <code>exclusiveInteractiveResume</code> as a special case.</li>
+  <li><b>Cloud supervisor image</b> behind <code>PodiumPlugin</code>; placement targets cloud machines; aggressive auto-hibernation policies for background fleets. <em>Proved:</em> the acceptance test is "a non-native subagent fleet of 50 Codex executors runs for a week on one box with zero stuck sessions and zero collateral OOM kills."</li>
+</ol>
+
+<h2><span class="sec">§10</span>Open decisions (with recommendations)</h2>
+
+<ol>
+  <li><b>Wire protocol for the runtime: extend Podium's protocol vs adopt ACP.</b> Recommend: extend Podium's protocol (we need durability classes, oplog sync, and interaction aggregates ACP doesn't model), but keep <code>RuntimeEvent</code>/interaction shapes deliberately ACP-translatable so an ACP driver (Gemini CLI, future harnesses) is a thin adapter and an ACP <em>server</em> facade (exposing Podium sessions to ACP editors like Zed) stays possible.</li>
+  <li><b>Where the interaction policy lives.</b> Recommend: server-side (funnel + domain policy in <code>@podium/domain</code>), with a small daemon-side fast path only for latency-critical auto-allows; policy must be one auditable place.</li>
+  <li><b>When (if ever) to enable pooled server placement.</b> Decided in §6 that v1 is dedicated-only and pooling is a declared driver capability, not a mode; the open question is whether and when memory data justifies building it — the actual per-process overhead and potential savings are unknown, so gather fleet memory telemetry once server drivers run real workloads and decide on evidence.</li>
+  <li><b>Claude subscription sessions: keep spawning a visible terminal by default, or headless-terminal with attach-on-demand?</b> <b>Decided 2026-08-28:</b> Claude headless via the Agent SDK is first-class and high-priority, including managed subscription OAuth under an explicit acknowledgement. The PTY path is the permanent fallback (unavailable SDK, declined spawn, or a human who wants the wheel). Visible-by-default remains only for sessions a human opens themselves. The earlier "headless-terminal under abduco" recommendation is that fallback, not the preferred executor path. See <code>docs/architecture/claude-subscription-oauth-policy.md</code>.</li>
+  <li><b>Default memory budgets.</b> Recommend: <code>MemoryHigh</code> soft at 1.5&nbsp;GB, <code>MemoryMax</code> 3&nbsp;GB per session scope, instance-slice cap at 70% of RAM, all configurable per machine; ship with telemetry before enforcing hard kills.</li>
+  <li><b>Do superagent/steward move first or last onto the runtime?</b> Recommend: after the opencode pilot proves the contract (phase 5), so the riskiest consumers migrate onto proven ground.</li>
+</ol>
+
+<h2><span class="sec">§A</span>Appendix — feature inventory and primitive coverage</h2>
+
+<p>The complete inventory of Podium features that interact with or depend on harnesses, from three full-tree sweeps (server modules, daemon + harness/composer/pty/transcript packages, web/mobile/CLI clients, 2026-08-13), consolidated across layers — a client feature and the server machinery serving it are one row. Each row names what the feature needs from the harness and which §3 primitives carry it. <b>Gap</b> marks needs the surface was missing before this audit; every gap has been folded back into §3 (G1–G7 below). Clients never see primitives directly — they consume wire projections (<code>SessionMeta</code>, <code>AgentInventory</code>) of them; two client-side mirrors of manifest facts (<code>agentAcceptsArgvPrompt</code>, <code>defaultChatCapable</code>) exist today and should become projections of <code>capabilities()</code> when the surface lands.</p>
+
+<h3>A.1 Chat &amp; conversation</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Transcript feed (web + mobile; windowing, cold/tail)</td><td>live items, history paging, availability</td><td>transcript.history, item events, watch</td><td>—</td></tr>
+  <tr><td>Chat send + optimistic bubbles</td><td>proof of accepted send; echoed user item</td><td>send receipts, item events</td><td>— (receipts replace echo-guessing)</td></tr>
+  <tr><td>Queued-message ledger ("N queued")</td><td>outbox depth + delivery proof</td><td>send(queue) receipts, turn events</td><td>—</td></tr>
+  <tr><td>AskUserQuestion cards (web/mobile/inbox)</td><td>native menu shape, digit semantics, Other/preview layouts</td><td>interactions(question), answer()</td><td>—</td></tr>
+  <tr><td>Permission prompts</td><td>asks + always-allow suggestions</td><td>interactions(permission), answer()</td><td>—</td></tr>
+  <tr><td>Activity indicator / working badge</td><td>phase + sub-verdicts</td><td>state()</td><td>—</td></tr>
+  <tr><td>tl;dr / recap</td><td>last assistant turn</td><td>transcript.history</td><td>—</td></tr>
+  <tr><td>Transcript search / minimap / verbosity</td><td>tool blocks (name, input, result)</td><td>transcript items</td><td>—</td></tr>
+  <tr><td>Attribution marks (actor / on-behalf-of)</td><td>who authored each turn</td><td>item inputOrigin</td><td>—</td></tr>
+  <tr><td>Machine-context disclosure rows</td><td>marker for machine-authored blocks</td><td>SessionSpec.instructions attribution</td><td>G3</td></tr>
+  <tr><td>Image/file paste into a prompt</td><td>staged file + the path/attachment form the harness accepts</td><td>stageAttachment, TurnInput.attachments</td><td>G5</td></tr>
+  <tr><td>Draft sync (chat ⇄ native ⇄ devices)</td><td>read/prefill the native composer</td><td>draft</td><td>—</td></tr>
+  <tr><td>Todo bridge (chat chip + open-todos notice)</td><td>published todos + open-todos verdict</td><td>session projection open todos + task events</td><td>G1</td></tr>
+</table></div>
+
+<h3>A.2 Terminal surface</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Agent panel (PTY view, resize, scrollback, warm set)</td><td>frames, geometry, redraw</td><td>attach(engine)</td><td>—</td></tr>
+  <tr><td>Take-control / spectators / presence strip</td><td>controller arbitration</td><td>lease</td><td>—</td></tr>
+  <tr><td>Mobile soft keys + shortcut groups</td><td>per-harness key contract (⇧Tab modes, Esc, Ctrl-x)</td><td>attach + capabilities</td><td>—</td></tr>
+  <tr><td>Prompt-mode hint row</td><td>capability bit</td><td>capabilities</td><td>—</td></tr>
+  <tr><td>Ref/file/URL links in terminal output</td><td>screen text + session cwd</td><td>attach frames + workspace events</td><td>G2</td></tr>
+  <tr><td>Session titles</td><td>OSC titles / observer-derived / prompt fallback</td><td>title events</td><td>—</td></tr>
+  <tr><td>Echo HUD / startup overlay</td><td>frame timing</td><td>attach</td><td>—</td></tr>
+</table></div>
+
+<h3>A.3 Lifecycle &amp; fleet</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>New-panel gating + logged-out warnings</td><td>installed/version/login per machine</td><td>inventory, capabilities</td><td>—</td></tr>
+  <tr><td>Spawn (sessions, issues, automations, workflows)</td><td>launch with model/effort/instructions/env</td><td>spawn + SessionSpec</td><td>G3</td></tr>
+  <tr><td>Resume / revival ("bring it back")</td><td>durable resume ref</td><td>binding, resume</td><td>—</td></tr>
+  <tr><td>Hibernate + auto-hibernate reaper</td><td>quiet proof, resume ref, memory pressure</td><td>hibernate, state, health, causal events</td><td>—</td></tr>
+  <tr><td>Cross-machine handoff</td><td>portable conversation archive + rebind + target inventory</td><td>export/import, inventory</td><td>—</td></tr>
+  <tr><td>Cloud runtime move</td><td>eligibility + parked export</td><td>capabilities, hibernate, export</td><td>—</td></tr>
+  <tr><td>Session cards / board / tray / palette / flight deck</td><td>phase, verdicts, recency, kind, offers</td><td>session projection (including projected runtime state)</td><td>—</td></tr>
+  <tr><td>Model/effort/context% readouts (pane header, CLI)</td><td>observed runtime facts, never guessed</td><td>session projection observed facts</td><td>G1</td></tr>
+  <tr><td>Concurrency skyline / status strip</td><td>computing flag fleet-wide</td><td>state()</td><td>—</td></tr>
+  <tr><td>Adoption after daemon restart</td><td>rebind surviving processes by exact identity</td><td>adopt</td><td>—</td></tr>
+</table></div>
+
+<h3>A.4 Messaging &amp; steward</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Agent mail (urgency × lifecycle delivery)</td><td>boundary delivery, proof, wake-on-resume</td><td>send delivery modes, receipts, resume</td><td>—</td></tr>
+  <tr><td>mail.ask / awaitAgent</td><td>bounded answer + phase polling</td><td>send, state, events</td><td>—</td></tr>
+  <tr><td>Ack reminders / pending surfacing</td><td>pause-point injection</td><td>send(queue) at turn boundary</td><td>—</td></tr>
+  <tr><td>Steward triggers / parent nudges / wake rights</td><td>causally-proven terminal turns; resurrect parked parents</td><td>causal events, send when-ready, resume</td><td>—</td></tr>
+  <tr><td>Auto-continue</td><td>retryable-error classification</td><td>failure taxonomy, send</td><td>—</td></tr>
+  <tr><td>Push notifications (ntfy / Telegram)</td><td>attention-state transitions</td><td>state events, interactions</td><td>—</td></tr>
+  <tr><td>Telegram two-way + topic recap</td><td>send into session; last turns</td><td>send, transcript.history</td><td>—</td></tr>
+</table></div>
+
+<h3>A.5 Superagent</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Headless threads (global / btw / concierge)</td><td>persistent PTY-less conversation, partial-text streaming</td><td>spawn(role), send, events(fine), interrupt</td><td>—</td></tr>
+  <tr><td>Tool belt (24 session/issue tools)</td><td>session verbs + transcript reads</td><td>send, answer, hibernate, kill, transcript, state</td><td>—</td></tr>
+  <tr><td>Open thread in a terminal</td><td>same conversation, interactive</td><td>attach(client) for server family</td><td>embedded → deferred handover (§5)</td></tr>
+  <tr><td>MCP callback into Podium (tool belt transport)</td><td>mcp config injection per harness</td><td>SessionSpec.mcpServers</td><td>G3</td></tr>
+  <tr><td>Harness error classification + auth self-healing</td><td>normalized turn failures → login remediation</td><td>failure taxonomy, login interactions</td><td>—</td></tr>
+  <tr><td>btw/concierge watermark seeding</td><td>stable item ids/timestamps</td><td>transcript.history</td><td>—</td></tr>
+</table></div>
+
+<h3>A.6 Transcripts, history, search</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Transcript lake / mirror</td><td>versioned conversation archive; native bytes only when declared</td><td>export + archive fidelity (policy-driven incremental)</td><td>—</td></tr>
+  <tr><td>FTS index + omni-search</td><td>mirrored records → items</td><td>export + transcript mappers</td><td>—</td></tr>
+  <tr><td>Conversation registry + history browser</td><td>on-disk conversations, worktree attribution, sidechains</td><td>discover</td><td>—</td></tr>
+  <tr><td>Resume picker (new-panel Resume submenu)</td><td>resume refs from discovery</td><td>discover, resume</td><td>—</td></tr>
+  <tr><td>Read toolkit (status / read / recap)</td><td>bounded transcript windows + phase</td><td>transcript.history, state</td><td>—</td></tr>
+</table></div>
+
+<h3>A.7 Models, quota, accounts</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Model catalog + spawn validation ("did you mean")</td><td>per-machine model/effort enumeration</td><td>inventory</td><td>—</td></tr>
+  <tr><td>Model/effort pickers (thread, issue, automation, workflow)</td><td>catalogs + per-turn choice</td><td>inventory, TurnInput overrides, configure</td><td>G1/G5</td></tr>
+  <tr><td>Quota panel / Pulse / <code>podium quota</code></td><td>plan windows read via harness credentials</td><td>runtime.quota</td><td>G4</td></tr>
+  <tr><td>Usage analytics sheet</td><td>token buckets from native stores</td><td>runtime.usage</td><td>G4</td></tr>
+  <tr><td>Accounts hub + native login flow</td><td>login state/identity; interactive login command</td><td>accounts cluster</td><td>—</td></tr>
+  <tr><td>Credential propagation + onboarding pre-seed</td><td>portable files + sanitized trust state</td><td>seedCredential</td><td>—</td></tr>
+  <tr><td>Browser-open overlay (OAuth handoff, paste-back)</td><td>login-vs-link classification, loopback callback</td><td>login interactions, open-url events</td><td>G6</td></tr>
+  <tr><td>Direct vendor-API reuse (codex auth for server LLM)</td><td>read-only on-disk token</td><td>accounts (deliberately outside the session surface)</td><td>—</td></tr>
+</table></div>
+
+<h3>A.8 Issues, workflows, automations</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>Issue git-state (commits, touched files, branch)</td><td>hook-bracketed git observation, never guessed from checkout</td><td>workspace events</td><td>G2</td></tr>
+  <tr><td>Issue prime + system pointer (re-primed after compaction)</td><td>hidden instruction channel + compaction boundary</td><td>SessionSpec.instructions, compaction event</td><td>G3</td></tr>
+  <tr><td>Workflow execution-profile verification</td><td>actual harness/driver a session used</td><td>binding</td><td>—</td></tr>
+  <tr><td>Scheduled automations</td><td>spawn + uniform next-turn delivery</td><td>spawn, send(queue)</td><td>—</td></tr>
+  <tr><td>@-path autocomplete (composer)</td><td>session cwd</td><td>workspace state</td><td>G2</td></tr>
+  <tr><td>Advisory locks auto-release</td><td>session exit</td><td>process events</td><td>—</td></tr>
+</table></div>
+
+<h3>A.9 One-shots &amp; observability</h3>
+<div class="tablebox"><table class="wide">
+  <tr><th>Feature</th><th>Needs from the harness</th><th>§3 primitives</th><th>Gap</th></tr>
+  <tr><td>One-shot utility turns (today: dead <code>rpc.harnessExec</code>; harness-backed LLM roles "coming soon")</td><td>ephemeral native one-shot with output format</td><td>procedures.oneShot</td><td>G7</td></tr>
+  <tr><td>Perf registry (phase timings, RPC latency)</td><td>event timestamps</td><td>events</td><td>—</td></tr>
+  <tr><td>Notification sounds / mobile haptics</td><td>phase transitions</td><td>state events</td><td>—</td></tr>
+  <tr><td>Telemetry counters</td><td>spawn/exit</td><td>process events</td><td>—</td></tr>
+</table></div>
+
+<p><b>Deliberately outside the surface</b> (Podium-native state; no harness primitive involved): offers, the approvals broker, advisory locks themselves, file relay/artifacts, specs, the <code>podium</code> agent relay (it needs only <code>SessionSpec.env</code> at spawn).</p>
+
+<h3>A.10 Gap register (all folded into §3 in this revision)</h3>
+
+<div class="tablebox"><table class="wide">
+  <tr><th>Gap</th><th>What the audit found</th><th>Resolution in §3</th></tr>
+  <tr><td><b>G1</b> runtime facts</td><td>Observed model/effort/context-window %, accent, open todos, native-subagent facts, and event-time recency need one family-blind read surface</td><td>Durable session projection owns product-facing observed facts, open todos, and <code>lastActiveAt</code>; <code>state()</code> owns only the harness-runtime verdict and native-subagent facts</td></tr>
+  <tr><td><b>G2</b> workspace observation</td><td>Issue git-state, cwd tracking, @-path ranking, terminal link resolution all consume hook-derived cwd/git signals with no primitive</td><td>New <code>workspace</code> event family (CwdChanged, GitActivity)</td></tr>
+  <tr><td><b>G3</b> instructions &amp; MCP wiring</td><td>The hidden instruction channel (priming, system pointers, workflow context) and per-harness MCP config transport were spawn-time facts with no home</td><td><code>SessionSpec.instructions</code> (Declared, attributed, re-primed after compaction) + <code>SessionSpec.mcpServers</code> (Declared transport)</td></tr>
+  <tr><td><b>G4</b> machine-scoped accounting</td><td>Quota (plan windows) and usage harvesting are per-account-per-machine, not per-session; the surface only had <code>handle.usage()</code></td><td><code>runtime.quota()</code> + <code>runtime.usage(window)</code></td></tr>
+  <tr><td><b>G5</b> attachments &amp; per-turn overrides</td><td>Image/file paste needs staging + a harness-specific prompt form; headless turns choose model/effort per turn</td><td><code>stageAttachment()</code> + <code>TurnInput.attachments</code> + Declared per-turn overrides</td></tr>
+  <tr><td><b>G6</b> forwarded browser opens</td><td>Non-login link opens are forwarded to the operator's browser; only the login case had a home (interactions)</td><td>New <code>open-url</code> event with manifest-classified intent</td></tr>
+  <tr><td><b>G7</b> one-shot exec</td><td>A full one-shot pipe exists with no caller, and harness-backed LLM roles are explicitly unbuilt — no surface primitive to build them on</td><td><code>procedures.oneShot</code> with native driver overrides</td></tr>
+</table></div>
+
+<hr>
+
+<p style="color:var(--ink-faint); font-size:14px">Sources: full-tree runtime code audit (pty/abduco/daemon/harness/sessions, 2026-08-07); target-architecture v1 (2026-07-07) and v2 (2026-07-08); reattachment-design.md (approved 2026-07-18); agent-harness-interaction-taxonomy.md; Codex app-server / <code>--remote</code> docs; opencode server / attach docs; Claude Code headless, Agent SDK, authentication and remote-control docs; ACP; coder/agentapi.</p>
+</div>

@@ -1,12 +1,13 @@
 import { shallowEqual } from '@podium/client-core/store'
 import { issueReferenceModel } from '@podium/client-core/viewmodels'
-import { isAgentComputing } from '@podium/model/browser'
+import { isAgentConfirmedComputing } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
 import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
+import { useNow } from '@/lib/useNow'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 import { useReplicaIssues, useStoreSelector } from './store'
@@ -56,21 +57,21 @@ export function StatusStrip(): JSX.Element {
   // the strip: window-scoped, stated nowhere else, and present only while it is
   // a FACT — there is an update, or one is running, or one failed.
   const updates = useUpdates()
+  const now = useNow(60_000)
 
-  // Liveness is part of the question, not just the phase: a session that exited
+  // Confirmed liveness is part of the question, not just the phase: a session that exited
   // mid-turn keeps `phase: 'working'` (the server preserves the final turn
-  // diagnosis) and a parked one keeps it too, so counting raw phase gives a
-  // number that only ratchets up — it read "13 agents working" for hours with
-  // four alive (POD-730). `isAgentComputing` asks both, and 'compacting' counts
-  // because the harness is still computing, just about its own context.
-  const working = sessions.filter(isAgentComputing).length
+  // diagnosis), a parked one keeps it, and a reconnecting session has no live
+  // daemon observation. Counting any of those as current work makes the number
+  // survive the evidence behind it. Context compaction still counts.
+  const workingSessions = sessions.filter((session) => isAgentConfirmedComputing(session, now))
   const issue = selectedIssueId
     ? issues.find((candidate) => candidate.id === selectedIssueId && !candidate.deletedAt)
     : undefined
 
   return (
     <footer className="status-strip" data-testid="status-strip">
-      <AgentConcurrencyHistory working={working} trpc={trpc} />
+      <AgentConcurrencyHistory workingSessions={workingSessions} trpc={trpc} />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
       {issue && (

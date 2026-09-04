@@ -1,0 +1,47 @@
+A4_90S_START=2026-08-28 12:02:51 CEST
+==============================================================================
+A4a / A4b  permission ask, and answering it twice   harness=codex
+==============================================================================
+CODEX POSTURE      isolated approvals_reviewer=user for this probe only; restored on exit
+                   (auto_review auto-answers, so Podium never receives the ask)
+SESSION CWD        never-approved dummy git repo /home/mgw/pod-3027-a4-never-approved-1787911371190-cwd-l5hyjl/repo
+                   avoided trusted projects: /home/mgw/src/podium, /tmp/cxprobe/work, /tmp/podium-test-run-fXLHSe/podium-codex-live-Hfw0BE, /tmp/pod-op/repo, /home/mgw/src/podium-cloud, /tmp/cx2819/work, /tmp/cx2819-mention/arm0/cwd, /tmp/cx2819-mention/arm1/cwd, /tmp/cx2819-mention/arm2/cwd, /tmp/pod-2777/repo, /home/mgw/src/podium/.worktrees/issue-2245-operator-test-instance, /home/mgw/pod-3027-a4-never-approved-1787911063763-cwd-on8dn4/repo
+                   isolated approvals_reviewer=user
+session a4752927-0340-487f-a08f-4733df92236d created
+BOUND DRIVER       codex-app-server (family server)
+TimeoutError: The operation timed out.
+DOMException {
+  stack: "",
+  code: 23,
+  name: "TimeoutError",
+  message: "The operation timed out.",
+  INDEX_SIZE_ERR: 1,
+  DOMSTRING_SIZE_ERR: 2,
+  HIERARCHY_REQUEST_ERR: 3,
+  WRONG_DOCUMENT_ERR: 4,
+  INVALID_CHARACTER_ERR: 5,
+  NO_DATA_ALLOWED_ERR: 6,
+  NO_MODIFICATION_ALLOWED_ERR: 7,
+  NOT_FOUND_ERR: 8,
+  NOT_SUPPORTED_ERR: 9,
+  INUSE_ATTRIBUTE_ERR: 10,
+  INVALID_STATE_ERR: 11,
+  SYNTAX_ERR: 12,
+  INVALID_MODIFICATION_ERR: 13,
+  NAMESPACE_ERR: 14,
+  INVALID_ACCESS_ERR: 15,
+  VALIDATION_ERR: 16,
+  TYPE_MISMATCH_ERR: 17,
+  SECURITY_ERR: 18,
+  NETWORK_ERR: 19,
+  ABORT_ERR: 20,
+  URL_MISMATCH_ERR: 21,
+  QUOTA_EXCEEDED_ERR: 22,
+  TIMEOUT_ERR: 23,
+  INVALID_NODE_TYPE_ERR: 24,
+  DATA_CLONE_ERR: 25,
+  toString: [Function: toString],
+}
+
+Bun v1.3.14 (Linux x64)
+A4_90S_END=2026-08-28 12:08:08 CEST rc=1

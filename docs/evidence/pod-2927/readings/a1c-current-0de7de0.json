@@ -1,0 +1,92 @@
+{
+  "id": "A1c",
+  "label": "[fix] current-tip 0de7de085",
+  "arm": "fix",
+  "harness": "grok-acp",
+  "verdict": "FAIL",
+  "summary": "The exact stamped Grok child was killed, but the dead-session send was accepted as queued position 1 and its assistant nonce was lost through the full 120-second outcome window.",
+  "control": {
+    "fired": true,
+    "what": "A send to the same grok-acp/server session while alive answered before the destructive control.",
+    "detail": "The live reply arrived; one exact child carried the instance UUID and target session ID; that exact PID was killed and confirmed gone."
+  },
+  "evidence": [
+    "The clean pin verifier passed before the probe.",
+    "Product driver was grok-acp with family server.",
+    "Live positive control answered before child death.",
+    "Target instance UUID was 5ea2edc1-be16-44e5-919e-d8a3eaa8923a from /home/mgw/.local/state/podium/grok2927e/instance.json.",
+    "Exactly one stamped target existed: PID 3436434, cwd /tmp/pod-2927-grok-e/repo, /home/mgw/.local/bin/grok agent stdio.",
+    "SIGKILL was sent to PID 3436434; the exact PID was gone and no exact stamped target remained.",
+    "The post-kill receipt was {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}.",
+    "No typed refusal or resume offer appeared, and the assistant nonce did not arrive during the full 120000ms delayed window."
+  ],
+  "data": {
+    "sessionId": "21617c71-6e41-4172-89e8-f3ffdaace50a",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "instanceId": "grok2927e",
+    "instanceUuid": "5ea2edc1-be16-44e5-919e-d8a3eaa8923a",
+    "targetPid": 3436434,
+    "targetPidGone": true,
+    "remainingExactStampedTargets": 0,
+    "sendReceipt": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "typedRefusal": false,
+    "resumeOffered": false,
+    "accepted": true,
+    "delayedDelivered": false,
+    "delayedOutcome": "lost",
+    "delayedWindowMs": 120000,
+    "grokVersion": "0.2.118 (1e1687c1cf) [stable]"
+  },
+  "cwd": "/tmp/pod-2927-grok-e/repo",
+  "pin": {
+    "codeCommit": "0de7de085ebefb166b04ee69714955bafc556fe8",
+    "codeTree": "2bb877c94f5ccab0d30a946715bfe7658d24e9a2",
+    "commitTime": "2026-08-27 23:53:55 +0200",
+    "server": {
+      "pid": 3433156,
+      "spawnSha": "0de7de085ebefb166b04ee69714955bafc556fe8",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column"
+    },
+    "daemon": {
+      "pid": 3433298,
+      "spawnSha": "0de7de085ebefb166b04ee69714955bafc556fe8",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column"
+    },
+    "servedWeb": {
+      "sourceSha": "0de7de0",
+      "bundleVersion": "bundle+8_I8mS2M",
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "builtAt": "2026-08-27T22:12:15.173Z"
+    },
+    "verifier": "PINJSON passed at 2026-08-28 00:24:52 CEST"
+  },
+  "criterionClauses": {
+    "productDriver": "PASS — product reported grok-acp/server.",
+    "liveSendPositiveControl": "PASS — the same session answered while alive.",
+    "exactDeadTargetAttribution": "PASS — one child carried the named instance UUID and exact target session ID.",
+    "deadSessionConfirmed": "PASS — SIGKILL was sent to PID 3436434 and that exact stamped PID was confirmed gone.",
+    "typedRefusalOrResumeOffered": "FAIL — the receipt was accepted/queued with no typed refusal or resume offer.",
+    "neverLostMessage": "FAIL — the accepted message produced no assistant nonce during the full 120-second window."
+  },
+  "admission": {
+    "cellStartedAt": "2026-08-28 00:24:52 CEST",
+    "preBuildCapacityAt": "2026-08-28 00:09:51 CEST",
+    "load1": 4.39,
+    "memAvailableKb": 7000164,
+    "swapFreeKb": 36952704,
+    "rootFreeKb": 6527260,
+    "vmstatSwapInKbPerSec": [1235, 240, 64],
+    "vmstatSwapOutKbPerSec": [1399, 0, 0],
+    "testHeavyLease": "free before drive; no lease held during measurement",
+    "noConcurrentProbe": true
+  },
+  "localTimestamp": "2026-08-28 00:32:10 CEST",
+  "rawTranscript": "readings/a1c-current-0de7de0.txt",
+  "defect": "POD-2980"
+}

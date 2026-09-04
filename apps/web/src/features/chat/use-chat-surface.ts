@@ -1,4 +1,8 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import {
+  headlessConversationCanInterrupt,
+  nativeSessionCanInterrupt,
+} from '@podium/client-core/conversation'
 import { shallowEqual } from '@podium/client-core/store'
 import {
   type AskAnswerChoice,
@@ -26,7 +30,6 @@ import {
   type TranscriptSearchState,
   transcriptAttributionTable,
   transcriptPhase,
-  visibleOffer,
 } from '@podium/client-core/viewmodels'
 import { isAgentComputing, type SessionId, type SessionMeta } from '@podium/model/browser'
 import type { RefObject } from 'react'
@@ -34,13 +37,14 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSession, useSessionExitKind, useStoreSelector } from '@/app/store'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import type { ChatBlock, PendingItem, QueuedChatMessage } from './chat'
-import { projectOptimisticMessages } from './chat'
+import type { ChatBlock, DeadLetteredChatMessage, PendingItem, QueuedChatMessage } from './chat'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
 import { useChatSend } from './use-chat-send'
 import { type UseHeadlessTurnResult, useHeadlessTurn } from './use-headless-turn'
+import { type TurnPreview, useTurnPreview } from './use-turn-preview'
 import { type UseTranscriptScrollResult, useTranscriptScroll } from './use-transcript-scroll'
-import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
+import { useTranscriptReveal } from './use-transcript-reveal'
+import { RENDER_WINDOW, type TranscriptFreshness, useTranscriptWindow } from './useTranscriptWindow'
 
 /**
  * THE CHAT SOURCE (POD-405) — the one place the chat surface's data is
@@ -64,20 +68,6 @@ import { RENDER_WINDOW, useTranscriptWindow } from './useTranscriptWindow'
  * this composes them and hands the shell one object.
  */
 
-/** The reason inside a `{ ok: false, reason }` reply, or null for anything else.
- *  Session writes that the substrate REFUSES resolve 200 with that shape rather
- *  than throwing — see `assert-send-accepted.ts` for the same idiom on sends. */
-function refusalReason(result: unknown): string | null {
-  if (result === null || typeof result !== 'object') return null
-  if (!('ok' in result) || (result as { ok: unknown }).ok !== false) return null
-  const reason = (result as { reason?: unknown }).reason
-  return typeof reason === 'string' && reason !== '' ? reason : 'the agent refused the interrupt'
-}
-
-function errorText(e: unknown): string {
-  return e instanceof Error ? e.message : String(e)
-}
-
 export interface UseChatSurfaceOptions {
   sessionId: SessionId
   active: boolean
@@ -85,6 +75,8 @@ export interface UseChatSurfaceOptions {
   compact: boolean
   initialTurnRunning: boolean
   initialPendingText: string | undefined
+  onInitialPendingSettled?: () => void
+  deferInitialTranscript: boolean
 }
 
 export interface ChatSurface {
@@ -115,6 +107,7 @@ export interface ChatSurface {
   /** Unsafe worker HTML keyed by source Markdown; TranscriptFeed sanitizes it. */
   markdownHtml: ReadonlyMap<string, string>
   phase: TranscriptPhase
+  transcriptFreshness: TranscriptFreshness
   moreAbove: boolean
   loadingOlder: boolean
   loadOlder: () => void
@@ -154,17 +147,25 @@ export interface ChatSurface {
   submitDraft: (draft: string) => void
   pending: readonly PendingItem[]
   restoredQueued: readonly QueuedChatMessage[]
+  restoredFailed: readonly DeadLetteredChatMessage[]
   ctxSeq: number | null
   offer: SessionMeta['offer'] | null
   sendOfferPrompt: (prompt: string, offerAt: string) => Promise<void>
   /** Decline the offer without answering it — see `useChatSend`. */
   dismissOffer: (offerAt: string) => Promise<void>
   retractQueuedMessage: (id: string) => Promise<void>
+  /** Present only while the addressed session can accept or safely resume for
+   *  a retry. Its absence removes the action from durable failed rows. */
+  retryFailedMessage: ((text: string) => void) | undefined
   answerAsk: (answer: import('./AskUserQuestionCard').AskUserQuestionAnswer) => Promise<void>
   activity: ChatActivity | null
 
   // -- headless superagent routing -------------------------------------------
   headlessTurn: UseHeadlessTurnResult
+  /** The in-progress half of the open turn (POD-2293): text still being written
+   *  and tools still running, for sessions whose driver publishes fragments.
+   *  Null for everyone else — a PTY chat is untouched. */
+  turnPreview: TurnPreview | null
   /** A turn is running: show the stop control. */
   turnActive: boolean
   /** A stop may be attempted: arm the chord and enable the control. */
@@ -183,6 +184,8 @@ export interface ChatSurface {
   scrollerRef: RefObject<HTMLDivElement | null>
   scroll: UseTranscriptScrollResult
   visibleRows: ChatRow[]
+  /** Absolute row temporarily revealed by an external transcript jump. */
+  revealedRow: number | undefined
 
   // -- misc UI ---------------------------------------------------------------
   lightbox: string | null
@@ -192,7 +195,16 @@ export interface ChatSurface {
 }
 
 export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
-  const { sessionId, active, superThread, compact, initialTurnRunning, initialPendingText } = opts
+  const {
+    sessionId,
+    active,
+    superThread,
+    compact,
+    initialTurnRunning,
+    initialPendingText,
+    onInitialPendingSettled,
+    deferInitialTranscript,
+  } = opts
 
   const {
     hub,
@@ -209,6 +221,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     attachedSessionId,
     clearAttachedSession,
     superThreads,
+    transcriptReveal,
+    clearTranscriptReveal,
   } = useStoreSelector(
     (s) => ({
       hub: s.hub,
@@ -225,6 +239,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
       attachedSessionId: s.attachedSessionId,
       clearAttachedSession: s.clearAttachedSession,
       superThreads: s.superThreads,
+      transcriptReveal: s.transcriptReveal,
+      clearTranscriptReveal: s.clearTranscriptReveal,
     }),
     shallowEqual,
   )
@@ -289,6 +305,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadingOlder,
     deepeningSearch,
     initialLoaded,
+    transcriptFreshness,
     offlineAsOf,
     loadOlder,
     ensureSearchDepth,
@@ -303,6 +320,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     replica,
     active,
     session,
+    deferInitialRead: deferInitialTranscript,
     verbosity,
     query,
     cursor: matchCursor,
@@ -370,6 +388,28 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     loadOlder,
     rowsToRender,
   })
+  const revealLoadOlder = scroll.loadOlder
+  const revealScrollToBlock = scroll.scrollToBlock
+
+  // A Handoff card carries the transcript item's stable cursor/id, not a row
+  // number. The reveal consumer owns paging, window expansion and the centered
+  // scroll while this surface continues to own transcript data and geometry.
+  const revealedRow = useTranscriptReveal({
+    active,
+    sessionId,
+    request: transcriptReveal,
+    blocks,
+    rows,
+    initialLoaded,
+    computeReady,
+    loadingOlder,
+    moreAbove,
+    renderStart,
+    setRenderCount,
+    loadOlder: revealLoadOlder,
+    scrollToBlock: revealScrollToBlock,
+    clear: clearTranscriptReveal,
+  })
 
   // THE THREAD'S BACKEND (POD-782) — what the prompt box's two pills read and
   // write. The stored value lives on the thread (so it survives a reload and is
@@ -416,6 +456,17 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     setBackendPick((p) => ({ ...p, effort }))
   }, [])
 
+  /**
+   * THE STREAMED TURN (POD-2293), for every session — not only headless ones.
+   *
+   * `useHeadlessTurn` above is the SUPERAGENT thread's overlay and is inert
+   * without one. This is a different plane with a different producer: any
+   * session whose driver publishes fragments, which is every headless RUNTIME
+   * family. A session that publishes none simply never gets a frame, so the
+   * hook costs one idle subscription and renders nothing.
+   */
+  const turnPreview = useTurnPreview(sessionId, hub)
+
   const headlessTurn = useHeadlessTurn({
     sessionId,
     hub,
@@ -447,6 +498,9 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
   )
 
   const attachments = useAttachments({ sessionId, trpc })
+  const canInterrupt = headless
+    ? headlessConversationCanInterrupt(superThread !== undefined, headlessTurn.turnRunning)
+    : nativeSessionCanInterrupt(session?.status)
 
   const send = useChatSend({
     sessionId,
@@ -454,6 +508,8 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     resumeAndSend,
     dismissOffer,
     setPanelMode,
+    setSessionDraft,
+    initialDraft: storeHandle.getSnapshot().drafts?.[sessionId] ?? '',
     getUserFocus,
     attachedSessionId,
     clearAttachedSession,
@@ -467,26 +523,39 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     blocks,
     session,
     headlessTurn,
+    canInterrupt,
+    latestOperatorPrompt: lastSubmittedPromptRef.current ?? latestOperatorPrompt,
     pinToBottom: scroll.pinToBottom,
     initialPendingText,
+    onInitialPendingSettled,
   })
 
-  const messageProjection = useMemo(
-    () =>
-      projectOptimisticMessages(
-        send.pending,
-        send.queuedMessages,
-        blocks.map((block) => block.item),
-      ),
-    [blocks, send.pending, send.queuedMessages],
-  )
+  const restoredFailed = send.failedMessages
+
+  /**
+   * DEAD-LETTER RETRY MATRIX — an action exists only when this snapshot has a
+   * route that can perform it:
+   *
+   *   live / starting                 Retry → direct session send
+   *   hibernated                      Retry → resume and durably queue
+   *   exited + resumable              Retry → resume and durably queue
+   *   exited + non-resumable          no action; keep the failed row
+   *   gone                            no action; keep the failed row
+   *   archived + resumable            no action; keep the failed row
+   *   archived + non-resumable        no action; keep the failed row
+   *
+   * Archive outranks the retained resume capability in `composerState`.
+   * A transport refusal after one of the three performable routes remains a
+   * distinct failed attempt; it never changes this older row's history.
+   */
+  const canRetryFailedMessage = composer.sendable || composer.canResume
   const queued = useMemo(() => {
     return queuedState({
       session,
-      queuedMessages: messageProjection.queued,
-      pending: messageProjection.pending,
+      queuedMessages: send.queuedMessages,
+      pending: send.pending,
     })
-  }, [messageProjection, session])
+  }, [send.pending, send.queuedMessages, session])
 
   const phase = useMemo(
     () =>
@@ -510,35 +579,29 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     [session, headless, headlessTurn.turnRunning, send.justSent],
   )
 
-  const offer = useMemo(
-    () => visibleOffer({ session, headless, dismissedOfferAt: send.dismissedOfferAt }),
-    [session, headless, send.dismissedOfferAt],
-  )
+  const offer = headless ? null : send.offer
 
   // Draft: read from the store, written through the actions seam (POD-402) —
   // one call, no merge. See ChatComposer's header for the classification and why
   // this stays a single action rather than becoming view-side reconciliation.
-  const setDraft = useCallback(
-    (text: string) => setSessionDraft(sessionId, text),
-    [setSessionDraft, sessionId],
-  )
+  const setDraft = send.setDraft
 
   const submitDraft = useCallback(
     (draft: string) => {
       const text = draft.trim()
-      const { paths, tags } = attachments.ready()
+      const { paths, legacyPaths, refs, tags } = attachments.ready()
       if (!text && paths.length === 0) return
       if (attachments.uploading) return
       lastSubmittedPromptRef.current = text || null
-      setDraft('')
-      attachments.clear()
+      attachments.clearReady()
       void send.send(
-        paths.length > 0 ? `${paths.join('\n')}\n${text}` : text,
+        legacyPaths.length > 0 ? [legacyPaths.join('\n'), text].filter(Boolean).join('\n') : text,
         tags.length > 0 ? tags : undefined,
         paths.length > 0 ? paths : undefined,
+        refs.length > 0 ? refs : undefined,
       )
     },
-    [attachments, setDraft, send],
+    [attachments, send],
   )
 
   /**
@@ -561,43 +624,12 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
    * authoritative phase and the harness manifest), and its refusal now arrives
    * here as {@link interruptError} instead of being swallowed.
    */
-  const canInterrupt = headless
-    ? superThread !== undefined && headlessTurn.turnRunning
-    : session !== undefined && (session.status === 'live' || session.status === 'starting')
-  const [interruptError, setInterruptError] = useState<string | null>(null)
-  // A refusal belongs to the session it came from — the mobile panel reuses one
-  // composer across switches, and a stale "Not stopped" under another session's
-  // prompt would name the wrong agent.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: clear on session switch
-  useEffect(() => setInterruptError(null), [sessionId])
   const interrupt = useCallback(
     (draft: string) => {
-      if (!canInterrupt) return
-      setInterruptError(null)
-      // The keyboard chord is accepted only from an empty field. Keep that same
-      // safety here so the stop button never overwrites a reply already in flight.
-      if (draft === '') {
-        const recalled = lastSubmittedPromptRef.current ?? latestOperatorPrompt
-        if (recalled) setDraft(recalled)
-      }
       taRef.current?.focus()
-      if (headless) {
-        void Promise.resolve(headlessTurn.interrupt()).catch((e: unknown) =>
-          setInterruptError(errorText(e)),
-        )
-        return
-      }
-      // A refusal RESOLVES as `{ ok: false, reason }` (the `assertSendAccepted`
-      // shape); only a transport failure throws. Reading just the throw is how a
-      // stop that never reached the agent looked identical to one that worked.
-      void Promise.resolve(trpc.sessions.interrupt.mutate({ sessionId }))
-        .then((result) => {
-          const refused = refusalReason(result)
-          if (refused) setInterruptError(refused)
-        })
-        .catch((e: unknown) => setInterruptError(errorText(e)))
+      void send.interrupt(draft)
     },
-    [canInterrupt, headless, headlessTurn, latestOperatorPrompt, sessionId, setDraft, trpc],
+    [send],
   )
 
   // Answer a live AskUserQuestion from its chat card: option digits, free text
@@ -704,6 +736,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     renderStart,
     markdownHtml,
     phase,
+    transcriptFreshness,
     moreAbove,
     loadingOlder,
     loadOlder: scroll.loadOlder,
@@ -731,21 +764,24 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     isMobile,
     taRef,
     submitDraft,
-    pending: messageProjection.pending,
+    pending: send.pending,
     restoredQueued: queued.restored,
+    restoredFailed,
     ctxSeq: send.ctxSeq,
     offer,
     sendOfferPrompt: send.sendOfferPrompt,
     dismissOffer: send.dismissOffer,
     retractQueuedMessage: send.retractQueuedMessage,
+    retryFailedMessage: canRetryFailedMessage ? (text) => void send.send(text) : undefined,
     answerAsk,
     activity,
 
     headlessTurn,
+    turnPreview,
     turnActive,
-    canInterrupt,
+    canInterrupt: send.canInterrupt,
     interrupt,
-    interruptError,
+    interruptError: send.interruptError,
     backend,
     setBackendModel,
     setBackendEffort,
@@ -753,6 +789,7 @@ export function useChatSurface(opts: UseChatSurfaceOptions): ChatSurface {
     scrollerRef,
     scroll,
     visibleRows,
+    revealedRow,
 
     lightbox,
     setLightbox,

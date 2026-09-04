@@ -1,7 +1,7 @@
-// Run ONLY under `bun test` — proves the multi-machine store + migration behave
-// identically on bun:sqlite (vitest excludes *.bun.test.ts; store.machines.test.ts
-// is the node:sqlite mirror of this). The pre-multi-machine fixture is built through
-// the same @podium/runtime/sqlite shim (bun:sqlite here) rather than a direct driver.
+// Run ONLY under `bun test` — proves the multi-machine store + migration behave the
+// same under this runner as under vitest, which excludes *.bun.test.ts and runs
+// store.machines.test.ts instead. Both lanes drive the one bun:sqlite driver through
+// the @podium/runtime/sqlite shim rather than a direct import.
 
 import { describe, expect, it } from 'bun:test'
 import { createHash } from 'node:crypto'

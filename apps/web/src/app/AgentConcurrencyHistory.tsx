@@ -1,3 +1,5 @@
+import { Popover } from '@base-ui/react/popover'
+import type { SessionMeta } from '@podium/model/browser'
 import { type JSX, useEffect, useMemo, useState } from 'react'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
@@ -41,13 +43,14 @@ function validHistory(value: HistoryResult): boolean {
  * reading rather than changing the instrument.
  */
 export function AgentConcurrencyHistory({
-  working,
+  workingSessions,
   trpc,
 }: {
-  working: number
+  workingSessions: SessionMeta[]
   trpc: Trpc
 }): JSX.Element {
   const [history, setHistory] = useState<HistoryResult | null>(null)
+  const working = workingSessions.length
 
   useEffect(() => {
     let disposed = false
@@ -91,10 +94,34 @@ export function AgentConcurrencyHistory({
       tone="agents"
       current={
         working > 0 ? (
-          <span className="status-strip-live" data-testid="status-strip-working">
-            <span className="status-strip-spinner" aria-hidden="true" />
-            {working} {working === 1 ? 'agent' : 'agents'} working
-          </span>
+          <Popover.Root>
+            <Popover.Trigger
+              className="status-strip-live status-strip-roster-trigger"
+              data-testid="status-strip-working"
+              aria-label={`${working} ${working === 1 ? 'agent' : 'agents'} working. Show agents`}
+            >
+              <span className="status-strip-spinner" aria-hidden="true" />
+              {working} {working === 1 ? 'agent' : 'agents'} working
+            </Popover.Trigger>
+            <Popover.Portal>
+              <Popover.Positioner side="top" align="start" sideOffset={7} className="isolate z-50">
+                <Popover.Popup className="status-strip-roster" data-testid="status-strip-roster">
+                  <Popover.Title className="status-strip-roster-title">
+                    Agents working now
+                  </Popover.Title>
+                  <ul className="status-strip-roster-list">
+                    {workingSessions.map((session) => (
+                      <li key={session.sessionId}>
+                        <span>{session.name ?? session.title}</span>
+                        <b>{session.displayRef ?? session.agentKind}</b>
+                      </li>
+                    ))}
+                  </ul>
+                  <p>Connected sessions with activity in the last 15 minutes.</p>
+                </Popover.Popup>
+              </Popover.Positioner>
+            </Popover.Portal>
+          </Popover.Root>
         ) : (
           <span className="status-strip-idle" data-testid="status-strip-working">
             no agents working

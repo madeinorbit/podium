@@ -1,0 +1,50 @@
+{
+  "measuredAt": "2026-08-29T22:42:43.635Z",
+  "waitedMs": 10077,
+  "version": {
+    "wireVersion": 2,
+    "minSupportedVersion": 1,
+    "wireSchemaDigest": "737208997d531cc3",
+    "appVersion": "dev+62bb4a7",
+    "sourceDigest": "62bb4a7",
+    "installKind": "source",
+    "instanceId": "p3100oc",
+    "feedScoping": "per-principal",
+    "daemonConnected": true,
+    "components": {
+      "daemon": {
+        "state": "connected"
+      }
+    },
+    "web": {
+      "present": false
+    }
+  },
+  "processes": [
+    {
+      "pid": 1738737,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+      "instance": "PODIUM_INSTANCE=p3100oc"
+    },
+    {
+      "pid": 1739380,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send",
+      "instance": "PODIUM_INSTANCE=p3100oc"
+    },
+    {
+      "pid": 1755584,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3100-opencode-wake-and-send/apps/web",
+      "instance": "PODIUM_INSTANCE=p3100oc"
+    }
+  ],
+  "before": {
+    "sessions": 9,
+    "queued": 0
+  },
+  "after": {
+    "sessions": 9,
+    "queued": 0
+  },
+  "sendTextResponses": [],
+  "classification": "ignored-new-task-enter"
+}

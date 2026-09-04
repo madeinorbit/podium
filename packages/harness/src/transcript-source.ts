@@ -1,4 +1,5 @@
 import { homedir } from 'node:os'
+import type { SessionId } from '@podium/model'
 import {
   type ChainEntry,
   fileChainSource,
@@ -21,6 +22,7 @@ export async function resolveFileChain(input: {
   resumeValue?: string
   pathHint?: string
   homeDir?: string
+  transcriptRoot?: string
 }): Promise<ChainEntry[]> {
   const manifest = manifestFor(input.agentKind)
   const transcript = manifest && declaredValue(manifest.transcript)
@@ -30,6 +32,7 @@ export async function resolveFileChain(input: {
     cwd: input.cwd,
     ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
     homeDir: input.homeDir ?? homedir(),
   })
   return paths.map((p) => ({ path: p, fileId: fileIdFor(p) }))
@@ -48,18 +51,23 @@ export async function transcriptSourceFor(input: {
   agentKind: string
   cwd: string
   resumeValue?: string
+  /** Stable Podium row identity used by providers with a shared native store. */
+  podiumSessionId?: SessionId
   /** Recorded segment evidence: absolute transcript path, checked before any
    *  cwd-derived location (conversation registry §3.3). */
   pathHint?: string
   homeDir?: string
+  transcriptRoot?: string
 }): Promise<TranscriptSource> {
   const manifest = manifestFor(input.agentKind)
   const transcript = manifest && declaredValue(manifest.transcript)
   if (!transcript) return fileChainSource([], () => [])
   return transcript.sourceFor({
     cwd: input.cwd,
+    ...(input.podiumSessionId !== undefined ? { podiumSessionId: input.podiumSessionId } : {}),
     ...(input.resumeValue !== undefined ? { resumeValue: input.resumeValue } : {}),
     ...(input.pathHint !== undefined ? { pathHint: input.pathHint } : {}),
+    ...(input.transcriptRoot !== undefined ? { transcriptRoot: input.transcriptRoot } : {}),
     homeDir: input.homeDir ?? homedir(),
   })
 }

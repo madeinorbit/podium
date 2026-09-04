@@ -34,7 +34,6 @@ function setup() {
   const sock = new FakeSocket()
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
     // A feed sink makes this a v2 connection, which is where the frames land.
     feed: { helloFields: () => null, connected: () => {}, disconnected: () => {}, frame: () => {} },

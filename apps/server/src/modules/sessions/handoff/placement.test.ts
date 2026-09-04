@@ -14,9 +14,9 @@
  */
 
 import {
-  asRepoId,
   asIssueId,
   asMachineId,
+  asRepoId,
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
@@ -206,6 +206,43 @@ describe('handoff placement: the refusals, all before anything moves', () => {
         }),
       ),
     ).toThrow('target machine cannot run logged-in claude-code')
+  })
+
+  it('a timed-out harness probe is retryable uncertainty, not absence', () => {
+    let thrown: unknown
+    try {
+      resolve(
+        ports({
+          machines: [
+            onlineTarget({
+              inventory: {
+                agents: [
+                  {
+                    kind: 'claude-code',
+                    installed: null,
+                    probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+                    login: { state: 'in' },
+                  },
+                ],
+              },
+            }),
+          ],
+        }),
+      )
+    } catch (error) {
+      thrown = error
+    }
+    expect(thrown).toBeInstanceOf(HandoffRefusalError)
+    expect((thrown as HandoffRefusalError).message).toBe(
+      "could not determine whether claude-code is installed on target machine 'target box' (probe timed out after 60s); retry",
+    )
+    expect((thrown as HandoffRefusalError).refusal).toBe('unreachable')
+  })
+
+  it('missing target inventory is retryable uncertainty too', () => {
+    expect(() => resolve(ports({ machines: [onlineTarget({ inventory: undefined })] }))).toThrow(
+      "could not determine whether claude-code is installed on target machine 'target box' (inventory not reported yet); retry shortly",
+    )
   })
 
   it('a target where the harness is LOGGED OUT is refused too — installed is not enough', () => {

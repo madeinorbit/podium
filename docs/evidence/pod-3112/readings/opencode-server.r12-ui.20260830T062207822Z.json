@@ -1,0 +1,25 @@
+{
+  "at": "2026-08-30T06:22:07.822Z",
+  "issue": "POD-3112",
+  "kind": "r12-ui-lifecycle-preprompt-refusal",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "6f0cbfda93f48f98109ab40e5084f91f773c62ac",
+  "instance": "p3112-oc-ui-lifecycle-r12",
+  "ports": [20322, 47332, 47333],
+  "providerPrompts": 0,
+  "credentialPosture": {
+    "sourcePath": "/home/mgw/.local/share/opencode/auth.json",
+    "sourceType": "regular file",
+    "sourceMode": "600",
+    "sourceSize": 126,
+    "sourceMtime": "2026-08-04 14:46:44.680078633 +0200",
+    "derivedLink": "/home/mgw/.local/state/podium/p3112-oc-ui-lifecycle-r12/agent-home/.local/share/opencode/auth.json",
+    "linkTarget": "/home/mgw/.local/share/opencode/auth.json",
+    "contentsAccessed": false
+  },
+  "productInventory": {
+    "openCodeRowCount": 0,
+    "loggedIn": false
+  },
+  "verdict": "REFUSED",
+  "reason": "Product accounts.list had no OpenCode row, so the mandatory logged-in pre-prompt control failed."

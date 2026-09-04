@@ -1,0 +1,54 @@
+{
+  "cell": "A6A",
+  "at": "2026-08-28T14:39:46.166Z",
+  "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+  "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+  "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+  "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+  "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+  "web": {
+    "wireSchemaDigest": "c847f4452ebd568b",
+    "wireVersion": 2,
+    "builtAt": "2026-08-28T00:43:29.922Z",
+    "appVersion": "dev+4d405af",
+    "sourceSha": "4d405af",
+    "bundleVersion": "bundle+4Wa3Yyf5"
+  },
+  "webReuseProof": {
+    "servedSourceSha": "4d405af",
+    "headShort": "b7da1db",
+    "appsWebIdentical": true
+  },
+  "serverPid": "1434135",
+  "daemonPid": "1453628",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+  "tosOnDaemon": true,
+  "freeMemory": {
+    "MemTotal": "24603312 kB",
+    "MemAvailable": "18531252 kB",
+    "SwapFree": "41118808 kB"
+  },
+  "rootFreeKiB": 83022832,
+  "load1m": 6.65,
+  "credential": {
+    "live": {
+      "present": true,
+      "path": "/home/mgw/.claude/.credentials.json",
+      "mtime": "2026-08-28T14:15:35.225Z",
+      "size": 962
+    },
+    "isolated": {
+      "present": false,
+      "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+    }
+  },
+  "forbiddenOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "TMUX_TMPDIR": null
+  }
+}

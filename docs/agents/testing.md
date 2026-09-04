@@ -23,6 +23,39 @@ boot/configuration files with one worker:
 It does not run the package sweep, repository rewrite audits, real processes, PTYs,
 ports, browsers, performance probes, or agent CLIs. It deliberately does not take `test:heavy`: this bounded one-worker probe neither waits behind
 nor delays heavyweight suites.
+
+**Read the footer, and cite it as what it is** [POD-2728]. The lane runs through
+`scripts/test-lean.ts`, which measures `vitest.unit.config.ts` at the start of every run
+and closes with the ratio it actually covered:
+
+    ────────────────────────────────────────────────
+    LEAN GATE PASSED — this is NOT the test suite.
+
+    Ran 4 of the 955 files vitest.unit.config.ts collects in its `node` project (0.4%), 79 tests executed:
+      packages/runtime/src/boot.test.ts — 16 tests
+      apps/server/src/router.setup.test.ts — 19 tests
+      apps/daemon/src/connection-state.test.ts — 11 tests
+      scripts/test-configuration.test.ts — 33 tests
+    ...
+
+(955 is illustrative — every number in that footer is read back out of the runner's own
+JSON report for that run, so it tracks the tree rather than this page. The per-file counts
+reconcile against Vitest's `Tests N passed (N)` line directly above them; if they ever
+disagree, trust neither and say so.)
+
+**`LEAN GATE INCOMPLETE` means you have no gate result at all**, and it exits non-zero.
+The run was narrower than the four files — a `--shard`, a `-t` filter that matched nothing,
+or a `.skip` sitting in one of them. Vitest exits 0 for all three, which is why this is
+checked against what executed rather than against what was asked for. Re-run as plain
+`bun run test`; do not report the partial run.
+
+That footer exists because agents were reporting `bun run test` green — correctly, in good
+faith — as though the trailing `Tests 76 passed (76)` were a suite result. It is not. Report
+a green here as **“lean gate green”**, never as “tests pass”; if a change needs suite-level
+evidence, the sweep is `bun run test:full` and the lane map is below. The same runner
+**refuses to start** when any of its four files is no longer collected by that config — a
+gate that had silently narrowed to three files used to exit 0, and one that had lost all
+four printed `No test files found, exiting with code 0`.
 Docs, copy, fonts, formatting, and generated artifacts may skip it when they cannot affect
 runtime; say so in the handoff.
 
@@ -37,7 +70,7 @@ is not a reason to add a lane.
 
 | Command | Tests live in / selection rule | Also executed by | Run when |
 | --- | --- | --- | --- |
-| `bun run test` | Cached lock-free workspace typecheck, then the four exact files above via the `node` project in `vitest.unit.config.ts` | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
+| `bun run test` | Cached lock-free workspace typecheck, then `scripts/test-lean.ts`: the four exact files above via the `node` project in `vitest.unit.config.ts`, with a footer built from the runner's own tally, a refusal if any of the four is no longer collected, and a non-zero exit if the run executed less than all four | `test:agent` compatibility alias | Default end-of-task gate for ordinary runtime code |
 | `bun run test:agent` | Exactly the same command and scope as `test` | Alias only | Compatibility only; prefer the conventional `bun run test` |
 | `bun run test:full` | Cached lock-free typecheck, then package-owned `*.test.*` / `*.spec.*` under `apps/*`, `packages/*`, and `scripts/*`; one Turbo `test` task per owner; server expands to five shards; exclusions come from `vitest.unit.config.ts` | `oracle` as its `unit` component; CI `unit-tests` | Scheduled CI, merge batches, release validation, or explicit request—not ordinary agent work |
 | `bun run test:unit` | The exhaustive package sweep without the leading typecheck | `test:full` tail | Compatibility/diagnosis only; prefer `test:full` when a full sweep is intentionally required |
@@ -75,7 +108,7 @@ independently Turbo-cached inside the server aggregate used by `bun run test:ful
 | `bun run test:multi-instance` | Exact runtime files `scripts/multi-instance-runtime.integration.bun.test.ts` and `scripts/named-dev-release.integration.bun.test.ts`, exact managed-account file `scripts/managed-account-spawn.integration.test.ts`, and `scripts/install-sh.test.sh` | `oracle`; CI oracle matrix | Instance identity, state roots, ports, CLI routing, ownership, lifecycle, installer, named-instance release publishing |
 | `bun run test:browser -- --suite <stem>` | Named `tests/e2e/browser/<stem>.browser.e2e.ts` via `tests/e2e/playwright.config.ts` | Full browser command/CI project matrix | Only when the requested behavior requires a real browser interaction; scope to the changed surface |
 | `bun run test:browser` | Every `tests/e2e/browser/*.browser.e2e.ts`, across requested Playwright projects | CI browser matrix (non-blocking) | Scheduled browser census or explicit full-browser request; never normal agent validation |
-| `bun run test:bun` | `apps/daemon/test/**`, `packages/runtime/test/sqlite.bun.test.ts`, `scripts/lifecycle.integration.bun.test.ts` | No parent command | Bun-runner, compiled-daemon, worker isolation, or lifecycle changes |
+| `bun run test:bun` | `apps/daemon/test/**`, `packages/runtime/test/sqlite.bun.test.ts`, `scripts/lifecycle.integration.bun.test.ts`, `scripts/server-owned-janitor.integration.bun.test.ts` | No parent command | Bun-runner, compiled-daemon, worker isolation, or lifecycle changes — including the server's own janitor thread, which needs Bun's runner because a real `worker_threads` spawn inside a vitest fork crashes it |
 | `bun run test:smoke:agents` | Real-agent files selected by `vitest.agent-smoke.config.ts` and `vitest.smoke-requirements.ts` | No parent; deliberately excluded from oracle | Only on explicit human request after changing real CLI adapters; spends credentials/quota |
 | `bun run test:rearch` | Runs the `audit:rearch` baseline check, then exact file `scripts/rearch-audit.test.ts` via `scripts/vitest.rearch.config.ts` | No default/package parent | Only rewrite migration/audit implementation or baseline changes; never ordinary product work |
 | `bun run test:perf:frontend` | Frontend large-state benchmark in `apps/web/vitest.frontend-perf.config.ts` | CI unit job | Large-state rendering/projection work or scheduled performance monitoring |
@@ -242,6 +275,18 @@ hermetic setup, lane exclusions, and exit-status safeguards.
 
 ## Invariants
 
+- **No lane may pass empty** [POD-2728]: every explicit file list in this repository has
+  to fail when it collects nothing, because a list that disagrees with the filesystem is
+  a manifest bug, not a green. `scripts/test-configuration.test.ts` pins
+  `passWithNoTests === false` on all five server shards and pins the lean gate's
+  refusal-and-footer behaviour in `scripts/test-lean.ts`. The lean gate was the one
+  exception until POD-2728; do not reintroduce `--passWithNoTests` there.
+- **A gate reports what ran, not what it asked for** [POD-2728]: "empty" includes a run
+  that collected every file and then executed nothing, which is what a `-t` filter that
+  matches nothing produces — Vitest marks each such file `passed` and exits 0. Count
+  executed assertions from the runner's own report; never let a scope list stand in for
+  a result. The first fix for this issue got this wrong and printed a confident green
+  over a run of zero tests.
 - **Lane membership is guarded**: `scripts/test-configuration.test.ts` asserts the
   package-owned scopes, normalized-wire serialization, hermetic setup, worker caps,
   heavy-lane split, and package.json script shape. Every new package test needs a real

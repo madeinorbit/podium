@@ -34,7 +34,7 @@ import type {
   ThreadId,
 } from '@podium/model'
 import { asIssueId, asThreadId } from '@podium/model'
-import type { ApprovalWire } from '@podium/protocol'
+import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { PodiumClientApi } from '../api'
 import type { OutboxDeadLetterEntry } from '../outbox'
@@ -57,7 +57,7 @@ import {
 } from '../viewmodels'
 import type { SuperThreadView } from '../viewmodels/slices/superagent'
 import { EMPTY_ID_SET } from './overlay'
-import type { Store, UserFocus } from './types'
+import type { IssueVisitBaseline, Store, TranscriptRevealRequest, UserFocus } from './types'
 
 /** The runtime's mutable data slices — exactly the non-function fields of Store
  *  that change over time (constants like hub/trpc/replica live outside it). */
@@ -72,11 +72,13 @@ export interface EngineState {
   /** The curated cross-project issue-event window (POD-1772) — replicated rows,
    *  not a timer's answer. Newest last, as the feed renders them. */
   issueEvents: IssueEventWire[]
+  pendingInteractions: PendingInteractionWire[]
   shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]
   automationRuns: AutomationRunWire[]
   pendingSpawnIds: ReadonlySet<string>
+  pendingSpawnPrompts: ReadonlyMap<string, string>
   hostMetrics: HostMetricsWire[]
   machines: MachineWire[]
   /** Approval broker [spec:SP-edbb]: pending management-op requests (popup). */
@@ -108,6 +110,8 @@ export interface EngineState {
   paletteOpen: boolean
   selectedWorktree: string | null
   selectedIssueId: IssueId | null
+  issueVisitBaseline: IssueVisitBaseline | null
+  transcriptReveal: TranscriptRevealRequest | null
   /**
    * Editor-style tab workspaces (POD-710), one per task in the left sidebar,
    * keyed by {@link workspaceKeyForState}. THE source of truth for what is open:
@@ -637,6 +641,7 @@ export interface EngineStateSeed {
   readonly issues: IssueWire[]
   readonly issueProjections: IssueProjection[]
   readonly issueEvents: IssueEventWire[]
+  readonly pendingInteractions: PendingInteractionWire[]
   readonly shipOrders: ShipOrderProjection[]
   readonly conversations: ConversationSummaryWire[]
   readonly automations: AutomationWire[]
@@ -672,11 +677,13 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     issues: seed.issues,
     issueProjections: seed.issueProjections,
     issueEvents: seed.issueEvents,
+    pendingInteractions: seed.pendingInteractions,
     shipOrders: seed.shipOrders,
     conversations: seed.conversations,
     automations: seed.automations,
     automationRuns: seed.automationRuns,
     pendingSpawnIds: EMPTY_ID_SET,
+    pendingSpawnPrompts: new Map(),
     hostMetrics: [],
     machines: [],
     approvals: [],
@@ -696,6 +703,8 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     // Workspace pane state: a deep-linked ?wt= wins over the persisted selection.
     selectedWorktree: seed.persisted.selectedWorktree,
     selectedIssueId: seed.persisted.selectedIssueId,
+    issueVisitBaseline: null,
+    transcriptReveal: null,
     // Restored exactly, across task switches AND across reloads (POD-710). The
     // pane scalars below were flushed from the same layouts, so they already
     // agree with them and need no boot-time re-derivation.

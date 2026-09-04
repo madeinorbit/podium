@@ -288,8 +288,21 @@ describe('per-user-state re-key: every existing marker ARRIVES, owned by the fir
         'created_by_actor_kind',
         'created_by_actor_id',
         'created_by_on_behalf_of',
+        // These fields are later additive migrations in the union chain.
+        'selected_driver_id',
+        // Main's conversation binding migration is another additive field.
+        'conversation_binding',
+        // OOM attribution is recorded by a later additive migration.
+        'oom_killed_at',
         // Native login shells are purpose-marked by a later additive migration.
         'login_harness',
+        // The runtime model/effort request (POD-3081) — another later additive
+        // migration, and a pair rather than one column because "asked for a
+        // different model" and "asked for a different effort" are separately
+        // settable. Listed here for the same reason every entry above it is: an
+        // ADDITION the chain makes, not something this migration lost.
+        'requested_model',
+        'requested_effort',
       ]),
     )
     expect(sorted(columns(db, 'issues'))).toEqual(

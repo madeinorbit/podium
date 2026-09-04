@@ -12,7 +12,7 @@ import {
   type TranscriptItem,
 } from '@podium/model'
 import type { JSX } from 'react'
-import { act } from 'react'
+import { act, StrictMode } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -108,11 +108,13 @@ let captured: UseTranscriptWindowResult | null = null
 function Probe({
   active,
   session = meta({}),
+  deferInitialRead = false,
 }: {
   active: boolean
   /** Overridable so the liveness tests below can move the session row's
    *  activity fingerprint (POD-701) between renders. */
   session?: SessionMeta
+  deferInitialRead?: boolean
 }): JSX.Element | null {
   const scrollerRef = { current: null }
   captured = useTranscriptWindow({
@@ -122,6 +124,7 @@ function Probe({
     replica: fakeReplica,
     active,
     session,
+    deferInitialRead,
     scrollerRef,
   } as unknown as UseTranscriptWindowOptions)
   return null
@@ -129,8 +132,16 @@ function Probe({
 
 let container: HTMLDivElement
 let root: Root
+let visibility: DocumentVisibilityState
+
+function setVisibility(next: DocumentVisibilityState): void {
+  visibility = next
+  document.dispatchEvent(new Event('visibilitychange'))
+}
 
 beforeEach(() => {
+  visibility = 'visible'
+  vi.spyOn(document, 'visibilityState', 'get').mockImplementation(() => visibility)
   reads.length = 0
   fakeHub.subscribes.length = 0
   fakeReplica.windows.clear()
@@ -146,7 +157,7 @@ afterEach(() => {
   act(() => root.unmount())
   container.remove()
   resetSwitchTraces()
-  vi.clearAllMocks()
+  vi.restoreAllMocks()
   vi.useRealTimers()
 })
 
@@ -178,6 +189,49 @@ function lastTraceMarks(): string[] {
   const t = getRecentSwitchTraces().at(-1)
   return t ? t.marks.map((m) => m.name) : []
 }
+
+describe('useTranscriptWindow optimistic session boundary', () => {
+  it('keeps the transcript live after root StrictMode rehearses its effect', async () => {
+    act(() =>
+      root.render(
+        <StrictMode>
+          <Probe active />
+        </StrictMode>,
+      ),
+    )
+    expect(reads).toHaveLength(2)
+
+    await act(async () => {
+      reads[0]?.resolve({ items: [item('stale', 'c1', 'stale')], hasMore: false })
+      reads[1]?.resolve({
+        items: [item('mounted', 'c2', 'mounted')],
+        head: 'c2',
+        tail: 'c2',
+        hasMore: false,
+      })
+    })
+    await flush()
+
+    expect(captured?.initialLoaded).toBe(true)
+    expect(captured?.blocks.map((block) => block.item.id)).toEqual(['mounted'])
+    expect(fakeHub.subscribes).toHaveLength(1)
+  })
+
+  it('waits for server truth before spending the initial read and subscription', async () => {
+    act(() => root.render(<Probe active deferInitialRead />))
+    expect(reads).toHaveLength(0)
+    expect(fakeHub.subscribes).toHaveLength(0)
+
+    act(() => root.render(<Probe active deferInitialRead={false} />))
+    expect(reads).toHaveLength(1)
+    await act(async () => {
+      reads[0]?.resolve({ items: [], hasMore: false })
+    })
+    await flush()
+
+    expect(fakeHub.subscribes).toHaveLength(1)
+  })
+})
 
 describe('useTranscriptWindow warm-switch reuse (POD-725)', () => {
   it('(a) a warm activation with a healthy window skips the re-read and marks a cache hit', async () => {
@@ -680,6 +734,43 @@ describe('useTranscriptWindow liveness reconcile (POD-701)', () => {
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
   })
 
+  it('pauses the heartbeat while hidden, refreshes once on return, then resumes', async () => {
+    vi.useFakeTimers()
+    await mountLoaded()
+
+    act(() => setVisibility('hidden'))
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS * 3)
+    })
+    expect(reads).toHaveLength(1)
+
+    act(() => setVisibility('visible'))
+    expect(reads).toHaveLength(2)
+    expect(reads[1]?.input.limit).toBe(200)
+
+    // The forced visibility read owns catch-up, so heartbeat ticks do not stack
+    // probes behind it while the daemon is still responding.
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS * 3)
+    })
+    expect(reads).toHaveLength(2)
+
+    await act(async () => {
+      reads[1]?.resolve({
+        items: [item('a', 'c1', 'first')],
+        head: 'c1',
+        tail: 'c1',
+        hasMore: false,
+      })
+    })
+    await flush()
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(LIVE_HEARTBEAT_MS)
+    })
+    expect(reads).toHaveLength(3)
+    expect(reads[2]?.input.limit).toBe(1)
+  })
+
   it('does not re-read while the pane is in the BACKGROUND — only the foreground pays', async () => {
     act(() => root.render(<Probe active={false} />))
     await act(async () => {
@@ -886,6 +977,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     // The one-item probe, not the 200-item read POD-725 exists to avoid.
     expect(reads).toHaveLength(2)
     expect(reads[1]?.input.limit).toBe(1)
+    expect(captured?.transcriptFreshness).toBe('checking')
 
     // Disk really is ahead → the probe escalates and the missed item lands.
     await act(async () => {
@@ -897,6 +989,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     })
     await flush()
     expect(reads[2]?.input.limit).toBe(200)
+    expect(captured?.transcriptFreshness).toBe('checking')
     await act(async () => {
       reads[2]?.resolve({
         items: [item('a', 'c1', 'first'), item('b', 'c2', 'missed while hidden')],
@@ -907,6 +1000,7 @@ describe('useTranscriptWindow warm reveal over a subscription that fell behind',
     })
     await flush()
     expect(captured?.blocks.map((b) => b.item.id)).toEqual(['a', 'b'])
+    expect(captured?.transcriptFreshness).toBeNull()
   })
 
   it('does not chase the same signal twice — the probe stands in for the 400ms reconcile', async () => {

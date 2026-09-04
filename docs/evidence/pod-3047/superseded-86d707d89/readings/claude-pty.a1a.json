@@ -1,0 +1,156 @@
+{
+  "cell": "A1A",
+  "driver": "claude-pty",
+  "cwd": "/tmp/pod-3047n/probes/claude-pty-a1a",
+  "at": "2026-08-28T13:51:05.178Z",
+  "pin": {
+    "cell": "A1A",
+    "at": "2026-08-28T13:51:05.208Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "c7ebf4bb3d91479311bad28c69f80f1e6083e498",
+    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "c7ebf4b",
+      "appsWebIdentical": true
+    },
+    "serverPid": "989426",
+    "daemonPid": "1096919",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "16781456 kB",
+      "SwapFree": "41531724 kB"
+    },
+    "rootFreeKiB": 82696640,
+    "load1m": 9.29,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "the harness reported itself not logged in, so the sends could not be answered for a reason that is not the send path: authentication",
+  "control": {
+    "fired": true,
+    "what": "send delivered or a needle appearing on the chat/transcript plane",
+    "detail": "1/1 delivered; user=1 assistant=0 lastAssistant=false"
+  },
+  "evidence": [
+    "SENDS             [{\"i\":1,\"needle\":\"P3047-A1A-claude-pty-1-MTD0FDKW\",\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"delivered\":true,\"user\":true,\"assistant\":false,\"userMs\":539,\"assistantMs\":180321,\"chatAssistant\":false,\"status\":{\"sessionId\":\"fd40a7be-226f-41b7-8de9-2c72e6194b5b\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"account\":\"native:claude-code\",\"error\":{\"class\":\"unknown\",\"retryable\":true},\"draft\":false,\"nativeSubagentCount\":0,\"nativeSubagents\":[],\"subagents\":[],\"issue\":null,\"commits\":[\"c371286 probe seed\"],\"files\":[\"## main\"],\"unackedMessages\":0}}]",
+    "CLASS             {\"errorClass\":\"authentication\",\"retryable\":false}",
+    "IDENTITY          {\"sessionId\":\"fd40a7be-226f-41b7-8de9-2c72e6194b5b\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"errored\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null",
+    "FRAME TYPES        hostMetricsChanged=39 outputFrame=13 machinesChanged=4 sessionTitleChanged=3 sessionAgentStateChanged=3 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1"
+  ],
+  "data": {
+    "sid": "fd40a7be-226f-41b7-8de9-2c72e6194b5b",
+    "turns": [
+      {
+        "i": 1,
+        "needle": "P3047-A1A-claude-pty-1-MTD0FDKW",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "delivered": true,
+        "user": true,
+        "assistant": false,
+        "userMs": 539,
+        "assistantMs": 180321,
+        "chatAssistant": false,
+        "status": {
+          "sessionId": "fd40a7be-226f-41b7-8de9-2c72e6194b5b",
+          "agentKind": "claude-code",
+          "harness": "claude-code",
+          "driverId": "claude-pty",
+          "requestedDriverId": null,
+          "status": "live",
+          "phase": "errored",
+          "machine": "flatblock",
+          "model": null,
+          "effort": null,
+          "contextUsagePercent": null,
+          "account": "native:claude-code",
+          "error": {
+            "class": "unknown",
+            "retryable": true
+          },
+          "draft": false,
+          "nativeSubagentCount": 0,
+          "nativeSubagents": [],
+          "subagents": [],
+          "issue": null,
+          "commits": [
+            "c371286 probe seed"
+          ],
+          "files": [
+            "## main"
+          ],
+          "unackedMessages": 0
+        }
+      }
+    ],
+    "class": {
+      "errorClass": "authentication",
+      "retryable": false
+    },
+    "driverRow": {
+      "sessionId": "fd40a7be-226f-41b7-8de9-2c72e6194b5b",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "errored",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": {
+        "class": "unknown",
+        "retryable": true
+      },
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "c371286 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

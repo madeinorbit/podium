@@ -149,6 +149,29 @@ describe('UpdatePanel', () => {
     expect(screen.queryByTestId('update-primary')).toBeNull()
   })
 
+  it('shows service-worker evidence and offers an explicit cache reset', () => {
+    const reset = vi.fn()
+    render(
+      <UpdatePanel
+        view={{ ...RUNNING, state: 'waiting-you', cancel: undefined }}
+        pending={null}
+        onAction={vi.fn()}
+        onHide={vi.fn()}
+        reloadStatus={{
+          phase: 'no-replacement',
+          message: 'No replacement interface was found.',
+          detail: 'The registration update check found no replacement.',
+          canReset: true,
+          snapshot: { available: true, controlled: true, active: 'activated' },
+        }}
+        onResetCachedInterface={reset}
+      />,
+    )
+    expect(screen.getByTestId('service-worker-status')).toBeTruthy()
+    fireEvent.click(screen.getByTestId('reset-cached-interface'))
+    expect(reset).toHaveBeenCalledTimes(1)
+  })
+
   it('renders nothing at all in the none state', () => {
     const { container } = render(
       <UpdatePanel

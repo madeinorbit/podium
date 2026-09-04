@@ -1,4 +1,4 @@
-import { anyRefMatcher, parseAnyRef } from '@podium/protocol'
+import { anyRefMatcher, parseAnyRef, parsePodiumLink } from '@podium/protocol'
 import { marked } from 'marked'
 
 export interface MarkdownToken {
@@ -111,4 +111,11 @@ export function safeExternalUrl(href: string | undefined): string | null {
   } catch {
     return null
   }
+}
+
+/** A safe link for transcript navigation. Unlike an image URL, this may be a
+ * root-relative or `podium://` address for the shared resolver to open in-app. */
+export function safeLinkUrl(href: string | undefined): string | null {
+  if (!href) return null
+  return parsePodiumLink(href) ? href : null
 }

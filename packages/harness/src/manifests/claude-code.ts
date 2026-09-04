@@ -14,9 +14,13 @@ import { createClaudeCodeConversationProvider } from '../discovery/providers/cla
 import { composeAgentInstructions } from '../instructions.js'
 import {
   type AgentManifest,
+  type DriverId,
   fileTranscript,
+  type HarnessEnvironment,
   isSet,
   promptArgv,
+  type SelectionContext,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
   unsupported,
@@ -41,6 +45,18 @@ async function chainPaths(input: TranscriptSourceInput): Promise<string[]> {
   return path ? [path] : []
 }
 
+const CLAUDE_SDK_AUTH = new Set(['subscription', 'api-key', 'bedrock', 'vertex'])
+
+function selectClaudeRuntime(ctx: SelectionContext): DriverId {
+  if (ctx.preference === 'claude-pty' || ctx.preference === 'generic-pty') {
+    return selectRuntimeDriver(ctx, ['claude-pty'])
+  }
+  if (ctx.available.includes('claude-sdk')) {
+    if (ctx.preference === 'claude-sdk' || CLAUDE_SDK_AUTH.has(ctx.auth)) return 'claude-sdk'
+  }
+  return selectRuntimeDriver(ctx, ['claude-pty'])
+}
+
 export const claudeCodeManifest: AgentManifest = {
   kind: 'claude-code',
   displayName: 'Claude',
@@ -61,6 +77,7 @@ export const claudeCodeManifest: AgentManifest = {
     observationProvider: 'claude-code',
     observationProtocol: 'claude-causal',
     submitVerification: true,
+    composerReadiness: 'confirmed-turn',
     rawFirstTurn: false,
     exclusiveInteractiveResume: false,
     promptTitleFallback: true,
@@ -73,6 +90,17 @@ export const claudeCodeManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'claude-session',
+  environment: {
+    // A daemon started inside Claude carries another conversation's identity.
+    // Passing it on makes the child subordinate itself to that session and
+    // disables transcript saving — also Podium's state/history channel.
+    removeInherited: [
+      'CLAUDE_CODE_CHILD_SESSION',
+      'CLAUDE_CODE_SESSION_ID',
+      'CLAUDE_CODE_ENTRYPOINT',
+      'CLAUDE_CODE_EXECPATH',
+    ],
+  },
 
   inventory: {
     executable: { names: ['claude'], versionArgs: ['--version'] },
@@ -104,8 +132,13 @@ export const claudeCodeManifest: AgentManifest = {
       files: ['.claude/.credentials.json', '.claude.json'],
       compareFreshness: compareClaudeCredentialFreshness,
     }),
-    detectLogin(homeDir) {
-      const configDir = process.env.CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
+    // Either one flips Claude Code off the home's OAuth login and onto API-usage
+    // billing; an interactive session first stops at a "Detected a custom API key
+    // in your environment" modal, whose one-time approval is then remembered per
+    // key in `.claude.json` — after which the switch is permanently silent.
+    foreignCredentialEnv: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+    detectLogin(homeDir, env?: HarnessEnvironment) {
+      const configDir = (env ?? process.env).CLAUDE_CONFIG_DIR?.trim() || join(homeDir, '.claude')
       let contents: string
       try {
         contents = readFileSync(join(configDir, '.credentials.json'), 'utf8')
@@ -188,6 +221,32 @@ export const claudeCodeManifest: AgentManifest = {
     }
   }),
 
+  // §2's load-bearing selection: subscription / API-key / Bedrock / Vertex can
+  // run the Agent SDK in a runtime-owned worker child when that driver is
+  // explicitly requested. On unknown/logged-out auth, the interactive PTY
+  // remains the total fallback.
+  runtime: {
+    server: unsupported(
+      'Claude Code ships no server mode — the Agent SDK is in-process and `claude -p` is one-shot',
+    ),
+    embedded: supported({
+      driverId: 'claude-sdk',
+      module: 'claude-agent-sdk',
+      auth: ['subscription', 'api-key', 'bedrock', 'vertex'],
+    }),
+    terminal: {
+      driverId: 'claude-pty',
+      // Claude's hook channel is the richest of any harness, so `UserPromptSubmit`
+      // anchors an accept the way a protocol ack would — the same signal
+      // reattachment-design anchors turn epochs to. Transcript echo is the
+      // fallback, and `unverified` is the honest answer when even that times out.
+      sendProof: ['hook', 'transcript-echo'],
+    },
+    // An explicit terminal preference still opts out; a machine-wide SDK
+    // default is stripped before this function runs, so unknown auth cannot
+    // silently move every Claude session off the PTY path.
+    select: selectClaudeRuntime,
+  },
   headless: supported({
     // One turn through the Claude Agent SDK; the first turn mints the session id
     // via the SDK's `sessionId` (a server-minted UUID) so the thread ↔ transcript
@@ -209,7 +268,7 @@ export const claudeCodeManifest: AgentManifest = {
     {
       source: 'classifier',
       confidence: 0.3,
-      mechanism: 'Claude transcript rules classify an otherwise untyped Stop verdict',
+      mechanism: 'Claude transcript and terminal-screen rules classify otherwise untyped state',
       fallbackWhen: 'the hook has no structured needs-human verdict',
     },
   ],

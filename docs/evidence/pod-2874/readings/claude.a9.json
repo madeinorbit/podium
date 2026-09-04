@@ -1,0 +1,76 @@
+{
+  "cell": "A9",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a9",
+  "at": "2026-08-26T12:12:37.492Z",
+  "pin": {
+    "cell": "A9",
+    "at": "2026-08-26T12:12:37.530Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2344213",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4872500 kB",
+      "SwapFree": "37407224 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "session process tree was gone immediately and after five minutes",
+  "control": {
+    "fired": true,
+    "what": "target session process tree existing before kill",
+    "detail": "processes=1; screenBytes=2847"
+  },
+  "evidence": [
+    "KILL              {\"result\":{}}",
+    "BEFORE            [\"2352516 2352515 /home/mgw/.local/bin/claude --append-system-prompt This project uses Podium's issue tracker. You have a `podium issue` CLI. Run `podium issue prime` for your current issue and ready work. Discovered work that can ship separately becomes a top-level issue plus a `discovered-from` dependency; it lands in Proposed automatically, so do not claim or stage it. Decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] `podium issue ready` lists unblocked work; `podium issue claim`/`close` as you go. Nothing advances an issue for you: an issue you are actively working must never sit in `backlog` — set the stage yourself with `podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that creating or retitling an issue leaves it in `backlog`; only `claim` sets `in_progress`. Editing an issue outside your assigned one needs `--outside-scope`. Never reuse an existing issue for something completely different — new work gets a new issue or sub-issue. Switch yourself to it only on the human's push; otherwise file it for another agent. A session on a DRAFT may join the issue that covers its work: `podium issue attach --id <issue>`. Once on a real issue you cannot reattach elsewhere — for a new piece of work you move onto, use --spinoff/--subissue below. When you commit on a SHARED branch (main or a long-lived project branch), add a trailer line `Podium-Issue: <your issue ref>` to the commit message so the commit stays attributable to your issue. New work while on an issue — litmus: could the current issue",
+    "IMMEDIATE         [[],[],[],[],[],[],[],[],[],[]]",
+    "AFTER 5 MIN       []",
+    "SERVER/DAEMON      true/true"
+  ],
+  "data": {
+    "sid": "236d6995-7c98-4ed2-9ceb-23c93afef87f",
+    "before": [
+      "2352516 2352515 /home/mgw/.local/bin/claude --append-system-prompt This project uses Podium's issue tracker. You have a `podium issue` CLI. Run `podium issue prime` for your current issue and ready work. Discovered work that can ship separately becomes a top-level issue plus a `discovered-from` dependency; it lands in Proposed automatically, so do not claim or stage it. Decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] `podium issue ready` lists unblocked work; `podium issue claim`/`close` as you go. Nothing advances an issue for you: an issue you are actively working must never sit in `backlog` — set the stage yourself with `podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that creating or retitling an issue leaves it in `backlog`; only `claim` sets `in_progress`. Editing an issue outside your assigned one needs `--outside-scope`. Never reuse an existing issue for something completely different — new work gets a new issue or sub-issue. Switch yourself to it only on the human's push; otherwise file it for another agent. A session on a DRAFT may join the issue that covers its work: `podium issue attach --id <issue>`. Once on a real issue you cannot reattach elsewhere — for a new piece of work you move onto, use --spinoff/--subissue below. When you commit on a SHARED branch (main or a long-lived project branch), add a trailer line `Podium-Issue: <your issue ref>` to the commit message so the commit stays attributable to your issue. New work while on an issue — litmus: could the current issue close with it untouched? Yes → spin-off: `attach --spinoff \"<title>\" --confirm-rehome` (top-level + discovered-from edge). No (current issue cannot ship without it) → decomposition: `attach --subissue \"<title>\" --confirm-rehome`. A native subagent must not self-attach; its parent attaches it. Otherwise, file it for another agent. If you discover something another issue's agent should know (a fix to merge, a conflict, a dependency), send it mail: `podium issue mail send <id> --body \"…\"` — it is delivered to whoever works that issue. Any reviewable deliverable you produce for your issue (UX shots, mockups, concept docs, HTML/MD proposals) must ALSO be attached to the issue so it shows in its sidebar: save it under your issue worktree (a scratchpad or /tmp path is outside it and is refused), then `podium issue artifact <id> --add <path> --title \"…\"`. Adding COPIES the bytes to the server, so the artifact keeps working uncommitted and outlives the worktree — never commit a screenshot or a scratch doc just to attach it, and delete the file after adding it if it does not belong in the repo. For a terminal screenshot captured in the current issue session checkout, use `--terminal-evidence` from that checkout; it is an explicit acknowledgement and accepts raster images only, never raw scrollback or terminal text. Redact text into the owning worktree and attach it normally. Re-add each significant iteration; the issue artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. When you finish a turn and there are natural next actions the user might pick, offer them: `podium offer --message \"…\" --action \"Label::prompt to send when clicked\"` (repeat --action — prefer 2–3, up to 6 only when the decision genuinely branches that wide; `podium offer clear` to remove). Write the offer to be judged in five seconds, cold, alongside many others: the FIRST LINE of --message becomes the card headline — state the outcome as done (\"Login screen ready to merge\"), never the activity (\"I've been working on…\"); at most two more lines add where things stand and the one thing to judge. One decision per offer — a second topic is a discovered issue or the next turn's offer, never a \"by the way\". Action labels are imperative, ≤3 words, recommended action FIRST (it renders as the primary button). An action that only makes sense WITH an explanation (send back, request changes) must use `--action-input \"Label::prompt\"` instead — the UI collects the user's feedback and appends it to the prompt. Attach the evidence: `--artifact <path>` names issue artifacts (added via `podium issue artifact --add` the same turn) that render as thumbnails so the user can judge without opening the session. Curate review evidence explicitly with repeated `--artifact <path>` in priority order: put the single best review target first (including an interactive HTML concept when it carries the interaction), then supporting screenshots. Offer cards render at most three artifact items, so choose the three most useful rather than every frame. Failures are offers too — cause, fix, decision, matter-of-fact; no apologies. The buttons show under the chat (and, on mobile, as a card in the Tray); a user turn clears the offer, and so does your own next turn (a stale offer self-clears once the conversation moves on). When you move your issue to `review`, ALWAYS post an offer naming the next steps (merge via --action, send back via --action-input, …) — review-ready work surfaces ONLY through your offer, the stage alone renders nothing. Before posting, test it: reading only the first line and the buttons, does the user know (a) what happened and (b) what to decide? Issue and session titles: 3–5 words naming the thing, not the activity. No \"Implement\"/\"Complete\"/\"Investigate\" openers. Only bugs may lead with \"Bug:\". --settings /home/mgw/.local/state/podium/p2874/hooks/236d6995-7c98-4ed2-9ceb-23c93afef87f.json"
+    ],
+    "killed": {
+      "result": {}
+    },
+    "immediate": [
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      [],
+      []
+    ],
+    "after": [],
+    "waitedMs": 300000
+  }
+}

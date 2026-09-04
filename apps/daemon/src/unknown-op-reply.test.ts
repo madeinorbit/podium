@@ -78,7 +78,7 @@ describe('unknown repo op is answered, not dropped (POD-1464)', () => {
     const daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       identityDir: dir,
-      tmux: false as const,
+      backend: 'none' as const,
       hooks: { port: 0, settingsDir: join(dir, 'hooks') },
       agentRelay: { port: 0 },
       discovery: { background: false as const, cachePath: ':memory:' },

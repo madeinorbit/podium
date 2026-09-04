@@ -1,0 +1,55 @@
+ok  no other probe is driving this rig
+  ok  server pid=2461863 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 15e5afe
+  ok  daemon pid=2461938 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 15e5afe
+  ok  exactly one daemon (pid 2461938) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 15e5afe
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f","short":"15e5afe","spawnedSha":"15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f","serverPid":2461863,"daemonPid":2461938,"webSourceSha":"15e5afe","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=headless  expecting driver 'opencode-server'
+PIN                15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f (web bundle 15e5afe, server pid 2461863, daemon pid 2461938)
+==============================================================================
+session 9c5b486c-8c93-43da-b678-d8551f4f5532 created; giving the harness 25000ms to come up
+BOUND DRIVER       opencode-server (family server)
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   PASS  62 preview frames, 1731→6858 chars, monotonic per row
+   control: FIRED — 2 frame(s), first at +2ms
+   JOINED            8776ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)
+   PHASE AT JOIN     working — a turn was in flight when the viewer arrived
+   PREVIEW FRAMES    62
+   FIRST             +3ms  epoch=1 seq=410 rows=2 chars=1731
+   LAST              +6139ms  epoch=1 seq=1658 rows=2 chars=6858
+   GROWTH            61/61 transitions increased the visible character count
+   MONOTONIC/ROW     YES — no row ever shrank
+   FINE WATCH        ACQUIRED — the daemon moved the driver's fine refcount for this session
+   FRAME TYPES       turnPreview=62 hostMetricsChanged=6 transcriptDelta=2 sessionAgentStateChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1
+
+── interrupt — interrupt a running turn
+   PASS  turn stopped 9ms after interrupt, but nothing marks it
+   control: FIRED — 1 preview frame(s) and 6410 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6410 new transcript chars, 0 new terminal bytes
+   WAS RUNNING       1 preview frame(s) and 6410 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6410 new transcript chars, 0 new terminal bytes
+   INTERRUPT SENT    {"ok":true,"requested":"protocol"}
+   SETTLED           phase left 'working' after 9ms
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              6410 chars at the call -> 6410 chars at settle
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s
+   AFTER THE CALL    phase=idle status=live error=none
+   SCORED ON         phase leaving 'working'
+
+==============================================================================
+RESULT  opencode / headless / driver=opencode-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+stream          PASS      fired     62 preview frames, 1731→6858 chars, monotonic per row
+interrupt       PASS      fired     turn stopped 9ms after interrupt, but nothing marks it
+==============================================================================
+written /tmp/pod-2777/results/opencode.headless.json

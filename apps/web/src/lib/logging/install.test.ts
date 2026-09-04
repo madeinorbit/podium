@@ -130,3 +130,100 @@ describe('installWebLogging', () => {
     expect(crashes).toEqual([])
   })
 })
+
+/**
+ * THE WHOLE POINT OF POD-3224, ASSERTED END TO END.
+ *
+ * Every other test in this issue checks a call site. This one checks that the
+ * mechanism connecting them actually puts an updater line on the wire from a
+ * REAL web installation at its shipped posture — because the defect being fixed
+ * was not a missing log line, it was a log line that existed at `info` on a
+ * client that forwarded `warn` and above.
+ */
+describe('what a web client forwards without anybody asking', () => {
+  let dispose: (() => void) | null = null
+
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+  afterEach(() => {
+    dispose?.()
+    dispose = null
+    setActiveCrashReporter(null)
+    resetLogging()
+    vi.useRealTimers()
+  })
+
+  const forwardedMessages = (batches: LogsForwardInput[]): string[] =>
+    batches.flatMap((batch) => batch.records.map((record) => record.msg))
+
+  it('forwards the update namespaces at info, and nothing else at info', async () => {
+    const { transport, forwarded } = recorder()
+    dispose = installWebLogging({ transport, role: 'web', console: false })
+
+    createLogger('web:reload').info('reload handshake finished')
+    createLogger('web:sw').info('service worker registered')
+    createLogger('web:updates').info('update panel inputs changed')
+    createLogger('web:boot').info('web client booted')
+    // An UNFLOORED namespace at the same level must stay on the machine — that
+    // is what keeps the floor a targeted decision rather than a global raise.
+    createLogger('web:store').info('routine replica chatter')
+    await vi.advanceTimersByTimeAsync(5000)
+
+    const messages = forwardedMessages(forwarded)
+    expect(messages).toEqual(
+      expect.arrayContaining([
+        'reload handshake finished',
+        'service worker registered',
+        'update panel inputs changed',
+        'web client booted',
+      ]),
+    )
+    expect(messages).not.toContain('routine replica chatter')
+  })
+
+  it('keeps the per-second lines OFF the wire: debug in a floored namespace stays local', async () => {
+    const { transport, forwarded } = recorder()
+    dispose = installWebLogging({ transport, role: 'web', console: false })
+
+    // The three things that repeat on a timer, all in floored namespaces.
+    createLogger('web:updates').debug('update poll landed')
+    createLogger('web:sw').debug('periodic service-worker update check was rejected')
+    createLogger('web:reload').debug('service-worker reload handshake state')
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(forwardedMessages(forwarded)).toEqual([])
+  })
+
+  it('a floor does not CAP an operator who raises the client to debug', async () => {
+    const { transport, forwarded } = recorder()
+    dispose = installWebLogging({ transport, role: 'web', console: false })
+
+    // What `podium logs level debug --role web` does. A most-specific-wins
+    // override at `info` would silently swallow this, which is the reason floors
+    // exist at all.
+    setLogLevel('debug')
+    createLogger('web:reload').debug('service-worker reload handshake state')
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(forwardedMessages(forwarded)).toContain('service-worker reload handshake state')
+  })
+
+  it('withdraws its floors on dispose, so a test or a re-install starts clean', async () => {
+    const first = recorder()
+    const stop = installWebLogging({ transport: first.transport, role: 'web', console: false })
+    stop()
+
+    const second = recorder()
+    dispose = installWebLogging({
+      transport: second.transport,
+      role: 'web',
+      console: false,
+      floors: {},
+    })
+    createLogger('web:reload').info('reload handshake finished')
+    await vi.advanceTimersByTimeAsync(5000)
+
+    expect(forwardedMessages(second.forwarded)).toEqual([])
+  })
+})

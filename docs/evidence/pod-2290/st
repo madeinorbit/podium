@@ -1,0 +1,24 @@
+#!/usr/bin/env bash
+# One-line session state over HTTP — NOT the CLI, which pays a Bun cold start
+# per call that on a loaded box is slower than the state being measured.
+#
+#   docs/evidence/pod-2290/st <session-id>
+#
+# `driverId` and `driverFamily` are in the field list because they are the
+# facts this issue turns on: which driver actually bound, and what the clients
+# are therefore told about whether a terminal exists.
+set -euo pipefail
+SID="$1"
+curl -s "http://127.0.0.1:19807/trpc/sessions.status?input=$(python3 -c "
+import json,urllib.parse,sys
+print(urllib.parse.quote(json.dumps({'ref': sys.argv[1]})))
+" "$SID")" \
+  -b /tmp/pod-2290/cookie-jar --max-time 30 \
+| python3 -c "
+import json,sys
+try: d=json.load(sys.stdin)
+except Exception: print('unparseable'); sys.exit(0)
+if 'error' in d: print('ERR', d['error']['message'][:200]); sys.exit(0)
+r=d['result']['data']
+print(' '.join(f'{k}={r[k]}' for k in ('status','phase','driverId','requestedDriverId','driverFamily') if k in r) or json.dumps(r)[:300])
+"

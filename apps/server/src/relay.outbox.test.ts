@@ -2,10 +2,10 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
-  asMutationId,
   actorAgent,
   asAgentIdentityId,
   asMachineId,
+  asMutationId,
   asSessionId,
   asUserId,
   FIRST_ADMIN_USER_ID,
@@ -14,7 +14,7 @@ import {
   SOLE_USER_ID,
 } from '@podium/model'
 import { asDelegationRef, type MetadataChange, type ServerMessage } from '@podium/protocol'
-import { type ControlMessage } from '@podium/protocol/daemon'
+import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 
 /** One host across the simulated restart: storeA writes rows under this id and storeB
@@ -22,10 +22,12 @@ import { describe, expect, it, vi } from 'vitest'
  *  pinning it each store would mint its own (POD-318) and the restart would look like
  *  a different computer. */
 const TEST_MACHINE = asMachineId('machine-under-test')
+
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
 import { SessionStore } from './store'
 import { attachTestClient } from './test-support/client-transport'
+import { advanceToComposerReady, advanceUntil } from './test-support/readiness-queue'
 
 // Outbox write path at the registry seam (docs/spec/outbox-write-path.md §2.1-2.2):
 // queueText wake + durable delivery, restart survival, FIFO + spacing, the
@@ -79,10 +81,11 @@ function settle(reg: SessionRegistry, sessionId: string): void {
     })
     vi.advanceTimersByTime(200)
   }
-  // A wake drain no longer treats terminal quiet as proof that a freshly
-  // resumed CLI is ready. The real harness reports runtime state after it has
-  // rehydrated; mirror that post-bind observation so this fixture exercises the
-  // delivery path rather than the ten-second silent-CLI grace period.
+  // A resumed CLI is ready when its harness reports state for THIS process, not
+  // merely when its boot paint goes quiet (POD-1100). The real harness reports
+  // runtime state after it has rehydrated; mirror that post-bind observation so
+  // this fixture exercises the delivery path rather than the silent-CLI grace
+  // period.
   const observedAt = new Date().toISOString()
   reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
     type: 'agentState',
@@ -91,6 +94,64 @@ function settle(reg: SessionRegistry, sessionId: string): void {
   })
   vi.advanceTimersByTime(1400)
 }
+
+/**
+ * THE TWO LANES AGREE FROM HERE, AND THIS IS THE SENTENCE THAT SAYS SO (POD-2842).
+ *
+ * THE OPPOSING TEST IS `apps/server/src/modules/sessions/inbox.test.ts` — the
+ * SERVICES-lane unit over the same call, which asserts `{ok: true, queued:
+ * true}` for a chat send to a bound claude-code session and nothing on the PTY
+ * until the readiness window has run. THAT ONE IS THE CONTRACT. This file is
+ * the BOUNDARY lane, and until POD-2842 it asserted the opposite about that one
+ * call: a bare `{ok: true}` at :541, and a queue row that was gone the moment
+ * the paste was on the wire. `relay.test.ts` held the same contradiction and
+ * POD-2837 resolved it the same way.
+ *
+ * THE QUEUE IS THE CONTRACT for a bound, idle claude-code session (ruled
+ * 2026-08-26, `docs/plans/pod-1761-release-ledger.md`). A bind makes a session
+ * live BEFORE its composer is mounted, and bytes typed into an unmounted
+ * composer are accepted by the pty and dropped by the app (POD-2116) — a SILENT
+ * loss, where the queue's cost is a visible wait. Claude's composer readiness
+ * cannot be observed at all (`composerReadiness: 'confirmed-turn'`, POD-2823),
+ * so the only proof it will take typing is a user turn in the transcript.
+ *
+ * SO IF YOU CHANGE ONE LANE, CHANGE THE OTHER. A repo that asserts both answers
+ * drifts back to whichever one nobody runs — which is exactly how this file sat
+ * red for days while `inbox.test.ts` stayed green.
+ *
+ * WHAT DID NOT CHANGE IS A SINGLE BYTE. The bracketed-paste envelopes, the
+ * exactly-once delivery, the FIFO order and the durable rows are asserted below
+ * exactly as they were. What moved is that a typed row is now HELD until the
+ * transcript witnesses it, so "delivered" is asserted after that proof rather
+ * than at the moment of typing.
+ */
+/**
+ * THE PROOF A CLAUDE COMPOSER TOOK THE ROW, and the only one there is: a user
+ * turn in the transcript. `composerReadiness: 'confirmed-turn'` means the CLI
+ * publishes nothing an observer can read, so the drain types the row and then
+ * HOLDS it — durable, still counted, still the operator's — until this frame
+ * arrives. Every "delivered" assertion below is asserted after it, and the
+ * "still queued" assertions before it are what say the hold is real.
+ */
+function confirmUserTurn(reg: SessionRegistry, sessionId: string, text: string): void {
+  reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
+    type: 'transcriptDelta',
+    sessionId: asSessionId(sessionId),
+    items: [{ id: `turn-${text}`, role: 'user' as const, text, cursor: `c-${text}` }],
+    tail: `c-${text}`,
+  })
+}
+
+/** The durable rows this session still holds. */
+const queuedRows = (reg: SessionRegistry, sessionId: string) =>
+  reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))
+
+/** Step the clock until the head row settles out of the queue. */
+const advanceUntilSettled = (reg: SessionRegistry, sessionId: string, text: string): void =>
+  advanceUntil(
+    () => !queuedRows(reg, sessionId).some((row) => row.text === text),
+    `the transcript-confirmed row "${text}" settled`,
+  )
 
 describe('queueText (durable outbox sends)', () => {
   it('rejects an offline queued agent write when its human is revoked before drain', async () => {
@@ -193,12 +254,90 @@ describe('queueText (durable outbox sends)', () => {
 
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
       settle(reg, sessionId)
+      // `settle` above already ran the clock past the readiness window, so this
+      // steps zero times — it is here to state the dependency, not to wait.
+      advanceUntil(
+        () => pastesContaining(daemon, 'wake-up-msg').length === 1,
+        'the queued row reached the PTY',
+      )
 
       // Exactly ONE bracketed-paste input containing the text (no double-type).
       expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
+      // TYPED IS NOT DELIVERED. The bytes are in the CLI and the row is still
+      // the operator's: counted, durable, and visible in the meta. Claiming
+      // delivery here is the silent loss the queue exists to refuse.
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
+      expect(queuedRows(reg, sessionId)).toHaveLength(1)
+
+      confirmUserTurn(reg, sessionId, 'wake-up-msg')
+      advanceUntilSettled(reg, sessionId, 'wake-up-msg')
+
       // Delivered: the count leaves the meta and the durable row is gone.
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBeUndefined()
       expect(reg.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
+      // And still exactly one paste — the confirmation settles the row, it
+      // never retypes it.
+      expect(pastesContaining(daemon, 'wake-up-msg')).toEqual(['\x1b[200~wake-up-msg\x1b[201~'])
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+  it('reconstructs a lost wake from the durable queue after server restart and process-gone proof', async () => {
+    vi.useFakeTimers()
+    try {
+      const file = join(mkdtempSync(join(tmpdir(), 'podium-dead-send-reconcile-')), 'podium.db')
+      const storeA = new SessionStore(file, TEST_MACHINE)
+      const regA = new SessionRegistry(storeA, undefined, { instanceId: 'default' })
+      regA.gateway.attachDaemon(regA.sessionStore.hostMachineId, () => {})
+      const sessionId = hibernatedSession(regA)
+      regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      expect(
+        regA.modules.sessions.queueText({
+          sessionId: asSessionId(sessionId),
+          text: 'wake',
+          mutationId: asMutationId('restart-wake'),
+        }),
+      ).toEqual({ ok: true, queued: true })
+      regA.gateway.routeDaemonFrame(regA.sessionStore.hostMachineId, {
+        type: 'agentExit',
+        sessionId: asSessionId(sessionId),
+        code: 137,
+      })
+      regA.dispose()
+
+      const storeB = new SessionStore(file, TEST_MACHINE)
+      const regB = new SessionRegistry(storeB, undefined, { instanceId: 'default' })
+      const daemon: ControlMessage[] = []
+      regB.gateway.attachDaemon(regB.sessionStore.hostMachineId, (message) => daemon.push(message))
+      expect(
+        regB.modules.sessions.listSessions().find((session) => session.sessionId === sessionId),
+      ).toMatchObject({ status: 'exited', queuedMessageCount: 1 })
+
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+        type: 'reattachFailed',
+        sessionId: asSessionId(sessionId),
+        reason: 'process gone',
+      })
+      await vi.waitFor(() =>
+        expect(daemon.filter((message) => message.type === 'spawn')).toHaveLength(1),
+      )
+
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, bind(asSessionId(sessionId)))
+      regB.gateway.routeDaemonFrame(regB.sessionStore.hostMachineId, {
+        type: 'agentState',
+        sessionId: asSessionId(sessionId),
+        state: {
+          phase: 'idle',
+          since: '2026-08-31T00:00:01.000Z',
+          nativeSubagentCount: 0,
+        },
+      })
+      settle(regB, sessionId)
+      expect(pastesContaining(daemon, 'wake')).toHaveLength(1)
+      confirmUserTurn(regB, sessionId, 'wake')
+      advanceUntilSettled(regB, sessionId, 'wake')
+      expect(storeB.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
+      regB.dispose()
     } finally {
       vi.useRealTimers()
     }
@@ -332,11 +471,20 @@ describe('queueText (durable outbox sends)', () => {
       // alone is no longer a readiness signal after a wake.
       settle(regB, sessionId)
       expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
+      // Typed by the NEW process, and still held by it: a row that crossed a
+      // restart is confirmed from the transcript like any other.
+      expect(queuedRows(regB, sessionId)).toHaveLength(1)
+
+      confirmUserTurn(regB, sessionId, 'survive-restart')
+      advanceUntilSettled(regB, sessionId, 'survive-restart')
       expect(regB.sessionStore.sync.listQueuedMessages(asSessionId(sessionId))).toEqual([])
       expect(
         regB.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)
           ?.queuedMessageCount,
       ).toBeUndefined()
+      // Exactly once across the restart — the row the old process queued was
+      // typed by the new one, not by both.
+      expect(pastesContaining(daemonB, 'survive-restart')).toHaveLength(1)
       regB.dispose()
       storeB.close()
     } finally {
@@ -360,12 +508,33 @@ describe('queueText (durable outbox sends)', () => {
       reg.modules.sessions.queueText({ sessionId, text: 'second-msg' })
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(2)
 
-      // Silent TUI → READY_MAX fallback delivers the head at ~6.2s...
-      vi.advanceTimersByTime(6_400)
+      // Silent TUI → the readiness window falls back to its ceiling and the head
+      // is typed. Stepped, not jumped: the old `advanceTimersByTime(6_400)` wrote
+      // down a constant POD-2836 is about to move.
+      advanceToComposerReady(() => pastesContaining(daemon, 'first-msg').length)
       expect(pastesContaining(daemon, 'first-msg')).toHaveLength(1)
-      // ...but the second waits out the spacing gap (never fused onto the same tick).
+      // ...and the second is not fused onto the same tick. It cannot even be
+      // ATTEMPTED yet: the head is typed but unconfirmed, so both rows are still
+      // durable and still counted.
       expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
-      vi.advanceTimersByTime(600)
+      expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(2)
+
+      confirmUserTurn(reg, sessionId, 'first-msg')
+      // Settle the head, and stop on the step that settles it — inside the
+      // spacing gap, which is the only place the gap can be observed.
+      advanceUntilSettled(reg, sessionId, 'first-msg')
+      // THE SPACING IS PINNED HERE, and it takes the one-millisecond step to pin
+      // it: this fake clock does not run a timer scheduled DURING a tick until
+      // the next advance, so "the second has not gone out yet" is equally true
+      // of a zero spacing. A zero-spacing `deliverNext` has already landed by
+      // the +1ms mark; a spaced one has not.
+      expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
+      vi.advanceTimersByTime(1)
+      expect(pastesContaining(daemon, 'second-msg')).toHaveLength(0)
+      advanceUntil(
+        () => pastesContaining(daemon, 'second-msg').length === 1,
+        'the second row reached the PTY',
+      )
 
       // Both delivered, in enqueue order, as SEPARATE bracketed-paste inputs.
       const pastes = decodedInputs(daemon).filter((t) => t.startsWith('\x1b[200~'))
@@ -396,9 +565,23 @@ describe('queueText (durable outbox sends)', () => {
       expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toHaveLength(1)
       expect(reg.modules.sessions.listSessions()[0]?.queuedMessageCount).toBe(1)
 
-      // The PTY finally binds → a fresh attempt re-arms and delivers after settle.
+      // The PTY finally binds → a fresh attempt re-arms and types after settle.
       reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
       settle(reg, sessionId)
+      // `settle` above already ran the clock past the readiness window, so this
+      // steps zero times — it is here to state the dependency, not to wait.
+      advanceUntil(
+        () => pastesContaining(daemon, 'patient-msg').length === 1,
+        'the queued row reached the PTY',
+      )
+      expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
+      // Typed once, and still held: the abandoned pass did not spend the row's
+      // one at-most-once attempt, and the new pass does not claim delivery
+      // until the transcript witnesses it.
+      expect(queuedRows(reg, sessionId)).toHaveLength(1)
+
+      confirmUserTurn(reg, sessionId, 'patient-msg')
+      advanceUntilSettled(reg, sessionId, 'patient-msg')
       expect(pastesContaining(daemon, 'patient-msg')).toHaveLength(1)
       expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
     } finally {
@@ -540,12 +723,29 @@ describe('framework idempotency (modules.mutations)', () => {
         reg.modules.mutations.once(asMutationId('send-1'), 'sessions.sendText', () =>
           reg.modules.sessions.sendText({ sessionId, text: 'only-once' }),
         )
-      expect(send()).toEqual({ ok: true })
-      expect(send()).toEqual({ ok: true }) // recorded result, fn not re-run
-      vi.advanceTimersByTime(200) // flush the deferred submit CR
+      // ONE ANSWER, THE SAME ONE `inbox.test.ts` GIVES (POD-2842): the send is
+      // accepted and HELD, not typed. `queued: true` is the caller's warning
+      // that the bytes are not on the wire yet — see the note above
+      // `describe('queueText (durable outbox sends)')` for why that is the
+      // contract, and why this file used to say the opposite on this very line.
+      expect(send()).toEqual({ ok: true, queued: true })
+      expect(send()).toEqual({ ok: true, queued: true }) // recorded result, fn not re-run
+      // Nothing is typed into a composer that has not proven it is mounted.
+      vi.advanceTimersByTime(100)
+      expect(decodedInputs(daemon)).toEqual([])
+
+      advanceToComposerReady(() => pastesContaining(daemon, 'only-once').length)
+      // Flush the deferred submit CR. This file does not PIN that delay — with
+      // `SUBMIT_CR_DELAY_MS = 0` all 12 checks here stay green (measured,
+      // POD-2842). `expectSubmitStillDeferred` in `relay.test.ts` is what pins
+      // it; the assertion below is about how MANY frames, not about when.
+      vi.advanceTimersByTime(200)
 
       expect(pastesContaining(daemon, 'only-once')).toHaveLength(1)
-      // One paste + one CR — nothing else went to the PTY.
+      // One paste + one CR — nothing else went to the PTY. THIS is the assertion
+      // the test is named for: a replay must not put a second copy in the
+      // composer, and the readiness queue moved WHEN it is typed, never how many
+      // times.
       expect(decodedInputs(daemon)).toEqual(['\x1b[200~only-once\x1b[201~', '\r'])
     } finally {
       vi.useRealTimers()

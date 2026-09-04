@@ -48,7 +48,10 @@ export async function probeNewVps(
   } catch {
     throw new Error('Could not reach Podium at this URL. Check the URL and the VPS network setup.')
   }
-  if (!response.ok)
+  // 503 is the EXPECTED answer here: a VPS being activated for the first time
+  // has a blocked data plane by definition, and since PDM-26 it says so in the
+  // status code too. The body is unchanged and is what this flow reads.
+  if (!response.ok && response.status !== 503)
     throw new Error(`The VPS answered, but its readiness check returned ${response.status}.`)
   let status: unknown
   try {

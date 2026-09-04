@@ -11,15 +11,29 @@ export interface CursorParts {
   sub: number
 }
 
+function encodeBase64Url(value: string): string {
+  const bytes = new TextEncoder().encode(value)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '')
+}
+
+function decodeBase64Url(value: string): string {
+  const base64 = value.replace(/-/g, '+').replace(/_/g, '/')
+  const binary = atob(base64.padEnd(Math.ceil(base64.length / 4) * 4, '='))
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0))
+  return new TextDecoder().decode(bytes)
+}
+
 export function encodeCursor(p: CursorParts): string {
   const json = JSON.stringify([p.fileId, p.offset, p.uuid, p.sub])
-  return Buffer.from(json, 'utf8').toString('base64url')
+  return encodeBase64Url(json)
 }
 
 export function decodeCursor(c: string): CursorParts | null {
   if (!c) return null
   try {
-    const arr = JSON.parse(Buffer.from(c, 'base64url').toString('utf8'))
+    const arr = JSON.parse(decodeBase64Url(c))
     if (!Array.isArray(arr) || arr.length !== 4) return null
     const [fileId, offset, uuid, sub] = arr
     if (typeof fileId !== 'string' || typeof offset !== 'number' || typeof sub !== 'number')

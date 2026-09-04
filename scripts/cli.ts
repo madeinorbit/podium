@@ -5,7 +5,9 @@
  * docs keep working. It is the ONE place that injects the in-process host
  * modules (apps/server + apps/daemon) into the CLI — apps/cli itself never
  * imports app code (boundary rule: the CLI depends only on @podium/protocol,
- * @podium/model, @podium/runtime and @podium/issue-client).
+ * @podium/model, @podium/runtime and @podium/issue-client). The janitor is no
+ * longer among them: every server owns its worker thread and imports
+ * @podium/janitor itself (PDM-27).
  */
 
 import type { CliRuntimeOptions, HostModules } from '../apps/cli/src/cli'
@@ -31,18 +33,14 @@ export {
 } from '../apps/cli/src/cli'
 
 async function loadHost(): Promise<HostModules> {
-  const [server, daemon, janitor, janitorWorker] = await Promise.all([
+  const [server, daemon] = await Promise.all([
     import('../apps/server/src/server'),
     import('../apps/daemon/src/daemon'),
-    import('../apps/janitor/src/janitor'),
-    import('../apps/janitor/src/worker-client'),
   ])
   return {
     startServer: server.startServer,
     isAddressInUseError: server.isAddressInUseError,
     startDaemon: daemon.startDaemon as HostModules['startDaemon'],
-    startJanitorWorker: janitorWorker.startJanitorWorker,
-    startJanitor: janitor.startJanitor,
   }
 }
 
@@ -50,4 +48,18 @@ export async function main(runtime: CliRuntimeOptions = {}): Promise<void> {
   return cliMain(loadHost, { localSetupDefault: SOURCE_CHECKOUT, ...runtime })
 }
 
-if (import.meta.main) void main()
+/**
+ * The recovery-snapshot verifier re-invokes this entry with
+ * `PODIUM_VERIFY_SNAPSHOT` set (POD-3068). It is answered BEFORE the CLI so a
+ * verification never boots a server, and it adds no public subcommand: the
+ * request arrives in the environment and the verdict leaves on stdout.
+ */
+async function runEntry(): Promise<void> {
+  const { runSnapshotVerifierChildIfRequested } = await import(
+    '../apps/server/src/migrations/snapshot-verifier-child'
+  )
+  if (await runSnapshotVerifierChildIfRequested()) return
+  await main()
+}
+
+if (import.meta.main) void runEntry()

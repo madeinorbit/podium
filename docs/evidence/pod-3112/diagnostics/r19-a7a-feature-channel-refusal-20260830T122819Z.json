@@ -1,0 +1,17 @@
+{
+  "at": "2026-08-30T12:27:47.982Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "deeb58e62eb7b4347bc984279316754657637f84",
+  "instance": "p3112-oc-a7a-r20",
+  "ports": [
+    20412,
+    47413,
+    47414
+  ],
+  "providerPrompts": 0,
+  "verdict": "REFUSED",
+  "reason": "TimeoutError: waitFor: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for getByRole('dialog', { name: 'Settings', exact: true }).getByText('Headless session drivers', { exact: true }) to be visible\u001b[22m\n",
+  "finishedAt": "2026-08-30T12:28:19.550Z"
+}

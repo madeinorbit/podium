@@ -1,0 +1,150 @@
+ok  server pid=918481 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at f90c538
+  ok  daemon pid=918543 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at f90c538
+  ok  exactly one daemon (pid 918543) on state root /tmp/pod-2777/state
+  ok  worktree at f90c53804924e0b365bd0893d39ad545ccfce89f, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at f90c538
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"f90c53804924e0b365bd0893d39ad545ccfce89f","short":"f90c538","spawnedSha":"f90c53804924e0b365bd0893d39ad545ccfce89f","serverPid":918481,"daemonPid":918543,"webSourceSha":"f90c538","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running f90c53804924e0b365bd0893d39ad545ccfce89f in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=claude  arm=headless  expecting driver 'a terminal-family driver'
+PIN                f90c53804924e0b365bd0893d39ad545ccfce89f (web bundle f90c538, server pid 918481, daemon pid 918543)
+==============================================================================
+session 4ceb2bd8-e278-4a6d-8a85-3ecd6c41fa6c created; giving the harness 25000ms to come up
+BOUND DRIVER       claude-pty (family terminal)
+
+NOTE: claude has no headless driver. It bound 'claude-pty' (family terminal)
+on the headless arm too — this harness runs ONE path and the driver preference
+does not move it. Its column is the terminal path.
+
+── reply — send a turn, get a reply
+   FAIL  no reply carrying the nonce within 180s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-R0IJ9M. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-R0IJ9M — a blank session cannot produce this by luck
+   REPLY             never arrived
+   ASSISTANT TEXT    71 chars: "Please run /login · API Error: 401 OAuth access token has been revoked."
+   ELAPSED           180244ms
+   LAST TUI SCREEN   "t.Tellingitwhichreposyou\ntrustandwhatdataissensitivegivesitclearerguardrailsonwhat'ssafe\ntorun.Claudewillexploreyourrepoandrecentsessions,thenreviewthe\nsettingsitsuggestswithyou.\n1.Setitup\n2.Notnow\n3.Don'tshowagain\nEntertoconfirmEsctocancel"
+
+── attach — attach a file
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — probe 1 did not pass, so a refusal here could not be attributed to attachments
+   CONTROL WATCHED   a plain send on this same session having already produced a reply (probe 1)
+   CONTROL SAW       probe 1 did not pass, so a refusal here could not be attributed to attachments
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no working send to compare against
+   REFUSING to report it, including as a failure.
+
+── interaction — a pending interaction (permission / approval)
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — 0 new transcript item(s) after the prompt; 2 delta frame(s) total
+   CONTROL WATCHED   the turn producing durable transcript items at all (transcriptDelta on the same socket)
+   CONTROL SAW       0 new transcript item(s) after the prompt; 2 delta frame(s) total
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no ask appeared and no tool ran
+   REFUSING to report it, including as a failure.
+   
+   --- what the probe saw anyway (diagnostic, not a result) ---
+   INTERACTIONS.LIST empty for this session after 21s
+   TOOL CALLS SEEN   (none)
+   FAIL: the agent neither asked nor acted, so nothing exercised the ask path.
+
+── model-switch — model / effort switch
+   BLOCKED  no product surface exists to switch model or effort mid-session
+   control: FIRED — model=(unset) observedModel=(none)
+   REQUESTED MODEL   (session default)
+   OBSERVED MODEL    (none — renders "requested, not yet observed")
+   OBSERVED EFFORT   (none)
+   DECLARATION       codex: configure unsupported ("model and effort are set at
+                     thread start and per turn"); opencode: unsupported; terminal:
+                     unsupported ("a TUI takes its model at launch"); grok: supported
+                     for permissionMode ONLY, explicitly not model/effort.
+   PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText
+                     carries no per-turn model or effort override either.
+   READING           the declaration and the behaviour agree, and the product does
+                     not offer a switch it cannot honour. Nothing is broken and
+                     nothing is proven — the cell is empty on BOTH arms, so this is
+                     not a way in which headless is better or worse.
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   BLOCKED  the turn had already finished when the chat opened (phase=idle)
+   control: FIRED — 1 frame(s), first at +30ms
+   JOINED            8623ms after the send, and the session was already phase=idle
+   The ordering under test is a viewer arriving DURING a turn. This agent
+   answered inside the join delay, so there was no in-flight turn to watch
+   and a preview count of zero is a fact about the timing, not the plane.
+   BLOCKED rather than FAIL: re-run with a longer prompt or a shorter join
+   delay (P2777_JOIN_MS) to measure this cell on this harness.
+
+── interrupt — interrupt a running turn
+   FAIL  still working 120s after interrupt
+   control: FIRED — terminal output bytes growing (+23213 since the send); phase=idle, 0 preview frame(s), 71 new transcript chars, 23213 new terminal bytes
+   WAS RUNNING       terminal output bytes growing (+23213 since the send); phase=idle, 0 preview frame(s), 71 new transcript chars, 23213 new terminal bytes
+   INTERRUPT SENT    {"ok":true,"requested":"keystroke"}
+   SETTLED           NEVER — phase=idle
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              71 chars at the call -> 71 chars at settle
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    23213 at the call -> +254 after 6s -> +4680 after 12s
+   AFTER THE CALL    phase=errored status=live error=unknown
+   SCORED ON         output stopping — this arm never publishes phase=working, so "left working" would be vacuously true
+   READING           the agent KEPT GENERATING after the call. The interrupt did
+                     not reach the turn, and the call still returned ok — the
+                     product reported a success that did not happen.
+                     evidence: +4680 terminal bytes and 0 preview frame(s) AFTER the interrupt.
+
+── stop — stop (the session — the turn-scoped stop is absent from the contract)
+   PASS  session left its running state 31ms after stop (status=hibernated)
+   control: FIRED — present, status=live phase=errored
+   BEFORE            status=live phase=errored
+   STOP RETURNED     {"ok":true,"worktreeFreed":false,"deferredKill":false}
+   AFTER             status=hibernated phase=errored
+   VERIFIED IN       31ms
+   NOTE              this is sessions.stop (the SESSION). The catalogue records
+                     "stop this turn, keep the session" as ABSENT from the contract
+                     on all four drivers; this drive does not pretend otherwise.
+
+── resume — resume after a kill
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — the pre-park turn never produced the secret, so there is nothing whose return could be measured
+   CONTROL WATCHED   a conversation existing to restore — the pre-park turn answered with the secret
+   CONTROL SAW       the pre-park turn never produced the secret, so there is nothing whose return could be measured
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no pre-park conversation
+   REFUSING to report it, including as a failure.
+
+── provider-error — a provider error surfaced honestly
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — probe 1 did not pass, so an error here cannot be told apart from a harness that never worked
+   CONTROL WATCHED   this harness answering a normal question on this arm (probe 1)
+   CONTROL SAW       probe 1 did not pass, so an error here cannot be told apart from a harness that never worked
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no working baseline to attribute an error to
+   REFUSING to report it, including as a failure.
+
+==============================================================================
+RESULT  claude / headless / driver=claude-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           FAIL      fired     no reply carrying the nonce within 180s
+attach          REFUSED   MISSING   control did not fire — refusing to report this measurement
+interaction     REFUSED   MISSING   control did not fire — refusing to report this measurement
+model-switch    BLOCKED   fired     no product surface exists to switch model or effort mid-session
+stream          BLOCKED   fired     the turn had already finished when the chat opened (phase=idle)
+interrupt       FAIL      fired     still working 120s after interrupt
+stop            PASS      fired     session left its running state 31ms after stop (status=hibernated)
+resume          REFUSED   MISSING   control did not fire — refusing to report this measurement
+provider-error  REFUSED   MISSING   control did not fire — refusing to report this measurement
+==============================================================================
+written /tmp/pod-2777/results/claude.headless.json

@@ -79,7 +79,9 @@ export function colorSchemeReport(background: string | undefined): string {
 
 // A terminal in a proportional font is unreadable and misaligns box-drawing. Pin a
 // monospace stack that resolves to a real mono font on every platform.
-const MONO_STACK =
+/** The default monospace stack. Exported because the font-readiness probe in
+ *  `session-mount` has to ask for each face in it BY NAME (POD-3239 B4). */
+export const MONO_STACK =
   "'Geist Mono Variable', ui-monospace, 'SF Mono', 'JetBrains Mono', 'Fira Code', Menlo, 'Cascadia Code', 'DejaVu Sans Mono', Consolas, monospace"
 
 /** Open an external URL in a new tab / the system browser. In installed PWAs,
@@ -106,6 +108,24 @@ function openExternalUrl(uri: string): void {
   document.body.appendChild(a)
   a.click()
   a.remove()
+}
+
+/**
+ * The horizontal and vertical padding of an element, in px. Zero when the
+ * platform cannot answer (no `getComputedStyle`, a detached node) — which is the
+ * right failure: an unmeasurable inset is better treated as none than as a guess.
+ */
+function paddingOf(el: HTMLElement): { x: number; y: number } {
+  if (typeof getComputedStyle !== 'function') return { x: 0, y: 0 }
+  const style = getComputedStyle(el)
+  const px = (value: string): number => {
+    const n = Number.parseFloat(value)
+    return Number.isFinite(n) ? n : 0
+  }
+  return {
+    x: px(style.paddingLeft) + px(style.paddingRight),
+    y: px(style.paddingTop) + px(style.paddingBottom),
+  }
 }
 
 export class TerminalView {
@@ -426,9 +446,9 @@ export class TerminalView {
     this.forceRepaint()
   }
 
-  write(text: string): void {
+  write(data: string | Uint8Array): void {
     if (this.disposed) return
-    this.term.write(text)
+    this.term.write(data)
   }
 
   clear(): void {
@@ -493,8 +513,17 @@ export class TerminalView {
 
   /**
    * Measure how many cells fit in a viewport that is distinct from xterm's host.
-   * Crop-and-pan uses a phone-sized outer viewport around a server-grid-sized
-   * terminal host, so FitAddon (which measures the host) cannot answer this.
+   *
+   * THE ONE MEASUREMENT SEAM (POD-3239 B3/B4). Under the two-element structure
+   * the host is sized BY xterm to cols x cell, so FitAddon — which measures the
+   * host's parent — would be measuring its own output. The outer viewport is the
+   * box, and this is how the box is read.
+   *
+   * The viewport's PADDING is subtracted, because padding is not somewhere a
+   * cell can go. The cell size is derived from `.xterm-screen`, which already
+   * excludes it, so measuring the padded rect would over-report the grid by
+   * however much padding the surface carries — on the desktop panel, two columns
+   * and two rows of terminal that do not exist.
    */
   proposeFitIn(viewport: HTMLElement): { cols: number; rows: number } | undefined {
     if (!this.host) return undefined
@@ -508,26 +537,15 @@ export class TerminalView {
     if (!Number.isFinite(cell.width) || !Number.isFinite(cell.height)) return undefined
     if (cell.width <= 0 || cell.height <= 0) return undefined
     const viewportRect = viewport.getBoundingClientRect()
-    const grid = computeGrid({ width: viewportRect.width, height: viewportRect.height }, cell)
+    const inset = paddingOf(viewport)
+    const grid = computeGrid(
+      {
+        width: Math.max(0, viewportRect.width - inset.x),
+        height: Math.max(0, viewportRect.height - inset.y),
+      },
+      cell,
+    )
     return grid.cols >= 2 && grid.rows >= 2 ? grid : undefined
-  }
-
-  /**
-   * Attempt to fit the terminal to the container. Returns the new grid on
-   * success, or `undefined` when the container isn't measurable yet (hidden,
-   * zero-size, or the FitAddon cell measure failed). The caller should retry
-   * across rAFs rather than silently keeping a stale grid.
-   */
-  fit(): { cols: number; rows: number } | undefined {
-    const dims = this.proposeFit()
-    if (!dims) return undefined
-    try {
-      this.fitAddon.fit()
-    } catch (error) {
-      this.emitDiagnostic('fit:unavailable', { reason: 'fit-threw', error: String(error), dims })
-      return undefined
-    }
-    return { cols: this.term.cols, rows: this.term.rows }
   }
 
   /**

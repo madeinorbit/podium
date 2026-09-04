@@ -54,7 +54,6 @@ export interface DaemonOptions {
   machineId?: MachineId
   launch?: typeof agentLaunchCommand
   backend?: DurableBackend
-  tmux?: boolean
   discovery?: DaemonDiscoveryOptions
   metrics?: DaemonMetricsOptions
   hooks?: DaemonHooksOptions

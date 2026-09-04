@@ -1,0 +1,320 @@
+{
+  "cell": "A1B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a1b",
+  "at": "2026-08-27T01:28:22.113Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-27T01:28:22.210Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T00:46:16.692Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+DskDAbLF"
+    },
+    "serverPid": "554006",
+    "daemonPid": "632103",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "3654920 kB",
+      "SwapFree": "37033704 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "busy-turn control did not land",
+  "control": {
+    "fired": false,
+    "what": "the first busy-turn prompt appearing as a durable user turn",
+    "detail": "first user turn=false; working=false at 15008ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}}",
+    "SCREEN TAIL       \"\""
+  ],
+  "data": {
+    "sid": "37afd8ea-d426-4172-8224-c7d8c990d1a3",
+    "working": [
+      {
+        "ms": 144,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 642,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 1325,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 1656,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 2017,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 2628,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 3016,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 3622,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 4117,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 4444,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 4904,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 5222,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 5529,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 5842,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 6138,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 6422,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 6704,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 7024,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 7350,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 7631,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 7923,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 8230,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 8579,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 8892,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 9171,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 9480,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 9764,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 10041,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 10398,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 10676,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 10958,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 11243,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 11524,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 11900,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 12183,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 12480,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 12767,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 13046,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 13320,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 13626,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 13922,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 14205,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 14480,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      },
+      {
+        "ms": 14756,
+        "phase": "idle",
+        "status": "exited",
+        "driverId": null
+      }
+    ]
+  }
+}

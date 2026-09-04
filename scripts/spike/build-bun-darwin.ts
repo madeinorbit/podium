@@ -23,7 +23,7 @@ import {
 } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { DISCOVERY_WORKER_ENTRY } from '../../apps/daemon/src/discovery-worker-embed.js'
-import { JANITOR_WORKER_ENTRY } from '../../apps/janitor/src/janitor-worker-embed.js'
+import { JANITOR_WORKER_ENTRY } from '../../packages/janitor/src/janitor-worker-embed.js'
 import {
   bunVersion,
   hasBunTerminal,

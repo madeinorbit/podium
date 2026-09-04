@@ -12,6 +12,7 @@ import discovery from './discovery.json' with { type: 'json' }
 import featureState from './feature-state.json' with { type: 'json' }
 import feed from './feed.json' with { type: 'json' }
 import files from './files.json' with { type: 'json' }
+import fleetLogs from './fleet-logs.json' with { type: 'json' }
 import github from './github.json' with { type: 'json' }
 import handoff from './handoff.json' with { type: 'json' }
 import harness from './harness.json' with { type: 'json' }
@@ -24,6 +25,7 @@ import maintenance from './maintenance.json' with { type: 'json' }
 import model from './model.json' with { type: 'json' }
 import perf from './perf.json' with { type: 'json' }
 import presenceRooms from './presence-rooms.json' with { type: 'json' }
+import runtime from './runtime.json' with { type: 'json' }
 import runtimeState from './runtime-state.json' with { type: 'json' }
 import search from './search.json' with { type: 'json' }
 import server from './server.json' with { type: 'json' }
@@ -48,6 +50,7 @@ export const GOLDEN: Record<string, unknown> = {
   'feature-state': featureState,
   feed: feed,
   files: files,
+  'fleet-logs': fleetLogs,
   github: github,
   handoff: handoff,
   harness: harness,
@@ -60,6 +63,7 @@ export const GOLDEN: Record<string, unknown> = {
   model: model,
   perf: perf,
   'presence-rooms': presenceRooms,
+  runtime: runtime,
   'runtime-state': runtimeState,
   search: search,
   server: server,

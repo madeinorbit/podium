@@ -32,6 +32,7 @@ export function replyHandler(
     id: r.message.id,
     ok: r.ok,
     acked: (input.kind ?? 'ack') === 'ack',
+    ...(r.position !== undefined ? { position: r.position } : {}),
     ...(r.queued !== undefined ? { queued: r.queued } : {}),
     ...(r.reason !== undefined ? { reason: r.reason } : {}),
     disposition: r.disposition,

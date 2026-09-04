@@ -1,0 +1,10 @@
+  ok  no other probe is driving this rig
+  ok  server pid=1771430 cwd=/home/mgw/src/podium/.worktrees/issue-3065-re-read-the-no-marker-cells spawned at f76f698
+  ok  daemon pid=1771608 cwd=/home/mgw/src/podium/.worktrees/issue-3065-re-read-the-no-marker-cells spawned at f76f698
+  ok  exactly one daemon (pid 1771608) on instance 'p3065x' (state root /home/mgw/.local/state/podium/p3065x)
+  ok  worktree at f76f698cecc8aeb5021803902579a17d7a0852dc; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19965 (not the operator's 19797)
+  ok  web bundle served from :19965 was built at f76f698
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"f76f698cecc8aeb5021803902579a17d7a0852dc","short":"f76f698","spawnedSha":"f76f698cecc8aeb5021803902579a17d7a0852dc","serverPid":1771430,"daemonPid":1771608,"webSourceSha":"f76f698","contract":"1","streaming":"1","driver":""}
+VERIFIED: p3065x (server + daemon + web bundle) is running f76f698cecc8aeb5021803902579a17d7a0852dc in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'

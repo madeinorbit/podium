@@ -34,21 +34,13 @@
 }
 
 /* THE WORKING MARK — the braille cell held still and lit in a travelling wave
-   (see WorkingMark.tsx). One keyframe plus eight delays animates every instance
-   on screen; zero JS, and the whole cell composites as opacity + transform. */
-@keyframes podium-mark-wave {
-  0%,
-  100% {
-    opacity: 0.2;
-    transform: scale(0.8);
-  }
-  16% {
-    opacity: 1;
-    transform: scale(1.16);
-  }
-  44% {
-    opacity: 0.2;
-    transform: scale(0.8);
+   (see WorkingMark.tsx). The former eight SVG-circle animations forced Chromium
+   through style and layout on most frames. A generated alpha-mask strip now
+   holds sampled dot states from the same wave and one HTML layer advances on
+   the compositor. */
+@keyframes podium-mark-frames {
+  to {
+    transform: translate3d(0, -100%, 0);
   }
 }
 
@@ -125,40 +117,51 @@
 /* The mark's cell. Fixed intrinsic width, so neighbours never shift as the wave
    travels — the dots move in place, the box does not. */
 .pod-mark {
+  position: relative;
   display: inline-block;
   flex: none;
+  overflow: hidden;
   vertical-align: middle;
-  /* Contexts retint via --mark-color (e.g. the dark badge uses the brighter
-     blue); default is the reserved working blue. */
+  contain: strict;
+}
+.pod-mark-static {
+  position: absolute;
+  inset: 0;
+  display: block;
   fill: var(--mark-color, var(--motion-working));
 }
-.pod-mark circle {
+.pod-mark-static circle {
   transform-box: fill-box;
   transform-origin: center;
-  animation: podium-mark-wave 1.5s linear infinite;
+  opacity: 0.2;
+  transform: scale(0.8);
 }
-/* The stagger: reading order down the cell, spread over half the cycle, so one
-   crest is always travelling and the cell never goes fully dark or fully lit. */
-.pod-mark circle:nth-child(2) {
-  animation-delay: 0.12s;
+.pod-mark-frames {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: block;
+  width: 100%;
+  height: 4500%;
+  background: var(--mark-color, var(--motion-working));
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-repeat: no-repeat;
+  mask-size: 100% 100%;
+  will-change: transform;
+  animation: podium-mark-frames 1.5s steps(45, end) infinite;
 }
-.pod-mark circle:nth-child(3) {
-  animation-delay: 0.21s;
+.pod-mark-small .pod-mark-frames {
+  -webkit-mask-image: url("./working-mark-small.svg");
+  mask-image: url("./working-mark-small.svg");
 }
-.pod-mark circle:nth-child(4) {
-  animation-delay: 0.33s;
+.pod-mark-medium .pod-mark-frames {
+  -webkit-mask-image: url("./working-mark-medium.svg");
+  mask-image: url("./working-mark-medium.svg");
 }
-.pod-mark circle:nth-child(5) {
-  animation-delay: 0.42s;
-}
-.pod-mark circle:nth-child(6) {
-  animation-delay: 0.54s;
-}
-.pod-mark circle:nth-child(7) {
-  animation-delay: 0.63s;
-}
-.pod-mark circle:nth-child(8) {
-  animation-delay: 0.75s;
+.pod-mark-large .pod-mark-frames {
+  -webkit-mask-image: url("./working-mark-large.svg");
+  mask-image: url("./working-mark-large.svg");
 }
 
 /* Handover transit wire (POD-337): a session moving to another machine covers
@@ -322,8 +325,12 @@
 @media (prefers-reduced-motion: reduce) {
   /* The wave stops and the cell rests fully lit — the blue mark alone still
      reads "computing" (colour + the ticking timer carry the state). */
-  .pod-mark circle {
-    animation: none;
+  .pod-mark-static circle {
+    opacity: 1;
+    transform: none;
+  }
+  .pod-mark-frames {
+    display: none;
   }
   /* The transit wire stops travelling — the blue carets pointing at the target
      still read as "on its way" — and the veil snaps instead of dissolving. */

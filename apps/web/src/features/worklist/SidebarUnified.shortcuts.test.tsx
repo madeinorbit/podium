@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { SidebarRail } from './SidebarRail'
 import { SidebarUnified } from './SidebarUnified'
 
 // ⌘-hold row shortcuts (POD-790): hold Command and every task in the column
@@ -185,29 +186,35 @@ function newAgentCommand(): (() => void) | undefined {
   return (globalThis as { __PODIUM_NEW_AGENT__?: () => void }).__PODIUM_NEW_AGENT__
 }
 
-describe('⌘N — the shell menu’s New Agent (POD-790)', () => {
-  it('hands the desktop shell a command that starts the sidebar default agent', () => {
+// POD-1469: the chord still arrives the same two ways, and it no longer spawns.
+// A new task is a BLANK mission — the selection is cleared and the composer asks
+// for the work before any harness exists — so what this asserts is the clear,
+// and that nothing is spawned behind the operator's back.
+describe('⌘N — the shell menu’s New Task (POD-790, POD-1469)', () => {
+  it('hands the desktop shell a command that opens a new task', () => {
     macShell()
     render(<SidebarUnified />)
     // The shell evaluates exactly this global on File > New Agent
     // (apps/desktop/src-tauri/src/main.rs).
     expect(typeof newAgentCommand()).toBe('function')
     newAgentCommand()?.()
-    expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
-  it('spawns from a ⌘N that actually reaches the page', () => {
+  it('opens a new task from a ⌘N that actually reaches the page', () => {
     macShell()
     render(<SidebarUnified />)
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(spawnDraftAgent).toHaveBeenCalledTimes(1)
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 
   it('registers nothing in a browser tab, which never surrenders ⌘N', () => {
     render(<SidebarUnified />)
     expect(newAgentCommand()).toBeUndefined()
     fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
-    expect(spawnDraftAgent).not.toHaveBeenCalled()
+    expect(setSelectedIssueId).not.toHaveBeenCalled()
   })
 
   it('takes the command back down with the sidebar', () => {
@@ -215,6 +222,19 @@ describe('⌘N — the shell menu’s New Agent (POD-790)', () => {
     render(<SidebarUnified />)
     cleanup()
     expect(newAgentCommand()).toBeUndefined()
+  })
+
+  // THE COLLAPSED COLUMN IS A COLUMN. `AppShell` renders the rail INSTEAD of
+  // this component, so if only the wide row bound the chord then collapsing the
+  // sidebar — the state an operator collapses INTO to get room — would leave
+  // ⌘N and File > New Agent doing nothing at all.
+  it('is answered by the collapsed rail too', () => {
+    macShell()
+    render(<SidebarRail />)
+    expect(typeof newAgentCommand()).toBe('function')
+    fireEvent.keyDown(window, { key: 'n', code: 'KeyN', metaKey: true })
+    expect(setSelectedIssueId).toHaveBeenCalledWith(null)
+    expect(spawnDraftAgent).not.toHaveBeenCalled()
   })
 })
 

@@ -57,7 +57,6 @@ function makeHub(options: { heartbeatIntervalMs?: number } = {}): {
   const sockets: LoggingSocket[] = []
   const hub = new SocketHub({
     url: 'ws://transport.test',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => {
       const socket = new LoggingSocket()
       sockets.push(socket)

@@ -65,7 +65,7 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
     try {
       let out = ''
       session.onFrame((f) => {
-        out += Buffer.from(f.data, 'base64').toString('utf8')
+        out += Buffer.from(f.data).toString('utf8')
       })
       const startedAt = Date.now()
       while (!out.includes('READY') && Date.now() - startedAt < 8000) await wait(25)
@@ -89,7 +89,7 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
     })
     let out = ''
     first.onFrame((f) => {
-      out += Buffer.from(f.data, 'base64').toString('utf8')
+      out += Buffer.from(f.data).toString('utf8')
     })
     const startedAt = Date.now()
     while (!out.includes('READY') && Date.now() - startedAt < 8000) await wait(25)
@@ -113,15 +113,20 @@ describe.skipIf(!hasAbduco)('spawning onto a squatted durable label', () => {
       expect(resumed.adopted).toBe(true)
       let out2 = ''
       resumed.onFrame((f) => {
-        out2 += Buffer.from(f.data, 'base64').toString('utf8')
+        out2 += Buffer.from(f.data).toString('utf8')
       })
       await wait(500)
       // Round-trip input to prove this is the SAME, still-live agent (abduco
       // replays no history, so liveness is the only observable).
       resumed.write(Buffer.from('yo\r', 'utf8').toString('base64'))
+      // An adopted attach is size-neutral, so it repaints with Ctrl-L (0x0c)
+      // instead of a resize [spec:SP-6144]. That keystroke can still be in flight
+      // when this input goes out, and the agent then reads both as one chunk —
+      // harmless, but it means the echo is not always the typed bytes alone.
+      const typed = /ECHO\[(?:0c)?796f/
       const echoStart = Date.now()
-      while (!out2.includes('ECHO[796f') && Date.now() - echoStart < 8000) await wait(25)
-      expect(out2).toContain('ECHO[796f')
+      while (!typed.test(out2) && Date.now() - echoStart < 8000) await wait(25)
+      expect(out2).toMatch(typed)
     } finally {
       resumed.dispose()
       await killAbducoSession(label)

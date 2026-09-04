@@ -1,0 +1,134 @@
+{
+  "issue": "POD-3112",
+  "kind": "r18-a7b-controlled-fail",
+  "verdict": "FAIL",
+  "harnessVerdict": "FAIL",
+  "scored": true,
+  "integrationPin": "fa0bbc8ac752c32a2de13d6835938b2633638f31",
+  "admission": {
+    "testHeavyAcquiredWithoutWait": true,
+    "freshBuildExecutedUnderLease": true,
+    "leaseReleasedBeforeLaunch": true,
+    "webSourceSha": "fa0bbc8",
+    "invalidR1ArtifactReused": false
+  },
+  "bootPins": {
+    "serverSpawnSha": "fa0bbc8ac752c32a2de13d6835938b2633638f31",
+    "daemonSpawnSha": "fa0bbc8ac752c32a2de13d6835938b2633638f31",
+    "webSourceSha": "fa0bbc8",
+    "webBundleVersion": "bundle+Bj8FJqxA"
+  },
+  "instance": {
+    "name": "p3112-a7b-fa0bbc-r2",
+    "base": "/tmp/pod-3112-a7b-fa0bbc-r2",
+    "derivedStateRoot": "/home/mgw/.local/state/podium/p3112-a7b-fa0bbc-r2",
+    "ports": [
+      23231,
+      50231,
+      50232
+    ],
+    "machineId": "1e2ff4a4-af12-47d2-8764-adcd951ea512",
+    "dummyCommit": "af4327e6c6af0c1c2ee160e4c9159ef56adc1dce"
+  },
+  "a7aPositiveControl": {
+    "verdict": "PASS",
+    "providerPrompts": 2,
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "samePodiumSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true,
+    "native": true,
+    "chat": true,
+    "recall": true
+  },
+  "a7bLifecycle": {
+    "sessionId": "a79a081b-2d03-4390-9166-415e217eff90",
+    "createdAt": "2026-08-30T16:45:12.909Z",
+    "resumeKind": "opencode-session",
+    "opencodeSessionId": "ses_fac705b12ffeYkXHzjk7MIufb7",
+    "processKey": "podium-oc-a79a081b-2d03-4390-9166-415e217eff90",
+    "viewerReleaseMs": 30184.867267000023,
+    "viewerReleasedAt": "2026-08-30T16:49:05.442Z",
+    "hibernateAt": "2026-08-30T16:49:05.442Z",
+    "parkMs": 108.8713160000043,
+    "parkStatus": "hibernated",
+    "originalProviderPid": 1112052,
+    "providerDeathMs": 250.83750600001076,
+    "providerGoneAt": "2026-08-30T16:49:05.714Z",
+    "resurrectAt": "2026-08-30T16:49:05.714Z",
+    "newProviderPid": 1127010,
+    "providerExact": true,
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "newPid": true,
+    "samePodiumSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true,
+    "chatMarkerOccurrences": 1,
+    "nativeMarkerOccurrences": 0,
+    "nativeSampleLengths": [
+      335,
+      607,
+      607,
+      607,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      463,
+      463,
+      463,
+      463,
+      463,
+      463,
+      463,
+      463,
+      463,
+      463,
+      463
+    ],
+    "redactedNormalizedNativeTail": "Thought\u00b73.5s[REDACTED_CODEWORD] Build\u00b7GPT-5.6Luna\u00b76.2s Build\u00b7GPT-5.6LunaOpenCodeGo /tmp/pod-3112-a7b-fa0bbc-r2/dummy-repo 6.7K(1%)\u00b7$0.00 ctrl+p commands",
+    "uniqueRecallReplyMs": null,
+    "priorCodewordPresentInTranscript": true,
+    "uniqueUserNonce": "P3112-R18-A7B-MTG1O1D0",
+    "uniqueUserPromptPersisted": true,
+    "uniqueAssistantNoncePresent": false
+  },
+  "rawEvidenceSha256": {
+    "r18Reading": "fcf8417ba7eb4bafe34e832ee2c3410d39d0b9cde2c17ae2edc43253c99e44b2",
+    "serverLog": "b6cb6311db10ae65963d0fd0358b93133144d71e20d5dda1993236727d57d37c",
+    "daemonLog": "11764c2b480f90520b718dc811d88345af3287fe105c9b67dea087e291ef2361"
+  },
+  "teardown": {
+    "driveDownCompleted": true,
+    "manuallyTerminatedExactOwnedPids": [
+      1127010,
+      1127333,
+      1127334
+    ],
+    "ownedProcessesRemaining": 0,
+    "exactClearedPorts": [
+      23231,
+      50231,
+      50232,
+      44567
+    ],
+    "credentialSymlinkRemoved": true,
+    "outsideNamedInstanceTouched": false
+  },
+  "adjudication": {
+    "reason": "Native lost the prior content-bearing A7a marker while Chat retained it; the post-resurrection user prompt persisted but produced no unique assistant reply",
+    "positiveControls": [
+      "A7a fully PASS",
+      "post-resurrection provider exact on a new PID with preserved identity",
+      "durable unique A7b user prompt P3112-R18-A7B-MTG1O1D0"
+    ],
+    "positiveControlFired": true,
+    "acceptanceRowsWritten": 1,
+    "retryAttempted": false,
+    "laterCellAttempted": false
+  }
+}

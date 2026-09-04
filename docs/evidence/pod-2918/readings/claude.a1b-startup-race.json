@@ -1,0 +1,326 @@
+{
+  "cell": "A1B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a1b",
+  "at": "2026-08-27T01:36:23.781Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-27T01:36:23.886Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T00:46:16.692Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+DskDAbLF"
+    },
+    "serverPid": "554006",
+    "daemonPid": "632103",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "1106156 kB",
+      "SwapFree": "36697636 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "busy-turn control did not land",
+  "control": {
+    "fired": false,
+    "what": "the first busy-turn prompt appearing as a durable user turn",
+    "detail": "first user turn=false; working=false at 15097ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SCREEN TAIL       \"ectionbeforeexecuting,runstheonesitassessesaslower-risk,andblockstherest.  https://code.claude.com/docs/en/permission-modesTry \\\"create a util logging.pythat...\\\"\\nautomodeon(shift+tabtocycle)foragentshigh/effort\\nYou'veused97%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\\nTipsforgetting\\nWelcomebackMichael!started\\nAskClaudetocreatea\\nWhat'snew\\nAddedthe`SendFeedbac\\nOpus5(1Mcontext)ClaudeMaxAdded`{id,text,cool\\nmike.wirth@gmail.com'sOrganizationAddedatiponBashpe\\n/tmp/pod-2918/probes/claude-a1b/release-notesformore\\n2MCPserversneedauthenticationrun/mcp\\nAutomodeisnowClaudeCode'sdefaultpermissionmode.\\nAutomodeletsClaudehandlepermissionpromptsautomatically.Claudechecks\\neachtoolcallforriskyactionsandpromptinjectionbeforeexecuting,runs\\ntheonesitassessesaslower-risk,andblockstherest.\\nhttps://code.claude.com/docs/en/permission-modes\\nTry\\\"createautillogging.pythat...\\\"\\nautomodeon(shift+tabtocycle)foragents\""
+  ],
+  "data": {
+    "sid": "3fe32206-ab33-434c-9a69-742a6dabb9d7",
+    "working": [
+      {
+        "ms": 195,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 529,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 837,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 1131,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 1513,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 2238,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 2604,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 2961,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 3274,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 3685,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 4027,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 4548,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 4915,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 5256,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 5620,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 5940,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 6281,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 6576,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 6871,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 7227,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 7529,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 7809,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 8145,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 8418,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 8725,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 9008,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 9336,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 9631,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 9960,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 10293,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 10582,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 10922,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 11250,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 11545,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 11830,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 12127,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 12414,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 12688,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 12988,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 13304,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 13587,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 13919,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 14212,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 14525,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      },
+      {
+        "ms": 14844,
+        "phase": "idle",
+        "status": "live",
+        "driverId": "claude-pty"
+      }
+    ]
+  }
+}

@@ -54,6 +54,23 @@
 
 #include "config.h"
 
+/* podium: the feature level this binary was built with. The build stamps it via
+ * -DPODIUM_ABDUCO_FEATURES=<n>; an upstream binary has no --podium-features option
+ * at all and exits non-zero, which is how the resolver tells the two apart. */
+#ifndef PODIUM_ABDUCO_FEATURES
+#define PODIUM_ABDUCO_FEATURES 0
+#endif
+
+/* podium: -N is gated on the feature level, so a build at level 1 has upstream's
+ * client behaviour exactly — the compatibility matrix in
+ * src/abduco-attach-neutral.integration.test.ts builds both ends from this one
+ * source and needs a binary that does NOT understand -N. */
+#if PODIUM_ABDUCO_FEATURES >= 2
+# define PODIUM_OPTSTRING "N"
+#else
+# define PODIUM_OPTSTRING ""
+#endif
+
 #if defined(_AIX)
 # include "forkpty-aix.c"
 #elif defined(__sun)
@@ -95,6 +112,9 @@ struct Client {
 		STATE_DISCONNECTED,
 	} state;
 	bool need_resize;
+	/* podium (-N): this client never announces a size on its own. Client-side
+	 * only — nothing is sent, so an old master cannot notice the difference. */
+	bool no_resize;
 	enum {
 		CLIENT_READONLY = 1 << 0,
 		CLIENT_LOWPRIORITY = 1 << 1,
@@ -223,7 +243,7 @@ static void die(const char *s) {
 }
 
 static void usage(void) {
-	fprintf(stderr, "usage: abduco [-a|-A|-c|-n] [-p] [-r] [-q] [-l] [-f] [-e detachkey] name command\n");
+	fprintf(stderr, "usage: abduco [-a|-A|-c|-n] [-p] [-r] [-q] [-l] [-f] [-N] [-e detachkey] name command\n");
 	exit(EXIT_FAILURE);
 }
 
@@ -603,10 +623,18 @@ int main(int argc, char *argv[]) {
 		default_cmd[1] = NULL;
 	}
 
+	/* podium: answer the feature probe before getopt, which has no long options. */
+	for (int i = 1; i < argc; i++) {
+		if (!strcmp(argv[i], "--podium-features")) {
+			printf("%d\n", PODIUM_ABDUCO_FEATURES);
+			exit(EXIT_SUCCESS);
+		}
+	}
+
 	server.name = basename(argv[0]);
 	gethostname(server.host+1, sizeof(server.host) - 1);
 
-	while ((opt = getopt(argc, argv, "aAclne:fpqrv")) != -1) {
+	while ((opt = getopt(argc, argv, "aAcln" PODIUM_OPTSTRING "e:fpqrv")) != -1) {
 		switch (opt) {
 		case 'a':
 		case 'A':
@@ -630,6 +658,13 @@ int main(int argc, char *argv[]) {
 		case 'q':
 			quiet = true;
 			break;
+#if PODIUM_ABDUCO_FEATURES >= 2
+		case 'N':
+			/* podium: attach without announcing a size, so reconnecting a
+			 * viewer never resizes (or SIGWINCHes) the running program. */
+			client.no_resize = true;
+			break;
+#endif
 		case 'r':
 			client.flags |= CLIENT_READONLY;
 			break;

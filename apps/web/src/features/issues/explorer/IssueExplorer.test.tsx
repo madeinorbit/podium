@@ -24,7 +24,18 @@ const ARCHIVED = makeIssue({
   stage: 'done',
   archived: true,
 })
-const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED]
+/** A spin-off: no parentId, so it joins the mission through PROVENANCE — its
+ *  starting session belongs to the root. That route deliberately keeps deleted
+ *  issues, which is what makes it a different case from CHILD. */
+const SPINOFF = makeIssue({
+  id: 'spin',
+  seq: 12,
+  title: 'Spun off from the root',
+  stage: 'backlog',
+  startedBySession: 'sess-p',
+})
+const BASE_ISSUES = [EPIC, CHILD, STRANGER, ARCHIVED, SPINOFF]
+const ROOT_SESSION = { sessionId: 'sess-p', issueId: 'p' } as never
 
 const state = {
   selectedIssueId: null as string | null,
@@ -84,14 +95,26 @@ function CardClick({ id }: { id: string }): JSX.Element {
   )
 }
 
+/** Reads the pointer from OUTSIDE the dock. Both the trail and the panel live
+ *  inside it and unmount with it, so this is the only way to say what the
+ *  explorer is scoped to while it is shut. No text: `getByText` queries in the
+ *  tests below must not see it. */
+function PointerProbe(): JSX.Element {
+  const { current } = useIssueExplorer()
+  return <div data-testid="pointer" data-current={current ?? ''} />
+}
+
 function tree(missionId: string | null = null, dockOpen = true): JSX.Element {
   return (
     <OperatorFocusProvider missionId={missionId}>
       <IssueExplorerProvider>
         <DeckClick id="c" />
         <DeckClick id="s" />
+        <DeckClick id="spin" />
         <CardClick id="s" />
-        <IssueExplorerCrumbs />
+        <CardClick id="spin" />
+        <PointerProbe />
+        {dockOpen && <IssueExplorerCrumbs />}
         {dockOpen && <IssueExplorer cwd="/r" />}
       </IssueExplorerProvider>
     </OperatorFocusProvider>
@@ -282,6 +305,143 @@ describe('issue explorer navigation', () => {
     expect(screen.queryByTestId('detail')).toBeNull()
     expect(screen.getByTestId('explorer-list')).toBeTruthy()
     expect(screen.getByTestId('explorer-crumbs').textContent).not.toContain('#9')
+  })
+
+  it('falls back to the task list when the shell has nothing left to point at (POD-1471)', () => {
+    // Removing the session the deck was showing leaves the mission unresolvable.
+    // The task the explorer is parked on is still perfectly alive, so "its task
+    // was deleted" does not catch this — what went away is the SUBJECT, and a
+    // panel still captioned with a task reads as still scoped to one.
+    state.selectedIssueId = 'p'
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: c'))
+    expect(detail().dataset.issueId).toBe('c')
+
+    state.selectedIssueId = null
+    act(() => view.rerender(tree(null)))
+
+    expect(screen.queryByTestId('detail')).toBeNull()
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+    expect(screen.getByTestId('explorer-crumbs').textContent).not.toContain('#2')
+  })
+
+  it('drops a deleted task while the dock is shut (POD-1471)', () => {
+    // The pointer outlives the panel by design, so the rule that retires a dead
+    // level has to outlive it too. This is checked on the POINTER and not on
+    // what renders: the panel remounts on reopen and retires the level itself,
+    // which hides the difference at exactly the moment it stops mattering.
+    const view = mount()
+    fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
+    fireEvent.click(screen.getByText('Someone else’s task'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('s')
+
+    // Closing the dock must NOT move the pointer — that is the explorer's
+    // standing contract, and the reason the rule cannot live in the panel.
+    act(() => view.rerender(tree(null, false)))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('s')
+
+    // Tombstoned, not dropped: a delete lands as `deletedAt` on a row that is
+    // still in the replica, and that is the half the row-count check cannot see.
+    state.issues = [EPIC, CHILD, { ...STRANGER, deletedAt: 'now' }, ARCHIVED]
+    act(() => view.rerender(tree(null, false)))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('')
+
+    act(() => view.rerender(tree(null, true)))
+    expect(screen.queryByTestId('detail')).toBeNull()
+    expect(screen.getByTestId('explorer-list')).toBeTruthy()
+  })
+
+  it('falls back to the live mission root, not to level 0, when the focused task is tombstoned (POD-1471)', () => {
+    // Deleting the task the explorer is ON is not the same as having nothing to
+    // point at: the mission it belonged to is still there. The tombstone drops
+    // the child out of the mission index, so the subject moves child -> root in
+    // the SAME commit that marks the level's task gone, and the two rules fire
+    // together. Retiring the dead level must not beat the re-aim, or the panel
+    // lands on the full list while the shell still points at live work.
+    state.selectedIssueId = 'p'
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: c'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+
+    state.issues = [EPIC, { ...CHILD, deletedAt: 'now' }, STRANGER, ARCHIVED]
+    act(() => view.rerender(tree('p')))
+
+    expect(screen.getByTestId('pointer').dataset.current).toBe('p')
+    expect(detail().dataset.issueId).toBe('p')
+  })
+
+  it('re-aims when a deleted SPIN-OFF keeps its mission membership (POD-1471)', () => {
+    // Membership does not always end at the grave. A child drops out of the
+    // mission index when it is tombstoned, but a spin-off belongs by provenance
+    // — its starting session is the root's — and that route keeps deleted rows
+    // on purpose. So the subject would go on resolving to the dead task, and the
+    // explorer would sit on the full list with its mission still selected.
+    state.selectedIssueId = 'p'
+    state.sessions = [ROOT_SESSION] as never
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: spin'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('spin')
+
+    state.issues = [EPIC, CHILD, STRANGER, ARCHIVED, { ...SPINOFF, deletedAt: 'now' }]
+    act(() => view.rerender(tree('p')))
+
+    expect(screen.getByTestId('pointer').dataset.current).toBe('p')
+  })
+
+  it('sends a ref card pointed at a deleted task to the list, not to the deck (POD-1265)', () => {
+    // A card in chat points the explorer WITHOUT moving the shell. If the task
+    // it names is gone, the honest answer is the list — substituting whatever
+    // the deck happens to be showing answers a question nobody asked.
+    state.selectedIssueId = 'p'
+    state.sessions = [ROOT_SESSION] as never
+    const view = mount('p')
+    expect(screen.getByTestId('pointer').dataset.current).toBe('p')
+
+    state.issues = [EPIC, CHILD, ARCHIVED, SPINOFF, { ...STRANGER, deletedAt: 'now' }]
+    act(() => view.rerender(tree('p')))
+    fireEvent.click(screen.getByText('card: s'))
+
+    expect(screen.getByTestId('pointer').dataset.current).toBe('')
+  })
+
+  it('rides out an empty replica with a mission selected (POD-1277)', () => {
+    // The mission-scoped half of the ride-out. Without a mission the subject is
+    // null on both sides of the blink, so the retarget effect short-circuits on
+    // `target === lastTarget` and its own empty-replica gate is never exercised
+    // — the trail would survive with or without it. Here the subject really does
+    // go p -> null -> p, so only the gate keeps the trail.
+    state.selectedIssueId = 'p'
+    state.sessions = [ROOT_SESSION] as never
+    const view = mount('p')
+    fireEvent.click(screen.getByText('deck: c'))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+
+    state.issues = []
+    act(() => view.rerender(tree('p')))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+
+    state.issues = BASE_ISSUES
+    act(() => view.rerender(tree('p')))
+    expect(screen.getByTestId('pointer').dataset.current).toBe('c')
+  })
+
+  it('rides out an empty replica without losing the trail (POD-1277)', () => {
+    // A reconnect mid-flight empties the replica for a frame. That resolves the
+    // subject to nothing and marks every level's task gone, which is exactly
+    // what the two rules above act on — so both wait for the replica to have
+    // content. Otherwise a blinking socket sends the operator home.
+    const view = mount()
+    fireEvent.click(screen.getByRole('tab', { name: /Backlog/ }))
+    fireEvent.click(screen.getByText('Someone else’s task'))
+    expect(detail().dataset.issueId).toBe('s')
+
+    state.issues = []
+    act(() => view.rerender(tree()))
+    expect(detail().dataset.issueId).toBe('s')
+
+    state.issues = BASE_ISSUES
+    act(() => view.rerender(tree()))
+    expect(detail().dataset.issueId).toBe('s')
   })
 
   it('pushes a task from the list and pops back to it from the trail', () => {

@@ -40,16 +40,16 @@ import { findSessionById } from './session-by-id'
 
 /**
  * The live-session facts this resolver needs — a PICK of the model's own
- * `SessionMeta`, not a restatement of four of its keys.
+ * `SessionMeta`, not a restatement of a handful of its keys.
  *
- * Writing the four field types out again would typecheck, encode identically and
+ * Writing those field types out again would typecheck, encode identically and
  * be a second declaration of the session vocabulary; `scripts/rearch-audit.ts`
  * counts that as debt and counted this before it was a Pick. The narrowing is
  * still real — this module must not reach for a field it has not asked for.
  */
 export type SessionTargetRow = Pick<
   SessionMeta,
-  'sessionId' | 'cwd' | 'issueId' | 'spawnedBy' | 'status'
+  'sessionId' | 'cwd' | 'issueId' | 'spawnedBy' | 'status' | 'archived' | 'agentKind' | 'resumable'
 >
 
 /**

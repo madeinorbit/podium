@@ -1,6 +1,14 @@
 import { addSink } from '@podium/logger'
 import { asMachineId, asSessionId } from '@podium/model'
-import { encode, type ServerMessage } from '@podium/protocol'
+import {
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  ClientPtyInputMetadata,
+  decodeBinaryEnvelope,
+  encode,
+  encodeBinaryEnvelope,
+  type ServerMessage,
+} from '@podium/protocol'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { FEED_DELTA_RESYNC_QUEUE_DEPTH, SocketHub, type WebSocketLike } from './socket-hub'
 
@@ -30,19 +38,53 @@ class FakeSocket implements WebSocketLike {
   }
 }
 
+class BrowserSocket extends FakeSocket {
+  binaryType: 'blob' | 'arraybuffer' = 'blob'
+  closeCalls = 0
+  override close(): void {
+    this.closeCalls += 1
+  }
+  recvBinary(bytes: Uint8Array): void {
+    const data = bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer
+    this.onmessage?.({ data })
+  }
+}
+
+class BinaryInputSocket extends FakeSocket {
+  binaryType: 'blob' | 'arraybuffer' = 'blob'
+  binarySent: Uint8Array[] = []
+  sendBinary(data: Uint8Array): void {
+    this.binarySent.push(data.slice())
+  }
+}
+
+class NonBinarySocket extends FakeSocket {
+  closeCalls = 0
+  override close(): void {
+    this.closeCalls += 1
+  }
+}
+
 function setup() {
   const sock = new FakeSocket()
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
   })
   return { sock, hub }
 }
 const b64 = (s: string): string => btoa(s)
+const b64Bytes = (...bytes: number[]): string => btoa(String.fromCharCode(...bytes))
+const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s)
 
 describe('SocketHub', () => {
-  it('sends hello with the viewport on open', () => {
+  it('sends hello on open, carrying the transport bootstrap viewport the wire requires', () => {
+    // POD-3239: the viewport field is no longer a hub OPTION — nothing supplies
+    // one and no session is born at it. It stays on the frame because the
+    // handshake schema requires it and no server code reads it.
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
@@ -51,6 +93,185 @@ describe('SocketHub', () => {
       clientId: '',
       viewport: { cols: 80, rows: 24, dpr: 1 },
     })
+  })
+
+  it('selects ArrayBuffer mode, advertises binary output, and routes exact bytes', () => {
+    const sock = new BrowserSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+    })
+    const frames: Uint8Array[] = []
+    hub.attach(asSessionId('s1'), { onFrame: (bytes) => frames.push(bytes) })
+    hub.connect()
+    expect(sock.binaryType).toBe('arraybuffer')
+    sock.open()
+    expect(sock.parsed().find((message) => message.type === 'hello')).toMatchObject({
+      caps: expect.arrayContaining([CAP_TERMINAL_OUTPUT_BINARY_V1, CAP_TERMINAL_INPUT_BINARY_V1]),
+    })
+
+    const payload = Uint8Array.of(0x00, 0xff, 0xe2, 0x82)
+    sock.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'ptyOutput', sessionId: asSessionId('s1'), seq: 4, epoch: 2 },
+        payload,
+      ),
+    )
+    expect(frames).toEqual([payload])
+    expect(hub.attach(asSessionId('s1')).state()).toMatchObject({ lastSeq: 4, epoch: 2 })
+    expect(sock.closeCalls).toBe(0)
+  })
+
+  it('advertises binary input and sends exact UTF-8 bytes after welcome acknowledgement', () => {
+    const sock = new BinaryInputSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+    })
+    const conn = hub.attach(asSessionId('s1'))
+    hub.connect()
+    sock.open()
+    expect(sock.parsed().find((message) => message.type === 'hello')).toMatchObject({
+      caps: expect.arrayContaining([CAP_TERMINAL_INPUT_BINARY_V1]),
+    })
+
+    const beforeAck = '\u001b[200~é'
+    conn.sendInput(beforeAck)
+    expect(sock.binarySent).toHaveLength(0)
+    expect(sock.parsed()).toContainEqual({
+      type: 'input',
+      sessionId: 's1',
+      data: b64Bytes(...utf8(beforeAck)),
+    })
+
+    // Input acknowledgement is independent of output: this welcome grants only
+    // input, yet the client must switch the input path to the binary envelope.
+    sock.recv({ type: 'welcome', clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
+    const inputs = ['\u0000\u001b[200~é💩', 'paste\nblock', '\r']
+    for (const input of inputs) conn.sendInput(input)
+
+    expect(sock.binarySent).toHaveLength(inputs.length)
+    const decoded = sock.binarySent.map((frame) =>
+      decodeBinaryEnvelope(frame, ClientPtyInputMetadata),
+    )
+    expect(decoded.map(({ metadata }) => metadata)).toEqual(
+      inputs.map(() => ({ v: 1, type: 'ptyInput', sessionId: 's1' })),
+    )
+    expect(decoded.map(({ payload }) => Array.from(payload))).toEqual(
+      inputs.map((input) => Array.from(utf8(input))),
+    )
+  })
+
+  it('keeps JSON/base64 input when an old server omits the welcome caps', () => {
+    const sock = new BinaryInputSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+    })
+    const conn = hub.attach(asSessionId('s1'))
+    hub.connect()
+    sock.open()
+    sock.recv({ type: 'welcome', clientId: 'c0' })
+
+    const input = '\u001b[1;5Dé'
+    conn.sendInput(input)
+    expect(sock.binarySent).toHaveLength(0)
+    expect(sock.parsed()).toContainEqual({
+      type: 'input',
+      sessionId: 's1',
+      data: b64Bytes(...utf8(input)),
+    })
+  })
+
+  it('drops a valid binary frame for a detached session without closing', () => {
+    const sock = new BrowserSocket()
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => sock,
+    })
+    hub.connect()
+    sock.open()
+    sock.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'ptyOutput', sessionId: asSessionId('ghost'), seq: 0, epoch: 0 },
+        Uint8Array.of(1),
+      ),
+    )
+    expect(sock.closeCalls).toBe(0)
+  })
+
+  it('closes only the receiving connection for malformed or unnegotiated binary', () => {
+    const malformed = new BrowserSocket()
+    const replacement = new BrowserSocket()
+    let socketIndex = 0
+    const tasks: Array<() => void> = []
+    const feedFrames: unknown[] = []
+    const malformedHub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => (socketIndex++ === 0 ? malformed : replacement),
+      feed: {
+        helloFields: () => null,
+        connected: () => {},
+        disconnected: () => {},
+        frame: (frame) => feedFrames.push(frame),
+      },
+      scheduleFeedTask: (task) => tasks.push(task),
+    })
+    const frames: Uint8Array[] = []
+    const conn = malformedHub.attach(asSessionId('s1'), {
+      onFrame: (bytes) => frames.push(bytes),
+    })
+    malformedHub.connect()
+    malformed.open()
+    malformed.recv({
+      type: 'feedBootstrap',
+      feedId: 'invalid-feed',
+      epoch: 'invalid-epoch',
+      fromSeq: 0,
+      seq: 0,
+      minAvailableSeq: 0,
+      changes: [],
+      last: true,
+    })
+    expect(tasks).toHaveLength(1)
+    malformed.recvBinary(Uint8Array.of(0, 1))
+    expect(malformed.closeCalls).toBe(1)
+    expect(malformedHub.wireSkew()?.refusedFrames).toBe(1)
+    // Browser close is asynchronous. Once the connection violates the wire,
+    // racing binary and legacy frames must remain inert until onclose arrives.
+    malformed.recvBinary(
+      encodeBinaryEnvelope(
+        { v: 1, type: 'ptyOutput', sessionId: asSessionId('s1'), seq: 0, epoch: 0 },
+        Uint8Array.of(7),
+      ),
+    )
+    malformed.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 0,
+      epoch: 0,
+      data: b64Bytes(8),
+    })
+    expect(frames).toEqual([])
+    expect(malformed.closeCalls).toBe(1)
+    tasks.shift()?.()
+    expect(feedFrames).toEqual([])
+    expect(malformedHub.feedBudget().tasks).toBe(0)
+    conn.requestControl()
+    malformed.onclose?.({})
+    malformedHub.connectNow()
+    replacement.open()
+    expect(replacement.parsed()).toContainEqual({ type: 'requestControl', sessionId: 's1' })
+
+    const unnegotiated = new NonBinarySocket()
+    const legacyHub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => unnegotiated,
+    })
+    legacyHub.connect()
+    unnegotiated.open()
+    unnegotiated.onmessage?.({ data: new ArrayBuffer(4) })
+    expect(unnegotiated.closeCalls).toBe(1)
   })
 
   it('captures the server-assigned clientId from welcome', () => {
@@ -68,7 +289,6 @@ describe('SocketHub', () => {
     const timings: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -123,7 +343,6 @@ describe('SocketHub', () => {
     const frames: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -167,7 +386,6 @@ describe('SocketHub', () => {
     let disconnects = 0
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         // No position to present: these cases are about the backlog bound, and a
@@ -217,7 +435,6 @@ describe('SocketHub', () => {
     const frames: unknown[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       feed: {
         helloFields: () => null,
@@ -453,7 +670,6 @@ describe('SocketHub', () => {
     const sock = new ConnectingSocket()
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
     })
     hub.connect()
@@ -482,8 +698,8 @@ describe('SocketHub', () => {
     hub.connect()
     sock.open()
     sock.recv({ type: 'welcome', clientId: 'c0' })
-    const f1: string[] = []
-    const f2: string[] = []
+    const f1: Uint8Array[] = []
+    const f2: Uint8Array[] = []
     hub.attach(asSessionId('s1'), { onFrame: (t) => f1.push(t) })
     hub.attach(asSessionId('s2'), { onFrame: (t) => f2.push(t) })
     sock.recv({
@@ -500,8 +716,8 @@ describe('SocketHub', () => {
       epoch: 0,
       data: b64('two'),
     })
-    expect(f1).toEqual(['one'])
-    expect(f2).toEqual(['two'])
+    expect(f1).toEqual([utf8('one')])
+    expect(f2).toEqual([utf8('two')])
   })
 
   it('drops session-scoped messages for unknown sessions without throwing', () => {
@@ -524,7 +740,6 @@ describe('SocketHub', () => {
     const errors: string[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       onError: (message) => errors.push(message),
     })
@@ -538,7 +753,6 @@ describe('SocketHub', () => {
     const errors: string[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       onError: (message) => errors.push(message),
     })
@@ -591,9 +805,12 @@ describe('SessionConnection (hub-backed)', () => {
     expect(sent).toContainEqual({ type: 'input', sessionId: 's1', data: b64('x') })
     expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 120, rows: 40 })
     expect(sent).toContainEqual({ type: 'resize', sessionId: 's1', cols: 63, rows: 28 })
+    // POD-3239 B8: a connection that has never attached reports NO grid. The
+    // request it sent is real local intent and is still visible; the size the
+    // server holds is not a thing this connection can claim to know yet.
     expect(conn.state()).toMatchObject({
-      cols: 80,
-      rows: 24,
+      cols: undefined,
+      rows: undefined,
       requestedGeometry: { cols: 120, rows: 40 },
     })
     expect(sent).toContainEqual({ type: 'requestControl', sessionId: 's1' })
@@ -746,12 +963,18 @@ describe('SessionConnection (hub-backed)', () => {
     })
   })
 
-  it('updates lastSeq/epoch and emits the decoded frame', () => {
+  it('updates lastSeq/epoch and emits the decoded bytes', () => {
     const { sock, hub } = setup()
     hub.connect()
     sock.open()
-    const frames: string[] = []
-    const conn = hub.attach(asSessionId('s1'), { onFrame: (t) => frames.push(t) })
+    const frames: Uint8Array[] = []
+    let stateAtCallback: { lastSeq: number; epoch: number } | undefined
+    const conn = hub.attach(asSessionId('s1'), {
+      onFrame: (bytes) => {
+        frames.push(bytes)
+        stateAtCallback = conn.state()
+      },
+    })
     sock.recv({
       type: 'outputFrame',
       sessionId: asSessionId('s1'),
@@ -759,8 +982,34 @@ describe('SessionConnection (hub-backed)', () => {
       epoch: 2,
       data: b64('hello'),
     })
-    expect(frames).toEqual(['hello'])
+    expect(frames).toEqual([utf8('hello')])
+    expect(stateAtCallback).toMatchObject({ lastSeq: 5, epoch: 2 })
     expect(conn.state()).toMatchObject({ lastSeq: 5, epoch: 2 })
+  })
+
+  it('preserves UTF-8 bytes split across output frames', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const frames: Uint8Array[] = []
+    hub.attach(asSessionId('s1'), { onFrame: (bytes) => frames.push(bytes) })
+
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 1,
+      epoch: 0,
+      data: b64Bytes(0xe2, 0x82),
+    })
+    sock.recv({
+      type: 'outputFrame',
+      sessionId: asSessionId('s1'),
+      seq: 2,
+      epoch: 0,
+      data: b64Bytes(0xac),
+    })
+
+    expect(frames).toEqual([Uint8Array.of(0xe2, 0x82), Uint8Array.of(0xac)])
   })
 
   it('applies geometry updates', () => {
@@ -770,6 +1019,32 @@ describe('SessionConnection (hub-backed)', () => {
     const conn = hub.attach(asSessionId('s1'))
     sock.recv({ type: 'geometry', sessionId: asSessionId('s1'), cols: 111, rows: 41 })
     expect(conn.state()).toMatchObject({ cols: 111, rows: 41 })
+  })
+
+  it('ignores an older geometry revision after a newer resize', () => {
+    const { sock, hub } = setup()
+    hub.connect()
+    sock.open()
+    const conn = hub.attach(asSessionId('s1'))
+    sock.recv({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 100,
+      rows: 30,
+      geometryRevision: 2,
+    })
+    sock.recv({
+      type: 'geometry',
+      sessionId: asSessionId('s1'),
+      cols: 80,
+      rows: 24,
+      geometryRevision: 1,
+    })
+    expect(conn.state()).toMatchObject({
+      cols: 100,
+      rows: 30,
+      geometryRevision: 2,
+    })
   })
 
   it('handles agentExit without throwing and still emits state', () => {
@@ -790,7 +1065,7 @@ describe('SessionConnection (hub-backed)', () => {
     sock.open()
     hub.attach(asSessionId('s1'))
     const before = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
-    const frames: string[] = []
+    const frames: Uint8Array[] = []
     hub.attach(asSessionId('s1'), { onFrame: (t) => frames.push(t) })
     const after = sock.parsed().filter((m) => m.type === 'attach' && m.sessionId === 's1').length
     expect(after).toBe(before) // no duplicate attach
@@ -801,7 +1076,7 @@ describe('SessionConnection (hub-backed)', () => {
       epoch: 0,
       data: btoa('hi'),
     })
-    expect(frames).toEqual(['hi'])
+    expect(frames).toEqual([utf8('hi')])
   })
 })
 
@@ -811,7 +1086,6 @@ describe('SocketHub reconnect + heartbeat', () => {
     const errors: string[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -950,7 +1224,6 @@ describe('connection health', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1020,7 +1293,7 @@ describe('connection health', () => {
     expect(hub.connectionHealth()).toMatchObject({ status: 'ok', rttMs: 0 })
   })
 
-  it('notifies observers with a replay and only on change', () => {
+  it('notifies observers on exact connection boundaries and health changes', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
     const seen: Array<{ status: string; rttMs: number | null }> = []
@@ -1031,6 +1304,10 @@ describe('connection health', () => {
     vi.advanceTimersByTime(2_500)
     sockets[0]?.recv({ type: 'pong' }) // rtt 0 again — no change, no emit
     expect(seen.map(({ status, rttMs }) => ({ status, rttMs }))).toEqual([
+      { status: 'ok', rttMs: null },
+      // The label is unchanged, but consumers can now read `hub.connected`
+      // against the exact open boundary instead of treating initial `ok` as a
+      // live socket during an offline cold start.
       { status: 'ok', rttMs: null },
       { status: 'ok', rttMs: 0 },
     ])
@@ -1058,7 +1335,6 @@ describe('resume + offline input queue', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1125,6 +1401,45 @@ describe('resume + offline input queue', () => {
     ])
   })
 
+  it('downgrades input on reconnect until the new welcome acknowledges it', () => {
+    vi.useFakeTimers()
+    const sockets: BinaryInputSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://x',
+      makeSocket: () => {
+        const socket = new BinaryInputSocket()
+        sockets.push(socket)
+        return socket
+      },
+    })
+    hub.connect()
+    sockets[0]?.open()
+    const conn = hub.attach(asSessionId('s1'))
+    sockets[0]?.recv({ type: 'welcome', clientId: 'c0', caps: [CAP_TERMINAL_INPUT_BINARY_V1] })
+    conn.sendInput('first')
+    expect(sockets[0]?.binarySent).toHaveLength(1)
+
+    sockets[0]?.close()
+    conn.sendInput('paste')
+    conn.sendInput('\r')
+    vi.advanceTimersByTime(30_000)
+    sockets[1]?.open()
+    expect(sockets[1]?.binarySent).toHaveLength(0)
+    expect(sockets[1]?.parsed().filter((message) => message.type === 'input')).toEqual([
+      { type: 'input', sessionId: 's1', data: b64('paste') },
+      { type: 'input', sessionId: 's1', data: b64('\r') },
+    ])
+
+    sockets[1]?.recv({ type: 'welcome', clientId: 'c1', caps: [] })
+    conn.sendInput('after-downgrade')
+    expect(sockets[1]?.binarySent).toHaveLength(0)
+    expect(sockets[1]?.parsed()).toContainEqual({
+      type: 'input',
+      sessionId: 's1',
+      data: b64('after-downgrade'),
+    })
+  })
+
   it('does not replay queued input after an intentional dispose', () => {
     vi.useFakeTimers()
     const { sockets, hub } = multiSetup()
@@ -1149,12 +1464,17 @@ describe('resume + offline input queue', () => {
     hub.connect()
     sock.open()
     let resets = 0
-    hub.attach(asSessionId('s1'), { onReset: () => (resets += 1) })
+    let timelineResets = 0
+    hub.attach(asSessionId('s1'), {
+      onReset: () => (resets += 1),
+      onGeometryTimelineReset: () => (timelineResets += 1),
+    })
     sock.recv({
       type: 'attached',
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
+      geometryRevision: 1,
       epoch: 0,
       resumed: false,
     })
@@ -1164,10 +1484,14 @@ describe('resume + offline input queue', () => {
       sessionId: asSessionId('s1'),
       controllerId: 'c0',
       geometry: { cols: 80, rows: 24 },
+      geometryRevision: 0,
       epoch: 0,
       resumed: true,
     })
     expect(resets).toBe(1) // a resume keeps the screen — no clear
+    // A restarted timeline resets the fence, not the screen.
+    expect(timelineResets).toBe(1)
+    expect(timelineResets).toBe(1) // a restarted timeline resets the fence, not the screen
   })
 })
 
@@ -1250,7 +1574,6 @@ describe('transcript delta forwarding', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1309,7 +1632,6 @@ describe('transcript delta forwarding', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1406,7 +1728,6 @@ describe('view state', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)
@@ -1528,7 +1849,6 @@ describe('SocketHub reconnect jitter and connectNow', () => {
     const sockets: FakeSocket[] = []
     const hub = new SocketHub({
       url: 'ws://x',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => {
         const s = new FakeSocket()
         sockets.push(s)

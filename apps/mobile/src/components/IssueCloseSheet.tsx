@@ -7,12 +7,12 @@ import {
 } from '@podium/model'
 import {
   AlertTriangle,
+  type AppIcon,
   GitBranch,
   GitCommit,
-  type LucideIcon,
   MessageCircleQuestion,
   Users,
-} from 'lucide-react-native'
+} from './icons'
 import { StyleSheet, Text, View } from 'react-native'
 import { issueCloseBlockers } from '../lib/issue-close'
 import { alpha } from '../theme/mix'
@@ -162,8 +162,8 @@ export function IssueCloseSheet({
 }
 
 /** The derivation names an icon; each surface maps it to its own set. These are
- *  the desktop's four, in `lucide-react-native` — same glyph, same meaning. */
-const CONCERN_ICONS: Record<IssueCloseConcern['icon'], LucideIcon> = {
+ *  the desktop's four, translated to the platform symbol set. */
+const CONCERN_ICONS: Record<IssueCloseConcern['icon'], AppIcon> = {
   attention: MessageCircleQuestion,
   sessions: Users,
   children: GitBranch,
@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
   },
   destructive: {
     ...sans(600),
-    color: color.danger,
+    color: color.dangerText,
   },
   cancel: {
     paddingVertical: 15,

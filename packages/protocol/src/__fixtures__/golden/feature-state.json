@@ -724,6 +724,726 @@
     },
     {
       "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "default",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": "unset",
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "user",
+        "locked": false
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": true,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": true,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": "unset",
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": true,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "stable",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": false
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
+        "id": "runtime-drivers",
+        "visibility": "stable",
+        "configValue": false,
+        "userValue": false,
+        "channel": "edge",
+        "devMode": true
+      },
+      "wire": {
+        "id": "runtime-drivers",
+        "name": "Headless session drivers",
+        "description": "Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.",
+        "visibility": "stable",
+        "listed": true,
+        "enabled": false,
+        "source": "config",
+        "locked": true
+      }
+    },
+    {
+      "input": {
         "id": "settings-search",
         "visibility": "stable",
         "configValue": "unset",
@@ -1454,7 +2174,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -1474,7 +2194,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1494,7 +2214,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1514,7 +2234,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1534,7 +2254,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -1554,7 +2274,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1574,7 +2294,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1594,7 +2314,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1614,7 +2334,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -1634,7 +2354,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1654,7 +2374,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1674,7 +2394,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1694,7 +2414,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -1714,7 +2434,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1734,7 +2454,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1754,7 +2474,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1774,7 +2494,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -1794,7 +2514,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1814,7 +2534,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1834,7 +2554,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1854,7 +2574,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -1874,7 +2594,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1894,7 +2614,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1914,7 +2634,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -1934,7 +2654,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -1954,7 +2674,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1974,7 +2694,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -1994,7 +2714,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2014,7 +2734,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2034,7 +2754,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2054,7 +2774,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2074,7 +2794,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2094,7 +2814,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2114,7 +2834,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2134,7 +2854,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2154,7 +2874,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,

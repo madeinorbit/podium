@@ -110,9 +110,13 @@ function renderSubagents(s: StatusWire): string | null {
 }
 
 export function renderStatus(s: StatusWire): string {
+  const driverSelection =
+    s.requestedDriverId && s.requestedDriverId !== s.driverId
+      ? `${s.driverId ?? 'unknown'} requested=${s.requestedDriverId} degraded=true`
+      : (s.driverId ?? 'unknown')
   return [
     `${s.sessionId} ${s.status}/${s.phase}`,
-    `runtime: harness=${s.harness ?? s.agentKind} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} context=${contextLabel(s.contextUsagePercent)}`,
+    `runtime: driver=${driverSelection} harness=${s.harness ?? s.agentKind} model=${s.model ?? 'default'} effort=${s.effort ?? 'default'} context=${contextLabel(s.contextUsagePercent)}`,
     `placement: machine=${s.machine ?? 'unknown'} account=${s.account ?? 'default'}`,
     `state: nativeSubagentCount=${s.nativeSubagentCount} draft=${s.draft ? 'yes' : 'no'}`,
     renderSubagents(s),

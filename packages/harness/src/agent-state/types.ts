@@ -1,4 +1,9 @@
-import type { AgentInterview, AgentPermissionAsk, AgentRuntimeState } from '@podium/model'
+import type {
+  AgentInterview,
+  AgentPermissionAsk,
+  AgentRuntimeState,
+  SessionId,
+} from '@podium/model'
 
 /** State-channel provenance. Confidence orders competing observations; source never names a person. */
 export type AgentStateEventSource = 'hook' | 'poll' | 'classifier'
@@ -17,6 +22,11 @@ export interface AgentStateEventProvenance {
  */
 export type AgentStateEvent = (
   | { kind: 'session_started' }
+  /** The harness explicitly disabled a channel Podium normally observes. */
+  | {
+      kind: 'observation_gap'
+      reason: 'transcript_disabled'
+    }
   | { kind: 'prompt_submitted' }
   /** Liveness heartbeat (tool use etc.) — anything that proves the agent is computing. */
   | { kind: 'activity' }
@@ -53,7 +63,7 @@ export type AgentStateEvent = (
         summary?: string
       }
     }
-  | { kind: 'turn_failed'; errorClass: string; retryable: boolean }
+  | { kind: 'turn_failed'; errorClass: string; retryable: boolean; detail?: string }
   | { kind: 'compaction'; phase: 'start' | 'end' }
   /** Live native-subagent count change. Optional agentId/agentType carry the
    *  harness identity (Claude SubagentStart/Stop `agent_id`/`agent_type`) so
@@ -114,6 +124,20 @@ export interface AgentInstrumentation {
   file?: { path: string; contents: string }
 }
 
+/**
+ * A provider's interpretation of the visible native terminal. The daemon owns
+ * the VT buffer and calls this only after a PTY frame changes it; providers own
+ * the copy-sensitive recognition rules. `interactionVisible` lets the daemon
+ * close a previously reported wait when the prompt has disappeared without
+ * inventing a second state channel. `auth` is a provider-owned success signal,
+ * not credential material.
+ */
+export interface AgentScreenObservation {
+  events: ProviderAgentStateEvent[]
+  interactionVisible?: boolean
+  auth?: 'logged-in'
+}
+
 export interface AgentStateProvider {
   /** Spawn-time injection wiring the harness event bus to the endpoint URL.
    * seedTheme uses official CLI flags for issue-tinted terminal colours;
@@ -129,6 +153,12 @@ export interface AgentStateProvider {
    *  Async because some translations read the transcript (idle classification). */
   translate(payload: unknown): Promise<ProviderAgentStateEvent[]>
   /**
+   * Classify one rendered terminal screen. This is event-driven: the daemon
+   * invokes it after changed PTY output, never on a timer. A provider may omit
+   * it when its state is fully represented by hooks or another observer.
+   */
+  screen?(lines: readonly string[]): AgentScreenObservation
+  /**
    * Events to seed state at spawn, once the CLI is up. Needed because some
    * harnesses emit nothing at interactive boot (Claude Code fires no SessionStart
    * until the first prompt) — but a freshly booted CLI is definitionally sitting
@@ -137,6 +167,8 @@ export interface AgentStateProvider {
    */
   bootEvents?(opts: {
     cwd: string
+    /** Stable Podium row identity used to select a provider-owned store. */
+    podiumSessionId?: SessionId
     resumeValue?: string
     /** Recorded segment evidence: absolute transcript path, tried before any
      *  cwd-derived location (conversation registry §3.3). */

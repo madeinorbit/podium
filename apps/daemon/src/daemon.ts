@@ -1,5 +1,7 @@
+import { randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import { asMachineId } from '@podium/model'
+import type { DaemonPtyOutputBatch } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { PARENT_HAS_SERVER_ENV } from '@podium/runtime/parent-process'
 import { captureDaemonBootBuild } from './build-report'
@@ -10,6 +12,8 @@ import { createDetachedRestart, waitForDetachedRestartParent } from './detached-
 import { createDaemonHostRuntime } from './host-runtime'
 import { bootstrapDaemonInstance } from './instance-bootstrap'
 import type { PortableStateControl } from './portable-state-fence'
+import { createQueueDrainOutbox } from './queue-drain-outbox'
+import { createRuntimeEventOutbox } from './runtime-event-outbox'
 
 export type { DurableBackend } from './control/context'
 export { sessionRelayEnv } from './control/session'
@@ -51,7 +55,8 @@ export interface DaemonHandle {
   readonly connected: boolean
   /**
    * Detach from live sessions and close the server connection. Durable masters
-   * survive unless `reapSessions` is explicitly requested.
+   * survive unless `reapSessions` is explicitly requested; that full-reap mode
+   * also retires registered server-family children and their binding journals.
    */
   close(opts?: { reapSessions?: boolean }): Promise<void>
 }
@@ -68,6 +73,18 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     process.execPath,
     opts.sourceRoot,
   )
+  log.info('daemon process start', {
+    pid: process.pid,
+    appVersion: build.appVersion,
+    wireSchemaDigest: build.wireSchemaDigest,
+    installKind: build.installKind,
+    serverUrl: opts.serverUrl,
+    topology: opts.localLink ? 'local-link' : 'remote-websocket',
+    supervised: process.env.PODIUM_DESKTOP_SUPERVISED === '1',
+    underParent: process.env.PODIUM_UNDER_PARENT === '1',
+    stateDir: process.env.PODIUM_STATE_DIR,
+    installDir,
+  })
   /**
    * THE EXIT SEAM, DISARMED WHERE EXITING IS FATAL (POD-2210).
    *
@@ -99,16 +116,44 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     settingsDir: opts.hooks?.settingsDir,
     socketPath: opts.hooks?.socketPath,
     receiptDir: opts.hooks?.receiptDir,
+    acquireGuards: true,
   })
   const parentHostsUpdateParticipant =
     process.env.PODIUM_UNDER_PARENT === '1' && process.env[PARENT_HAS_SERVER_ENV] === '1'
   let connection: DaemonConnection | undefined
+  const queueDrainOutbox = createQueueDrainOutbox(instance.runtimeDir)
+  const runtimeEventOutbox = createRuntimeEventOutbox(instance.runtimeDir)
   const host = await createDaemonHostRuntime({
     options,
     instance,
     build,
     installDir,
-    send: (message) => connection?.send(message),
+    send: (message) => {
+      if (message.type === 'runtimeEvent') {
+        const durable = { ...message, deliveryId: message.deliveryId ?? randomUUID() }
+        runtimeEventOutbox.enqueue(durable)
+        connection?.send(durable)
+        return
+      }
+      // The host exists briefly before its transport does. Persist the one frame
+      // whose producer drops its only copy even in that bootstrap window;
+      // connection.send repeats the idempotent enqueue once the transport exists.
+      if (message.type === 'runtimeQueueDrainAbandoned') {
+        if (!message.reportId) throw new Error('queue-drain abandonment requires reportId')
+        queueDrainOutbox.enqueue({ ...message, reportId: message.reportId })
+      }
+      connection?.send(message)
+    },
+    sendOutput: (batch: DaemonPtyOutputBatch) => connection?.sendOutput(batch),
+    isConnected: () => connection?.state === 'connected',
+    acknowledgeQueueDrainReport: (reportId) => {
+      if (connection) connection.acknowledgeQueueDrainReport(reportId)
+      else queueDrainOutbox.acknowledge(reportId)
+    },
+    acknowledgeRuntimeEvent: (deliveryId) => {
+      if (connection) connection.acknowledgeRuntimeEvent(deliveryId)
+      else runtimeEventOutbox.acknowledge(deliveryId)
+    },
     endpointHandoff: {
       probeServerTransferCandidate: async (input) => {
         const endpoint = new URL(`/server-transfer/candidate/${input.transferId}`, input.publicUrl)
@@ -133,6 +178,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       },
       activateServerEndpoint: (transferId) => connection?.activateEndpoint(transferId),
     },
+  }).catch((error) => {
+    instance.releaseGuards()
+    throw error
   })
   connection = createDaemonConnection({
     options,
@@ -141,13 +189,39 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
     machineId: asMachineId(host.machineId),
     identity: host.identity,
     receiveApplicationFrame: host.receive,
+    receiveBinaryInput: host.receiveBinaryInput,
     sendApplicationFrame: (socket, message) =>
       host.frameGuard.send(socket as never, message as DaemonMessage),
+    queueDrainOutbox,
+    runtimeEventOutbox,
     onConnected: host.connected,
     onTerminal: host.close,
     restartAfterUpdate: options.restartAfterUpdate,
   })
-  await connection.start()
+  const startedAt = Date.now()
+  log.info('daemon connection start', {
+    pid: process.pid,
+    serverUrl: options.serverUrl,
+    topology: options.localLink ? 'local-link' : 'remote-websocket',
+  })
+  try {
+    await connection.start()
+    log.info('daemon connection start settled', {
+      pid: process.pid,
+      state: connection.state,
+      elapsedMs: Date.now() - startedAt,
+    })
+  } catch (error) {
+    log.error('daemon connection start rejected', {
+      pid: process.pid,
+      state: connection.state,
+      elapsedMs: Date.now() - startedAt,
+      err: error,
+    })
+    await host.close({ reapSessions: true }).catch(() => {})
+    instance.releaseGuards()
+    throw error
+  }
 
   return {
     hookPort: host.hookPort,
@@ -160,8 +234,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       return connection?.state === 'connected'
     },
     async close(closeOpts) {
-      await host.close(closeOpts)
-      await connection?.close()
+      try {
+        await host.close(closeOpts)
+        await connection?.close()
+      } finally {
+        instance.releaseGuards()
+      }
     },
   }
 }

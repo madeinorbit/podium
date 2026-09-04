@@ -1,0 +1,47 @@
+POD-3069 A1c current-tip evidence — grok-acp
+=============================================
+
+Date: 2026-08-28 (Europe/Berlin)
+Runtime tip: af49f9c51c0dc2f5ef931e4f1c4d9002a3d847a5
+Web: served sourceSha 4d405af, reused because apps/web was unchanged through the tip
+Instance: p3069g, server :19970, hook :46971, relay :46972
+Arm: CONTRACT=1, STREAMING=1, DRIVER=grok-acp
+Harness: /home/mgw/.local/bin/grok, grok 0.2.118 (1e1687c1cf) [stable]
+
+Canonical pin before the scored run:
+
+  PINJSON {"want":"af49f9c51c0dc2f5ef931e4f1c4d9002a3d847a5","short":"af49f9c","spawnedSha":"af49f9c51c0dc2f5ef931e4f1c4d9002a3d847a5","serverPid":2005608,"daemonPid":2005755,"webSourceSha":"4d405af","contract":"1","streaming":"1","driver":"grok-acp"}
+
+Scored A1c run, using the POD-3044 sequence:
+
+  session b3f3de2b-3ac0-4993-859d-d92080b2a4d7
+  product driver   grok-acp family=server
+  CONTROL          live send answered: true
+  live send return  {"ok":true,"disposition":"delivered"}
+  target stamp     uuid=52bdec12-bb8c-4619-9d10-d139bd818d6f source=/home/mgw/.local/state/podium/p3069g/instance.json
+  stamped chain    1 exact UUID+session process
+    pid=2007230 ppid=2005755 comm=grok exe=/home/mgw/.grok/downloads/grok-linux-x86_64 cwd=/tmp/pod-3069-grok/repo cmd=grok agent stdio
+  target selector   harness executable name; candidates=1
+  SIGKILL target   pid=2007230 start=2740962 sent=true
+  after child kill  row status=live
+  exact PID gone   true; remaining stamped PIDs=(none)
+  dead confirmed   true
+  send to dead     {"ok":false,"reason":"dead-lettered: delivery-failed","disposition":"dead_letter"}
+  typed refusal    true — reason="dead-lettered: delivery-failed"
+  accepted         false
+  delayed outcome  not applicable (refused before acceptance)
+  A1c PASS
+
+Clause verdicts:
+
+  live-send control: PASS — answered before the kill.
+  exact stamped-child attribution: PASS — one UUID+session-stamped Grok PID.
+  exact SIGKILL/death: PASS — pid 2007230 was signaled and its original
+    PID/start identity was gone.
+  dead-send disposition: PASS — typed refusal before acceptance,
+    dead-lettered: delivery-failed.
+  delayed observation: not applicable — the send was refused before acceptance.
+  A1c: PASS.
+
+Classification: no Grok-on-main baseline was measured, so this is not described
+as fixing a regression.

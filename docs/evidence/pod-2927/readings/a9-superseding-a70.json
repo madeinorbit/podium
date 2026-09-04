@@ -1,0 +1,99 @@
+{
+  "id": "A9",
+  "label": "[single supersedes parent BLOCKED]",
+  "arm": "headless",
+  "verdict": "PASS",
+  "summary": "exact UUID+session process identity gone with no rebounds at 15s and 300s; server and daemon alive 2/2",
+  "control": {
+    "fired": true,
+    "reply": "ALIVE-YB3VX0",
+    "driverId": "grok-acp",
+    "driverFamily": "server"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A9  kill session \u2014 is the process tree really gone?   harness=grok  verb=sessions.kill",
+    "==============================================================================",
+    "rig infrastructure (excluded, and checked alive at the end): server 2404043, daemon 2404278",
+    "target stamp       uuid=e0b523e5-bf56-44dd-8d23-5de50e233337 source=/home/mgw/.local/state/podium/grok2927/instance.json",
+    "session 62b4feea-9a30-4408-abc8-5676ac31636e created",
+    "BOUND DRIVER       grok-acp (family server)",
+    "turn before kill   replied with ALIVE-YB3VX0",
+    "",
+    "CONTROL            reply=true exactStamped=1",
+    "STAMP PROOF        true exact UUID+session attribution only",
+    "PRE                 pid=2421849 start=17514976 rss=100420kB session=62b4feea-9a30-4408-abc8-5676ac31636e cwd=/tmp/pod-2927-grok-a70/cells/a9-superseding/repo cmd=/home/mgw/.local/bin/grok agent stdio",
+    "",
+    "KILLING via sessions.kill \u2026",
+    "  returned         null",
+    "  row says         status=(row gone) stopReason=?",
+    "  after 15s        directOriginalAlive=0 rebounds=0 stamped=0",
+    "",
+    "ORPHAN WATCH       waiting through t+300s (the row says 300s)",
+    "  after 300s       directOriginalAlive=0 rebounds=0 stamped=0",
+    "  rig intact       2/2 infrastructure process(es) still alive",
+    "",
+    "==============================================================================",
+    "A9  PASS",
+    "    stamp proof=true; exact target identities before kill=2421849:17514976",
+    "    15s survivors=0 rebounds=0",
+    "    300s survivors=0 rebounds=0",
+    "    measured in /proc; original liveness uses PID+start-time identity independently of stamped rebound censuses",
+    "    verb driven: sessions.kill; full 300s window=true",
+    "    the row's own opinion was status=(gone) \u2014 recorded, not used as the verdict",
+    "    control FIRED \u2014 answered turn and exact target stamp proof",
+    "=============================================================================="
+  ],
+  "processProof": {
+    "instanceId": "grok2927",
+    "instanceUuid": "e0b523e5-bf56-44dd-8d23-5de50e233337",
+    "sessionId": "62b4feea-9a30-4408-abc8-5676ac31636e",
+    "original": {
+      "pid": 2421849,
+      "startTimeTicks": "17514976"
+    },
+    "aliveAt15s": [],
+    "reboundsAt15s": [],
+    "aliveAt300s": [],
+    "reboundsAt300s": [],
+    "windowMs": 300000,
+    "infrastructureAlive": 2
+  },
+  "cwd": "/tmp/pod-2927-grok-a70/cells/a9-superseding/repo",
+  "pin": {
+    "codeCommit": "a70ffc0f8a72d73d3ae10189ac7f471b622739c9",
+    "codeTree": "87132e21835438964d15e234d22d9339df028069",
+    "server": {
+      "pid": 2404043,
+      "spawnSha": "a70ffc0f8a72d73d3ae10189ac7f471b622739c9",
+      "startTimeTicks": "17466652"
+    },
+    "daemon": {
+      "pid": 2404278,
+      "spawnSha": "a70ffc0f8a72d73d3ae10189ac7f471b622739c9",
+      "startTimeTicks": "17466986"
+    },
+    "servedWeb": {
+      "sourceSha": "a70ffc0",
+      "bundleVersion": "bundle+DuauHW6_",
+      "wireSchemaDigest": "986ebf5e8e57820c"
+    }
+  },
+  "clauses": {
+    "productDriver": "PASS",
+    "positiveControl": "PASS",
+    "exactAttribution": "PASS \u2014 UUID+session only; no name/CWD inference",
+    "originalGoneAt15s": "PASS",
+    "noReboundAt15s": "PASS",
+    "originalGoneAt300s": "PASS",
+    "noOrphanOrReboundAt300s": "PASS",
+    "infrastructureIntact": "PASS"
+  },
+  "admission": {
+    "load1": 4.69,
+    "diskFreeGiB": 12,
+    "memAvailableKb": 5021988,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 15:04:28 CEST"
+}

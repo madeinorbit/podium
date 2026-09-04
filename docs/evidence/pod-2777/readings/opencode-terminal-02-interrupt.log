@@ -1,0 +1,45 @@
+ok  server pid=636948 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 26f99a8
+  ok  daemon pid=637035 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 26f99a8
+  ok  exactly one daemon (pid 637035) on state root /tmp/pod-2777/state
+  ok  worktree at 26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 26f99a8
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad","short":"26f99a8","spawnedSha":"26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad","serverPid":636948,"daemonPid":637035,"webSourceSha":"26f99a8","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=terminal  expecting driver 'generic-pty'
+PIN                26f99a8adffffc6e7aceb49cda2ef9c14de0a6ad (web bundle 26f99a8, server pid 636948, daemon pid 637035)
+==============================================================================
+session 25645e79-de0e-4ac1-9914-05ba683df2f0 created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── interrupt — interrupt a running turn
+   FAIL  still working 120s after interrupt
+   control: FIRED — terminal output bytes growing (+257 since the send); phase=idle, 0 preview frame(s), 0 new transcript chars, 257 new terminal bytes
+   WAS RUNNING       terminal output bytes growing (+257 since the send); phase=idle, 0 preview frame(s), 0 new transcript chars, 257 new terminal bytes
+   INTERRUPT SENT    {"ok":true}
+   SETTLED           NEVER — phase=idle
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              6295 chars at the call -> 6295 chars at settle
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    257 at the call -> +44049 after 6s -> +72080 after 12s
+   SCORED ON         output stopping — this arm never publishes phase=working, so "left working" would be vacuously true
+   READING           the agent KEPT GENERATING after the call. The interrupt did
+                     not reach the turn, and the call still returned ok — the
+                     product reported a success that did not happen.
+                     evidence: +72080 terminal bytes and 0 preview frame(s) AFTER the interrupt.
+
+==============================================================================
+RESULT  opencode / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+interrupt       FAIL      fired     still working 120s after interrupt
+==============================================================================
+written /tmp/pod-2777/results/opencode.terminal.json
+EXIT=0

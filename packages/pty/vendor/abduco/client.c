@@ -62,7 +62,10 @@ static int client_mainloop(void) {
 	sigaddset(&blockset, SIGWINCH);
 	sigprocmask(SIG_BLOCK, &blockset, NULL);
 
-	client.need_resize = true;
+	/* podium (-N): attaching is not an opinion about the program's size. Without
+	 * -N this initial packet resizes the master's pty AND signals the program,
+	 * so every reconnect repaints it and a stale size belief re-sizes it wrongly. */
+	client.need_resize = !client.no_resize;
 	Packet pkt = {
 		.type = MSG_ATTACH,
 		.u.i = client.flags,
@@ -104,7 +107,12 @@ static int client_mainloop(void) {
 						write_all(STDOUT_FILENO, pkt.u.msg, pkt.len);
 					break;
 				case MSG_RESIZE:
-					client.need_resize = true;
+					/* The master asks the new head client for its size when the
+					 * previous head leaves. podium (-N): still not an ask from a
+					 * viewer, and this client's pty size may be stale, so it stays
+					 * silent until a SIGWINCH says a viewer really wants a size. */
+					if (!client.no_resize)
+						client.need_resize = true;
 					break;
 				case MSG_EXIT:
 					client_send_packet(&pkt);

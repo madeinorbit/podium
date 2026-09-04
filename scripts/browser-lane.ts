@@ -91,7 +91,7 @@ export function buildBrowserDeps(): number {
     return 1
   }
   console.log('building @podium/mobile web export (served at /mobile)…')
-  const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build:web'], true)
+  const mobile = run('bun', ['run', '--filter', '@podium/mobile', 'build'], true)
   if (mobile.status !== 0) {
     console.error(mobile.stdout ?? '')
     console.error(mobile.stderr ?? '')

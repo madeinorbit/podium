@@ -50,7 +50,7 @@
 
 import { createLogger } from '@podium/logger'
 import { asMachineId, type MachineId } from '@podium/model'
-import type { MachinePrincipal } from '@podium/protocol'
+import type { DaemonPtyOutputBatch, MachinePrincipal } from '@podium/protocol'
 import { asCapabilityRef, asDeviceId } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import {
@@ -60,7 +60,7 @@ import {
   type RpcDaemonFrame,
   type SessionsDaemonFrame,
 } from './daemon-frame-routing'
-import type { ControlSend, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
+import type { DaemonControlPeer, DaemonFeaturePorts, DaemonFrame } from './daemon-ports'
 
 const log = createLogger('server:gateway')
 
@@ -112,7 +112,9 @@ const toRpc = (ports: DaemonFeaturePorts, principal: MachinePrincipal, msg: RpcD
 
 const DISPATCH: Dispatcher = {
   // ---- sessions ----
+  driverSelected: toSessions,
   bind: toSessions,
+  geometryApplied: toSessions,
   agentFrame: toSessions,
   agentFrameBatch: toSessions,
   agentExit: toSessions,
@@ -135,6 +137,14 @@ const DISPATCH: Dispatcher = {
   sessionGitActivity: toSessions,
   sessionOpenUrl: toSessions,
   sessionOpenUrlResult: toSessions,
+  // AGENT RUNTIME CONTRACT (POD-1761 W3) — the driver's causal stream.
+  runtimeEvent: toSessions,
+  runtimeFineEvent: toSessions,
+  runtimeQueueDrainAbandoned: toSessions,
+  /** POD-2023 — a protocol driver's ask, on its way to the interactions
+   *  aggregate. `toSessions` because the sessions feature owns the per-session
+   *  fan-out and already holds the interaction service. */
+  runtimeInteractionAsked: toSessions,
 
   // ---- machines: the machine's own reported inventory, scoped by principal ----
   inventoryReport: (ports, principal, msg) =>
@@ -193,6 +203,7 @@ const DISPATCH: Dispatcher = {
   harnessExecResult: toRpc,
   usageResult: toRpc,
   agentQuotaResult: toRpc,
+  quotaHistoryResult: toRpc,
   modelProbeResult: toRpc,
   devArtifactProbeResult: toRpc,
   imageUploadResult: toRpc,
@@ -217,10 +228,21 @@ const DISPATCH: Dispatcher = {
   shippingJobResult: toRpc,
   shippingEvidenceResult: toRpc,
   shippingRepairApplyResult: toRpc,
+  // AGENT RUNTIME CONTRACT (POD-1761 W3) — six request flows, one
+  // correlator; interrupt completes through the event stream, not a receipt.
+  runtimeStageAttachmentResult: toRpc,
+  runtimeSendResult: toRpc,
+  runtimeLifecycleResult: toRpc,
+  runtimeConfigureResult: toRpc,
+  runtimeAnswerResult: toRpc,
+  runtimeSnapshotResult: toRpc,
   // ---- headless ----
   headlessTurnEvent: (ports, _p, msg) => ports.headless.onTurnEvent(msg),
   headlessTurnResult: (ports, _p, msg) => ports.headless.onTurnResult(msg),
   headlessBindResult: (ports, _p, msg) => ports.headless.onBindResult(msg),
+
+  // ---- fleet daemon logs: filed under the AUTHENTICATED machine (POD-3156) ----
+  daemonLogBatch: (ports, principal, msg) => ports.logs.onDaemonLogBatch(principal.machine, msg),
 
   // ---- approvals ----
   approvalExecResult: (ports, _p, msg) => ports.approvals.onExecResult(msg),
@@ -257,11 +279,15 @@ export class DaemonMux {
    * with the placeholder: rows are written under a real machine id from boot, so an
    * attaching daemon has nothing to claim — it just becomes reachable.
    */
-  attachDaemon(peer: DaemonPeer, send: ControlSend): void {
+  attachDaemon(peer: DaemonPeer, transport: DaemonControlPeer, caps?: readonly string[]): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
-    machines.attach(machineId, send)
+    // `caps` is what THIS socket negotiated (POD-3239). It travels with the
+    // attach because that is the moment the answer changes, and it is the live
+    // socket's answer — an in-process link and an older daemon both legitimately
+    // arrive with none.
+    machines.attach(machineId, transport, caps)
     // SAY THAT IT HAPPENED (POD-1585). Attach/detach ran silently, so a server
     // log with no daemon line looked identical whether the fleet was healthy or
     // no daemon had ever arrived — an instrument that cannot say NO. That silence
@@ -286,18 +312,23 @@ export class DaemonMux {
    * pre-module ordering (the hosts module drops this machine's health sample and
    * rebroadcasts where the inline delete used to sit).
    */
-  detachDaemon(peer: DaemonPeer, send?: ControlSend): void {
+  detachDaemon(peer: DaemonPeer, transport?: DaemonControlPeer): void {
     const principal = principalOf(peer)
     const machineId = principal.machine
     const { machines, sessions } = this.deps.ports
     // Below the supersede guard on purpose: a stale socket's late close is not a
     // machine going offline, and logging it as one would recreate the confusion
     // the attach line above exists to end.
-    if (!machines.detach(machineId, send)) return
+    if (!machines.detach(machineId, transport)) return
     log.info('daemon detached — the machine is now offline', { machineId })
     this.deps.bus.emit('machine.disconnected', { machineId })
     sessions.onMachineDetached(principal)
     machines.broadcastMachines()
+  }
+
+  routeDaemonOutput(peer: DaemonPeer, batch: DaemonPtyOutputBatch): void {
+    const principal = principalOf(peer)
+    this.deps.ports.sessions.onSessionDaemonOutput(principal, batch)
   }
 
   /**

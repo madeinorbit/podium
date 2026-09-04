@@ -1,8 +1,13 @@
-import type { SessionId } from '@podium/model'
 import { randomUUID } from 'node:crypto'
 import { get } from 'node:http'
 import type { BrowserOpenClassification } from '@podium/harness'
-import type { BrowserOpenCallbackTarget, BrowserOpenIntent, SessionOpenUrlCallbackMessage, SessionOpenUrlDismissMessage } from '@podium/protocol'
+import type { SessionId } from '@podium/model'
+import type {
+  BrowserOpenCallbackTarget,
+  BrowserOpenIntent,
+  SessionOpenUrlCallbackMessage,
+  SessionOpenUrlDismissMessage,
+} from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 
 export const BROWSER_OPEN_TTL_MS = 10 * 60 * 1_000
@@ -91,15 +96,9 @@ function result(
   })
 }
 
-/** Perform one non-redirecting GET, forced to a literal loopback address. */
-export function executeLoopbackGet(url: URL): Promise<number> {
-  const host = normalizedLoopbackHost(url.hostname)
-  if (!host || url.protocol !== 'http:')
-    return Promise.reject(new Error('callback must use loopback HTTP'))
-  const local = new URL(url)
-  local.hostname = host === '::1' ? '[::1]' : host === 'localhost' ? '127.0.0.1' : host
+function requestLoopback(url: URL): Promise<number> {
   return new Promise<number>((resolve, reject) => {
-    const request = get(local, (response) => {
+    const request = get(url, (response) => {
       const status = response.statusCode ?? 0
       response.resume()
       response.once('end', () => resolve(status))
@@ -109,6 +108,48 @@ export function executeLoopbackGet(url: URL): Promise<number> {
     )
     request.once('error', reject)
   })
+}
+
+function isConnectionRefused(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as { code?: unknown }).code === 'ECONNREFUSED'
+  )
+}
+
+/**
+ * Perform one non-redirecting GET against a literal loopback address. Wrangler
+ * binds its callback server with `server.listen(port, 'localhost')`; on Linux
+ * that commonly means IPv6 `::1`, so localhost needs an IPv6 fallback after
+ * the existing IPv4 attempt. The fallback only follows ECONNREFUSED, before a
+ * connection was established, so it cannot execute the callback twice.
+ */
+export async function executeLoopbackGet(url: URL): Promise<number> {
+  const host = normalizedLoopbackHost(url.hostname)
+  if (!host || url.protocol !== 'http:') throw new Error('callback must use loopback HTTP')
+
+  // Never resolve localhost through DNS: only these literal loopback addresses
+  // are allowed. Preserve the IPv4-first behavior and add the IPv6 address
+  // required by Node's hostname bind on systems where localhost prefers ::1.
+  const addresses =
+    host === 'localhost' ? ['127.0.0.1', '[::1]'] : [host === '::1' ? '[::1]' : host]
+  let lastError: unknown
+  for (const address of addresses) {
+    const local = new URL(url)
+    local.hostname = address
+    try {
+      return await requestLoopback(local)
+    } catch (error) {
+      if (address !== addresses.at(-1) && isConnectionRefused(error)) {
+        lastError = error
+        continue
+      }
+      throw error
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error('callback request failed')
 }
 
 /**

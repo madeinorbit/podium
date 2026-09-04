@@ -10,7 +10,7 @@ import { IssueService, type IssueDeps } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
 
-function harness(sessions: SessionMeta[] = []) {
+function harness(sessions: SessionMeta[] = [], extra: Partial<IssueDeps> = {}) {
   const store = new SessionStore(':memory:')
   const broadcast = vi.fn()
   const deps: IssueDeps & { broadcast: ReturnType<typeof vi.fn> } = {
@@ -23,7 +23,7 @@ function harness(sessions: SessionMeta[] = []) {
     ...issueTestPlumbing((msg) => broadcast(msg)),
     now: () => '2026-07-02T00:00:00.000Z',
   }
-  return { store, deps, svc: new IssueService(deps) }
+  return { store, deps, svc: new IssueService({ ...deps, ...extra }) }
 }
 
 describe('SessionStore event log', () => {
@@ -226,6 +226,31 @@ describe('IssueService event emission', () => {
     const evs = store.events.listEventsSince(0, { kinds: ['issue.created'] })
     expect(evs.length).toBe(1)
     expect(evs[0]).toMatchObject({ subject: w.id, repoPath: '/r', payload: { seq: 1, title: 'A' } })
+  })
+
+  it('create calls onIssueCreated once, and no later mutation does', () => {
+    // The in-process twin of the durable row above. Asserted in the same file
+    // and against the same call so the two cannot drift into disagreeing about
+    // when an issue comes into existence.
+    const seen: unknown[] = []
+    const { svc } = harness([], { onIssueCreated: (event) => seen.push(event) })
+    const w = svc.create({ repoPath: '/r', title: 'A', startNow: false })
+    // 'user:sole' is what create() defaults the owner to (crud.ts), and the
+    // callback reports the ROW's owner rather than the wire's, because the wire
+    // does not carry one.
+    expect(seen).toEqual([{ issueId: w.id, title: 'A', ownerUserId: 'user:sole' }])
+
+    svc.update(w.id, { title: 'renamed' })
+    expect(seen).toHaveLength(1)
+  })
+
+  it('an onIssueCreated that throws does not fail the create', () => {
+    const { svc } = harness([], {
+      onIssueCreated: () => {
+        throw new Error('observer exploded')
+      },
+    })
+    expect(() => svc.create({ repoPath: '/r', title: 'A', startNow: false })).not.toThrow()
   })
 
   it('close emits issue.closed AND issue.ready for a dependent whose only blocker closed', () => {

@@ -1,0 +1,80 @@
+{
+  "cell": "A6A",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2917-tip0828/probes/shell-a6a",
+  "at": "2026-08-28T11:08:44.108Z",
+  "pin": {
+    "cell": "A6A",
+    "at": "2026-08-28T11:08:44.120Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "serverSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "daemonSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T10:35:29.926Z",
+      "appVersion": "dev+98ef8d6",
+      "sourceSha": "98ef8d6",
+      "bundleVersion": "bundle+Dbh-P3IM"
+    },
+    "serverPid": "313446",
+    "daemonPid": "313566",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "20449360 kB",
+      "SwapFree": "41942992 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "keystrokes echoed, resize refit, and second viewer saw the same screen",
+  "control": {
+    "fired": true,
+    "what": "the first native viewer receiving an attached terminal stream",
+    "detail": "attached=1; screenBytes=236"
+  },
+  "evidence": [
+    "MARKER            P2874-A6A-MTCUMIQ8",
+    "FIRST SCREEN      true in 501ms",
+    "SECOND SCREEN     true in 0ms",
+    "GEOMETRY BEFORE   {\"cols\":80,\"rows\":24}",
+    "GEOMETRY AFTER    {\"cols\":100,\"rows\":30}",
+    "RESIZE BYTES      457",
+    "SECOND REPLAY     true",
+    "SCREEN 1 TAIL     \"mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ printf \\\"%s\\\\n\\\" \\\"$(printf \\\"%s\\\" \\\"UDI4NzQtQTZBLU1UQ1VNSVE4\\\" | base64 -d)\\\"\\nP2874-A6A-MTCUMIQ8\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$\"",
+    "SCREEN 2 TAIL     \"mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ printf \\\"%s\\\\n\\\" \\\"$(printf \\\"%s\\\" \\\"UDI4NzQtQTZBLU1UQ1VNSVE4\\\" | base64 -d)\\\"\\nP2874-A6A-MTCUMIQ8\\nmgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$ mgw@flatblock:/tmp/pod-2917-tip0828/probes/shell-a6a$\""
+  ],
+  "data": {
+    "sid": "f8d1baa5-c4ae-4194-8ffd-2d51719c0b54",
+    "marker": "P2874-A6A-MTCUMIQ8",
+    "firstScreen": {
+      "ok": true,
+      "ms": 501
+    },
+    "secondScreen": {
+      "ok": true,
+      "ms": 0
+    },
+    "beforeGeometry": {
+      "cols": 80,
+      "rows": 24
+    },
+    "afterGeometry": {
+      "cols": 100,
+      "rows": 30
+    },
+    "geometryOk": true,
+    "resizeBytes": 457
+  }
+}

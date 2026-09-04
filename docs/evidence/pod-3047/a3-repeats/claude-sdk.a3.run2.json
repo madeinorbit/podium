@@ -1,0 +1,236 @@
+{
+  "cell": "A3",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3",
+  "at": "2026-08-28T14:04:15.272Z",
+  "pin": {
+    "cell": "A3",
+    "at": "2026-08-28T14:04:15.307Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "4bb1585b808b7f2ec852859b3895685bfb9c33df",
+    "pinSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "serverSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "daemonSha": "77c7b1d604e96162ec6c2b024612001aeeafce69",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "4bb1585",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1287233",
+    "daemonPid": "1287371",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "17709172 kB",
+      "SwapFree": "40943484 kB"
+    },
+    "rootFreeKiB": 83110740,
+    "load1m": 10.54,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "live host: the turn stopped and left exactly one durable record that says the provider confirmed the interrupt; stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=confirmed expected=confirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
+  "control": {
+    "fired": true,
+    "what": "a turn observed in flight and no pre-existing stop record",
+    "detail": "user=true; working=true; hostChildren=1; preExistingStopRecords=0"
+  },
+  "evidence": [
+    "FROZEN HOSTS      []",
+    "INTERRUPT         {\"ok\":true,\"requested\":\"protocol\"}",
+    "STOPPED           true in 625ms",
+    "STOP RECORDS      live=1 persisted=1",
+    "RECORD TEXTS      [{\"id\":\"claude-sdk-interrupt-fbb6d45f-30f1-4013-803a-ad148aabec7e-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator.\"}]",
+    "OUTCOME           confirmed (expected confirmed)",
+    "REFUSAL RECORDS   0",
+    "IDLE RECEIPTS     before=0 afterTwoPresses=1 onePerEpoch=true",
+    "TYPED REFUSAL     false",
+    "CLAUSES           stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=confirmed expected=confirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
+    "SERVER READ ITEMS 0 (sessions.read; empty on this path — see the note on interruptRecords)",
+    "ALL ITEMS         [{\"id\":\"claude-sdk-user-fbb6d45f-30f1-4013-803a-ad148aabec7e-1\",\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD0W4XY in the final line.\"},{\"id\":\"claude-sdk-interrupt-fbb6d45f-30f1-4013-803a-ad148aabec7e-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator.\"},{\"id\":\"claude-sdk-interrupt-idle-fbb6d45f-30f1-4013-803a-ad148aabec7e-1\",\"role\":\"system\",\"text\":\"Interrupt refused: no turn was in flight.\"}]"
+  ],
+  "data": {
+    "sid": "fbb6d45f-30f1-4013-803a-ad148aabec7e",
+    "freezeHost": false,
+    "frozen": [],
+    "payload": {
+      "ok": true,
+      "requested": "protocol"
+    },
+    "after": {
+      "ok": true,
+      "ms": 625,
+      "row": {
+        "sessionId": "fbb6d45f-30f1-4013-803a-ad148aabec7e",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-sdk",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "errored",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": {
+          "class": "interrupted",
+          "retryable": true,
+          "detail": "claude turn failed: error_during_execution: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"
+        },
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "69fbc1d probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 102,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 625,
+          "phase": "errored",
+          "status": "live",
+          "driverId": "claude-sdk"
+        }
+      ]
+    },
+    "stopMs": 625,
+    "hosts": [
+      {
+        "pid": 1307584,
+        "ppid": 1287371,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      }
+    ],
+    "outcome": "confirmed",
+    "expected": "confirmed",
+    "stopped": true,
+    "exactlyOne": true,
+    "durable": true,
+    "truthful": true,
+    "idleBefore": 0,
+    "idleAfter": 1,
+    "idleOnce": true,
+    "stopUnchangedByIdle": true,
+    "typedRefusal": false,
+    "liveStop": [
+      {
+        "id": "claude-sdk-interrupt-fbb6d45f-30f1-4013-803a-ad148aabec7e-1",
+        "role": "system",
+        "ts": "2026-08-28T14:04:19.802Z",
+        "text": "Turn interrupted by the operator."
+      }
+    ],
+    "persistedStop": [
+      {
+        "id": "claude-sdk-interrupt-fbb6d45f-30f1-4013-803a-ad148aabec7e-1",
+        "role": "system",
+        "ts": "2026-08-28T14:04:19.802Z",
+        "text": "Turn interrupted by the operator."
+      }
+    ],
+    "persistedRefused": [],
+    "persistedIdle": [
+      {
+        "id": "claude-sdk-interrupt-idle-fbb6d45f-30f1-4013-803a-ad148aabec7e-1",
+        "role": "system",
+        "ts": "2026-08-28T14:04:26.688Z",
+        "text": "Interrupt refused: no turn was in flight."
+      }
+    ],
+    "allItems": [
+      {
+        "id": "claude-sdk-user-fbb6d45f-30f1-4013-803a-ad148aabec7e-1",
+        "role": "user",
+        "ts": "2026-08-28T14:04:17.567Z",
+        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTD0W4XY in the final line."
+      },
+      {
+        "id": "claude-sdk-interrupt-fbb6d45f-30f1-4013-803a-ad148aabec7e-1",
+        "role": "system",
+        "ts": "2026-08-28T14:04:19.802Z",
+        "text": "Turn interrupted by the operator."
+      },
+      {
+        "id": "claude-sdk-interrupt-idle-fbb6d45f-30f1-4013-803a-ad148aabec7e-1",
+        "role": "system",
+        "ts": "2026-08-28T14:04:26.688Z",
+        "text": "Interrupt refused: no turn was in flight."
+      }
+    ],
+    "serverReadItems": [],
+    "statusAfter": {
+      "sessionId": "fbb6d45f-30f1-4013-803a-ad148aabec7e",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-sdk",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "errored",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": {
+        "class": "interrupted",
+        "retryable": true,
+        "detail": "claude turn failed: error_during_execution: [ede_diagnostic] result_type=user last_content_type=n/a stop_reason=null"
+      },
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "69fbc1d probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

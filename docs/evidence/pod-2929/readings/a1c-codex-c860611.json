@@ -1,0 +1,126 @@
+{
+  "cell": "A1c",
+  "arm": "headless",
+  "harness": "codex",
+  "driver": "codex-app-server",
+  "verdict": "FAIL",
+  "summary": "The live and dead-target controls were measured, but an accepted dead-session send produced no typed refusal, resume offer, or delayed assistant outcome through the full 120-second window.",
+  "evidence": [
+    "preflight 2026-08-28 14:20:09 CEST: rootFree=84342624 KiB >= floor=5242880 KiB; MemAvailable=19986260 KiB; swapUsed=229532 KiB; load=5.08,4.25,4.61",
+    "drive-verify passed immediately before the probe: server, daemon, and served web bundle were all pinned to c860611a5d516c7ade492c2df2687cb5efff09d3",
+    "the scored daemon was restarted with the installed Codex executable /home/mgw/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex; codex-cli 0.149.1 is within the exercised 0.147.x-0.149.x app-server range",
+    "product binding was codex-app-server family=server; the live positive control answered before the kill",
+    "instance uuid=cc8148b2-bce8-4b0c-9277-840987cfbbe4 from /home/mgw/.local/state/podium/p2929f1/instance.json; session=48fb6c7e-4838-48a2-ad0d-caf95d55b454",
+    "exact stamped target before kill: pid=693767 cwd=/tmp/pod-2929-codex-f1/repo; SIGKILL sent=true; exact PID gone=true; remaining stamped targets=(none); dead confirmed=true",
+    "dead-session send returned {ok:true,disposition:delivered}; typedRefusal=false; resumeOffer=false; accepted=true",
+    "delayed terminal-outcome clause was measured for <=120s and was LOST: the assistant nonce never arrived",
+    "measured clauses: live positive control, expected driver/family binding, exact UUID+session target attribution, confirmed target death, accepted-send classification, and delayed assistant-nonce observation",
+    "failed clause: accepted sends must reach a delayed terminal outcome or be refused/offered for resume; this run reached neither refusal/resume nor assistant delivery"
+  ],
+  "clauseAssessment": {
+    "livePositiveControl": {
+      "measured": true,
+      "passed": true,
+      "detail": "The live session answered its ALIVE control before the exact child kill."
+    },
+    "driverBinding": {
+      "measured": true,
+      "passed": true,
+      "actual": "codex-app-server/server",
+      "expected": "codex-app-server/server"
+    },
+    "deadTargetAttribution": {
+      "measured": true,
+      "passed": true,
+      "detail": "One child carried the exact daemon UUID and session stamp; PID 693767 was killed and confirmed absent."
+    },
+    "terminalOutcome": {
+      "measured": true,
+      "passed": false,
+      "accepted": true,
+      "typedRefusal": false,
+      "resumeOffer": false,
+      "delayedDelivered": false,
+      "windowMs": 120000
+    }
+  },
+  "data": {
+    "controlFired": true,
+    "deadConfirmed": true,
+    "typedRefusal": false,
+    "resumeOffer": false,
+    "accepted": true,
+    "delayedDelivered": false,
+    "delayedOutcomeWindowMs": 120000,
+    "send": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "instanceUuid": "cc8148b2-bce8-4b0c-9277-840987cfbbe4",
+    "uuidSource": "/home/mgw/.local/state/podium/p2929f1/instance.json",
+    "sessionId": "48fb6c7e-4838-48a2-ad0d-caf95d55b454",
+    "targetBefore": [
+      {
+        "pid": 693767,
+        "cwd": "/tmp/pod-2929-codex-f1/repo",
+        "cmd": "/home/mgw/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex app-server -c sandbox_mode=\"workspace-write\" --lis",
+        "instanceUuid": "cc8148b2-bce8-4b0c-9277-840987cfbbe4",
+        "sessionId": "48fb6c7e-4838-48a2-ad0d-caf95d55b454"
+      }
+    ],
+    "targetAfterKill": []
+  },
+  "targetCwd": "/tmp/pod-2929-codex-f1/repo",
+  "instance": "p2929f1",
+  "codePin": "c860611a5d516c7ade492c2df2687cb5efff09d3",
+  "pin": {
+    "codeSha": "c860611a5d516c7ade492c2df2687cb5efff09d3",
+    "codeShort": "c860611",
+    "rootTipAtPreflight": "5fe951f2fe5ff3300330d64a3a5b0a4df3a76fe2",
+    "server": {
+      "pid": 692684,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "c860611a5d516c7ade492c2df2687cb5efff09d3"
+    },
+    "daemon": {
+      "pid": 693174,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "c860611a5d516c7ade492c2df2687cb5efff09d3"
+    },
+    "bundleSourceSha": "c860611",
+    "expectedDriver": "codex-app-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "codex-app-server",
+    "codexExecutable": "/home/mgw/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex",
+    "codexVersion": "codex-cli 0.149.1",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "hostAdmissionSnapshot": {
+    "capturedAt": "2026-08-28T14:20:09+02:00",
+    "rootFreeKb": 84342624,
+    "floorKb": 5242880,
+    "loadAverage": [
+      "5.08",
+      "4.25",
+      "4.61"
+    ],
+    "memAvailableKb": 19986260,
+    "swapUsedKb": 229532
+  },
+  "lease": "test:heavy was not acquired or queued by this run; no concurrent probe was reported",
+  "recordedAt": "2026-08-28T14:20:09+02:00",
+  "error": "",
+  "log": [
+    "PINJSON {\"want\":\"c860611a5d516c7ade492c2df2687cb5efff09d3\",\"short\":\"c860611\",\"spawnedSha\":\"c860611a5d516c7ade492c2df2687cb5efff09d3\",\"serverPid\":692684,\"daemonPid\":693174,\"webSourceSha\":\"c860611\",\"contract\":\"1\",\"streaming\":\"1\",\"driver\":\"\"}",
+    "BOUND product driver codex-app-server family=server",
+    "CONTROL a send to this session WHILE ALIVE was answered: true",
+    "target stamp uuid=cc8148b2-bce8-4b0c-9277-840987cfbbe4 source=/home/mgw/.local/state/podium/p2929f1/instance.json",
+    "target processes 1 exact stamped PID before kill: 693767",
+    "SIGKILL target pid=693767 sent=true",
+    "exact PID gone true; remaining stamped PIDs=(none)",
+    "send to dead {\"ok\":true,\"disposition\":\"delivered\"}",
+    "typed refusal false; offers resume false; accepted true; delayed outcome LOST after <=120s",
+    "A1c FAIL: accepted send without delayed terminal outcome"
+  ]
+}

@@ -80,7 +80,7 @@ Two tiers, consented independently. You can enable one and not the other.
 | `arch` | `x64` \| `arm64` \| `other` | |
 | `installAge` | `0d` \| `1-7d` \| `8-30d` \| `31-90d` \| `90d+` | **Bucketed.** The raw age never exists in the payload. |
 | `machines` | `1` \| `2-5` \| `6-20` \| `20+` | **Bucketed**, same reason. |
-| `sessions` | counts, keyed by harness | How many sessions you started, per agent kind (`claude-code`, `codex`, `grok`, `opencode`, `cursor`, `shell`). Counts only. |
+| `sessions` | counts, keyed by harness | How many sessions you started, per agent kind (`claude-code`, `codex`, `grok`, `opencode`, `cursor`, `pi`, `shell`). Counts only. |
 | `features` | booleans, keyed by feature | Whether you used `issues` — never what you used it on. |
 
 ### `crash` — rate-limited, one per distinct crash
@@ -132,7 +132,7 @@ adds one. If a field isn't in the tables above, it cannot be sent.
 ## Where it goes
 
 ```
-your machine  ──POST──▶  telemetry.podium.dev  ──▶  PostHog Cloud
+your machine  ──POST──▶  pulse.meetpodium.com/v1/u  ──▶  PostHog Cloud
                          (Podium-operated relay:
                           validate → drop your IP → forward)
 ```

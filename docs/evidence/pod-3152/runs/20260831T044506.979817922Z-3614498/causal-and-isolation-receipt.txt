@@ -1,0 +1,43 @@
+POD-3152 Grok terminal A1a causal and isolation receipt
+Captured: 2026-08-31 06:50:56 CEST
+Run: 20260831T044506.979817922Z-3614498
+Verdict remains BLOCKED: the durable user-prompt positive control was absent from the Podium live and reload projections.
+
+Provider authority (isolated named-instance state only)
+State root: /home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10
+Provider transcript: /home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/transcripts/3d73764d-56d8-4b46-bd08-5f3905063204/cc1ccac8-8eed-446a-be28-f3d15ff6ed1e.jsonl
+File size: 20992 bytes
+File mtime: 2026-08-31 06:45:26.191714865 +0200
+File SHA-256: 6b6a8246a9333ca9b6aac4d85f6f5c5b780e3215a6b949fd4841e84a50ac8f17
+Sanitized record census (encrypted reasoning omitted):
+  user records containing IDLE-WYQA3K: 1
+  assistant records with content exactly IDLE-WYQA3K: 1
+
+Daemon tail authority mismatch
+2026-08-31T04:45:12.095Z session=011bc9ad-add9-40ae-a157-05603b9810e9 transcript tail read failed code=ENOENT path=/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/agent-home/.grok/sessions/%2Ftmp%2Fpod-3152-grok-reply-0d180cc-r10%2Fruns%2F20260831T044506.979817922Z-3614498%2Fcells%2Fterminal-a1a/cc1ccac8-8eed-446a-be28-f3d15ff6ed1e/chat_history.jsonl
+2026-08-31T04:45:23.189Z session=011bc9ad-add9-40ae-a157-05603b9810e9 transcript tail first emission path=/home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10/agent-home/.grok/sessions/%2Ftmp%2Fpod-3152-grok-reply-0d180cc-r10%2Fruns%2F20260831T044506.979817922Z-3614498%2Fcells%2Fterminal-a1a/cc1ccac8-8eed-446a-be28-f3d15ff6ed1e/updates.jsonl items=0 reset=true
+2026-08-31T04:45:26.128Z session=011bc9ad-add9-40ae-a157-05603b9810e9 turn_completed durationMs=3273.494 verdict=done driverId=generic-pty runtimeMode=headed
+Podium projection recorded by the reading: liveUser=0 liveAssistant=0 reloadedUser=0 reloadedAssistant=0.
+
+Atomic teardown
+Created session: 011bc9ad-add9-40ae-a157-05603b9810e9
+Server PID: 3614773
+Daemon PID: 3614854
+Provider PID: 3615331
+Wrapper cleanup output after STOP-FIRST BLOCKED:
+  stopped daemon pid=3614854
+  stopped server pid=3614773
+  instance=p3152-grok-reply-0d180cc-r10 stopped; derived state retained at /home/mgw/.local/state/podium/p3152-grok-reply-0d180cc-r10 for evidence/recovery
+Independent 2026-08-31 06:50:56 CEST census: PIDs 3614773, 3614854, and 3615331 all stopped; no bun process had this checkout as cwd.
+
+Protected primary marker isolation (metadata only; contents were not recorded)
+Protected path: /home/mgw/.podium/instance.json
+Pre-run baseline captured before live release:
+  SHA-256 864a600318cb8ebc1ca13c95b1a8c4add5b43d54abb72d4b9b94ce9471caaf06
+  size=104 inode=346194 mtime_epoch=1788076248
+Post-run check at 2026-08-31 06:50:56 CEST:
+  SHA-256 864a600318cb8ebc1ca13c95b1a8c4add5b43d54abb72d4b9b94ce9471caaf06
+  size=104 inode=346194 mtime_epoch=1788076248
+The dedicated podium-marker-guard.service was active continuously since 2026-08-29 16:03:35 CEST and journalctl reported no entries from 2026-08-31 06:30:00 through 06:55:00 CEST. No default/operator process or listener was launched, stopped, or addressed by this run.
+
+Source receipts

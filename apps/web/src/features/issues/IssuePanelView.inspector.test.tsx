@@ -5,6 +5,7 @@ import { asIssueId, asSessionId } from '@podium/model'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider } from '@/app/operator-focus'
+import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { makeIssue } from '@/lib/test-issue'
 import { IssuePanelView } from './IssuePanelView'
 
@@ -73,6 +74,7 @@ let mockSessions: SessionMeta[] = []
 const setPane = vi.fn()
 const setView = vi.fn()
 const setOpenIssueId = vi.fn()
+const updateIssue = vi.fn(async () => ({}))
 
 const BASE_EVENT_ROWS: IssueEvent[] = [
   {
@@ -137,6 +139,8 @@ vi.mock('@/app/store', () => {
     markIssueRead: vi.fn(),
     markIssueUnread: vi.fn(),
     markSessionRead: vi.fn(),
+    updateIssue,
+    closeIssue: vi.fn(async () => ({})),
   })
   return {
     useStore: () => state(),
@@ -175,6 +179,10 @@ describe('IssuePanelView inspector', () => {
       'Subtasks',
       'Relations',
       'Agents & sessions',
+      // The accounting sits directly under the roster it accounts for: the
+      // roster answers "who is on this now", Cost answers it for every session
+      // that ever was (POD-1859).
+      'Cost',
       'Branch & worktree',
     ])
   })
@@ -342,7 +350,11 @@ describe('IssuePanelView inspector', () => {
     expect(within(agents).queryByTestId('dock-presence-note')).toBeNull()
   })
 
-  it('folds the overflow and the retired sessions rather than listing everything', () => {
+  // The roster is live-only BY DESIGN, and since POD-1859 it is also complete:
+  // every open session is listed, however many there are. Retired sessions stay
+  // folded — they are a different question, and the Cost section below answers
+  // it with the money rather than with another list of names.
+  it('lists every active session and keeps the retired ones folded', () => {
     mockSessions = [
       ...Array.from({ length: 6 }, (_, i) => session({ sessionId: `s${i}`, name: `Agent ${i}` })),
       session({ sessionId: 'gone', name: 'Retired agent', archived: true }),
@@ -350,9 +362,8 @@ describe('IssuePanelView inspector', () => {
     render(<IssuePanelView cwd="/r" />)
 
     const agents = screen.getByTestId('dock-sessions')
-    expect(within(agents).queryByText('Agent 5')).toBeNull()
-    fireEvent.click(within(agents).getByText(/1 more active/))
-    expect(within(agents).getByText('Agent 5')).toBeTruthy()
+    for (let i = 0; i < 6; i++) expect(within(agents).getByText(`Agent ${i}`)).toBeTruthy()
+    expect(within(agents).queryByText(/more active/)).toBeNull()
 
     expect(within(agents).queryByText('Retired agent')).toBeNull()
     fireEvent.click(within(agents).getByText(/Retired · 1/))
@@ -531,5 +542,121 @@ describe('IssuePanelView with no task', () => {
 
     expect(screen.getByText('Retired sweep')).toBeTruthy()
     expect(screen.queryByTestId('dock-intake')).toBeNull()
+  })
+})
+
+// POD-1618. The composer mints a draft with the literal title "Draft" and the
+// agent is supposed to retitle it; plenty never do. The sidebar has always
+// substituted the attached session's name for that placeholder, so a task the
+// operator sees named in one column read "Draft" in this panel — the same task
+// wearing two names, which reads as two tasks rather than one unnamed one.
+describe('IssuePanelView draft naming', () => {
+  const DRAFT = makeIssue({
+    id: 'd1',
+    repoPath: '/r',
+    seq: 1609,
+    title: 'Draft',
+    draft: true,
+    worktreePath: null,
+    memberSessionIds: ['sd'],
+  })
+
+  beforeEach(() => {
+    mockIssues = [DRAFT]
+    mockSessions = [
+      session({ sessionId: 'sd', issueId: 'd1', name: 'Artifact directive provenance' }),
+    ]
+  })
+
+  it('names a draft with its agent name, exactly as the sidebar row does', () => {
+    render(<IssuePanelView cwd="/r" issueId={asIssueId('d1')} />)
+
+    const title = screen.getByTestId('dock-title')
+    expect(title.textContent).toBe('Artifact directive provenance')
+    expect(title.textContent).not.toBe('Draft')
+  })
+
+  // The editor opens on what is SHOWN. A field that offered the word "Draft" to
+  // edit, under a heading reading something else, is an editor for another row.
+  it('seeds the rename editor with the name on screen, not the stored title', () => {
+    render(<IssuePanelView cwd="/r" issueId={asIssueId('d1')} />)
+
+    fireEvent.doubleClick(screen.getByTestId('dock-title'))
+
+    const field = screen.getByDisplayValue('Artifact directive provenance')
+    expect(field).toBeTruthy()
+    expect(screen.queryByTestId('dock-title')).toBeNull()
+  })
+
+  // The commit policy is `use-inline-rename`'s, shared with the sidebar: an
+  // editor opened by a fumbled double-click and closed by clicking away must
+  // not spend a write on a name that did not change.
+  it('writes an edited name and no-ops an unchanged one', () => {
+    render(<IssuePanelView cwd="/r" issueId={asIssueId('d1')} />)
+
+    fireEvent.doubleClick(screen.getByTestId('dock-title'))
+    fireEvent.blur(screen.getByDisplayValue('Artifact directive provenance'))
+    expect(updateIssue).not.toHaveBeenCalled()
+
+    fireEvent.doubleClick(screen.getByTestId('dock-title'))
+    const field = screen.getByDisplayValue('Artifact directive provenance')
+    fireEvent.change(field, { target: { value: '  Artifact provenance  ' } })
+    fireEvent.keyDown(field, { key: 'Enter' })
+
+    expect(updateIssue).toHaveBeenCalledWith('d1', { title: 'Artifact provenance' })
+  })
+
+  // Escape is the way out that writes nothing, and the head comes back.
+  it('restores the heading on Escape', () => {
+    render(<IssuePanelView cwd="/r" issueId={asIssueId('d1')} />)
+
+    fireEvent.doubleClick(screen.getByTestId('dock-title'))
+    fireEvent.keyDown(screen.getByDisplayValue('Artifact directive provenance'), { key: 'Escape' })
+
+    expect(screen.getByTestId('dock-title').textContent).toBe('Artifact directive provenance')
+    expect(updateIssue).not.toHaveBeenCalled()
+  })
+
+  // THE OPTIMISTIC BEAT. `issues.update` paints the title through the outbox
+  // overlay and nothing else; the draft flag is the SERVER's to clear. Reading
+  // the flag alone, a rename would land, paint nothing, and then change the name
+  // on its own a round trip later — so the client applies the server's own rule
+  // (a named draft is not a draft) rather than waiting to be told it applied.
+  it('shows a named draft by its name while the flag is still set', () => {
+    mockIssues = [makeIssue({ ...DRAFT, title: 'Artifact provenance' })]
+
+    render(<IssuePanelView cwd="/r" issueId={asIssueId('d1')} />)
+
+    expect(screen.getByTestId('dock-title').textContent).toBe('Artifact provenance')
+  })
+
+  // A DRAFT WITH NO NAME AT ALL. `issues.update` takes `title` as a bare
+  // optional string and promotes on `trim()` while assigning the raw value, so
+  // `--title "   "` leaves a whitespace-titled draft. Printing that would render
+  // a task with no name — worse than the placeholder this rule replaces.
+  it('treats a whitespace-titled draft as unnamed too', () => {
+    mockIssues = [makeIssue({ ...DRAFT, title: '   ' })]
+
+    render(<IssuePanelView cwd="/r" issueId={asIssueId('d1')} />)
+
+    expect(screen.getByTestId('dock-title').textContent).toBe('Artifact directive provenance')
+  })
+
+  // The menu entry exists only because the head has an editor for it to open —
+  // `renameEnabled` is literally "was an `onRename` supplied", and this panel
+  // used to supply none.
+  it('offers Rename in the head menu, and it opens the editor', async () => {
+    // The shared issue menu reaches for the confirm context AppShell supplies.
+    render(
+      <ConfirmProvider>
+        <IssuePanelView cwd="/r" issueId={asIssueId('d1')} />
+      </ConfirmProvider>,
+    )
+
+    fireEvent.click(screen.getByLabelText('More issue actions'))
+    const rename = await screen.findByText('Rename')
+    fireEvent.click(rename)
+
+    expect(screen.getByDisplayValue('Artifact directive provenance')).toBeTruthy()
   })
 })

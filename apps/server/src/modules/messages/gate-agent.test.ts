@@ -81,6 +81,7 @@ const PARENT: Capability = {
 function harness(opts?: {
   sessions?: SessionMeta[]
   spawnSession?: MessageGateDeps['spawnSession']
+  awaitMachineInventory?: MessageGateDeps['awaitMachineInventory']
   resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
   awaitPollMs?: number
   /** Poll-sleep seam (blocking-send / await tests drive confirmation here). */
@@ -140,6 +141,9 @@ function harness(opts?: {
         spawns.push(i)
         return { sessionId: asSessionId('child1') }
       }),
+    ...(opts?.awaitMachineInventory
+      ? { awaitMachineInventory: opts.awaitMachineInventory }
+      : {}),
     ...(opts?.resolveExecutionProfile
       ? { resolveExecutionProfile: opts.resolveExecutionProfile }
       : {}),
@@ -160,6 +164,34 @@ function harness(opts?: {
 }
 
 describe('agent spawn (gate)', () => {
+  it('waits for the current daemon inventory before spawning on a pinned machine', async () => {
+    let release!: () => void
+    const currentInventory = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const waited: string[] = []
+    const { gate, spawns } = harness({
+      issueOverrides: { machineId: 'machine-home' },
+      awaitMachineInventory: async (machineId) => {
+        waited.push(machineId)
+        await currentInventory
+      },
+    })
+
+    const pending = gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'start after probing',
+      harness: 'claude-code',
+    })
+    await Promise.resolve()
+    expect(waited).toEqual(['machine-home'])
+    expect(spawns).toEqual([])
+
+    release()
+    await expect(pending).resolves.toMatchObject({ ok: true })
+    expect(spawns).toHaveLength(1)
+  })
+
   it('spawns a full session on the issue with parent provenance + #285 metadata pass-through', async () => {
     const { gate, spawns, created, store } = harness()
     const r = (await gate.dispatch(PARENT, true, 'spawnAgent', {
@@ -947,7 +979,7 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
     expect(t).toBeGreaterThanOrEqual(26_000)
   })
 
-  it('clears the stale queued flag when blocking upgrades a busy send to delivered', async () => {
+  it('clears stale queue metadata when blocking upgrades a busy send to delivered', async () => {
     const sessions = [
       target({ agentState: { phase: 'working', since: 't', nativeSubagentCount: 0 } }),
     ]
@@ -966,9 +998,14 @@ describe('urgency-gated blocking send (gate wiring) [spec:SP-cb9f] [POD-854]', (
       to: 's1',
       body: 'x',
       urgency: 'next-turn',
-    })) as { disposition: string; queued?: boolean }
+    })) as { id: string; disposition: string; queued?: boolean; position?: number }
     expect(r.disposition).toBe('delivered')
     expect(r.queued).not.toBe(true)
+    expect(r).not.toHaveProperty('position')
+    // The durable row is the reload projection's source of truth. Once the
+    // boundary confirms it, a fresh lookup agrees that no queued position remains.
+    expect(svc.message(r.id)).toMatchObject({ status: 'delivered' })
+    expect(svc.message(r.id)).not.toHaveProperty('queuePosition')
   })
 
   it('an fyi send returns at queued without blocking', async () => {

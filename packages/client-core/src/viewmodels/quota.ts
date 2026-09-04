@@ -338,19 +338,26 @@ export function quotaVerdict(groups: AccountQuotaGroup[], nowMs: number): QuotaV
  */
 export function quotaPoolVerdict(groups: AccountQuotaGroup[], nowMs: number): QuotaVerdict {
   const usable = groups.filter((g) => g.status === 'ok' && g.windows.length > 0)
-  if (usable.length <= 1) return quotaVerdict(usable, nowMs)
+  const unavailable = groups.length - usable.length
+  if (unavailable === 0 && usable.length <= 1) return quotaVerdict(usable, nowMs)
 
   const counts: Record<QuotaTone, number> = { ok: 0, warn: 0, crit: 0 }
   for (const group of usable) counts[quotaVerdict([group], nowMs).tone] += 1
 
-  const parts = [
-    counts.crit > 0 ? `${counts.crit} constrained` : '',
-    counts.warn > 0 ? `${counts.warn} watch` : '',
-    counts.ok > 0 ? `${counts.ok} healthy` : '',
-  ].filter(Boolean)
-  const tones: QuotaTone[] = (['crit', 'warn', 'ok'] as const).filter((tone) => counts[tone] > 0)
+  const entries: Array<[string, QuotaTone]> = []
+  if (counts.crit > 0) entries.push([`${counts.crit} constrained`, 'crit'])
+  if (counts.warn > 0) entries.push([`${counts.warn} watch`, 'warn'])
+  if (unavailable > 0) entries.push([`${unavailable} unavailable`, 'warn'])
+  if (counts.ok > 0) entries.push([`${counts.ok} healthy`, 'ok'])
+  const parts = entries.map(([label]) => label)
+  const tones = entries.map(([, tone]) => tone)
   const tone: QuotaTone = counts.crit > 0 ? 'crit' : counts.warn > 0 ? 'warn' : 'ok'
-  return { tone, label: parts.join(' · '), mixed: tones.length > 1, tones }
+  return {
+    tone: unavailable > 0 && tone === 'ok' ? 'warn' : tone,
+    label: parts.join(' · '),
+    mixed: new Set(tones).size > 1,
+    tones,
+  }
 }
 
 export function paceHint(pace: QuotaPace, usedPercent: number, elapsedPercent: number): string {

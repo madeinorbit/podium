@@ -1,9 +1,10 @@
+import { createHash } from 'node:crypto'
 import type { Dirent } from 'node:fs'
 import { open, readdir, readFile, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { LineDecoder } from '@podium/harness'
-import type { UsageBucketWire } from '@podium/model'
+import type { UsageBucketWire, UsageModelTotalWire, UsageSourceWire } from '@podium/model'
 
 /**
  * Harvest token usage from harness transcript JSONLs — Claude Code (each
@@ -14,6 +15,31 @@ import type { UsageBucketWire } from '@podium/model'
  *
  * Files whose mtime predates the window are skipped without reading — a 7-day
  * scan touches only recently-active transcripts.
+ *
+ * THE WALK HAS TWO PRODUCTS SINCE POD-1858. The bucket set is the host's spend
+ * by hour and model; `sources` is the same records folded PER FILE, which is the
+ * one fact the hour×model fold discards. Per-task cost is that fact and nothing
+ * more, so it is harvested here rather than by a second walk of the same 4GB —
+ * see `scanHostUsageSources`, and section 10 of the POD-1604 design for why a
+ * second walk on the daemon's event loop is not an option.
+ *
+ * WHAT THIS DOES NOT DO: MOVE THE WALK OFF THE DAEMON'S EVENT LOOP. There is no
+ * worker thread here. `rescanUsage` still calls `scanHostUsageSources` on the
+ * loop that carries PTY traffic, and `runUsageScan` still awaits it on a request
+ * path the first time a window is asked for. Measured against main the cold walk
+ * is not a regression (9,943ms vs 8,855ms, then 7,703ms vs 7,479ms — noise), and
+ * the cursor makes the STEADY STATE roughly ten times cheaper (620-857ms warm),
+ * but cheaper is not the same as elsewhere. Anyone who needs that loop actually
+ * protected still has to build it; believing it is already done is worse than
+ * knowing it is not, because it stops the next person looking.
+ *
+ * THE CURSOR IS THE OFFSET AFTER THE LAST NEWLINE, NEVER THE FILE SIZE. A
+ * transcript is appended to WHILE it is read, so the final line of any read is
+ * routinely a torn write. Advancing to the file size would resume mid-line and
+ * lose that record; counting the partial line and advancing past it would count
+ * the finished record twice. So a torn tail is counted for the answer being
+ * given now and re-read next time, and the cursor stops at the last byte that is
+ * provably a record boundary.
  */
 
 export interface UsageRecord {
@@ -210,12 +236,191 @@ export async function scanHostUsage(opts: {
   sinceMs: number
   homeDir?: string
 }): Promise<UsageBucketWire[]> {
+  return (await scanHostUsageSources(opts)).buckets
+}
+
+/**
+ * The same walk, keeping WHICH FILE each record came from.
+ *
+ * `sources` is what makes per-task cost affordable: the server turns a path into
+ * a session — and therefore into an issue — with one indexed lookup per FILE,
+ * never per record. Two folds per source, on purpose. `windowModels` covers the
+ * requested window and answers the usage sheet's by-task section; `models`
+ * covers the whole file and is what the durable per-session row stores, because
+ * "what did this task cost" outlives any window.
+ *
+ * `cache` is the incremental half. Transcripts are append-only, so a file whose
+ * size and mtime are unchanged is not opened at all, and one that grew is read
+ * from its cursor rather than from byte zero. Pass the SAME cache across scans
+ * or every walk is a cold one.
+ */
+export async function scanHostUsageSources(opts: {
+  sinceMs: number
+  homeDir?: string
+  cache?: UsageScanCache
+}): Promise<{ buckets: UsageBucketWire[]; sources: UsageSourceWire[] }> {
   const scans = await Promise.allSettled([
-    scanClaudeUsage(opts),
-    scanCodexUsage(opts),
-    scanGrokUsage(opts),
+    scanClaudeFiles(opts),
+    scanCodexFiles(opts),
+    scanGrokFiles(opts),
   ])
-  return mergeBuckets(scans.flatMap((s) => (s.status === 'fulfilled' ? s.value : [])))
+  const files = scans.flatMap((s) => (s.status === 'fulfilled' ? s.value : []))
+  // Files the window has moved past are never re-read, so holding their folds
+  // would be a leak that grows with the age of the box.
+  opts.cache?.prune(opts.sinceMs)
+  return {
+    buckets: mergeBuckets(files.flatMap((f) => windowBuckets(fileBuckets(f), opts.sinceMs))),
+    sources: files.map((f) => toSource(f, opts.sinceMs)),
+  }
+}
+
+const HOUR_MS = 3_600_000
+
+/**
+ * ONE TRANSCRIPT, as this walk leaves it and as the next walk finds it.
+ *
+ * `buckets` covers complete lines only and is never re-derived; `tailBuckets` is
+ * the torn final line, re-read every pass. Reported together by `fileBuckets`.
+ */
+export interface UsageFileScan {
+  path: string
+  harness: UsageSourceWire['harness']
+  /** Bytes of complete lines folded into `buckets`. The incremental cursor. */
+  scannedBytes: number
+  /** Size and mtime at the last read — the "has anything happened" test. */
+  fileSize: number
+  mtimeMs: number
+  firstTsMs: number
+  lastTsMs: number
+  buckets: UsageBucketWire[]
+  tailBuckets: UsageBucketWire[]
+  /** Codex's model in force at the cursor, carried across appends. */
+  model: string
+  /** Recent response identities, so an append cannot recount a straddler. */
+  tailIds: string[]
+  /**
+   * A hash of the file's first bytes — the OTHER half of the append test.
+   *
+   * "Transcripts are append-only" is load-bearing and, on its own, unverified:
+   * a rewrite in place that leaves the file the same length or longer changes
+   * the mtime, passes a `size >= priorSize` check, and resumes at a cursor that
+   * now points into different content. Measured, that reads 10 records where a
+   * cold walk reads 99, or 930 where a cold walk reads 2,400 — wrong in both
+   * directions, and the wrong fold is then banked in the durable row for good.
+   * So the head is fingerprinted, and A REWRITE THAT CHANGES THE HEAD forces a
+   * cold read.
+   *
+   * WHAT THAT DOES NOT COVER, said here because the property a reader will take
+   * from the sentence above is stronger than the one it buys: a rewrite that
+   * preserves the first `HEAD_SAMPLE_BYTES` VERBATIM and replaces everything
+   * after still resumes at a stale cursor (measured: warm 730 against cold
+   * 1,800). That is the inherent limit of sampling a head, and it is exactly the
+   * shape of a compaction — keep the session header, rewrite the body. Closing
+   * it needs a second fingerprint near the CURSOR rather than a bigger sample,
+   * and it is deliberately not built: no harness observed on this box rewrites a
+   * transcript that way, and an unused guard costs a read per file per walk
+   * forever.
+   *
+   * `headBytes` is how many bytes that hash covers, and it is stored rather than
+   * recomputed because the two files being compared are different lengths: the
+   * next walk hashes exactly THIS many bytes of the new file, so a pure append
+   * to a file shorter than the sample still compares like with like instead of
+   * reading as a changed head.
+   */
+  headHash: string
+  headBytes: number
+}
+
+/**
+ * How many response identities are carried across an append.
+ *
+ * Claude Code can persist one API response as several rows, and those rows are
+ * CONSECUTIVE — the same message's content blocks, written in one burst. The
+ * only way a pair straddles a cursor is for a scan to land between the two, so
+ * remembering the tail of the previous read is what closes it. 256 is orders of
+ * magnitude more slack than a burst needs and costs a few KB per live file.
+ */
+const TAIL_ID_MEMORY = 256
+
+/**
+ * The folds of every recently-active transcript, kept between walks.
+ *
+ * Deliberately NOT module-global: two daemon runtimes in one process (the test
+ * lane makes them routinely) must not read one another's cursors.
+ */
+export class UsageScanCache {
+  private readonly files = new Map<string, UsageFileScan>()
+
+  get(path: string): UsageFileScan | undefined {
+    return this.files.get(path)
+  }
+
+  put(scan: UsageFileScan): void {
+    this.files.set(scan.path, scan)
+  }
+
+  /** Forget files older than the window; the walk skips them on mtime anyway. */
+  prune(beforeMs: number): void {
+    for (const [path, scan] of this.files) if (scan.mtimeMs < beforeMs) this.files.delete(path)
+  }
+
+  get size(): number {
+    return this.files.size
+  }
+}
+
+/** Everything the file has, torn tail included. */
+export function fileBuckets(scan: UsageFileScan): UsageBucketWire[] {
+  return scan.tailBuckets.length === 0
+    ? scan.buckets
+    : mergeBuckets([...scan.buckets, ...scan.tailBuckets])
+}
+
+/** Bucket hours are hour-aligned, so the window edge is too. */
+const windowHourStart = (sinceMs: number): number => Math.floor(sinceMs / HOUR_MS) * HOUR_MS
+
+function windowBuckets(buckets: UsageBucketWire[], sinceMs: number): UsageBucketWire[] {
+  const from = windowHourStart(sinceMs)
+  return buckets.filter((b) => Date.parse(b.hour) >= from)
+}
+
+function foldByModel(buckets: UsageBucketWire[]): UsageModelTotalWire[] {
+  const byModel = new Map<string, UsageModelTotalWire>()
+  for (const b of buckets) {
+    let m = byModel.get(b.model)
+    if (!m) {
+      m = {
+        model: b.model,
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheCreationTokens: 0,
+        cacheCreation1hTokens: 0,
+        messages: 0,
+      }
+      byModel.set(b.model, m)
+    }
+    m.inputTokens += b.inputTokens
+    m.outputTokens += b.outputTokens
+    m.cacheReadTokens += b.cacheReadTokens
+    m.cacheCreationTokens += b.cacheCreationTokens
+    m.cacheCreation1hTokens = (m.cacheCreation1hTokens ?? 0) + (b.cacheCreation1hTokens ?? 0)
+    m.messages += b.messages
+  }
+  return [...byModel.values()].sort((a, b) => a.model.localeCompare(b.model))
+}
+
+function toSource(scan: UsageFileScan, sinceMs: number): UsageSourceWire {
+  const all = fileBuckets(scan)
+  return {
+    path: scan.path,
+    harness: scan.harness,
+    scannedBytes: scan.scannedBytes,
+    firstTsMs: scan.firstTsMs,
+    lastTsMs: scan.lastTsMs,
+    models: foldByModel(all),
+    windowModels: foldByModel(windowBuckets(all, sinceMs)),
+  }
 }
 
 /**
@@ -245,36 +450,40 @@ export function mergeBuckets(buckets: UsageBucketWire[]): UsageBucketWire[] {
 export async function scanClaudeUsage(opts: {
   sinceMs: number
   homeDir?: string
+  cache?: UsageScanCache
 }): Promise<UsageBucketWire[]> {
+  const files = await scanClaudeFiles(opts)
+  return mergeBuckets(files.flatMap((f) => windowBuckets(fileBuckets(f), opts.sinceMs)))
+}
+
+/**
+ * `~/.claude/projects/<project>/<nativeId>.jsonl`, AND the delegate transcripts
+ * at `<nativeId>/subagents/<agentId>.jsonl`.
+ *
+ * The subagent files were missed by the one-level read this replaces, and they
+ * are not a rounding error: on this machine they carried $85 of Claude spend in
+ * a single 7-day window, all of it attributable — every one of them has a
+ * conversation-segment row whose parent identity names the session that spawned
+ * it. Codex has said the same thing about its own subagent rollouts since
+ * POD-570 ("the sheet answers what the account spent, and a subagent's tokens
+ * are billed like any other"); this makes the Claude half agree. They do not
+ * double-count: a delegate's records appear in its own file and nowhere else.
+ */
+async function scanClaudeFiles(opts: {
+  sinceMs: number
+  homeDir?: string
+  cache?: UsageScanCache
+}): Promise<UsageFileScan[]> {
   const projectsDir = join(opts.homeDir ?? homedir(), '.claude', 'projects')
-  const records: UsageRecord[] = []
   let projectDirs: string[]
   try {
     projectDirs = await readdir(projectsDir)
   } catch {
     return [] // no Claude installation on this box
   }
-  for (const project of projectDirs) {
-    const dir = join(projectsDir, project)
-    let files: string[]
-    try {
-      files = await readdir(dir)
-    } catch {
-      continue
-    }
-    for (const file of files) {
-      if (!file.endsWith('.jsonl')) continue
-      const path = join(dir, file)
-      try {
-        const info = await stat(path)
-        if (info.mtimeMs < opts.sinceMs) continue
-        records.push(...(await readClaudeRecords(path, opts.sinceMs)))
-      } catch {
-        // unreadable file — skip
-      }
-    }
-  }
-  return bucketize(records)
+  const paths: string[] = []
+  for (const project of projectDirs) await collectJsonlFiles(join(projectsDir, project), paths)
+  return scanJsonlTranscripts(paths, 'claude-code', opts)
 }
 
 /**
@@ -294,21 +503,21 @@ export async function scanClaudeUsage(opts: {
 export async function scanCodexUsage(opts: {
   sinceMs: number
   homeDir?: string
+  cache?: UsageScanCache
 }): Promise<UsageBucketWire[]> {
+  const files = await scanCodexFiles(opts)
+  return mergeBuckets(files.flatMap((f) => windowBuckets(fileBuckets(f), opts.sinceMs)))
+}
+
+async function scanCodexFiles(opts: {
+  sinceMs: number
+  homeDir?: string
+  cache?: UsageScanCache
+}): Promise<UsageFileScan[]> {
   const sessionsDir = join(opts.homeDir ?? homedir(), '.codex', 'sessions')
-  const files: string[] = []
-  await collectJsonlFiles(sessionsDir, files)
-  const records: UsageRecord[] = []
-  for (const path of files) {
-    try {
-      const info = await stat(path)
-      if (info.mtimeMs < opts.sinceMs) continue
-      records.push(...(await readCodexRecords(path, opts.sinceMs)))
-    } catch {
-      // unreadable file — skip
-    }
-  }
-  return bucketize(records)
+  const paths: string[] = []
+  await collectJsonlFiles(sessionsDir, paths)
+  return scanJsonlTranscripts(paths, 'codex', opts)
 }
 
 /**
@@ -360,15 +569,35 @@ export function grokUsageFromSession(
 export async function scanGrokUsage(opts: {
   sinceMs: number
   homeDir?: string
+  cache?: UsageScanCache
 }): Promise<UsageBucketWire[]> {
+  const files = await scanGrokFiles(opts)
+  return mergeBuckets(files.flatMap((f) => windowBuckets(fileBuckets(f), opts.sinceMs)))
+}
+
+/**
+ * No incremental read here, and none is wanted: a Grok source is a two-file JSON
+ * SNAPSHOT of the session, not an append-only log, so a byte cursor into it
+ * would name nothing. Unchanged size and mtime still skip the read entirely.
+ */
+async function scanGrokFiles(opts: {
+  sinceMs: number
+  homeDir?: string
+  cache?: UsageScanCache
+}): Promise<UsageFileScan[]> {
   const sessionsDir = grokSessionsDir(opts.homeDir)
-  const files: string[] = []
-  await collectGrokSignalFiles(sessionsDir, 'roots', files)
-  const records: UsageRecord[] = []
-  for (const path of files) {
+  const paths: string[] = []
+  await collectGrokSignalFiles(sessionsDir, 'roots', paths)
+  const out: UsageFileScan[] = []
+  for (const path of paths) {
     try {
       const info = await stat(path)
       if (info.mtimeMs < opts.sinceMs) continue
+      const prior = opts.cache?.get(path)
+      if (prior && prior.fileSize === info.size && prior.mtimeMs === info.mtimeMs) {
+        out.push(prior)
+        continue
+      }
       const signals = parseJson(await readFile(path, 'utf8'))
       let summary: unknown = null
       try {
@@ -377,12 +606,31 @@ export async function scanGrokUsage(opts: {
         // summary is optional — last-active falls back to signals mtime
       }
       const rec = grokUsageFromSession(signals, summary, info.mtimeMs)
-      if (rec && rec.tsMs >= opts.sinceMs) records.push(rec)
+      if (!rec) continue
+      const scan: UsageFileScan = {
+        path,
+        harness: 'grok',
+        scannedBytes: info.size,
+        fileSize: info.size,
+        mtimeMs: info.mtimeMs,
+        firstTsMs: rec.tsMs,
+        lastTsMs: rec.tsMs,
+        buckets: bucketize([rec]),
+        tailBuckets: [],
+        model: rec.model,
+        tailIds: [],
+        // Never read incrementally, so the fingerprint has nothing to guard;
+        // size and mtime alone decide whether a snapshot is re-read.
+        headHash: '',
+        headBytes: 0,
+      }
+      opts.cache?.put(scan)
+      out.push(scan)
     } catch {
       // unreadable session — skip
     }
   }
-  return bucketize(records)
+  return out
 }
 
 function grokSessionsDir(homeDir?: string): string {
@@ -454,11 +702,7 @@ function parseJson(text: string): unknown {
  */
 type GrokWalk = 'roots' | 'cwd' | 'session'
 
-async function collectGrokSignalFiles(
-  dir: string,
-  kind: GrokWalk,
-  out: string[],
-): Promise<void> {
+async function collectGrokSignalFiles(dir: string, kind: GrokWalk, out: string[]): Promise<void> {
   let entries: Dirent[]
   try {
     entries = await readdir(dir, { withFileTypes: true })
@@ -495,33 +739,161 @@ async function collectJsonlFiles(dir: string, out: string[]): Promise<void> {
   }
 }
 
-async function readClaudeRecords(path: string, sinceMs: number): Promise<UsageRecord[]> {
-  const out: UsageRecord[] = []
-  await streamJsonl(path, (line) => {
-    // Cheap reject before JSON.parse: most transcript lines carry no usage.
-    if (!line.includes('"usage"')) return
-    const rec = parseLine(line, (record) => usageFromRecord(record))
-    if (rec && rec.tsMs >= sinceMs) out.push(rec)
-  })
+/** Stat, skip, read — the loop both JSONL harnesses share. */
+async function scanJsonlTranscripts(
+  paths: string[],
+  harness: 'claude-code' | 'codex',
+  opts: { sinceMs: number; cache?: UsageScanCache },
+): Promise<UsageFileScan[]> {
+  const out: UsageFileScan[] = []
+  for (const path of paths) {
+    try {
+      const info = await stat(path)
+      if (info.mtimeMs < opts.sinceMs) continue
+      const scan = await scanJsonlTranscript(path, harness, info, opts.cache?.get(path))
+      // Cached even when it carries no usage at all: the cursor is what stops a
+      // transcript full of tool output from being re-read end to end every walk.
+      opts.cache?.put(scan)
+      if (scan.buckets.length > 0 || scan.tailBuckets.length > 0) out.push(scan)
+    } catch {
+      // unreadable file — skip
+    }
+  }
   return out
 }
 
-async function readCodexRecords(path: string, sinceMs: number): Promise<UsageRecord[]> {
-  const out: UsageRecord[] = []
-  // The model in force, carried forward from the last `turn_context` — see
-  // codexModelOf. Per file, because a rollout is one session's model history.
-  let model = 'unknown'
-  await streamJsonl(path, (line) => {
-    if (line.includes('"turn_context"')) {
-      model = parseLine(line, codexModelOf) ?? model
+/**
+ * Fold one transcript, reading only what is new.
+ *
+ * A file that shrank was rotated or rewritten in place, so the stored cursor no
+ * longer names a boundary in THIS file and nothing about the previous read may
+ * be reused. Anything else is an append: resume at the cursor, suppress the
+ * response identities the previous read already counted, and carry Codex's model
+ * forward across the seam (a `turn_context` before the cursor is the only place
+ * the model is ever named).
+ */
+async function scanJsonlTranscript(
+  path: string,
+  harness: 'claude-code' | 'codex',
+  info: { size: number; mtimeMs: number },
+  prior: UsageFileScan | undefined,
+): Promise<UsageFileScan> {
+  if (prior && prior.fileSize === info.size && prior.mtimeMs === info.mtimeMs) return prior
+  // THE APPEND TEST IS TWO-SIDED. Growing (or holding) length is necessary and
+  // nowhere near sufficient: a rewrite in place satisfies it while invalidating
+  // every byte before the cursor. The head fingerprint is what makes "this is
+  // the same file, only longer" a checked claim rather than an assumption; when
+  // it fails the file is read cold, which is always correct and merely slower.
+  const head = await readHead(path, Math.min(HEAD_SAMPLE_BYTES, info.size))
+  const headMatches =
+    prior !== undefined &&
+    prior.headBytes <= head.length &&
+    hashOf(head.subarray(0, prior.headBytes)) === prior.headHash
+  const base = prior && info.size >= prior.fileSize && headMatches ? prior : undefined
+
+  const complete: UsageRecord[] = []
+  const torn: UsageRecord[] = []
+  const counted = new Set(base?.tailIds ?? [])
+  // Ids banked in THIS pass. The torn tail is folded separately from the
+  // complete lines, so without this a response whose duplicate rows straddle
+  // the file's last newline would be counted in both folds.
+  const thisPass = new Set<string>()
+  let model = base?.model ?? 'unknown'
+  const consumedBytes = await streamJsonl(path, base?.scannedBytes ?? 0, (line, whole) => {
+    let rec: UsageRecord | null
+    if (harness === 'claude-code') {
+      // Cheap reject before JSON.parse: most transcript lines carry no usage.
+      if (!line.includes('"usage"')) return
+      rec = parseLine(line, (record) => usageFromRecord(record))
+    } else {
+      if (line.includes('"turn_context"')) {
+        model = parseLine(line, codexModelOf) ?? model
+        return
+      }
+      if (!line.includes('"token_count"')) return
+      rec = parseLine(line, (record) => codexUsageFromRecord(record, model))
+    }
+    if (!rec) return
+    if (rec.responseId && counted.has(rec.responseId)) return
+    if (whole) {
+      if (rec.responseId) thisPass.add(rec.responseId)
+      complete.push(rec)
       return
     }
-    if (!line.includes('"token_count"')) return
-    const rec = parseLine(line, (record) => codexUsageFromRecord(record, model))
-    if (rec && rec.tsMs >= sinceMs) out.push(rec)
+    if (rec.responseId && thisPass.has(rec.responseId)) return
+    torn.push(rec)
   })
-  return out
+
+  // FOLDED, NOT SPREAD. `Math.min(...stamps)` passes one argument per usage
+  // record, and the cold path no longer filters by `sinceMs`, so `stamps` is the
+  // whole transcript rather than the window. Past the engine's argument limit the
+  // spread throws RangeError, `scanJsonlTranscripts` swallows it per file, and
+  // the transcript vanishes from the buckets AND the sources silently, forever,
+  // re-failing on every walk because it is never cached either.
+  //
+  // NAME THE ENGINE, BECAUSE THE TWO LIMITS DIFFER BY AN ORDER OF MAGNITUDE. The
+  // ~125k figure quoted for this failure is NODE/V8's. The daemon runs on
+  // BUN/JSC, where the limit is roughly 500k-1M — measured, and a 1.1M-record
+  // 262MB transcript was built to confirm the old code threw there while this
+  // fold does not. So on the runtime that actually runs this, the bug needed a
+  // far larger transcript than "125k records" suggests. The fold stays
+  // regardless: an unbounded spread over attacker-free but unbounded input is a
+  // landmine whatever the constant, and folding costs nothing.
+  let minTsMs = Number.POSITIVE_INFINITY
+  let maxTsMs = 0
+  for (const list of [complete, torn]) {
+    for (const rec of list) {
+      if (rec.tsMs < minTsMs) minTsMs = rec.tsMs
+      if (rec.tsMs > maxTsMs) maxTsMs = rec.tsMs
+    }
+  }
+  const seen = complete.length + torn.length > 0
+  // A file with nothing in it yet reads 0/0 rather than an infinity, because the
+  // wire says these are non-negative integers and a cold file is not an error.
+  const firstTsMs = base?.firstTsMs || (seen ? minTsMs : 0)
+  const ids = [...(base?.tailIds ?? [])]
+  for (const rec of complete) if (rec.responseId) ids.push(rec.responseId)
+  return {
+    path,
+    harness,
+    scannedBytes: consumedBytes,
+    fileSize: info.size,
+    mtimeMs: info.mtimeMs,
+    firstTsMs: seen ? Math.min(firstTsMs || Number.POSITIVE_INFINITY, minTsMs) : firstTsMs,
+    lastTsMs: Math.max(base?.lastTsMs ?? 0, maxTsMs, 0),
+    buckets: base ? mergeBuckets([...base.buckets, ...bucketize(complete)]) : bucketize(complete),
+    tailBuckets: bucketize(torn),
+    model,
+    tailIds: ids.slice(-TAIL_ID_MEMORY),
+    headHash: hashOf(head),
+    headBytes: head.length,
+  }
 }
+
+/**
+ * Fingerprint the first `HEAD_SAMPLE_BYTES` of a file.
+ *
+ * A transcript's head is its `session_meta` / first records — stable for the
+ * life of an append-only file and different in any file rewritten from scratch.
+ * Sampling the head rather than the whole file is what keeps this O(1) per walk
+ * instead of re-reading the 4GB the cursor exists to avoid.
+ */
+const HEAD_SAMPLE_BYTES = 4096
+
+async function readHead(path: string, length: number): Promise<Buffer> {
+  if (length <= 0) return Buffer.alloc(0)
+  const handle = await open(path, 'r')
+  try {
+    const buffer = Buffer.alloc(length)
+    const { bytesRead } = await handle.read(buffer, 0, length, 0)
+    return buffer.subarray(0, bytesRead)
+  } finally {
+    await handle.close()
+  }
+}
+
+const hashOf = (bytes: Buffer): string =>
+  createHash('sha256').update(bytes).digest('hex').slice(0, 32)
 
 /** `JSON.parse` + extract, treating a torn or non-JSON line as nothing. */
 function parseLine<T>(line: string, extract: (record: unknown) => T | null | undefined): T | null {
@@ -532,8 +904,20 @@ function parseLine<T>(line: string, extract: (record: unknown) => T | null | und
   }
 }
 
-/** Read a JSONL file line by line, without holding it in memory. */
-async function streamJsonl(path: string, onLine: (line: string) => void): Promise<void> {
+/**
+ * Read a JSONL file line by line from `fromByte`, without holding it in memory,
+ * and return the offset AFTER THE LAST NEWLINE consumed.
+ *
+ * That return value is the whole point of the signature: it is the only offset a
+ * later read may resume from without either losing or repeating a record. The
+ * unterminated remainder is still handed to `onLine` with `whole: false`, so the
+ * answer being computed right now includes it — it is simply not banked.
+ */
+async function streamJsonl(
+  path: string,
+  fromByte: number,
+  onLine: (line: string, whole: boolean) => void,
+): Promise<number> {
   const handle = await open(path, 'r')
   try {
     const { size } = await handle.stat()
@@ -542,20 +926,30 @@ async function streamJsonl(path: string, onLine: (line: string) => void): Promis
     // character split across a slab boundary is reassembled, not mangled.
     const CHUNK = 1024 * 1024
     const decoder = new LineDecoder()
-    let offset = 0
-    const emit = (line: string): void => {
+    let offset = Math.min(Math.max(fromByte, 0), size)
+    let consumed = offset
+    const emit = (line: string, whole: boolean): void => {
       const trimmed = line.trim()
-      if (trimmed) onLine(trimmed)
+      if (trimmed) onLine(trimmed, whole)
     }
     while (offset < size) {
       const len = Math.min(CHUNK, size - offset)
       const buffer = Buffer.alloc(len)
-      await handle.read(buffer, 0, len, offset)
-      offset += len
-      for (const line of decoder.push(buffer)) emit(line)
+      // ADVANCE BY WHAT WAS ACTUALLY READ, never by the slab length. A short
+      // read is legal, and treating it as a full one would both feed the decoder
+      // the untouched tail of the buffer as content and skip the bytes that were
+      // never read — a silent hole in the middle of a transcript.
+      const { bytesRead } = await handle.read(buffer, 0, len, offset)
+      if (bytesRead <= 0) break
+      const chunk = buffer.subarray(0, bytesRead)
+      const lastNewline = chunk.lastIndexOf(0x0a)
+      if (lastNewline >= 0) consumed = offset + lastNewline + 1
+      offset += bytesRead
+      for (const line of decoder.push(chunk)) emit(line, true)
     }
     const last = decoder.flush()
-    if (last !== null) emit(last)
+    if (last !== null) emit(last, false)
+    return consumed
   } finally {
     await handle.close()
   }

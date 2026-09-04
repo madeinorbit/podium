@@ -18,7 +18,12 @@ export class TranscriptIndexRepository {
   private available = false
   constructor(private readonly db: SqlDatabase) {}
 
-  ensureFts(): void {
+  /**
+   * Create the transcript FTS5 table. Called at boot only when the
+   * `command-palette` flag is on; a build without FTS5 falls into the catch and
+   * every read and write below turns into a no-op through `isAvailable`.
+   */
+  enableFts(): void {
     try {
       this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
         content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`)
@@ -26,6 +31,18 @@ export class TranscriptIndexRepository {
     } catch {
       this.available = false
     }
+  }
+
+  /**
+   * Close the index for this boot without touching the table.
+   *
+   * There is nothing to drop: this table has no triggers, so an unused one costs
+   * only its bytes. Keeping it is what makes turning search back on cheap — these
+   * rows are NOT derivable from the database alone; the only other source is
+   * re-reading the transcript lake from `indexed_bytes = 0`.
+   */
+  disableFts(): void {
+    this.available = false
   }
 
   get isAvailable(): boolean {

@@ -70,6 +70,7 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
+import type { PendingInteractionWire } from '@podium/protocol'
 import type { ExitKind } from '@podium/sync/replica'
 import type { OutboxStorage } from '../outbox'
 import type { FeedCursor } from './feed'
@@ -112,6 +113,14 @@ export interface ReplicaRows {
    *  capped tail and evicts by `delete`, so this collection does not grow with
    *  the installation's history. */
   issueEvents: IssueEventWire
+  /** OPEN blocking asks [POD-2020, spec §4] — the interactions a session is
+   *  stopped on right now, so any surface can show and answer them.
+   *
+   *  A BOUNDED collection by nature rather than by a window: an open ask means a
+   *  session is blocked, and resolving one removes it from the feed. The
+   *  resolved history is deliberately NOT here — it is unbounded audit, read
+   *  over RPC by the one surface that wants it. */
+  pendingInteractions: PendingInteractionWire
   /** Compact Shipping rows, keyed by order and joined locally through issueId. */
   shipOrders: ShipOrderProjection
   conversations: ConversationSummaryWire
@@ -147,6 +156,7 @@ export interface ReplicaHydrateResult {
   issueDeps: IssueDepProjection[]
   repos: RepoProjection[]
   issueEvents: IssueEventWire[]
+  pendingInteractions: PendingInteractionWire[]
   shipOrders: ShipOrderProjection[]
   conversations: ConversationSummaryWire[]
   automations: AutomationWire[]

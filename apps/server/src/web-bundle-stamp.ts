@@ -52,7 +52,6 @@ export interface BundleStatus {
   bundleDigest?: string
   /** What this server computes for itself. Always present. */
   serverDigest: string
-  builtAt?: string
 }
 
 /**
@@ -168,15 +167,13 @@ export function gradeWebBundle(webDir: string): BundleStatus {
     try {
       const stamp = parseBuildStamp(JSON.parse(readFileSync(stampPath, 'utf8')))
       const bundleDigest = typeof stamp.wireSchemaDigest === 'string' ? stamp.wireSchemaDigest : ''
-      const builtAt = typeof stamp.builtAt === 'string' ? stamp.builtAt : undefined
       status = bundleDigest
         ? {
             grade: bundleDigest === serverDigest ? 'ok' : 'stale',
             bundleDigest,
             serverDigest,
-            builtAt,
           }
-        : { grade: 'unstamped', serverDigest, builtAt }
+        : { grade: 'unstamped', serverDigest }
     } catch {
       // A corrupt stamp is a stamp we cannot read: same verdict as none, never ok.
       status = { grade: 'unstamped', serverDigest }

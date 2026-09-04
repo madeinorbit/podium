@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  The page for harness/usage-sheet-entry.tsx (POD-1861). Served at
+  /harness/usage-sheet.html by vite.usage-harness.config.ts, which redirects
+  `@/app/store` to harness/usage-sheet-store-stub.ts.
+
+  THE THEME LIVES ON THE ROOT ELEMENT: `index.css` defines every colour token
+  under `[data-theme="podium"]`, so a harness page without it resolves the
+  sheet's rules and rails to nothing.
+-->
+<html lang="en" class="dark" data-theme="podium">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Usage sheet harness</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/harness/usage-sheet-entry.tsx"></script>
+  </body>
+</html>

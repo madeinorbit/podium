@@ -15,25 +15,34 @@
  * THIS side: the shell exports its own PID as `PODIUM_SUPERVISOR_PID`, and a
  * supervised process shuts itself down as soon as that PID is gone.
  *
- * Two signals, because each covers the other's blind spot:
+ * Three exit cues cover deliberate shutdown plus both supervisor-loss shapes:
  *
+ *  - **Shutdown marker.** The shell writes a PID-scoped file before reaping the
+ *    child. This is the portable graceful-shutdown request, including Windows.
  *  - **Reparenting.** When we were spawned directly by the supervisor, our ppid
  *    IS its pid; the kernel changes it to init/launchd the moment the supervisor
  *    dies. Exact and immune to PID reuse, but only available for a direct child.
  *  - **Liveness.** `kill(pid, 0)` covers the indirect case (a wrapper between us
  *    and the shell), where ppid was never the supervisor's to begin with.
  *
- * A process that means to outlive its launcher — every `detached: true` spawn in
- * the tree — must not inherit this. {@link unsupervisedEnv} strips the variable
- * for exactly those spawns, the same way they already strip `NOTIFY_SOCKET`.
+ * A process that means to outlive its launcher, including every `detached: true`
+ * spawn in the tree, must not inherit either supervisor signal.
+ * {@link unsupervisedEnv} strips both for exactly those spawns.
  */
 import { createLogger } from '@podium/logger'
+import { existsSync } from 'node:fs'
 import { isAlive } from './run-registry'
 
 const log = createLogger('runtime:supervisor')
 
 /** Set by the desktop shell (apps/desktop/src-tauri/src/main.rs) to its own PID. */
 export const SUPERVISOR_PID_ENV = 'PODIUM_SUPERVISOR_PID'
+/**
+ * Optional file the desktop shell creates for a deliberate, graceful shutdown.
+ * Windows has no SIGTERM equivalent in `std::process`; the file gives every OS
+ * the same bounded close path without adding a localhost control endpoint.
+ */
+export const SUPERVISOR_SHUTDOWN_FILE_ENV = 'PODIUM_SUPERVISOR_SHUTDOWN_FILE'
 
 /**
  * How often to re-check the supervisor. A second is far below the window in
@@ -62,11 +71,14 @@ export interface SupervisorProbe {
   ppid: () => number
   /** Is `pid` a live process? {@link isAlive} in production. */
   alive: (pid: number) => boolean
+  /** Has the desktop shell written its deliberate-shutdown marker? */
+  shutdownRequested: (path: string) => boolean
 }
 
 const realProbe: SupervisorProbe = {
   ppid: () => process.ppid,
   alive: (pid) => isAlive(pid),
+  shutdownRequested: (path) => existsSync(path),
 }
 
 /**
@@ -130,6 +142,8 @@ export function watchSupervisor(
   if (supervisorPid === undefined) return undefined
 
   const directChild = probe.ppid() === supervisorPid
+  const shutdownFile =
+    options.env?.[SUPERVISOR_SHUTDOWN_FILE_ENV] ?? process.env[SUPERVISOR_SHUTDOWN_FILE_ENV]
   const scheduler = options.scheduler ?? realScheduler
 
   // `stop` is only readable once `every` has returned it; a scheduler that fires
@@ -138,10 +152,16 @@ export function watchSupervisor(
   let fired = false
   const check = (): void => {
     if (fired) return
-    if (!supervisorGone(supervisorPid, directChild, probe)) return
+    const requested =
+      shutdownFile !== undefined && shutdownFile !== '' && probe.shutdownRequested(shutdownFile)
+    if (!requested && !supervisorGone(supervisorPid, directChild, probe)) return
     fired = true
     stop?.()
-    log.warn('supervisor exited — shutting down with it', { supervisorPid, directChild })
+    if (requested) {
+      log.info('supervisor requested graceful shutdown', { supervisorPid })
+    } else {
+      log.warn('supervisor exited — shutting down with it', { supervisorPid, directChild })
+    }
     onOrphaned(supervisorPid)
   }
 
@@ -155,7 +175,7 @@ export function watchSupervisor(
 }
 
 /**
- * A copy of `env` with the supervisor PID removed, for a spawn that is MEANT to
+ * A copy of `env` with the supervisor PID and shutdown marker removed, for a spawn that is MEANT to
  * outlive this process (`detached: true`). Without this a detached successor
  * inherits our supervisor and takes itself down when the shell dies — which is
  * the opposite of what detaching it was for.
@@ -167,5 +187,6 @@ export function watchSupervisor(
 export function unsupervisedEnv<T extends Record<string, string | undefined>>(env: T): T {
   const copy = { ...env }
   delete copy[SUPERVISOR_PID_ENV]
+  delete copy[SUPERVISOR_SHUTDOWN_FILE_ENV]
   return copy
 }

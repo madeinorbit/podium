@@ -376,7 +376,7 @@ export function SessionContextMenu({
                 <span className="size-2 rounded-full bg-muted-foreground" aria-hidden="true" />
                 {machine.name}
                 <span className={MENU_HINT}>
-                  {handoffRejectionText(rejection, session.agentKind)}
+                  {handoffRejectionText(rejection, session.agentKind, machine)}
                 </span>
               </button>
             ) : (

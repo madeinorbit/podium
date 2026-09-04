@@ -13,10 +13,6 @@ vi.mock('expo-haptics', () => ({
   // returning undefined throws inside the press handler before onPress runs.
   impactAsync: vi.fn(async () => {}),
 }))
-vi.mock('lucide-react-native', () => ({
-  Moon: () => null,
-  RotateCcw: () => null,
-}))
 
 const { MobileSessionLifecycle } = await import('./SessionLifecycle')
 

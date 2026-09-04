@@ -117,3 +117,61 @@ export const TranscriptMirrorResultMessage = z.object({
   error: z.string().optional(),
 })
 export type TranscriptMirrorResultMessage = z.infer<typeof TranscriptMirrorResultMessage>
+
+// ---------------------------------------------------------------------------
+// The turn preview — the in-progress half of a turn (POD-2293)
+// ---------------------------------------------------------------------------
+
+/**
+ * One row of the preview: content the agent is producing RIGHT NOW.
+ *
+ * Two arms, because the drivers produce two shapes and folding them into one
+ * would lose what a viewer needs to render. `text` is an assistant message being
+ * written, accumulated from token fragments — there is no item yet, only the
+ * characters. `running` is a whole item that exists and has not finished, which
+ * for every family in the fleet means a tool call between its start and its
+ * result.
+ *
+ * `itemId` is the CONTRACT'S STREAM IDENTITY (`streamItemIdOf`), not a provider
+ * id and not the item's own `id`. It is what lets the row disappear at the right
+ * moment: when the durable item carrying that identity lands on the transcript
+ * plane, the preview row for it is retired rather than rendered beside it.
+ */
+export const TurnPreviewItem = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('text'), itemId: z.string().min(1), text: z.string() }),
+  z.object({ kind: z.literal('running'), itemId: z.string().min(1), item: TranscriptItem }),
+])
+export type TurnPreviewItem = z.infer<typeof TurnPreviewItem>
+
+/**
+ * server → client: the whole in-progress turn, as a SNAPSHOT.
+ *
+ * ---------------------------------------------------------------------------
+ * WHY A SNAPSHOT AND NOT A DELTA, ON THIS HOP
+ * ---------------------------------------------------------------------------
+ *
+ * Every frame carries the complete preview, so the plane is self-healing: a
+ * dropped or reordered frame costs nothing (apply-if-newer on
+ * `(turnEpoch, seq)`), a client that subscribes mid-turn needs no replay
+ * protocol beyond the single retained frame, and fanning out to five viewers
+ * needs no per-viewer cursor. The volume is a reply in progress, not a terminal,
+ * and the server coalesces before it sends — so the retransmission this costs is
+ * bounded by the coalescing rate rather than by the token rate.
+ *
+ * `seq` is the contract cursor ordinal of the last event folded in. It orders
+ * frames within an epoch; `turnEpoch` orders across them, and a frame for an
+ * epoch older than the one a client is showing is dropped rather than applied.
+ *
+ * `done` is the terminal: the turn fenced, and every preview row for that epoch
+ * must go. It is not an error signal — how the turn ENDED is the transcript's
+ * business, and the tail's.
+ */
+export const TurnPreviewMessage = z.object({
+  type: z.literal('turnPreview'),
+  sessionId: SessionIdField,
+  turnEpoch: z.number().int().nonnegative(),
+  seq: z.number().int().nonnegative(),
+  items: z.array(TurnPreviewItem),
+  done: z.boolean().optional(),
+})
+export type TurnPreviewMessage = z.infer<typeof TurnPreviewMessage>

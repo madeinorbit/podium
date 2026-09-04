@@ -1,0 +1,77 @@
+{
+  "cell": "A1C",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a1c",
+  "at": "2026-08-28T14:32:57.429Z",
+  "pin": {
+    "cell": "A1C",
+    "at": "2026-08-28T14:32:57.490Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "b7da1db857f835f3bb95e23902eb049a5ce6e942",
+    "pinSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "serverSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "daemonSha": "593e40ef55a2e0c68f68f7f9028def95dc18d507",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "b7da1db",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1434135",
+    "daemonPid": "1453628",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18837872 kB",
+      "SwapFree": "41118756 kB"
+    },
+    "rootFreeKiB": 83265572,
+    "load1m": 13.58,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no claude-sdk-host child exists between turns — the SDK path spawns its model host per turn, so this cell has no persistent agent process to kill. Killing anything else would test a bystander.",
+  "control": {
+    "fired": false,
+    "what": "a baseline prompt/reply and the exact claude-sdk-host child PID appearing before death",
+    "detail": "baseline user=true; baseline reply=true; claudeSdkHostPid=(none)"
+  },
+  "evidence": [
+    "BASELINE          {\"needle\":\"P3047-A1C-CONTROL-MTD1X2AA\",\"sent\":{\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}},\"user\":{\"ok\":true,\"ms\":225,\"items\":[]},\"assistant\":{\"ok\":true,\"ms\":5132,\"items\":[]}}",
+    "HOST CHILDREN     []",
+    "ALL IN CWD        []"
+  ],
+  "data": {
+    "sid": "4970c55f-c3be-4996-a4b2-7ee1cc4ad4c0",
+    "before": [],
+    "allInCwd": []
+  }
+}

@@ -1,4 +1,4 @@
-use std::net::TcpListener;
+use std::net::{IpAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use tauri::webview::cookie::{Cookie, SameSite};
 use tauri::{Url, WebviewUrl};
@@ -152,6 +152,12 @@ pub fn build_update_channel() -> UpdateChannel {
 pub struct DesktopConfig {
     pub mode: Option<String>,
     pub server_url: Option<String>,
+    /// WHERE THE UI FOR `server_url` LIVES, when it is not that server (PDM-34).
+    ///
+    /// Written by the local server at connect/join time from the remote's advertised
+    /// `appUrl`; absent for every install whose server serves its own UI, which is the
+    /// case this shell has always handled and still handles identically.
+    pub ui_url: Option<String>,
     /// Stable local listen port (`resolvePort` / webview origin). See [`resolve_local_port`].
     pub port: Option<u16>,
     /// A valid user choice from config.json. Absence and unknown values deliberately remain
@@ -175,9 +181,20 @@ pub enum LaunchAction {
     LocalServerOnly,
     /// Spawn the local `podium` (which reads config → daemon mode → connects to `server_url`);
     /// the window points at the remote (no local server to wait for).
-    LocalDaemon { server_url: String },
-    /// Spawn nothing; the window points at the remote server.
-    ClientOnly { server_url: String },
+    LocalDaemon {
+        server_url: String,
+        /// The origin the WINDOW loads, when the server does not serve the UI itself
+        /// (PDM-34). `None` — every self-hosted install — keeps today's behaviour of
+        /// loading the server's own URL. Only the window target and the IPC capability
+        /// origin follow it; the daemon still dials `server_url`.
+        ui_url: Option<String>,
+    },
+    /// Spawn nothing; the window points at the remote server (or, under split hosting,
+    /// at `ui_url` — see [`LaunchAction::LocalDaemon`]).
+    ClientOnly {
+        server_url: String,
+        ui_url: Option<String>,
+    },
 }
 
 /// What a desktop supervisor should do when its locally-hosted backend exits.
@@ -189,6 +206,9 @@ pub enum BackendExitDecision {
         server_url: String,
     },
     Hold {
+        reason: String,
+    },
+    BlockedServerTransport {
         reason: String,
     },
 }
@@ -242,11 +262,7 @@ fn is_local_host(action: &LaunchAction) -> bool {
 /// updater resolves the missing channel against the build stamp rather than inventing a persisted
 /// choice.
 pub fn read_config() -> DesktopConfig {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    let path = std::path::Path::new(&base).join("config.json");
+    let path = state_dir().join("config.json");
     let text = match std::fs::read_to_string(&path) {
         Ok(t) => t,
         Err(_) => return DesktopConfig::default(),
@@ -263,6 +279,13 @@ pub fn read_config() -> DesktopConfig {
         server_url: json
             .get("serverUrl")
             .and_then(|v| v.as_str())
+            .map(str::to_string),
+        // Empty is not a UI origin, and treating it as one would send the window
+        // to an unparseable URL instead of to the server that does work.
+        ui_url: json
+            .get("uiUrl")
+            .and_then(|v| v.as_str())
+            .filter(|v| !v.is_empty())
             .map(str::to_string),
         port: json.get("port").and_then(|v| v.as_u64()).and_then(|n| {
             u16::try_from(n).ok().filter(|p| *p > 0)
@@ -284,26 +307,112 @@ pub fn read_config() -> DesktopConfig {
 /// `pub` because the native log sink writes under the SAME state dir the server
 /// family logs to — one resolution rule, not two that can drift apart.
 pub fn state_dir() -> PathBuf {
-    let base = std::env::var("PODIUM_STATE_DIR").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        format!("{home}/.podium")
-    });
-    PathBuf::from(base)
+    state_dir_from_parts(
+        std::env::var_os("PODIUM_STATE_DIR").map(PathBuf::from),
+        std::env::var_os("HOME").map(PathBuf::from),
+        std::env::var_os("USERPROFILE").map(PathBuf::from),
+        std::env::var_os("HOMEDRIVE"),
+        std::env::var_os("HOMEPATH"),
+        std::env::temp_dir(),
+        cfg!(target_os = "windows"),
+    )
 }
 
-fn remote_http_url(server_url: &str) -> Result<Url, String> {
-    let url = Url::parse(&webview_http_url(server_url)).map_err(|error| error.to_string())?;
-    if !matches!(url.scheme(), "http" | "https") {
-        return Err(format!("unsupported remote URL scheme: {}", url.scheme()));
+fn state_dir_from_parts(
+    configured: Option<PathBuf>,
+    home: Option<PathBuf>,
+    user_profile: Option<PathBuf>,
+    home_drive: Option<std::ffi::OsString>,
+    home_path: Option<std::ffi::OsString>,
+    temp_dir: PathBuf,
+    windows: bool,
+) -> PathBuf {
+    let nonempty = |path: PathBuf| (!path.as_os_str().is_empty()).then_some(path);
+    if let Some(configured) = configured.and_then(nonempty) {
+        return configured;
     }
-    Ok(url)
+
+    let windows_home = || {
+        user_profile.and_then(nonempty).or_else(|| {
+            let mut combined = home_drive?;
+            if combined.is_empty() {
+                return None;
+            }
+            let suffix = home_path?;
+            if suffix.is_empty() {
+                return None;
+            }
+            combined.push(suffix);
+            nonempty(PathBuf::from(combined))
+        })
+    };
+    let base = if windows {
+        windows_home().or_else(|| home.and_then(nonempty))
+    } else {
+        home.and_then(nonempty)
+    }
+    .unwrap_or(temp_dir);
+    base.join(".podium")
+}
+
+fn is_loopback_server(url: &Url) -> bool {
+    let Some(host) = url.host_str() else {
+        return false;
+    };
+    let ip_literal = host
+        .strip_prefix('[')
+        .and_then(|host| host.strip_suffix(']'))
+        .unwrap_or(host);
+    host == "localhost"
+        || ip_literal
+            .parse::<IpAddr>()
+            .is_ok_and(|address| address.is_loopback())
+}
+
+/// Enforce the desktop shell's transport boundary before it loads a server-controlled page or
+/// grants native capabilities to that page. Plain HTTP and WebSocket transport stay available for
+/// local development, but only on localhost, 127.0.0.0/8, or ::1. Every other server needs TLS.
+pub fn validate_server_transport(server_url: &str) -> Result<Url, String> {
+    let url = Url::parse(server_url).map_err(|error| format!("invalid server URL: {error}"))?;
+    let host = url
+        .host_str()
+        .filter(|host| !host.is_empty())
+        .ok_or_else(|| "server URL has no host".to_string())?;
+    match url.scheme() {
+        "https" | "wss" => Ok(url),
+        "http" | "ws" if is_loopback_server(&url) => Ok(url),
+        "http" | "ws" => Err(format!(
+            "Podium blocked an insecure connection to {host}. Desktop connections to non-loopback servers require HTTPS or WSS."
+        )),
+        scheme => Err(format!(
+            "Podium Desktop does not support the {scheme} server URL scheme. Use HTTPS or WSS, or HTTP or WS for a loopback server."
+        )),
+    }
+}
+
+/// Parse the page URL the desktop webview will load after applying the transport policy. Relay
+/// ws(s) schemes map to the matching http(s) origin because the server serves both protocols.
+pub fn validated_webview_http_url(server_url: &str) -> Result<Url, String> {
+    let server = validate_server_transport(server_url)?;
+    Url::parse(&webview_http_url(server.as_str())).map_err(|error| error.to_string())
+}
+
+/// Apply the transport policy to every top-level document, including redirects and script-driven
+/// navigation. The two Tauri document forms are signed bundled content, not configured servers.
+pub fn validate_desktop_navigation(url: &Url) -> Result<(), String> {
+    let is_bundled_document = (url.scheme() == "tauri" && url.host_str() == Some("localhost"))
+        || (url.scheme() == "http" && url.host_str() == Some("tauri.localhost"));
+    if is_bundled_document {
+        return Ok(());
+    }
+    validate_server_transport(url.as_str()).map(|_| ())
 }
 
 /// Build the one session cookie copied across a committed desktop origin transition. The value
 /// stays in memory; omitting expiry/max-age keeps it a session cookie, while the validated target
 /// host, root path, and transport flags prevent it from escaping to an unrelated origin.
 pub fn session_cookie_for_target(value: &str, server_url: &str) -> Result<Cookie<'static>, String> {
-    let target = remote_http_url(server_url)?;
+    let target = validated_webview_http_url(server_url)?;
     let host = target
         .host_str()
         .filter(|host| !host.is_empty())
@@ -335,6 +444,7 @@ pub fn classify_backend_exit(
     let current_action = resolve_launch(
         current_config.mode.as_deref(),
         current_config.server_url.as_deref(),
+        current_config.ui_url.as_deref(),
     );
     let same_host_role = matches!(
         (initial_action, &current_action),
@@ -372,7 +482,7 @@ pub fn classify_backend_exit(
         };
     }
 
-    let LaunchAction::LocalDaemon { server_url } = current_action else {
+    let LaunchAction::LocalDaemon { server_url, .. } = current_action else {
         return BackendExitDecision::Hold {
             reason: format!(
                 "desktop backend role changed without a daemon target: {current_action:?}"
@@ -400,13 +510,13 @@ pub fn classify_backend_exit(
             ),
         };
     }
-    let config_url = match remote_http_url(&server_url) {
+    let config_url = match validated_webview_http_url(&server_url) {
         Ok(url) => url,
-        Err(reason) => return BackendExitDecision::Hold { reason },
+        Err(reason) => return BackendExitDecision::BlockedServerTransport { reason },
     };
-    let journal_url = match remote_http_url(&marker.public_url) {
+    let journal_url = match validated_webview_http_url(&marker.public_url) {
         Ok(url) => url,
-        Err(reason) => return BackendExitDecision::Hold { reason },
+        Err(reason) => return BackendExitDecision::BlockedServerTransport { reason },
     };
     if config_url != journal_url {
         return BackendExitDecision::Hold {
@@ -599,17 +709,29 @@ pub fn initialize_update_channel(
 ///
 /// - `client` + serverUrl  → ClientOnly (spawn nothing, window → remote)
 /// - `daemon` + serverUrl  → LocalDaemon (spawn local podium daemon, window → remote)
+///
+/// `ui_url` rides along on the two remote actions rather than deciding any of them: under
+/// split hosting it changes only what the WINDOW loads, never what this box runs or what
+/// its daemon dials. A `uiUrl` with no `serverUrl` is therefore not a mode — it falls
+/// through to LocalAllInOne exactly as it does today.
 /// - `server` (with or without serverUrl) → LocalServerOnly (spawn `podium server`, no daemon,
 ///   window → local port). Previously this fell through to LocalAllInOne, silently running a
 ///   local daemon + agents on a hub-only box (#176).
 /// - everything else (all-in-one / unset / missing serverUrl) → LocalAllInOne
-pub fn resolve_launch(mode: Option<&str>, server_url: Option<&str>) -> LaunchAction {
+pub fn resolve_launch(
+    mode: Option<&str>,
+    server_url: Option<&str>,
+    ui_url: Option<&str>,
+) -> LaunchAction {
+    let ui_url = ui_url.filter(|url| !url.is_empty()).map(str::to_string);
     match (mode, server_url) {
         (Some("client"), Some(url)) if !url.is_empty() => LaunchAction::ClientOnly {
             server_url: url.to_string(),
+            ui_url,
         },
         (Some("daemon"), Some(url)) if !url.is_empty() => LaunchAction::LocalDaemon {
             server_url: url.to_string(),
+            ui_url,
         },
         (Some("server"), _) => LaunchAction::LocalServerOnly,
         _ => LaunchAction::LocalAllInOne,
@@ -817,16 +939,80 @@ pub fn remote_injection_script(server_url: &str) -> String {
 /// the raw plugin invoke avoids adding a Tauri JS dependency to apps/web (same pattern
 /// as the __PODIUM_RESTART__ hook). `window.open` returns a stub WindowProxy-alike so
 /// callers that probe the return value (e.g. `opened.opener = null`) keep working.
+///
+/// EXTERNAL IS NOT "CROSS-ORIGIN" (POD-1606). This used to compare against
+/// `window.location.origin` alone, which in all-in-one mode is `tauri://localhost`
+/// while the server the app talks to is `http://127.0.0.1:<port>` — so a link to the
+/// reader's OWN Podium was cross-origin and left the app for Safari. In client mode the
+/// window already sits on the server origin, so the identical URL stayed in-app: same
+/// link, opposite behaviour, decided by how the app happened to launch. The shim now
+/// also counts the injected `__PODIUM_SERVER__` endpoint as ours, read lazily so a
+/// window that navigates to a transferred remote origin keeps agreeing with the page.
+///
+/// A link this shim declines is one the WEB APP must answer — the markdown pipeline and
+/// the offer renderer navigate known-Podium links in-page (apps/web/src/lib/markdown.ts,
+/// features/chat/OfferText.tsx) — and a caller that wants the OS browser for one of OUR
+/// urls asks for it explicitly through `openInSystemBrowser`, which is the mirror of
+/// this test (apps/web/src/lib/nativeDesktop.ts).
 pub fn opener_shim_script() -> &'static str {
     r#";(() => {
   const t = window.__TAURI_INTERNALS__;
   if (!t || typeof t.invoke !== 'function') return;
-  const externalHref = (raw) => {
+  const httpOrigin = (raw) => {
     try {
-      const u = new URL(raw, window.location.href);
-      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
-      return u.origin === window.location.origin ? null : u.href;
+      const u = new URL(raw);
+      const p = u.protocol === 'ws:' ? 'http:' : u.protocol === 'wss:' ? 'https:' : u.protocol;
+      if ((p !== 'http:' && p !== 'https:') || !u.hostname) return null;
+      return p + '//' + u.hostname + (u.port ? ':' + u.port : '');
     } catch { return null; }
+  };
+  const activeOrigin = () => {
+    const server = window.__PODIUM_SERVER__;
+    if (typeof server === 'string') return httpOrigin(server);
+    return httpOrigin(window.location.href);
+  };
+  const isOurs = (origin) => {
+    if (origin === null) return false;
+    return activeOrigin() === origin;
+  };
+  const cleanedHref = (raw) => String(raw).replace(/[\t\n\r]/g, '').trim();
+  const handoffHref = (href, parsed) => {
+    if (/^[\\/][\\/]/.test(href)) {
+      const query = href.indexOf('?');
+      const fragment = href.indexOf('#');
+      const detailAt = query === -1 ? fragment : fragment === -1 ? query : Math.min(query, fragment);
+      const address = detailAt === -1 ? href : href.slice(0, detailAt);
+      const detail = detailAt === -1 ? '' : href.slice(detailAt);
+      return parsed.protocol + address.replace(/\\/g, '/') + detail;
+    }
+    return parsed.href;
+  };
+  const externalHref = (raw) => {
+    const href = cleanedHref(raw);
+    try {
+      const base = activeOrigin() || window.location.href;
+      const u = new URL(href, base);
+      if (u.protocol !== 'http:' && u.protocol !== 'https:') return null;
+      const outgoing = handoffHref(href, u);
+      // An authority-relative address is external by definition in the shared
+      // resolver, even when it happens to repeat the active server's host.
+      // Treating that spelling as ours leaves its target=_blank to WKWebView,
+      // which drops both clicks and window.open.
+      if (/^[\\/][\\/]/.test(href)) return outgoing;
+      // Userinfo is how a link disguises its real host. The protocol resolver
+      // refuses it outright, and the two halves have to answer alike: if this
+      // one called it ours it would decline, the page would have stamped
+      // target=_blank, and WKWebView would drop the click on the floor.
+      if (u.username || u.password) return outgoing;
+      // `server` is BOOT configuration, never detail for the active replica.
+      // The web resolver declines it so the destination can reboot against the
+      // selected server; this capture-phase half must therefore hand it out
+      // rather than swallowing the blank-target fallback as one of "ours".
+      if (u.searchParams.has('server')) return outgoing;
+      return isOurs(httpOrigin(u.href)) ? null : outgoing;
+    } catch {
+      return /^https?:\/\//i.test(href) ? href : null;
+    }
   };
   const openExternal = (href) => { t.invoke('plugin:opener|open_url', { url: href }).catch(() => {}); };
   const nativeOpen = window.open.bind(window);
@@ -840,7 +1026,7 @@ pub fn opener_shim_script() -> &'static str {
     if (e.defaultPrevented) return;
     const a = e.target && e.target.closest ? e.target.closest('a[href]') : null;
     if (!a) return;
-    const href = externalHref(a.href);
+    const href = externalHref(a.getAttribute('href') || a.href);
     if (href === null) return;
     e.preventDefault();
     openExternal(href);
@@ -949,16 +1135,43 @@ pub fn webview_http_url(server_url: &str) -> String {
     }
 }
 
-/// Decide what a remote-mode (client/daemon) window loads. Preferred: load the relay's own URL
-/// directly so the page is SAME-ORIGIN with the relay — WKWebView's WebSocket from a
-/// tauri://localhost page to a remote TLS relay fails (1006), but a same-origin load connects
-/// (a browser tab / Safari already work this way). The page then derives the server from its own
-/// location, so no injection is needed. Fallback (unparseable URL): load the bundled UI and inject
-/// the server global, preserving the old behavior rather than failing to open a window.
-pub fn remote_window_target(server_url: &str) -> (WebviewUrl, String) {
-    match Url::parse(&webview_http_url(server_url)) {
-        Ok(url) => (WebviewUrl::External(url), String::new()),
-        Err(_) => (WebviewUrl::default(), remote_injection_script(server_url)),
+/// Decide what a remote-mode (client/daemon) window loads. The relay page is same-origin with its
+/// HTTP API and WebSocket. Validation happens first so an insecure non-loopback page never loads
+/// and never reaches the native capability grant path.
+///
+/// SPLIT HOSTING (PDM-34): when the server told us its UI lives elsewhere, `ui_url` wins and the
+/// window loads the app host instead. The page is then NOT same-origin with the API — but it is
+/// same-SITE, which is what the 1006 failure and the session cookie both actually turn on, and the
+/// app host stamps `window.__PODIUM_SERVER__` into its own shell, so no injection is needed here
+/// either. The app host goes through the SAME transport policy as the server: a `ui_url` that will
+/// not parse, or that the policy refuses, is IGNORED rather than fatal — the validated server URL
+/// still works, and a window on it beats no window at all. Split hosting is never a reason to load
+/// a page the policy would refuse.
+pub fn remote_window_target(
+    server_url: &str,
+    ui_url: Option<&str>,
+) -> Result<(WebviewUrl, String), String> {
+    if let Some(url) = ui_url
+        .filter(|url| !url.is_empty())
+        .and_then(|url| validated_webview_http_url(url).ok())
+    {
+        return Ok((WebviewUrl::External(url), String::new()));
+    }
+    validated_webview_http_url(server_url).map(|url| (WebviewUrl::External(url), String::new()))
+}
+
+/// The origin a remote-mode window will actually LOAD — the one the IPC capability grants
+/// have to name (`main.rs`), the cookie has to reach, and nothing else keys off.
+///
+/// It exists as its own function so the grant and the navigation cannot answer the question
+/// differently: a capability derived from the server URL while the window sits on the app host
+/// is a dead grant, and a dead grant looks like a native bridge that silently does nothing.
+pub fn remote_window_origin_url(server_url: &str, ui_url: Option<&str>) -> String {
+    match ui_url.filter(|url| !url.is_empty()) {
+        // The SAME acceptance test `remote_window_target` applies, or the grant would name an
+        // app host the window was refused permission to load.
+        Some(ui_url) if validated_webview_http_url(ui_url).is_ok() => ui_url.to_string(),
+        _ => webview_http_url(server_url),
     }
 }
 
@@ -1356,6 +1569,35 @@ mod tests {
     }
 
     #[test]
+    fn windows_state_dir_uses_the_native_profile_without_home() {
+        let resolved = state_dir_from_parts(
+            None,
+            None,
+            Some(PathBuf::from(r"C:\Users\Ada")),
+            None,
+            None,
+            PathBuf::from(r"C:\Temp"),
+            true,
+        );
+        assert_eq!(resolved, PathBuf::from(r"C:\Users\Ada").join(".podium"));
+    }
+
+    #[test]
+    fn windows_state_dir_prefers_userprofile_to_a_posix_shell_home() {
+        let resolved = state_dir_from_parts(
+            None,
+            Some(PathBuf::from("/c/Users/wrong")),
+            Some(PathBuf::from(r"C:\Users\Ada")),
+            None,
+            None,
+            PathBuf::from(r"C:\Temp"),
+            true,
+        );
+        assert_eq!(resolved, PathBuf::from(r"C:\Users\Ada").join(".podium"));
+    }
+
+
+    #[test]
     fn injection_script_embeds_the_port() {
         let s = injection_script(18799);
         assert!(s.contains("ws://127.0.0.1:18799"));
@@ -1578,8 +1820,74 @@ mod tests {
     }
 
     #[test]
-    fn remote_window_target_loads_the_relay_url_directly() {
-        let (url, injection) = remote_window_target("https://relay.example:55555");
+    fn desktop_transport_allows_plaintext_localhost() {
+        assert!(validate_server_transport("http://localhost:18787").is_ok());
+        assert!(validate_server_transport("ws://localhost:18787").is_ok());
+    }
+
+    #[test]
+    fn desktop_transport_allows_the_whole_ipv4_loopback_block() {
+        assert!(validate_server_transport("http://127.0.0.1:18787").is_ok());
+        assert!(validate_server_transport("ws://127.255.42.9:18787").is_ok());
+    }
+
+    #[test]
+    fn desktop_transport_allows_ipv6_loopback() {
+        assert!(validate_server_transport("http://[::1]:18787").is_ok());
+        assert!(validate_server_transport("ws://[::1]:18787").is_ok());
+    }
+
+    #[test]
+    fn desktop_transport_rejects_plaintext_private_lan_servers() {
+        for url in ["http://192.168.1.20:18787", "ws://10.0.0.8:18787"] {
+            let error = validate_server_transport(url).expect_err(url);
+            assert!(error.contains("require HTTPS or WSS"), "{error}");
+        }
+    }
+
+    #[test]
+    fn desktop_transport_rejects_plaintext_public_servers() {
+        for url in ["http://podium.example", "ws://203.0.113.8:18787"] {
+            let error = validate_server_transport(url).expect_err(url);
+            assert!(error.contains("require HTTPS or WSS"), "{error}");
+        }
+    }
+
+    #[test]
+    fn desktop_transport_accepts_secure_remote_servers() {
+        assert!(validate_server_transport("https://podium.example").is_ok());
+        assert!(validate_server_transport("wss://relay.example:55555").is_ok());
+    }
+
+    #[test]
+    fn desktop_navigation_preserves_bundled_and_secure_documents() {
+        for raw in [
+            "tauri://localhost/",
+            "http://tauri.localhost/",
+            "https://podium.example/workspace",
+            "http://[::1]:18787/",
+        ] {
+            let url = Url::parse(raw).expect(raw);
+            assert!(validate_desktop_navigation(&url).is_ok(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn desktop_navigation_rejects_plaintext_redirects_and_location_changes() {
+        for raw in [
+            "http://192.168.1.20/redirected",
+            "http://podium.example/script-target",
+        ] {
+            let url = Url::parse(raw).expect(raw);
+            let error = validate_desktop_navigation(&url).expect_err(raw);
+            assert!(error.contains("require HTTPS or WSS"), "{error}");
+        }
+    }
+
+    #[test]
+    fn remote_window_target_loads_the_secure_relay_url_directly() {
+        let (url, injection) = remote_window_target("https://relay.example:55555", None)
+            .expect("secure remote transport is allowed");
         // Same-origin load: an external relay URL, and NO injected server global.
         assert!(
             matches!(url, WebviewUrl::External(u) if u.as_str() == "https://relay.example:55555/")
@@ -1588,18 +1896,18 @@ mod tests {
     }
 
     #[test]
-    fn remote_window_target_falls_back_to_bundled_on_bad_url() {
-        let (url, injection) = remote_window_target("not a url");
-        assert!(!matches!(url, WebviewUrl::External(_)));
-        assert!(injection.contains("__PODIUM_SERVER__"));
+    fn remote_window_target_rejects_an_invalid_or_insecure_url() {
+        assert!(remote_window_target("not a url", None).is_err());
+        assert!(remote_window_target("http://podium.example", None).is_err());
     }
 
     #[test]
     fn resolve_launch_client_with_url_is_client_only() {
         assert_eq!(
-            resolve_launch(Some("client"), Some("ws://h:1")),
+            resolve_launch(Some("client"), Some("ws://h:1"), None),
             LaunchAction::ClientOnly {
-                server_url: "ws://h:1".to_string()
+                server_url: "ws://h:1".to_string(),
+                ui_url: None,
             }
         );
     }
@@ -1607,9 +1915,10 @@ mod tests {
     #[test]
     fn resolve_launch_daemon_with_url_is_local_daemon() {
         assert_eq!(
-            resolve_launch(Some("daemon"), Some("ws://h:1")),
+            resolve_launch(Some("daemon"), Some("ws://h:1"), None),
             LaunchAction::LocalDaemon {
-                server_url: "ws://h:1".to_string()
+                server_url: "ws://h:1".to_string(),
+                ui_url: None,
             }
         );
     }
@@ -1617,7 +1926,7 @@ mod tests {
     #[test]
     fn resolve_launch_all_in_one_is_local() {
         assert_eq!(
-            resolve_launch(Some("all-in-one"), None),
+            resolve_launch(Some("all-in-one"), None, None),
             LaunchAction::LocalAllInOne
         );
     }
@@ -1626,32 +1935,183 @@ mod tests {
     fn resolve_launch_server_mode_is_server_only() {
         // #176: a hub-only box must NOT get a local daemon + agents.
         assert_eq!(
-            resolve_launch(Some("server"), None),
+            resolve_launch(Some("server"), None, None),
             LaunchAction::LocalServerOnly
         );
         // A stray serverUrl in config doesn't change it — the server runs locally.
         assert_eq!(
-            resolve_launch(Some("server"), Some("ws://h:1")),
+            resolve_launch(Some("server"), Some("ws://h:1"), None),
             LaunchAction::LocalServerOnly
         );
     }
 
     #[test]
     fn resolve_launch_unset_is_local() {
-        assert_eq!(resolve_launch(None, None), LaunchAction::LocalAllInOne);
+        assert_eq!(resolve_launch(None, None, None), LaunchAction::LocalAllInOne);
     }
 
     #[test]
     fn resolve_launch_client_without_url_falls_back_to_local() {
         // No serverUrl → can't connect remotely; behave as all-in-one rather than break.
         assert_eq!(
-            resolve_launch(Some("client"), None),
+            resolve_launch(Some("client"), None, None),
             LaunchAction::LocalAllInOne
         );
         assert_eq!(
-            resolve_launch(Some("daemon"), Some("")),
+            resolve_launch(Some("daemon"), Some(""), None),
             LaunchAction::LocalAllInOne
         );
+    }
+
+    /// PDM-34: under split hosting the UI is a different origin from the API, and the
+    /// window has to follow the UI while everything else keeps following the server.
+    #[test]
+    fn resolve_launch_carries_the_ui_url_on_both_remote_modes() {
+        assert_eq!(
+            resolve_launch(
+                Some("client"),
+                Some("wss://api.meetpodium.com"),
+                Some("https://app.meetpodium.com")
+            ),
+            LaunchAction::ClientOnly {
+                server_url: "wss://api.meetpodium.com".to_string(),
+                ui_url: Some("https://app.meetpodium.com".to_string()),
+            }
+        );
+        assert_eq!(
+            resolve_launch(
+                Some("daemon"),
+                Some("wss://api.meetpodium.com"),
+                Some("https://app.meetpodium.com")
+            ),
+            LaunchAction::LocalDaemon {
+                server_url: "wss://api.meetpodium.com".to_string(),
+                ui_url: Some("https://app.meetpodium.com".to_string()),
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_treats_an_empty_ui_url_as_absent() {
+        assert_eq!(
+            resolve_launch(Some("client"), Some("wss://api.example"), Some("")),
+            LaunchAction::ClientOnly {
+                server_url: "wss://api.example".to_string(),
+                ui_url: None,
+            }
+        );
+    }
+
+    #[test]
+    fn resolve_launch_ui_url_alone_is_not_a_mode() {
+        // It changes what a remote window LOADS; it never decides that this box is remote.
+        assert_eq!(
+            resolve_launch(Some("client"), None, Some("https://app.meetpodium.com")),
+            LaunchAction::LocalAllInOne
+        );
+        assert_eq!(
+            resolve_launch(Some("server"), Some("wss://h:1"), Some("https://app.example")),
+            LaunchAction::LocalServerOnly
+        );
+    }
+
+    #[test]
+    fn remote_window_target_loads_the_app_host_when_the_server_advertised_one() {
+        let (url, injection) = remote_window_target(
+            "wss://api.meetpodium.com",
+            Some("https://app.meetpodium.com"),
+        )
+        .expect("secure remote transport is allowed");
+        assert!(
+            matches!(url, WebviewUrl::External(u) if u.as_str() == "https://app.meetpodium.com/")
+        );
+        // Still none: the app host stamps __PODIUM_SERVER__ into its own shell.
+        assert_eq!(injection, "");
+    }
+
+    #[test]
+    fn remote_window_target_ignores_an_unusable_ui_url_and_keeps_the_server() {
+        // A window on the server URL beats no window at all. `http://app.example` is the
+        // security case: split hosting must not become a way past the transport policy.
+        for bad in ["not a url", "file:///etc/passwd", "", "http://app.example"] {
+            let (url, injection) = remote_window_target("https://relay.example:55555", Some(bad))
+                .expect("the server URL is still secure");
+            let loaded = match url {
+                WebviewUrl::External(u) => u.to_string(),
+                other => panic!("expected an external URL, got {other:?}"),
+            };
+            assert_eq!(
+                loaded, "https://relay.example:55555/",
+                "ui_url {bad:?} should have been ignored"
+            );
+            assert_eq!(injection, "");
+        }
+    }
+
+    #[test]
+    fn remote_window_origin_url_is_the_origin_the_window_actually_loads() {
+        // The IPC capability grants are derived from this; if it disagreed with
+        // remote_window_target the native bridge would be granted to nobody.
+        assert_eq!(
+            remote_window_origin_url(
+                "wss://api.meetpodium.com",
+                Some("https://app.meetpodium.com")
+            ),
+            "https://app.meetpodium.com"
+        );
+        assert_eq!(
+            remote_window_origin_url("wss://relay.example:55555", None),
+            "https://relay.example:55555"
+        );
+        assert_eq!(
+            remote_window_origin_url("wss://relay.example:55555", Some("not a url")),
+            "https://relay.example:55555"
+        );
+        // A ui_url the transport policy refuses is not the loaded origin either.
+        assert_eq!(
+            remote_window_origin_url("wss://relay.example:55555", Some("http://app.example")),
+            "https://relay.example:55555"
+        );
+    }
+
+    #[test]
+    fn read_config_reads_the_ui_url() {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!("podium-cfg-uiurl-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).unwrap();
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+
+        let split_hosted = concat!(
+            r#"{"mode":"daemon","serverUrl":"wss://api.meetpodium.com","#,
+            r#""uiUrl":"https://app.meetpodium.com"}"#
+        );
+        std::fs::write(tmp.join("config.json"), split_hosted).unwrap();
+        assert_eq!(
+            read_config().ui_url.as_deref(),
+            Some("https://app.meetpodium.com")
+        );
+
+        // A self-hosted config has no such key, and an empty one is not a value.
+        std::fs::write(
+            tmp.join("config.json"),
+            r#"{"mode":"daemon","serverUrl":"wss://relay","uiUrl":""}"#,
+        )
+        .unwrap();
+        assert_eq!(read_config().ui_url, None);
+        std::fs::write(
+            tmp.join("config.json"),
+            r#"{"mode":"daemon","serverUrl":"wss://relay"}"#,
+        )
+        .unwrap();
+        assert_eq!(read_config().ui_url, None);
+
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
@@ -1813,19 +2273,49 @@ mod tests {
             None,
             Some(transfer_marker("committing", "https://new.example")),
             Some(transfer_marker("committed", "https://other.example")),
-            Some(transfer_marker("committed", "file:///not-http")),
         ] {
             assert!(matches!(
                 classify_backend_exit(&LaunchAction::LocalAllInOne, &config, marker.as_deref(),),
                 BackendExitDecision::Hold { .. }
             ));
         }
+        assert!(matches!(
+            classify_backend_exit(
+                &LaunchAction::LocalAllInOne,
+                &config,
+                Some(&transfer_marker("committed", "file:///not-http")),
+            ),
+            BackendExitDecision::BlockedServerTransport { .. }
+        ));
+    }
+
+    #[test]
+    fn committed_insecure_lan_transition_is_blocked_before_retarget() {
+        let config = DesktopConfig {
+            mode: Some("daemon".to_string()),
+            server_url: Some("ws://192.168.1.20:18787".to_string()),
+            ..DesktopConfig::default()
+        };
+        let decision = classify_backend_exit(
+            &LaunchAction::LocalAllInOne,
+            &config,
+            Some(&transfer_marker(
+                "committed",
+                "http://192.168.1.20:18787",
+            )),
+        );
+        assert!(matches!(
+            decision,
+            BackendExitDecision::BlockedServerTransport { reason }
+                if reason.contains("require HTTPS or WSS")
+        ));
     }
 
     #[test]
     fn restarted_daemon_crash_only_respawns_and_cannot_restart_again() {
         let initial = LaunchAction::LocalDaemon {
             server_url: "wss://new.example".to_string(),
+            ui_url: None,
         };
         let config = DesktopConfig {
             mode: Some("daemon".to_string()),
@@ -2273,4 +2763,5 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&tmp);
     }
+
 }

@@ -1,9 +1,11 @@
+import { Buffer } from 'node:buffer'
 import type { SessionId } from '@podium/model'
+import type { DaemonPtyOutputBatch } from '@podium/protocol'
 export type Tier = 0 | 1 | 2 | 3
 
 export interface OutputSchedulerDeps {
-  /** Send one coalesced batch for a session (caller wraps it as agentFrameBatch). */
-  flush: (sessionId: SessionId, frames: string[]) => void
+  /** Send one typed, coalesced output batch for a session. */
+  flush: (batch: DaemonPtyOutputBatch) => void
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (h: unknown) => void
   scheduleImmediate?: (fn: () => void) => void
@@ -11,7 +13,7 @@ export interface OutputSchedulerDeps {
   coalesceMaxBytes?: number
 }
 
-interface Pending { frames: string[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
+interface Pending { frames: Uint8Array[]; bytes: number; tier: Tier; timer: unknown; immediate: boolean }
 
 /**
  * Per-session PTY-frame relay scheduler. Collapses many per-frame sends into one
@@ -45,10 +47,10 @@ export class OutputScheduler {
     return p
   }
 
-  enqueue(sessionId: SessionId, data: string): void {
+  enqueue(sessionId: SessionId, data: Uint8Array): void {
     const p = this.state(sessionId)
     p.frames.push(data)
-    p.bytes += data.length
+    p.bytes += data.byteLength
     if (p.tier <= 1) {
       if (!p.immediate) {
         p.immediate = true
@@ -74,16 +76,36 @@ export class OutputScheduler {
     if (p.frames.length > 0) this.flush(sessionId) // don't strand buffered output across a tier change
   }
 
+  /**
+   * Send whatever this session is holding, right now.
+   *
+   * The resize path calls this before it dispatches (POD-3239 B7): bytes the
+   * scheduler is sitting on were produced at the OLD grid, so they have to leave
+   * ahead of the report that announces the new one. Without it a P2/P3 session
+   * can hold up to `coalesceMs` of old-grid output and deliver it AFTER the
+   * viewer has already resized its buffer, which is the shredded-frame transient
+   * the model calls unacceptable on the daemon-held side of the boundary.
+   *
+   * Idempotent and cheap: a session holding nothing does nothing.
+   */
+  flushNow(sessionId: SessionId): void {
+    this.flush(sessionId)
+  }
+
   private flush(sessionId: SessionId): void {
     const p = this.pending.get(sessionId)
     if (!p) return
     if (p.timer !== undefined) { this.clearTimer(p.timer); p.timer = undefined }
     p.immediate = false
     if (p.frames.length === 0) return
-    const frames = p.frames
+    const sourceFrames = p.frames.length
+    const bytes =
+      sourceFrames === 1
+        ? p.frames[0]!
+        : Buffer.concat(p.frames, p.bytes)
     p.frames = []
     p.bytes = 0
-    this.deps.flush(sessionId, frames)
+    this.deps.flush({ sessionId, sourceFrames, bytes })
   }
 
   remove(sessionId: SessionId): void {

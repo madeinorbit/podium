@@ -36,6 +36,7 @@ const onClose = vi.fn()
 
 beforeEach(() => {
   onClose.mockClear()
+  storeState.settingsTab = 'sessions'
   const settings = normalizeSettings({})
   storeState.trpc = {
     settings: {
@@ -45,6 +46,35 @@ beforeEach(() => {
       set: { mutate: vi.fn().mockResolvedValue({ settings, refusals: [] }) },
     },
     accounts: { list: { query: vi.fn().mockResolvedValue([]) } },
+    setup: {
+      info: {
+        query: vi.fn().mockResolvedValue({
+          mode: 'all-in-one',
+          publicUrl: 'https://old.tail.ts.net',
+          networkOption: 'tailscale-serve',
+          serverUrl: null,
+        }),
+      },
+      options: {
+        query: vi.fn().mockResolvedValue([
+          {
+            id: 'tailscale-serve',
+            label: 'Tailscale Serve (private)',
+            note: 'Reachable only from devices on your tailnet.',
+          },
+        ]),
+      },
+      commandFor: {
+        query: vi.fn().mockResolvedValue({
+          command: 'tailscale serve 18787',
+          hint: 'Then paste the URL it prints.',
+        }),
+      },
+      complete: { mutate: vi.fn().mockResolvedValue({ mode: 'all-in-one' }) },
+    },
+    auth: {
+      status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) },
+    },
   } as unknown as Store['trpc']
 })
 afterEach(() => {
@@ -110,5 +140,27 @@ describe('Settings sheet — closing with unsaved edits', () => {
 
     fireEvent.click(screen.getByRole('button', { name: /close settings/i }))
     expect(onClose).not.toHaveBeenCalled()
+  })
+
+  it('uses the shared save and discard bar for Network settings', async () => {
+    storeState.settingsTab = 'network'
+    render(<SettingsView onClose={onClose} />)
+
+    const input = (await screen.findByLabelText('Podium URL')) as HTMLInputElement
+    fireEvent.change(input, { target: { value: 'https://new.tail.ts.net' } })
+
+    expect(await screen.findByText('Unsaved changes')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Save network settings' })).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    await waitFor(() => expect(input.value).toBe('https://old.tail.ts.net'))
+
+    fireEvent.change(input, { target: { value: 'https://new.tail.ts.net' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Save changes' }))
+    await waitFor(() =>
+      expect(storeState.trpc.setup.complete.mutate).toHaveBeenCalledWith(
+        expect.objectContaining({ publicUrl: 'https://new.tail.ts.net' }),
+      ),
+    )
+    expect(await screen.findByText('Saved ✓')).toBeTruthy()
   })
 })

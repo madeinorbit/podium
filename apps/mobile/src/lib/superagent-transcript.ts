@@ -25,6 +25,7 @@ import type { TranscriptItem } from '@podium/model'
  *  stays free of the component graph. */
 interface EchoableTurn {
   text: string
+  files?: readonly { path: string }[]
 }
 
 /** Structural twin of `PendingTurn`'s failure marking (POD-346): a rejected or
@@ -34,20 +35,17 @@ interface FailableTurn extends EchoableTurn {
 }
 
 /**
- * The settled conversation plus the in-progress assistant text, which rides the
- * transcript as a live item so a streaming turn wears the same prose voice as a
- * settled one. Blank live text adds nothing (the spinner covers that beat).
+ * The in-progress assistant text as a separate feed item. Keeping it separate
+ * from the settled item array preserves the settled transcript's identity, so
+ * each streaming paint shapes only this row instead of the complete history.
+ * Blank live text adds nothing (the spinner covers that beat).
  */
-export function renderedTranscript(
-  settled: readonly TranscriptItem[],
+export function liveTranscriptItem(
   liveText: string,
   running: boolean,
-): TranscriptItem[] {
-  const base = [...settled]
-  if (running && liveText.trim()) {
-    base.push({ id: 'super:live', role: 'assistant', text: liveText.trim() })
-  }
-  return base
+): TranscriptItem | undefined {
+  const text = liveText.trim()
+  return running && text ? { id: 'super:live', role: 'assistant', text } : undefined
 }
 
 /**
@@ -60,8 +58,17 @@ export function dropEchoedTurns<T extends EchoableTurn>(
   items: readonly TranscriptItem[],
 ): readonly T[] {
   if (pending.length === 0) return pending
-  const echoed = new Set(items.filter((i) => i.role === 'user').map((i) => i.text.trim()))
-  const next = pending.filter((turn) => !echoed.has(turn.text.trim()))
+  const echoed = items.filter((item) => item.role === 'user')
+  const next = pending.filter((turn) => {
+    const paths = (turn.files ?? []).map((file) => file.path)
+    return !echoed.some((item) => {
+      const itemPaths = item.toolPaths ?? []
+      if (paths.length > 0) {
+        return itemPaths.length === paths.length && paths.every((path, i) => itemPaths[i] === path)
+      }
+      return item.text.trim() === turn.text.trim()
+    })
+  })
   return next.length === pending.length ? pending : next
 }
 

@@ -23,11 +23,39 @@ export type TerminalControlPhase = 'spectating' | 'fitting' | 'controlling'
 export interface TerminalControlState {
   role: TerminalRole
   phase: TerminalControlPhase
-  cols: number
-  rows: number
+  /** The grid the SERVER holds, or `undefined` before this connection has been
+   *  told one (POD-3239 B8). The caption says so rather than naming a number
+   *  nobody has stated. */
+  cols: number | undefined
+  rows: number | undefined
   /** The mount is attached: a takeover request has somewhere to land. */
   ready: boolean
   takeControl: () => void
+}
+
+/** The published state minus the action — what a renderer derives from a
+ *  ConnectionState alone (the pane adds `ready` + `takeControl` on publish). */
+export type TerminalControlView = Pick<TerminalControlState, 'role' | 'phase' | 'cols' | 'rows'>
+
+/**
+ * ConnectionState → the control view both panes publish. `requestedGeometry`
+ * non-null means a takeover/fit claim is pending server acknowledgment, so the
+ * UI must say "fitting" rather than claim the phone is driving that grid —
+ * regardless of which role the stale snapshot still reports.
+ */
+export function terminalControlView(
+  state: Pick<ConnectionState, 'role' | 'cols' | 'rows' | 'requestedGeometry'>,
+): TerminalControlView {
+  return {
+    role: state.role,
+    phase: state.requestedGeometry
+      ? 'fitting'
+      : state.role === 'controller'
+        ? 'controlling'
+        : 'spectating',
+    cols: state.cols,
+    rows: state.rows,
+  }
 }
 
 export interface TerminalControlCopy {
@@ -58,7 +86,10 @@ export function terminalControlCopy(control: TerminalControlState): TerminalCont
     return {
       label: 'In control — the terminal is sized to this phone. Tap to re-claim it.',
       status: 'In control',
-      caption: `In control — phone grid ${control.cols}×${control.rows}.`,
+      caption:
+        control.cols === undefined || control.rows === undefined
+          ? 'In control.'
+          : `In control — phone grid ${control.cols}×${control.rows}.`,
     }
   }
   return {
@@ -66,6 +97,9 @@ export function terminalControlCopy(control: TerminalControlState): TerminalCont
     status: 'Spectating',
     // Names the crop AND the price of fixing it. Whoever is at the desk sees
     // the new geometry, so that must not be a surprise discovered afterwards.
-    caption: `Following the shared ${control.cols}×${control.rows} terminal — take control to fit this phone.`,
+    caption:
+      control.cols === undefined || control.rows === undefined
+        ? 'Following the shared terminal — take control to fit this phone.'
+        : `Following the shared ${control.cols}×${control.rows} terminal — take control to fit this phone.`,
   }
 }

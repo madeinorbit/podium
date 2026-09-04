@@ -1,0 +1,96 @@
+{
+  "cell": "A9",
+  "arm": "headless",
+  "harness": "opencode",
+  "verdict": "PASS",
+  "summary": "The stamped OpenCode session process was gone at both checkpoints with no PID rebound and infrastructure intact.",
+  "evidence": [
+    "control reply=ALIVE-YF7W78; exactStamped=1",
+    "stamp uuid=6cc1555d-e373-4c9c-a279-fe5fdbe9fcff source=/home/mgw/.local/state/podium/p2929y/instance.json",
+    "original identity pid=3573310 start=21418524",
+    "15s directOriginalAlive=0 rebounds=0 stamped=0",
+    "300s directOriginalAlive=0 rebounds=0 stamped=0",
+    "infrastructure server=3558500 daemon=3558556 alive=2/2; full 300s window=true"
+  ],
+  "data": {
+    "controlFired": true,
+    "stampProof": true,
+    "instanceUuid": "6cc1555d-e373-4c9c-a279-fe5fdbe9fcff",
+    "uuidSource": "/home/mgw/.local/state/podium/p2929y/instance.json",
+    "sessionId": "2f4aa2d7-617f-4772-98c5-6668c09f8218",
+    "before": [
+      {
+        "pid": 3573310,
+        "startTimeTicks": 21418524,
+        "cwd": "/tmp/pod-2929-rig-y/repo",
+        "cmd": "/home/mgw/.opencode/bin/opencode serve --port 41401 --hostname 127.0.0.1",
+        "instanceUuid": "6cc1555d-e373-4c9c-a279-fe5fdbe9fcff",
+        "sessionId": "2f4aa2d7-617f-4772-98c5-6668c09f8218"
+      }
+    ],
+    "kill": {
+      "verb": "sessions.kill",
+      "returned": null,
+      "rowStatus": "(row gone)"
+    },
+    "after15s": {
+      "directOriginalAlive": 0,
+      "survivors": 0,
+      "rebounds": 0,
+      "stamped": 0
+    },
+    "after300s": {
+      "directOriginalAlive": 0,
+      "survivors": 0,
+      "rebounds": 0,
+      "stamped": 0
+    },
+    "infrastructureAlive": 2,
+    "infrastructureExpected": 2,
+    "fullWindowMs": 300000
+  },
+  "targetCwd": "/tmp/pod-2929-rig-y/repo",
+  "instance": "p2929y",
+  "codePin": "b3343f39a68e97f5f2c22072db8c2858fa916722",
+  "pin": {
+    "codeSha": "b3343f39a68e97f5f2c22072db8c2858fa916722",
+    "codeShort": "b3343f3",
+    "server": {
+      "pid": 3558500,
+      "cwd": "/tmp/pod-2929-product",
+      "sha": "b3343f39a68e97f5f2c22072db8c2858fa916722"
+    },
+    "daemon": {
+      "pid": 3558556,
+      "cwd": "/tmp/pod-2929-product",
+      "sha": "b3343f39a68e97f5f2c22072db8c2858fa916722"
+    },
+    "bundleSourceSha": "b3343f3",
+    "expectedDriver": "opencode-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "hostSnapshot": {
+    "capturedAt": "2026-08-27T23:55:22Z",
+    "loadAverage": ["7.17", "6.66", "6.41"],
+    "memAvailableKb": 6987728,
+    "swapUsedKb": 5158280,
+    "diskFreeKb": 5787116
+  },
+  "recordedAt": "2026-08-27T23:55:22Z",
+  "error": "",
+  "log": [
+    "PINJSON {\"want\":\"b3343f39a68e97f5f2c22072db8c2858fa916722\",\"short\":\"b3343f3\",\"spawnedSha\":\"b3343f39a68e97f5f2c22072db8c2858fa916722\",\"serverPid\":3558500,\"daemonPid\":3558556,\"webSourceSha\":\"b3343f3\",\"contract\":\"1\",\"streaming\":\"1\",\"driver\":\"\"}",
+    "BOUND DRIVER opencode-server family=server",
+    "turn before kill replied with ALIVE-YF7W78",
+    "CONTROL reply=true exactStamped=1",
+    "PRE pid=3573310 start=21418524 cwd=/tmp/pod-2929-rig-y/repo",
+    "sessions.kill returned null; row says status=(row gone)",
+    "after 15s directOriginalAlive=0 rebounds=0 stamped=0",
+    "after 300s directOriginalAlive=0 rebounds=0 stamped=0",
+    "rig intact 2/2 infrastructure processes still alive",
+    "A9 PASS: stamp proof=true; original survivors=0; rebound=0 at both checkpoints"
+  ]
+}

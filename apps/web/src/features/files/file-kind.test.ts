@@ -1,5 +1,15 @@
 import { describe, expect, it } from 'vitest'
-import { fileKindForPath, isHtmlPath, isJsonPath, isMarkdownPath } from './file-kind'
+import {
+  fileKindForPath,
+  isAudioPath,
+  isHtmlPath,
+  isImagePath,
+  isJsonPath,
+  isMarkdownPath,
+  isPdfPath,
+  isTablePath,
+  isVideoPath,
+} from './file-kind'
 
 describe('file kind helpers', () => {
   it('detects static HTML extensions case-insensitively', () => {
@@ -26,6 +36,22 @@ describe('file kind helpers', () => {
     expect(fileKindForPath('/repo/index.html')).toBe('html')
     expect(fileKindForPath('/repo/readme.md')).toBe('markdown')
     expect(fileKindForPath('/repo/package.json')).toBe('json')
+    expect(fileKindForPath('/repo/results.csv')).toBe('table')
+    expect(fileKindForPath('/repo/hero.avif')).toBe('image')
+    expect(fileKindForPath('/repo/design.pdf')).toBe('pdf')
+    expect(fileKindForPath('/repo/demo.webm')).toBe('video')
+    expect(fileKindForPath('/repo/interview.flac')).toBe('audio')
     expect(fileKindForPath('/repo/src/app.ts')).toBe('source')
+  })
+
+  it('recognises the previewable asset families case-insensitively', () => {
+    expect(isTablePath('DATA.TSV')).toBe(true)
+    expect(isImagePath('photo.JPEG')).toBe(true)
+    // SVG is editable markup — it must keep the source editor, not become view-only.
+    expect(isImagePath('/repo/logo.svg')).toBe(false)
+    expect(fileKindForPath('/repo/logo.svg')).toBe('source')
+    expect(isPdfPath('brief.PDF')).toBe(true)
+    expect(isVideoPath('clip.M4V')).toBe(true)
+    expect(isAudioPath('voice.M4A')).toBe(true)
   })
 })

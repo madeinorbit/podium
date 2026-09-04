@@ -2,8 +2,8 @@ import type { MachineId } from '@podium/model'
 /**
  * FUZZY PATH RANKING FOR THE COMPOSER @-MENU (POD-412).
  *
- * The composer completes `@src/comp` against the paths a checkout actually
- * tracks. Two decisions shape this file, and both are about WHERE the work
+ * File quick-open and the composer complete `src/comp` against the paths a
+ * checkout actually contains. Two decisions shape this file, and both are about WHERE the work
  * happens rather than how clever the scoring is:
  *
  * 1. THE LIST NEVER LEAVES THE SERVER. A `git ls-files` of this repository is
@@ -16,9 +16,9 @@ import type { MachineId } from '@podium/model'
  * 2. THE INDEX IS CACHED PER ROOT, BRIEFLY. Every keystroke past the debounce is
  *    a query, and each one would otherwise fork a git process on the session's
  *    machine. A 30-second TTL makes a burst of typing one `ls-files`; a file
- *    added mid-burst shows up a few seconds later, which is the correct trade
- *    for an autocomplete (and `--others` is deliberately NOT passed: untracked
- *    files would cost a full directory walk on every miss).
+ *    added mid-burst shows up on the next cache fill. `--others` is included so
+ *    an agent's new, unstaged file is findable; `--exclude-standard` prevents
+ *    dependency and build directories from bloating the index.
  *
  * The matcher itself is an ordinary subsequence scorer — the same shape every
  * editor's quick-open uses. It is pure and exported so it can be tested without
@@ -163,7 +163,7 @@ export class PathIndex {
     private readonly now: () => number = Date.now,
   ) {}
 
-  /** The tracked paths under `key`, reading through `load` on a miss. The loader
+  /** The visible paths under `key`, reading through `load` on a miss. The loader
    *  is passed per call rather than held: the daemon RPC it goes through belongs
    *  to the request's state, not to this cache. */
   async paths(

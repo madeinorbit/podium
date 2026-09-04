@@ -6,6 +6,9 @@ Podium is a Bun-workspace monorepo. Design rationale lives in
 ## Runtime topology
 
 - **`apps/server`** — API / web backend (Hono + tRPC). Can run apart from dev machines.
+  Every server process also owns a janitor worker thread (`@podium/janitor`): the
+  maintenance loop is the server's responsibility, not a separate process or a
+  deployment choice, and it reaches the server back over `/maintenance/*`.
 - **`apps/daemon`** — installed on each dev machine; wraps agent CLIs and streams PTYs.
 - **`apps/web`** — responsive web UI (mobile-first), talks to the server.
 - Later: cloud sandboxes for agents.
@@ -40,16 +43,18 @@ L1 — wire / commands / contracts
                                 deps: @podium/model
 
 L2 — kernels / ports
+  @podium/agent-runtime         node-only, host capability — importable only by @podium/daemon, scripts/
+                                deps: @podium/harness, @podium/model, @podium/protocol, @podium/transcript
   @podium/composer              browser-safe
                                 deps: @podium/model, @podium/protocol
-  @podium/harness               node-only, host capability — importable only by @podium/daemon, scripts/
-                                deps: @podium/model, @podium/protocol, @podium/runtime, @podium/transcript
+  @podium/harness               neutral, host capability — importable only by @podium/daemon, @podium/agent-runtime, scripts/
+                                deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime, @podium/transcript
   @podium/pty                   node-only, host capability — importable only by @podium/daemon, scripts/
-                                deps: @podium/model, @podium/protocol, @podium/runtime
+                                deps: @podium/logger, @podium/model, @podium/protocol, @podium/runtime
   @podium/runtime               neutral
                                 deps: @podium/logger, @podium/model, @podium/protocol
   @podium/sync                  neutral
-                                deps: @podium/commands, @podium/model, @podium/protocol, @podium/runtime
+                                deps: @podium/commands, @podium/logger, @podium/model, @podium/protocol, @podium/runtime
   @podium/telemetry             neutral
                                 deps: @podium/model, @podium/protocol, @podium/runtime
   @podium/terminal-client       browser-safe
@@ -60,6 +65,8 @@ L2 — kernels / ports
 L3 — features / adapters
   @podium/client-core           browser-safe
                                 deps: anything below its layer
+  @podium/janitor               node-only
+                                deps: anything below its layer
   @podium/terminal-client-react browser-safe
                                 deps: anything below its layer
 
@@ -69,8 +76,6 @@ L4 — app composition roots
   @podium/daemon                node-only
                                 deps: anything below its layer
   @podium/desktop               browser-safe
-                                deps: anything below its layer
-  @podium/janitor               node-only
                                 deps: anything below its layer
   @podium/mobile                browser-safe
                                 deps: anything below its layer
@@ -87,6 +92,8 @@ L5 — build / compose tier
 
 **Declared same-layer edges** — the only legal sideways imports:
 
+- `@podium/agent-runtime → @podium/harness`
+- `@podium/agent-runtime → @podium/transcript`
 - `@podium/commands → @podium/protocol`
 - `@podium/harness → @podium/runtime`
 - `@podium/harness → @podium/transcript`
@@ -145,7 +152,7 @@ server's own `src/hub/import-boundary.test.ts`, both reading the `src/roles.ts` 
 
 | Working on… | Lives in… |
 |-------------|-----------|
-| PTY/tmux spawn, attach, resize, kill | `@podium/pty` |
+| PTY spawn, attach, resize, kill (abduco durable hosts) | `@podium/pty` |
 | Harness / recent-conversation / project / worktree discovery | `@podium/harness` (used by `apps/daemon`) |
 | Agent state detection (provider interface, reducer, per-agent providers) | `@podium/harness` `src/agent-state/`; HTTP hook ingest + spawn injection in `apps/daemon` |
 | Browser↔server message types (input, output frame, resize, takeover, transcript) | `@podium/protocol` |

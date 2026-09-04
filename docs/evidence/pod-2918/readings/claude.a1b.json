@@ -1,0 +1,90 @@
+{
+  "cell": "A1B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a1b",
+  "at": "2026-08-27T03:25:08.040Z",
+  "pin": {
+    "cell": "A1B",
+    "at": "2026-08-27T03:25:08.172Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5192396 kB",
+      "SwapFree": "36692596 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "busy send did not show a durable queue position or did not answer after reload",
+  "control": {
+    "fired": true,
+    "what": "the first busy-turn prompt appearing as a durable user turn",
+    "detail": "first user turn=true; working=true at 17ms"
+  },
+  "evidence": [
+    "FIRST SEND        {\"result\":{\"data\":{\"ok\":true,\"disposition\":\"delivered\"}}}",
+    "SECOND RAW       {\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}}",
+    "SECOND SEND       {\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}",
+    "QUEUE POSITION    null",
+    "POSITION FIELD    false",
+    "POSITION FRAMES   []",
+    "RELOADED USER     true in 675ms",
+    "RELOADED REPLY    true in 1905ms",
+    "PHASE AFTER       {\"sessionId\":\"47d7ad78-3826-488b-8a11-68449966c279\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePer"
+  ],
+  "data": {
+    "sid": "47d7ad78-3826-488b-8a11-68449966c279",
+    "first": "P2874-A1B-FIRST-MTAYN6S6",
+    "queued": "P2874-A1B-QUEUED-MTAYN6S6",
+    "firstUser": true,
+    "working": [
+      {
+        "ms": 17,
+        "phase": "working",
+        "status": "live",
+        "driverId": "claude-pty"
+      }
+    ],
+    "second": {
+      "ok": true,
+      "queued": true,
+      "disposition": "queued"
+    },
+    "secondUser": true,
+    "secondAssistant": true,
+    "position": null,
+    "hasPositionField": false,
+    "secondRaw": {
+      "result": {
+        "data": {
+          "ok": true,
+          "queued": true,
+          "disposition": "queued"
+        }
+      }
+    }
+  }
+}

@@ -59,6 +59,11 @@ export const DEFAULT_ISSUE_REPORT_VISIBILITY: Readonly<IssueReportVisibilityPoli
   refAllocation: 'opaque',
 }
 
+function issueTitleNeedsRetitle(title: string): boolean {
+  const wordCount = title.trim().split(/\s+/).filter(Boolean).length
+  return wordCount < 3 || wordCount > 5
+}
+
 /**
  * Reports capability: list projections,
  * the epic tree / dependency reports, search/stats/doctor diagnostics and the
@@ -648,11 +653,13 @@ export class IssueReportsModule {
     mayRead: (id: string) => boolean = () => true,
   ): string {
     // Static tail: only what the always-on system pointer does NOT already carry.
-    // Stages, discovered-from, spin-off litmus, titles, description-vs-brief,
-    // --outside-scope, mail-send, artifacts, and offers live on ISSUE_SYSTEM_POINTER
-    // (every harness, via session instructions). Prime keeps refs, self-ref,
-    // reply discipline, worktree stay, locks, and delegation. Landing and
-    // publication procedures belong to the repository [spec:SP-a69c].
+    // Stages, discovered-from, spin-off litmus, general title doctrine,
+    // description-vs-brief, --outside-scope, mail-send, artifacts, and offers
+    // live on ISSUE_SYSTEM_POINTER (every harness, via session instructions).
+    // Prime adds the context-aware retitle command when the current real issue
+    // violates that doctrine, then keeps refs, self-ref, reply discipline,
+    // worktree stay, locks, and delegation. Landing and publication procedures
+    // belong to the repository [spec:SP-a69c].
     const rules = [
       // Human-facing ids (#474) + the own-issue exception (POD-389).
       'Reference OTHER issues and sessions as `POD-557` (or `POD-557 (Title)` on first mention). Never `#557` or `iss_…` — only `POD-…` linkifies. The issue YOU are on is the exception — next rule.',
@@ -682,16 +689,22 @@ export class IssueReportsModule {
           .map((b) => `${this.niceRef(b)} (${b.title})`)
         const parent = me.parentId && mayRead(me.parentId) ? this.get(me.parentId) : null
         if (me.draft) {
+          const artifacts = me.panel?.artifacts ?? []
           return [
             `This session is attached to a draft work item (${this.niceRef(me)}).`,
+            artifacts.length > 0
+              ? `User attachments on this draft:\n${artifacts.map((artifact, index) => `  - ${index + 1}. ${artifact.title ?? artifact.path}`).join('\n')}\nRead one with: podium issue artifact ${me.seq} --get <number> [--out <path>]`
+              : null,
             "Once you have understood and named the user's request, EITHER:",
-            `  - retitle it if this is new work: podium issue update --id ${me.seq} --title "…" (this makes it a real issue — 3–5 words naming the thing, not the activity), OR`,
+            `  - name it if this is new work: podium issue update --id ${me.seq} --title "…" --description "…" (this makes it a real issue — use a 3–5 word title naming the thing and a 1–3 sentence, context-free description), OR`,
             '  - attach to an existing issue that already covers it: podium issue attach --id <id>.',
             'Prefer attaching over duplicating.',
-            `Retitling only names the issue — it leaves it in \`backlog\`. In the SAME step, put it in the stage you are actually in: \`podium issue update --id ${me.seq} --stage planning\` while you are still designing or investigating, \`--stage in_progress\` the moment you start changing code. Then keep it current (\`--stage review\`, \`podium issue close ${me.seq}\`) as you go.`,
+            `Naming the issue still leaves it in \`backlog\`. Add \`--stage planning\` to that update while you are designing or investigating, or \`--stage in_progress\` the moment you start changing code. Then keep it current (\`--stage review\`, \`podium issue close ${me.seq}\`) as you go.`,
             '',
             ...rules,
-          ].join('\n')
+          ]
+            .filter((line) => line !== null)
+            .join('\n')
         }
         // Agent mail (issue #103): surface pending mail at prime time so a fresh /
         // resumed agent learns about messages that arrived while nothing was live.
@@ -713,6 +726,9 @@ export class IssueReportsModule {
           // it — the old `You are working on POD-N: title` taught the bare ref that
           // SELF_REF_RULE then forbade 25 lines later, and the ref won (POD-389).
           `You are working on this issue — \`${this.niceRef(me)}\` (${me.title}). "This issue" is what you call it when you write to the user; the ref is for commands and for readers who cannot know which issue you mean.`,
+          issueTitleNeedsRetitle(me.title)
+            ? `This issue's title violates the 3–5 word rule. Retitle it now: \`podium issue update --id ${me.seq} --title "…"\`. Name the thing, not the activity.`
+            : null,
           me.stage === 'backlog'
             ? `This issue is still in \`backlog\` but you are working it — fix that now: \`podium issue update --id ${me.seq} --stage planning\` (designing/investigating) or \`--stage in_progress\` (changing code).`
             : null,

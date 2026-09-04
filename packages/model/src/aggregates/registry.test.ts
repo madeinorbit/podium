@@ -346,6 +346,14 @@ const SESSION_AGGREGATE_KEYS = [
   'exitCode', 'headless', 'inputCount', 'issueId', 'lastActiveAt', 'lastInputAt',
   'lastOutputAt', 'lastResumedAt', 'machineId', 'model', 'name', 'nameSource',
   'namedBy', 'origin', 'outputCount', 'owner', 'refDraft', 'refIssueId', 'refLetter',
+  // POD-3081's durable runtime request. It is durable truth by this list's own
+  // test: it has a column (`requested_model` / `requested_effort`), it is not
+  // derived (nothing computes it from anything), it is not per-user (a session
+  // is on one model for everybody), and it is not provenance. It is also
+  // specifically NOT live state, which is the classification it was given first
+  // and the one it failed: the overlay's members are all RE-LEARNABLE, and a
+  // request is not — no harness stamps one anywhere a reattach could read.
+  'requestedEffort', 'requestedModel',
   'resume', 'sessionId', 'spawnFailure', 'spawnedBy', 'status', 'stopReason',
   'stoppedAt', 'title', 'visibility', 'workState', 'workflowRunId', 'workflowStepId',
 ]
@@ -364,7 +372,7 @@ const ISSUE_AGGREGATE_KEYS = [
 ]
 
 describe('the canonical key sets are pinned exactly', () => {
-  it('SessionAggregate carries exactly these 43 keys and no others', () => {
+  it('SessionAggregate carries exactly these 45 keys and no others', () => {
     expect(Object.keys(SessionAggregate.shape).sort()).toEqual(SESSION_AGGREGATE_KEYS)
   })
 

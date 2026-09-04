@@ -1,0 +1,79 @@
+{
+  "at": "2026-08-30T14:25:26.263Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "integrationTip": "93c1cc79dcb4845bebe741bf72033b7f4270280e",
+  "productPins": {
+    "server": "ab8a5e7f8f71af1ef25f22fb4a695ba68cb4dfa9",
+    "daemon": "ab8a5e7f8f71af1ef25f22fb4a695ba68cb4dfa9",
+    "web": "ab8a5e7"
+  },
+  "productTreeEquivalentOutsideDocs": true,
+  "instance": "p3112-a7a-93c1cc-r1",
+  "ports": [22117, 49117, 49118],
+  "machine": {
+    "id": "6ebc73f0-5e68-430b-8ea6-6d5aab672e91",
+    "updateChannel": "edge",
+    "registeredRepo": "/tmp/pod-3112-a7a-93c1cc-r1/dummy-repo"
+  },
+  "providerPrompts": 1,
+  "identity": {
+    "sessionId": "f3ef7ae1-4926-4f1e-817b-782a0531b7ee",
+    "createdAt": "2026-08-30T14:25:30.203Z",
+    "driverId": "opencode-server",
+    "requestedDriverId": "opencode-server",
+    "driverFamily": "server",
+    "accountId": "native:opencode",
+    "resume": {
+      "kind": "opencode-session",
+      "value": "ses_facf0434dffeYWalU4H9OO8vS2"
+    },
+    "cwd": "/tmp/pod-3112-a7a-93c1cc-r1/dummy-repo"
+  },
+  "seed": {
+    "codeword": "R18-MTFWJASV",
+    "nonce": "P3112-R18-SEED-MTFWJASV",
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2,
+    "nativeFirst": true,
+    "initialScreenLength": 3200
+  },
+  "beforeRestart": {
+    "journal": {
+      "opencodeSessionId": "ses_facf0434dffeYWalU4H9OO8vS2",
+      "process": {
+        "key": "podium-oc-f3ef7ae1-4926-4f1e-817b-782a0531b7ee",
+        "pid": 541650
+      },
+      "workdir": "/tmp/pod-3112-a7a-93c1cc-r1/dummy-repo",
+      "seq": 21,
+      "turnEpoch": 1,
+      "bindingVersion": 1
+    },
+    "providerExact": true,
+    "chatMarkerOccurrences": 2,
+    "nativeMarkerOccurrences": 2,
+    "daemonPid": 538734
+  },
+  "restart": {
+    "oldPid": 538734,
+    "newPid": 544203,
+    "newDaemonConnected": true
+  },
+  "verdict": "REFUSED",
+  "score": "UNSCORED_DIAGNOSTIC",
+  "reason": "Post-restart workspace restoration timed out waiting for the dummy-repo project group to become visible.",
+  "a7aReadyCreated": false,
+  "a7aContinueCreated": false,
+  "a7bAttempted": false,
+  "resultRowAppended": false,
+  "teardown": {
+    "serverStopped": true,
+    "daemonStopped": true,
+    "credentialSymlinkRemoved": true,
+    "ownedProviderPidsStopped": [541650, 541789, 541790],
+    "portsClear": [22117, 49117, 49118]
+  },
+  "finishedAt": "2026-08-30T14:27:21.720Z"
+}

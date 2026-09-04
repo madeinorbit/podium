@@ -1,0 +1,51 @@
+{
+  "id": "A3",
+  "arm": "headless",
+  "verdict": "PARTIAL",
+  "summary": "turn stopped 160ms after an accepted interrupt, but the durable transcript contains no interrupt marker",
+  "control": {
+    "fired": true,
+    "what": "a turn is demonstrably in flight immediately before sessions.interrupt",
+    "detail": "user=true phase=working previews=0 bytes=0"
+  },
+  "evidence": [
+    "PRODUCT DRIVER    driverId=grok-acp family=server",
+    "INTERRUPT         {\"ok\":true,\"requested\":\"protocol\"}",
+    "CALL OK           true",
+    "SETTLED           true after 160ms phase=idle",
+    "TRANSCRIPT MARK   false",
+    "OUTPUT            0 before -> 0 at 2s -> 0 at 4s",
+    "AFTER              {\"sessionId\":\"b615c5d3-8719-4ea4-b1bd-d38d85aa81e3\",\"agentKind\":\"grok\",\"accountId\":\"native:claude-code\",\"title\":\"headless-a3\",\"cwd\":\"/tmp/pod-2927-grok/cells/headless-a3\",\"status\":\"live\",\"agentState\":{\"phase\":\"idle\",\"since\":\"2026-08-27T09:38:26.973Z\",\"workingMsTotal\":657,\"nativeSubagentCount\":0,\"idle\":{\"kind\":\"interrup"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "callOk": true,
+    "settled": true,
+    "marked": false,
+    "stopped": true,
+    "bytesAt2s": 0,
+    "bytesAt4s": 0
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a3",
+  "memoryMb": 3541,
+  "pin": "PIN OK row=A3 arm=headless instance=grok2927 serverPid=1851034 daemonPid=1851119 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=005b0a66efa8820e1b4c05c6ca1e953dd685d3cd runtimeTree=6141c900ed7197e7b2ec2567b69083610d38a81f nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "b615c5d3-8719-4ea4-b1bd-d38d85aa81e3"
+  ],
+  "at": "2026-08-27T09:38:31.529Z",
+  "scorerVerdict": "FAIL",
+  "criterionClauses": {
+    "inFlightControl": "PASS — durable user item and phase=working immediately before interrupt",
+    "turnStops": "PASS — call returned ok and phase settled idle after 160ms with no later output growth",
+    "transcriptShowsInterrupt": "FAIL — no transcript item carried event=interrupt and assistant text contained no interrupt marker",
+    "refusedInterruptSaysWhy": "NOT EXERCISED — the product accepted the interrupt"
+  },
+  "admission": {
+    "diskFreeKb": 12862988,
+    "memAvailableKb": 3771120,
+    "load1": 7.40,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 11:38:31 CEST"
+}

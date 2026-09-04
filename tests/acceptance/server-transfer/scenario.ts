@@ -160,8 +160,8 @@ async function successCase(
     onError: (message) => console.error(`[transfer-fixture:native-client] ${message}`),
   })
   const connection = hub.attach(sessionId, {
-    onFrame: (text) => {
-      output += text
+    onFrame: (bytes) => {
+      output += new TextDecoder().decode(bytes)
     },
     onAttached: () => {
       attaches += 1

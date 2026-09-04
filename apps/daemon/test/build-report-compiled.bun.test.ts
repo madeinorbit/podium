@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { noJanitorWorkerForTests } from '../../server/src/janitor-host'
 import { startServer } from '../../server/src/server'
 
 const repoRoot = fileURLToPath(new URL('../../../', import.meta.url))
@@ -42,7 +43,7 @@ describe('compiled installed daemon build report', () => {
       mkdirSync(installDir, { recursive: true })
       process.env.PODIUM_STATE_DIR = serverState
       process.env.PODIUM_APP_VERSION = targetVersion
-      server = await startServer({ port: 0 })
+      server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
 
       execFileSync(
         'bun',

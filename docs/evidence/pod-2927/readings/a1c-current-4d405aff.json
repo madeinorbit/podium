@@ -1,0 +1,108 @@
+{
+  "id": "A1c",
+  "label": "[fix] current-tip 4d405aff exact-child re-drive after POD-2980",
+  "arm": "fix",
+  "harness": "grok-acp",
+  "verdict": "FAIL",
+  "summary": "The exact UUID+session-stamped Grok child was killed and confirmed gone, but the dead-session send was accepted at queue position 1 and its assistant nonce was lost through the full 120-second outcome window.",
+  "control": {
+    "fired": true,
+    "what": "A send to the same grok-acp/server session while alive answered before the destructive control.",
+    "detail": "The live positive control answered; exactly one child carried both the named instance UUID and target session ID; that exact PID was killed and gone."
+  },
+  "evidence": [
+    "Canonical pin verifier passed for server, daemon, served web, and policy arm at 4d405afffe234d020557921e6240c053c706f783.",
+    "Product reported grok-acp with driver family server.",
+    "Live positive control answered before child death.",
+    "Instance UUID was 347d60c2-2ebf-4de5-83d8-6cc986784558 from /home/mgw/.local/state/podium/grok2927x/instance.json.",
+    "Exactly one stamped target existed: PID 3643299, cwd /tmp/pod-2927-grok-x/repo, /home/mgw/.local/bin/grok agent stdio.",
+    "SIGKILL was sent to PID 3643299; the exact PID was gone and no exact UUID+session target remained.",
+    "The post-kill receipt was {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}.",
+    "No typed refusal or resume offer appeared, and the assistant nonce did not arrive during the full 120000ms delayed window."
+  ],
+  "data": {
+    "sessionId": "9273cf05-8806-4101-b196-d90de7db9e2a",
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "instanceId": "grok2927x",
+    "instanceUuid": "347d60c2-2ebf-4de5-83d8-6cc986784558",
+    "cwd": "/tmp/pod-2927-grok-x/repo",
+    "target": {
+      "pid": 3643299,
+      "cwd": "/tmp/pod-2927-grok-x/repo",
+      "command": "/home/mgw/.local/bin/grok agent stdio",
+      "instanceUuid": "347d60c2-2ebf-4de5-83d8-6cc986784558",
+      "sessionId": "9273cf05-8806-4101-b196-d90de7db9e2a",
+      "signal": "SIGKILL",
+      "gone": true
+    },
+    "remainingExactStampedTargets": 0,
+    "sendReceipt": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "typedRefusal": false,
+    "resumeOffered": false,
+    "accepted": true,
+    "assistantNonceObserved": false,
+    "delayedOutcome": "lost",
+    "delayedWindowMs": 120000,
+    "grokVersion": "0.2.118 (1e1687c1cf) [stable]"
+  },
+  "pin": {
+    "codeCommit": "4d405afffe234d020557921e6240c053c706f783",
+    "codeTree": "4a58603d02935a55409fb1818880722a3eb2e7b6",
+    "server": {
+      "pid": 3642930,
+      "spawnSha": "4d405afffe234d020557921e6240c053c706f783",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column"
+    },
+    "daemon": {
+      "pid": 3642986,
+      "spawnSha": "4d405afffe234d020557921e6240c053c706f783",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2927-grok-acceptance-column"
+    },
+    "servedWeb": {
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+3Vq7_TII",
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "builtAt": "2026-08-28T00:26:33.208Z",
+      "port": 19928
+    },
+    "verifier": "passed at 2026-08-28 02:33 CEST; server/daemon/web/arm all matched"
+  },
+  "admission": {
+    "instance": "grok2927x",
+    "stateRoot": "/home/mgw/.local/state/podium/grok2927x",
+    "stateRootPreparation": "Fresh root was absent before this drive; product preflight created runtime/tmux, then PODIUM_ADOPT_STATE=1 intentionally adopted only those product-created directories.",
+    "pathOverrides": {
+      "PODIUM_STATE_DIR": false,
+      "ABDUCO_SOCKET_DIR": false,
+      "TMUX_TMPDIR": false,
+      "HOME": false
+    },
+    "uniqueCwd": true,
+    "noConcurrentProbe": true,
+    "testHeavyLease": "held by this session through build and drive; released after capture",
+    "hostSnapshotCapturedAt": "2026-08-28 02:36:33 CEST",
+    "load1": 2.84,
+    "memAvailableKb": 6497792,
+    "swapFreeKb": 36810960,
+    "rootFreeKb": 5494944,
+    "vmstatSwapInKbPerSec": [1191, 0, 4],
+    "vmstatSwapOutKbPerSec": [1346, 0, 0]
+  },
+  "criterionClauses": {
+    "productDriver": "PASS — product reported grok-acp/server.",
+    "liveSendPositiveControl": "PASS — the same session answered while alive.",
+    "exactDeadTargetAttribution": "PASS — one child carried the named instance UUID and exact target session ID.",
+    "deadSessionConfirmed": "PASS — SIGKILL was sent to PID 3643299 and that exact stamped PID was confirmed gone; no exact stamped target remained.",
+    "typedRefusalOrResumeOffered": "FAIL — the receipt was accepted/queued with no typed refusal or resume offer.",
+    "neverLostMessage": "FAIL — the accepted message produced no assistant nonce during the full 120-second window."
+  },
+  "localTimestamp": "2026-08-28 02:37:17 CEST",
+  "rawTranscript": "readings/a1c-current-4d405aff.txt",
+  "defect": "POD-2980 follow-up"
+}

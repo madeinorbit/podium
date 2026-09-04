@@ -1,0 +1,20 @@
+@podium/daemon:test:  FAIL  apps/daemon/src/dir-ops.test.ts
+@podium/daemon:test:  FAIL  apps/daemon/src/headless-drivers.test.ts
+apps/server/src/issues.attach.test.ts
+apps/server/src/issues.expected-revision.test.ts
+apps/server/src/migrations/per-user-state-family.test.ts
+apps/server/src/modules/derived-family.runtime.test.ts
+apps/server/src/modules/issues/commands-field-drift.test.ts
+apps/server/src/modules/sessions/oracle-commands.test.ts
+apps/server/src/modules/sessions/oracle-tags.test.ts
+apps/server/src/modules/sessions/stop.test.ts
+apps/server/src/relay-agent-relay.test.ts
+apps/server/src/relay.archive-cascade.test.ts
+apps/server/src/relay.outbox.test.ts
+apps/server/src/router.updates.test.ts
+apps/server/src/server.role.test.ts
+apps/server/src/store.test.ts
+apps/server/src/superagent-concierge.test.ts
+apps/server/src/superagent-headless.test.ts
+apps/server/src/superagent.test.ts
+apps/server/src/wsServer.client-auth.test.ts

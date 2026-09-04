@@ -8,9 +8,10 @@ import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { navigateReload } from '@/lib/navigate'
 import { NetworkStep, type SetupCompleteInput } from './network-step'
 
-export { NetworkStep, reachablePort, quickTunnelWarning } from './network-step'
+export { NetworkStep, quickTunnelWarning, reachablePort } from './network-step'
 
 // Intent-first labels: lead with what the user WANTS, not the deployment term. The pivot between
 // the two "host" modes is simply whether your agents run on THIS machine (all-in-one) or on the
@@ -198,6 +199,7 @@ export function SetupView({
   localDefault = false,
   blockedState,
   staleFields,
+  modeForcedByEnv,
 }: {
   httpOrigin: string
   onSaved: () => void
@@ -209,9 +211,22 @@ export function SetupView({
    *  (POD-2766). Empty or absent on an older server that does not publish them —
    *  the screen then says only that a restart is needed, as it always did. */
   staleFields?: readonly BootRelevantConfigField[]
+  /**
+   * The deployment set `PODIUM_MODE` (PDM-26), so the mode step is skipped.
+   *
+   * A dead control is worse here than anywhere else in the product: this is the
+   * one screen a first-time operator has no context to interpret, and a
+   * disabled row of mode buttons on it reads as "something is broken" rather
+   * than "the deployment already answered". The remaining steps skip themselves
+   * the same way through their own forced flags, so a fully env-configured
+   * instance shows no wizard at all and the gate proceeds to login.
+   */
+  modeForcedByEnv?: boolean
 }): ReactNode {
   const trpc = useMemo(() => makeTrpc(httpOrigin), [httpOrigin])
-  const [step, setStep] = useState<'local' | 'mode' | 'network'>(localDefault ? 'local' : 'mode')
+  const [step, setStep] = useState<'local' | 'mode' | 'network'>(
+    modeForcedByEnv ? 'network' : localDefault ? 'local' : 'mode',
+  )
   const [mode, setMode] = useState<PodiumMode>('all-in-one')
   const [serverUrl, setServerUrl] = useState('')
   const [joinCode, setJoinCode] = useState('')
@@ -340,7 +355,11 @@ export function SetupView({
           <p className="text-[13px] text-muted-foreground">{activationNote}</p>
         ) : null}
         {error ? <p className="text-[13px] text-destructive">{error}</p> : null}
-        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => navigateReload('setup', 'setup-retry')}
+        >
           Retry
         </Button>
       </div>
@@ -358,7 +377,11 @@ export function SetupView({
             here.
           </p>
         </div>
-        <Button type="button" variant="outline" onClick={() => window.location.reload()}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={() => navigateReload('setup', 'setup-retry')}
+        >
           Retry
         </Button>
       </div>
@@ -396,7 +419,9 @@ export function SetupView({
       <NetworkStep
         trpc={trpc}
         mode={hostMode}
-        onBack={() => setStep('mode')}
+        // No way back to a step that does not exist: under PODIUM_MODE the
+        // deployment chose, and Back would land on a screen offering to unchoose.
+        {...(modeForcedByEnv ? {} : { onBack: () => setStep('mode') })}
         onSkip={() => void save(hostMode)}
         onSaved={onSaved}
       />

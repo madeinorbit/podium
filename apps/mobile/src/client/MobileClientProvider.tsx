@@ -48,6 +48,7 @@ import {
   createSideCache,
   FeedAuthorityClient,
   FeedSink,
+  isTranscriptWindowStorageKey,
   PushedBootstrapSource,
   preparePrincipalNamespace,
   REPLICA_KEY_PREFIX,
@@ -58,7 +59,6 @@ import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { FeedSinkPort, SocketHub } from '@podium/client-core/socket-transport'
 import { actorUser, asUserId, type SessionId } from '@podium/model'
 import type { FeedChangesSinceReplyLenient } from '@podium/protocol'
-import { type IdbFactoryLike, IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import {
   decideLegacyAdoption,
   LEGACY_STANDALONE_OUTBOX_KEY,
@@ -66,7 +66,6 @@ import {
   type LegacyMigrationOutcome,
   migrateLegacyReplica,
 } from '@podium/sync/adapters/legacy-replica'
-import { fromExpoSqlite, SqliteSyncStore } from '@podium/sync/adapters/mobile-sqlite'
 import type { OutboxAttribution, OutboxCommand, OutboxStorePort } from '@podium/sync/outbox'
 import {
   type Cursor,
@@ -76,12 +75,11 @@ import {
   type SyncUnitOfWork,
 } from '@podium/sync/replica'
 import AsyncStorage from '@react-native-async-storage/async-storage'
-import * as SQLite from 'expo-sqlite'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Platform } from 'react-native'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
-import { fetchAuthStatus } from './auth'
+import { checkLiveAuth, fetchAuthStatus } from './auth'
 import { useAuthStatus } from './auth-context'
 import {
   DEMO_ISSUES,
@@ -94,19 +92,20 @@ import {
 // expo-router's SplashScreen, and the composition root has no business pulling
 // the router in just to report that its boot failed.
 import { LaunchReadyView } from './launch-ready'
-import { installMobileMetadataStorage } from './mobile-metadata-storage'
+import { openMobileEntityStore } from './mobile-entity-store'
 import { MobileSyncBoundary } from './MobileSyncBoundary'
+import { installMobileMetadataStorage } from './mobile-metadata-storage'
 import { MobileSyncProgressStore } from './mobile-sync-progress'
 import { type NativeConnectivity, nativeClientSeams } from './native-connectivity'
 import { createPlatformConnectivity } from './platform-connectivity'
-import { type MobileShell, MobileShellProvider } from './shell'
 import { useOptionalServerProfile } from './ServerProfileGate'
 import {
   completePendingProfileCleanup,
   loadPendingProfileCleanups,
-  profilePrincipal,
   type PendingProfileCleanup,
+  profilePrincipal,
 } from './server-profiles'
+import { type MobileShell, MobileShellProvider } from './shell'
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
 // App-installation metadata must be available before a principal-scoped replica
@@ -264,6 +263,8 @@ export interface MobileReplica {
   readonly store: MobileEntityStore
   readonly principal: string
   readonly clientPrincipal: string
+  /** Drain entity storage and the debounced AsyncStorage side cache. */
+  settled(): Promise<void>
   /**
    * Call once the engine's hub exists. A re-bootstrap is a reconnect, so
    * `PushedBootstrapSource` needs `hub.requestFreshWorld()`, and the hub is
@@ -507,6 +508,9 @@ export async function openMobileReplica(deps: MobileReplicaDeps): Promise<Mobile
     store,
     principal,
     clientPrincipal,
+    settled: async () => {
+      await Promise.all([store.settled(), deps.flushStorage?.() ?? Promise.resolve()])
+    },
     attachHub: (attached) => {
       hub = attached
       if (freshWorldPending) {
@@ -669,18 +673,45 @@ function demoTrpc(): MobileTrpc {
 function MobileHubAttach({
   attachHub,
   connectivity,
+  networkEnabled,
+  onDisconnected,
 }: {
   attachHub: (hub: SocketHub) => void
   connectivity: NativeConnectivity | undefined
+  networkEnabled: boolean
+  onDisconnected: () => void
 }): null {
   const { hub } = useStore()
   useEffect(() => {
     attachHub(hub)
+    if (!networkEnabled) {
+      const retryTrust = (): void => {
+        if (
+          (connectivity === undefined || connectivity.isOnline()) &&
+          (connectivity === undefined || connectivity.visibility.isVisible())
+        ) {
+          onDisconnected()
+        }
+      }
+      const timer = setInterval(retryTrust, 10_000)
+      connectivity?.onlineEvents.add(retryTrust)
+      retryTrust()
+      return () => {
+        clearInterval(timer)
+        connectivity?.onlineEvents.remove(retryTrust)
+      }
+    }
     // The AppState/NetInfo controller commands the transport (`suspend` on
     // background, `connectNow` on foreground and on network restore), so it
     // needs the hub the same way the bootstrap source does. `undefined` on web,
     // where the listeners below are the ones that answer instead.
     connectivity?.attachHub(hub)
+    let observedInitialHealth = false
+    const stopConnectionWatch = hub.onConnectionHealth(() => {
+      const connected = hub.connected
+      if (observedInitialHealth && !connected) onDisconnected()
+      observedInitialHealth = true
+    })
     // iOS Safari keeps a dead WebSocket after backgrounding and does not fire
     // `close`. The replica stays open (pagehide must not close IndexedDB); this
     // is the only thing that has to happen on the way back: drop the zombie
@@ -699,23 +730,23 @@ function MobileHubAttach({
       if (document.visibilityState === 'hidden') onHide()
       else onShow()
     }
-    if (typeof window !== 'undefined') {
+    // Web only — and NOT `typeof window`: Hermes aliases `window` to the JS
+    // global, so it exists on a phone while `addEventListener` does not. On
+    // native the AppState controller above already answers hide/show.
+    if (Platform.OS === 'web') {
       window.addEventListener('pagehide', onHide)
       window.addEventListener('pageshow', onShow)
-    }
-    if (typeof document !== 'undefined') {
       document.addEventListener('visibilitychange', onVisibility)
     }
     return () => {
-      if (typeof window !== 'undefined') {
+      stopConnectionWatch()
+      if (Platform.OS === 'web') {
         window.removeEventListener('pagehide', onHide)
         window.removeEventListener('pageshow', onShow)
-      }
-      if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', onVisibility)
       }
     }
-  }, [attachHub, connectivity, hub])
+  }, [attachHub, connectivity, hub, networkEnabled, onDisconnected])
   return null
 }
 
@@ -725,6 +756,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
   const config = serverProfile?.config ?? legacyConfig
   const profileId = serverProfile?.profile.id ?? 'legacy'
   const bearer = serverProfile?.bearer ?? null
+  const activation = serverProfile?.activation ?? 'verified'
+  const revalidateOfflineProfile = serverProfile?.revalidateOfflineProfile
+  const updateCredential = serverProfile?.updateCredential
   const recordUser = serverProfile?.recordUser
   const recordUserRef = useRef(recordUser)
   recordUserRef.current = recordUser
@@ -734,10 +768,47 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // it holds two OS subscriptions, so a rebuild per render would leak them.
   const connectivity = useMemo(() => createPlatformConnectivity(), [])
   useEffect(() => () => connectivity?.dispose(), [connectivity])
-  const trpc = useMemo(() => makeMobileTrpc(config.httpOrigin, bearer), [bearer, config.httpOrigin])
-  const inheritedAuthStatus = useAuthStatus()
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
+  const authExpiryHandled = useRef(false)
+  useEffect(() => {
+    authExpiryHandled.current = false
+  }, [bearer, config.httpOrigin])
+  const expireLiveCredential = useCallback(() => {
+    if (!bearer || !updateCredential || authExpiryHandled.current) return
+    authExpiryHandled.current = true
+    void updateCredential(null).catch((cause: unknown) => {
+      authExpiryHandled.current = false
+      setError(cause instanceof Error ? cause.message : String(cause))
+    })
+  }, [bearer, updateCredential])
+  const verifyLiveCredential = useCallback(() => {
+    if (activation === 'offline-cache') {
+      void revalidateOfflineProfile?.().catch((cause: unknown) => {
+        setError(cause instanceof Error ? cause.message : String(cause))
+      })
+      return
+    }
+    if (!bearer || authExpiryHandled.current) return
+    void checkLiveAuth(config.httpOrigin, bearer).then((result) => {
+      if (result.kind === 'expired') expireLiveCredential()
+    })
+  }, [activation, bearer, config.httpOrigin, expireLiveCredential, revalidateOfflineProfile])
+  const trpc = useMemo(
+    () => makeMobileTrpc(config.httpOrigin, bearer, expireLiveCredential),
+    [bearer, config.httpOrigin, expireLiveCredential],
+  )
+  const inheritedAuthStatus = useAuthStatus()
+  const clientSeams = nativeClientSeams(connectivity)
+  const transportSeams =
+    activation === 'offline-cache'
+      ? {
+          visibility: clientSeams.visibility,
+          heartbeatIntervalMs: clientSeams.heartbeatIntervalMs,
+          isOnline: () => false,
+        }
+      : clientSeams
+  const networkEnabled = activation !== 'offline-cache'
   // AsyncStorage is Promise-only; hydrate the side-cache bridge before the store
   // boots. The migration and SQLite open then run BEFORE the store answers a
   // read and the app does not paint until they resolve — a replica read mid-
@@ -774,9 +845,11 @@ function LiveProvider({ children }: { children: ReactNode }) {
     // background, and closing IndexedDB there is the ~60s lock on the next
     // open. The socket is woken separately in MobileHubAttach.
     const onPageHide = () => {
-      void replicaForCleanup?.store.settled()
+      void replicaForCleanup?.settled()
     }
-    if (typeof window !== 'undefined') {
+    // Web only — Hermes has a `window` global without DOM listener methods, so
+    // an existence check passes on a phone and then dies calling the method.
+    if (Platform.OS === 'web') {
       window.addEventListener('pagehide', onPageHide)
     }
     // A boot that is still running may still succeed, so the watchdog only
@@ -787,7 +860,9 @@ function LiveProvider({ children }: { children: ReactNode }) {
     void (async () => {
       try {
         const [bridge, status, pendingCleanups] = await Promise.all([
-          createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES),
+          createAsyncStorageReplicaStorage(AsyncStorage, LEGACY_HYDRATE_PREFIXES, {
+            coalesce: isTranscriptWindowStorageKey,
+          }),
           inheritedAuthStatus ?? fetchAuthStatus(config.httpOrigin, bearer),
           Platform.OS === 'web' ? Promise.resolve([]) : loadPendingProfileCleanups(),
         ])
@@ -814,28 +889,13 @@ function LiveProvider({ children }: { children: ReactNode }) {
           // and the async open/delete plumbing in SqliteSyncStore are merged but
           // NOT wired here — ADR 6 D2's reversal condition asks for a spike that
           // passes, and this one has not been run against the current tree.
-          // Flipping web back to SQLite is the `Platform.OS === 'web'` branch
-          // below plus openDatabaseAsync/deleteDatabaseAsync; nothing else.
-          openStore: async () => {
-            if (Platform.OS === 'web') {
-              return IndexedDbSyncStore.open({
-                factory: globalThis.indexedDB as unknown as IdbFactoryLike,
-                databaseName: MOBILE_REPLICA_DB,
-                onDegraded: (degradation) =>
-                  setNotice(
-                    `Offline changes may not survive a restart on this device (${degradation.cause}).`,
-                  ),
-              })
-            }
-            return SqliteSyncStore.open({
-              openDatabase: () => fromExpoSqlite(SQLite.openDatabaseSync(MOBILE_REPLICA_DB)),
-              deleteDatabase: () => SQLite.deleteDatabaseSync(MOBILE_REPLICA_DB),
-              onDegraded: (degradation) =>
-                setNotice(
-                  `Offline changes may not survive a restart on this device (${degradation.cause}).`,
-                ),
-            })
-          },
+          // Flipping web back to SQLite means changing the web platform module
+          // to async open/delete; keeping that experiment outside this
+          // composition root also keeps each shipped bundle on one engine.
+          openStore: () =>
+            openMobileEntityStore(MOBILE_REPLICA_DB, (cause) =>
+              setNotice(`Offline changes may not survive a restart on this device (${cause}).`),
+            ),
           // The same client the store gets, so the queue sends through the
           // transport the rest of the app is authenticated on (POD-2073).
           api: trpc,
@@ -897,7 +957,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
       alive = false
       clearTimeout(stallTimer)
       closeReplica()
-      if (typeof window !== 'undefined') {
+      if (Platform.OS === 'web') {
         window.removeEventListener('pagehide', onPageHide)
       }
     }
@@ -978,13 +1038,19 @@ function LiveProvider({ children }: { children: ReactNode }) {
       // cache, i.e. AsyncStorage — and the durable rows in SQLite would have no
       // driver at all: every queued offline write invisible and unsent.
       createOutboxFn={openedReplica.createOutboxFn}
+      networkEnabled={networkEnabled}
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).
       // Empty on web, which keeps every DOM default.
-      {...nativeClientSeams(connectivity)}
+      {...transportSeams}
     >
-      <MobileHubAttach attachHub={openedReplica.attachHub} connectivity={connectivity} />
+      <MobileHubAttach
+        attachHub={openedReplica.attachHub}
+        connectivity={connectivity}
+        networkEnabled={networkEnabled}
+        onDisconnected={verifyLiveCredential}
+      />
       <MobileShellProvider value={shell}>
         <MobileSyncBoundary store={openedReplica.syncProgress} onRetry={retryBoot}>
           {children}

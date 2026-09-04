@@ -27,20 +27,21 @@
  * Platform-neutral: no DOM, no storage.
  */
 import {
+  DRAFT_ISSUE_TITLE,
+  type IssueWire,
   isHeadlessSession,
   issueStatusOf,
   issueStatusOutcome,
-  type IssueWire,
   type SessionMeta,
 } from '@podium/model'
-import { panelLabel } from '../session-status'
 import {
+  type ReferentExit,
+  type ReferentResolution,
   resolveReferent,
   sessionsForIssueNav,
   sessionsForIssueWorktree,
-  type ReferentExit,
-  type ReferentResolution,
 } from '../session-ownership'
+import { panelLabel } from '../session-status'
 import { sortSessionsForSidebar } from '../session-urgency'
 
 // ---------------------------------------------------------------------------
@@ -211,12 +212,57 @@ export function filterIssueNav(list: IssueNavView[], query: string): IssueNavVie
  *  advertise work the user never started here. Wait for the real name instead. */
 export function draftIssueLabel(
   issue: IssueNavigationModel,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
 ): string {
   const first = sessionsForIssueNav(issue, sessions, allWorktreePaths)[0]
   if (!first) return 'New agent'
   return first.name?.trim() || `New ${panelLabel(first.agentKind)} session`
+}
+
+/** WHAT ANY SURFACE CALLS AN ISSUE (POD-1618).
+ *
+ *  `issue.title` is not it, because a DRAFT's title is the composer's
+ *  placeholder — the literal word "Draft" — until an agent retitles the vessel
+ *  or the operator renames it, and plenty never do. The sidebar has substituted
+ *  {@link draftIssueLabel} for that placeholder since drafts existed; the task
+ *  panel printed the raw field, so the same task read "Artifact directive
+ *  provenance" in one column and "Draft" in the other, which reads as two
+ *  different tasks rather than as one unnamed one.
+ *
+ *  Shared by every issue-title surface, so the sidebar, task panel, Flight Deck,
+ *  and mobile work list cannot name the same task differently. Non-drafts are
+ *  untouched: their title IS their name. */
+export function issueDisplayTitle(
+  issue: IssueNavigationModel,
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
+): string {
+  return isUnnamedDraft(issue) ? draftIssueLabel(issue, sessions, allWorktreePaths) : issue.title
+}
+
+/** A draft NOBODY HAS NAMED — still wearing the minted placeholder, or wearing
+ *  nothing at all.
+ *
+ *  Not just `issue.draft`, and the difference is one round trip wide. Naming a
+ *  draft is what promotes it (`IssueCrud.update`: a non-empty title patch
+ *  clears the flag), but the rename's OPTIMISTIC overlay carries the title
+ *  alone — the flag flips only when the server's row comes back. Reading the
+ *  flag by itself, a rename would land, paint nothing, and then change the name
+ *  a beat later on its own: the operator types a name, the panel keeps showing
+ *  the agent's. So the client applies the server's rule rather than waiting to
+ *  be told the server applied it.
+ *
+ *  THE BLANK CASE IS THE SAME CASE. `issues.update` takes `title` as a bare
+ *  optional string (no `min(1)`), and the promotion is gated on `trim()` being
+ *  truthy while the assignment is not — so `--title "   "` leaves a draft
+ *  titled with whitespace. Falling through to `issue.title` there would render
+ *  a task with NO NAME AT ALL, which is strictly worse than the placeholder
+ *  this function exists to replace. Nobody named it, so it reads as unnamed. */
+function isUnnamedDraft(issue: IssueNavigationModel): boolean {
+  if (!issue.draft) return false
+  const title = issue.title.trim()
+  return title === DRAFT_ISSUE_TITLE || title === ''
 }
 
 /** A DRAFT vessel whose only content is its agents: no worktree of its own, no
@@ -301,7 +347,9 @@ export function issueAbandoned(
  *  Unknown/computing git state stays conservative (not actionable). */
 function issueHasUnmergedDelivery(issue: IssueWire): boolean {
   const git = issue.gitState
-  return Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
+  return (
+    Boolean(issue.branch) && git?.shared === false && git.merged !== true && (git.ahead ?? 0) > 0
+  )
 }
 
 /**

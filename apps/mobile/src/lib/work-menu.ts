@@ -1,90 +1,49 @@
 import type { IssueNavigationModel } from '@podium/client-core/viewmodels'
-import type { IssueWire } from '@podium/model'
 
 /** The part of Work the long-pressed row occupies. Folded rows deliberately
  * have a much smaller vocabulary than live rows. */
 export type WorkMenuLane = 'live' | 'snoozed' | 'closed'
 
 export type WorkMenuActionId =
-  | 'open'
-  | 'peek'
   | 'rename'
   | 'read'
   | 'status'
-  | 'priority'
-  | 'agent'
-  | 'labels'
   | 'color'
   | 'placement'
-  | 'defer'
-  | 'pin'
-  | 'moveTop'
-  | 'moveUp'
-  | 'moveDown'
   | 'bringBack'
   | 'undefer'
-  | 'archive'
   | 'delete'
 
 export interface WorkMenuCapabilities {
   placement: boolean
-  moveTop: boolean
-  moveUp: boolean
-  moveDown: boolean
 }
 
 /**
- * The mobile projection of the desktop sidebar menu.
+ * The mobile long-press menu, TRIMMED by the 2026-08-27 device review.
  *
- * Phone-only affordances stay explicit: Peek replaces a second pane, and the
- * three Move actions replace the desktop's drag grip. Everything else follows
- * the desktop menu's order and lifecycle gates. Closed and Snoozed rows do not
- * inherit this list: once folded, their only useful choices are the inverse of
- * the fold and Archive.
+ * This began as the full desktop sidebar vocabulary projected onto a sheet, and
+ * on a real phone most of it was noise: Open/Peek duplicated the row tap,
+ * priority/labels/agent-launch/snooze/pin/archive all have better homes (the
+ * task page and the chat's own menus), and Move down never earned its row.
+ * What is LEFT is what a long-press is actually for — naming, read state,
+ * status, colour, placement, and delete — the Move to top/up reorder pair went
+ * in the 2026-08-28 follow-up review, the day it was discovered ("remove the
+ * move entries"): ordering belongs to drag on the desktop, not a phone menu.
+ * Closed and Snoozed rows keep only the inverse of their fold.
  */
 export function workMenuActionIds(
   issue: IssueNavigationModel,
   lane: WorkMenuLane,
   capabilities: WorkMenuCapabilities,
 ): WorkMenuActionId[] {
-  if (lane === 'closed') return ['bringBack', 'archive']
-  if (lane === 'snoozed') return ['undefer', 'archive']
+  if (lane === 'closed') return ['bringBack']
+  if (lane === 'snoozed') return ['undefer']
 
-  const live = !issue.deletedAt
-  const open = live && issue.closedReason == null
-  const ids: WorkMenuActionId[] = ['open', 'peek']
-  if (!live) return ids
+  if (issue.deletedAt) return []
 
-  ids.push('rename', 'read', 'status', 'priority')
-  if (open) ids.push('agent')
-  ids.push('labels')
+  const ids: WorkMenuActionId[] = ['rename', 'read', 'status']
   if (issue.parentId == null) ids.push('color')
   if (capabilities.placement) ids.push('placement')
-  if (open || issue.deferUntil != null) ids.push('defer')
-  ids.push('pin')
-  if (capabilities.moveTop) ids.push('moveTop')
-  if (capabilities.moveUp) ids.push('moveUp')
-  if (capabilities.moveDown) ids.push('moveDown')
-  ids.push('archive', 'delete')
+  ids.push('delete')
   return ids
-}
-
-/** Same gate as the desktop's Run now / Assign agent choice. */
-export function workIssueStartable(issue: IssueWire): boolean {
-  return (
-    !issue.worktreePath &&
-    issue.closedReason == null &&
-    !issue.archived &&
-    !issue.deletedAt &&
-    issue.stage !== 'shipping'
-  )
-}
-
-/** Local YYYY-MM-DD for the desktop menu's tomorrow/week defer presets. */
-export function workDeferDateFromNow(now: number, days: number): string {
-  const date = new Date(now)
-  date.setDate(date.getDate() + days)
-  const month = String(date.getMonth() + 1).padStart(2, '0')
-  const day = String(date.getDate()).padStart(2, '0')
-  return `${date.getFullYear()}-${month}-${day}`
 }

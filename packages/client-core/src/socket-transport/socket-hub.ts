@@ -19,15 +19,21 @@ import type {
   ShipOrderProjection,
   TranscriptItem,
 } from '@podium/model'
-import { asMachineId, layoutRowId, readPositionRowId } from '@podium/model'
+import { asMachineId, interactionRowId, layoutRowId, readPositionRowId } from '@podium/model'
 import {
   type ApprovalWire,
   CAP_ISSUES_NORMALIZED,
   CAP_METADATA_DELTA,
   CAP_SYNC_FEED_IDENTITY,
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
+  type ClientPtyInputMetadata,
   createDispatcher,
+  decodeBinaryEnvelope,
   encode,
+  encodeBinaryEnvelope,
   type HeadlessActivityEvent,
+  type TurnPreviewMessage,
   isKnownMetadataChange,
   type MetadataChange,
   type MetadataChangeLenient,
@@ -35,6 +41,7 @@ import {
   type PresencePayload,
   type PresenceRoomClientMessage,
   type PresenceRoomServerMessage as PresenceRoomServerFrame,
+  PtyOutputBinaryMetadata,
   parseServerMessageLenient,
   presencePayloadWithinBudget,
   type RoomRef,
@@ -43,6 +50,7 @@ import {
   type SessionOpenUrlMessage,
   type SessionOpenUrlResultMessage,
   WIRE_VERSION,
+  type PendingInteractionWire,
 } from '@podium/protocol'
 import { applyServerLogLevel } from '../logging/level-command'
 import { type EchoLatencyStats, EchoLatencyTracker } from './echo-latency'
@@ -86,6 +94,10 @@ const interactionNow = (): number =>
     : Date.now()
 
 export interface WebSocketLike {
+  /** Browser sockets expose this; native bridges may omit it and stay on base64. */
+  binaryType?: 'blob' | 'arraybuffer'
+  /** Native bridges may expose an explicit binary sink instead of browser send(). */
+  sendBinary?(data: Uint8Array): void
   send(data: string): void
   close(): void
   readonly bufferedAmount?: number
@@ -95,13 +107,50 @@ export interface WebSocketLike {
   onerror?: ((ev: unknown) => void) | null
 }
 
-export interface ConnectionViewport {
-  cols: number
-  rows: number
-  dpr: number
+/**
+ * WHY a socket ended — observability only, threaded into the reconnect warn.
+ * Four reconnects in 30s used to be undiagnosable from client logs: a server
+ * 1006, a heartbeat timeout against a wedged event loop and a network drop all
+ * printed the identical 'socket closed — reconnecting'. The teardown path is
+ * shared (see {@link SocketHub.onSocketClosed}), so the cause rides in from
+ * whichever door the close came through.
+ */
+export type SocketCloseCause =
+  | { cause: 'close-event'; code: number; reason: string; wasClean: boolean }
+  | { cause: 'heartbeat-timeout'; silentForMs: number }
+  | { cause: 'wake' }
+  | { cause: 'fresh-world' }
+  | { cause: 'server-relocation' }
+  | { cause: 'suspend' }
+
+/** Best-effort read of the CloseEvent fields off the seam's `unknown` event —
+ *  non-browser socket doubles may deliver nothing at all. */
+function closeEventCause(ev: unknown): SocketCloseCause {
+  const event = (typeof ev === 'object' && ev !== null ? ev : {}) as {
+    code?: unknown
+    reason?: unknown
+    wasClean?: unknown
+  }
+  return {
+    cause: 'close-event',
+    code: typeof event.code === 'number' ? event.code : 0,
+    reason: typeof event.reason === 'string' ? event.reason : '',
+    wasClean: event.wasClean === true,
+  }
 }
 
-export type TerminalOutcome = 'unauthorized' | 'unreachable'
+/**
+ * THE `hello` FRAME'S VIEWPORT FIELD, and nothing else.
+ *
+ * It is required by the wire schema and read by no server code. It once seeded
+ * every `SessionConnection`'s birth grid, which is what put a hardcoded 80x24
+ * inside a terminal that had never asked for one (POD-3239 B8). It no longer
+ * does, so a fixed transport bootstrap is the honest value: there is no session
+ * here to have a size.
+ */
+const HELLO_VIEWPORT = { cols: 80, rows: 24 } as const
+
+export type TerminalOutcome = 'unauthorized' | 'unreachable' | 'unsupported'
 
 export interface ConnectionState {
   connected: boolean
@@ -111,8 +160,21 @@ export interface ConnectionState {
   outcome: TerminalOutcome | null
   sessionId: SessionId
   role: 'controller' | 'spectator'
-  cols: number
-  rows: number
+  /**
+   * THE SERVER'S GRID, or `undefined` until this connection has been told one
+   * (POD-3239 B2/B8).
+   *
+   * It used to be born at the hub's `hello` viewport — a hardcoded 80x24 that
+   * had nothing to do with any session — and that birth value was emitted
+   * synchronously by `requestControl` and by `welcome`, which is how a mounted
+   * terminal got moved to 80x24 before the attach had said anything. There is no
+   * honest number to put here before `attached`, so there is no number.
+   */
+  cols: number | undefined
+  rows: number | undefined
+  /** Server-issued monotonic revision for the authoritative geometry timeline.
+   * Optional for older servers/embedders; current server messages populate it. */
+  geometryRevision?: number
   /**
    * Geometry this connection most recently asked the server to make
    * authoritative. Non-null means the controller/geometry acknowledgment has
@@ -134,7 +196,7 @@ export interface ConnectionState {
 }
 
 export interface SessionCallbacks {
-  onFrame?: (text: string) => void
+  onFrame?: (bytes: Uint8Array) => void
   onState?: (state: ConnectionState) => void
   /**
    * The server is about to send a full replay (not a `resumed` catch-up): clear
@@ -142,6 +204,12 @@ export interface SessionCallbacks {
    * resume, where the view keeps its content and appends.
    */
   onReset?: () => void
+  /**
+   * The attach belongs to a new in-memory server geometry timeline. Reset
+   * geometry ordering state without clearing the screen; an empty resumed
+   * attach has no replay frames to rebuild it.
+   */
+  onGeometryTimelineReset?: () => void
   /**
    * The server confirmed the attach (the PTY is bound and ready for input). Fires
    * on every `attached` message — independent of whether any output follows, so a
@@ -155,7 +223,6 @@ export interface SessionCallbacks {
 
 export interface SocketHubOptions {
   url: string
-  viewport: ConnectionViewport
   makeSocket?: (url: string) => WebSocketLike
   onError?: (message: string, event?: unknown) => void
   /** Opaque wire-v1 Replica adapter. Transport only drives lifecycle and forwards envelopes. */
@@ -311,16 +378,23 @@ export interface FeedSinkPort {
   frame(frame: FeedServerFrame): void
 }
 
-function utf8ToBase64(text: string): string {
-  const bytes = new TextEncoder().encode(text)
+type InputIntent = {
+  type: 'input'
+  sessionId: SessionId
+  data: string
+}
+type InputWire = InputIntent | Uint8Array
+
+const utf8Encoder = new TextEncoder()
+function bytesToBase64(bytes: Uint8Array): string {
   let bin = ''
   for (const b of bytes) bin += String.fromCharCode(b)
   return btoa(bin)
 }
 
-function fromBase64Utf8(b64: string): string {
+function fromBase64Bytes(b64: string): Uint8Array {
   const bin = atob(b64)
-  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)))
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0))
 }
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -456,6 +530,11 @@ export interface HubEvents {
    *  `issueEvent`) — the chat feed's content, which used to arrive on a 15 s
    *  RPC timer of its own. Bounded server-side; evictions arrive as deletes. */
   issueEvents: [events: IssueEventWire[]]
+  /** The OPEN blocking asks after any change (POD-2020, entity kind
+   *  `pendingInteraction`) — every interaction a session is stopped on, so
+   *  answering from one surface clears the card on all of them. Resolving an ask
+   *  removes it; the resolved history is an RPC read, not a feed kind. */
+  pendingInteractions: [interactions: PendingInteractionWire[]]
   /** Compact shipping read rows, joined to issues by `issueId`. */
   shipOrders: [orders: ShipOrderProjection[]]
   /**
@@ -496,6 +575,12 @@ export interface HubEvents {
    *  subscription these frames depend on). */
   transcriptDelta: [sessionId: SessionId, items: TranscriptItem[], meta: { reset: boolean }]
   headlessActivity: [sessionId: SessionId, event: HeadlessActivityEvent]
+  /** The in-progress half of a turn (POD-2293): a SNAPSHOT of everything the
+   *  agent is producing right now, superseded row by row as the durable items
+   *  land on `transcriptDelta`. Frames are subscriber-scoped — the server sends
+   *  them only to clients holding a transcript subscription on that session — so
+   *  this needs no subscription of its own beyond that one. */
+  turnPreview: [sessionId: SessionId, frame: TurnPreviewMessage]
   presenceRoomState: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomState' }>]
   presenceRoomDelta: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomDelta' }>]
   presenceRoomClosed: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomClosed' }>]
@@ -518,7 +603,7 @@ export class SocketHub {
   private readonly scheduleFeedTask: (task: () => void) => void
   /** Only set when this hub built its own scheduler — an injected one belongs to
    *  the caller and is not this class's to tear down. */
-  private readonly ownFeedScheduler: FeedTaskScheduler | undefined
+  private ownFeedScheduler: FeedTaskScheduler | undefined
   private readonly subscriptionRegistry: ClientSubscriptionRegistry
   private readonly feedIngressQueue: Array<{
     raw: string
@@ -541,6 +626,10 @@ export class SocketHub {
     backlogResyncs: 0,
   }
   private socket: WebSocketLike | undefined
+  /** Sockets that violated the binary wire contract stay inert while their
+   * asynchronous close handshake finishes. A WeakSet scopes the latch to the
+   * offending connection, so a replacement socket starts clean. */
+  private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
   private sessionList: SessionMeta[] = []
@@ -567,6 +656,7 @@ export class SocketHub {
   private repoList: RepoProjection[] = []
   /** The curated issue-event window (POD-1772). Empty until the feed carries it. */
   private issueEventList: IssueEventWire[] = []
+  private pendingInteractionList: PendingInteractionWire[] = []
   private shipOrderList: ShipOrderProjection[] = []
   /** Per-user layout rows (POD-1350). Empty until the feed carries userLayout. */
   private userLayoutList: LayoutWire[] = []
@@ -612,12 +702,16 @@ export class SocketHub {
   /** Send time of each unanswered ping, oldest first. Pongs arrive in ping order. */
   private pingQueue: number[] = []
   /** Input messages typed while offline, flushed in order on reconnect. */
-  private readonly inputQueue: Parameters<typeof encode>[0][] = []
+  private readonly inputQueue: InputWire[] = []
   /** Control messages issued while the socket is still CONNECTING (e.g. an eager
    *  requestControl on mount): sending then throws InvalidStateError — a race that
    *  only surfaces over a high-latency link (a tunnel) where onopen hasn't fired
    *  yet. Queued here and flushed, in order, once the socket opens. */
   private readonly preOpenQueue: Parameters<typeof encode>[0][] = []
+  /** The current socket can carry bytes, independently of output reception. */
+  private inputBinaryTransport = false
+  /** The current server explicitly acknowledged binary input in `welcome`. */
+  private inputBinaryAcknowledged = false
   private staleTimer: ReturnType<typeof setTimeout> | undefined
   private lastRttMs: number | null = null
   private health: ConnectionHealth = { status: 'ok', rttMs: null, since: Date.now() }
@@ -690,9 +784,15 @@ export class SocketHub {
       this.ownFeedScheduler = undefined
       this.scheduleFeedTask = opts.scheduleFeedTask
     } else {
-      const scheduler = createFeedTaskScheduler()
-      this.ownFeedScheduler = scheduler
-      this.scheduleFeedTask = (task) => scheduler.schedule(task)
+      // Runtime dispose is reversible: React StrictMode starts the SAME runtime
+      // again after its probe cleanup. Resolve the owned scheduler at every
+      // enqueue so dispose can release its MessageChannel and the replacement
+      // socket can lazily receive a fresh one. Capturing this first scheduler
+      // forever stranded every feed frame delivered after that remount.
+      this.scheduleFeedTask = (task) => {
+        this.ownFeedScheduler ??= createFeedTaskScheduler()
+        this.ownFeedScheduler.schedule(task)
+      }
     }
     this.legacyFeed?.bind({
       apply: (changes) => this.applyChanges(changes),
@@ -715,6 +815,11 @@ export class SocketHub {
       this.reconnectTimer = undefined
     }
 
+    // Capability acknowledgements are scoped to one socket. Clear this before
+    // creating the replacement so input cannot leak a prior connection's grant.
+    this.inputBinaryTransport = false
+    this.inputBinaryAcknowledged = false
+
     let socket: WebSocketLike
     try {
       socket = this.makeSocket(this.serverUrl)
@@ -727,6 +832,13 @@ export class SocketHub {
       return
     }
 
+    // Browser WebSockets expose binaryType. Native bridges that omit it retain
+    // the JSON/base64 fallback and do not advertise binary output.
+    const acceptsBinaryOutput = 'binaryType' in socket
+    const acceptsBinaryInput = acceptsBinaryOutput || typeof socket.sendBinary === 'function'
+    if (acceptsBinaryOutput) socket.binaryType = 'arraybuffer'
+    this.inputBinaryTransport = acceptsBinaryInput
+
     let opened = false
     let reportedError = false
     this.intentionalClose = false
@@ -734,6 +846,7 @@ export class SocketHub {
     this.disposed = false
     this.socket = socket
     socket.onopen = () => {
+      if (this.invalidSockets.has(socket)) return
       opened = true
       // BEFORE `everConnected` moves, so the record says whether this was the
       // first connection or a recovery — which is the difference between "the
@@ -753,19 +866,25 @@ export class SocketHub {
       this.sendRaw({
         type: 'hello',
         clientId: this.clientIdValue,
-        viewport: { ...this.opts.viewport },
+        viewport: { ...HELLO_VIEWPORT, dpr: globalThis.devicePixelRatio ?? 1 },
         // Legacy feed capability negotiation is keyed only by the presence of the
         // opaque Replica sink. Transport never reads its position or stamp.
         // CAP_ISSUES_NORMALIZED is opt-in on top (see `issuesNormalized`): it
         // promises the server this client no longer needs IssueWire, which is
         // what licenses the server to skip the O(issues x sessions) rebuild on
         // session churn [POD-796].
-        ...(this.legacyFeed
+        ...(this.legacyFeed || acceptsBinaryOutput || acceptsBinaryInput
           ? {
               caps: [
-                CAP_METADATA_DELTA,
-                CAP_SYNC_FEED_IDENTITY,
-                ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+                ...(this.legacyFeed
+                  ? [
+                      CAP_METADATA_DELTA,
+                      CAP_SYNC_FEED_IDENTITY,
+                      ...(this.opts.issuesNormalized ? [CAP_ISSUES_NORMALIZED] : []),
+                    ]
+                  : []),
+                ...(acceptsBinaryOutput ? [CAP_TERMINAL_OUTPUT_BINARY_V1] : []),
+                ...(acceptsBinaryInput ? [CAP_TERMINAL_INPUT_BINARY_V1] : []),
               ],
             }
           : {}),
@@ -833,11 +952,33 @@ export class SocketHub {
       // eager requestControl) — after the re-attaches above so the session exists.
       for (const msg of this.preOpenQueue.splice(0)) this.sendRaw(msg)
       this.notifyConnections()
-      this.evaluateHealth()
+      // Publish even when the coarse health label stays `ok`: mobile reads the
+      // hub's exact connected flag on this event, and an offline cold start
+      // must not call a never-opened socket live.
+      this.evaluateHealth(true)
     }
     socket.onmessage = (ev) => {
+      if (this.invalidSockets.has(socket)) return
       this.markAlive()
-      const raw = String(ev.data)
+      if (typeof ev.data !== 'string') {
+        try {
+          if (!acceptsBinaryOutput || !(ev.data instanceof ArrayBuffer)) {
+            throw new Error('unnegotiated or non-ArrayBuffer binary server frame')
+          }
+          const { metadata, payload } = decodeBinaryEnvelope(ev.data, PtyOutputBinaryMetadata)
+          this.forwardBinaryOutput(metadata, payload)
+        } catch (err) {
+          log.warn('closing a socket after a binary protocol violation', { err })
+          this.recordSkew({ refusedFrames: 1, error: err })
+          this.invalidSockets.add(socket)
+          this.connectedFlag = false
+          this.inputBinaryAcknowledged = false
+          this.stopHeartbeat()
+          socket.close()
+        }
+        return
+      }
+      const raw = ev.data
       const kind = feedFrameTypeHint(raw)
       if (kind !== null) {
         this.enqueueFeedFrame(raw, socket, kind)
@@ -854,19 +995,23 @@ export class SocketHub {
       // connect is fatal — that's a wrong address or a server that isn't running.
       if (!this.everConnected) this.opts.onError?.('WebSocket connection failed', ev)
     }
-    socket.onclose = () => {
+    socket.onclose = (ev) => {
       if (!this.intentionalClose && !opened && !reportedError && !this.everConnected) {
         this.opts.onError?.('WebSocket connection closed before connecting')
       }
-      this.onSocketClosed()
+      // The CloseEvent is the only place the wire says WHY it ended — a server
+      // 1006 vs a clean 1000 vs a proxy 1011 are three different diagnoses.
+      this.onSocketClosed(closeEventCause(ev))
     }
   }
 
   /** Common teardown for any socket end: from onclose or a heartbeat force-close. */
-  private onSocketClosed(): void {
+  private onSocketClosed(cause?: SocketCloseCause): void {
     this.stopHeartbeat()
     this.connectedFlag = false
     this.socket = undefined
+    this.inputBinaryTransport = false
+    this.inputBinaryAcknowledged = false
     // Frames from a closed socket cannot be installed after a replacement
     // socket starts a new feed identity/stream.
     this.clearFeedIngress()
@@ -876,14 +1021,17 @@ export class SocketHub {
     this.opts.feed?.disconnected()
     this.legacyFeed?.disconnected()
     this.notifyConnections()
-    if (!this.intentionalClose) this.evaluateHealth()
+    if (!this.intentionalClose) this.evaluateHealth(true)
     if (!this.intentionalClose) {
       const retryInMs = this.scheduleReconnect()
       // `warn`, so it forwards at the client's default threshold: a client that
       // keeps losing its socket is the thing an operator most wants to see from
       // the outside, and it is invisible in the server's own logs. Logged AFTER
       // scheduling so it reports the delay actually armed, jitter included.
-      log.warn('socket closed — reconnecting', { retryInMs })
+      // The cause fields turn a reconnect storm into a one-log diagnosis:
+      // heartbeat-timeout points at a wedged server loop, close code/reason at
+      // the server or the path between.
+      log.warn('socket closed — reconnecting', { retryInMs, ...cause })
     }
   }
 
@@ -954,7 +1102,7 @@ export class SocketHub {
     if (this.heartbeatDeadline !== undefined) return
     this.heartbeatDeadline = setTimeout(() => {
       this.heartbeatDeadline = undefined
-      this.forceClose()
+      this.forceClose({ cause: 'heartbeat-timeout', silentForMs: HEARTBEAT_TIMEOUT_MS })
     }, HEARTBEAT_TIMEOUT_MS)
   }
 
@@ -1002,9 +1150,11 @@ export class SocketHub {
     this.heartbeatDeadline = undefined
   }
 
-  /** The heartbeat went unanswered. A half-open TCP connection may not deliver a
-   *  close event for minutes, so detach the handlers and run the close path now. */
-  private forceClose(): void {
+  /** The heartbeat went unanswered (or a caller needs the socket gone NOW). A
+   *  half-open TCP connection may not deliver a close event for minutes, so
+   *  detach the handlers and run the close path immediately, carrying WHICH
+   *  door forced it so the reconnect warn can say so. */
+  private forceClose(cause: SocketCloseCause): void {
     const socket = this.socket
     if (socket === undefined) return
     socket.onopen = null
@@ -1016,7 +1166,7 @@ export class SocketHub {
     } catch {
       // already dead — exactly the case we're cleaning up
     }
-    this.onSocketClosed()
+    this.onSocketClosed(cause)
   }
 
   /**
@@ -1029,7 +1179,7 @@ export class SocketHub {
    * socket takes the same path: one extra hello is cheaper than a frozen UI.
    */
   wake(): void {
-    if (this.socket !== undefined) this.forceClose()
+    if (this.socket !== undefined) this.forceClose({ cause: 'wake' })
     this.connect()
   }
 
@@ -1058,7 +1208,7 @@ export class SocketHub {
     // exactly the same thing from the reconnect that is already scheduled.
     this.wantWorld = true
     if (this.socket === undefined) return
-    this.forceClose()
+    this.forceClose({ cause: 'fresh-world' })
     this.scheduleReconnect()
   }
 
@@ -1087,13 +1237,13 @@ export class SocketHub {
     // be scheduled again for minutes. The teardown (heartbeat off, sink told it
     // is disconnected) has to be true the moment the app is backgrounded, not
     // whenever the platform gets round to it.
-    this.forceClose()
+    this.forceClose({ cause: 'suspend' })
   }
 
   attach(sessionId: SessionId, cb: SessionCallbacks = {}): SessionConnection {
     let conn = this.connections.get(sessionId)
     if (conn === undefined) {
-      conn = new SessionConnection(this, sessionId, cb, this.opts.viewport)
+      conn = new SessionConnection(this, sessionId, cb)
       this.connections.set(sessionId, conn)
       if (this.connectedFlag) this.sendRaw({ type: 'attach', sessionId })
     } else {
@@ -1567,9 +1717,10 @@ export class SocketHub {
     return off
   }
 
-  private evaluateHealth(): void {
+  private evaluateHealth(publishUnchanged = false): void {
     const next = this.computeHealth()
-    if (next.status === this.health.status && next.rttMs === this.health.rttMs) return
+    if (!publishUnchanged && next.status === this.health.status && next.rttMs === this.health.rttMs)
+      return
     // A status that merely re-confirms keeps its start time — `since` marks the
     // transition, not the latest re-evaluation.
     this.health = next.status === this.health.status ? { ...next, since: this.health.since } : next
@@ -1603,12 +1754,27 @@ export class SocketHub {
 
   /** @internal Input path: send now if connected, else queue for flush on
    *  reconnect so a blip doesn't silently drop keystrokes. */
-  _sendInput(msg: Parameters<typeof encode>[0]): void {
+  _sendInput(msg: InputIntent): void {
+    if (msg.data.length === 0) return
+    const wire = this.encodeInput(msg)
     if (this.connectedFlag && this.socket !== undefined) {
-      this.sendRaw(msg)
+      this.sendRaw(wire)
       return
     }
-    if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(msg)
+    if (this.inputQueue.length < INPUT_QUEUE_CAP) this.inputQueue.push(wire)
+  }
+
+  private encodeInput(msg: InputIntent): InputWire {
+    const payload = utf8Encoder.encode(msg.data)
+    if (this.inputBinaryTransport && this.inputBinaryAcknowledged) {
+      const metadata: ClientPtyInputMetadata = {
+        v: 1,
+        type: 'ptyInput',
+        sessionId: msg.sessionId,
+      }
+      return encodeBinaryEnvelope(metadata, payload)
+    }
+    return { ...msg, data: bytesToBase64(payload) }
   }
 
   /**
@@ -1645,7 +1811,10 @@ export class SocketHub {
     // scheduler disposed there would leave the next frame with nothing to wake
     // it.
     this.ownFeedScheduler?.dispose()
+    this.ownFeedScheduler = undefined
     this.connectedFlag = false
+    this.inputBinaryTransport = false
+    this.inputBinaryAcknowledged = false
     this.inputQueue.length = 0
     this.preOpenQueue.length = 0
     this.legacyFeed?.dispose()
@@ -1711,7 +1880,7 @@ export class SocketHub {
     if (entry === undefined) return
     if (entry.kind === 'feedDelta') this.feedDeltaQueueDepth -= 1
 
-    if (this.socket === entry.socket) {
+    if (this.socket === entry.socket && !this.invalidSockets.has(entry.socket)) {
       const startedAt = interactionNow()
       try {
         this.route(entry.raw)
@@ -1831,6 +2000,8 @@ export class SocketHub {
     },
     welcome: (msg) => {
       this.clientIdValue = msg.clientId
+      this.inputBinaryAcknowledged =
+        this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
       this.notifyConnections()
     },
     // POD-1081: attach/requestControl refusal. Unauthorized is sticky so we do
@@ -1943,7 +2114,7 @@ export class SocketHub {
       endpoint.search = ''
       endpoint.hash = ''
       this.serverUrl = endpoint.toString()
-      if (this.socket !== undefined) this.forceClose()
+      if (this.socket !== undefined) this.forceClose({ cause: 'server-relocation' })
       this.connectNow()
     },
     setLogLevel: (msg) => {
@@ -1964,6 +2135,11 @@ export class SocketHub {
     },
     headlessActivity: (msg) => {
       this.emit('headlessActivity', msg.sessionId, msg.event)
+    },
+    turnPreview: (msg) => {
+      // A pure forward: no cursor to track and nothing to accumulate, because
+      // every frame is the whole preview. The consumer applies newest-wins.
+      this.emit('turnPreview', msg.sessionId, msg)
     },
     transcriptDelta: (msg) => {
       // Track the newest cursor so a reconnect resumes from here. A reset frame
@@ -2025,6 +2201,11 @@ export class SocketHub {
 
   private forwardToSession(msg: SessionScopedServerMessage): void {
     this.connections.get(msg.sessionId)?._ingest(msg)
+  }
+
+  private forwardBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
+    // A missing/detached session is session-level state, not a framing error.
+    this.connections.get(metadata.sessionId)?._ingestBinaryOutput(metadata, payload)
   }
 
   private metadataProjection(): LegacyMetadataProjection {
@@ -2144,6 +2325,18 @@ export class SocketHub {
             (x) => x.id === c.id,
           )
           break
+        case 'pendingInteraction':
+          // POD-2020. Matched on the composite id the Authority logs
+          // (`interactionRowId`), not the row's own `id`: a resolved ask arrives
+          // as a `remove` carrying only that composite, and the row's bare id
+          // would not match it.
+          this.pendingInteractionList = applyChange(
+            this.pendingInteractionList,
+            c.op,
+            c.value,
+            (x) => interactionRowId(x.sessionId, x.id) === c.id,
+          )
+          break
         case 'userLayout':
           // Feed demux for POD-1350's per-user layout rows. Match on the same
           // composite id the Authority logs (layoutRowId), not payload equality.
@@ -2173,6 +2366,8 @@ export class SocketHub {
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
     if (touched.has('issueEvent')) this.emit('issueEvents', this.issueEventList)
+    if (touched.has('pendingInteraction'))
+      this.emit('pendingInteractions', this.pendingInteractionList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('conversation')) this.emit('conversations', this.conversationList)
     if (touched.has('automation')) this.emit('automations', this.automationList)
@@ -2183,7 +2378,7 @@ export class SocketHub {
 
   private sendPresenceFrame(frame: PresenceRoomClientMessage): boolean {
     const socket = this.socket
-    if (!this.connectedFlag || socket === undefined) return false
+    if (!this.connectedFlag || socket === undefined || this.invalidSockets.has(socket)) return false
     if ((socket.bufferedAmount ?? 0) >= PRESENCE_OUTBOUND_BUDGET_BYTES) return false
     socket.send(JSON.stringify(frame))
     return true
@@ -2193,7 +2388,23 @@ export class SocketHub {
     for (const c of this.connections.values()) c._notifyHubChange()
   }
 
-  private sendRaw(msg: Parameters<typeof encode>[0]): void {
+  private sendRaw(msg: Parameters<typeof encode>[0] | Uint8Array): void {
+    const currentSocket = this.socket
+    if (currentSocket !== undefined && this.invalidSockets.has(currentSocket)) {
+      if (!(msg instanceof Uint8Array) && this.preOpenQueue.length < INPUT_QUEUE_CAP)
+        this.preOpenQueue.push(msg)
+      return
+    }
+    if (msg instanceof Uint8Array) {
+      const socket = currentSocket
+      if (!this.connectedFlag || socket === undefined) return
+      if (typeof socket.sendBinary === 'function') {
+        socket.sendBinary(msg)
+      } else {
+        ;(socket.send as unknown as (data: Uint8Array) => void).call(socket, msg)
+      }
+      return
+    }
     // Only send on an OPEN socket. connectedFlag is true exactly between onopen and
     // close, so a send issued while the socket is still CONNECTING (or already
     // closing) is queued instead of throwing InvalidStateError — the crash that
@@ -2221,9 +2432,12 @@ export class SessionConnection {
   private controllerId: string | null = null
   private controllerIdentity: PresenceIdentity | null = null
   private outcome: TerminalOutcome | null = null
-  private cols: number
-  private rows: number
+  private cols: number | undefined
+  private rows: number | undefined
   private requestedGeometry: Geometry | null = null
+  /** Monotonic per-(connection, session) counter for {@link sendViewportRequest}. */
+  private viewportSeq = 0
+  private geometryRevision = 0
   private epoch = 0
   private lastSeq = -1
   /** What the last attach said about the session's durable output counter. An
@@ -2235,17 +2449,10 @@ export class SessionConnection {
   private frameSeen = false
   private readonly echo = new EchoLatencyTracker()
 
-  constructor(
-    hub: SocketHub,
-    sessionId: SessionId,
-    cb: SessionCallbacks,
-    viewport: ConnectionViewport,
-  ) {
+  constructor(hub: SocketHub, sessionId: SessionId, cb: SessionCallbacks) {
     this.hub = hub
     this.sessionId = sessionId
     this.cb = cb
-    this.cols = viewport.cols
-    this.rows = viewport.rows
   }
 
   setCallbacks(cb: SessionCallbacks): void {
@@ -2259,7 +2466,7 @@ export class SessionConnection {
 
   sendInput(bytes: string, inputEventAt?: number): void {
     if (this.echo.enabled()) this.echo.onInput(inputEventAt ?? interactionNow())
-    this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: utf8ToBase64(bytes) })
+    this.hub._sendInput({ type: 'input', sessionId: this.sessionId, data: bytes })
   }
 
   /** Enable/disable and reset the opt-in input→paint collector. */
@@ -2301,6 +2508,43 @@ export class SessionConnection {
     this.hub._send({ type: 'resize', sessionId: this.sessionId, cols, rows })
   }
 
+  /**
+   * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (POD-3239 B4 / MODEL rule 3).
+   *
+   * `seq` is owned here because it belongs to the (connection, session) pair and
+   * nothing else: it starts at 1 on a fresh connection, only increases, and the
+   * server rejects anything at or below the watermark it has already processed.
+   * A reconnect builds a new `SessionConnection`, which is exactly why starting
+   * again at 1 is correct rather than a collision.
+   *
+   * A CLAIMING ask publishes `requestedGeometry` the way `requestControl` does —
+   * that is real local intent and the UI reads it while the claim is in flight.
+   * A non-claiming one publishes nothing: it is a report about a box, not a
+   * statement about the pty.
+   */
+  sendViewportRequest(request: {
+    geometry: Geometry
+    visible: boolean
+    mode: 'native' | 'chat'
+    claimControl: boolean
+  }): void {
+    this.viewportSeq += 1
+    if (request.claimControl) {
+      this.requestedGeometry = { ...request.geometry }
+      if (this.state().role === 'controller') this.settleRequestedGeometry()
+      this.emit()
+    }
+    this.hub._send({
+      type: 'viewportRequest',
+      sessionId: this.sessionId,
+      geometry: { ...request.geometry },
+      visible: request.visible,
+      mode: request.mode,
+      claimControl: request.claimControl,
+      seq: this.viewportSeq,
+    })
+  }
+
   requestControl(geometry?: Geometry): void {
     if (geometry) {
       this.requestedGeometry = { ...geometry }
@@ -2330,6 +2574,7 @@ export class SessionConnection {
       role: clientId !== '' && clientId === this.controllerId ? 'controller' : 'spectator',
       cols: this.cols,
       rows: this.rows,
+      geometryRevision: this.geometryRevision,
       requestedGeometry: this.requestedGeometry ? { ...this.requestedGeometry } : null,
       epoch: this.epoch,
       lastSeq: this.lastSeq,
@@ -2342,6 +2587,11 @@ export class SessionConnection {
     this.dispatchSessionMessage(msg, undefined)
   }
 
+  /** @internal Hub-internal: apply validated binary PTY output metadata + bytes. */
+  _ingestBinaryOutput(metadata: PtyOutputBinaryMetadata, payload: Uint8Array): void {
+    this.ingestOutput(metadata.seq, metadata.epoch, payload)
+  }
+
   /** Total dispatch over the session-scoped subunion [spec:SP-3fe2] — the same
    *  compile-checked exhaustiveness as the hub's table, replacing the switch. */
   private readonly dispatchSessionMessage = createDispatcher<SessionScopedServerMessage>({
@@ -2351,29 +2601,25 @@ export class SessionConnection {
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
       this.rows = msg.geometry.rows
+      const previousGeometryRevision = this.geometryRevision
+      this.geometryRevision = msg.geometryRevision ?? 0
+      const geometryTimelineReset = this.geometryRevision < previousGeometryRevision
       this.epoch = msg.epoch
       if (msg.controllerId === this.hub.clientId) this.settleRequestedGeometry()
       this.attachOutputSeen = msg.outputSeen !== false
       // A full replay (not a `resumed` catch-up) is about to re-send the whole
       // buffer: clear the screen first so it rebuilds cleanly. A resume keeps the
       // screen and appends the missed frames.
+      if (geometryTimelineReset) this.cb.onGeometryTimelineReset?.()
       if (msg.resumed !== true) this.cb.onReset?.()
       this.emit()
       this.cb.onAttached?.()
     },
     outputFrame: (msg) => {
-      this.lastSeq = msg.seq
-      this.epoch = msg.epoch
-      if (this.echo.enabled()) this.echo.onOutput(interactionNow())
-      const text = fromBase64Utf8(msg.data)
-      // Latch before emit so the state this frame publishes already says the
-      // PTY has spoken — a subscriber that clears a waiting affordance on the
-      // state must not see one more "silent" snapshot after real output.
-      if (text.length > 0) this.frameSeen = true
-      this.emit()
-      this.cb.onFrame?.(text)
+      this.ingestOutput(msg.seq, msg.epoch, fromBase64Bytes(msg.data))
     },
     controllerChanged: (msg) => {
+      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.controllerId = msg.controllerId
       this.controllerIdentity = msg.controllerIdentity ?? null
       this.cols = msg.geometry.cols
@@ -2383,6 +2629,7 @@ export class SessionConnection {
       this.emit()
     },
     geometry: (msg) => {
+      if (!this.acceptGeometryRevision(msg.geometryRevision)) return
       this.cols = msg.cols
       this.rows = msg.rows
       this.settleRequestedGeometry()
@@ -2392,6 +2639,16 @@ export class SessionConnection {
       this.emit()
     },
   })
+
+  private ingestOutput(seq: number, epoch: number, bytes: Uint8Array): void {
+    this.lastSeq = seq
+    this.epoch = epoch
+    if (this.echo.enabled()) this.echo.onOutput(interactionNow())
+    // Latch before emit so the state accompanying the first real bytes is current.
+    if (bytes.length > 0) this.frameSeen = true
+    this.emit()
+    this.cb.onFrame?.(bytes)
+  }
 
   /** @internal Transport outcome for this session. */
   _outcome(outcome: TerminalOutcome): void {
@@ -2408,6 +2665,21 @@ export class SessionConnection {
 
   private emit(): void {
     this.cb.onState?.(this.state())
+  }
+
+  /**
+   * Production geometry fence: reject a delayed logical state from the same
+   * server timeline before it reaches subscribers. `geometryRevision` is an
+   * in-memory per-process counter, not durable session state; one server process
+   * owns a session, and a lower revision on attach starts a new timeline. The
+   * counter is monotonic and is not modulo-wrapped. Missing revisions remain
+   * accepted for older peers/embedders.
+   */
+  private acceptGeometryRevision(revision: number | undefined): boolean {
+    if (revision === undefined) return true
+    if (revision < this.geometryRevision) return false
+    this.geometryRevision = revision
+    return true
   }
 
   private settleRequestedGeometry(): void {

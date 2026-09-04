@@ -28,7 +28,7 @@ import type {
   ThreadId,
   WorkState,
 } from '@podium/model'
-import type { ApprovalWire } from '@podium/protocol'
+import type { ApprovalWire, PendingInteractionWire } from '@podium/protocol'
 import type { Sidebar as SidebarSettings } from '@podium/runtime'
 import type { RetrySatisfaction } from '@podium/sync/outbox'
 import type { PodiumClientApi } from '../api'
@@ -36,7 +36,7 @@ import type { OutboxDeadLetterEntry } from '../outbox'
 import type { ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/replica'
 import type { SocketHub } from '../socket-transport'
-import type { SpawnTarget } from '../spawn-agent'
+import type { SpawnDraftAgentArgs, SpawnTarget, TaskSpawnOutcome } from '../spawn-agent'
 import type { MainView, RoutedUiState } from '../ui-state'
 import type {
   DockTab,
@@ -82,6 +82,20 @@ export interface SessionEndResult {
   reason?: string
   /** True when the issue worktree was released (the branch is always kept). */
   worktreeFreed?: boolean
+}
+
+/** The issue read cursor that existed when the current foreground visit began. */
+export interface IssueVisitBaseline {
+  issueId: IssueId
+  readAt: string | null
+  openedAt: string
+}
+
+/** One app-local request to reveal a stable item inside a session transcript. */
+export interface TranscriptRevealRequest {
+  nonce: number
+  sessionId: SessionId
+  itemKey: string
 }
 
 export function defaultFormatError(error: unknown, fallback: string): string {
@@ -145,6 +159,7 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  server-curated tail — the superagent feed reads THESE rows rather than
    *  re-asking `issues.events` on a timer. */
   issueEvents: IssueEventWire[]
+  pendingInteractions: PendingInteractionWire[]
   /** Compact order rows; Shipping views join these to issues by issueId. */
   shipOrders: import('@podium/model').ShipOrderProjection[]
   /** Conversation summaries mirrored from the replica (offline search, mobile inbox). */
@@ -156,6 +171,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  AgentPanel gates its terminal attach on this — attaching to a not-yet-created
    *  session is dropped and never retried, so it must wait for reconciliation. */
   pendingSpawnIds: ReadonlySet<string>
+  /** First prompts for optimistic sessions whose server row has not landed yet.
+   * Chat surfaces seed their pending bubble from this and keep it through the
+   * later transcript reconciliation. */
+  pendingSpawnPrompts: ReadonlyMap<string, string>
   /** Latest health sample per daemon host; empty until a daemon reports (or after it drops). */
   hostMetrics: HostMetricsWire[]
   /** Connected machines registered with this Podium server; refreshed via machinesChanged. */
@@ -222,6 +241,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  Classic sidebar never sets it; unified worktree rows clear it. */
   selectedIssueId: IssueId | null
   setSelectedIssueId: (id: IssueId | null) => void
+  /** Captured before eager mark-read advances the issue's per-user cursor. */
+  issueVisitBaseline: IssueVisitBaseline | null
+  /** Consumed by the matching chat surface, then cleared by nonce. */
+  transcriptReveal: TranscriptRevealRequest | null
   /**
    * EDITOR-STYLE TAB WORKSPACES (POD-710): what each task in the left sidebar
    * has open — its tabs, its active tab, its ONE preview tab and its split
@@ -250,6 +273,14 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  next single click. Defaults to a permanent tab — a caller that has not
    *  thought about it wants a tab that stays. */
   openSessionTab: (sessionId: SessionId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
+  /** Open/select one session tab and request a jump to a stable transcript item. */
+  openSessionAtTranscript: (
+    sessionId: SessionId,
+    itemKey: string,
+    opts?: { permanent?: boolean },
+  ) => void
+  /** Clear only the request the consumer actually handled. */
+  clearTranscriptReveal: (nonce: number) => void
   /** The same, for any tab id (a session, or a `file:…` editor tab). */
   openTabInWorkspace: (tabId: TabId, opts?: { permanent?: boolean; paneId?: PaneId }) => void
   /** Preview → permanent, with no reorder (typing into the panel, or a
@@ -282,6 +313,10 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   /** One modeled per-session rendered mode. AgentPanel resolves defaults and capability, then records the effective value here; the same value persists and is reported to the server. */
   panelMode: Record<string, 'chat' | 'native'>
   setPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
+  /** Where NAVIGATION would like this session to open. Writes the mode only when
+   *  the operator has never picked one for this session, so a row that focuses a
+   *  session "in CLI" cannot overwrite a standing Chat pick (POD-1702). */
+  preferPanelMode: (sessionId: SessionId, mode: 'chat' | 'native') => void
   /** The right dock's shell per worktree (#23): worktreePath → the shell session
    *  living in the dock's Shell panel. Dock shells render THERE, not as workspace
    *  tabs — the tab strip filters every id in this map. Persisted so a reload
@@ -383,15 +418,30 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
    *  ids so the broadcast reconciles by id — and rolls the optimistic rows back
    *  if the create never lands. Returns the ids synchronously so the caller
    *  navigates without waiting on the round-trip. */
-  spawnDraftAgent: (args: {
+  spawnDraftAgent: (args: SpawnDraftAgentArgs) => {
+    sessionId: SessionId
+    issueId: IssueId
+    settled: Promise<boolean>
+  }
+  /** Start a named task optimistically, including its first chat turn. */
+  spawnIssueAgent: (args: {
+    issueId?: IssueId
+    sessionId?: SessionId
+    mutationId?: MutationId
     target: SpawnTarget
+    title: string
+    description: string
+    brief?: string
+    parentBranch?: string
     agentKind: AgentKind
-    firstPrompt?: string
     model?: string
     effort?: string
   }) => {
     sessionId: SessionId
     issueId: IssueId
+    mutationId: MutationId
+    settled: Promise<boolean>
+    outcome: Promise<TaskSpawnOutcome>
   }
   killSession: (sessionId: SessionId) => Promise<void>
   /** Nudge an errored agent to retry ("continue⏎" into its PTY). */

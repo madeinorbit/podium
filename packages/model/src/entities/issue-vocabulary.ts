@@ -157,10 +157,14 @@ export type IssueComment = z.infer<typeof IssueComment>
 export const IssuePanelTodo = z.object({ text: z.string(), done: z.boolean() })
 export type IssuePanelTodo = z.infer<typeof IssuePanelTodo>
 export const IssuePanelArtifact = z.object({
-  /** Path to the artifact file, normalized relative to the owning issue worktree. */
+  /** Path to the artifact file, normalized relative to its captured source root. */
   path: z.string(),
   title: z.string().optional(),
   addedAt: z.string(),
+  /** The bytes came from the calling issue session's checkout rather than the
+   * issue's pinned worktree. Present only for the explicit terminal-evidence
+   * path; ordinary artifacts omit it and retain the owning-worktree rule. */
+  sourceKind: z.literal('terminal-evidence').optional(),
   /** Permanent-store snapshot id ([spec:SP-0fc9] #441). Present ⇒ the bytes are
    *  served from `<state-dir>/artifacts/<issueId>/<artifactId>/` via the
    *  server-local /files/artifact route; absent (pre-existing entries) ⇒ legacy
@@ -229,3 +233,21 @@ export const IssueGitState = z.object({
   fallback: z.boolean().optional(),
 })
 export type IssueGitState = z.infer<typeof IssueGitState>
+
+/**
+ * THE PLACEHOLDER TITLE A DRAFT VESSEL IS MINTED WITH.
+ *
+ * Both mint sites use it — `IssueAttention.createDraftFor` on the server and the
+ * client's `optimisticSpawnIssue` — and so does the one READER that has to tell
+ * an unnamed draft from a named one (`issueDisplayTitle`), because naming a
+ * draft is what promotes it and the promotion is the server's to record: the
+ * rename's optimistic overlay carries the title while `draft` is still set.
+ *
+ * It lives in the MODEL rather than beside either mint site because the two
+ * sides cannot see each other — `apps/server` does not depend on
+ * `@podium/client-core` — and an exact string equality across a boundary with
+ * nothing holding the two literals together is a silent break: change one and
+ * every draft loses its name on both surfaces, with no type and no test to say
+ * so. Here, both sides import the same constant.
+ */
+export const DRAFT_ISSUE_TITLE = 'Draft'

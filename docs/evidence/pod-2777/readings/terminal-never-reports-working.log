@@ -1,0 +1,10 @@
+driver: generic-pty | phase at rest: idle
+  +45ms phase=idle transcriptChars=0
+  +12902ms phase=idle transcriptChars=0
+  +26605ms phase=idle transcriptChars=13250
+  +40606ms phase=idle transcriptChars=13250
+  +53717ms phase=idle transcriptChars=13250
+phases seen: idle=60
+EVER working: false
+final transcript chars: 13250
+EXIT=0

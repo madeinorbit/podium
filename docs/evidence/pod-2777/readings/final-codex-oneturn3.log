@@ -1,0 +1,37 @@
+ok  server pid=1007160 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at b07d315
+  ok  daemon pid=1007289 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at b07d315
+  ok  exactly one daemon (pid 1007289) on state root /tmp/pod-2777/state
+  ok  worktree at b07d3156ab790482269d5e7ac6603c16e65325b9, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at b07d315
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"b07d3156ab790482269d5e7ac6603c16e65325b9","short":"b07d315","spawnedSha":"b07d3156ab790482269d5e7ac6603c16e65325b9","serverPid":1007160,"daemonPid":1007289,"webSourceSha":"b07d315","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running b07d3156ab790482269d5e7ac6603c16e65325b9 in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                b07d3156ab790482269d5e7ac6603c16e65325b9 (web bundle b07d315, server pid 1007160, daemon pid 1007289)
+==============================================================================
+session 200e554c-f34d-49e8-94f6-01defada9b20 created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it); codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it); codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 6.5s
+   control: FIRED — 1 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-0ZZ44D. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-0ZZ44D — a blank session cannot produce this by luck
+   REPLY             arrived after 6454ms
+   ASSISTANT TEXT    13 chars: "PODIUM-0ZZ44D"
+   ELAPSED           6886ms
+
+==============================================================================
+RESULT  codex / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 6.5s
+==============================================================================
+written /tmp/pod-2777/results/codex.terminal.json
+EXIT=0

@@ -1,0 +1,46 @@
+{
+  "cell": "A3",
+  "arm": "parent",
+  "at": "2026-08-27T08:06:33.291Z",
+  "instance": "p2924a3b",
+  "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2924-bug-interrupt-stopped-working-on-claude",
+  "checkoutSha": "a010e6b88198bc8672e1c3292de554b35edcdcba",
+  "serverSha": "a010e6b88198bc8672e1c3292de554b35edcdcba",
+  "daemonSha": "a010e6b88198bc8672e1c3292de554b35edcdcba",
+  "web": {
+    "wireSchemaDigest": "986ebf5e8e57820c",
+    "wireVersion": 2,
+    "builtAt": "2026-08-27T03:54:00.155Z",
+    "appVersion": "dev+fb67ef2",
+    "sourceSha": "fb67ef2",
+    "bundleVersion": "bundle+hGKYKnJf"
+  },
+  "webReuseProof": {
+    "actualBuiltSourceSha": "fb67ef2",
+    "actualBuiltSourceFullSha": "fb67ef2278f083bf1bc7036186dea1e183dfcec6",
+    "builtAppsWebTree": "ee6ded230bf97196fafe2017b3b90e06a5cd5b64",
+    "runtimeAppsWebTree": "ee6ded230bf97196fafe2017b3b90e06a5cd5b64",
+    "appsWebByteIdentical": true,
+    "servedWebDir": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned/apps/web/dist",
+    "servedStampPath": "/home/mgw/src/podium/.worktrees/issue-2919-opencode-column-ten-cells-unowned/apps/web/dist/podium-build.json",
+    "servedStampMatchesResponse": true
+  },
+  "serverPid": "1649067",
+  "daemonPid": "1649241",
+  "serverAlive": true,
+  "daemonAlive": true,
+  "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2924-bug-interrupt-stopped-working-on-claude",
+  "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2924-bug-interrupt-stopped-working-on-claude",
+  "freeMemory": {
+    "MemTotal": "12242288 kB",
+    "MemAvailable": "5899384 kB",
+    "SwapFree": "37441684 kB"
+  },
+  "forbiddenOverrides": {
+    "PODIUM_STATE_DIR": null,
+    "PODIUM_AGENT_HOME": null,
+    "ABDUCO_SOCKET_DIR": null,
+    "TMUX_TMPDIR": null,
+    "PODIUM_WEB_DIR": null
+  }
+}

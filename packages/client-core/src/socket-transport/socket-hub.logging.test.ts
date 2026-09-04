@@ -43,7 +43,6 @@ function setup(makeSocket?: () => WebSocketLike) {
   const sock = new FakeSocket()
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: makeSocket ?? (() => sock),
   })
   return { sock, hub }

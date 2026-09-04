@@ -1,0 +1,352 @@
+{
+  "cell": "A3NEG",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3neg",
+  "at": "2026-08-28T13:19:41.423Z",
+  "pin": {
+    "cell": "A3NEG",
+    "at": "2026-08-28T13:19:41.469Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "12b3801f9d9e42fae380ef81ffb83d5eb122a83d",
+    "pinSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "serverSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "daemonSha": "86d707d89ce37a5e8945a4c50bec31e8fe6a5005",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "12b3801",
+      "appsWebIdentical": true
+    },
+    "serverPid": "989426",
+    "daemonPid": "990109",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "15582124 kB",
+      "SwapFree": "41724360 kB"
+    },
+    "rootFreeKiB": 83836832,
+    "load1m": 10.04,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T06:20:34.463Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "frozen host: the turn stopped and left exactly one durable record that says the interrupt was NOT confirmed; stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=unconfirmed expected=unconfirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
+  "control": {
+    "fired": true,
+    "what": "a turn observed in flight, a claude-sdk-host child to freeze, and no pre-existing stop record",
+    "detail": "user=true; working=true; hostChildren=1; preExistingStopRecords=0"
+  },
+  "evidence": [
+    "FROZEN HOSTS      [1021413]",
+    "INTERRUPT         {\"ok\":true,\"requested\":\"protocol\"}",
+    "STOPPED           true in 10791ms",
+    "STOP RECORDS      live=1 persisted=1",
+    "RECORD TEXTS      [{\"id\":\"claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.\"}]",
+    "OUTCOME           unconfirmed (expected unconfirmed)",
+    "REFUSAL RECORDS   0",
+    "IDLE RECEIPTS     before=0 afterTwoPresses=1 onePerEpoch=true",
+    "TYPED REFUSAL     false",
+    "CLAUSES           stopped=true exactlyOneStopRecord=true durableAfterReload=true outcome=unconfirmed expected=unconfirmed truthful=true idleReceiptOnePerEpoch=true stopRecordUnchangedByIdlePresses=true",
+    "SERVER READ ITEMS 0 (sessions.read; empty on this path — see the note on interruptRecords)",
+    "ALL ITEMS         [{\"id\":\"claude-sdk-user-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"user\",\"text\":\"Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTCZATSU in the final line.\"},{\"id\":\"claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"system\",\"text\":\"Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended.\"},{\"id\":\"claude-sdk-interrupt-idle-15f39d52-39f7-4912-a71f-d1f29c46805c-1\",\"role\":\"system\",\"text\":\"Interrupt refused: no turn was in flight.\"}]"
+  ],
+  "data": {
+    "sid": "15f39d52-39f7-4912-a71f-d1f29c46805c",
+    "freezeHost": true,
+    "frozen": [
+      1021413
+    ],
+    "payload": {
+      "ok": true,
+      "requested": "protocol"
+    },
+    "after": {
+      "ok": true,
+      "ms": 10791,
+      "row": {
+        "sessionId": "15f39d52-39f7-4912-a71f-d1f29c46805c",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-sdk",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "errored",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": {
+          "class": "interrupted",
+          "retryable": true,
+          "detail": "the Claude model host process exited on SIGKILL before the turn finished"
+        },
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "5941428 probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 37,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 563,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 1091,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 1603,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 2120,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 2638,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 3157,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 3675,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 4199,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 4723,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 5331,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 5853,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 6367,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 6885,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 7400,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 7921,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 8481,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 8997,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 9525,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 10208,
+          "phase": "working",
+          "status": "live",
+          "driverId": "claude-sdk"
+        },
+        {
+          "ms": 10791,
+          "phase": "errored",
+          "status": "live",
+          "driverId": "claude-sdk"
+        }
+      ]
+    },
+    "stopMs": 10791,
+    "hosts": [
+      {
+        "pid": 1021413,
+        "ppid": 990109,
+        "cwd": "/tmp/pod-3047n/probes/claude-sdk-a3neg",
+        "cmd": "/home/mgw/.bun/bin/bun --conditions=@podium/source /home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance/apps/daemon/src/claude-sdk-host.ts"
+      }
+    ],
+    "outcome": "unconfirmed",
+    "expected": "unconfirmed",
+    "stopped": true,
+    "exactlyOne": true,
+    "durable": true,
+    "truthful": true,
+    "idleBefore": 0,
+    "idleAfter": 1,
+    "idleOnce": true,
+    "stopUnchangedByIdle": true,
+    "typedRefusal": false,
+    "liveStop": [
+      {
+        "id": "claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "role": "system",
+        "ts": "2026-08-28T13:20:00.423Z",
+        "text": "Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended."
+      }
+    ],
+    "persistedStop": [
+      {
+        "id": "claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "role": "system",
+        "ts": "2026-08-28T13:20:00.423Z",
+        "text": "Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended."
+      }
+    ],
+    "persistedRefused": [],
+    "persistedIdle": [
+      {
+        "id": "claude-sdk-interrupt-idle-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "role": "system",
+        "ts": "2026-08-28T13:20:07.511Z",
+        "text": "Interrupt refused: no turn was in flight."
+      }
+    ],
+    "allItems": [
+      {
+        "id": "claude-sdk-user-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "role": "user",
+        "ts": "2026-08-28T13:19:43.725Z",
+        "text": "Count from 1 to 220, one sentence per line, without tools. Include P3047-A3-MTCZATSU in the final line."
+      },
+      {
+        "id": "claude-sdk-interrupt-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "role": "system",
+        "ts": "2026-08-28T13:20:00.423Z",
+        "text": "Turn interrupted by the operator; the model host did not confirm the interrupt before the turn ended."
+      },
+      {
+        "id": "claude-sdk-interrupt-idle-15f39d52-39f7-4912-a71f-d1f29c46805c-1",
+        "role": "system",
+        "ts": "2026-08-28T13:20:07.511Z",
+        "text": "Interrupt refused: no turn was in flight."
+      }
+    ],
+    "serverReadItems": [],
+    "statusAfter": {
+      "sessionId": "15f39d52-39f7-4912-a71f-d1f29c46805c",
+      "agentKind": "claude-code",
+      "harness": "claude-code",
+      "driverId": "claude-sdk",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "errored",
+      "machine": "flatblock",
+      "model": null,
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": {
+        "class": "interrupted",
+        "retryable": true,
+        "detail": "the Claude model host process exited on SIGKILL before the turn finished"
+      },
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "5941428 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    }
+  }
+}

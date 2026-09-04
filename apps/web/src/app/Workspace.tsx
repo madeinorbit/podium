@@ -1,5 +1,6 @@
 import { beginSwitch } from '@podium/client-core/perf'
 import { shallowEqual } from '@podium/client-core/store'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import type { Pane, WorktreeView } from '@podium/client-core/viewmodels'
 import {
   allTabIds,
@@ -17,7 +18,6 @@ import { asSessionId, type IssueId, type SessionId, type SessionMeta } from '@po
 import {
   Columns2,
   Crosshair,
-  FileText,
   PanelRightClose,
   Plus,
   SquareSplitHorizontal,
@@ -39,9 +39,11 @@ import {
 } from 'react'
 import { createPortal } from 'react-dom'
 import { Button } from '@/components/ui/button'
-import { AgentPanel } from '@/features/terminal/AgentPanelLazy'
+import { FileTypeIcon } from '@/features/files/file-icon'
+import { AgentPanelBoundary } from '@/features/terminal/AgentPanelBoundary'
 import { useWarmSet } from '@/features/terminal/use-warm-set'
 import { throughRestarts } from '@/lib/chunk-recovery'
+import { readFirstTaskDraft } from '@/features/setup/first-task-draft'
 import { MENU_ITEM, MENU_ITEM_DISABLED, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { AgentStatusGlyph } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -169,8 +171,7 @@ const resolveFixedStripControlTarget = (
   workspace: HTMLElement | null,
   target: FixedStripControlTarget,
 ): HTMLElement | null => {
-  const strips =
-    workspace?.querySelectorAll<HTMLElement>('[data-testid="native-tab-strip"]') ?? []
+  const strips = workspace?.querySelectorAll<HTMLElement>('[data-testid="native-tab-strip"]') ?? []
   const strip = [...strips].find((candidate) => candidate.dataset.pane === target.paneId)
   return (
     [...(strip?.querySelectorAll<HTMLElement>('[data-pressable]') ?? [])].find(
@@ -279,6 +280,14 @@ export function Workspace({
     shallowEqual,
   )
   const issues = useReplicaIssues()
+  // Subscribe to the addressed raw value, not the ui-state collection object.
+  // The runtime may replace that wrapper on unrelated publications; selecting
+  // the string keeps this hot subtree asleep while still observing a launch
+  // failure that arrives after the optimistic session has been removed.
+  const activationDraftRaw = useStoreSelector(
+    (s) => s.uiState?.get(FIRST_TASK_ACTIVATION_DRAFT_KEY) ?? null,
+  )
+  const activationDraft = readFirstTaskDraft(activationDraftRaw)
   const { focusedIssueId, setFocusedIssueId } = useOperatorFocus()
   // The tab being dragged, for the overlay and for mounting the drop zones only
   // while a drag is in flight.
@@ -730,12 +739,7 @@ export function Workspace({
         document.removeEventListener('keydown', onKeyDown, true)
       preloadDragRuntime(target, true)
     },
-    [
-      DragRuntime,
-      captureColdFixedStripKeyPress,
-      clearPendingDragActivation,
-      preloadDragRuntime,
-    ],
+    [DragRuntime, captureColdFixedStripKeyPress, clearPendingDragActivation, preloadDragRuntime],
   )
 
   const preparePendingDragActivation = useCallback((): PendingTabDragActivation | null => {
@@ -923,6 +927,22 @@ export function Workspace({
    * anyway — the spawn inserts its session optimistically, so the draft
    * resolves as a mission from the click rather than from the broadcast.
    */
+  const partialLaunchNeedsRecovery =
+    activationDraft.pendingIssueId !== '' &&
+    activationDraft.pendingIssueId === selectedIssueId &&
+    !sessions.some((candidate) => candidate.issueId === activationDraft.pendingIssueId)
+  if (partialLaunchNeedsRecovery) {
+    return (
+      <section className="native-agents-pane relative" data-testid="workspace-cold-deck">
+        <div className="workspace-sheet relative flex min-h-0 flex-1">
+          <Suspense fallback={null}>
+            <ColdStartComposer first={false} />
+          </Suspense>
+        </div>
+      </section>
+    )
+  }
+
   const missionOnScreen = selectedMissionRoot(issues, sessions, selectedIssueId)
   if (!missionOnScreen && deckTabs.length === 0) {
     const hasAnyTask = issues.some((candidate) => !candidate.deletedAt)
@@ -949,9 +969,7 @@ export function Workspace({
     if (orphan)
       return (
         <div className="flex min-w-0 flex-1">
-          <Suspense fallback={null}>
-            <AgentPanel sessionId={orphan.sessionId} active />
-          </Suspense>
+          <AgentPanelBoundary sessionId={orphan.sessionId} active />
         </div>
       )
     return (
@@ -1511,7 +1529,7 @@ function TabGhost({ tab }: { tab: WTab }): JSX.Element {
         <WorkerLabel session={tab.session} />
       ) : (
         <>
-          <FileText size={12} aria-hidden="true" className="flex-none text-text-dim" />
+          <FileTypeIcon name={tab.file.path} size={12} />
           <span className="truncate">{tabName(tab)}</span>
         </>
       )}
@@ -1679,11 +1697,7 @@ function SortableTab({
             </>
           ) : (
             <>
-              <FileText
-                size={12}
-                aria-hidden="true"
-                className="flex-none text-(--issue-muted-bright)"
-              />
+              <FileTypeIcon name={tab.file.path} size={12} />
               <span className="truncate">{tabName(tab)}</span>
             </>
           )}

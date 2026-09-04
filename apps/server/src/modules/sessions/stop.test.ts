@@ -443,6 +443,60 @@ describe('stopSession [spec:SP-9904]', () => {
 })
 
 describe('stopIssue [spec:SP-9904]', () => {
+  it('closing an issue dispatches the same no-force stop and frees its clean worktree', async () => {
+    const { reg, daemon, repoOps } = makeRegistry()
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Close target',
+      startNow: false,
+    })
+    const wt = '/r/.worktrees/issue-close-target'
+    reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/close-target' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: issue.id,
+    })
+    bindLive(reg, sessionId, wt)
+
+    reg.modules.issues.update(issue.id, { stage: 'done' })
+
+    await vi.waitFor(() => {
+      expect(reg.modules.sessions.listSessions().find((s) => s.sessionId === sessionId)?.status).toBe(
+        'hibernated',
+      )
+    })
+    expect(reg.modules.issues.getMeta(issue.id)?.worktreePath).toBeNull()
+    expect(reg.modules.issues.getMeta(issue.id)?.branch).toBe('issue/close-target')
+    expect(daemon.some((m) => m.type === 'kill' && m.sessionId === sessionId)).toBe(true)
+    expect(repoOps.some((call) => call.op === 'worktreeRemove')).toBe(true)
+  })
+
+  it('closing an issue re-sends reap for a session parked by an earlier stop', async () => {
+    const { reg, daemon } = makeRegistry()
+    const issue = reg.modules.issues.create({
+      repoPath: '/r',
+      title: 'Parked close target',
+      startNow: false,
+    })
+    const wt = '/r/.worktrees/issue-parked-close-target'
+    reg.modules.issues.update(issue.id, { worktreePath: wt, branch: 'issue/parked-close-target' })
+    const { sessionId } = reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: wt,
+      issueId: issue.id,
+    })
+    bindLive(reg, sessionId, wt)
+
+    await reg.modules.issueSessionLifecycle.stopSession({ sessionId })
+    expect(daemon.filter((m) => m.type === 'kill' && m.sessionId === sessionId)).toHaveLength(1)
+
+    reg.modules.issues.update(issue.id, { stage: 'done' })
+    await vi.waitFor(() => {
+      expect(daemon.filter((m) => m.type === 'kill' && m.sessionId === sessionId)).toHaveLength(2)
+    })
+  })
+
   it('stops every member session then frees the worktree', async () => {
     const { reg } = makeRegistry()
     const issue = reg.modules.issues.create({

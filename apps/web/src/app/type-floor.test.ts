@@ -184,6 +184,12 @@ describe('shell type floor', () => {
       prefix: /^\.calm-reader-path/,
       why: 'the reader header’s centred file path: machine voice, the same mono register as the row tokens',
     },
+    {
+      prefix: /^\.waterfall-/,
+      why:
+        'the Flight Deck mission waterfall — a Gantt-style timeline whose labels ' +
+        'annotate spans rather than being read as prose, on its own 8–9px mono scale',
+    },
   ]
 
   /** Sub-floor `font-size` declarations, each attributed to the rule that owns it. */

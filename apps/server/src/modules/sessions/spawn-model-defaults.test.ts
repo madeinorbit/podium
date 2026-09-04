@@ -11,7 +11,7 @@ afterEach(() => {
   for (const registry of registries.splice(0)) registry.dispose()
 })
 
-function storeWithClaudeDefaults(): SessionStore {
+function storeWithClaudeDefaults(accountId = 'native:claude-code'): SessionStore {
   const store = new SessionStore(':memory:')
   const settings = store.settings.getSettings()
   store.settings.setSettings({
@@ -20,7 +20,7 @@ function storeWithClaudeDefaults(): SessionStore {
       ...settings.roles,
       coding: {
         ...settings.roles.coding,
-        accountId: asAccountId('native:claude-code'),
+        accountId: asAccountId(accountId),
         harness: 'codex',
         model: 'claude-opus-4-8',
         effort: 'xhigh',
@@ -97,6 +97,40 @@ it('omits configured model and effort when another harness is selected', () => {
   const frame = createFrame('codex')
   expect(Object.hasOwn(frame, 'model')).toBe(false)
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
+})
+
+it('resolves an omitted incompatible native role account to the selected agent', () => {
+  const { registry } = makeRegistry(storeWithClaudeDefaults())
+  const { sessionId } = registry.modules.sessions.createSession({
+    agentKind: 'opencode',
+    cwd: '/proj',
+  })
+  expect(registry.sessionStore.sessions.getSession(sessionId)?.accountId).toBe('native:opencode')
+})
+
+it('normalizes an omitted colliding native harness prefix', () => {
+  const { registry } = makeRegistry(storeWithClaudeDefaults('native:opencodeevil'))
+  const { sessionId } = registry.modules.sessions.createSession({
+    agentKind: 'opencode',
+    cwd: '/proj',
+  })
+  expect(registry.sessionStore.sessions.getSession(sessionId)?.accountId).toBe('native:opencode')
+})
+
+it.each([
+  'native:opencode',
+  'native:claude-code',
+  'managed:anthropic',
+])('preserves the explicit account %s exactly', (accountId) => {
+  const { registry, daemon } = makeRegistry(storeWithClaudeDefaults())
+  const { sessionId } = registry.modules.sessions.createSession({
+    agentKind: 'opencode',
+    cwd: '/proj',
+    accountId: asAccountId(accountId),
+    runtimeContract: 'opencode-server',
+  })
+  expect(latestSpawn(daemon)).toMatchObject({ runtimeContract: 'opencode-server' })
+  expect(registry.sessionStore.sessions.getSession(sessionId)?.accountId).toBe(accountId)
 })
 
 it('keeps auto issue overrides isolated from another harness', () => {

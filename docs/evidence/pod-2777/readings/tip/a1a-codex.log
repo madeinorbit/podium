@@ -1,0 +1,35 @@
+ok  server pid=1944616 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 6dfb6b6
+  ok  daemon pid=1944776 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 6dfb6b6
+  ok  exactly one daemon (pid 1944776) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 6dfb6b612c5f15b706dbac73621a75235be811fb; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 6dfb6b6
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"6dfb6b612c5f15b706dbac73621a75235be811fb","short":"6dfb6b6","spawnedSha":"6dfb6b612c5f15b706dbac73621a75235be811fb","serverPid":1944616,"daemonPid":1944776,"webSourceSha":"6dfb6b6","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 6dfb6b612c5f15b706dbac73621a75235be811fb in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=headless  expecting driver 'codex-app-server'
+PIN                6dfb6b612c5f15b706dbac73621a75235be811fb (web bundle 6dfb6b6, server pid 1944616, daemon pid 1944776)
+==============================================================================
+session c6cc3073-1ba5-443d-b105-2d6d696493d4 created; giving the harness 25000ms to come up
+BOUND DRIVER       codex-app-server (family server)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 4.1s
+   control: FIRED — 2 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-4WMMF6. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-4WMMF6 — a blank session cannot produce this by luck
+   REPLY             arrived after 4088ms
+   ASSISTANT TEXT    13 chars: "PODIUM-4WMMF6"
+   ELAPSED           4405ms
+
+==============================================================================
+RESULT  codex / headless / driver=codex-app-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 4.1s
+==============================================================================
+written /tmp/pod-2777/results/codex.headless.json

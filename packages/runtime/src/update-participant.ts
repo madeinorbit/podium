@@ -41,6 +41,20 @@ export interface GrantApplyDeps {
   writePending(grant: PendingGrant): void
   restart(expectedVersion: string, handover: { releaseHadMigrations?: boolean }): void
   report(status: UpdateStatusMessage): void
+  /**
+   * ONE LINE PER PHASE BOUNDARY, ON THE MACHINE DOING THE WORK (POD-3170).
+   *
+   * `report` is not this. A report is a frame on a socket, and the socket is
+   * exactly what a coordinator restart takes away — so the whole of what a
+   * remote machine did during a lost grant was recorded nowhere, on either
+   * side. Attributing a seven-minute update meant timing an artifact route by
+   * hand afterwards, because the machine itself had left no trace of whether it
+   * had downloaded anything at all.
+   *
+   * This goes to the host's own log, which survives the link, the grant and the
+   * process being replaced. Optional so a fixture need not state one.
+   */
+  log?(event: string, fields: Record<string, unknown>): void
   now(): number
 }
 
@@ -105,6 +119,13 @@ export async function applyGrant(
     })
 
     if (plan.action === 'already-current') {
+      // A machine already on the target still ANSWERS the grant, and this is the
+      // commonest reason a wave finishes faster than it looks like it should.
+      deps.log?.('update grant needed nothing', {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+      })
       report(deps, grant, 'current', current)
       return
     }
@@ -117,41 +138,108 @@ export async function applyGrant(
        * release that is immutable. The constructor lives in the protocol
        * because the classifier that reads this sentence lives there too.
        */
-      report(
-        deps,
-        grant,
-        'rejected',
-        current,
-        convergenceRefusal(plan, { platform, target: grant.target }),
-      )
+      const reason = convergenceRefusal(plan, { platform, target: grant.target })
+      // WHY a machine refused, written on the machine that refused. The report
+      // carries the same sentence, and the report is what the coordinator loses
+      // when its own restart takes the link.
+      deps.log?.('update grant refused by convergence planning', {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+        platform,
+        detail: reason,
+      })
+      report(deps, grant, 'rejected', current, reason)
       return
     }
     const refusal = deps.refuse?.(grant.target)
     if (refusal) {
+      deps.log?.('update grant refused by this machine', {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+        detail: refusal,
+      })
       report(deps, grant, 'rejected', current, refusal)
       return
     }
 
+    const startedAt = deps.now()
+    /** Elapsed since this grant began — the number every phase line is about. */
+    const sinceMs = () => deps.now() - startedAt
+    const phase = (event: string, fields: Record<string, unknown> = {}) =>
+      deps.log?.(event, {
+        grantId: grant.grantId,
+        targetVersion: grant.target.version,
+        fromVersion: current,
+        sinceGrantMs: sinceMs(),
+        ...fields,
+      })
+    phase('update grant accepted', { action: plan.action })
+
     report(deps, grant, 'downloading', current)
     let parentResult: { releaseHadMigrations?: boolean } | undefined
     if (deps.installTarget) {
+      // The supervised path: the parent verifies and places the bytes, so the
+      // download, the signature check and the swap are all inside this one
+      // await and only its total is this process's to measure.
+      const delegatedAt = sinceMs()
       parentResult = await deps.installTarget(grant.target, grant.updatePubkey)
+      phase('update parent install finished', { installMs: sinceMs() - delegatedAt })
     } else {
       if (!deps.fetchArtifact || !deps.swap) {
         throw new Error('update participant has no installation capability')
       }
+      const downloadAt = sinceMs()
+      /**
+       * PROGRESS ON THE MACHINE'S OWN DISK, NOT ONLY ON THE WIRE (POD-3224).
+       *
+       * A download reports to the coordinator over the socket, and the socket is
+       * exactly what a coordinator applying its own grant takes away — so a
+       * seven-minute delivery whose link dropped at minute one left no evidence
+       * of whether the bytes were still arriving. `deps.log` writes to this
+       * host's own log, which survives all of that.
+       *
+       * DECILES, not frames. `onProgress` fires per chunk; a line per chunk on a
+       * 325 MB bundle is thousands of records for one download. Ten of them
+       * answer both questions anybody asks — did it move, and how fast — and the
+       * per-frame detail is still on the wire for the live panel.
+       */
+      let loggedDecile = -1
       const artifact = await deps.fetchArtifact(
         plan.asset,
         grant.target.trust,
         signal,
         (progress) => {
           if (signal?.aborted) return
+          const decile =
+            progress.percent === undefined ? -1 : Math.floor(Math.min(progress.percent, 100) / 10)
+          if (decile > loggedDecile) {
+            loggedDecile = decile
+            phase('update download progress', {
+              percent: progress.percent,
+              ...(progress.receivedBytes !== undefined
+                ? { receivedBytes: progress.receivedBytes }
+                : {}),
+              ...(progress.totalBytes !== undefined ? { totalBytes: progress.totalBytes } : {}),
+              downloadMs: sinceMs() - downloadAt,
+            })
+          }
           report(deps, grant, 'downloading', current, undefined, progress)
         },
         grant.updatePubkey,
       )
       if (signal?.aborted) return
+      // VERIFIED BYTES, and the size with them: "the download was slow" and
+      // "the artifact was large" are different findings and were previously
+      // indistinguishable from anything this machine wrote down.
+      phase('update artifact verified', {
+        downloadMs: sinceMs() - downloadAt,
+        bytes: artifact.bytes.byteLength,
+      })
+      const swapAt = sinceMs()
       await deps.swap(artifact.bytes)
+      phase('update bundle swapped', { swapMs: sinceMs() - swapAt })
     }
     if (signal?.aborted) return
     deps.writePending({
@@ -162,6 +250,9 @@ export async function applyGrant(
       startedAt: deps.now(),
     })
     report(deps, grant, 'restarting', current)
+    // The last line this process writes about this grant. Anything after it
+    // belongs to the successor, which is why the total is stated HERE.
+    phase('update restarting into successor', { totalMs: sinceMs() })
     const releaseHadMigrations =
       parentResult?.releaseHadMigrations ?? deps.releaseHadMigrations?.(grant.target)
     deps.restart(
@@ -170,7 +261,21 @@ export async function applyGrant(
     )
   } catch (error) {
     if (signal?.aborted) return
-    report(deps, grant, 'rejected', current, error instanceof Error ? error.message : String(error))
+    const detail = error instanceof Error ? error.message : String(error)
+    /**
+     * WRITTEN DOWN LOCALLY BEFORE IT IS REPORTED, because the failure this most
+     * needs to explain is the one where the report cannot arrive: the
+     * coordinator that granted this is also the host serving the artifact, and
+     * a download that dies because that host restarted dies together with the
+     * socket that would have said so.
+     */
+    deps.log?.('update grant failed', {
+      grantId: grant.grantId,
+      targetVersion: grant.target.version,
+      fromVersion: current,
+      detail,
+    })
+    report(deps, grant, 'rejected', current, detail)
   }
 }
 

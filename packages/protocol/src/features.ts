@@ -31,15 +31,27 @@ export const FEATURES = [
     visibility: 'edge',
   },
   {
+    id: 'runtime-drivers',
+    name: 'Headless session drivers',
+    description:
+      'Offer available headless runtime drivers when starting a session. Interactive CLI sessions remain the default.',
+    visibility: 'stable',
+  },
+  {
     id: 'settings-search',
     name: 'Settings search',
     description: 'Show the "Find a setting" filter box in the Settings side nav.',
     visibility: 'stable',
   },
   {
+    // The ONE switch for search (PDM-25). Beyond the palette it also decides
+    // whether the server builds the full-text index at all: with it off there are
+    // no fts5 triggers on `conversations` and no transcript indexing, and search
+    // falls back to LIKE. Read at boot, so a change lands on the next start.
     id: 'command-palette',
     name: 'Cmd+K search',
-    description: 'Search and navigate Podium from the Cmd+K command palette.',
+    description:
+      'Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.',
     visibility: 'edge',
   },
   {

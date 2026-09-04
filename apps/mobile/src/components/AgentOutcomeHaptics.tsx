@@ -1,7 +1,4 @@
 import type { SessionMeta } from '@podium/model'
-import * as Haptics from 'expo-haptics'
-import { useEffect, useRef } from 'react'
-import { useSessions } from '../client/hooks'
 
 /** A stable identity for one errored-state arrival, or null outside that phase. */
 export function agentErrorKey(session: SessionMeta): string | null {
@@ -10,27 +7,9 @@ export function agentErrorKey(session: SessionMeta): string | null {
 }
 
 /**
- * App-wide outcome feedback for agent failures. Keeping this above the router
- * means an error arriving in a background session still reports once, while a
- * rerender of the same errored state stays silent.
+ * Background agent state must not vibrate the phone without a user action.
+ * Visible attention state and future notification policy own that feedback.
  */
 export function AgentOutcomeHaptics() {
-  const sessions = useSessions()
-  const previous = useRef(new Map<string, string | null>())
-
-  useEffect(() => {
-    const next = new Map<string, string | null>()
-    let errorArrived = false
-    for (const session of sessions) {
-      const key = agentErrorKey(session)
-      next.set(session.sessionId, key)
-      if (key !== null && previous.current.get(session.sessionId) !== key) errorArrived = true
-    }
-    previous.current = next
-    if (errorArrived) {
-      void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {})
-    }
-  }, [sessions])
-
   return null
 }

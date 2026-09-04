@@ -102,6 +102,13 @@ export function machineOptionLabel<M extends ChoosableMachine>(choice: MachineCh
       return `${name} (offline)`
     case 'harness-missing':
       return `${name} (agent not installed)`
+    // Probe state, not a verdict (POD-3070 merge): the row is refused for now,
+    // and both of these clear on their own, so the parenthetical says "not yet"
+    // rather than "no".
+    case 'inventory-unavailable':
+      return `${name} (still probing)`
+    case 'harness-probe-timed-out':
+      return `${name} (probe timed out)`
     case 'logged-out':
       return `${name} (signed out)`
     case 'unauthorized':

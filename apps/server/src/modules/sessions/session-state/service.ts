@@ -138,6 +138,9 @@ export interface SessionStatePorts {
   ) => void
   readonly deliverToClient: (clientId: string, message: LiveServerMessage) => void
   readonly toMachine: (machineId: MachineId, message: ControlMessage) => void
+  /** Re-arm durable inbox delivery after native terminal control is released. */
+  readonly onNativeViewReleased?: (sessionId: SessionId) => void
+
   /** Lifecycle owns process parking and issue cleanup after archive. */
   readonly onArchived: (sessionId: SessionId) => void
 }
@@ -163,7 +166,7 @@ export class SessionStateService {
   private readonly draftSendSuppressUntil = new Map<SessionId, number>()
   private draftSyncEnabled_ = false
 
-  private readonly lastPriority = new Map<SessionId, number>()
+  private readonly lastPriority = new Map<SessionId, string>()
 
   constructor(private readonly ports: SessionStatePorts) {}
 
@@ -446,16 +449,32 @@ export class SessionStateService {
   }
 
   pushPriorities(): void {
-    const priorities = computePriorities([...this.ports.clients()], this.ports.sessionIds())
+    const clients = [...this.ports.clients()]
+    const priorities = computePriorities(clients, this.ports.sessionIds())
     for (const [sessionId, priority] of priorities) {
-      if (this.lastPriority.get(sessionId) === priority) continue
-      this.lastPriority.set(sessionId, priority)
+      const nativeView = clients.some(
+        (client) =>
+          client.viewVisible.has(sessionId) &&
+          (client.viewModes[sessionId] ?? 'native') === 'native',
+      )
+      const state = `${priority}:${nativeView ? 1 : 0}`
+      const previous = this.lastPriority.get(sessionId)
+      if (previous === state) continue
+      this.lastPriority.set(sessionId, state)
       // No live session means no machine to prioritise on. This used to fall back to
       // the placeholder, which sent the frame to a queue keyed by a name no daemon
       // answers to — a message that could only ever be dropped, pretending to be sent.
       const machineId = this.ports.getSession(sessionId)?.machineId
       if (machineId === undefined) continue
-      this.ports.toMachine(machineId, { type: 'sessionPriority', sessionId, priority })
+      this.ports.toMachine(machineId, {
+        type: 'sessionPriority',
+        sessionId,
+        priority,
+        nativeView,
+      })
+      if (!nativeView && previous?.endsWith(':1')) {
+        this.ports.onNativeViewReleased?.(sessionId)
+      }
     }
   }
 
@@ -465,6 +484,12 @@ export class SessionStateService {
 
   draftRevision(sessionId: SessionId): number | undefined {
     return this.draftDocs.get(sessionId)?.rev
+  }
+
+  /** The current server-side composer text, used only to avoid clobbering a
+   * human edit while automatic prompt recovery restores or clears its seed. */
+  draftText(sessionId: SessionId): string | undefined {
+    return this.draftDocs.get(sessionId)?.text
   }
 
   /**

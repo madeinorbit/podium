@@ -8,7 +8,6 @@ vi.mock('expo-haptics', () => ({
   ImpactFeedbackStyle: { Light: 'light' },
   impactAsync: vi.fn(),
 }))
-vi.mock('lucide-react-native', () => ({ AlertTriangle: () => null, X: () => null }))
 
 const { StorageNoticeAlert } = await import('./StorageNoticeAlert')
 

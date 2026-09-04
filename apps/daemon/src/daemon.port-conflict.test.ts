@@ -97,7 +97,7 @@ describe('daemon boot with a taken hook port', () => {
       bootstrapToken: 'test',
       hooks: { port: opts.hookPort, settingsDir },
       agentRelay: { port: opts.relayPort },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: idleWorkerClient(),
     })

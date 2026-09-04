@@ -37,6 +37,9 @@ const ENTITY_TO_KIND = {
   /** POD-1772's curated issue events. Same rule as the three kinds above: the
    *  entity spelling is `MetadataEntityKind`'s literal, not a guess. */
   issueEvent: 'issueEvents',
+  /** POD-2020's blocking asks. Same rule again: `pendingInteraction` is
+   *  `MetadataEntityKind`'s literal. */
+  pendingInteraction: 'pendingInteractions',
   shipOrder: 'shipOrders',
   conversation: 'conversations',
   automation: 'automations',

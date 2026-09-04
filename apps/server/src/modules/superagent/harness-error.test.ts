@@ -27,6 +27,18 @@ describe('classifyHarnessError', () => {
     expect(r.kind).toBe('usage-limit')
   })
 
+  it('classifies Claude monthly spend exhaustion as usage-limit, not expired auth', () => {
+    const spend = classifyHarnessError("You've hit your monthly spend limit", 'claude-code')
+    expect(spend.kind).toBe('usage-limit')
+    expect(spend.message).not.toMatch(/login|expired/i)
+    const expired = classifyHarnessError(
+      '401 Unauthorized — access token is expired',
+      'claude-code',
+    )
+    expect(expired.kind).toBe('provider-auth')
+    expect(expired.message).not.toMatch(/usage limit/i)
+  })
+
   it('classifies a model-side login expiry as provider-auth with a re-auth hint', () => {
     const r = classifyHarnessError(
       'harness exited 1: error: 401 Unauthorized — access token is expired',

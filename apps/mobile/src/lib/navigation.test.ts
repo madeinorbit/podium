@@ -1,4 +1,4 @@
-import { readdirSync } from 'node:fs'
+import { existsSync, readdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { MOBILE_HOME, MOBILE_TABS } from './navigation'
@@ -17,9 +17,16 @@ describe('mobile navigation', () => {
   })
 
   it('has no hidden Tray tab route for a deep link to reopen', () => {
-    const files = readdirSync(resolve(process.cwd(), 'app/(tabs)'))
-      .filter((file) => file.endsWith('.tsx') && file !== '_layout.tsx')
+    const tabsRoot = resolve(process.cwd(), 'app/(tabs)')
+    const routes = readdirSync(tabsRoot, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => entry.name)
       .sort()
-    expect(files).toEqual(['issues.tsx', 'pulse.tsx', 'superagent.tsx', 'work.tsx'])
+    expect(routes).toEqual(['issues', 'pulse', 'superagent', 'work'])
+    for (const route of routes) {
+      expect(existsSync(resolve(tabsRoot, route, 'index.tsx'))).toBe(true)
+      expect(existsSync(resolve(tabsRoot, route, '_layout.tsx'))).toBe(true)
+      expect(existsSync(resolve(tabsRoot, route, '_layout.web.tsx'))).toBe(true)
+    }
   })
 })

@@ -1,14 +1,14 @@
-import { asThreadId } from '@podium/model'
-import { openDatabase } from '@podium/runtime/sqlite'
 import { execFileSync } from 'node:child_process'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { asThreadId } from '@podium/model'
+import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { JanitorWorkerClient } from '../apps/janitor/src/worker-client'
-import { startServer, type ServerHandle } from '../apps/server/src/server'
-import { SessionStore, type MessageRow } from '../apps/server/src/store'
+import { type ServerHandle, startServer } from '../apps/server/src/server'
+import { type MessageRow, SessionStore } from '../apps/server/src/store'
+import { JanitorWorkerClient } from '../packages/janitor/src/worker-client'
 
 const repoRoot = fileURLToPath(new URL('../', import.meta.url))
 
@@ -98,7 +98,7 @@ describe('server-owned janitor worker', () => {
 
       server = await startServer({
         port: 0,
-        startJanitorWorker: async (options) => {
+        janitorWorkerForTests: async (options) => {
           worker = new JanitorWorkerClient(
             { ...options, dbPath, tickMs: 100 },
             {
@@ -194,7 +194,7 @@ describe('server-owned janitor worker', () => {
           '--compile',
           '--conditions=@podium/source',
           'scripts/janitor-worker-smoke.ts',
-          'apps/janitor/src/janitor-worker.ts',
+          'packages/janitor/src/janitor-worker.ts',
           '--outfile',
           binary,
         ],

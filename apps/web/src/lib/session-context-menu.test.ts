@@ -89,6 +89,27 @@ describe('handoff reason copy (POD-821)', () => {
   it('names the harness the user actually sees, not the wire kind', () => {
     expect(handoffBlockerText('harness', 'shell')).toBe("Shell sessions can't be handed off")
     expect(handoffRejectionText('harness-missing', 'claude-code')).toBe('no Claude')
+    expect(handoffRejectionText('inventory-unavailable', 'claude-code')).toBe('inventory pending')
+    expect(handoffRejectionText('harness-probe-timed-out', 'claude-code')).toBe(
+      'probe timed out; retry',
+    )
+    expect(
+      handoffRejectionText('harness-probe-timed-out', 'claude-code', {
+        inventory: {
+          agents: [
+            {
+              kind: 'claude-code',
+              installed: null,
+              probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+              login: { state: 'in' },
+            },
+          ],
+          os: 'linux',
+          arch: 'x64',
+          tools: [],
+        },
+      }),
+    ).toBe('probe timed out after 60s; retry')
     expect(handoffRejectionText('repo-missing', 'codex')).toBe('no clone URL for repo')
   })
 

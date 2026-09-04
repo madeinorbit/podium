@@ -13,7 +13,8 @@ import { safeToolEditJsonFromInput } from './tool-edit'
  * duplicates of one of those typed events (Codex injects them into the model
  * context) or system preamble; either way, skip.
  * `response_item` role=developer is always a permissions/AGENTS preamble; skip.
- * `response_item` role=assistant → assistant message.
+ * `response_item` role=assistant → assistant message. Codex marks the public
+ * conclusion with `phase: final_answer`; preserve that boundary for the view.
  *
  * `function_call` / `custom_tool_call` → tool call (keyed by call_id || id).
  * `function_call_output` / `custom_tool_call_output` → tool result.  Even empty-
@@ -31,6 +32,21 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
   const ts = stringField(record, 'timestamp') ?? stringField(payload, 'timestamp')
 
   if (type === 'event_msg') {
+    // Codex writes an aborted turn as an event rather than as a user message.
+    // It is still a user action, and carrying the shared interrupt marker lets
+    // chat and delivery agree that a prompt cancelled at the CLI must not be
+    // retried behind the operator's back.
+    if (ptype === 'turn_aborted') {
+      return [
+        {
+          id: stableId('codex-interrupt', ts ?? 'turn-aborted'),
+          role: 'user',
+          ...(ts ? { ts } : {}),
+          text: 'Conversation interrupted',
+          event: 'interrupt',
+        },
+      ]
+    }
     const completedItem = isRecord(payload.item) ? payload.item : undefined
     const currentUserMessage =
       ptype === 'item_completed' && stringField(completedItem ?? {}, 'type') === 'UserMessage'
@@ -65,6 +81,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
       // Both are always covered by a canonical event_msg or are internal-only, so skip.
       if (role !== 'assistant') return []
       const text = contentToText(payload.content).trim()
+      const answer = stringField(payload, 'phase') === 'final_answer'
       return text
         ? [
             {
@@ -72,6 +89,7 @@ export function codexRecordToItems(record: unknown): TranscriptItem[] {
               role: 'assistant',
               ...(ts ? { ts } : {}),
               text,
+              ...(answer ? { answer: true } : {}),
             },
           ]
         : []

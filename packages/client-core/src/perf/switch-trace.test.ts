@@ -126,6 +126,45 @@ describe('switch-trace collector [POD-701]', () => {
     expect(t.timedOut).toBe(false)
   })
 
+  it('keeps terminal readiness attribution while dropping nested renderer snapshots', () => {
+    let terminalTrace:
+      | ((entry: {
+          sessionId: ReturnType<typeof asSessionId>
+          event: string
+          data?: Record<string, unknown>
+        }) => void)
+      | undefined
+    vi.stubGlobal('__podiumTerminalDiagnostics', {
+      onTrace: (
+        listener: (entry: {
+          sessionId: ReturnType<typeof asSessionId>
+          event: string
+          data?: Record<string, unknown>
+        }) => void,
+      ) => {
+        terminalTrace = listener
+        return () => {}
+      },
+    })
+
+    const sessionId = asSessionId('ready-source')
+    beginSwitch({ sessionId })
+    terminalTrace?.({
+      sessionId,
+      event: 'ready',
+      data: {
+        source: 'timeout',
+        active: true,
+        view: { renderer: 'webgl' },
+      },
+    })
+    markSwitch(sessionId, 'term:interactable')
+
+    const ready = nth(0).marks.find((mark) => mark.name === 'term:ready')
+    expect(ready?.meta).toEqual({ source: 'timeout', active: true })
+    expect(ready?.meta).not.toHaveProperty('view')
+  })
+
   it('waits for BOTH sentinels when chat and terminal both showed activity', () => {
     beginSwitch({ sessionId: asSessionId('s3') })
     markSwitch(asSessionId('s3'), 'term:mount')

@@ -46,7 +46,6 @@ export const unitTestExclude = [
   'packages/pty/test/session.test.ts',
   'packages/pty/src/abduco.test.ts',
   'packages/pty/src/abduco-bin.test.ts',
-  'packages/pty/src/tmux.test.ts',
   // Drives the real claude binary (self-skips without PODIUM_REAL_CLI=1);
   // the agent-smoke lane owns it.
   'packages/pty/test/harness-smoke/**',
@@ -54,8 +53,7 @@ export const unitTestExclude = [
   'apps/daemon/src/daemon.test.ts',
   // Boots real daemons against real held ports (POD-1229 boot degradation).
   'apps/daemon/src/daemon.port-conflict.test.ts',
-  // Spawn real child processes (bun install/typecheck; memory sampling).
-  'scripts/redeploy-wait.test.ts',
+  // Spawns real child processes for memory sampling.
   'apps/daemon/src/memory-breakdown.test.ts',
   // Heavy process/PTY/server-boot suites — run in the integration lane instead
   // (mirrored in vitest.integration.config.ts's include list).

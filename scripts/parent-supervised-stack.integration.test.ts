@@ -28,8 +28,9 @@
  */
 import { type ChildProcess, execFileSync, spawn } from 'node:child_process'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
-import { tmpdir } from 'node:os'
+import { networkInterfaces, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
 import { parentAvailable } from '../apps/server/src/modules/updates/installed-restart'
@@ -41,6 +42,17 @@ import {
 import { openDatabase } from '../packages/runtime/src/sqlite'
 
 const ROOT = join(import.meta.dirname, '..')
+/**
+ * `resolveDevArtifactOrigin` refuses a loopback origin on purpose — a dev feed
+ * is advertised to other machines, and a loopback URL would send each of them
+ * back to itself. So the no-click proof serves its feed on a real routable
+ * address of this box. A box with none REPORTS A SKIP rather than passing
+ * vacuously, which is the difference between a proof and a guard nobody can
+ * tell has stopped running.
+ */
+const ROUTABLE_IPV4 = Object.values(networkInterfaces())
+  .flatMap((entries) => entries ?? [])
+  .find((entry) => entry.family === 'IPv4' && !entry.internal)?.address
 const CLI = join(ROOT, 'scripts/cli.ts')
 const roots: string[] = []
 const children: ChildProcess[] = []
@@ -153,11 +165,15 @@ interface Stack {
   output: () => string
 }
 
-async function bootStack(takeover: boolean, extraEnv: Record<string, string> = {}): Promise<Stack> {
+async function bootStack(
+  takeover: boolean,
+  extraEnv: Record<string, string> = {},
+  options?: { instanceId?: string; config?: Record<string, unknown> },
+): Promise<Stack> {
   const root = await mkdtemp(join(tmpdir(), 'podium-parent-stack-'))
   roots.push(root)
   const home = join(root, 'home')
-  const instanceId = takeover ? 'supervised-takeover' : 'supervised-normal'
+  const instanceId = options?.instanceId ?? (takeover ? 'supervised-takeover' : 'supervised-normal')
   const instanceEnv = { HOME: home, PODIUM_INSTANCE: instanceId }
   const stateDir = instanceStateDir(instanceId, instanceEnv)
   const installDir = instanceInstallDir(instanceId, instanceEnv)
@@ -175,7 +191,7 @@ async function bootStack(takeover: boolean, extraEnv: Record<string, string> = {
   }
   await writeFile(
     join(stateDir, 'config.json'),
-    JSON.stringify({ mode: 'all-in-one', port, persistence: 'detached' }),
+    JSON.stringify({ mode: 'all-in-one', port, persistence: 'detached', ...options?.config }),
   )
   await writeFile(join(installDir, 'VERSION'), `${version}\n`)
 
@@ -222,6 +238,7 @@ async function bootStack(takeover: boolean, extraEnv: Record<string, string> = {
 
 interface VersionBody {
   appVersion?: string
+  target?: { version?: string }
   components?: {
     janitor?: { state?: string; progressVersion?: number }
     daemon?: { state?: string }
@@ -465,4 +482,212 @@ describe('parent-supervised stack', () => {
     const serverStep = payload.steps?.find((step) => step.id === 'server')
     expect(serverStep?.state, 'the resumed server step must finish').toBe('done')
   }, 120_000)
+
+  /**
+   * THE NO-CLICK PUBLICATION OBSERVATION, ON REAL PROCESSES (POD-2907).
+   *
+   * The hermetic proofs drive the service, the reconciler and the local
+   * participant directly. This one drives none of them: it boots the real
+   * parent + server + daemon, puts a REAL newer target on the coordinator's own
+   * channel through the real feed resolver, and then does nothing at all.
+   *
+   * The stack is this host's shape — an INSTALLED coordinator that also
+   * publishes (`PODIUM_APP_VERSION` set, so `runningFromSource` is false, plus
+   * `PODIUM_DEV_SOURCE_ROOT`, so a dev feed exists). That is what makes its own
+   * machine row `installed`, feed-capable, online and, the moment this feed
+   * resolves, behind — the exact four facts the standing reconciliation reads.
+   * The local daemon attaches under the host's own machine id, which is the
+   * `machine.connected` that woke it on 2026-08-31.
+   *
+   * WHAT IS OBSERVED FROM OUTSIDE, and deliberately nothing internal:
+   *   - `/version` reports the newer target, so the publication really landed;
+   *   - the parent never reports a successor pid and the parent record never
+   *     changes, so no handover was requested;
+   *   - the server says why, in one line a journal keeps.
+   *
+   * The armed control is not run here, because it cannot be: the guard is in
+   * the binary this spawns. It is armed in `coordinator-convergence.test.ts`
+   * and in the no-click publication proof in `named-dev-release`, both of which
+   * restart the coordinator when the fleet row does not say which machine it is.
+   */
+  it.skipIf(!ROUTABLE_IPV4)(
+    'a newer target on the coordinator’s own channel does not restart it',
+    async () => {
+      const routable = ROUTABLE_IPV4
+      if (!routable) throw new Error('unreachable: this case is skipped without a routable address')
+      const feedVersion = '0.9.9-no-click-proof'
+      /** The feed this server will pull from. A publication, with nobody clicking. */
+      const feed = createHttpServer()
+      const feedPort = await new Promise<number>((resolve, reject) => {
+        feed.once('error', reject)
+        feed.listen(0, routable, () => {
+          const address = feed.address()
+          if (!address || typeof address === 'string') return reject(new Error('no feed port'))
+          resolve(address.port)
+        })
+      })
+      const feedOrigin = `http://${routable}:${feedPort}`
+      const artifactPath = `/updates/feed/dev/artifact/${feedVersion}/linux-x86_64`
+      const manifest = JSON.stringify({
+        version: feedVersion,
+        critical: false,
+        artifacts: {
+          headless: {
+            delivery: 'feed',
+            platforms: {
+              'linux-x86_64': {
+                url: `${feedOrigin}${artifactPath}`,
+                digest: 'sha256-no-click-proof',
+                signature: 'no-click-signature',
+              },
+            },
+          },
+        },
+      })
+      const feedHits: string[] = []
+      feed.on('request', (request, response) => {
+        const url = request.url ?? ''
+        feedHits.push(`${request.method} ${url}`)
+        if (url.startsWith('/updates/feed/dev/podium-update.json')) {
+          response.writeHead(200, { 'content-type': 'application/json' })
+          response.end(manifest)
+          return
+        }
+        // The resolver HEAD-probes every artifact it is about to advertise.
+        if (url.startsWith(artifactPath)) {
+          response.writeHead(200, { 'content-length': '1' })
+          response.end(request.method === 'HEAD' ? undefined : 'x')
+          return
+        }
+        response.writeHead(404)
+        response.end()
+      })
+
+      // A checkout for the publisher to exist against; it mints nothing here.
+      const sourceRoot = await mkdtemp(join(tmpdir(), 'podium-no-click-source-'))
+      roots.push(sourceRoot)
+
+      let stack: Stack
+      try {
+        stack = await bootStack(
+          true,
+          {
+            PODIUM_DEV_SOURCE_ROOT: sourceRoot,
+            PODIUM_DEV_ARTIFACT_BASE_URL: feedOrigin,
+            PODIUM_UPDATE_CHANNEL: 'dev',
+          },
+          { instanceId: 'supervised-no-click', config: { updateChannel: 'dev' } },
+        )
+        try {
+          await waitFor(
+            async () => {
+              const body = await readVersion(stack.port)
+              return body?.daemonConnected === true &&
+                body.components?.daemon?.state === 'connected' &&
+                body.components?.janitor?.state === 'running'
+                ? body
+                : undefined
+            },
+            'stack healthy',
+            60_000,
+          )
+        } catch (error) {
+          // The label is built before the wait, so it can never carry the log the
+          // reader needs. Re-throw with the output as it stands NOW.
+          throw new Error(`${String(error)}\nstack log:\n${stack.output()}`)
+        }
+
+        // 1. THE PUBLICATION LANDED. Boot resolved it; nobody clicked anything.
+        /**
+         * The parent writes each child to `<state>/logs/<role>.log` (its stdout
+         * is the parent's own log under detached persistence), so the SERVER's
+         * evidence is a file rather than this process's pipe.
+         */
+        const serverLog = async (): Promise<string> =>
+          await readFile(join(stack.stateDir, 'logs', 'server.log'), 'utf8').catch(() => '')
+        const resolved = await waitFor(
+          async () => {
+            const body = await readVersion(stack.port)
+            return body?.target?.version === feedVersion ? body : undefined
+          },
+          'the dev target to resolve',
+          30_000,
+        ).catch(async (error) => {
+          throw new Error(
+            `${String(error)}\nfeed hits: ${JSON.stringify(feedHits)}\nserver log:\n${await serverLog()}`,
+          )
+        })
+        expect(resolved.appVersion).toBe(stack.version)
+        expect(resolved.target?.version).toBe(feedVersion)
+
+        const parentRecordBefore = await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8')
+        /** This host's own machine id, as the server's own attach line reports it. */
+        const machineId = /daemon attached — the machine is now online machineId=(\S+)/.exec(
+          await serverLog(),
+        )?.[1]
+        if (!machineId) throw new Error(`no daemon attach line yet:\n${await serverLog()}`)
+
+        /**
+         * 2. THE WAKING EDGE, for real: bounce the local daemon so it reattaches
+         *    under this host's machine id. That reconnect IS what the reconciler
+         *    listens to, and on 2026-08-31 it was the last thing before the
+         *    successor.
+         */
+        const daemonPid = Number(
+          JSON.parse(await readFile(join(stack.stateDir, 'run', 'daemon.pid'), 'utf8')).pid,
+        )
+        observedPids.add(daemonPid)
+        process.kill(daemonPid, 'SIGTERM')
+        await waitFor(
+          async () => {
+            const body = await readVersion(stack.port)
+            return body?.daemonConnected === true &&
+              Number(
+                JSON.parse(await readFile(join(stack.stateDir, 'run', 'daemon.pid'), 'utf8')).pid,
+              ) !== daemonPid
+              ? true
+              : undefined
+          },
+          `the local daemon to reattach; log:\n${stack.output()}`,
+          60_000,
+        )
+
+        /**
+         * 3. …AND THE SERVER SAID SO, in the one line a journal keeps — NAMING
+         *    THE TARGET, which is what makes this observation non-vacuous. A
+         *    refusal carrying `targetVersion=undefined` would be the reconciler
+         *    declining a machine with nothing to converge to, which proves
+         *    nothing at all; this one is the coordinator being held back from a
+         *    release it really is behind.
+         */
+        await waitFor(
+          async () =>
+            (await serverLog()).includes(
+              `reconciler left this coordinator alone — a handover needs an update operation ` +
+                `machineId=${machineId} targetVersion=${feedVersion}`,
+            )
+              ? true
+              : undefined,
+          'the coordinator refusal to name this target',
+          30_000,
+        ).catch(async (error) => {
+          throw new Error(`${String(error)}\nserver log:\n${await serverLog()}`)
+        })
+
+        // 4. NOTHING HAPPENED TO THIS SERVER. No successor, no grant, no handover.
+        const log = await serverLog()
+        expect(stack.output(), stack.output()).not.toContain('successor pid')
+        expect(log, log).not.toContain('update grant issued')
+        expect(await readFile(join(stack.stateDir, 'run', 'parent.pid'), 'utf8')).toBe(
+          parentRecordBefore,
+        )
+        expect(stack.parent.exitCode, stack.output()).toBeNull()
+        const still = await readVersion(stack.port)
+        expect(still?.appVersion).toBe(stack.version)
+      } finally {
+        await new Promise<void>((resolve) => feed.close(() => resolve()))
+      }
+    },
+    180_000,
+  )
 })

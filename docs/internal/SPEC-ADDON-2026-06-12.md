@@ -3,6 +3,12 @@
 New direction from the founder, delta against `SPEC.md`. Where this conflicts with the
 spec, this addon wins; where it's silent, the spec stands.
 
+> **Historical policy note (2026-08-29):** The June draft's statement below that
+> `claude -p` bills pay-per-use on a subscription predates the POD-1761 policy
+> amendment. Claude headless is now first-class via the persistent Agent SDK, which
+> may use the managed subscription credential under an explicit acknowledgement;
+> PTY remains the fallback. This dated addon is retained as historical text.
+
 ## 1. Settings section *(new — spec had no settings surface)*
 
 A clean, well-structured settings area. First content:

@@ -360,6 +360,24 @@ export const ExperimentalFlags = z.record(z.string(), z.boolean())
 export type ExperimentalFlags = z.infer<typeof ExperimentalFlags>
 
 /**
+ * WHETHER THIS SERVER KEEPS A COPY OF WHAT THE AGENTS SAID.
+ *
+ * INSTANCE tier, and it has to be: the mirror is one directory on one disk that
+ * every reader searches, so two people cannot hold two answers. `mirror`
+ * ABSENT means the built-in default (on), which is what every install has always
+ * done; an explicit `false` stops the mirror and the indexer.
+ *
+ * A deployment can take the choice away entirely — `PODIUM_TRANSCRIPT_LAKE` and
+ * `config.transcriptLake` both sit ABOVE this row in the usual precedence — and
+ * when they do, the toggle shows the value locked with its source rather than
+ * disappearing.
+ */
+export const TranscriptPolicy = z.object({
+  mirror: z.boolean().optional(),
+})
+export type TranscriptPolicy = z.infer<typeof TranscriptPolicy>
+
+/**
  * THE INSTANCE PREFERENCE AGGREGATE — matrix row `preferences-instance`,
  * `deployment-substrate`, replicated server→clients, offline-eligible,
  * field-LWW per key (the only surviving field-LWW member, Amendment 1 D10).
@@ -381,5 +399,6 @@ export const InstancePreferences = z.object({
   // and inserting in the middle rewrites the JSON of every row that already has
   // one. Topic adjacency is what the doc comments are for.
   worktreeGc: WorktreeGcPolicy.default({}),
+  transcripts: TranscriptPolicy.default({}),
 })
 export type InstancePreferences = z.infer<typeof InstancePreferences>

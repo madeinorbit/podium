@@ -40,13 +40,13 @@ nv="$(tr -d '\n' <"$WORK/native/headless/VERSION")"
 pass "both bundles are version $cv"
 
 # --- The packed client sites must be the same build ---
-# Everything but the build stamp and its manifest must be byte-identical. Both carry a wall-clock
-# `builtAt` written at pack time, so two jobs packing the SAME commit legitimately differ
-# there — the fields that identify the build (sourceSha, appVersion) must not.
+# EVERYTHING must be byte-identical, stamp and manifest included: nothing per-run is
+# written into a client dist any more (spec 2026-08-28-cached-release-build-design §4.3),
+# so two jobs packing the same commit that disagree anywhere disagree about the build.
 for site in web mobile; do
-  diff -r -x podium-build.json -x podium-build-manifest.json "$WORK/cross/headless/$site" "$WORK/native/headless/$site" >/dev/null \
+  diff -r "$WORK/cross/headless/$site" "$WORK/native/headless/$site" >/dev/null \
     || fail "packed $site/ differs between the cross and native bundles:
-$(diff -rq -x podium-build.json -x podium-build-manifest.json "$WORK/cross/headless/$site" "$WORK/native/headless/$site" | head -10)"
+$(diff -rq "$WORK/cross/headless/$site" "$WORK/native/headless/$site" | head -10)"
   for field in sourceSha appVersion; do
     cf="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$WORK/cross/headless/$site/podium-build.json" "$field")"
     nf="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))[sys.argv[2]])' "$WORK/native/headless/$site/podium-build.json" "$field")"

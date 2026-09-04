@@ -16,7 +16,11 @@
  * store reads them; inputs match exactly what it sends.
  */
 
-import type { IssueUpdatePatch, SuperagentUserFocus } from '@podium/commands'
+import type {
+  DraftIssueArtifactInput,
+  IssueUpdatePatch,
+  SuperagentUserFocus,
+} from '@podium/commands'
 import type {
   AgentKind,
   ArtifactId,
@@ -24,17 +28,25 @@ import type {
   GitRepositoryWire,
   HarnessAgent,
   IssueId,
+  IssueWire,
   LayoutSnapshot,
   MachineId,
   MachineQuotaWire,
+  MachineWire,
   MutationId,
+  QuotaWindowHistoryWire,
   ReadPositionSnapshot,
   SessionId,
   ThreadId,
   UsageBucketWire,
   WorkState,
 } from '@podium/model'
-import type { LockWire, ModelChoiceWire, SyncChangesSinceResult } from '@podium/protocol'
+import type {
+  LockWire,
+  ModelChoiceWire,
+  RuntimeContractRequest,
+  SyncChangesSinceResult,
+} from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
 import type { SuperThreadView } from './viewmodels/slices/superagent'
 import type { PinKind, PinState } from './viewmodels/types'
@@ -102,7 +114,11 @@ export interface PodiumClientApi {
   discovery: {
     refreshRepos: ApiMutation<
       void,
-      { repositories: GitRepositoryWire[]; diagnostics: GitDiscoveryDiagnosticWire[] }
+      {
+        repositories: GitRepositoryWire[]
+        diagnostics: GitDiscoveryDiagnosticWire[]
+        machines: MachineWire[]
+      }
     >
   }
   models?: {
@@ -134,12 +150,34 @@ export interface PodiumClientApi {
         title?: string
         issueId?: IssueId
         draftIssue?: { repoPath: string; issueId?: IssueId }
+        draftArtifacts?: DraftIssueArtifactInput[]
         machineId?: MachineId
-        /** First prompt; argv harnesses get it on launch (POD-549). */
+        /** First prompt; SessionStart launches argv prompts and queues other harnesses durably. */
         initialPrompt?: string
         /** Per-spawn model/effort overrides. `'auto'` is omitted by callers. */
         model?: string
         effort?: string
+        /**
+         * THE PER-SPAWN DRIVER OVERRIDE (POD-1761 W5; POD-2113).
+         *
+         * Here because this interface is a HAND-WRITTEN MIRROR of
+         * `sessions.create`'s contract, and a key the mirror does not name is a
+         * key no client can pass — which left web and mobile exactly as unable
+         * to use the override as they were when zod was silently stripping it at
+         * the server. That failed loudly (a compile error) rather than silently,
+         * which is the only reason it was a smaller bug than the original.
+         *
+         * TYPED FROM THE PROTOCOL'S SCHEMA, not restated as `boolean | string`,
+         * for the reason `issues.update` imports `IssueUpdatePatch` above: a
+         * hand-copied shape is how the mirror and the contract drift. The
+         * remaining copies in this block are the older debt that pattern exists
+         * to pay off.
+         *
+         * NO UI USES IT YET, deliberately — the epic's non-goals rule out a
+         * driver picker. Being unable to EXPRESS the field is a different thing
+         * from choosing not to show one.
+         */
+        runtimeContract?: RuntimeContractRequest
         mutationId?: MutationId
       },
       { sessionId: SessionId }
@@ -172,6 +210,25 @@ export interface PodiumClientApi {
     clear: ApiMutation<WithMutationId<{ sessionId: SessionId }>>
   }
   issues: {
+    /** Insert-shaped optimistic create: both ids are minted by the client and
+     * reused by the authority so task/session rows reconcile without a swap. */
+    create: ApiMutation<
+      WithMutationId<{
+        id?: IssueId
+        startSessionId?: SessionId
+        repoPath: string
+        machineId?: MachineId
+        title: string
+        description?: string
+        brief?: string
+        parentBranch?: string
+        defaultAgent?: string
+        defaultModel?: string
+        defaultEffort?: string
+        startNow: boolean
+      }>,
+      IssueWire
+    >
     markRead: ApiMutation<WithMutationId<{ id: string }>>
     markUnread: ApiMutation<WithMutationId<{ id: string }>>
     /** Tuck-away dismissal (POD-333) — server-side, global, outboxed. */
@@ -302,6 +359,10 @@ export interface PodiumClientApi {
    *  token-cost analytics — see `viewmodels/quota`. */
   quota: {
     summary: ApiQuery<void, MachineQuotaWire[]>
+    /** The window ledger (POD-1571) — one entry per run of a plan window, with
+     *  what it came to before it reset. Oldest first. Distinct from `summary`,
+     *  which is the live reading and keeps no record of itself. */
+    history: ApiQuery<{ days?: number } | void, QuotaWindowHistoryWire[]>
   }
   superagent: {
     /** The signed-in principal's own threads. The authority scopes this to the

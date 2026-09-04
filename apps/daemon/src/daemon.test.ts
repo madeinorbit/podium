@@ -1,31 +1,48 @@
 import { execFileSync, execSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import type {
+  CodexRuntimeHost,
+  CodexTransport,
+  GrokAcpRuntimeHost,
+  GrokAcpTransport,
+} from '@podium/agent-runtime'
 import { agentStateProviderFor, claudeProjectSlug, type LaunchOptions } from '@podium/harness'
 import type { ConversationDiagnosticWire, ConversationSummaryWire } from '@podium/model'
 import { asSessionId, asUserId, FIRST_ADMIN_USER_ID, type SessionId } from '@podium/model'
 import { type PeerHelloReply, WIRE_VERSION } from '@podium/protocol'
 import {
   type DaemonMessage,
-  encodeDaemonMessage as protocolEncode,
   parseDaemonMessage,
+  encodeDaemonMessage as protocolEncode,
 } from '@podium/protocol/daemon'
 import {
   abducoHasSession,
+  hostHasSession,
   isAbducoAvailable,
-  isTmuxAvailable,
+  isHostAvailable,
   killAbducoSession,
-  killTmuxServer,
+  killHostSession,
+  listLiveHostLabels,
   reapAbducoTestSessions,
-  tmuxHasSession,
 } from '@podium/pty'
 import { stateDir } from '@podium/runtime/config'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { WebSocketServer, type WebSocket as WS } from 'ws'
+import type { DaemonContext, DurableBackend } from './control/context'
+import { launchServerDriverSession, sessionHandlers } from './control/session'
 import {
   controlFrameByteLength,
   createLimiter,
@@ -37,6 +54,17 @@ import {
   startDaemon,
 } from './daemon'
 import { type MemoryBreakdownJobInput, runMemoryBreakdownJob } from './discovery-jobs'
+import { parseBackendArg } from './durable-backend'
+import {
+  codexAppServerVersionProbe,
+  resetCodexAppServerVersionProbe,
+} from './runtime/codex-app-server'
+import { createDaemonCodexRuntime } from './runtime/codex-driver'
+import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './runtime/grok-acp-server'
+import { createDaemonGrokRuntime } from './runtime/grok-driver'
+import { runtimeHandlers } from './runtime/handlers'
+import { createDaemonMachineRuntime } from './runtime/machine-runtime'
+import { createVersionProbeCache } from './runtime/version-probe'
 import { createSessionObservers, type ReattachControl } from './session-observers'
 import { DiscoveryWorkerClient, type WorkerLike } from './worker-client'
 
@@ -56,6 +84,12 @@ afterAll(async () => {
   // Before the tmp rm below: unlinking a socket dir orphans its master forever.
   if (isAbducoAvailable()) {
     await reapAbducoTestSessions([/^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/])
+  }
+  if (isHostAvailable()) {
+    for (const label of await listLiveHostLabels()) {
+      const m = /^podium-(?:ab-[a-z-]+|survive|reattach)-(\d+)$/.exec(label)
+      if (m && Number(m[1]) === process.pid) await killHostSession(label)
+    }
   }
   for (const dir of tmpDirs) rmSync(dir, { recursive: true, force: true })
 })
@@ -264,8 +298,8 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      // direct Bun.Terminal path keeps these fixtures/assertions deterministic (no tmux dependency)
-      tmux: false,
+      // direct Bun.Terminal path keeps these fixtures/assertions deterministic
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
       // inject the deterministic fixture instead of real claude/codex
@@ -304,6 +338,39 @@ describe('daemon multi-bridge', () => {
     }
   }
 
+  /**
+   * POD-2290: the DECISION has to reach the server before the LAUNCH does.
+   *
+   * `bind` already carries the driver and carries it too late — it is the frame
+   * that marks a session live, so on the drive instance an `opencode` session
+   * went twelve seconds with no driver fact at all while its server booted. The
+   * web panel has to choose a view during that window, and with nothing to go on
+   * it chose the terminal, which for a server-family session is a pane that can
+   * never attach.
+   *
+   * Asserted as an ORDER, not a presence: a `driverSelected` that arrived after
+   * `bind` would satisfy every "is the field there" check and fix nothing.
+   */
+  it('announces the selected driver BEFORE the bind that follows it', async () => {
+    send({ type: 'spawn', sessionId: 'sel1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+    await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'sel1'))
+    const order = received
+      .filter(
+        (m) =>
+          (m.type === 'driverSelected' || m.type === 'bind') &&
+          (m as { sessionId?: string }).sessionId === 'sel1',
+      )
+      .map((m) => m.type)
+    expect(order[0]).toBe('driverSelected')
+    const selected = received.find(
+      (m) => m.type === 'driverSelected' && (m as { sessionId?: string }).sessionId === 'sel1',
+    ) as { driverId?: string } | undefined
+    // Claude Code declares no server driver, so it never reaches a probe: the
+    // answer is its terminal driver and it is knowable without starting
+    // anything, which is why this arrives first.
+    expect(selected?.driverId).toBe('claude-pty')
+  })
+
   it('spawns independent bridges and tags bind + frames by sessionId', async () => {
     send({ type: 'spawn', sessionId: 's1', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
     send({ type: 'spawn', sessionId: 's2', agentKind: 'claude-code', cwd: '/tmp', geometry: G })
@@ -320,7 +387,14 @@ describe('daemon multi-bridge', () => {
   // names the session at spawn, which both makes grok create it at boot and lets
   // the observer bind it without waiting for the user to type. [POD-386]
   it('mints a native session id for a fresh grok spawn and binds it immediately', async () => {
-    send({ type: 'spawn', sessionId: 'g1', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    send({
+      type: 'spawn',
+      sessionId: 'g1',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      runtimeContract: 'generic-pty',
+    })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'g1'))
 
     const minted = launchOpts.at(-1)?.newSessionId
@@ -507,7 +581,7 @@ describe('daemon multi-bridge', () => {
       durableLabel: `podium-${sessionId}`,
       agentKind: 'claude-code',
       cwd: '/tmp',
-      geometry: G,
+      lastKnownGeometry: G,
     })
     // The fix: the already-held branch re-pushes the surviving idle phase.
     await waitFor(() => idleStates().length > before)
@@ -618,7 +692,7 @@ describe('daemon multi-bridge', () => {
       cwd,
       resume: { kind: 'claude-session', value: providerSessionId },
       pathHint: transcriptPath,
-      geometry: G,
+      lastKnownGeometry: G,
       observationGeneration: 8,
       observationBindingVersion: 2,
       observationProviderSessionId: providerSessionId,
@@ -735,7 +809,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['gone-1'], diagnostics: [] }),
@@ -835,7 +909,7 @@ describe('daemon multi-bridge', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
@@ -980,38 +1054,794 @@ describe('daemon multi-bridge', () => {
   })
 })
 
-describe('durable backend resolution', () => {
-  const both = { abduco: true, tmux: true }
-  const neither = { abduco: false, tmux: false }
+type DefaultServerTransport = CodexTransport | GrokAcpTransport
 
-  it('prefers abduco, falls back to tmux, then none', () => {
-    expect(resolveDurableBackend({}, both)).toBe('abduco')
-    expect(resolveDurableBackend({}, { abduco: false, tmux: true })).toBe('tmux')
+function defaultServerTransport(kind: 'codex' | 'grok'): DefaultServerTransport {
+  let handler: { line(line: string): void; closed(): void } | undefined
+  const reply = (id: string | number, result: unknown): void => {
+    const frame = kind === 'codex' ? { id, result } : { jsonrpc: '2.0', id, result }
+    handler?.line(JSON.stringify(frame))
+  }
+  return {
+    write(line) {
+      const frame = JSON.parse(line) as { id?: string | number; method?: string }
+      if (frame.id === undefined || frame.method === undefined) return
+      if (kind === 'codex') {
+        const result =
+          frame.method === 'initialize'
+            ? { userAgent: 'fixture', codexHome: '/fixture/.codex' }
+            : frame.method === 'thread/start'
+              ? { thread: { id: 'fixture-codex-thread', path: null } }
+              : frame.method === 'getAuthStatus'
+                ? { authMethod: 'chatgpt' }
+                : {}
+        reply(frame.id, result)
+        return
+      }
+      const result =
+        frame.method === 'initialize'
+          ? { protocolVersion: 1, agentCapabilities: { loadSession: true } }
+          : frame.method === 'session/new'
+            ? { sessionId: 'fixture-grok-session' }
+            : {}
+      reply(frame.id, result)
+    },
+    onLine(next) {
+      handler = next
+    },
+    close() {
+      handler?.closed()
+    },
+  }
+}
+
+function defaultCodexRuntime(sent: DaemonMessage[]) {
+  const entries = new Map<SessionId, Parameters<CodexRuntimeHost['journal']['write']>[0]>()
+  const host: CodexRuntimeHost = {
+    stageAttachment: async ({ source }) => ({
+      id: 'test-attachment',
+      path: '/tmp/test-' + source.filename,
+      filename: source.filename,
+      mediaType: source.mediaType,
+      kind: source.mediaType.startsWith('image/') ? 'image' : 'file',
+    }),
+    journal: {
+      read: (id) => entries.get(id),
+      write: (entry) => void entries.set(entry.sessionId, entry),
+      clear: (id) => void entries.delete(id),
+    },
+    now: () => 1_786_700_000_000,
+    mintSessionId: () => asSessionId('fixture-codex-session'),
+    async launch(input) {
+      const transport = defaultServerTransport('codex') as CodexTransport
+      return {
+        transport,
+        clientAddress: `unix:///tmp/${input.sessionId}.sock`,
+        process: { key: `podium-cx-${input.sessionId}` },
+        stop: async () => transport.close(),
+        kill: async () => transport.close(),
+        resources: () => undefined,
+      }
+    },
+  }
+  return createDaemonCodexRuntime({ send: (msg) => void sent.push(msg), host })
+}
+
+function defaultGrokRuntime(sent: DaemonMessage[]) {
+  const entries = new Map<SessionId, Parameters<GrokAcpRuntimeHost['journal']['write']>[0]>()
+  const host: GrokAcpRuntimeHost = {
+    journal: {
+      read: (id) => entries.get(id),
+      write: (entry) => void entries.set(entry.sessionId, entry),
+      clear: (id) => void entries.delete(id),
+    },
+    now: () => 1_786_700_000_000,
+    mintSessionId: () => asSessionId('fixture-grok-session'),
+    async launch(input) {
+      const transport = defaultServerTransport('grok') as GrokAcpTransport
+      let alive = true
+      return {
+        transport,
+        process: { key: `podium-gk-${input.sessionId}` },
+        stop: async () => {
+          alive = false
+          transport.close()
+        },
+        kill: async () => {
+          alive = false
+          transport.close()
+        },
+        resources: () => undefined,
+        alive: () => alive,
+      }
+    },
+  }
+  return createDaemonGrokRuntime({ send: (msg) => void sent.push(msg), host })
+}
+function unavailableServerRuntime(id: string, harness: string) {
+  return {
+    driver: { id, harness, family: 'server', capabilities: () => ({ placement: 'dedicated' }) },
+    handleFor: () => undefined,
+    bindings: () => [],
+    journal: { read: () => undefined, clear: vi.fn() },
+    async launch() {
+      throw new Error(`driver '${id}' is not wired`)
+    },
+    adoptFromJournal: async () => undefined,
+    dispose: vi.fn(),
+  }
+}
+
+function terminalRuntimeFixture() {
+  return {
+    driverFor(harness: string, profile: { driverId: string }) {
+      return {
+        id: profile.driverId,
+        harness,
+        family: 'terminal',
+        capabilities: () => ({ placement: 'dedicated' }),
+      }
+    },
+    handleFor: () => undefined,
+    bindings: () => [],
+    observe: vi.fn(),
+    onHookPayload: vi.fn(),
+    register: vi.fn(),
+    clear: vi.fn(),
+    dispose: vi.fn(),
+  }
+}
+
+function defaultServerSpawnContext(
+  sent: DaemonMessage[],
+  runtimes: {
+    codexRuntime?: ReturnType<typeof defaultCodexRuntime>
+    grokRuntime?: ReturnType<typeof defaultGrokRuntime>
+  },
+): DaemonContext {
+  return {
+    send: (msg: DaemonMessage) => void sent.push(msg),
+    machineId: 'default-server-machine',
+    durableLabelFor: (id: SessionId) => `default-server-${id}`,
+    sessionBinding: {
+      transition: async () => ({ status: 'applied' }),
+    },
+    sessionCwdTracker: {
+      setLaunchCwd: async () => {},
+    },
+    harnessLoginState: () => 'in',
+    agentRuntime: createDaemonMachineRuntime({
+      terminal: terminalRuntimeFixture(),
+      opencode: unavailableServerRuntime('opencode-server', 'opencode'),
+      opencode2: unavailableServerRuntime('opencode2-server', 'opencode'),
+      codex: runtimes.codexRuntime ?? unavailableServerRuntime('codex-app-server', 'codex'),
+      grok: runtimes.grokRuntime ?? unavailableServerRuntime('grok-acp', 'grok'),
+      inventory: async () => ({ os: 'linux', arch: 'x64', agents: [], tools: [] }),
+    } as unknown as Parameters<typeof createDaemonMachineRuntime>[0]),
+  } as unknown as DaemonContext
+}
+
+async function waitForDefaultServerBind(
+  sent: DaemonMessage[],
+  sessionId: string,
+): Promise<Extract<DaemonMessage, { type: 'bind' }>> {
+  await vi.waitFor(() =>
+    expect(sent.some((msg) => msg.type === 'bind' && msg.sessionId === sessionId)).toBe(true),
+  )
+  const bind = sent.find(
+    (msg): msg is Extract<DaemonMessage, { type: 'bind' }> =>
+      msg.type === 'bind' && msg.sessionId === sessionId,
+  )
+  if (!bind) throw new Error(`missing bind for ${sessionId}`)
+  return bind
+}
+
+describe('default server-driver spawn integration', () => {
+  afterEach(() => {
+    resetCodexAppServerVersionProbe()
+    resetGrokAcpVersionProbe()
+  })
+
+  it('routes a bare Codex spawn through app-server and binds that driver', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'default-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await expect(waitForDefaultServerBind(sent, 'default-codex')).resolves.toMatchObject({
+        runtimeContract: true,
+        driverId: 'codex-app-server',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  /**
+   * POD-2291: the operator's first chat prompt into a fresh codex spawn
+   * vanished. The daemon's half of the promise is honesty about the readiness
+   * window — the app-server handle exists only after the child spawn, the
+   * handshake and the thread mint, and a send arriving before that must come
+   * back `refused` (so the server keeps the row visibly queued) rather than
+   * being swallowed. Once the thread exists the same send must deliver.
+   */
+  it('answers refused inside the codex readiness window, then delivers once the thread is minted', async () => {
+    resetCodexAppServerVersionProbe()
+    expect(
+      (await codexAppServerVersionProbe(() => ({ output: '0.147.0', ok: true }))).drivable,
+    ).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    const sendResults = () =>
+      sent.filter(
+        (msg): msg is Extract<DaemonMessage, { type: 'runtimeSendResult' }> =>
+          msg.type === 'runtimeSendResult',
+      )
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'readiness-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      // Inside the readiness window: the spawn is dispatched but the launch has
+      // not registered a handle yet. The answer is a refusal the server can act
+      // on — never silence, never a fake acceptance.
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId: 'req-early',
+        turnId: 'turn-early',
+        sessionId: 'readiness-codex',
+        text: 'sent before the thread exists',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
+      await vi.waitFor(() =>
+        expect(sendResults().some((msg) => msg.requestId === 'req-early')).toBe(true),
+      )
+      expect(sendResults().find((msg) => msg.requestId === 'req-early')?.receipt).toMatchObject({
+        outcome: 'refused',
+        refusal: { reason: 'not_running' },
+      })
+
+      await waitForDefaultServerBind(sent, 'readiness-codex')
+      runtimeHandlers.runtimeSendRequest(ctx, {
+        type: 'runtimeSendRequest',
+        requestId: 'req-after-bind',
+        turnId: 'turn-after-bind',
+        sessionId: 'readiness-codex',
+        text: 'sent after the thread exists',
+        origin: 'controller',
+        delivery: 'when-ready',
+      } as never)
+      await vi.waitFor(() =>
+        expect(sendResults().some((msg) => msg.requestId === 'req-after-bind')).toBe(true),
+      )
+      expect(
+        sendResults().find((msg) => msg.requestId === 'req-after-bind')?.receipt,
+      ).toMatchObject({
+        outcome: 'accepted',
+        provenBy: 'protocol-ack',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('stages attachment bytes through the correlated runtime handler', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'staging-codex',
+        agentKind: 'codex',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await waitForDefaultServerBind(sent, 'staging-codex')
+      runtimeHandlers.runtimeStageAttachmentRequest(ctx, {
+        type: 'runtimeStageAttachmentRequest',
+        requestId: 'stage-1',
+        sessionId: 'staging-codex',
+        source: {
+          dataBase64: Buffer.from('image-bytes').toString('base64'),
+          filename: 'diagram.png',
+          mediaType: 'image/png',
+        },
+      } as never)
+      await vi.waitFor(() =>
+        expect(
+          sent.some(
+            (msg) => msg.type === 'runtimeStageAttachmentResult' && msg.requestId === 'stage-1',
+          ),
+        ).toBe(true),
+      )
+      const result = sent.find(
+        (msg) => msg.type === 'runtimeStageAttachmentResult' && msg.requestId === 'stage-1',
+      )
+      expect(result).toMatchObject({
+        result: { filename: 'diagram.png', mediaType: 'image/png', kind: 'image' },
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+
+  it('reads Codex login from the same home inventory publishes', async () => {
+    const inventoryHome = trackTmp('podium-codex-login-home-')
+    const ambientHome = trackTmp('podium-codex-ambient-home-')
+    const fakeBin = trackTmp('podium-codex-bin-')
+    const probeMarker = join(trackTmp('podium-codex-probe-'), 'called')
+    mkdirSync(join(inventoryHome, '.codex'))
+    mkdirSync(join(ambientHome, '.codex'))
+    writeFileSync(
+      join(ambientHome, '.codex', 'auth.json'),
+      JSON.stringify({ tokens: { access_token: 'a', refresh_token: 'r' } }),
+    )
+    const fakeCodex = join(fakeBin, 'codex')
+    writeFileSync(
+      fakeCodex,
+      '#!/bin/sh\nprintf probe >> "$PODIUM_TEST_CODEX_PROBE_MARKER"\nprintf "codex-cli 0.147.0\\n"\n',
+    )
+    chmodSync(fakeCodex, 0o755)
+    vi.stubEnv('HOME', ambientHome)
+    vi.stubEnv('CODEX_HOME', '')
+    vi.stubEnv('PATH', fakeBin)
+    vi.stubEnv('PODIUM_TEST_CODEX_PROBE_MARKER', probeMarker)
+
+    const sent: DaemonMessage[] = []
+    const productionSessionId = asSessionId('production-grace-home')
+    const wss = new WebSocketServer({ port: 0 })
+    let daemon: DaemonHandle | undefined
+    let serverSocket: WS | undefined
+    try {
+      await new Promise<void>((resolve) => wss.once('listening', () => resolve()))
+      const port = (wss.address() as { port: number }).port
+      const connected = new Promise<void>((resolve) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          void handshakeAndCollect(ws, sent).then(resolve)
+        })
+      })
+      daemon = await startDaemon({
+        serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
+        identityDir: trackTmp('podium-codex-identity-'),
+        hooks: { port: 0, settingsDir: trackTmp('podium-codex-hooks-') },
+        agentRelay: { port: 0 },
+        backend: 'none',
+        metrics: { background: false },
+        discovery: {
+          homeDir: inventoryHome,
+          background: false,
+          cachePath: ':memory:',
+        },
+        workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
+        launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
+      })
+      await connected
+      serverSocket?.send(encode({ type: 'inventoryRequest' }))
+      await vi.waitFor(
+        () => expect(sent.some((message) => message.type === 'inventoryReport')).toBe(true),
+        { timeout: 5_000 },
+      )
+      const inventoryReport = sent.find(
+        (message): message is Extract<DaemonMessage, { type: 'inventoryReport' }> =>
+          message.type === 'inventoryReport',
+      )
+      expect(
+        inventoryReport?.inventory.agents.find((agent) => agent.kind === 'codex')?.login.state,
+      ).toBe('unknown')
+      // Boot inventory legitimately version-probes installed CLIs. Admission
+      // must add no SECOND Codex probe once that same home's grace fact has
+      // already selected the interactive path.
+      const probeCallsBeforeSpawn = existsSync(probeMarker) ? readFileSync(probeMarker, 'utf8') : ''
+      serverSocket?.send(
+        encode({
+          type: 'spawn',
+          sessionId: productionSessionId,
+          agentKind: 'codex',
+          cwd: '/tmp',
+          geometry: G,
+        }),
+      )
+
+      await vi.waitFor(() =>
+        expect(
+          sent.find(
+            (message) =>
+              message.type === 'driverSelected' && message.sessionId === productionSessionId,
+          ),
+        ).toMatchObject({ driverId: 'generic-pty' }),
+      )
+      await vi.waitFor(() =>
+        expect(
+          sent.some(
+            (message) => message.type === 'bind' && message.sessionId === productionSessionId,
+          ),
+        ).toBe(true),
+      )
+      expect(existsSync(probeMarker) ? readFileSync(probeMarker, 'utf8') : '').toBe(
+        probeCallsBeforeSpawn,
+      )
+    } finally {
+      await daemon?.close({ reapSessions: true })
+      for (const client of wss.clients) client.terminate()
+      await Promise.race([
+        new Promise<void>((resolve) => wss.close(() => resolve())),
+        new Promise<void>((resolve) => setTimeout(resolve, 100)),
+      ])
+      vi.unstubAllEnvs()
+    }
+  })
+
+  it('routes a bare Grok spawn through ACP and binds that driver', async () => {
+    resetGrokAcpVersionProbe()
+    expect((await grokAcpVersionProbe(() => ({ output: '0.2.118', ok: true }))).drivable).toBe(true)
+    const sent: DaemonMessage[] = []
+    const runtime = defaultGrokRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { grokRuntime: runtime })
+    sessionHandlers.spawn(
+      ctx,
+      withTestBindingInstruction({
+        type: 'spawn',
+        sessionId: 'default-grok',
+        agentKind: 'grok',
+        cwd: '/tmp',
+        geometry: G,
+      }) as never,
+    )
+    try {
+      await expect(waitForDefaultServerBind(sent, 'default-grok')).resolves.toMatchObject({
+        runtimeContract: true,
+        driverId: 'grok-acp',
+      })
+    } finally {
+      runtime.dispose()
+    }
+  })
+})
+
+describe('server-driver admission control path', () => {
+  type Verdict =
+    | { drivable: true }
+    | {
+        drivable: false
+        reason: 'unsupported' | 'unprobeable'
+        diagnostic: { title: string; body: string }
+      }
+
+  const cachedProbe = (
+    run: () => { output: string; ok: boolean } | Promise<{ output: string; ok: boolean }>,
+  ) => {
+    const cache = createVersionProbeCache<Verdict>({
+      evaluate: ({ output, ok }) =>
+        ok
+          ? { drivable: true }
+          : {
+              drivable: false,
+              reason: 'unprobeable',
+              diagnostic: { title: 'probe did not answer', body: output },
+            },
+    })
+    return (_driverId: string, policy?: { retryInconclusive?: boolean }) => cache.probe(run, policy)
+  }
+
+  const spawn = (
+    sessionId: string,
+    runtimeContract?: string,
+    agentKind: 'codex' | 'opencode' = 'codex',
+  ) =>
+    withTestBindingInstruction({
+      type: 'spawn',
+      sessionId,
+      agentKind,
+      cwd: '/tmp',
+      geometry: G,
+      ...(runtimeContract ? { runtimeContract } : {}),
+    }) as never
+
+  it('starts no probe child for a logged-out default spawn', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    ctx.harnessLoginState = () => 'out'
+    let childProcesses = 0
+    const result = await launchServerDriverSession(
+      ctx,
+      spawn('logged-out-opencode', undefined, 'opencode'),
+      cachedProbe(() => {
+        childProcesses += 1
+        return { output: 'codex-cli 0.147.0', ok: true }
+      }),
+    )
+
+    expect(result).toEqual({ handled: false, requestedDriverId: 'opencode-server' })
+    expect(childProcesses).toBe(0)
+  })
+
+  it('degrades an unsettled Codex default to PTY but refuses an explicit server request', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    ctx.harnessLoginState = () => 'unknown'
+    let probes = 0
+    const probe = cachedProbe(() => {
+      probes += 1
+      return { output: 'codex-cli 0.147.0', ok: true }
+    })
+
+    await expect(launchServerDriverSession(ctx, spawn('grace-default'), probe)).resolves.toEqual({
+      handled: false,
+      requestedDriverId: 'codex-app-server',
+    })
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'driverSelected',
+        sessionId: 'grace-default',
+        driverId: 'generic-pty',
+      }),
+    )
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('grace-explicit', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(sent.at(-1)).toMatchObject({
+      type: 'spawnError',
+      sessionId: 'grace-explicit',
+      message: expect.stringContaining("harness 'codex' login is not confirmed yet"),
+    })
+    expect(
+      sent.some((msg) => msg.type === 'driverSelected' && msg.sessionId === 'grace-explicit'),
+    ).toBe(false)
+    expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
+    expect(probes).toBe(0)
+  })
+
+  it('coalesces concurrent spawns behind one probe and binds neither before it resolves', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    let childProcesses = 0
+    let finish!: (result: { output: string; ok: boolean }) => void
+    const probe = cachedProbe(() => {
+      childProcesses += 1
+      return new Promise((resolve) => {
+        finish = resolve
+      })
+    })
+
+    const first = launchServerDriverSession(ctx, spawn('coalesced-one'), probe)
+    const second = launchServerDriverSession(ctx, spawn('coalesced-two'), probe)
+    await Promise.resolve()
+    expect(childProcesses).toBe(1)
+    expect(sent.some((msg) => msg.type === 'bind')).toBe(false)
+
+    finish({ output: 'codex-cli 0.147.0', ok: true })
+    await expect(Promise.all([first, second])).resolves.toEqual([
+      { handled: true },
+      { handled: true },
+    ])
+    expect(sent.filter((msg) => msg.type === 'bind')).toHaveLength(2)
+    runtime.dispose()
+  })
+
+  it('fresh-probes an explicit retry after a completed transient miss', async () => {
+    const sent: DaemonMessage[] = []
+    const runtime = defaultCodexRuntime(sent)
+    const ctx = defaultServerSpawnContext(sent, { codexRuntime: runtime })
+    let childProcesses = 0
+    const probe = cachedProbe(() => {
+      childProcesses += 1
+      return childProcesses === 1
+        ? { output: 'codex: ENOENT', ok: false }
+        : { output: 'codex-cli 0.147.0', ok: true }
+    })
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('explicit-miss', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(sent.at(-1)).toMatchObject({ type: 'spawnError', sessionId: 'explicit-miss' })
+
+    await expect(
+      launchServerDriverSession(ctx, spawn('explicit-recovered', 'codex-app-server'), probe),
+    ).resolves.toEqual({ handled: true })
+    expect(childProcesses).toBe(2)
+    expect(sent.some((msg) => msg.type === 'bind' && msg.sessionId === 'explicit-recovered')).toBe(
+      true,
+    )
+    runtime.dispose()
+  })
+
+  /**
+   * POD-2775 — RESUMING A PARKED SERVER SESSION.
+   *
+   * `sessions.resume` arrives here as a `spawn` frame, and this path turned every
+   * one of them into `runtime.create()`. `createWithId` REFUSES a session that
+   * already holds a binding-journal entry (two children under one session id is
+   * the POD-2249 double-spawn), and a parked server session holds exactly such an
+   * entry on purpose — it is the address the conversation lives at. So every
+   * resume of a hibernated codex session put the row on `exited` with `already
+   * has a persisted server journal` and left it there, because the retry is the
+   * same frame. Measured live before this test existed.
+   *
+   * The assertion that matters is `created === 0`: the create must not be
+   * REACHED, not merely survived. A version that called it and then recovered
+   * would still be starting a second child on any journal entry whose process is
+   * genuinely alive.
+   */
+  it('resumes a PARKED server session by adopting its journal rather than reaching the create', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    const adopted = {
+      binding: { driver: 'codex-app-server', family: 'server' },
+      state: async () => ({ phase: 'idle' as const }),
+    }
+    let created = 0
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      // Parked: the journal entry survived, the handle did not.
+      serverHandleFor: () => undefined,
+      handleFor: () => undefined,
+      adoptJournalled: async () => ({
+        found: true as const,
+        what: 'codex app-server',
+        workdir: '/parked-workdir',
+        handle: adopted,
+      }),
+      create: async () => {
+        created += 1
+        throw new Error("session 'parked-codex' already has a persisted server journal")
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        spawn('parked-codex'),
+        cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(created).toBe(0)
+    expect(sent.some((msg) => msg.type === 'spawnError')).toBe(false)
+    expect(sent).toContainEqual(
+      expect.objectContaining({
+        type: 'bind',
+        sessionId: 'parked-codex',
+        // THE JOURNAL'S WORKDIR, not the frame's `/tmp`: the adopted child is
+        // opened where the conversation actually lives.
+        cwd: '/parked-workdir',
+        runtimeContract: true,
+        driverId: 'codex-app-server',
+      }),
+    )
+    // AND NO GEOMETRY (POD-3279). The frame is a spawn and carries one, but this
+    // arm ADOPTED a journalled child — it started no terminal and put nothing at
+    // a size, so it has nothing to report. The hardcoded 120-column fallback this
+    // replaces was a size no part of the system had ever applied.
+    expect(sent.find((msg) => msg.type === 'bind')).not.toHaveProperty('geometry')
+  })
+
+  /**
+   * The other side of the same guard: a journal entry beside a LIVE handle is a
+   * session this daemon is already running, and a redelivered frame for one must
+   * not be turned into an adopt that starts a second child. That case keeps its
+   * previous behaviour exactly — it falls through to the create, which refuses.
+   */
+  it('does NOT adopt when a live handle already holds the session — a redelivered frame still refuses', async () => {
+    const sent: DaemonMessage[] = []
+    const ctx = defaultServerSpawnContext(sent, {})
+    let adoptions = 0
+    let created = 0
+    ctx.agentRuntime = {
+      ...ctx.agentRuntime,
+      serverHandleFor: () => ({ binding: { driver: 'codex-app-server', family: 'server' } }),
+      handleFor: () => undefined,
+      adoptJournalled: async () => {
+        adoptions += 1
+        return { found: false as const }
+      },
+      create: async () => {
+        created += 1
+        throw new Error("session 'live-codex' already has a persisted server journal")
+      },
+    } as never
+
+    await expect(
+      launchServerDriverSession(
+        ctx,
+        spawn('live-codex'),
+        cachedProbe(() => ({ output: 'codex-cli 0.147.0', ok: true })),
+      ),
+    ).resolves.toEqual({ handled: true })
+
+    expect(adoptions).toBe(0)
+    expect(created).toBe(1)
+    expect(sent.at(-1)).toMatchObject({
+      type: 'spawnError',
+      sessionId: 'live-codex',
+      message: expect.stringContaining('already has a persisted server journal'),
+    })
+  })
+})
+
+describe('durable backend resolution', () => {
+  const available = { abduco: true }
+  const neither = { abduco: false }
+
+  it('prefers abduco, then none', () => {
+    expect(resolveDurableBackend({}, available)).toBe('abduco')
     expect(resolveDurableBackend({}, neither)).toBe('none')
   })
 
-  it('an explicit backend wins (operator intent, even over availability probes)', () => {
-    expect(resolveDurableBackend({ backend: 'tmux' }, both)).toBe('tmux')
-    expect(resolveDurableBackend({ backend: 'none' }, both)).toBe('none')
-    expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
+  it('SPEC-6: prefers the host when it can be built, and PODIUM_DURABLE_BACKEND overrides the probe', () => {
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, {})).toBe('host')
+    expect(resolveDurableBackend({}, { host: false, abduco: true }, {})).toBe('abduco')
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'abduco' })).toBe('abduco')
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'none' })).toBe('none')
+    // A misspelt value is ignored (and warned about), not silently taken as none.
+    expect(resolveDurableBackend({}, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'tmux' })).toBe('host')
+    // An explicit option outranks the environment.
+    expect(resolveDurableBackend({ backend: 'abduco' }, { host: true, abduco: true }, { PODIUM_DURABLE_BACKEND: 'host' })).toBe('abduco')
+    expect(parseBackendArg(['--backend', 'host'])).toBe('host')
+    expect(parseBackendArg(['--backend=none'])).toBe('none')
+    expect(parseBackendArg(['--port', '1'])).toBeUndefined()
+    expect(() => parseBackendArg(['--backend', 'screen'])).toThrow(/--backend/)
   })
 
-  it('maps the legacy tmux boolean: true forces tmux, false forces none', () => {
-    expect(resolveDurableBackend({ tmux: true }, both)).toBe('tmux')
-    expect(resolveDurableBackend({ tmux: false }, both)).toBe('none')
+  it('an explicit backend wins (operator intent, even over availability probes)', () => {
+    expect(resolveDurableBackend({ backend: 'none' }, available)).toBe('none')
+    expect(resolveDurableBackend({ backend: 'abduco' }, neither)).toBe('abduco')
   })
 
   it('explains a none-backend per platform: expected on Windows, missing tools elsewhere', () => {
     expect(noDurableBackendWarning('win32')).toContain('ConPTY')
     expect(noDurableBackendWarning('win32')).not.toContain('abduco')
-    expect(noDurableBackendWarning('linux')).toContain('neither abduco nor tmux')
+    expect(noDurableBackendWarning('linux')).toContain('abduco not found')
     // Both wordings must state the consequence the operator cares about.
     expect(noDurableBackendWarning('win32')).toContain('survive')
     expect(noDurableBackendWarning('linux')).toContain('survive')
   })
 })
 
-describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
+
+/**
+ * SPEC-6 items 13–14: the survival suite runs against whichever durable host
+ * `PODIUM_DURABLE_BACKEND` names — abduco by default, our own podium-host when
+ * set to `host`. The claims differ where the hosts differ and say so inline.
+ */
+const DURABLE_BACKEND: Exclude<DurableBackend, 'none'> =
+  process.env.PODIUM_DURABLE_BACKEND === 'host' ? 'host' : 'abduco'
+const durableAvailable = (): boolean =>
+  DURABLE_BACKEND === 'host' ? isHostAvailable() : isAbducoAvailable()
+const hasDurable = (label: string): Promise<boolean> =>
+  DURABLE_BACKEND === 'host' ? hostHasSession(label) : abducoHasSession(label)
+const killDurable = (label: string): Promise<void> =>
+  DURABLE_BACKEND === 'host' ? killHostSession(label) : killAbducoSession(label)
+
+describe.skipIf(!durableAvailable())('daemon abduco survival', () => {
   it('keeps the abduco session alive after the daemon closes, reattaches, and fails for a missing label', async () => {
     const sessionId = asSessionId(`ab-survive-${process.pid}`)
     const label = `podium-${sessionId}`
@@ -1034,7 +1864,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      backend: 'abduco',
+      backend: DURABLE_BACKEND,
       discovery: { background: false, cachePath: ':memory:' },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -1053,7 +1883,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
     try {
       send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
 
       // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
       received.length = 0
@@ -1063,19 +1893,30 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
-      // so frames flow again from the re-attached client.
-      await waitFor(() =>
+      const framesFlow = (): boolean =>
         received.some(
           (m) =>
             m.type === 'agentFrameBatch' &&
             m.sessionId === sessionId &&
             m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        ),
-      )
+        )
+      if (DURABLE_BACKEND === 'host') {
+        // SPEC-6 item 13: the bind after the re-bind carries the program's real
+        // size (the stage 5 record). The fresh-daemon case below is where the
+        // host's size-neutral reattach itself is pinned; this daemon still holds
+        // the bridge, and that path repaints as it always has.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.geometry).toEqual(G)
+      }
+      // abduco does not replay history; the fixture repaints on the attach SIGWINCH,
+      // so frames flow again from the re-attached client.
+      await waitFor(framesFlow)
 
       // A reattach for a label no backend knows → reattachFailed.
       const goneId = `ab-gone-${process.pid}`
@@ -1085,7 +1926,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: `podium-${goneId}-missing`,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() =>
         received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
@@ -1094,15 +1935,243 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
       // Closing the daemon only kills the attach client — the session survives.
       daemonClosed = true
       await daemon.close()
-      expect(await abducoHasSession(label)).toBe(true)
+      expect(await hasDurable(label)).toBe(true)
     } finally {
       if (!daemonClosed) await daemon.close()
-      await killAbducoSession(label)
+      await killDurable(label)
       await new Promise<void>((r) => wss.close(() => r()))
     }
   }, 20000)
 
-  it('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
+  it('a FRESH daemon reattaching at a stale geometry leaves the running agent where it is', async () => {
+    // A daemon that restarts comes back believing whatever the server last
+    // recorded. That belief is not an observation of the agent, and abduco's
+    // attach used to make it one: the client announced its size on connect and
+    // the master signalled the program on every packet, so a reconnect resized a
+    // running agent to a number nobody asked for [spec:SP-6144]. The attach is
+    // size-neutral now — it touches the agent in no way at all — and the resize
+    // control, a viewer actually asking, both moves it and repaints it.
+    //
+    // The daemon MUST be a new one: a reattach while the old daemon still holds
+    // the bridge returns early and never attaches at all.
+    const sessionId = asSessionId(`ab-reattach-size-${process.pid}`)
+    const label = `podium-${sessionId}`
+    const wss = new WebSocketServer({ port: 0 })
+    await new Promise<void>((r) => wss.once('listening', () => r()))
+    const port = (wss.address() as { port: number }).port
+
+    const received: DaemonMessage[] = []
+    let serverSocket!: WS
+    const nextConnection = (): Promise<void> =>
+      new Promise<void>((r) => {
+        wss.once('connection', (ws) => {
+          serverSocket = ws
+          handshakeAndCollect(ws, received)
+          r()
+        })
+      })
+
+    const daemonOpts = {
+      serverUrl: `ws://localhost:${port}`,
+      bootstrapToken: 'test',
+      agentRelay: { port: 0 },
+      backend: DURABLE_BACKEND,
+      discovery: { background: false, cachePath: ':memory:' },
+      launch: (_kind: unknown, opts: { cwd: string }) => ({
+        cmd: process.execPath,
+        args: [FIXTURE],
+        cwd: opts.cwd,
+      }),
+    }
+
+    const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+      const startedAt = Date.now()
+      while (!fn()) {
+        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+        await new Promise((r) => setTimeout(r, 20))
+      }
+    }
+    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+    const painted = (): string =>
+      received
+        .filter(
+          (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+            m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+        )
+        .flatMap((m) => m.frames.map((f) => decode(f)))
+        .join('')
+
+    // The SAME hooks settings dir for both daemons: a restart in production keeps
+    // its state, and the abduco socket lookup is scoped by it.
+    const settingsDir = trackTmp('podium-hooks-')
+    let connected = nextConnection()
+    const first = await startDaemon({ ...daemonOpts, hooks: { port: 0, settingsDir } })
+    await connected
+    let second: Awaited<ReturnType<typeof startDaemon>> | undefined
+    try {
+      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+      // The program's last screen before the restart: the highest paint counter seen.
+      const lastPaintBefore = Math.max(...[...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1])))
+
+      // The daemon dies; the agent keeps running in its own durable host.
+      await first.close()
+      expect(await hasDurable(label)).toBe(true)
+
+      received.length = 0
+      connected = nextConnection()
+      second = await startDaemon({ ...daemonOpts, hooks: { port: 0, settingsDir } })
+      await connected
+
+      // A stale belief: nothing ever set this session to 120x45.
+      send({
+        type: 'reattach',
+        sessionId,
+        durableLabel: label,
+        agentKind: 'claude-code',
+        cwd: '/tmp',
+        lastKnownGeometry: { cols: 120, rows: 45 },
+      })
+      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+      await new Promise((r) => setTimeout(r, 800))
+      // The agent is not touched by the reattach: not moved, not signalled, not
+      // even sent a redraw key. Nothing has asked it for anything.
+      expect(painted()).toBe('')
+      expect(painted()).not.toContain('cols=120')
+      // AND THE BIND SAYS SO (POD-3279). A real daemon, a real abduco survivor, a
+      // real size-neutral attach — and the frame that comes back reports no
+      // geometry at all, because this daemon applied none. It used to echo the
+      // 120x45 above straight back, which is how a stale server belief became a
+      // confirmed one across a restart.
+      const reattachBind = received.find(
+        (m) => m.type === 'bind' && m.sessionId === sessionId,
+      ) as Extract<DaemonMessage, { type: 'bind' }>
+      // …except that the host can READ the size the program is at, and says so:
+      // the real size, never the stale belief (SPEC-6 item 13).
+      if (DURABLE_BACKEND === 'host') expect(reattachBind.geometry).toEqual(G)
+      else expect(reattachBind).not.toHaveProperty('geometry')
+
+      if (DURABLE_BACKEND === 'host') {
+        // THE JOINT-RESTART HOLE (SPEC-6 REPLAY). The server's log is empty after
+        // a deploy that restarted both halves, so it sends redraw{replayRequired}.
+        // The host replays its ring: the daemon emits the program's LAST SCREEN
+        // as it was before the restart — same paint counter, so the program was
+        // not signalled into painting a new one — and nothing else.
+        received.length = 0
+        send({ type: 'redraw', sessionId, replayRequired: true })
+        await waitFor(() => painted().includes(`paint=${lastPaintBefore} `))
+        await new Promise((r) => setTimeout(r, 500))
+        const paints = [...painted().matchAll(/paint=(\d+)/g)].map((m) => Number(m[1]))
+        expect(Math.max(...paints)).toBe(lastPaintBefore)
+        expect(painted()).toContain(`cols=${G.cols} rows=${G.rows}`)
+        received.length = 0
+      }
+
+      // The first viewport request is what moves it — and, because the master
+      // signals the program on every resize packet, is also what repaints it.
+      received.length = 0
+      send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+      await waitFor(() => painted().includes('cols=120 rows=45'))
+    } finally {
+      await (second ?? first).close()
+      await killDurable(label)
+      await new Promise<void>((r) => wss.close(() => r()))
+    }
+  }, 40000)
+
+  it.skipIf(!isAbducoAvailable() || !isHostAvailable())(
+    'MIXED FLEET (SPEC-6 item 14): a session created under abduco reattaches after a restart onto the host backend',
+    async () => {
+      const sessionId = asSessionId(`ab-mixed-${process.pid}`)
+      const label = `podium-${sessionId}`
+      const wss = new WebSocketServer({ port: 0 })
+      await new Promise<void>((r) => wss.once('listening', () => r()))
+      const port = (wss.address() as { port: number }).port
+      const received: DaemonMessage[] = []
+      let serverSocket!: WS
+      const nextConnection = (): Promise<void> =>
+        new Promise<void>((r) => {
+          wss.once('connection', (ws) => {
+            serverSocket = ws
+            handshakeAndCollect(ws, received)
+            r()
+          })
+        })
+      const waitFor = async (fn: () => boolean, timeout = 8000): Promise<void> => {
+        const startedAt = Date.now()
+        while (!fn()) {
+          if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
+          await new Promise((r) => setTimeout(r, 20))
+        }
+      }
+      const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
+      const painted = (): string =>
+        received
+          .filter(
+            (m): m is Extract<DaemonMessage, { type: 'agentFrameBatch' }> =>
+              m.type === 'agentFrameBatch' && m.sessionId === sessionId,
+          )
+          .flatMap((m) => m.frames.map((f) => decode(f)))
+          .join('')
+      const base = {
+        serverUrl: `ws://localhost:${port}`,
+        bootstrapToken: 'test',
+        agentRelay: { port: 0 },
+        discovery: { background: false, cachePath: ':memory:' },
+        hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
+        launch: (_kind: unknown, opts: { cwd: string }) => ({
+          cmd: process.execPath,
+          args: [FIXTURE],
+          cwd: opts.cwd,
+        }),
+      }
+      let connected = nextConnection()
+      const first = await startDaemon({ ...base, backend: 'abduco' })
+      await connected
+      let second: Awaited<ReturnType<typeof startDaemon>> | undefined
+      try {
+        send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        await waitFor(() => painted().includes(`cols=${G.cols} rows=${G.rows}`))
+        await first.close()
+        expect(await abducoHasSession(label)).toBe(true)
+
+        // The machine switched hosts while the session was alive under abduco.
+        received.length = 0
+        connected = nextConnection()
+        second = await startDaemon({ ...base, backend: 'host' })
+        await connected
+        send({
+          type: 'reattach',
+          sessionId,
+          durableLabel: label,
+          agentKind: 'claude-code',
+          cwd: '/tmp',
+          lastKnownGeometry: G,
+        })
+        await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
+        expect(received.some((m) => m.type === 'reattachFailed')).toBe(false)
+        // It came back through abduco's adapter — and behaves as an abduco session.
+        const bind = received.find((m) => m.type === 'bind' && m.sessionId === sessionId) as Extract<
+          DaemonMessage,
+          { type: 'bind' }
+        >
+        expect(bind.cmd).toContain('abduco -a')
+        expect(bind).not.toHaveProperty('geometry')
+        received.length = 0
+        send({ type: 'resize', sessionId, cols: 120, rows: 45 })
+        await waitFor(() => painted().includes('cols=120 rows=45'))
+      } finally {
+        await (second ?? first).close()
+        await killAbducoSession(label)
+        await new Promise<void>((r) => wss.close(() => r()))
+      }
+    },
+    40000,
+  )
+
+  it.skipIf(DURABLE_BACKEND === 'host')('does NOT report agentExit when the attach client dies but the abduco master survives', async () => {
     // Regression: a backend restart (disposeAll), a user detach, or a client crash
     // all kill a session's abduco ATTACH CLIENT. The master + agent live on in
     // their own scope, so the daemon must stay silent — a stray agentExit makes
@@ -1282,7 +2351,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
         durableLabel: label,
         agentKind: 'claude-code',
         cwd: '/tmp',
-        geometry: G,
+        lastKnownGeometry: G,
       })
       await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
       // The fix: the reattaching daemon seeds a fresh idle state for the survivor.
@@ -1406,7 +2475,7 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
           durableLabel: label,
           agentKind: 'claude-code',
           cwd,
-          geometry: G,
+          lastKnownGeometry: G,
           resume: { kind: 'claude-session', value: resumeValue },
         })
         await waitFor(() => b.received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
@@ -1479,143 +2548,6 @@ describe.skipIf(!isAbducoAvailable())('daemon abduco survival', () => {
   }, 20000)
 })
 
-describe.skipIf(!isTmuxAvailable())('daemon tmux survival', () => {
-  it('keeps the tmux session alive after the daemon closes', async () => {
-    const sessionId = asSessionId(`survive-${process.pid}`)
-    const label = `podium-${sessionId}`
-    const wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    const port = (wss.address() as { port: number }).port
-
-    const received: DaemonMessage[] = []
-    let serverSocket!: WS
-    const connected = new Promise<void>((r) => {
-      wss.once('connection', (ws) => {
-        serverSocket = ws
-        handshakeAndCollect(ws, received)
-        r()
-      })
-    })
-
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-      agentRelay: { port: 0 },
-      tmux: true,
-      discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-    })
-    await connected
-
-    try {
-      serverSocket.send(
-        encode({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G }),
-      )
-      // wait for the daemon to confirm it bound the session
-      const start = Date.now()
-      while (!received.some((m) => m.type === 'bind' && m.sessionId === sessionId)) {
-        if (Date.now() - start > 5000) throw new Error('bind timed out')
-        await new Promise((r) => setTimeout(r, 20))
-      }
-      expect(await tmuxHasSession(label)).toBe(true)
-
-      // closing the daemon only detaches the tmux client — the agent server survives.
-      await daemon.close()
-      expect(await tmuxHasSession(label)).toBe(true)
-    } finally {
-      await killTmuxServer(label)
-      await new Promise<void>((r) => wss.close(() => r()))
-    }
-  })
-
-  it('reattach re-binds to a live tmux session, and reports failure for a missing one', async () => {
-    const sessionId = asSessionId(`reattach-${process.pid}`)
-    const label = `podium-${sessionId}`
-    const wss = new WebSocketServer({ port: 0 })
-    await new Promise<void>((r) => wss.once('listening', () => r()))
-    const port = (wss.address() as { port: number }).port
-
-    const received: DaemonMessage[] = []
-    let serverSocket!: WS
-    const connected = new Promise<void>((r) => {
-      wss.once('connection', (ws) => {
-        serverSocket = ws
-        handshakeAndCollect(ws, received)
-        r()
-      })
-    })
-
-    const daemon = await startDaemon({
-      serverUrl: `ws://localhost:${port}`,
-      bootstrapToken: 'test',
-      hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
-      agentRelay: { port: 0 },
-      tmux: true,
-      discovery: { background: false, cachePath: ':memory:' },
-      launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
-    })
-    await connected
-
-    const decode = (b64: string): string => Buffer.from(b64, 'base64').toString('utf8')
-    const waitFor = async (fn: () => boolean, timeout = 5000): Promise<void> => {
-      const startedAt = Date.now()
-      while (!fn()) {
-        if (Date.now() - startedAt > timeout) throw new Error('waitFor timed out')
-        await new Promise((r) => setTimeout(r, 20))
-      }
-    }
-    const send = (msg: unknown): void => serverSocket.send(encode(msg as never))
-
-    try {
-      // Spawn a session so a real podium-<id> tmux server exists.
-      send({ type: 'spawn', sessionId, agentKind: 'claude-code', cwd: '/tmp', geometry: G })
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      expect(await tmuxHasSession(label)).toBe(true)
-
-      // Simulate a backend restart re-binding: drop everything seen so far and re-attach.
-      received.length = 0
-      send({
-        type: 'reattach',
-        sessionId,
-        durableLabel: label,
-        agentKind: 'claude-code',
-        cwd: '/tmp',
-        geometry: G,
-      })
-      // The daemon re-binds: it replies with a fresh `bind` for this sessionId...
-      await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === sessionId))
-      // ...and frames flow again from the re-attached tmux client.
-      await waitFor(() =>
-        received.some(
-          (m) =>
-            m.type === 'agentFrameBatch' &&
-            m.sessionId === sessionId &&
-            m.frames.some((f) => decode(f).includes('PODIUM-FIXTURE')),
-        ),
-      )
-
-      // A reattach for a label that has no live tmux session → reattachFailed.
-      const goneId = `gone-${process.pid}`
-      send({
-        type: 'reattach',
-        sessionId: goneId,
-        durableLabel: `podium-${goneId}-missing`,
-        agentKind: 'claude-code',
-        cwd: '/tmp',
-        geometry: G,
-      })
-      await waitFor(() =>
-        received.some((m) => m.type === 'reattachFailed' && m.sessionId === goneId),
-      )
-    } finally {
-      await daemon.close()
-      await killTmuxServer(label)
-      await new Promise<void>((r) => wss.close(() => r()))
-    }
-  })
-})
-
 describe('daemon conversation discovery', () => {
   it('background quick scan pushes the worker delta as conversationsChanged', async () => {
     // The periodic scan runs on the worker and emits a delta; conversationsChanged
@@ -1645,7 +2577,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       workerClient: fakeDeltaWorkerClient({ changed, removed: ['sess-old'], diagnostics: [] }),
       discovery: { cachePath: ':memory:', scanIntervalMs: 20 },
@@ -1695,7 +2627,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: fakeDeltaWorkerClient({ changed: [], removed: [], diagnostics: [] }),
@@ -1748,7 +2680,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       workerClient: client,
@@ -1816,7 +2748,7 @@ describe('daemon conversation discovery', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
       metrics: { background: false },
       // No background loop, so the ONLY indexRefresh job is the on-demand scan.
@@ -1855,7 +2787,7 @@ describe('daemon host metrics', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { intervalMs: 25 },
     })
@@ -1893,7 +2825,7 @@ describe('daemon host metrics', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false, intervalMs: 10 },
     })
@@ -1925,7 +2857,7 @@ describe('daemon memory breakdown', () => {
         bootstrapToken: 'test',
         hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
         agentRelay: { port: 0 },
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         workerClient: inlineWorkerClient(),
@@ -1993,7 +2925,7 @@ describe('Codex identity receipt recovery', () => {
       const daemon = await startDaemon({
         serverUrl: `ws://localhost:${(wss.address() as { port: number }).port}`,
         bootstrapToken: 'test',
-        tmux: false,
+        backend: 'none',
         discovery: { background: false, cachePath: ':memory:' },
         metrics: { background: false },
         hooks: { port: 0, settingsDir },
@@ -2067,7 +2999,7 @@ describe('agent state instrumentation', () => {
     daemon = await startDaemon({
       serverUrl: `ws://localhost:${port}`,
       bootstrapToken: 'test',
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:' },
       metrics: { background: false },
       hooks: { port: 0, settingsDir },
@@ -2158,7 +3090,14 @@ describe('agent state instrumentation', () => {
   })
 
   it('native Grok hook POSTs drive normalized live state', async () => {
-    send({ type: 'spawn', sessionId: 'gHook', agentKind: 'grok', cwd: '/tmp', geometry: G })
+    send({
+      type: 'spawn',
+      sessionId: 'gHook',
+      agentKind: 'grok',
+      cwd: '/tmp',
+      geometry: G,
+      runtimeContract: 'generic-pty',
+    })
     await waitFor(() => received.some((m) => m.type === 'bind' && m.sessionId === 'gHook'))
     const post = (payload: unknown) =>
       fetch(`http://127.0.0.1:${daemon.hookPort}/hooks/gHook`, {
@@ -2380,7 +3319,7 @@ describe('createReattachGates (POD-612 typable-first split)', () => {
         durableLabel: 'podium-seedgate-1',
         agentKind: 'claude-code',
         cwd,
-        geometry: G,
+        lastKnownGeometry: G,
         resume: { kind: 'claude-session', value: resumeValue },
       }
       observers.initSessionObservers(
@@ -2484,7 +3423,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       bootstrapToken: 'test',
       hooks: { port: 0, settingsDir: trackTmp('podium-hooks-') },
       agentRelay: { port: 0 },
-      tmux: false,
+      backend: 'none',
       discovery: { background: false, cachePath: ':memory:', homeDir },
       launch: (_kind, opts) => ({ cmd: process.execPath, args: [FIXTURE], cwd: opts.cwd }),
     })
@@ -2698,7 +3637,7 @@ describe('daemon transcript read + delta (cursor protocol)', () => {
       durableLabel: `podium-${sessionId}`,
       agentKind: 'claude-code',
       cwd,
-      geometry: G,
+      lastKnownGeometry: G,
       resume: { kind: 'claude-session', value: resumeValue },
     })
 

@@ -1,0 +1,531 @@
+{
+  "cell": "A3",
+  "driver": "default-headed",
+  "cwd": "/tmp/pod-3112-paired-r4/probes/default-headed-a3",
+  "at": "2026-08-30T02:43:21.319Z",
+  "pin": {
+    "cell": "A3",
+    "at": "2026-08-30T02:43:21.341Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "checkoutSha": "15fa61f4a491be24b88a259b88d36f2e8c7a23c1",
+    "pinSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "serverSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "daemonSha": "2af0b8f7448d6b1ce4ad7a12af2c8226c54e18cd",
+    "web": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "appVersion": "dev+f3d3d8f",
+      "sourceSha": "f3d3d8f",
+      "bundleVersion": "bundle+DNK9bZVy"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "f3d3d8f",
+      "headShort": "15fa61f",
+      "appsWebIdentical": true
+    },
+    "serverPid": "2551347",
+    "daemonPid": "2551567",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3112-opencode-paired-final-proof",
+    "tosOnDaemon": false,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18743256 kB",
+      "SwapFree": "40428556 kB"
+    },
+    "rootFreeKiB": 69072024,
+    "load1m": 3.1,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      },
+      "isolated": {
+        "present": true,
+        "path": "/home/mgw/.local/state/podium/p3112-oc-paired-r4/agent-home/.local/share/opencode/auth.json",
+        "mtime": "2026-08-04T12:46:44.680Z",
+        "size": 126
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "PODIUM_RUNTIME_DRIVER": null
+    }
+  },
+  "verdict": "FAIL",
+  "summary": "interrupt lacked an attributable stop or durable transcript marker",
+  "control": {
+    "fired": true,
+    "what": "a real long turn demonstrably working immediately before sessions.interrupt",
+    "detail": "user=true; observedWorking=true; immediatePhase=working"
+  },
+  "evidence": [
+    "INTERRUPT         {\"ok\":true,\"requested\":\"keystroke\"}",
+    "RECEIPT OK        true",
+    "STOPPED           true in 17260ms",
+    "NATURAL COMPLETE  false",
+    "DURABLE MARKER    false",
+    "TYPED REFUSAL     false"
+  ],
+  "data": {
+    "sid": "30246be3-fd6a-4076-bbfe-9c391649aa9a",
+    "payload": {
+      "ok": true,
+      "requested": "keystroke"
+    },
+    "receiptOk": true,
+    "beforeInterrupt": {
+      "sessionId": "30246be3-fd6a-4076-bbfe-9c391649aa9a",
+      "agentKind": "opencode",
+      "harness": "opencode",
+      "driverId": "generic-pty",
+      "requestedDriverId": null,
+      "status": "live",
+      "phase": "working",
+      "machine": "flatblock",
+      "model": "opencode-go/gpt-5.6-luna",
+      "effort": null,
+      "contextUsagePercent": null,
+      "account": "native:claude-code",
+      "error": null,
+      "draft": false,
+      "nativeSubagentCount": 0,
+      "nativeSubagents": [],
+      "subagents": [],
+      "issue": null,
+      "commits": [
+        "ec78c78 probe seed"
+      ],
+      "files": [
+        "## main"
+      ],
+      "unackedMessages": 0
+    },
+    "after": {
+      "ok": true,
+      "ms": 17260,
+      "row": {
+        "sessionId": "30246be3-fd6a-4076-bbfe-9c391649aa9a",
+        "agentKind": "opencode",
+        "harness": "opencode",
+        "driverId": "generic-pty",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "idle",
+        "machine": "flatblock",
+        "model": "opencode-go/gpt-5.6-luna",
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "ec78c78 probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 34,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 306,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 574,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 845,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 1114,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 1378,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 1656,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 1923,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 2190,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 2456,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 2720,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 3054,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 3321,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 3587,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 3859,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 4124,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 4388,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 4663,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 4934,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 5211,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 5474,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 5745,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 6019,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 6288,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 6556,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 6828,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 7101,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 7372,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 7658,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 7945,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 8230,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 8497,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 8763,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 9034,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 9350,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 9621,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 9917,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 10185,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 10509,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 10778,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 11053,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 11322,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 11599,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 11868,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 12137,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 12402,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 12672,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 12938,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 13209,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 13469,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 13751,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 14023,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 14298,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 14565,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 14846,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 15113,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 15383,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 15655,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 15932,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 16197,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 16459,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 16722,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 16985,
+          "phase": "working",
+          "status": "live",
+          "driverId": "generic-pty"
+        },
+        {
+          "ms": 17260,
+          "phase": "idle",
+          "status": "live",
+          "driverId": "generic-pty"
+        }
+      ]
+    },
+    "naturalCompletion": false,
+    "hasMarker": false,
+    "typedRefusal": false,
+    "attributableStop": true
+  }
+}

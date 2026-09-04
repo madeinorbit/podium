@@ -1,0 +1,64 @@
+ok  server pid=1944616 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 6dfb6b6
+  ok  daemon pid=1953601 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 6dfb6b6
+  ok  exactly one daemon (pid 1953601) on instance 'p2777' (state root /home/mgw/.local/state/podium/p2777)
+  ok  worktree at 6dfb6b612c5f15b706dbac73621a75235be811fb; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 6dfb6b6
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"6dfb6b612c5f15b706dbac73621a75235be811fb","short":"6dfb6b6","spawnedSha":"6dfb6b612c5f15b706dbac73621a75235be811fb","serverPid":1944616,"daemonPid":1953601,"webSourceSha":"6dfb6b6","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running 6dfb6b612c5f15b706dbac73621a75235be811fb in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=headless  expecting driver 'codex-app-server'
+PIN                6dfb6b612c5f15b706dbac73621a75235be811fb (web bundle 6dfb6b6, server pid 1944616, daemon pid 1953601)
+==============================================================================
+session eb6cdee6-e6dc-48db-b677-cc1d9002a764 created; giving the harness 25000ms to come up
+BOUND DRIVER       codex-app-server (family server)
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── interrupt — interrupt a running turn
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   CONTROL WATCHED   the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+   CONTROL SAW       none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — could not get a running turn to interrupt
+   REFUSING to report it, including as a failure.
+   
+   --- what the probe saw anyway (diagnostic, not a result) ---
+   WATCHED           none; phase=working, 1 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+
+── resume — resume after a kill
+   PASS  THIS conversation came back — REMEMBER-N5J7AW recalled, original exchange intact, same pointer
+   control: FIRED — the session repeated REMEMBER-N5J7AW before it was parked
+   SECRET            REMEMBER-N5J7AW — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":true}; PARKED after 36ms (status=hibernated)
+   RESURRECT         {"ok":true}
+     → back live?    NO — status=exited
+   RESUMEANDSEND     {"ok":true,"queued":true,"disposition":"queued"}
+     → back live?    YES after 2242ms
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret came back after 6045ms
+   SAME CONVERSATION YES — pointer conv_958340ec-508b-4eaa- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+==============================================================================
+RESULT  codex / headless / driver=codex-app-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+interrupt       REFUSED   MISSING   control did not fire — refusing to report this measurement
+resume          PASS      fired     THIS conversation came back — REMEMBER-N5J7AW recalled, original exchange intact, same pointer
+==============================================================================
+written /tmp/pod-2777/results/codex.headless.json

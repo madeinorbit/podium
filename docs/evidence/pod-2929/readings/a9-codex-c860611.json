@@ -1,0 +1,140 @@
+{
+  "cell": "A9",
+  "arm": "headless",
+  "harness": "codex",
+  "driver": "codex-app-server",
+  "verdict": "PASS",
+  "summary": "The live control, exact UUID/session stamp, direct PID+start-time liveness checks, independent 15-second and 300-second censuses, and infrastructure check all completed; no survivor or stamped-PID rebound was found.",
+  "evidence": [
+    "preflight 2026-08-28 14:24:15 CEST: rootFree=83806964 KiB >= floor=5242880 KiB; MemAvailable=18976760 KiB; swapUsed=229440 KiB; load=5.38,4.02,4.36",
+    "drive-verify passed immediately before the probe: server, daemon, and served web bundle were all pinned to c860611a5d516c7ade492c2df2687cb5efff09d3",
+    "the scored daemon was restarted with the installed Codex executable /home/mgw/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex; codex-cli 0.149.1 is within the exercised 0.147.x-0.149.x app-server range",
+    "product binding was codex-app-server family=server; the live positive control answered ALIVE-QOVAXF",
+    "instance uuid=6b51e3ac-c572-4400-a3b8-29e8b9095ea0 from /home/mgw/.local/state/podium/p2929f9/instance.json; session=ce03343c-b10c-427b-9506-41e3947c7ac3",
+    "exact stamped target before kill: pid=715580 start=1218561 cwd=/tmp/pod-2929-codex-f9/repo; sessions.kill returned null; row then disappeared",
+    "direct original identity was absent at 15s and 300s: survivors=0 at both checkpoints",
+    "stamped rebound census was independently absent at 15s and 300s: rebounds=0 and stamped=0 at both checkpoints",
+    "infrastructure remained alive at the end: 2/2 server and daemon processes",
+    "measured clauses: live positive control, expected driver/family binding, exact UUID+session stamp proof, direct original PID+start-time liveness at 15s and 300s, stamped-PID rebound census at 15s and 300s, and infrastructure preservation",
+    "the aggregate A9 PASS line was accepted only because every clause above was measured; none was treated as merely not-failing"
+  ],
+  "clauseAssessment": {
+    "livePositiveControl": {
+      "measured": true,
+      "passed": true,
+      "detail": "The session answered ALIVE-QOVAXF before kill."
+    },
+    "driverBinding": {
+      "measured": true,
+      "passed": true,
+      "actual": "codex-app-server/server",
+      "expected": "codex-app-server/server"
+    },
+    "targetStampProof": {
+      "measured": true,
+      "passed": true,
+      "detail": "One process carried the exact daemon UUID and target session stamp."
+    },
+    "originalLivenessAt15s": {
+      "measured": true,
+      "passed": true,
+      "survivors": 0
+    },
+    "stampedReboundsAt15s": {
+      "measured": true,
+      "passed": true,
+      "rebounds": 0,
+      "stamped": 0
+    },
+    "originalLivenessAt300s": {
+      "measured": true,
+      "passed": true,
+      "survivors": 0
+    },
+    "stampedReboundsAt300s": {
+      "measured": true,
+      "passed": true,
+      "rebounds": 0,
+      "stamped": 0
+    },
+    "infrastructure": {
+      "measured": true,
+      "passed": true,
+      "alive": 2,
+      "expected": 2
+    }
+  },
+  "data": {
+    "controlFired": true,
+    "stampProven": true,
+    "originalProcesses": [
+      {
+        "pid": 715580,
+        "startTimeTicks": 1218561,
+        "sessionId": "ce03343c-b10c-427b-9506-41e3947c7ac3",
+        "cwd": "/tmp/pod-2929-codex-f9/repo"
+      }
+    ],
+    "originalProcessesAliveAt15s": [],
+    "stampedProcessesAt15s": [],
+    "originalProcessesAliveAt300s": [],
+    "stampedProcessesAt300s": [],
+    "infrastructureAlive": 2,
+    "watchWindowMs": 300000,
+    "killVerb": "sessions.kill"
+  },
+  "targetCwd": "/tmp/pod-2929-codex-f9/repo",
+  "instance": "p2929f9",
+  "codePin": "c860611a5d516c7ade492c2df2687cb5efff09d3",
+  "pin": {
+    "codeSha": "c860611a5d516c7ade492c2df2687cb5efff09d3",
+    "codeShort": "c860611",
+    "rootTipAtPreflight": "5fe951f2fe5ff3300330d64a3a5b0a4df3a76fe2",
+    "server": {
+      "pid": 714582,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "c860611a5d516c7ade492c2df2687cb5efff09d3"
+    },
+    "daemon": {
+      "pid": 714910,
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-2929-lost-message-rebound-scorers",
+      "sha": "c860611a5d516c7ade492c2df2687cb5efff09d3"
+    },
+    "bundleSourceSha": "c860611",
+    "expectedDriver": "codex-app-server",
+    "expectedFamily": "server",
+    "actualRuntimeDriver": "codex-app-server",
+    "codexExecutable": "/home/mgw/.codex/packages/standalone/releases/0.149.1-x86_64-unknown-linux-musl/bin/codex",
+    "codexVersion": "codex-cli 0.149.1",
+    "contract": "1",
+    "streaming": "1"
+  },
+  "hostAdmissionSnapshot": {
+    "capturedAt": "2026-08-28T14:24:15+02:00",
+    "rootFreeKb": 83806964,
+    "floorKb": 5242880,
+    "loadAverage": [
+      "5.38",
+      "4.02",
+      "4.36"
+    ],
+    "memAvailableKb": 18976760,
+    "swapUsedKb": 229440
+  },
+  "lease": "test:heavy was not acquired or queued by this run; no concurrent probe was reported",
+  "recordedAt": "2026-08-28T14:24:15+02:00",
+  "error": "",
+  "log": [
+    "PINJSON {\"want\":\"c860611a5d516c7ade492c2df2687cb5efff09d3\",\"short\":\"c860611\",\"spawnedSha\":\"c860611a5d516c7ade492c2df2687cb5efff09d3\",\"serverPid\":714582,\"daemonPid\":714910,\"webSourceSha\":\"c860611\",\"contract\":\"1\",\"streaming\":\"1\",\"driver\":\"\"}",
+    "BOUND DRIVER codex-app-server family=server",
+    "turn before kill replied with ALIVE-QOVAXF",
+    "CONTROL reply=true exactStamped=1",
+    "STAMP PROOF true exact UUID+session attribution only",
+    "PRE pid=715580 start=1218561 cwd=/tmp/pod-2929-codex-f9/repo",
+    "sessions.kill returned null; row says status=(row gone)",
+    "after 15s directOriginalAlive=0 rebounds=0 stamped=0",
+    "after 300s directOriginalAlive=0 rebounds=0 stamped=0",
+    "rig intact 2/2 infrastructure processes still alive",
+    "A9 PASS: stamp proof=true; original survivors=0; rebounds=0 at both checkpoints"
+  ]
+}

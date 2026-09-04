@@ -1,0 +1,147 @@
+ok  server pid=1022908 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 9d7ca3c
+  ok  daemon pid=1022960 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at 9d7ca3c
+  ok  exactly one daemon (pid 1022960) on state root /tmp/pod-2777/state
+  ok  worktree at 9d7ca3c12838975972c3c58733eaedaac5dc5be8, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at 9d7ca3c
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='generic-pty', server STREAMING=1
+PINJSON {"want":"9d7ca3c12838975972c3c58733eaedaac5dc5be8","short":"9d7ca3c","spawnedSha":"9d7ca3c12838975972c3c58733eaedaac5dc5be8","serverPid":1022908,"daemonPid":1022960,"webSourceSha":"9d7ca3c","contract":"1","streaming":"1","driver":"generic-pty"}
+VERIFIED: p2777 (server + daemon + web bundle) is running 9d7ca3c12838975972c3c58733eaedaac5dc5be8 in arm CONTRACT=1 STREAMING=1 DRIVER='generic-pty'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=codex  arm=terminal  expecting driver 'a terminal-family driver'
+PIN                9d7ca3c12838975972c3c58733eaedaac5dc5be8 (web bundle 9d7ca3c, server pid 1022908, daemon pid 1022960)
+==============================================================================
+session 7e944689-8516-49c3-9bad-c51637bf293d created; giving the harness 25000ms to come up
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it); codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it); codex hooks: pressed t (trust all); codex hooks: Esc (t did not clear it)
+
+── reply — send a turn, get a reply
+   PASS  replied with the nonce in 7.8s
+   control: FIRED — 1 transcriptDelta frame(s); prompt echoed on transcript: yes
+   SENT              Reply with exactly this word and nothing else: PODIUM-VD8J2M. Do not use any tools.
+   SEND ACCEPTED     {"ok":true,"disposition":"delivered"}
+   NONCE             PODIUM-VD8J2M — a blank session cannot produce this by luck
+   REPLY             arrived after 7805ms
+   ASSISTANT TEXT    13 chars: "PODIUM-VD8J2M"
+   ELAPSED           8201ms
+
+── attach — attach a file
+   PASS  the agent read the file and echoed FILESECRET-QB3J7O
+   control: FIRED — probe 1 PASSED here, so this session can send and answer
+   STAGED            path=/tmp/pod-2777/state/uploads/7e944689-8516-49c3-9bad-c51637bf293d/68f61710-042d-46a5-bb68-d93427335188.txt ref={"id":"68f61710-042d-46a5-bb68-d93427335188","path":"/tmp/pod-2777/state/uploads/7e944689-8516-49c3-9bad-c51637bf293d/68f61710-042d-46a5-bb68-d93427335188.txt","filename":"podium-2777-secret.txt","med
+   SECRET IN FILE    FILESECRET-QB3J7O — present in the bytes and nowhere else
+   SEND              {"ok":true,"disposition":"delivered"}
+                     (a 'queued' disposition here would mean the session was still busy)
+   ECHOED BACK       yes, after 19477ms
+   APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the
+                     attachment raises an external_directory permission ask. A drive that
+                     did not answer it would time out and report "never read the file".
+   WHY A NONCE       an agent can agree that it sees a file without reading one;
+                     it cannot produce these bytes without having read them.
+
+── interaction — a pending interaction (permission / approval)
+   BLOCKED  no ask — this harness ran the tool without asking (permissive posture)
+   control: FIRED — 5 new transcript item(s) after the prompt; 12 delta frame(s) total
+   INTERACTIONS.LIST empty for this session after 22s
+   TOOL CALLS SEEN   Bash, tool
+   BLOCKED, NOT FAILED: the harness approved its own tool call, so the
+   product was never handed an ask to surface. That is a fact about this
+   rig's permission posture, not about the product's ask plane.
+
+── model-switch — model / effort switch
+   BLOCKED  no product surface exists to switch model or effort mid-session
+   control: FIRED — model=(unset) observedModel=gpt-5.6-sol
+   REQUESTED MODEL   (session default)
+   OBSERVED MODEL    gpt-5.6-sol
+   OBSERVED EFFORT   xhigh
+   DECLARATION       codex: configure unsupported ("model and effort are set at
+                     thread start and per turn"); opencode: unsupported; terminal:
+                     unsupported ("a TUI takes its model at launch"); grok: supported
+                     for permissionMode ONLY, explicitly not model/effort.
+   PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText
+                     carries no per-turn model or effort override either.
+   READING           the declaration and the behaviour agree, and the product does
+                     not offer a switch it cannot honour. Nothing is broken and
+                     nothing is proven — the cell is empty on BOTH arms, so this is
+                     not a way in which headless is better or worse.
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── stream — streaming deltas actually arrive
+   FAIL  0 preview frames — the reply did not build in the pane
+   control: FIRED — 1 frame(s), first at +28ms
+   JOINED            8599ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)
+   PHASE AT JOIN     working — a turn was in flight when the viewer arrived
+   PREVIEW FRAMES    0
+   NO PREVIEW FRAMES. The control fired, so the socket and the session are
+   alive — this zero is about the preview plane, not about the rig.
+   FINE WATCH        NOT acquired — the viewer's subscribe never reached the driver
+   FRAME TYPES       outputFrame=605 hostMetricsChanged=6 sessionDraftChanged=5 machinesChanged=5 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1
+
+── interrupt — interrupt a running turn
+   FAIL  the product REFUSED the call: Codex only takes an interrupt while it is working, and it is not working right now
+   control: FIRED — 0 preview frame(s) and 4864 new transcript chars — tokens are being produced; phase=idle, 0 preview frame(s), 4864 new transcript chars, 32965 new terminal bytes
+   WAS RUNNING       0 preview frame(s) and 4864 new transcript chars — tokens are being produced; phase=idle, 0 preview frame(s), 4864 new transcript chars, 32965 new terminal bytes
+   INTERRUPT SENT    {"ok":false,"reason":"Codex only takes an interrupt while it is working, and it is not working right now"}
+                     ^ ok:false — the product declined its own call, so nothing was interrupted and a "stopped" reading below means only that nothing was running.
+   SETTLED           NEVER — phase=idle
+   TRANSCRIPT MARK   no item carries event:'interrupt'
+   TEXT              4864 chars at the call -> 4864 chars at settle
+   FRAMES AFTER      0 preview frame(s) arrived AFTER the call
+   TERMINAL BYTES    32965 at the call -> +13209 after 6s -> +21170 after 12s
+   AFTER THE CALL    phase=working status=live error=none
+   SCORED ON         output stopping — this arm never publishes phase=working, so "left working" would be vacuously true
+   READING           the agent KEPT GENERATING after the call. The interrupt did
+                     not reach the turn, and the call still returned ok — the
+                     product reported a success that did not happen.
+                     evidence: +21170 terminal bytes and 0 preview frame(s) AFTER the interrupt.
+
+── stop — stop (the session — the turn-scoped stop is absent from the contract)
+   PASS  session left its running state 40ms after stop (status=hibernated)
+   control: FIRED — present, status=live phase=working
+   BEFORE            status=live phase=working
+   STOP RETURNED     {"ok":true,"worktreeFreed":false,"deferredKill":false}
+   AFTER             status=hibernated phase=working
+   VERIFIED IN       40ms
+   NOTE              this is sessions.stop (the SESSION). The catalogue records
+                     "stop this turn, keep the session" as ABSENT from the contract
+                     on all four drivers; this drive does not pretend otherwise.
+
+── resume — resume after a kill
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — the pre-park turn never produced the secret, so there is nothing whose return could be measured
+   CONTROL WATCHED   a conversation existing to restore — the pre-park turn answered with the secret
+   CONTROL SAW       the pre-park turn never produced the secret, so there is nothing whose return could be measured
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — no pre-park conversation
+   REFUSING to report it, including as a failure.
+
+── provider-error — a provider error surfaced honestly
+   BLOCKED  no accepted-then-never-settles fault is known for codex
+   control: FIRED — probe 1 PASSED, so a failure in this probe is attributable to the injected fault
+   HARNESS           codex
+   This cell needs a fault the provider ACCEPTS and then never settles.
+   opencode/laguna-s-2.1-free does that on opencode (retired from the
+   gateway: binds, marked live, ACCEPTED with a turnEpoch, then silence —
+   POD-2604). No equivalent is known for this harness, and a nonsense
+   model string is NOT one: opencode ignored it entirely and answered
+   normally, which measures nothing about error surfacing.
+
+==============================================================================
+RESULT  codex / terminal / driver=generic-pty
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+reply           PASS      fired     replied with the nonce in 7.8s
+attach          PASS      fired     the agent read the file and echoed FILESECRET-QB3J7O
+interaction     BLOCKED   fired     no ask — this harness ran the tool without asking (permissive posture)
+model-switch    BLOCKED   fired     no product surface exists to switch model or effort mid-session
+stream          FAIL      fired     0 preview frames — the reply did not build in the pane
+interrupt       FAIL      fired     the product REFUSED the call: Codex only takes an interrupt while it is working, and it is not working right now
+stop            PASS      fired     session left its running state 40ms after stop (status=hibernated)
+resume          REFUSED   MISSING   control did not fire — refusing to report this measurement
+provider-error  BLOCKED   fired     no accepted-then-never-settles fault is known for codex
+==============================================================================
+written /tmp/pod-2777/results/codex.terminal.json

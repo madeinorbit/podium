@@ -7,6 +7,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { buildChatRows, pairToolResults, type ToolBatchRow } from './chat'
 import { ToolBatchView } from './ToolBatchView'
 
+// react-dom's act() needs this flag to drive effects/lazy flushes without warnings.
+;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
+
 // The diff sheet reads through the store, and this suite mounts a work line
 // rather than an app. What it asserts is that a file edit ROUTES to the sheet;
 // the sheet's own fetching has its own suite (features/git/DiffSheet.test.tsx).
@@ -67,6 +70,20 @@ function mount(
       />,
     )
   })
+}
+
+/**
+ * The sheet is a lazy chunk (the chat must not pay for it on open). A 200ms
+ * poll lost the race with the first transform of that chunk, so the wait is
+ * the import the click already started — then one more act() to paint it.
+ */
+async function waitForDiffSheet(): Promise<Element> {
+  await act(async () => {
+    await import('@/features/git/DiffSheet')
+  })
+  const sheet = host.querySelector('[data-testid="diff-sheet"]')
+  if (!sheet) throw new Error('expected the file-edit to open the diff sheet')
+  return sheet
 }
 
 beforeEach(() => {
@@ -216,19 +233,11 @@ describe('ToolBatchView — the work line', () => {
       line.querySelector<HTMLButtonElement>('.tool-row')!.click()
     })
     expect(line.querySelector('[data-testid="tool-edit-diff"]')).toBeNull()
-    // The sheet is lazy — it is a whole reading surface, and the chat should not
-    // carry it in the bundle for a click most readers never make.
-    for (let i = 0; i < 20 && host.querySelector('[data-testid="diff-sheet"]') === null; i++) {
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 10))
-      })
-    }
-    expect(host.querySelector('[data-testid="diff-sheet"]')).not.toBeNull()
+    const sheet = await waitForDiffSheet()
 
     // AND IT SHOWS THE RUN'S OWN DIFF. `git diff` would answer "what does this
     // file hold NOW" — nothing, for an edit already committed — which is what
     // the first cut of this did. The rows come from what the tool recorded.
-    const sheet = host.querySelector('[data-testid="diff-sheet"]')!
     expect(sheet.textContent).toContain('const a = 1')
     expect(sheet.textContent).toContain('const a = 2')
     expect(git.calls).toEqual([])
@@ -360,12 +369,7 @@ describe('ToolBatchView — the diff rail lists edits, not everything touched', 
     act(() => {
       openable.click()
     })
-    for (let i = 0; i < 20 && host.querySelector('[data-testid="diff-sheet"]') === null; i++) {
-      await act(async () => {
-        await new Promise((r) => setTimeout(r, 10))
-      })
-    }
-    return host.querySelector('[data-testid="diff-sheet"]')!
+    return waitForDiffSheet()
   }
 
   it('leaves out a file the run only read, and never asks git about it', async () => {

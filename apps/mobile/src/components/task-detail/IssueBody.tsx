@@ -57,10 +57,16 @@ export function StatusStrip({ issue }: { issue: IssueWire }) {
     <View style={styles.strip}>
       {facts.length > 0 ? <Text style={styles.stripText}>{facts.join(' · ')}</Text> : null}
       {issue.draft ? <Chip label="draft" tint={color.info} /> : null}
-      {issue.pinned ? <Chip label="pinned" tint={color.accent} /> : null}
+      {issue.pinned ? (
+        <Chip label="pinned" tint={color.accent} textTint={color.accentTint} />
+      ) : null}
       {issue.archived ? <Chip label="archived" /> : null}
-      {issue.origin === 'agent' ? <Chip label="agent-created" tint={color.claude} /> : null}
-      {issue.audience === 'agent' ? <Chip label="internal" tint={color.claude} /> : null}
+      {issue.origin === 'agent' ? (
+        <Chip label="agent-created" tint={color.claude} textTint={color.claudeText} />
+      ) : null}
+      {issue.audience === 'agent' ? (
+        <Chip label="internal" tint={color.claude} textTint={color.claudeText} />
+      ) : null}
       {/* Replica PROVENANCE, read through the envelope accessors rather than off
           the entity — so when the carrier is nested this indicator does not have
           to be found and changed again. */}
@@ -70,16 +76,25 @@ export function StatusStrip({ issue }: { issue: IssueWire }) {
             isUpstreamStale(issue) ? 'hub · stale' : isPendingSync(issue) ? 'hub · syncing' : 'hub'
           }
           tint={isUpstreamStale(issue) ? color.accent : color.info}
+          textTint={isUpstreamStale(issue) ? color.accentTint : color.info}
         />
       ) : null}
     </View>
   )
 }
 
-function Chip({ label, tint }: { label: string; tint?: string }) {
+function Chip({
+  label,
+  tint,
+  textTint = tint,
+}: {
+  label: string
+  tint?: string
+  textTint?: string
+}) {
   return (
     <View style={[styles.chip, tint ? { backgroundColor: alpha(tint, 0.14) } : null]}>
-      <Text style={[styles.chipText, tint ? { color: tint } : null]}>{label}</Text>
+      <Text style={[styles.chipText, textTint ? { color: textTint } : null]}>{label}</Text>
     </View>
   )
 }

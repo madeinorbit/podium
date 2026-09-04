@@ -14,6 +14,7 @@
  * whose signature never had it.
  */
 
+import type { SessionId } from '@podium/model'
 import type { RoomRef } from '@podium/protocol'
 import type { SessionsClientFrame } from './client-frame-routing'
 import type { ClientPrincipal } from './client-principal'
@@ -47,6 +48,13 @@ export interface SessionsClientPort {
   onRoomJoined(conn: ClientConn, room: RoomRef): void
   /** One session-owned frame, attributed to the connection it arrived on. */
   onSessionClientFrame(principal: ClientPrincipal, conn: ClientConn, msg: SessionsClientFrame): void
+  /** Canonical terminal input bytes, authenticated by the transport before delivery. */
+  onSessionClientInput(
+    principal: ClientPrincipal,
+    conn: ClientConn,
+    sessionId: SessionId,
+    bytes: Uint8Array,
+  ): void
 }
 
 /** Everything the client mux is given. */

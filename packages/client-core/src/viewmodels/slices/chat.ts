@@ -49,7 +49,14 @@
  *    the classification and the reason this slice deliberately has no draft
  *    field at all.
  */
-import type { SessionMeta, TranscriptItem, SessionId, ThreadId } from '@podium/model'
+import {
+  agentErrorRecoveryInstruction,
+  formatAgentError,
+  type SessionId,
+  type SessionMeta,
+  type ThreadId,
+  type TranscriptItem,
+} from '@podium/model'
 import { type ChatBlock, type ChatRow, MACHINE_CONTEXT_RE } from '../chat'
 import { type ReferentExit, type ReferentState, resolveReferent } from '../session-ownership'
 import { type ChatActivity, chatActivity, sessionWaking } from '../session-status'
@@ -477,13 +484,17 @@ export function lastAnswer(blocks: readonly ChatBlock[]): LastAnswer {
 // ---------------------------------------------------------------------------
 
 export interface ComposerState {
-  /** The composer takes input. */
-  readonly enabled: boolean
+  /** A send from the composer would be delivered right now (or would wake the
+   *  session and then be delivered). This gates SENDING only: the box itself is
+   *  always writable, because typing is local and a draft is never refused. */
+  readonly deliverable: boolean
   /** The session can take text straight through. */
   readonly sendable: boolean
   /** Parked but recoverable — submitting wakes it and the text is delivered. */
   readonly canResume: boolean
   readonly placeholder: string
+  /** Server refusal copy for a stale client that submits after a terminal failure. */
+  readonly refusalReason?: string
 }
 
 export function composerState(input: {
@@ -493,19 +504,34 @@ export function composerState(input: {
   compact: boolean
 }): ComposerState {
   const { session, headless, turnRunning, compact } = input
-  const sendable = session?.status === 'live' || session?.status === 'starting'
+  // Archive is retirement, not another parked state. In particular, an
+  // archived session may still carry the resume ref that made its final park
+  // lossless; that capability must not turn a send into an implicit unarchive.
+  const archived = session?.archived === true
+  const terminalError =
+    session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
+      ? session.agentState.error
+      : undefined
+  const sendable =
+    !archived &&
+    !terminalError &&
+    (session?.status === 'live' || session?.status === 'starting')
   const canResume =
-    session?.status === 'hibernated' ||
-    (session?.status === 'exited' && session?.resumable === true)
+    !archived &&
+    !terminalError &&
+    (session?.status === 'hibernated' ||
+      (session?.status === 'exited' && session?.resumable === true))
   // A wake already in flight (POD-762). The composer stays open — a second
   // message queues behind the first — but it must not keep offering to do the
   // thing it is already doing.
   const waking = sessionWaking(session)
-  // Headless: PTY status is meaningless — the composer is open whenever no turn
-  // is running (a turn is one queued unit; the server rejects overlap anyway).
-  const enabled = headless ? !turnRunning : sendable || canResume
+  // Headless: PTY status is meaningless — a send goes whenever no turn is
+  // running (a turn is one queued unit; the server rejects overlap anyway).
+  const deliverable = headless ? !archived && !turnRunning : sendable || canResume
   const placeholder = headless
-    ? turnRunning
+    ? archived
+      ? 'Session is archived.'
+      : turnRunning
       ? 'Working — stop to interject…'
       : compact
         ? // The fresh-thread box says this too. It is ONE box either side of the
@@ -513,14 +539,24 @@ export function composerState(input: {
           // operator at the moment they start using it (POD-516 R3).
           'Ask across all tasks…'
         : 'Message the agent…'
-    : waking
-      ? 'Waking the agent — message queues…'
-      : sendable
-        ? 'Message the agent…'
-        : canResume
-          ? 'Message — resumes the agent…'
-          : 'Session is not running.'
-  return { enabled, sendable, canResume, placeholder }
+    : archived
+      ? 'Session is archived.'
+      : terminalError
+      ? formatAgentError(terminalError) + ' — ' + agentErrorRecoveryInstruction(terminalError)
+      : waking
+        ? 'Waking the agent — message queues…'
+        : sendable
+          ? 'Message the agent…'
+          : canResume
+            ? 'Message — resumes the agent…'
+            : 'Session is not running.'
+  return {
+    deliverable,
+    sendable,
+    canResume,
+    placeholder,
+    ...(archived || (!headless && terminalError) ? { refusalReason: placeholder } : {}),
+  }
 }
 
 /** The superagent thread an embedded (headless) chat fronts. */
@@ -557,7 +593,7 @@ export function chatSendRoute(input: {
   sessionId: SessionId
   headless: boolean
   superThread: SuperThreadRef | undefined
-  composer: Pick<ComposerState, 'sendable' | 'canResume'>
+  composer: Pick<ComposerState, 'sendable' | 'canResume' | 'refusalReason'>
   /** The signed-in principal's OWN thread ids. A thread absent from this set is
    *  either someone else's or nonexistent, and the route may not tell them
    *  apart. Undefined = the client holds no roster (older peers), in which case
@@ -565,6 +601,7 @@ export function chatSendRoute(input: {
   ownThreadIds?: ReadonlySet<string>
 }): ChatSendRoute {
   const { sessionId, headless, superThread, composer, ownThreadIds } = input
+  if (composer.refusalReason) return { kind: 'refused', reason: composer.refusalReason }
   if (headless && superThread) {
     if (ownThreadIds !== undefined && !ownThreadIds.has(superThread.threadId)) {
       return { kind: 'refused', reason: UNKNOWN_THREAD_REFUSAL }
@@ -576,7 +613,7 @@ export function chatSendRoute(input: {
   }
   if (composer.sendable) return { kind: 'session', sessionId }
   if (composer.canResume) return { kind: 'resume', sessionId }
-  return { kind: 'refused', reason: 'Session is not running.' }
+  return { kind: 'refused', reason: composer.refusalReason ?? 'Session is not running.' }
 }
 
 // ---------------------------------------------------------------------------

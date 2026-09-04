@@ -1,0 +1,151 @@
+# POD-2019 — Agent-runtime contract package (W1)
+
+> FIRST ACTION in your worktree: `git merge --ff-only issue/1761-agent-runtime` (your branch
+> was created off main and lacks the epic docs). Epic plan:
+> `docs/plans/pod-1761-agent-runtime-plan.md`. Spec: `docs/2026-08-07-agent-runtime-architecture.html`.
+
+## Objective
+
+`packages/agent-runtime` exists: the complete typed primitive surface (spec §3) as types +
+zod wire schemas + a FakeDriver + a driver-parameterized conformance suite — with the
+`AgentManifest` runtime axis and a deliberate boundary-manifest amendment. Zero behavior
+change anywhere; this is pure foundation that W2–W6 build on.
+
+## Implementation order
+
+### 1. Package scaffold
+Mirror an existing small package (`packages/composer` is a good template): `package.json`
+(`@podium/agent-runtime`, workspace conventions, test task wired the way other packages do it
+so `bun scripts/test.ts --filter @podium/agent-runtime` works), `tsconfig.json`, `README.md`
+(one page: what the contract is, pointer to spec §3, core-vs-extended tiers).
+
+### 2. Contract types (`src/`)
+Split by primitive group, one file each, `index.ts` barrel. **Dependency direction rule
+(reviewed):** agent-runtime imports from `@podium/harness` and `@podium/protocol` — never the
+reverse. Therefore every type the manifest's runtime axis needs (`DriverFamily`, `DriverId`,
+`ServerRuntimeSpec`, `EmbeddedRuntimeSpec`, `TerminalRuntimeSpec`, `SelectionContext`) is
+DEFINED in `packages/harness` (with the manifest, step 4) and **aliased/re-exported** here;
+a harness↔agent-runtime cycle is rejected by turbo, `declared-deps`, and the layer manifest.
+- `families.ts` — re-exports `DriverFamily`/`DriverId` from `@podium/harness`.
+- `session-spec.ts` — `SessionSpec`: harness kind, selection ctx (principal, platform, role),
+  workdir, model policy (model, effort, `Declared` subagent-model override), role profile
+  (interaction default-answer table ref, permission preset), instruction channel
+  (`AgentInstruction[]` — the type + zod schema already exist in `@podium/protocol`, defined
+  at `packages/protocol/src/messages/terminal.ts` — import from protocol; harness's
+  `instructions.ts` only holds `composeAgentInstructions` and itself imports from protocol),
+  `mcpServers` (Declared transport), env, initial prompt. The `principal` component of the
+  selection ctx MUST be an opaque local string/tag: the `harness-principal-free` lint
+  (`scripts/check-boundaries.ts` ~:381/:433) bans importing principal/user types into
+  harness/pty/transcript, and these types live in harness (see the rule above).
+- `turns.ts` — `TurnInput` (text, attachments, Declared per-turn overrides), `SendOptions`
+  (`origin`, `delivery: 'when-ready' | 'queue' | 'interrupt' | 'steer'`), `TurnReceipt` as a
+  discriminated union: `accepted` (turnEpoch, `deliveredAs`), `queued` (position),
+  `refused` (typed reason), `unverified` (window, evidence). `AttachmentRef`.
+- `events.ts` — `RuntimeEvent` union (`turn | item | state | interaction | process |
+  workspace | open-url`) + the causal envelope (`at`, provenance, `cursor`,
+  `observerGeneration`, `turnEpoch`). Provenance: alias the existing
+  `ObservationProvenance` (`packages/protocol/src/messages/runtime-state.ts:31`) — do not
+  redeclare the literal union. Reuse `AgentStateEvent` from
+  `packages/harness/src/agent-state/types.ts` for the `state` variant — do NOT invent a
+  parallel vocabulary. Cursor type: reuse/alias the `ProviderCursor` shape from the
+  reattachment work (see `packages/protocol/src/messages/runtime-state.ts` and
+  `docs/reattachment-design.md`) rather than defining a competitor.
+- `interactions.ts` — `PendingInteraction` (kinds `permission | question | plan-approval |
+  elicitation | login | recovery`; `source: 'protocol'|'sdk-callback'|'hook'|'screen-classifier'`;
+  `answerable: 'structured'|'keystroke-emulated'`; `policyVerdict`; `expiresAt`),
+  `InteractionAnswer` (per-kind union — W2 owns the payload details; leave payloads as
+  named-but-loose types (`PermissionAskPayloadV1` etc. with a `v: 1` field) that W2 tightens).
+- `attach.ts` — `AttachRequest`, `AttachEndpoint` (`engine`/`client` + the reserved deferred
+  variants as commented-out types), `SessionLease`.
+- `binding.ts` — `SessionBinding`, `SessionSnapshot`, `SessionArchive` (opaque-but-versioned:
+  `{ harness, formatVersion, resumeRef, files: … }`).
+- `capabilities.ts` — `DriverCapabilities` using `Declared<T>` imported from
+  `@podium/harness`; a `CORE_PRIMITIVES` / `EXTENDED_PRIMITIVES` const map (the tier table,
+  spec §3) that the conformance suite reads.
+- `errors.ts` — refusal reasons, `TurnFailedReason = 'rate-limit' | 'auth-expired' |
+  'context-overflow' | 'provider-error' | 'timeout' | 'interrupted'`, process event types,
+  the `retryable | needs-human | fatal` classification.
+- `driver.ts` — `RuntimeDriver` (create/resume/adopt + capabilities) and
+  `AgentSessionHandle` exactly as spec §3 sketches (send, stageAttachment, interrupt, answer,
+  events, watch, state, transcript.history, draft, attach, lease, configure, usage,
+  snapshot, export, hibernate/stop/kill, health).
+
+### 3. Wire schemas (`packages/protocol`)
+New `messages/runtime.ts` with zod schemas for: receipts, the RuntimeEvent envelope, and
+PendingInteraction + ask/answer commands. **Standalone schemas only, exactly like
+`messages/runtime-state.ts`** — do NOT add them to the `ServerMessage`/`ClientMessage`
+unions or the `MESSAGE_SYNC_CLASSES` tables in W1: those are `satisfies`-exhaustive and
+`createDispatcher` forces handler stubs across apps the moment a union grows, which is a
+behavior-adjacent ripple that belongs to W3/W4. Sync-class intent (durable-synced vs
+command) is a doc comment in W1, a table entry later. Defer attach-negotiation schemas
+entirely (first consumer is W5). Protocol stays browser-safe: it never imports
+agent-runtime or harness.
+
+### 4. Manifest runtime axis (`packages/harness`)
+Define here (per the dependency rule in step 2): `DriverFamily`, `DriverId`, the three
+`*RuntimeSpec` types, `SelectionContext` (opaque principal tag), and `AgentManifest.runtime:
+{ server?: Declared<ServerRuntimeSpec>; embedded?: Declared<EmbeddedRuntimeSpec>; terminal:
+TerminalRuntimeSpec; select(ctx): DriverId }` in `packages/harness/src/manifest.ts`. The
+exhaustive registry (`packages/harness/src/registry.ts`) forces every manifest to declare it
+— that type error IS the migration checklist. Expected, legitimate test edits: the
+`const minimal: AgentManifest` fixture in `packages/harness/src/registry.test.ts` (~:349)
+and possibly `DECLARED_FIELDS` must gain the new axis — type-driven fixture updates are in
+scope, not a behavior change:
+- all five manifests: `terminal` = a thin reference to existing behavior (no logic move),
+  `select` = always the terminal driver id for now (behavior-neutral).
+- `manifests/opencode.ts`: `server` = `{ kind: 'http-sse', spawn: ['opencode','serve'],
+  auth: 'server-password-env', versionRange: <current tested> }` — declaration only.
+- `manifests/codex.ts`: `server` = `{ kind: 'jsonrpc', spawn: ['codex','app-server'],
+  transport: 'unix-socket', versionRange: … }` — declaration only.
+- claude-code: `embedded` declared with `auth: ['api-key','bedrock','vertex']`;
+  grok/cursor: server+embedded `unsupported(reason)`.
+
+### 5. FakeDriver (`src/testing/fake-driver.ts`)
+A full in-memory core-contract implementation with scripted behavior (queue a turn, emit
+items, raise an interaction, settle) — deterministic, no timers where avoidable. It is the
+reference semantics: if a question about contract meaning comes up, answer it here and in a
+doc comment.
+
+### 6. Conformance suite (`src/testing/conformance/` — under `src/`, reviewed)
+Layout matters: the composer-template tsconfig is `include: ["src"]` and the repo colocates
+tests as `src/**/*.test.ts`; a top-level `test/` dir escapes typecheck. Also W3/W5 must
+import `runConformance` from this package, so it ships as an exported subpath
+(`@podium/agent-runtime/testing`), not a test-only file.
+`runConformance(makeDriver, opts: { exemptions: PermittedFailure[] })` — parameterized, so
+W3/W5 reuse it. Properties (spec §3 callout): send accepted/queued/refused/unverified
+semantics; interaction asked→answered lifecycle + idempotent answer; interrupt =
+fence-request (fence only via provider-confirmed event); snapshot→adopt round-trip; event
+causality (cursor monotonic, provenance correct across a simulated restart); a
+connect-without-secret refusal stub (skippable, real for server drivers). Plus
+`permitted-failures.ts`: the per-family exemption table from the spec (terminal: unverified
+sends allowed, classifier interactions at-least-once). Suite green on FakeDriver with zero
+exemptions.
+
+### 7. Boundary manifest amendment
+`scripts/check-boundaries.ts` / `scripts/architecture-manifest.ts`: add `agent-runtime`
+with allowed imports `@podium/harness`, `@podium/pty`, `@podium/transcript`,
+`@podium/protocol`; importable by `apps/daemon`. Add a types-only open entrypoint
+(`@podium/agent-runtime/metadata`, following the existing `@podium/harness/metadata`
+pattern — see `packages/harness/src/metadata.ts` and the `manifest-open-entrypoint` rule)
+so `apps/server` can use contract types without the host capability. Record the amendment
+in the manifest properly — no allowlist hacks.
+
+## Out of scope
+No real driver, no daemon/server wiring, no UI, no behavior change. W2 tightens interaction
+payloads; W3 implements the terminal driver; do not start either.
+
+## Acceptance checklist
+- [ ] `bun scripts/typecheck.ts` green.
+- [ ] `bun scripts/test.ts --filter @podium/agent-runtime` green (conformance on FakeDriver).
+- [ ] Boundary lint green with the amendment in the manifest.
+- [ ] All five harness manifests compile with the runtime axis; `select()` returns terminal
+      everywhere (behavior-neutral).
+- [ ] No existing test suite changes required (if one does, you changed behavior — back out).
+
+## Pitfalls
+- Browser safety: protocol must not import agent-runtime or node-only harness internals.
+- Don't duplicate vocabularies that exist (`AgentStateEvent`, `Declared`, `AgentInstruction`,
+  cursor material) — alias/reuse. Divergence here is the epic's biggest long-term cost.
+- Keep `TurnReceipt.unverified` — reviewers of the spec fought for it; don't "simplify" it away.
+- The registry's exhaustiveness is the tool: make the type error list your checklist rather
+  than editing manifests speculatively.

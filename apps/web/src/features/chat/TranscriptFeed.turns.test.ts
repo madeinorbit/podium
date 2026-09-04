@@ -1,8 +1,8 @@
 import type { ChatRow } from '@podium/client-core/viewmodels'
-import type { TranscriptItem } from '@podium/model'
+import type { AgentError, SessionMeta, TranscriptItem } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { turnClass } from './ChatBlockView'
-import { turnPosition } from './TranscriptFeed'
+import { processClass, turnClass } from './ChatBlockView'
+import { isProcessRow, processPosition, queuedDeliveryLabel, turnPosition } from './TranscriptFeed'
 
 // TURN STRUCTURE (POD-376). What the feed spaces tightly and what it spaces
 // apart — the rule that turns thirty-one identical siblings into exchanges.
@@ -16,14 +16,16 @@ const blockRow = (patch: Partial<TranscriptItem>): ChatRow => ({
   blockIndex: 0,
 })
 
+const toolRun = (): ChatRow => ({
+  kind: 'tools',
+  blocks: [{ item: item({ role: 'tool', toolName: 'Read' }) }],
+  blockIndices: [0],
+  title: 'Read a file',
+})
+
 describe('turnPosition', () => {
   it('binds a tool run to the prose that produced it', () => {
-    const run: ChatRow = {
-      kind: 'tools',
-      blocks: [{ item: item({ role: 'tool', toolName: 'Read' }) }],
-      blockIndices: [0],
-      title: 'Read a file',
-    }
+    const run = toolRun()
     expect(turnPosition(run)).toBe('bind')
     expect(turnPosition(blockRow({ role: 'tool', toolName: 'Bash' }))).toBe('bind')
     // The turn's own "Churned for …" divider closes the same unit.
@@ -46,10 +48,66 @@ describe('turnPosition', () => {
   })
 })
 
+describe('processPosition', () => {
+  it('groups public narration and tools without folding either one', () => {
+    const narration = blockRow({ role: 'assistant', text: 'I am checking the parser.' })
+    const tools = toolRun()
+
+    expect(isProcessRow(narration)).toBe(true)
+    expect(processPosition(narration, undefined)).toBe('start')
+    expect(processPosition(tools, narration)).toBe('continue')
+    expect(processClass('start')).toContain('transcript-process-start')
+    expect(processClass('continue')).toBe('transcript-process-row')
+  })
+
+  it('ends the process region before answers, prompts, and human questions', () => {
+    const tools = toolRun()
+    expect(processPosition(blockRow({ role: 'assistant', answer: true }), tools)).toBeUndefined()
+    expect(processPosition(blockRow({ role: 'user', text: 'continue' }), tools)).toBeUndefined()
+    expect(
+      processPosition(blockRow({ role: 'tool', toolName: 'AskUserQuestion' }), tools),
+    ).toBeUndefined()
+    expect(
+      processPosition(blockRow({ role: 'system', systemKind: 'duration' }), tools),
+    ).toBeUndefined()
+  })
+})
+
 describe('turnClass', () => {
   it('maps a position to the one class that spaces it', () => {
     expect(turnClass('open')).toBe('transcript-turn-open')
     expect(turnClass('bind')).toBe('transcript-turn-bind')
     expect(turnClass(undefined)).toBeUndefined()
+  })
+})
+
+describe('queuedDeliveryLabel', () => {
+  const blocked = (error: AgentError): SessionMeta =>
+    ({ agentState: { phase: 'errored', error } }) as SessionMeta
+
+  it('says a quota-held message waits for an explicit resume', () => {
+    const label = queuedDeliveryLabel(
+      blocked({ class: 'usage_limit', retryable: false, detail: 'balance exhausted' }),
+    )
+    expect(label).toBe(
+      'blocked · Usage limit reached: balance exhausted — Fix the provider issue, then choose “Resume the session” to send',
+    )
+    expect(label).not.toContain('after this turn')
+  })
+
+  it('names the login action for an auth-held message', () => {
+    expect(
+      queuedDeliveryLabel(
+        blocked({ class: 'authentication', retryable: false, detail: 'token expired' }),
+      ),
+    ).toBe(
+      'blocked · Provider authentication failed: token expired — Re-authenticate with the provider, then choose “I signed in — retry” to send',
+    )
+  })
+
+  it('keeps the returned FIFO position in the delivery label', () => {
+    expect(queuedDeliveryLabel(undefined, 2)).toBe(
+      'pending · sends after this turn · queue position 2',
+    )
   })
 })

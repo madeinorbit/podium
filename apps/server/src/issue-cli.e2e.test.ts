@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { authCliMain } from '../../cli/src/auth-cli'
 import { runIssueCli } from '../../cli/src/issue-cli'
 import { makeOperatorIssueClient } from '../../cli/src/operator-client'
+import { noJanitorWorkerForTests } from './janitor-host'
 import { startServer } from './server'
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
@@ -18,7 +19,7 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
   beforeAll(async () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-issue-e2e-'))
     process.env.PODIUM_STATE_DIR = stateDir
-    server = await startServer({ port: 0 })
+    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     baseUrl = `http://127.0.0.1:${server.port}`
   })
   afterAll(async () => {
@@ -157,7 +158,7 @@ describe('podium issue CLI ↔ password-protected server (e2e)', () => {
     // auth.json, so this is set BEFORE boot: applyEnvFirstAdminPassword writes it as
     // the server assembles, which is the headless deploy seam a VPS uses.
     process.env.PODIUM_PASSWORD = 'hunter2'
-    server = await startServer({ port: 0 })
+    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     baseUrl = `http://127.0.0.1:${server.port}`
   })
   afterAll(async () => {

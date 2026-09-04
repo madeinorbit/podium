@@ -40,6 +40,10 @@ export const ISSUE_SYSTEM_POINTER =
   '`podium issue artifact <id> --add <path> --title "…"`. Adding COPIES the bytes to the server, so the ' +
   'artifact keeps working uncommitted and outlives the worktree — never commit a screenshot or a scratch ' +
   'doc just to attach it, and delete the file after adding it if it does not belong in the repo. ' +
+  'For a terminal screenshot captured in the current issue session checkout, use ' +
+  '`--terminal-evidence` from that checkout; it is an explicit acknowledgement and accepts raster ' +
+  'images only, never raw scrollback or terminal text. Redact text into the owning worktree and attach ' +
+  'it normally. ' +
   'Re-add each significant iteration; the issue ' +
   'artifact list is how the human finds and reviews visual work later, even after the chat scrolls away. ' +
   // Agent action offer [spec:SP-c7f1]: suggested next actions the user can click.

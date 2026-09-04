@@ -1,0 +1,206 @@
+{
+  "cell": "A7B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a7b",
+  "at": "2026-08-26T12:11:47.183Z",
+  "pin": {
+    "cell": "A7B",
+    "at": "2026-08-26T12:11:47.241Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2344213",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4142976 kB",
+      "SwapFree": "37405768 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "hibernate/wake preserved the conversation and answered after wake",
+  "control": {
+    "fired": true,
+    "what": "pre-hibernate conversation replying with a unique codeword",
+    "detail": "user=true; reply=true"
+  },
+  "evidence": [
+    "SEEDED            {\"ok\":true,\"disposition\":\"delivered\"}",
+    "SEEDED REPLY      true",
+    "HIBERNATE         {\"result\":{\"data\":{\"ok\":true}}}",
+    "PARKED            true 82ms",
+    "RESURRECT         {\"result\":{\"data\":{\"ok\":true}}}",
+    "LIVE              true 726ms",
+    "RECALL            {\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}",
+    "RECALLED          true",
+    "STATUS            {\"sessionId\":\"fc5da469-3f45-4a6f-aedf-4351b655764c\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePercent\":nu"
+  ],
+  "data": {
+    "sid": "fc5da469-3f45-4a6f-aedf-4351b655764c",
+    "secret": "P2874-A7B-MTA1ZTGO",
+    "base": {
+      "needle": "P2874-A7B-CONTROL-MTA1ZTHB",
+      "sent": {
+        "result": {
+          "data": {
+            "ok": true,
+            "queued": true,
+            "disposition": "queued"
+          }
+        }
+      },
+      "user": {
+        "ok": true,
+        "ms": 4078,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A7B-CONTROL-MTA1ZTHB. Do not use tools.",
+            "ts": "2026-08-26T12:11:53.989Z"
+          }
+        ]
+      },
+      "assistant": {
+        "ok": true,
+        "ms": 1733,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A7B-CONTROL-MTA1ZTHB. Do not use tools.",
+            "ts": "2026-08-26T12:11:53.989Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A7B-CONTROL-MTA1ZTHB",
+            "ts": "2026-08-26T12:11:56.213Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-26T12:11:56.352Z"
+          }
+        ]
+      }
+    },
+    "seededReply": true,
+    "hibernated": {
+      "result": {
+        "data": {
+          "ok": true
+        }
+      }
+    },
+    "parked": {
+      "ok": true,
+      "ms": 82,
+      "row": {
+        "sessionId": "fc5da469-3f45-4a6f-aedf-4351b655764c",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": null,
+        "requestedDriverId": null,
+        "status": "hibernated",
+        "phase": "idle",
+        "machine": "flatblock",
+        "model": "claude-opus-5",
+        "effort": "high",
+        "contextUsagePercent": null,
+        "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [],
+        "files": [],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 82,
+          "phase": "idle",
+          "status": "hibernated",
+          "driverId": null
+        }
+      ]
+    },
+    "resurrected": {
+      "result": {
+        "data": {
+          "ok": true
+        }
+      }
+    },
+    "live": {
+      "ok": true,
+      "ms": 726,
+      "row": {
+        "sessionId": "fc5da469-3f45-4a6f-aedf-4351b655764c",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": null,
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "idle",
+        "machine": "flatblock",
+        "model": "claude-opus-5",
+        "effort": "high",
+        "contextUsagePercent": null,
+        "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [],
+        "files": [],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 66,
+          "phase": "idle",
+          "status": "starting",
+          "driverId": null
+        },
+        {
+          "ms": 726,
+          "phase": "idle",
+          "status": "live",
+          "driverId": null
+        }
+      ]
+    },
+    "recall": {
+      "result": {
+        "data": {
+          "ok": true,
+          "queued": true,
+          "disposition": "queued"
+        }
+      }
+    },
+    "recalled": true
+  }
+}

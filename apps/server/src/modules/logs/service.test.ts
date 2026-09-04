@@ -21,7 +21,7 @@ import type { PodiumConfig } from '@podium/runtime/config'
 import { createCrashStore } from '@podium/runtime/crash-store'
 import { readQueue, TelemetryEmitter } from '@podium/telemetry'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { LogIngestService, originKey, taggedRecord } from './service'
+import { type LogIngestDeps, LogIngestService, originKey, taggedRecord } from './service'
 
 const INSTALL = '/opt/podium'
 const INSTALL_ID = '3f9c1a2e-0000-4000-8000-000000000000'
@@ -62,11 +62,13 @@ const crashInput = (over: Partial<LogsCrashInput> = {}): LogsCrashInput => ({
 })
 
 /** Ingestion writing into a temp dir, with a crash store on the same clock. */
-function service(overrides: { telemetryDir?: string } = {}) {
-  void overrides
+function service(
+  overrides: { telemetryDir?: string; onCrash?: LogIngestDeps['onCrash'] } = {},
+) {
   let n = 0
   return new LogIngestService({
     dir: join(dir, 'clients'),
+    ...(overrides.onCrash ? { onCrash: overrides.onCrash } : {}),
     crashStore: createCrashStore({
       dir: join(dir, 'crashes'),
       id: () => {
@@ -75,6 +77,16 @@ function service(overrides: { telemetryDir?: string } = {}) {
       },
     }),
   })
+}
+
+/** One event-loop turn. The service's drain was scheduled first, so it runs
+ *  before this resolves — which makes "one tick" a countable thing. */
+const tick = (): Promise<void> => new Promise((resolve) => setImmediate(resolve))
+
+/** Let the sliced drain catch up. The writes are deferred off the request
+ *  (POD-3167), so a test that reads the file has to say when it is looking. */
+const drain = async (turns = 40): Promise<void> => {
+  for (let i = 0; i < turns; i++) await tick()
 }
 
 const linesIn = (file: string): Record<string, unknown>[] =>
@@ -89,7 +101,8 @@ describe('forwarded client logs', () => {
 
     const result = ingest.forward(batch())
 
-    expect(result).toEqual({ accepted: 2, origin: 'web-m1' })
+    expect(result).toEqual({ accepted: 2, origin: 'web-m1', dropped: 0, serverDropped: 0 })
+    await drain()
     const lines = linesIn(join(dir, 'clients', 'web-m1.ndjson'))
     expect(lines).toHaveLength(2)
     expect(lines[0]).toMatchObject({
@@ -111,6 +124,7 @@ describe('forwarded client logs', () => {
     ingest.forward(
       batch({ origin: { role: 'mobile', machineId: asMachineId('m2') }, records: [record('m')] }),
     )
+    await drain()
 
     expect(linesIn(join(dir, 'clients', 'web-m1.ndjson'))).toHaveLength(2)
     expect(linesIn(join(dir, 'clients', 'mobile-m2.ndjson'))).toHaveLength(1)
@@ -123,6 +137,7 @@ describe('forwarded client logs', () => {
     const ingest = service()
 
     ingest.forward(batch({ records: [record('turned up for diagnosis', 'debug')] }))
+    await drain()
 
     expect(linesIn(join(dir, 'clients', 'web-m1.ndjson'))[0]).toMatchObject({ level: 'debug' })
     await ingest.close()
@@ -143,6 +158,7 @@ describe('forwarded client logs', () => {
         }),
       )
     }
+    await drain()
 
     // Two named files, then everything else shares one — not one file per
     // machineId, which is how a client that mints a fresh id per launch would
@@ -182,7 +198,11 @@ describe('forwarded client logs', () => {
     expect(tagged).toMatchObject({ role: 'web', v: '0.1.3' })
   })
 
-  it('reports zero accepted rather than throwing when the sink cannot be built', () => {
+  /** A full disk must not turn a client's forwarded batch into a 500. The
+   *  failure now surfaces at the DRAIN rather than at the request, because that
+   *  is where the file is opened — so what this asserts is that neither end
+   *  throws and the records are discarded rather than held forever. */
+  it('degrades rather than throwing when the sink cannot be built', async () => {
     const ingest = new LogIngestService({
       dir: join(dir, 'clients'),
       crashStore: createCrashStore({ dir: join(dir, 'crashes') }),
@@ -191,7 +211,112 @@ describe('forwarded client logs', () => {
       },
     })
 
-    expect(ingest.forward(batch())).toEqual({ accepted: 0, origin: 'web-m1' })
+    // Admission, not a completed write: the request is told what it queued.
+    expect(ingest.forward(batch())).toEqual({
+      accepted: 2,
+      origin: 'web-m1',
+      dropped: 0,
+      serverDropped: 0,
+    })
+    await drain()
+    expect(ingest.forward(batch()).accepted).toBe(2)
+    await expect(ingest.close()).resolves.toBeUndefined()
+  })
+
+  /**
+   * INGESTION MUST NOT SIT ON THE EVENT LOOP THE SERVER IS SERVING REQUESTS ON
+   * (POD-3167). The client path used to write its whole batch inside the
+   * request; these are the properties that say it no longer does, asserted
+   * structurally rather than by timing a clock — a wall-clock threshold on a
+   * shared CI box measures the box.
+   */
+  it('writes nothing inside the request — the batch is only queued', async () => {
+    const written: string[] = []
+    const ingest = new LogIngestService({
+      dir: join(dir, 'clients'),
+      crashStore: createCrashStore({ dir: join(dir, 'crashes') }),
+      createSink: () =>
+        ({
+          name: 'counting',
+          write: (r: { msg: string }) => void written.push(r.msg),
+          flush: async () => undefined,
+          close: async () => undefined,
+          degraded: false,
+          bytes: 0,
+        }) as never,
+    })
+
+    const result = ingest.forward(
+      batch({ records: Array.from({ length: 200 }, (_, i) => record(`r${i}`)) }),
+    )
+
+    expect(result.accepted).toBe(200)
+    expect(written).toEqual([])
+    await ingest.close()
+    expect(written).toHaveLength(200)
+  })
+
+  /**
+   * A CLIENT'S OWN LOSSES AND THIS SERVER'S ARE DIFFERENT FACTS. One says the
+   * link or the client's queue gave up; the other says this server could not
+   * keep up. They have different fixes, so one counter would answer neither.
+   */
+  it('records the client’s reported drops apart from its own, and marks the gap in the file', async () => {
+    const ingest = service()
+
+    const result = ingest.forward(batch({ dropped: 12 }))
+    await drain()
+
+    expect(result.dropped).toBe(12)
+    expect(result.serverDropped).toBe(0)
+    const lines = linesIn(join(dir, 'clients', 'web-m1.ndjson'))
+    // The marker is written INTO the file, because the person reading it is not
+    // holding this process's counters and a gap is otherwise ambiguous.
+    expect(lines[0]).toMatchObject({
+      level: 'warn',
+      msg: 'client dropped records before this batch',
+      dropped: 12,
+      role: 'web',
+    })
+    expect(lines.map((l) => l.msg).slice(1)).toEqual(['one', 'two'])
+    await ingest.close()
+  })
+
+  it('drops oldest past its own bound and counts that apart from the client’s', async () => {
+    const ingest = service()
+    const origin = { role: 'web', v: '0.1.3', machineId: asMachineId('m1') }
+
+    // 6 000 records with no chance to drain: past the 5 000 bound.
+    for (let b = 0; b < 12; b++) {
+      ingest.forward({
+        origin,
+        records: Array.from({ length: 500 }, (_, i) => record(`b${b}-r${i}`)),
+      })
+    }
+    const last = ingest.forward({ origin, records: [record('after')] })
+
+    expect(last.serverDropped).toBeGreaterThan(0)
+    // The client reported none — the loss was entirely on this side, and the
+    // two numbers must not be confusable.
+    expect(last.dropped).toBe(0)
+    expect(ingest.serverDroppedFor(origin)).toBe(last.serverDropped)
+    await ingest.close()
+  })
+
+  it('drains what it queued on close rather than losing the tail', async () => {
+    const ingest = service()
+
+    ingest.forward(batch({ records: Array.from({ length: 120 }, (_, i) => record(`r${i}`)) }))
+    await ingest.close()
+
+    expect(linesIn(join(dir, 'clients', 'web-m1.ndjson'))).toHaveLength(120)
+  })
+
+  it('refuses a batch after close rather than queueing into a closed service', async () => {
+    const ingest = service()
+    await ingest.close()
+
+    expect(ingest.forward(batch()).accepted).toBe(0)
   })
 })
 
@@ -217,6 +342,33 @@ describe('crash events', () => {
     }
 
     expect(() => ingest.crash(crashInput(), telemetry)).not.toThrow()
+    expect(createCrashStore({ dir: join(dir, 'crashes') }).list()).toHaveLength(1)
+  })
+
+  it('reports a stored crash on the observer hook, without the snapshot', () => {
+    // The bus hop exists so podium-cloud's analytics plugin can forward crashes
+    // to error tracking. It gets the error and the origin; the ring buffer is
+    // what support needs from THIS server and has no business travelling.
+    const seen: { origin: unknown; err: unknown; crashId?: string }[] = []
+    const ingest = service({ onCrash: (event) => seen.push(event) })
+
+    ingest.crash(crashInput())
+
+    expect(seen).toHaveLength(1)
+    expect(seen[0]?.origin).toEqual({ role: 'web', v: '0.1.3', machineId: 'm1' })
+    expect(seen[0]?.err).toEqual(crashInput().err)
+    expect(seen[0]?.crashId).toBe('id1')
+    expect(JSON.stringify(seen)).not.toContain('right before it died')
+  })
+
+  it('keeps the durable event when the observer throws', () => {
+    const ingest = service({
+      onCrash: () => {
+        throw new Error('observer exploded')
+      },
+    })
+
+    expect(() => ingest.crash(crashInput())).not.toThrow()
     expect(createCrashStore({ dir: join(dir, 'crashes') }).list()).toHaveLength(1)
   })
 

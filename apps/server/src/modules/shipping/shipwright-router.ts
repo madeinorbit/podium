@@ -1,12 +1,12 @@
 import {
-  DEFAULT_SHIPWRIGHT_BUDGET,
   type AgentQuotaWire,
+  DEFAULT_SHIPWRIGHT_BUDGET,
   type HarnessAgent,
   ShipwrightBudget,
   type ShipwrightLevel,
   type ShipwrightRoute,
 } from '@podium/model'
-import { normalizeSettings, resolveRole, type PodiumSettings } from '@podium/runtime'
+import { normalizeSettings, type PodiumSettings, resolveRole } from '@podium/runtime'
 import { harnessSupportsNoTools } from '../../harness-manifest'
 import type { ModelCatalogSnapshot } from '../../model-catalog'
 
@@ -136,7 +136,7 @@ export function routeShipwright(input: ShipwrightRouteInput): ShipwrightRoute | 
   if (!harnessSupportsNoTools(preferred.harness)) return null
   const candidates: Candidate[] = []
   for (const [agentRaw, models] of Object.entries(input.catalog.byAgent)) {
-    const parsed = (['claude-code', 'codex', 'grok', 'opencode', 'cursor'] as const).find(
+    const parsed = (['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const).find(
       (agent) => agent === agentRaw,
     )
     if (!parsed) continue

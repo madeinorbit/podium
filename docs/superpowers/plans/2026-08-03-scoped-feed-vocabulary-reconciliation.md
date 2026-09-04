@@ -12,6 +12,10 @@
 
 ## Global Constraints
 
+> Historical record — do not follow as-is. Superseded on the linker point: the repo moved to
+> `linker = "isolated"` with `hoist = false`, and worktrees are now created with
+> `bun run setup:worktree` (POD-2399).
+
 - **Base:** integration tip `dac14c84`. Rebase before the final run; never merge `main`, never merge a sibling branch.
 - **`bun install` in this worktree before any lane.** The linker is hoisted; without it `@podium/*` resolves to the main checkout and every lane measures the wrong tree. Confirm `ls node_modules/@podium` lists packages.
 - **Never `git stash`** — the stash is repo-wide across live worktrees.

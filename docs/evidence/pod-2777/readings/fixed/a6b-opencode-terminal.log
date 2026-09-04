@@ -1,0 +1,55 @@
+==============================================================================
+A6b  chat -> CLI -> chat -> CLI, twice   harness=opencode
+==============================================================================
+session 0c4b82ed-824b-4e39-a6f8-2f0239922300
+BOUND DRIVER       generic-pty (family terminal)
+TUI PRIMING        nothing to clear
+
+CONTROL B          chat answers BEFORE switching: true
+                   and the TUI painted it into scrollback: true
+CONTROL A          CLI echoes BEFORE switching: true (116609 terminal bytes)
+baseline           epoch=0  geometry={"cols":80,"rows":24}
+                   agent pids (census taken with chat declared, so no view processes):
+                     1742514  /tmp/pod-2777/state/agent-home/.opencode/bin/opencode serve --port 34465 --hostname 127.0.0.1
+                     2438454  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2438475  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2438547  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2438669  /home/mgw/.local/bin/codex app-server -c sandbox_mode="workspace-write" --listen unix:///home/mgw/.l
+                     2460139  /home/mgw/.local/state/podium/p2777/bin/abduco -n podium-p2777-435acd57-1f15-4ce7-8372-3969e2a373d5 
+                     2460140  /home/mgw/.opencode/bin/opencode
+                     2460141  /home/mgw/.local/state/podium/p2777/bin/abduco -q -e � -a /run/user/1001/podium-p2777/abduco/mgw/pod
+                     2466957  timeout 900 bun docs/evidence/pod-2777/a6b.ts opencode
+                     2466958  tee docs/evidence/pod-2777/readings/fixed/a6b-opencode-terminal.log
+                     2466960  head -18
+                     2466961  ugrep -G --ignore-files --hidden -I --exclude-dir=.git --exclude-dir=.svn --exclude-dir=.hg --exclud
+                     2466962  bun docs/evidence/pod-2777/a6b.ts opencode
+                     2467013  /home/mgw/.local/state/podium/p2777/bin/abduco -n podium-p2777-0c4b82ed-824b-4e39-a6f8-2f0239922300 
+                     2467014  /home/mgw/.opencode/bin/opencode
+                     2467015  /home/mgw/.local/state/podium/p2777/bin/abduco -q -e � -a /run/user/1001/podium-p2777/abduco/mgw/pod
+
+switching …
+
+  step          epoch  geometry            marker kept  term bytes  agent pids                 view procs
+  1. -> chat    0      {"cols":80,"rows":24}  true         116705      1742514,2438454,2438475,2438547,2438669,2460139,2460140,2460141,2466957,2466958,2466960,2466961,2466962,2467013,2467014,2467015  0
+  2. -> CLI     0      {"cols":80,"rows":24}  true         186642      1742514,2438454,2438475,2438547,2438669,2460139,2460140,2460141,2466957,2466958,2466960,2466961,2466962,2467013,2467014,2467015  0
+  3. -> chat    0      {"cols":80,"rows":24}  true         186642      1742514,2438454,2438475,2438547,2438669,2460139,2460140,2460141,2466957,2466958,2466960,2466961,2466962,2467013,2467014,2467015  0
+  4. -> CLI     0      {"cols":80,"rows":24}  true         267495      1742514,2438454,2438475,2438547,2438669,2460139,2460140,2460141,2466957,2466958,2466960,2466961,2466962,2467013,2467014,2467015  0
+
+after the four switches:
+  chat send still answers: true (CHATAFTER-0OKDW5)
+  CLI typing still echoes: true (+105893 bytes)
+
+==============================================================================
+A6b  PASS
+     no restart      epoch stable across all four: true (0)
+                     AGENT pid(s) unchanged:       true [1742514, 2438454, 2438475, 2438547, 2438669, 2460139, 2460140, 2460141, 2466957, 2466958, 2466960, 2466961, 2466962, 2467013, 2467014, 2467015]
+                     processes the VIEW adds while the CLI is declared, recorded not scored:
+                     (they come and go with the view. An attach-client cold start on a
+                      view switch is a declared gap in the catalogue — section 9, "cold
+                      start does not fake continuity", absent for every server driver —
+                      and an attach-client exit must never end the session, section 10.)
+     no corruption   scrollback marker survived every switch: true
+     correct size    geometry unchanged: true
+     both views work chat answers: true   CLI echoes: true
+     controls FIRED  CLI echoed and chat answered BEFORE any switching
+==============================================================================

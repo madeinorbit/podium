@@ -1,0 +1,20 @@
+[opencode] session 20646698-07b5-4d2a-8cba-38526b74c6ea created; 12000ms for the TUI to come up
+[opencode] bound driver generic-pty (family terminal)
+[opencode] TUI priming: nothing to clear
+
+=== phase while producing output ===
+
+| harness | driver | verdict | phases seen | EVER working | output bytes |
+|---|---|---|---|---|---|
+| opencode | generic-pty | **FAIL** | idle=60 | false | 121554 |
+
+--- opencode (generic-pty) — FAIL: produced 121554 bytes of output and never once reported working
+    +  1249ms  phase=idle       ptyBytes=   7806  transcriptChars=0
+    + 12018ms  phase=idle       ptyBytes=  95687  transcriptChars=0
+    + 22522ms  phase=idle       ptyBytes= 118151  transcriptChars=6453
+    + 32846ms  phase=idle       ptyBytes= 118151  transcriptChars=6453
+    + 43743ms  phase=idle       ptyBytes= 121554  transcriptChars=6453
+    + 54158ms  phase=idle       ptyBytes= 121554  transcriptChars=6453
+    + 63354ms  phase=idle       ptyBytes= 121554  transcriptChars=6453
+
+1 of 1 harness(es) never reported working: opencode

@@ -1,0 +1,58 @@
+A1c exact-current-tip Grok re-drive — 2026-08-28 05:25–05:38 CEST
+
+VERDICT: FAIL
+
+The dedicated named rig grok2927v6 ran the product grok-acp/server driver.
+The code pin was 6e50dbc1c0945324f96f149ed28a1dfa7ef8c5f4. The server PID
+3897750 and daemon PID 3897835, both spawned from that SHA, and served web
+bundle+BhuJzoDU/source 6e50dbc were verified before the probe. The provider
+was Grok 0.2.118 (1e1687c1cf) [stable].
+
+The first probe command was a setup diagnostic only: because drive-env.sh was
+not sourced, it tried the default port 19847 and refused before creating a
+session. The corrected retry sourced the canonical environment and ran the
+real cell from 05:25:08 to 05:27:37 CEST (149 seconds, including the full
+120-second delayed window).
+
+Positive control and destructive transition:
+
+- session 679b34c6-1219-41d7-8cf1-a1547dce61b8 answered while alive;
+- instance UUID ef93bbc8-ad88-48f3-83f3-9087bdbaaab7 was read from the
+  product instance stamp;
+- exactly one child carried that UUID and session ID: PID 3900945,
+  cwd /tmp/pod-2927-grok-6e50/repo, command /home/mgw/.local/bin/grok agent stdio;
+- SIGKILL was sent only to PID 3900945, which was confirmed gone, with zero
+  remaining exact stamped targets.
+
+Dead-send result:
+
+    {"ok":true,"queued":true,"position":1,"disposition":"queued"}
+
+No typed refusal or resume offer appeared. The assistant nonce
+AFTERDEATH-01GZ6G did not arrive through the complete 120-second outcome
+window, so the acceptance scorer correctly classified the accepted send as
+LOST/FAIL. The post-window SQLite snapshot shows the message ledger row
+msg_81fd9eea-48c9-4f55-848c-266119a3801c eventually reached status dead_letter
+at 2026-08-28T03:27:37.096Z, while the session row was exited with a
+grok-session resume ref; that delayed state is not the required immediate
+typed refusal or delivered assistant response.
+
+Admission and cleanup:
+
+- product-derived state root: /home/mgw/.local/state/podium/grok2927v6;
+- the no-adoption first launch refused only the product-created runtime/tmux
+  entries; PODIUM_ADOPT_STATE=1 was used narrowly on the retry;
+- no PODIUM_STATE_DIR, ABDUCO_SOCKET_DIR, TMUX_TMPDIR, HOME, or runtime-driver
+  override was used;
+- test:heavy was acquired without queueing only for the web build, released
+  before the scored retry, and was free after teardown;
+- host snapshot at 05:25:06 CEST: MemAvailable=6229368 kB, SwapFree=36858032
+  kB, load1=5.59, root filesystem 5.0G free (98% used); vmstat swap activity
+  was 1145/1293 kB/s in the first sample and zero thereafter;
+- after the worker stopped, the coordinator stopped only exact server PID
+  3897750 and daemon PID 3897835. No process stamped with grok2927v6 remained,
+  ports 19947/46947/46948 were closed, and cleanup was verified at 05:38:31
+  CEST.
+
+Raw logs are retained at /tmp/pod-2927-grok-6e50 (drive-up, pin verifier,
+a1c probe, host snapshots, server/daemon logs, and post-window-state.json).

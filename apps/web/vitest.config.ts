@@ -9,17 +9,27 @@ import { sharedVitestConfig } from '../../vitest.config'
 const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
   fileURLToPath(new URL(`../../${file}`, import.meta.url)),
 )
-// Keep terminal-client subpaths on the package exports map; the root's bare alias would
-// prefix-rewrite `@podium/terminal-client/terminal-view` to `index.ts/terminal-view`.
+// Keep package subpaths on their exports maps; the root's bare aliases would
+// prefix-rewrite `/browser` or `/terminal-view` onto `index.ts`.
 
 const sharedAliases = sharedVitestConfig.resolve.alias.filter(
-  ({ find }) => find !== '@podium/terminal-client',
+  ({ find }) => find !== '@podium/terminal-client' && find !== '@podium/transcript',
 )
 
 export default defineConfig({
   resolve: {
     ...sharedVitestConfig.resolve,
     alias: [
+      // The VitePWA plugin mints `virtual:pwa-register/react` at build time and
+      // does not run in this lane. Without a stand-in, `src/app/pwa-register.ts`
+      // cannot be imported at all — which is why its wrapper went untested
+      // (POD-3224); every suite mocked the wrapper instead.
+      {
+        find: /^virtual:pwa-register\/react$/,
+        replacement: fileURLToPath(
+          new URL('./src/app/pwa-register-virtual.vitest.ts', import.meta.url),
+        ),
+      },
       {
         find: /^@\/features\/chat\/TranscriptFeedBoundary$/,
         replacement: fileURLToPath(

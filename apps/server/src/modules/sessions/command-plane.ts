@@ -33,6 +33,7 @@
 
 import {
   type CommandDef,
+  type DraftIssueArtifactInput,
   sessionCommandPlane,
   type sessionCommandPlaneInputs,
 } from '@podium/commands'
@@ -55,6 +56,7 @@ import {
   spawnedByTag,
 } from '@podium/model'
 import type { SessionBindingSpawnPrincipal } from '@podium/protocol'
+import type { Refusal, RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
 import type { MutationLedgerPort } from '@podium/sync'
 import { TRPCError } from '@trpc/server'
@@ -98,6 +100,7 @@ export type SessionCommandServices = Pick<
   | 'killSession'
   | 'hibernateSession'
   | 'interruptTurn'
+  | 'configureSession'
   | 'answerAskUserQuestion'
   | 'continueSession'
   | 'listSessions'
@@ -134,6 +137,7 @@ export type MailSendPort = (input: {
   body: string
   urgency?: 'fyi' | 'next-turn' | 'interrupt'
   lifecycle?: 'wait' | 'wake'
+  attachments?: readonly RuntimeAttachmentRef[]
   /** Framework mutation id forwarded outside the public mail contract. */
   correlationId?: string
 }) => Promise<unknown>
@@ -156,10 +160,21 @@ export interface SessionCommandDeps {
       createdByOnBehalfOf: import('@podium/model').UserId
     },
   ): { id: IssueId }
+  /** Persist user uploads on the draft issue before its agent can run prime. */
+  attachDraftArtifacts(
+    issueId: IssueId,
+    artifacts: readonly DraftIssueArtifactInput[],
+  ): Promise<void>
   /** Compensate only the draft created by this launch when createSession throws. */
   discardUnlaunchedDraft(issueId: IssueId): boolean
   issueOwner(issueId: IssueId): import('@podium/model').UserId | undefined
-  /** The daemon control leg for `uploadImage`. */
+  /** The runtime-contract staging leg for live sessions. */
+  stageAttachment(input: {
+    sessionId: SessionId
+    source: { bytes: Uint8Array; filename: string; mediaType: string }
+  }): Promise<RuntimeAttachmentRef | Refusal>
+  runtimeContractActive(sessionId: SessionId): boolean
+  /** The legacy daemon control leg for pre-contract and cold-start uploads. */
   rpc(): SessionDaemonRpc
   access: SessionAccessDeps
   ownership: MachineOwnershipIndex
@@ -404,7 +419,8 @@ export function createdOwnership(
  */
 type CreateInput = z.infer<typeof sessionCommandPlaneInputs.create>
 type ResumeInput = z.infer<typeof sessionCommandPlaneInputs.resume>
-type SendInput = { sessionId: SessionId; text: string; mutationId?: MutationId }
+type InterruptInput = z.infer<typeof sessionCommandPlaneInputs.interrupt>
+type SendInput = z.infer<typeof sessionCommandPlaneInputs.sendText>
 type TargetInput = { sessionId: SessionId }
 type AnswerInput = { sessionId: SessionId; choices?: AnswerChoice[]; skip?: true }
 
@@ -415,6 +431,7 @@ export interface SubstrateOutcome {
   ok: boolean
   queued?: boolean
   reason?: string
+  position?: number
   disposition: SendDisposition
 }
 
@@ -434,7 +451,8 @@ export interface SubstrateOutcome {
  * shape for a send to an unknown session. Pre-resolving here would have been a
  * second answer to "who may this caller address".
  *
- * The RETURN is narrowed back to the four pinned keys. `mail.send` answers with
+ * The RETURN is narrowed back to the five pinned keys, including queue position.
+ * `mail.send` answers with
  * more (id, urgency, lifecycle, clamped), and the oracle asserts these results
  * with `toEqual` — widening the chat path's reply is a wire change and not this
  * issue's to make.
@@ -444,9 +462,10 @@ async function substrateSend(
   input: SendInput,
   lifecycle: 'wait' | 'wake',
 ): Promise<SubstrateOutcome> {
-  const { ok, queued, reason, disposition } = (await ctx.deps.mailSend({
+  const { ok, queued, reason, position, disposition } = (await ctx.deps.mailSend({
     to: input.sessionId,
     body: input.text,
+    ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     urgency: 'next-turn',
     lifecycle,
     ...(input.mutationId ? { correlationId: input.mutationId } : {}),
@@ -457,6 +476,7 @@ async function substrateSend(
     ...(reason !== undefined ? { reason } : {}),
     // Honest outcome (#834): a send to a gone target dead-letters rather than
     // silently queueing into a black hole.
+    ...(position !== undefined ? { position } : {}),
     disposition,
   }
 }
@@ -497,6 +517,14 @@ const UNADDRESSABLE_SEND = {
   disposition: 'dead_letter',
 } as const
 
+/** A stop may arrive before its send request. Reserve the send's mutation id
+ * so that late request replays this refusal instead of creating new work. */
+const INTERRUPTED_SEND: SubstrateOutcome = {
+  ok: false,
+  reason: 'interaction interrupted',
+  disposition: 'dead_letter',
+}
+
 function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
   return async (ctx: SessionCommandCtx, input: SendInput): Promise<SubstrateOutcome> => {
     const target = ctx.target(input.sessionId, proc)
@@ -514,7 +542,30 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
         disposition: 'dead_letter',
       }
     }
-    return substrateSend(ctx, input, lifecycle)
+    if (target.archived) {
+      return {
+        ok: false,
+        reason: 'session archived',
+        disposition: 'dead_letter',
+      }
+    }
+    if (
+      (target.status === 'exited' || target.status === 'hibernated') &&
+      target.agentKind !== 'shell' &&
+      !target.resumable
+    ) {
+      return { ok: false, reason: 'no resume ref', disposition: 'dead_letter' }
+    }
+    // A wait-send may be held behind a LIVE turn, but it cannot be held behind
+    // a dead process: no turn boundary will ever arrive to re-arm delivery.
+    // Upgrade only that process-gone state to the durable wake path. This keeps
+    // ordinary sendText non-waking for live/starting sessions while ensuring a
+    // row accepted after agentExit has both a resurrection trigger and a drain.
+    const effectiveLifecycle =
+      lifecycle === 'wait' && (target.status === 'exited' || target.status === 'hibernated')
+        ? 'wake'
+        : lifecycle
+    return substrateSend(ctx, input, effectiveLifecycle)
   }
 }
 
@@ -528,7 +579,7 @@ type Handler = (ctx: SessionCommandCtx, input: any) => unknown
  */
 export const SESSION_COMMAND_HANDLERS = {
   create: async (ctx: SessionCommandCtx, input: CreateInput) => {
-    const { draftIssue, mutationId: _mutationId, ...rest } = input
+    const { draftIssue, draftArtifacts, mutationId: _mutationId, ...rest } = input
     // Explicit placement is gated BEFORE the target is prepared, because
     // preparing may clone a repository onto the target machine — a side effect
     // a denied principal must never cause.
@@ -552,6 +603,10 @@ export const SESSION_COMMAND_HANDLERS = {
     // one: the session and its vessel resolve the same owner because they
     // resolve it from the same principal.
     try {
+      if (draftArtifacts?.length) {
+        if (!createdDraftId) throw new Error('draft artifacts require a newly-created draft issue')
+        await ctx.deps.attachDraftArtifacts(createdDraftId, draftArtifacts)
+      }
       return ctx.sessions.createSession({
         ...rest,
         ...target,
@@ -601,14 +656,48 @@ export const SESSION_COMMAND_HANDLERS = {
       ? ctx.sessions.hibernateSession(input)
       : { ok: false, reason: 'unknown session' },
 
-  interrupt: (ctx: SessionCommandCtx, input: TargetInput) => {
+  interrupt: (ctx: SessionCommandCtx, input: InterruptInput) => {
     if (!ctx.target(input.sessionId, 'sessions.interrupt')) {
       return { ok: false, reason: 'unknown session' }
     }
-    return ctx.sessions.interruptTurn({
-      ...input,
-      principal: inboxPrincipalFromCommand(ctx.principal),
-    })
+    const reserved = input.messageId
+      ? ctx.deps.mutations.apply(asMutationId(input.messageId), 'sessions.sendText', () => ({
+          ...INTERRUPTED_SEND,
+        })).outcome === 'applied'
+      : false
+    // AWAITED: a server-family session's stop goes down the runtime contract and
+    // answers asynchronously, so reading `.ok` off the return value would be
+    // reading it off a Promise (POD-2792).
+    return Promise.resolve(
+      ctx.sessions.interruptTurn({
+        sessionId: input.sessionId,
+        ...(input.messageId ? { sourceMessageId: input.messageId } : {}),
+        principal: inboxPrincipalFromCommand(ctx.principal),
+      }),
+    ).then((result) =>
+      // The CLI may have no safe idle abort key, but reserving the not-yet-arrived
+      // send still completed the operator's stop request.
+      reserved && !result.ok ? ({ ok: true, requested: 'retraction' } as const) : result,
+    )
+  },
+
+  /**
+   * STICKY MODEL / EFFORT ON A RUNNING SESSION (POD-3081).
+   *
+   * The driver's answer travels back UNFLATTENED: `{ ok, effective }` on a
+   * grant, and `{ reason, detail }` on a refusal. A boolean here would throw
+   * away the two things the caller needs — whether to say "switched" or "from
+   * your next message", and whether the refusal means "pick another value" or
+   * "this session cannot do this at all".
+   */
+  configure: (
+    ctx: SessionCommandCtx,
+    input: { sessionId: SessionId; model?: string; effort?: string },
+  ) => {
+    if (!ctx.target(input.sessionId, 'sessions.configure')) {
+      return Promise.resolve({ reason: 'not_running' as const, detail: 'unknown session' })
+    }
+    return ctx.sessions.configureSession(input)
   },
 
   resurrect: (ctx: SessionCommandCtx, input: TargetInput) =>
@@ -687,6 +776,18 @@ export const SESSION_COMMAND_HANDLERS = {
     const row = ctx.sessions.sessionById(input.sessionId)
     const machineId = row?.machineId ?? input.machineId
     if (machineId !== undefined) ctx.assertMachineUse(machineId)
+    if (ctx.deps.runtimeContractActive(input.sessionId)) {
+      const staged = await ctx.deps.stageAttachment({
+        sessionId: input.sessionId,
+        source: {
+          bytes: new Uint8Array(Buffer.from(input.dataBase64, 'base64')),
+          filename: input.filename,
+          mediaType: input.mimeType,
+        },
+      })
+      if ('reason' in staged) return { refusal: staged }
+      return { path: staged.path, attachment: staged }
+    }
     const result = await ctx.deps
       .rpc()
       .uploadImage({ ...input, ...(machineId ? { machineId } : {}) })

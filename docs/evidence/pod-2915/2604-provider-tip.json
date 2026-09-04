@@ -1,0 +1,30 @@
+{
+  "issue": "POD-2604",
+  "arm": "tip",
+  "commit": "91114b3a420f963ba2f1e65d0173f20a4513813d",
+  "instance": "p2915",
+  "sessionId": "ea1945c2-240f-438e-9e27-b02b27020b54",
+  "title": "POD-2604 browser audit tip 1787793965869-bxdbqn",
+  "control": {
+    "fired": true,
+    "phase": "working"
+  },
+  "errored": {
+    "phase": "errored",
+    "error": {
+      "class": "usage_limit",
+      "retryable": false,
+      "detail": "API error (status 402 Payment Required): Grok Build usage balance exhausted POD2915-1787793965869-bxdbqn"
+    }
+  },
+  "verdict": "GONE",
+  "visibleProviderDetail": true,
+  "visibleRecovery": true,
+  "relevant": [
+    "error: Usage limit reached: API error (status 402 Payment Required): Grok Build usage balance exhausted POD2915-1787793965869-bxdbqn",
+    "SESSION BLOCKED",
+    "This session stopped because the provider usage limit was reached (usage_limit) — API error (status 402 Payment Required): Grok Build usage balance exhausted POD2915-1787793965869-bxdbqn.",
+    "Resume the session"
+  ],
+  "screenshot": "/tmp/pod-2915/provider-tip.png"
+}

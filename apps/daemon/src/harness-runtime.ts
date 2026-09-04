@@ -28,6 +28,7 @@ export class DaemonHarnessRuntime {
   private revision = 0
   private authoritative: Promise<ResolvedHarnessInventory>
   private authoritativeValue: ResolvedHarnessInventory | undefined
+  private authoritativePending = false
 
   constructor(private readonly options: HarnessRuntimeOptions = {}) {
     this.authoritative = this.install(this.build(this.generation), this.revision)
@@ -46,6 +47,13 @@ export class DaemonHarnessRuntime {
 
   /** Re-run version/login probes without starting another login shell. */
   reprobe(): Promise<ResolvedHarnessInventory> {
+    // Inventory is one Promise.all wave across every harness. A slow unrelated
+    // CLI can therefore keep the wave open until the next periodic/server
+    // request arrives. Superseding it here made reportInventory discard every
+    // completed wave as non-current, so the server retained its persisted old
+    // answer indefinitely. Join the live wave; the next tick can start a fresh
+    // one after this observation has had a chance to publish.
+    if (this.authoritativePending) return this.authoritative
     this.revision += 1
     const revision = this.revision
     const previous = this.authoritative
@@ -82,10 +90,15 @@ export class DaemonHarnessRuntime {
     pending: Promise<ResolvedHarnessInventory>,
     revision: number,
   ): Promise<ResolvedHarnessInventory> {
-    return pending.then((snapshot) => {
+    this.authoritativePending = true
+    const installed = pending.then((snapshot) => {
       if (this.revision === revision) this.authoritativeValue = snapshot
       return snapshot
     })
+    const tracked = installed.finally(() => {
+      if (this.authoritative === tracked) this.authoritativePending = false
+    })
+    return tracked
   }
 
   private async build(generation: number): Promise<ResolvedHarnessInventory> {

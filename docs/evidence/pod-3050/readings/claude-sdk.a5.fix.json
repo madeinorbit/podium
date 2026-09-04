@@ -1,0 +1,178 @@
+{
+  "cell": "A5",
+  "driver": "claude-sdk",
+  "arm": "fix",
+  "cwd": "/tmp/pod-3050/probes/claude-sdk-a5-fix",
+  "at": "2026-08-28T14:17:18.463Z",
+  "pin": {
+    "cell": "A5",
+    "arm": "fix",
+    "at": "2026-08-28T14:17:18.540Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3050-claude-sdk-tool-transcript",
+    "checkoutSha": "2bf997732d288ce35f3a849404968c5fb84b1cd3",
+    "productTreeClean": true,
+    "serverSha": "2bf997732d288ce35f3a849404968c5fb84b1cd3",
+    "daemonSha": "2bf997732d288ce35f3a849404968c5fb84b1cd3",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "2bf9977",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1381979",
+    "daemonPid": "1382521",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3050-claude-sdk-tool-transcript",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3050-claude-sdk-tool-transcript",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18648776 kB",
+      "SwapFree": "41106808 kB"
+    },
+    "rootFreeKiB": 83123928,
+    "load1m": 7.55,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3050/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "the tool call and its result are durable, paired on toolUseId, call first, and identical after a fresh reload",
+  "control": {
+    "fired": true,
+    "what": "the transcript fixture send delivering or a needle appearing",
+    "detail": "user=true; assistant=true; planeItems=4"
+  },
+  "evidence": [
+    "DRIVER            {\"sessionId\":\"ba8d4098-6751-4b27-8446-b23d393290cf\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-sdk\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblo",
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "USER              true",
+    "ASSISTANT         true",
+    "PLANE ITEMS       4",
+    "TOOL CALLS        [{\"id\":\"toolu_011Xg4QxzTAJoyZynU3b2LUm\",\"role\":\"tool\",\"ts\":\"2026-08-28T14:17:27.293Z\",\"text\":\"\",\"toolName\":\"Bash\",\"toolInput\":\"cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt\",\"toolTitle\":\"Read transcript fixture file\",\"toolUseId\":\"toolu_011Xg4QxzTAJoyZynU3b2LUm\"}]",
+    "TOOL RESULTS      [{\"id\":\"toolu_011Xg4QxzTAJoyZynU3b2LUm-result\",\"role\":\"tool\",\"ts\":\"2026-08-28T14:17:27.616Z\",\"text\":\"\",\"toolResult\":\"transcript fixture test marker P3050-A5-MARKER-MTD1CX9X\",\"toolUseId\":\"toolu_011Xg4QxzTAJoyZynU3b2LUm\"}]",
+    "JOINED PAIRS      1 (call-before-result=true)",
+    "RELOAD SAME       true",
+    "SESSIONS.READ     0 items before / 0 after (separate read path)"
+  ],
+  "data": {
+    "sid": "ba8d4098-6751-4b27-8446-b23d393290cf",
+    "marker": "P3050-A5-MARKER-MTD1CX9X",
+    "before": [
+      {
+        "id": "claude-sdk-user-ba8d4098-6751-4b27-8446-b23d393290cf-1",
+        "role": "user",
+        "ts": "2026-08-28T14:17:20.835Z",
+        "text": "Use your Bash tool to run cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt and then reply with only the test marker it contains."
+      },
+      {
+        "id": "toolu_011Xg4QxzTAJoyZynU3b2LUm",
+        "role": "tool",
+        "ts": "2026-08-28T14:17:27.293Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt",
+        "toolTitle": "Read transcript fixture file",
+        "toolUseId": "toolu_011Xg4QxzTAJoyZynU3b2LUm"
+      },
+      {
+        "id": "toolu_011Xg4QxzTAJoyZynU3b2LUm-result",
+        "role": "tool",
+        "ts": "2026-08-28T14:17:27.616Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3050-A5-MARKER-MTD1CX9X",
+        "toolUseId": "toolu_011Xg4QxzTAJoyZynU3b2LUm"
+      },
+      {
+        "id": "30ec18a4-f669-4d34-8e8a-3a172a704ca5",
+        "role": "assistant",
+        "ts": "2026-08-28T14:17:29.985Z",
+        "text": "P3050-A5-MARKER-MTD1CX9X"
+      }
+    ],
+    "after": [
+      {
+        "id": "claude-sdk-user-ba8d4098-6751-4b27-8446-b23d393290cf-1",
+        "role": "user",
+        "ts": "2026-08-28T14:17:20.835Z",
+        "text": "Use your Bash tool to run cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt and then reply with only the test marker it contains."
+      },
+      {
+        "id": "toolu_011Xg4QxzTAJoyZynU3b2LUm",
+        "role": "tool",
+        "ts": "2026-08-28T14:17:27.293Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt",
+        "toolTitle": "Read transcript fixture file",
+        "toolUseId": "toolu_011Xg4QxzTAJoyZynU3b2LUm"
+      },
+      {
+        "id": "toolu_011Xg4QxzTAJoyZynU3b2LUm-result",
+        "role": "tool",
+        "ts": "2026-08-28T14:17:27.616Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3050-A5-MARKER-MTD1CX9X",
+        "toolUseId": "toolu_011Xg4QxzTAJoyZynU3b2LUm"
+      },
+      {
+        "id": "30ec18a4-f669-4d34-8e8a-3a172a704ca5",
+        "role": "assistant",
+        "ts": "2026-08-28T14:17:29.985Z",
+        "text": "P3050-A5-MARKER-MTD1CX9X"
+      }
+    ],
+    "calls": [
+      {
+        "id": "toolu_011Xg4QxzTAJoyZynU3b2LUm",
+        "role": "tool",
+        "ts": "2026-08-28T14:17:27.293Z",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-3050/probes/claude-sdk-a5-fix/transcript-fixture.txt",
+        "toolTitle": "Read transcript fixture file",
+        "toolUseId": "toolu_011Xg4QxzTAJoyZynU3b2LUm"
+      }
+    ],
+    "results": [
+      {
+        "id": "toolu_011Xg4QxzTAJoyZynU3b2LUm-result",
+        "role": "tool",
+        "ts": "2026-08-28T14:17:27.616Z",
+        "text": "",
+        "toolResult": "transcript fixture test marker P3050-A5-MARKER-MTD1CX9X",
+        "toolUseId": "toolu_011Xg4QxzTAJoyZynU3b2LUm"
+      }
+    ],
+    "pairs": 1,
+    "callBeforeResult": true,
+    "sameHistory": true,
+    "sessionsRead": {
+      "before": [],
+      "after": []
+    }
+  }
+}

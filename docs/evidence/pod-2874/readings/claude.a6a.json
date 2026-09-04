@@ -1,0 +1,79 @@
+{
+  "cell": "A6A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a6a",
+  "at": "2026-08-26T12:03:24.254Z",
+  "pin": {
+    "cell": "A6A",
+    "at": "2026-08-26T12:03:24.300Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2253065",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5188176 kB",
+      "SwapFree": "36995084 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "keystrokes echoed, resize refit, and second viewer saw the same screen",
+  "control": {
+    "fired": true,
+    "what": "the first native viewer receiving an attached terminal stream",
+    "detail": "attached=1; screenBytes=5107"
+  },
+  "evidence": [
+    "MARKER            P2874-A6A-MTA1P4GC",
+    "FIRST SCREEN      true in 503ms",
+    "SECOND SCREEN     true in 0ms",
+    "GEOMETRY BEFORE   {\"cols\":80,\"rows\":24}",
+    "GEOMETRY AFTER    {\"cols\":100,\"rows\":30}",
+    "RESIZE BYTES      11310",
+    "SECOND REPLAY     true",
+    "SCREEN 1 TAIL     \"clonea\\nWhat'snew\\nAddedastartupwarningforBashallowrul\\nAddedanAutomodetabto`/permissions`f\\nOpus5(1Mcontext)ClaudeMaxAddedtheturn'scompletiontimetotheen\\nmike.wirth@gmail.com'sOrganization/release-notesformore\\n/tmp/pod-2874/probes/claude-a6a\\n2MCPserversneedauthenticationrun/mcp\\nP2874-A6A-MTA1P4GC\\nSlithering\\nautomodeon(shift+tabtocycle)esctointerruptforagentshigh/effort\\n*\\n]0; Claude Code\\n]0; Review session P2874-A6A-MTA1P4GCPonificating\\n Pontificating\\nautomodeon(shift+tabtocycle)esctointerruptforagentshigh/effort\\n*\\n]0; Review session P2874-A6A-MTA1P4GC\\nIhaveyoursessionID,butnoissueisboundandnothingisready.Whatwouldyouliketoworkon?Pontificating\\nautomodeon(shift+tabtocycle)esctointerruptforagentshigh/effort\\n(runningstophook2s9tokens)\\n]0; Review session P2874-A6A-MTA1P4GCCrunched for 2s for agents\"",
+    "SCREEN 2 TAIL     \"clonea\\nWhat'snew\\nAddedastartupwarningforBashallowrul\\nAddedanAutomodetabto`/permissions`f\\nOpus5(1Mcontext)ClaudeMaxAddedtheturn'scompletiontimetotheen\\nmike.wirth@gmail.com'sOrganization/release-notesformore\\n/tmp/pod-2874/probes/claude-a6a\\n2MCPserversneedauthenticationrun/mcp\\nP2874-A6A-MTA1P4GC\\nSlithering\\nautomodeon(shift+tabtocycle)esctointerruptforagentshigh/effort\\n*\\n]0; Claude Code\\n]0; Review session P2874-A6A-MTA1P4GCPonificating\\n Pontificating\\nautomodeon(shift+tabtocycle)esctointerruptforagentshigh/effort\\n*\\n]0; Review session P2874-A6A-MTA1P4GC\\nIhaveyoursessionID,butnoissueisboundandnothingisready.Whatwouldyouliketoworkon?Pontificating\\nautomodeon(shift+tabtocycle)esctointerruptforagentshigh/effort\\n(runningstophook2s9tokens)\\n]0; Review session P2874-A6A-MTA1P4GCCrunched for 2s for agents\""
+  ],
+  "data": {
+    "sid": "737664d5-e1c5-4923-a6a7-6bd68bb9bbec",
+    "marker": "P2874-A6A-MTA1P4GC",
+    "firstScreen": {
+      "ok": true,
+      "ms": 503
+    },
+    "secondScreen": {
+      "ok": true,
+      "ms": 0
+    },
+    "beforeGeometry": {
+      "cols": 80,
+      "rows": 24
+    },
+    "afterGeometry": {
+      "cols": 100,
+      "rows": 30
+    },
+    "geometryOk": true,
+    "resizeBytes": 11310
+  }
+}

@@ -31,6 +31,7 @@ import {
   asUserId,
   parseIssueDepId,
   parseIssueEventRowId,
+  parseInteractionRowId,
   parseLayoutRowId,
   parseReadPositionRowId,
   type IssueId,
@@ -226,7 +227,23 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
     )
   }
 
-  const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => ({
+  const makeVisibilityState = (prefetch?: BootstrapVisibilityPrefetch): VisibilityStatePort => {
+  /** MAY THIS PERSON SEE THIS SESSION — owner, or a read grant on it.
+   *
+   *  Extracted (POD-2020) because `pendingInteraction` answers the same question
+   *  about the session named in its row id, and two copies of a visibility rule
+   *  is one copy that eventually says yes when the other says no. The body is
+   *  the `session` arm's, unchanged, perf label included. */
+  const maySeeSession = (userId: string, sessionId: string): boolean => {
+    const row = readSession(asSessionId(sessionId), prefetch)
+    if (row?.ownerUserId === userId) return true
+    return measure('visibility.session.grants.listForResource', () =>
+      store.grants
+        .listForResource('session', sessionId)
+        .some((edge) => edge.grantee === userId && edge.verb === 'read'),
+    )
+  }
+  return {
     classOf: (entity) => {
       if (entity === 'repo') return 'deployment-substrate'
       // Per-user shell layout (POD-1350): never grantable; keyedUserOf owns the
@@ -246,6 +263,11 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         // own: it is readable by exactly the audience of the issue it is about,
         // which is what `personal` + `mayRead` already spells.
         entity === 'issueEvent' ||
+        // A blocking ask (POD-2020). `personal` and not a class of its own, the
+        // same argument as `issueEvent` one line up: an ask is readable by
+        // exactly the audience of the SESSION it blocks, which is what
+        // `personal` + `mayRead` already spells.
+        entity === 'pendingInteraction' ||
         entity === 'shipOrder' ||
         entity === 'conversation' ||
         entity === 'automation' ||
@@ -284,14 +306,21 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
           issueId !== null && mayReadIssue(asUserId(userId), asIssueId(issueId), prefetch)
         )
       }
+      if (ref.entity === 'pendingInteraction') {
+        // THE SUBJECT SESSION IS IN THE ID (POD-2020), so this needs no read of
+        // the interaction itself — which is what lets a `remove` be scoped after
+        // the row is gone, exactly like the `issueEvent` arm above.
+        let sessionId: string
+        try {
+          sessionId = parseInteractionRowId(ref.entityId).sessionId
+        } catch {
+          // An unparseable id is not a row anyone may read.
+          return false
+        }
+        return maySeeSession(userId, sessionId)
+      }
       if (ref.entity === 'session') {
-        const row = readSession(asSessionId(ref.entityId), prefetch)
-        if (row?.ownerUserId === userId) return true
-        return measure('visibility.session.grants.listForResource', () =>
-          store.grants
-            .listForResource('session', ref.entityId)
-            .some((edge) => edge.grantee === userId && edge.verb === 'read'),
-        )
+        return maySeeSession(userId, ref.entityId)
       }
       if (ref.entity === 'conversation') {
         // BY QUERY, NEVER BY SCAN (POD-1614). This arm is evaluated once per
@@ -412,7 +441,8 @@ export function makeFeedVisibility(deps: FeedVisibilityDeps): FeedVisibility {
         sessionsByResumeValue,
       })
     },
-  })
+  }
+  }
 
   let readCache: BootstrapReadCache | undefined
   const currentBootstrapReadCache = (): BootstrapReadCache => {

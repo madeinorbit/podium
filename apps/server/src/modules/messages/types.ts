@@ -13,6 +13,7 @@
  */
 
 import type { Attribution, IssueId, SessionId, ThreadId } from '@podium/model'
+import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type {
   IssueMessageRow,
   MessageKind,
@@ -58,6 +59,8 @@ export type MessageSender = MessageSenderIdentity & {
 export interface MessageSendInput {
   to: { kind: 'issue' | 'session' | 'operator'; id?: string }
   body: string
+  /** Staged machine-local refs, never paths spliced into the human's prose. */
+  attachments?: readonly RuntimeAttachmentRef[]
   /** Internal id supplied by session chat; public mail inputs cannot set it. */
   correlationId?: string
   kind?: MessageKind
@@ -74,12 +77,20 @@ export interface MessageSendInput {
   notificationFact?: { factKey: string; target: string }
 }
 
+/** Internal delivery option used by the blocking caller. Legacy callers keep
+ * the optimistic send path; contract-backed callers opt into waiting for the
+ * driver's already-existing receipt. */
+export interface MessageSendOptions {
+  awaitReceipt?: boolean
+}
+
 export interface MessageSendResult {
   message: MessageRow
   /** sendText/queueText-compatible outcome (existing CLI/tool wire shapes). */
   ok: boolean
   queued?: boolean
   reason?: string
+  position?: number
   /** The honest, sender-facing outcome [POD-834]: what happened to the message,
    *  so `held` and `dead_letter` are never a silent success. */
   disposition: SendDisposition
@@ -87,3 +98,21 @@ export interface MessageSendResult {
    *  mail inbox/claim/pending working until those readers migrate. */
   legacy?: IssueMessageRow
 }
+
+/**
+ * The agent identity the built-in superagent sends mail under (POD-2838).
+ *
+ * IT IS NOT A SESSION ID, and everything downstream has to know that. The
+ * superagent is an in-process server job with no transport row, so the
+ * capability minted for it carries this literal where a delegated agent would
+ * carry its own `SessionId`. A reader that assumes "agent principal ⇒ resolvable
+ * session" is wrong here, and `SessionAuthz.authorizeQueuedInputAtApply` used to
+ * be exactly that reader: it fed this string to `capabilityForSession`, got back
+ * the empty capability an unknown session produces, and threw out of the drain
+ * tick instead of returning a verdict.
+ *
+ * Named here rather than spelled at each site so the identity and the code that
+ * has to recognise it cannot drift apart. `types.ts` is the leaf vocabulary
+ * module by design — importing it does not pull the delivery service in.
+ */
+export const SUPERAGENT_AGENT_IDENTITY = 'superagent'

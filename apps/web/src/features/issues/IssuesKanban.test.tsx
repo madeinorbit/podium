@@ -11,11 +11,6 @@ import { ISSUE_VIRTUAL_MAX_ITEMS } from './use-bounded-virtual-list'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 
-vi.mock('@/app/store', () => ({
-  useStoreSelector: (selector: (store: { sessions: never[] }) => unknown) =>
-    selector({ sessions: [] }),
-}))
-
 const STAGES: IssueStage[] = ['proposed', 'backlog', 'planning', 'in_progress', 'review', 'done']
 
 const issue = (id: string, stage: IssueStage, seq = 1) =>
@@ -36,6 +31,8 @@ function boardProps(over: Partial<IssuesKanbanProps> = {}): IssuesKanbanProps {
       issues: allIssues.filter((candidate) => candidate.stage === stage),
     })),
     allIssues,
+    sessions: [],
+    now: Date.parse('2026-08-01T12:00:00.000Z'),
     badges: DEFAULT_DISPLAY.badges,
     ordering: 'priority',
     stageCounts: new Map(),

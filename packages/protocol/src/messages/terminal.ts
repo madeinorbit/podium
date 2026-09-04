@@ -3,6 +3,7 @@ import {
   Attribution,
   DelegationScope,
   Geometry,
+  GeometryState,
   HarnessAgent,
   IssueIdField,
   MachineIdField,
@@ -80,6 +81,12 @@ export const CAP_SYNC_FEED_IDENTITY = 'syncFeedIdentity'
  *  two unconditionally emitted collections the client consumes.
  */
 export const CAP_ISSUES_NORMALIZED = 'issuesNormalized'
+/** Client capability: this connection accepts v1 binary PTY output envelopes.
+ * Missing capability data is the legacy JSON/base64 output contract. */
+export const CAP_TERMINAL_OUTPUT_BINARY_V1 = 'terminal.output.binary.v1'
+/** Client capability: this connection sends v1 binary PTY input envelopes. */
+export const CAP_TERMINAL_INPUT_BINARY_V1 = 'terminal.input.binary.v1'
+
 export const HelloMessage = z.object({
   type: z.literal('hello'),
   clientId: z.string(),
@@ -171,6 +178,37 @@ export const RequestControlMessage = z.object({
    */
   geometry: Geometry.optional(),
 })
+/**
+ * THE ONE MESSAGE A VIEWER SENDS ABOUT SIZE (MODEL rule 3).
+ *
+ * A viewer measures its box to decide whether to ASK, never to decide what to
+ * render — so this frame carries the box it would like, the visibility and mode
+ * the sender believes it is in, and whether the ask also claims control. The
+ * server applies the geometry only if it differs from W; the daemon's report is
+ * what actually moves W.
+ *
+ * `seq` is per (connection, session), starts at 1 and only increases. The
+ * server holds the watermark on the `ClientConn`, so it dies with the socket and
+ * a reconnected client starts again at 1. A request at or below the watermark is
+ * a duplicate: counted, never re-applied.
+ */
+export const ViewportRequestMessage = z.object({
+  type: z.literal('viewportRequest'),
+  sessionId: SessionIdField,
+  /** The box this viewer would like the pty to be. */
+  geometry: Geometry,
+  /** Whether the sender is rendering this session right now. Read FROM THE
+   *  MESSAGE rather than from stored `viewState`, so a request that overtakes
+   *  its own `viewState` frame is still judged on the truth it carries. */
+  visible: z.boolean(),
+  /** Which surface is rendering it — the native terminal, or chat. */
+  mode: z.enum(['native', 'chat']),
+  /** Whether this ask also claims control (desktop reveal/reconnect: true). */
+  claimControl: z.boolean(),
+  seq: positiveInt,
+})
+export type ViewportRequestMessage = z.infer<typeof ViewportRequestMessage>
+
 export const RedrawRequestMessage = z.object({
   type: z.literal('redrawRequest'),
   sessionId: SessionIdField,
@@ -236,13 +274,24 @@ export const DraftTargetMessage = z.object({
 export type DraftTargetMessage = z.infer<typeof DraftTargetMessage>
 
 // ---- Server -> browser client: terminal control frames ----
-export const WelcomeMessage = z.object({ type: z.literal('welcome'), clientId: z.string() })
+export const WelcomeMessage = z.object({
+  type: z.literal('welcome'),
+  clientId: z.string(),
+  /** Capabilities negotiated for this connection. Absent from older servers. */
+  caps: z.array(z.string()).optional(),
+})
 export const AttachedMessage = z.object({
   type: z.literal('attached'),
   sessionId: SessionIdField,
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
+  /** Monotonic per-session revision for authoritative geometry. Optional so
+   * older peers remain wire-compatible during the additive rollout. */
+  geometryRevision: z.number().int().nonnegative().optional(),
+  /** What `geometry` is worth (MODEL rule 6). Absent from an older server,
+   *  which a client reads as `unknown` — which is what it is. */
+  geometryState: GeometryState.optional(),
   epoch: z.number().int().nonnegative(),
   // True when the following frames are an incremental catch-up from the client's
   // `sinceSeq` cursor: the client keeps its screen and appends. Absent/false = a
@@ -261,7 +310,8 @@ export const AttachedMessage = z.object({
 export const TerminalOutcomeMessage = z.object({
   type: z.literal('terminalOutcome'),
   sessionId: SessionIdField,
-  outcome: z.enum(['unauthorized', 'unreachable']),
+  outcome: z.enum(['unauthorized', 'unreachable', 'unsupported']),
+  detail: z.string().min(1).optional(),
 })
 export type TerminalOutcomeMessage = z.infer<typeof TerminalOutcomeMessage>
 
@@ -278,18 +328,25 @@ export const ControllerChangedMessage = z.object({
   controllerId: z.string().nullable(),
   controllerIdentity: PresenceIdentity.nullable().optional(),
   geometry: Geometry,
+  /** Monotonic per-session revision for authoritative geometry. */
+  geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Server's authoritative PTY size, per session — lets spectators letterbox.
 export const GeometryMessage = z.object({
   type: z.literal('geometry'),
   sessionId: SessionIdField,
   ...Geometry.shape,
+  /** Monotonic per-session revision for authoritative geometry. */
+  geometryRevision: z.number().int().nonnegative().optional(),
 })
 // Shared in both directions: daemon -> server AND server -> client (identical shape).
 export const AgentExitMessage = z.object({
   type: z.literal('agentExit'),
   sessionId: SessionIdField,
   code: z.number().int(),
+  /** Runtime observer generation that owned this process. Additive because
+   * terminal/legacy bridges do not have a causal runtime envelope. */
+  observerGeneration: z.number().int().positive().optional(),
 })
 
 // ---- Daemon <-> server: spawn/reattach/kill + PTY relay ----
@@ -376,6 +433,33 @@ export type SessionBindingAdoptLaunchInstruction = z.infer<
   typeof SessionBindingAdoptLaunchInstruction
 >
 
+/**
+ * HOW A SPAWN ASKS TO BE DRIVEN THROUGH THE CONTRACT (POD-1761 W3, widened by W5).
+ *
+ * `true` — drive this session through the contract with whatever driver the
+ * harness manifest's `select()` policy picks, which today means the terminal
+ * one for every harness. This is W3's meaning, unchanged.
+ *
+ * A DRIVER ID — drive it through the contract with THAT driver specifically.
+ * This is the operator's explicit per-spawn override (spec §9 phase 3): it is
+ * how one session runs on `opencode-server` while every other session on the
+ * same daemon stays terminal, and it is why the default needs no change at all.
+ *
+ * WIDENED RATHER THAN JOINED BY A SECOND FIELD, deliberately. The two would
+ * always have to be read together — "contract on, and also this driver" — and a
+ * pair of independently-optional fields has a fourth state ("a driver, but the
+ * contract off") that means nothing and that every reader would have to decide
+ * about separately.
+ *
+ * TYPED AS A BARE STRING HERE, and validated at the daemon. `DriverId` is
+ * defined in `@podium/harness`, which sits ABOVE this package — the same
+ * direction that keeps the driver taxonomy out of the `runtime` message family.
+ * An unknown id is refused where the driver registry is, which is the only place
+ * that can tell a typo from a driver this build does not ship.
+ */
+export const RuntimeContractRequest = z.union([z.boolean(), z.string().min(1)])
+export type RuntimeContractRequest = z.infer<typeof RuntimeContractRequest>
+
 export const SpawnMessage = z.object({
   type: z.literal('spawn'),
   sessionId: SessionIdField,
@@ -431,6 +515,18 @@ export const SpawnMessage = z.object({
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
+   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
+   * builds a driver handle beside the existing bridge and answers `runtime*`
+   * frames for it. Absent/false = the legacy path only, byte for byte.
+   *
+   * PER-SPAWN as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
+   * session can be flagged without flipping a machine: the daemon takes the OR
+   * of the two, which is what lets the e2e lane prove the flag-on path while
+   * every other session on the same daemon stays on the legacy one.
+   */
+  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const ReattachMessage = z.object({
   type: z.literal('reattach'),
@@ -438,7 +534,18 @@ export const ReattachMessage = z.object({
   durableLabel: z.string(),
   agentKind: AgentKind,
   cwd: z.string(),
-  geometry: Geometry,
+  /**
+   * THE SERVER'S LAST-KNOWN GRID, AND A HINT ONLY (POD-3279).
+   *
+   * NAMED FOR WHAT IT IS so the misuse cannot come back unnoticed. This is what
+   * the server last KNEW W to be, not a size anything applied — after a daemon
+   * restart the pty has been running at a size of its own all along. So it feeds
+   * the daemon's HEADLESS screens (the composer engine and the screen observers
+   * need some cols x rows to parse output against) and nothing else: it never
+   * reaches the pty (the reattach's abduco attach is size-neutral) and it is
+   * never echoed back on `bind`, which reports only what the daemon applied.
+   */
+  lastKnownGeometry: Geometry,
   /** Live machine-use verdict and retry identity for this reattach. */
   binding: SessionBindingReattachInstruction.optional(),
   // Lets the daemon classify the live transcript when seeding a survivor's state
@@ -456,6 +563,9 @@ export const ReattachMessage = z.object({
   // Draft Sync v2 (POD-859): as SpawnMessage.draftSync — the daemon runs its
   // composer engine for this reattached session only when true.
   draftSync: z.boolean().optional(),
+  /** Prior daemon-reported server preference (manifest or machine) that
+   * degraded for this live session. Echoed on reattach so reconnect preserves it. */
+  requestedDriverId: z.string().min(1).optional(),
   /** Durable server-issued observer lease fence [spec:SP-cdb2]. */
   observationGeneration: z.number().int().positive().optional(),
   /** Version of the exact provider binding carried by this lease. */
@@ -469,6 +579,18 @@ export const ReattachMessage = z.object({
   /** Last durably accepted causal checkpoint. Optional for mixed-version
    * control messages; the daemon validates it with the canonical v1 schema. */
   observationCheckpoint: z.unknown().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, per session (POD-1761 W3). When true this session is
+   * ALSO driven through `@podium/agent-runtime`'s `RuntimeDriver` — the daemon
+   * builds a driver handle beside the existing bridge and answers `runtime*`
+   * frames for it. Absent/false = the legacy path only, byte for byte.
+   *
+   * PER-SESSION as well as per-daemon (`PODIUM_RUNTIME_CONTRACT=1`) so a single
+   * session can be flagged without flipping a machine: the daemon takes the OR
+   * of the two, which is what lets the e2e lane prove the flag-on path while
+   * every other session on the same daemon stays on the legacy one.
+   */
+  runtimeContract: RuntimeContractRequest.optional(),
 })
 export const KillMessage = z.object({
   type: z.literal('kill'),
@@ -485,26 +607,168 @@ export const SessionBindingRetireMessage = z.object({
   durableLabel: z.string().optional(),
 })
 // Server→daemon: relay priority for one session (0=focused,1=visible,2=attached,
-// 3=unwatched). Drives the daemon's output scheduler.
+// 3=unwatched), plus whether any visible client is rendering its native surface.
+// The latter activates an on-demand harness TUI for server-family sessions.
 export const SessionPriorityMessage = z.object({
   type: z.literal('sessionPriority'),
   sessionId: SessionIdField,
   priority: z.number().int().min(0).max(3),
+  nativeView: z.boolean().optional(),
 })
-export const RedrawMessage = z.object({ type: z.literal('redraw'), sessionId: SessionIdField })
+export const RedrawMessage = z.object({
+  type: z.literal('redraw'),
+  sessionId: SessionIdField,
+  /** The server has no retained bytes for the attaching page, so the runtime
+   *  must produce a repaint even when its client terminal survived adoption. */
+  replayRequired: z.boolean().optional(),
+})
 
 // daemon -> server
+/**
+ * THE DRIVER THIS DAEMON HAS DECIDED TO USE, SENT BEFORE IT LAUNCHES ANYTHING
+ * (POD-2290).
+ *
+ * `bind` already reports the driver — but `bind` is the frame that marks a
+ * session LIVE, so it cannot arrive until the harness is up. Measured on the
+ * POD-2290 drive instance: an `opencode` session sat `starting` with no driver
+ * fact for TWELVE SECONDS while `opencode serve` booted. Twelve seconds is not
+ * a paint glitch; it is long enough for the operator to open the session, read
+ * the wrong pane, and watch it change under them.
+ *
+ * That window is not information the clients lack — it is information nobody
+ * SENT. The daemon knows which driver it will use the moment
+ * `resolveRuntimeDriver` answers, which is before the probe's subject is even
+ * started. This frame carries that decision at that moment.
+ *
+ * A DECISION, NOT A PREDICTION. It is emitted after the policy has run against
+ * this machine's real probe and login state, so it is what the daemon WILL do,
+ * not what the manifest would prefer. `bind` still reports the bound driver
+ * afterwards and still wins: a launch that fails and falls back must not be
+ * described by the plan it abandoned.
+ */
+export const DriverSelectedMessage = z.object({
+  type: z.literal('driverSelected'),
+  sessionId: SessionIdField,
+  driverId: z.string().min(1),
+})
+/** Daemon capability, advertised in its `hello`: this daemon reports the grid it
+ *  APPLIED (`geometryApplied`) after every resize it dispatches. A server talking
+ *  to a daemon without it keeps the old set-on-request behaviour for that
+ *  session, because nothing else would ever write W. */
+export const CAP_DAEMON_GEOMETRY_APPLIED = 'geometryApplied'
+
+/**
+ * THE ONLY WRITER OF W, besides the bind report (MODEL rule 5).
+ *
+ * The daemon flushes that session's held output, dispatches the resize, and
+ * emits this before yielding — so a viewer learns the new grid ahead of any
+ * output the daemon was still holding at the old one. Honest label: DISPATCHED
+ * to the attach pty. For an abduco session the master applies it a beat later
+ * and may forward already-read old bytes after doing so; that transient is one
+ * SIGWINCH propagation plus one repaint, and is what every terminal shows during
+ * a resize (see MODEL.md "Accepted residuals").
+ *
+ * No request id: reports for one session travel in order on one channel, so
+ * last-report-wins is the whole ordering rule.
+ */
+export const GeometryAppliedMessage = z.object({
+  type: z.literal('geometryApplied'),
+  sessionId: SessionIdField,
+  geometry: Geometry,
+  /**
+   * What caused the apply. ONE MEMBER ON PURPOSE: a viewer's request is the only
+   * thing that produces this frame. The other report — birth and reattach —
+   * travels on `bind`, which carries a geometry when the daemon applied one, so
+   * a `cause: 'bind'` here would be a second name for a frame that exists and a
+   * wire value nothing sends.
+   */
+  cause: z.enum(['request']),
+})
+export type GeometryAppliedMessage = z.infer<typeof GeometryAppliedMessage>
+
 export const BindMessage = z.object({
   type: z.literal('bind'),
   sessionId: SessionIdField,
   cmd: z.string(),
   cwd: z.string(),
   agentKind: AgentKind,
-  geometry: Geometry,
+  /**
+   * THE GRID THE DAEMON APPLIED, AND ONLY THEN (MODEL rule 1, POD-3279).
+   *
+   * Present when this daemon actually put the pty at a size as part of this
+   * bind: at birth the spawn's requested geometry (the first attach's packet
+   * moves the child to it), and at a reattach the resize it was holding and
+   * dispatched before binding, if there was one.
+   *
+   * ABSENT MEANS "attached; applied nothing; W is unknown to me" — the ordinary
+   * reattach, where the attach is size-neutral and the agent has been running at
+   * a size of its own. The server keeps W at last-known and marks it `unknown`
+   * until the first viewer asks; it does NOT announce a geometry, because
+   * repeating its own last-known back to itself as news is the echo this field
+   * became optional to remove.
+   *
+   * Older daemons always send it. Their echo still reads as a report, which is
+   * the behaviour that shipped before this and so is not a regression.
+   */
+  geometry: Geometry.optional(),
   // Draft Sync v2 (POD-859): true when the daemon runs its composer scrape/inject
   // engine for this session. Surfaced in SessionMeta so a client retires its own
   // sampler/flush. Additive; older daemons omit it (no engine).
   draftSyncEngine: z.boolean().optional(),
+  /**
+   * AGENT RUNTIME CONTRACT, REPORTED BY THE PARTY THAT DECIDED IT (POD-1761 W4).
+   *
+   * True when the daemon actually built a driver handle for this session — i.e.
+   * `bindRuntimeContract` registered it. The server cannot compute this itself:
+   * the daemon takes the OR of a machine-wide env var it owns and the per-spawn
+   * field, and it declines the flag for profileless harnesses (a shell has no
+   * turns to be honest about). A server that inferred the answer from the field
+   * it sent would be wrong in both directions — flagged-by-env sessions it never
+   * asked for, and asked-for sessions the daemon refused.
+   *
+   * This is what W4's migrated senders branch on: a receipt only exists for a
+   * session with a driver behind it, so the branch has to key on the driver, not
+   * on an intent. Additive; older daemons omit it (legacy path only).
+   */
+  runtimeContract: z.boolean().optional(),
+  /**
+   * The runtime driver this daemon actually bound, reported from the live
+   * handle's binding rather than inferred from the spawn request. Absent means
+   * either an older daemon or a legacy session with no runtime handle.
+   */
+  driverId: z.string().min(1).optional(),
+  /** Manifest-default or machine-wide server preference that degraded to
+   * `driverId`. Per-spawn server preferences refuse instead. */
+  requestedDriverId: z.string().min(1).optional(),
+  /**
+   * WHAT THIS SESSION'S DRIVER CAN CHANGE ON A RUNNING SESSION (POD-3087) —
+   * the `configure.fields` its capabilities declare, carried so a CLIENT can
+   * decide whether to offer a model or effort control.
+   *
+   * IT CANNOT BE DERIVED FROM `driverId` ON THE FAR SIDE, and that is the whole
+   * reason it is on the wire. The server and the web client would each need
+   * their own copy of every driver's capability declaration to answer it, which
+   * is the drift pair this axis has already been burned by once. The daemon has
+   * the live driver; it answers, and nobody downstream guesses.
+   *
+   * NOR FROM `driverFamily`, the nearest fact already published, which is too
+   * coarse in a way that matters: `grok-acp` is family `server` and declares
+   * `configure` for `permissionMode` ALONE — it sends no model on `session/new`
+   * or `session/prompt`, so a model change has nothing to change there. Gating a
+   * picker on the family offers it on a session that can only refuse.
+   *
+   * APPENDED AT THE END, like every additive field before it: the golden wire
+   * corpus samples this frame, and a member added last leaves the existing
+   * samples byte-identical.
+   *
+   * ABSENT vs EMPTY, and the difference is real. Absent = an older daemon that
+   * does not report this, and a client must fall back to its previous behaviour
+   * rather than concluding "cannot". EMPTY = a daemon that DID report, and the
+   * answer is that this driver changes nothing — a TUI, whose model is an argv
+   * fact. Only the second licenses hiding the control.
+   */
+  configureFields: z.array(z.string().min(1)).optional(),
+  attachKinds: z.array(z.enum(['engine', 'client'])).optional(),
 })
 export const AgentFrameMessage = z.object({
   type: z.literal('agentFrame'),

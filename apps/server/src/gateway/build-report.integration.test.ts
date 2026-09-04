@@ -5,6 +5,7 @@ import { asMachineId } from '@podium/model'
 import { createHandshakeDialer, type PeerBuild } from '@podium/protocol'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
+import { noJanitorWorkerForTests } from '../janitor-host'
 import {
   machineCanTakeDelivery,
   machineCanTakeTargetPlatform,
@@ -23,7 +24,7 @@ describe('machine build report over a live daemon socket', () => {
     stateDir = mkdtempSync(join(tmpdir(), 'podium-build-report-'))
     process.env.PODIUM_STATE_DIR = stateDir
     process.env.PODIUM_APP_VERSION = '0.4.2'
-    server = await startServer({ port: 0 })
+    server = await startServer({ janitorWorkerForTests: noJanitorWorkerForTests, port: 0 })
     server.registry.modules.updates.setTarget('stable', {
       version: '0.4.2',
       critical: false,

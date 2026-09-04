@@ -1,0 +1,224 @@
+{
+  "harness": "codex",
+  "arm": "headless",
+  "driverId": "codex-app-server",
+  "driverFamily": "server",
+  "pin": {
+    "want": "15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f",
+    "short": "15e5afe",
+    "spawnedSha": "15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f",
+    "serverPid": 2461863,
+    "daemonPid": 2461938,
+    "webSourceSha": "15e5afe",
+    "contract": "1",
+    "streaming": "1",
+    "driver": ""
+  },
+  "at": "2026-08-28T19:20:30.825Z",
+  "partial": [
+    "stream",
+    "interrupt"
+  ],
+  "results": [
+    {
+      "id": "reply",
+      "title": "send a turn, get a reply",
+      "catalogRow": "§1 send opens a turn, reports the delivery actually used (pinned)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "stop",
+      "title": "stop (the session — the turn-scoped stop is absent from the contract)",
+      "catalogRow": "§1 stop a turn distinctly from interrupting (ABSENT); §10 a stop that is verified rather than assumed (absent)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "resume",
+      "title": "resume after a kill",
+      "catalogRow": "§4 resume() brings the CONVERSATION back, not just the ref (proven)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "attach",
+      "title": "attach a file",
+      "catalogRow": "§5 promptForm declared — both halves or unsupported (DECLARED on all four)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "interaction",
+      "title": "a pending interaction (permission / approval)",
+      "catalogRow": "§3 permission / approval ask (WIRED — `approval` is in the refusal vocabulary, no conformance property)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "provider-error",
+      "title": "a provider error surfaced honestly",
+      "catalogRow": "§6 provider overloaded / rate limit (pinned in the drivers; product surfacing is POD-2604)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "model-switch",
+      "title": "model / effort switch",
+      "catalogRow": "§7 switch model / switch effort (DECLARED — no conformance property, no product caller)",
+      "control": {
+        "fired": false,
+        "what": "the session binding the driver this arm claims (codex-app-server)",
+        "detail": "bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      },
+      "ms": 0,
+      "verdict": "REFUSED",
+      "summary": "the arm did not bind the driver it claims — nothing here measures what it says",
+      "evidence": [
+        "REFUSED           bound 'generic-pty' (family terminal) instead — a missing credential in the isolated agent home, or an arm claiming a driver this harness does not use"
+      ],
+      "data": {},
+      "pin": "fe7c0b4",
+      "at": "2026-08-28T19:16:00.660Z"
+    },
+    {
+      "id": "stream",
+      "title": "streaming deltas actually arrive",
+      "catalogRow": "§2 first turn a viewer joins streams (codex proven; grok/opencode wired)",
+      "control": {
+        "fired": true,
+        "what": "transcriptDelta — the DURABLE plane, on the same socket and the same subscription",
+        "detail": "2 frame(s), first at +1ms"
+      },
+      "ms": 2,
+      "verdict": "PASS",
+      "summary": "212 preview frames, 1201→6506 chars, monotonic per row",
+      "evidence": [
+        "JOINED            8789ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)",
+        "PHASE AT JOIN     working — a turn was in flight when the viewer arrived",
+        "PREVIEW FRAMES    212",
+        "FIRST             +2ms  epoch=1 seq=312 rows=1 chars=1201",
+        "LAST              +22522ms  epoch=1 seq=1563 rows=1 chars=6506",
+        "GROWTH            211/211 transitions increased the visible character count",
+        "MONOTONIC/ROW     YES — no row ever shrank",
+        "FINE WATCH        ACQUIRED — the daemon moved the driver's fine refcount for this session",
+        "FRAME TYPES       turnPreview=212 hostMetricsChanged=6 machinesChanged=5 transcriptDelta=2 welcome=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 sessionAgentStateChanged=1"
+      ],
+      "data": {
+        "previewFrames": 212,
+        "firstChars": 1201,
+        "lastChars": 6506,
+        "grew": 211,
+        "shrinks": 0,
+        "joinedMs": 8789
+      },
+      "pin": "15e5afe",
+      "at": "2026-08-28T19:20:30.823Z"
+    },
+    {
+      "id": "interrupt",
+      "title": "interrupt a running turn",
+      "catalogRow": "§1 interrupt a running turn (WIRED — declared capability, no conformance property)",
+      "control": {
+        "fired": true,
+        "what": "the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
+        "detail": "1 preview frame(s) and 6506 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6506 new transcript chars, 0 new terminal bytes"
+      },
+      "ms": 13200,
+      "verdict": "PASS",
+      "summary": "turn stopped 525ms after interrupt, but nothing marks it",
+      "evidence": [
+        "WAS RUNNING       1 preview frame(s) and 6506 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6506 new transcript chars, 0 new terminal bytes",
+        "INTERRUPT SENT    {\"ok\":true,\"requested\":\"protocol\"}",
+        "SETTLED           phase left 'working' after 525ms",
+        "TRANSCRIPT MARK   no item carries event:'interrupt'",
+        "TEXT              6506 chars at the call -> 6506 chars at settle",
+        "FRAMES AFTER      0 preview frame(s) arrived AFTER the call",
+        "TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s",
+        "AFTER THE CALL    phase=idle status=live error=none",
+        "SCORED ON         phase leaving 'working'"
+      ],
+      "data": {
+        "settledMs": 525,
+        "marked": false,
+        "charsBefore": 6506,
+        "charsAfter": 6506,
+        "framesAfterInterrupt": 0
+      },
+      "pin": "15e5afe",
+      "at": "2026-08-28T19:20:30.823Z"
+    }
+  ]
+}

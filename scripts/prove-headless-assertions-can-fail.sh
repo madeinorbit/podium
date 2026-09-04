@@ -33,8 +33,10 @@ done
 
 bun scripts/abduco-cross.ts >/dev/null || { echo "ABORT: could not build the reference abduco helpers" >&2; exit 1; }
 HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
-DARWIN_REF="$ROOT/dist-bun/abduco-cache/darwin-aarch64-$HASH"
-LINUX_REF="$ROOT/dist-bun/abduco-cache/linux-x86_64-$HASH"
+# Ask the builder where it put them; the cache is durable and outside the checkout.
+ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
+DARWIN_REF="$ABDUCO_CACHE/darwin-aarch64-$HASH"
+LINUX_REF="$ABDUCO_CACHE/linux-x86_64-$HASH"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/podium-negctl-XXXXXX")"
 # When a case fails, the first question is always "what was actually in that tarball?".
@@ -388,7 +390,6 @@ bundle_hash = 'AbCdEf12'
 stamp = {
     'wireSchemaDigest': '0123456789abcdef',
     'wireVersion': 1,
-    'builtAt': '2026-08-21T00:00:00.000Z',
     'appVersion': version,
     'sourceSha': source_commit,
     'bundleVersion': f'bundle+{bundle_hash}',
@@ -399,9 +400,10 @@ for path in sorted(site.rglob('*')):
     if path.is_file() and path.name != 'podium-build-manifest.json':
         files[path.relative_to(site).as_posix()] = hashlib.sha256(path.read_bytes()).hexdigest()
 (site / 'podium-build-manifest.json').write_text(json.dumps({
-    'manifestVersion': 1,
+    'manifestVersion': 2,
     'sourceCommit': source_commit,
     'buildStamp': stamp,
+    'fileCount': len(files),
     'files': files,
 }) + '\n')
 PY
@@ -414,6 +416,82 @@ check_release_capture "padded forged web stub with matching forged manifest" \
 edit_nomanifest() { rm -f "$CASE/headless/web/podium-build-manifest.json"; }
 check "web build provenance manifest removed" "has no build provenance manifest" \
   darwin-aarch64 "$DARWIN_REF" "$(mutate nomanifest edit_nomanifest)"
+
+# 13d. SUCCESSOR TO THE NONCE CASES (POD-3052). The per-run invocation nonce is gone;
+#      what stands in its place is the checksum. One flipped byte in an asset the
+#      manifest already hashed must be named by the gate, file and all.
+edit_flipped_asset() {
+  python3 - "$CASE/headless/web" <<'MUT'
+import sys
+from pathlib import Path
+
+site = Path(sys.argv[1])
+victim = next(p for p in sorted(site.rglob('assets/*')) if p.is_file())
+raw = bytearray(victim.read_bytes())
+raw[0] ^= 0x01
+victim.write_bytes(bytes(raw))
+MUT
+}
+check "one byte flipped in a manifested web asset" "build provenance hash mismatch for assets/" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate flippedasset edit_flipped_asset)"
+
+# 13e. fileCount is the inventory floor's input. A manifest that disagrees with its own
+#      inventory is refused before any floor is applied.
+edit_bad_filecount() {
+  python3 - "$CASE/headless/web/podium-build-manifest.json" <<'MUT'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest['fileCount'] = len(manifest['files']) + 1
+path.write_text(json.dumps(manifest) + '\n')
+MUT
+}
+check "manifest fileCount disagrees with its inventory" "fileCount" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate badcount edit_bad_filecount)"
+
+# 13f. A manifest from before the v2 inventory must not be read as one.
+edit_v1_manifest() {
+  python3 - "$CASE/headless/web/podium-build-manifest.json" <<'MUT'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+manifest = json.loads(path.read_text())
+manifest['manifestVersion'] = 1
+path.write_text(json.dumps(manifest) + '\n')
+MUT
+}
+check "legacy v1 build provenance manifest" "unsupported build provenance manifestVersion" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate v1manifest edit_v1_manifest)"
+
+# 13g. A stamp carrying a per-run builtAt is not a reproducible dist, whatever else
+#      agrees. The manifest is re-hashed so the mutation is caught for THIS reason and
+#      not as a hash mismatch.
+edit_builtat_stamp() {
+  python3 - "$CASE/headless/web" <<'MUT'
+import hashlib
+import json
+import sys
+from pathlib import Path
+
+site = Path(sys.argv[1])
+stamp_path = site / 'podium-build.json'
+stamp = json.loads(stamp_path.read_text())
+stamp['builtAt'] = '2026-08-21T00:00:00.000Z'
+stamp_path.write_text(json.dumps(stamp, indent=2) + '\n')
+manifest_path = site / 'podium-build-manifest.json'
+manifest = json.loads(manifest_path.read_text())
+manifest['buildStamp'] = stamp
+manifest['files']['podium-build.json'] = hashlib.sha256(stamp_path.read_bytes()).hexdigest()
+manifest_path.write_text(json.dumps(manifest, indent=2) + '\n')
+MUT
+}
+check "stamp carries a per-run builtAt" "not reproducible" \
+  darwin-aarch64 "$DARWIN_REF" "$(mutate builtat edit_builtat_stamp)"
 
 # 14. NOTICE absent — Apache-2.0 convention, packed by build-bun.ts with LICENSE.
 edit_nonotice() { rm -f "$CASE/headless/NOTICE"; }

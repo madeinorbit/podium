@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
-import { AccessibilityInfo, Platform, StyleSheet, Text } from 'react-native'
+import { Platform, StyleSheet, Text } from 'react-native'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { ASCII_COVERAGE } from './podium-ascii'
 
 /**
  * The PODIUM wordmark as ASCII — the SAME effect as the web login/loader
  * (apps/web LoginGate + AsciiLoader): the precomputed 96×22 coverage grid is
- * mapped onto a density ramp; the idle shimmer only remaps characters, and the
- * loader variant reveals cells in random order with a brief sparkle first.
- * Honors reduced motion by rendering one static frame.
+ * mapped onto a density ramp. The loader variant reveals cells in random order
+ * with a brief sparkle, then settles. Idle wordmarks stay still, and reduced
+ * motion renders the settled frame without starting the reveal.
  */
 const RAMP = ' .`\'^",:;!i~+_-?][}{1)(|/tfjrxnuvczXYUJCLQ0OZmwqpdbkhao*#MW&8%B@$'
 
@@ -16,6 +17,7 @@ const REVEAL_SECONDS = 0.8
 const REVEAL_EXP = 1.6
 const SPARKLE_SECONDS = 0.2
 const FPS = 30
+export const REVEAL_DURATION_MS = (REVEAL_SECONDS + SPARKLE_SECONDS) * 1000
 
 /** Stable per-cell reveal offsets (computed once per mount). */
 function makeRevealAt(): Float32Array {
@@ -65,9 +67,7 @@ function frame(t: number | null, revealAt: Float32Array | null): string {
           dt < SPARKLE_SECONDS
             ? Math.random()
             : cov * (0.62 + 0.38 * Math.sin(x * 0.22 + y * 0.13 - t * 3.2))
-      } else {
-        b = cov * (0.8 + 0.2 * Math.sin(x * 0.22 + y * 0.13 - t * 2.2))
-      }
+      } else b = cov
       out += RAMP.charAt(Math.min(n, Math.max(1, Math.round(b * n))))
     }
     out += '\n'
@@ -75,31 +75,9 @@ function frame(t: number | null, revealAt: Float32Array | null): string {
   return out
 }
 
-function useReducedMotion(): boolean {
-  const [reduced, setReduced] = useState(false)
-  useEffect(() => {
-    if (Platform.OS === 'web') {
-      const mq =
-        typeof window.matchMedia === 'function'
-          ? window.matchMedia('(prefers-reduced-motion: reduce)')
-          : null
-      setReduced(mq?.matches ?? false)
-      return
-    }
-    let alive = true
-    void AccessibilityInfo.isReduceMotionEnabled().then((v) => {
-      if (alive) setReduced(v)
-    })
-    return () => {
-      alive = false
-    }
-  }, [])
-  return reduced
-}
-
 /**
- * @param variant 'shimmer' — resolved glyphs with the idle sine shimmer (login);
- *                'reveal' — random-order sparkle reveal, then shimmer (loader).
+ * @param variant 'shimmer' — a settled wordmark for idle screens;
+ *                'reveal' — one random-order sparkle reveal at launch.
  */
 export function AsciiWordmark({
   color,
@@ -110,21 +88,28 @@ export function AsciiWordmark({
   fontSize?: number
   variant?: 'shimmer' | 'reveal'
 }) {
-  const reduced = useReducedMotion()
+  const reduced = useReduceMotion()
   const revealAtRef = useRef<Float32Array | null>(null)
-  if (variant === 'reveal' && revealAtRef.current === null) revealAtRef.current = makeRevealAt()
+  if (!reduced && variant === 'reveal' && revealAtRef.current === null) {
+    revealAtRef.current = makeRevealAt()
+  }
   const [text, setText] = useState(() => frame(null, null))
 
   useEffect(() => {
-    if (reduced) {
+    if (reduced || variant === 'shimmer') {
       setText(frame(null, null))
       return
     }
     const start = Date.now()
-    if (variant === 'reveal') setText(frame(0, revealAtRef.current))
+    setText(frame(0, revealAtRef.current))
     const id = setInterval(() => {
-      const t = (Date.now() - start) / 1000
-      setText(frame(t, variant === 'reveal' ? revealAtRef.current : null))
+      const elapsed = Date.now() - start
+      if (elapsed >= REVEAL_DURATION_MS) {
+        clearInterval(id)
+        setText(frame(null, null))
+        return
+      }
+      setText(frame(elapsed / 1000, revealAtRef.current))
     }, 1000 / FPS)
     return () => clearInterval(id)
   }, [reduced, variant])

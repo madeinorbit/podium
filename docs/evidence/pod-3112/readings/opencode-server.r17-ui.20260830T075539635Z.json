@@ -1,0 +1,162 @@
+{
+  "at": "2026-08-30T07:55:39.635Z",
+  "issue": "POD-3112",
+  "kind": "r17-ui-lifecycle-verification",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "bc0263ccf49d499f60988c297c60554b4217a6b6",
+  "instance": "p3112-oc-ui-lifecycle-r17",
+  "ports": [
+    20327,
+    47342,
+    47343
+  ],
+  "providerPrompts": 2,
+  "proposal": {
+    "indicatorVisible": true,
+    "label": "Development release awaits approval",
+    "cardCount": 0,
+    "untoggled": true
+  },
+  "launch": {
+    "createRequests": [
+      {
+        "at": "2026-08-30T07:55:40.559Z",
+        "body": "{\"0\":{\"agentKind\":\"opencode\",\"cwd\":\"/tmp/pod-3112-oc-ui-lifecycle-r17/dummy-repo/.worktrees/issue-1-r17-lifecycle-ui-boundary\",\"machineId\":\"70050f39-35f2-4255-879b-f25daa1ef509\",\"issueId\":\"iss_a9f55159-435c-4c5b-99d3-36a6b6552d58\",\"runtimeContract\":true}}"
+      }
+    ],
+    "identity": {
+      "sessionId": "4fed3060-d3e6-4058-be25-31c40032c8e3",
+      "driverId": "opencode-server",
+      "requestedDriverId": null,
+      "driverFamily": "server"
+    },
+    "nativeFirst": true,
+    "authenticatedVisibleCli": true
+  },
+  "first": {
+    "sentAt": "2026-08-30T07:55:48.236Z",
+    "inputDispatch": true,
+    "workingMs": 3746.258473,
+    "terminalGrowthMs": 3413.3497939999997,
+    "providerReplyMs": 6816.6314,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "warmReload": {
+    "nativeControl": true,
+    "sameSession": true,
+    "createdAtUnchanged": true,
+    "status": "live"
+  },
+  "stop": {
+    "promptAt": "2026-08-30T07:55:57.290Z",
+    "promptToWorkingMs": 4467.943133000001,
+    "terminalGrowthMs": 4176.1486890000015,
+    "stopAt": "2026-08-30T07:56:02.184Z",
+    "stopToIdleMs": 420.28784200000155,
+    "interruptRequests": [
+      {
+        "at": "2026-08-30T07:56:02.305Z",
+        "body": "{\"0\":{\"sessionId\":\"4fed3060-d3e6-4058-be25-31c40032c8e3\"}}"
+      }
+    ],
+    "finalPhase": "idle",
+    "finalStatus": "live",
+    "processSurvived": true,
+    "stopScore": {
+      "matches": [
+        {
+          "itemId": null,
+          "kind": null,
+          "role": "user",
+          "event": null,
+          "classification": "user-prompt",
+          "source": null,
+          "projection": null,
+          "turnId": null,
+          "messageId": null,
+          "sessionItemType": null,
+          "projectionDuplicate": false,
+          "textClassification": "present-not-preserved"
+        },
+        {
+          "itemId": null,
+          "kind": null,
+          "role": "user",
+          "event": null,
+          "classification": "interrupt-marker",
+          "source": null,
+          "projection": null,
+          "turnId": null,
+          "messageId": null,
+          "sessionItemType": null,
+          "projectionDuplicate": false,
+          "textClassification": "present-not-preserved"
+        }
+      ],
+      "rawInterruptMatchCount": 1,
+      "distinctDurableInterruptCount": 0,
+      "anonymousInterruptMatchCount": 1,
+      "userPromptNonceSeen": true,
+      "assistantFinalSeen": false
+    },
+    "reloadScore": {
+      "matches": [
+        {
+          "itemId": null,
+          "kind": null,
+          "role": "user",
+          "event": null,
+          "classification": "user-prompt",
+          "source": null,
+          "projection": null,
+          "turnId": null,
+          "messageId": null,
+          "sessionItemType": null,
+          "projectionDuplicate": false,
+          "textClassification": "present-not-preserved"
+        },
+        {
+          "itemId": null,
+          "kind": null,
+          "role": "user",
+          "event": null,
+          "classification": "interrupt-marker",
+          "source": null,
+          "projection": null,
+          "turnId": null,
+          "messageId": null,
+          "sessionItemType": null,
+          "projectionDuplicate": false,
+          "textClassification": "present-not-preserved"
+        }
+      ],
+      "rawInterruptMatchCount": 1,
+      "distinctDurableInterruptCount": 0,
+      "anonymousInterruptMatchCount": 1,
+      "userPromptNonceSeen": true,
+      "assistantFinalSeen": false
+    },
+    "lifecycleBoundary": "browser-empty-local-state-reload",
+    "durableInterruptCount": 0,
+    "naturalFinalSeen": false,
+    "nativeAfter": "true",
+    "chatAfter": "true"
+  },
+  "verdict": "PASS",
+  "pins": {
+    "server": "bc0263ccf49d499f60988c297c60554b4217a6b6",
+    "daemon": "bc0263ccf49d499f60988c297c60554b4217a6b6",
+    "web": {
+      "wireSchemaDigest": "325e219a891fc6c8",
+      "wireVersion": 2,
+      "appVersion": "dev+0ff791b",
+      "sourceSha": "0ff791b",
+      "bundleVersion": "bundle+BUphcYN_"
+    },
+    "opencodeVersion": "1.18.25",
+    "opencodeSha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "finishedAt": "2026-08-30T07:56:04.182Z"
+}

@@ -1,0 +1,74 @@
+{
+  "recordedAt": "2026-08-30T12:27:39.379933+02:00",
+  "redaction": "Prompt text, codeword/nonces, cookies, credentials, and raw transcript payloads omitted.",
+  "sourceHashes": {
+    "a7aJsonSha256": "35b7bba083afa284b006505d014a6102107aecbb5e116dc1ebe11c6adbc87ccb",
+    "r18ReadingJsonSha256": "ec9f9c46c0a7b4373d92987115e72f633b1493686d5037bc4f18d5d7e652bb6e"
+  },
+  "issue": "POD-3112",
+  "kind": "r18-native-repair-a7a-fail",
+  "scored": true,
+  "acceptanceRowsWritten": 1,
+  "reason": "Valid A7a FAIL: content-bearing Native marker absent after daemon restart while all independent controls fired.",
+  "epicPin": "ba420c5665888f6bd8338e02df9867bf36a34320",
+  "branchHead": "9be131d10859734d83b73a976bd649f9630a5f7d",
+  "instance": "p3112-a7a-ncr1",
+  "ports": [
+    20338,
+    47354,
+    47355
+  ],
+  "stateRootPosture": "product-derived named instance; no PODIUM_STATE_DIR, HOME, ABDUCO_SOCKET_DIR, or PODIUM_RUNTIME_DRIVER override",
+  "credentialPosture": "approved named-home symlink after instance-marker verification; credential bytes never read, copied, or printed",
+  "providerBinary": {
+    "path": "/home/mgw/.opencode/bin/opencode",
+    "version": "1.18.25",
+    "sha256": "d91e0d33676d0839f7cde87924cd4127ea88c9d6784eea9f009a7d08bdc60eeb"
+  },
+  "providerPrompts": 2,
+  "seed": {
+    "workingMs": 6163.156002,
+    "growthMs": 5523.532793,
+    "replyMs": 2805.1987789999985,
+    "userCount": 1,
+    "assistantCount": 1,
+    "chatOccurrences": 2
+  },
+  "restart": {
+    "oldPid": 3963576,
+    "newPid": 3996993,
+    "at": "2026-08-30T12:26:29+02:00",
+    "spawnSha": "ba420c5665888f6bd8338e02df9867bf36a34320"
+  },
+  "adoptMs": 1395.4344219999984,
+  "identityControls": {
+    "sameProviderSession": true,
+    "sameProcessKey": true,
+    "sameSession": true,
+    "sameCreatedAt": true,
+    "sameResume": true
+  },
+  "providerExactAfterRestart": true,
+  "beforeViews": {
+    "native": true,
+    "chat": true,
+    "terminalNormalizedMarkerOccurrences": 2,
+    "terminalNormalizedLength": 323,
+    "chatMarkerOccurrences": 2,
+    "chatLength": 152
+  },
+  "afterViews": {
+    "native": false,
+    "chat": true,
+    "terminalNormalizedMarkerOccurrences": 0,
+    "terminalNormalizedLength": 208,
+    "chatMarkerOccurrences": 2,
+    "chatLength": 152
+  },
+  "recall": {
+    "ms": 2183.9179010000007,
+    "remembered": true
+  },
+  "a7aVerdict": "FAIL",
+  "a7bAttempted": false
+}

@@ -238,6 +238,9 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
      to collapse and no split to remember. Stale rows on old devices are inert —
      nothing reads these keys. */
   'podium:superagent:width',
+  /** Flight Deck overview density and its separately resized overview width. */
+  'podium.flightDeck.display',
+  'podium:flightDeck:expandedWidth',
   'podium:rightdock:width',
   /**
    * THE PHONE LAUNCH SHEET'S LAST PICKS (POD-1354) — model, effort, machine and
@@ -261,6 +264,15 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
    *  agent state, and a phone has no business inheriting a desktop's folds. */
   'podium.flightDeck.mode',
   'podium.flightDeck.folds',
+  /** Per-device geometry for the Flight Deck waterfall. */
+  'podium.flightDeck.waterfallRowZoom',
+  'podium.flightDeck.waterfallTaskWidth',
+  /**
+   * The mission-brief cutoff as a fraction of this screen's Flight Deck height.
+   * It applies to every mission on the device, but does not travel to a phone or
+   * another display whose useful vertical split is different.
+   */
+  'podium.flightDeck.briefCutoff',
   /** Editor-style tab workspaces (POD-710). Declared here rather than in the
    *  model's shared vocabulary because it is a client-only key; the routing
    *  table above states its home and this list is what `uiStateRoute` reads. */
@@ -315,6 +327,11 @@ export const NEW_WORK_MACHINE_KEY = 'podium.newWork.machine'
 export const NEW_WORK_REPO_KEY = 'podium.newWork.repo'
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
+export const FLIGHT_DECK_BRIEF_CUTOFF_KEY = 'podium.flightDeck.briefCutoff'
+export const FLIGHT_DECK_WATERFALL_ROW_ZOOM_KEY = 'podium.flightDeck.waterfallRowZoom'
+export const FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY = 'podium.flightDeck.waterfallTaskWidth'
+export const FLIGHT_DECK_DISPLAY_KEY = 'podium.flightDeck.display'
+export const FLIGHT_DECK_EXPANDED_WIDTH_KEY = 'podium:flightDeck:expandedWidth'
 export const STICKY_PROMPTS_KEY = 'podium.chat.stickyPrompts'
 export const CHAT_VERBOSITY_KEY = 'podium.chat.verbosity'
 export const DIFF_SHEET_WRAP_KEY = 'podium:diff-sheet:wrap'
@@ -451,22 +468,40 @@ export type PanelMode = 'native' | 'chat'
  * map on first open so subsequent reads are pure map lookups.
  *
  * Priority:
+ * 0. A session with no terminal always shows chat.
  * 1. Non-chat-capable sessions always show native.
  * 2. Persisted per-session override (when present).
  * 3. Personal default pick (panelModeDefault).
  * 4. The `startScreen` setting (`native` | `chat` | `auto`→mobile heuristic).
+ *
+ * RULE 0 OUTRANKS THE PERSISTED PICK, AND THAT IS THE POINT (POD-2290). Rules
+ * 2–4 answer "which of two views did this operator want"; rule 0 says there is
+ * only ONE view, so there is no preference to honour. An embedded-driven
+ * session has no terminal, and a remembered `native` — a per-device
+ * default, or a per-session pick made when the same harness still ran under a
+ * terminal — would put the operator back on a pane whose attach can never
+ * confirm. The mirror of rule 1, which has always overridden the same saved
+ * value for the opposite reason: a shell has no transcript to chat with.
  */
 export function effectivePanelMode(input: {
   startScreen: 'native' | 'chat' | 'auto'
   chatCapable: boolean
   isMobile: boolean
+  /** There is an engine or harness-client terminal behind the native view —
+   *  false for the embedded driver family. Required so a new caller has to
+   *  answer it; `sessionHasTerminal` is the one place "unknown" becomes true. */
+  terminalCapable: boolean
+  /** Server-family sessions default to Chat until Native is explicitly picked. */
+  serverFamily?: boolean
   /** Persisted per-session mode when known. */
   saved?: PanelMode | null
   /** Personal default (PANEL_MODE_DEFAULT_KEY). */
   deviceDefault?: string | null
 }): PanelMode {
+  if (!input.terminalCapable) return 'chat'
   if (!input.chatCapable) return 'native'
   if (input.saved === 'native' || input.saved === 'chat') return input.saved
+  if (input.serverFamily) return 'chat'
   if (input.deviceDefault === 'native' || input.deviceDefault === 'chat') return input.deviceDefault
   if (input.startScreen === 'auto') return input.isMobile ? 'chat' : 'native'
   if (input.startScreen === 'chat') return 'chat'

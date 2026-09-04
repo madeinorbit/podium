@@ -1,6 +1,5 @@
 import { renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
-import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
 import {
   configPath,
   type EnvSource,
@@ -8,9 +7,13 @@ import {
   loadConfig,
   saveConfig,
 } from '@podium/runtime/config'
+import { connectivityPath, readConnectivity } from '@podium/runtime/connectivity'
 import {
+  assertModeWritable,
+  assertPublicUrlWritable,
   ephemeralTunnelWarning,
   NETWORK_OPTIONS,
+  type NetworkOption,
   networkOptionCommand,
   validatePublicUrl,
 } from '@podium/runtime/setup'
@@ -41,6 +44,13 @@ export interface SetupDeps {
   startBackend?: (opts: StartBackendOpts) => Promise<StartBackendResult>
   /** Injected for testing; defaults to observing the daemon cross-process connectivity. */
   waitForEnrollment?: () => Promise<void>
+  /**
+   * `--confirm-url-change` (PDM-26): the operator has already said that replacing
+   * a live public URL — and stranding every machine that joined at the old one —
+   * is what they mean. Without it the flow asks, which is the right shape for a
+   * terminal; the flag exists so a scripted re-run does not hang on the prompt.
+   */
+  confirmUrlChange?: boolean
 }
 
 const JOIN_CONNECT_TIMEOUT_MS = 30_000
@@ -155,8 +165,57 @@ export function shouldRunCliSetup(opts: {
 type HostMode = 'all-in-one' | 'server'
 
 /**
+ * WHAT THE DEPLOYMENT OWNS, THIS COMMAND MAY NOT WRITE (PDM-26).
+ *
+ * Printed and refused UP FRONT rather than at the write: the setup flow asks a
+ * string of questions before it saves anything, and letting an operator answer
+ * all of them only to be told the answer cannot be kept is the worst version of
+ * this refusal. Returns false when the flow must not proceed.
+ */
+function deploymentOwns(io: SetupIO, what: 'mode' | 'publicUrl'): boolean {
+  try {
+    if (what === 'mode') assertModeWritable()
+    else assertPublicUrlWritable()
+    return false
+  } catch (e) {
+    io.print(`\n${(e as Error).message}`)
+    return true
+  }
+}
+
+/**
+ * REPLACING A LIVE PUBLIC URL IS A DECISION, not a step (PDM-26).
+ *
+ * The old URL is already inside every join token issued and every paired
+ * device's record, and none of them can be told about the new one. In a terminal
+ * the honest way to ask is to ask — `--confirm-url-change` answers it ahead of
+ * time for a scripted run.
+ */
+async function confirmUrlChange(
+  io: SetupIO,
+  next: string,
+  preConfirmed: boolean,
+): Promise<boolean> {
+  const current = loadConfig().publicUrl
+  if (!current || current === next) return true
+  if (preConfirmed) return true
+  io.print(`\nThis instance is already reachable at ${current}.`)
+  io.print('Changing it strands every machine that joined at the old URL — they will not')
+  io.print('be told about the new one and will have to be pointed at it by hand.')
+  const answer = ((await io.prompt(`Type CHANGE to replace it with ${next}: `)) ?? '').trim()
+  if (answer === 'CHANGE') return true
+  io.print('Left the URL as it was.')
+  return false
+}
+
+interface ReachabilityChoice {
+  publicUrl: string
+  networkOption: NetworkOption
+}
+
+/**
  * Reachability step: pick how to expose the relay, run the command, paste the URL. Returns
- * the validated URL, or undefined when the operator gave up. With `save` (the standalone
+ * the validated URL and exposure method, or undefined when the operator gave up. With `save` (the standalone
  * "change the URL" menu edit on an already-configured box) it persists immediately; the
  * full host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
  * can't leave a configured-looking-but-passwordless box (issue #21).
@@ -165,8 +224,8 @@ async function reachabilityStep(
   io: SetupIO,
   port: number,
   mode: HostMode,
-  opts: { save: boolean } = { save: true },
-): Promise<string | undefined> {
+  opts: { save: boolean; confirmUrlChange?: boolean } = { save: true },
+): Promise<ReachabilityChoice | undefined> {
   io.print('Make this instance reachable (encrypted, no domain needed):')
   NETWORK_OPTIONS.forEach((o, i) => {
     io.print(`  ${i + 1}) ${o.label} — ${o.note}`)
@@ -187,14 +246,17 @@ async function reachabilityStep(
     const v = validatePublicUrl(pasted)
     if (v.ok) {
       if (opts.save) {
-        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized })
+        if (!(await confirmUrlChange(io, v.normalized, opts.confirmUrlChange === true))) {
+          return undefined
+        }
+        saveConfig({ ...loadConfig(), mode, publicUrl: v.normalized, networkOption: opt.id })
         io.print(`\nSaved. This instance is reachable at ${v.normalized}. Restart podium to apply.`)
       } else {
         io.print(`\nThis instance will be reachable at ${v.normalized}.`)
       }
       const warning = ephemeralTunnelWarning(v.normalized)
       if (warning) io.print(`\nWarning: ${warning}`)
-      return v.normalized
+      return { publicUrl: v.normalized, networkOption: opt.id }
     }
     io.print(`  ${v.error}`)
   }
@@ -368,7 +430,7 @@ export async function runJoinSetup(
 ): Promise<{ name: string; warning?: string; result: StartBackendResult }> {
   const startBackend = deps.startBackend ?? startBackendEngine
   const waitForEnrollment = deps.waitForEnrollment ?? waitForDaemonEnrollment
-  const { name, warning } = applyJoinToken(token)
+  const { name, warning } = await applyJoinToken(token)
   const result = await startBackend({ persistence, mode: 'daemon', port })
   savePersistence(result.effectivePersistence)
   await waitForEnrollment()
@@ -387,15 +449,23 @@ async function hostStep(
   mode: HostMode,
   setPassword: (password: string) => Promise<void>,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
-  options: { askTelemetry?: boolean; activateImmediately?: boolean } = {},
+  options: {
+    askTelemetry?: boolean
+    activateImmediately?: boolean
+    /** `--confirm-url-change`: answer the "this strands joined machines" question ahead of time. */
+    confirmUrlChange?: boolean
+  } = {},
 ): Promise<void> {
-  const publicUrl = await reachabilityStep(io, port, mode, { save: false })
-  if (!publicUrl) return
+  if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return
+  const reachability = await reachabilityStep(io, port, mode, { save: false })
+  if (!reachability) return
+  const { publicUrl, networkOption } = reachability
+  if (!(await confirmUrlChange(io, publicUrl, options.confirmUrlChange === true))) return
   if (!(await passwordStep(io, setPassword))) {
     io.print('Nothing saved — re-run `podium setup` to start over.')
     return
   }
-  saveConfig({ ...loadConfig(), mode, publicUrl })
+  saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
   io.print(`\nSaved. This instance is reachable at ${publicUrl}.`)
   await persistenceStep(io, port, mode, startBackend, {
     activateImmediately: options.activateImmediately,
@@ -449,7 +519,7 @@ async function joinStep(
       return
     }
     try {
-      const { name, warning } = applyJoinToken(token)
+      const { name, warning } = await applyJoinToken(token)
       if (warning) io.print(`\nWarning: ${warning}`)
       await persistenceStep(io, port, 'daemon', startBackend)
       await waitForEnrollment()
@@ -524,14 +594,20 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   }
   const choice = ((await io.prompt('Choose (blank to cancel): ')) ?? '').trim()
 
+  const hostOptions = deps.confirmUrlChange ? { confirmUrlChange: true } : {}
   if (choice === '1') {
-    await hostStep(io, port, 'all-in-one', setPassword, startBackend)
+    await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
   } else if (choice === '2') {
-    await hostStep(io, port, 'server', setPassword, startBackend)
+    await hostStep(io, port, 'server', setPassword, startBackend, hostOptions)
   } else if (choice === '3') {
+    if (deploymentOwns(io, 'mode')) return
     await joinStep(io, port, startBackend, waitForEnrollment)
   } else if (choice === '4' && hostsServer) {
-    await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one')
+    if (deploymentOwns(io, 'publicUrl')) return
+    await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one', {
+      save: true,
+      ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
+    })
   } else if (choice === '5' && hostsServer) {
     await passwordStep(io, setPassword)
   } else if (choice === '6' && hostsServer) {

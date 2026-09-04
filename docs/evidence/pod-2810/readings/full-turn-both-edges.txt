@@ -1,0 +1,26 @@
+POD-2810 — THE CLOSING EDGE, because opening a turn that never closes is the same
+bug mirrored. The probe kills its session at the end of its 60-poll window, so
+this is a separate short drive: one small prompt, phase polled until it settles.
+
+session e2e4ff96-0284-4186-9bbd-36ead4ec57fe
+phase before prompt: undefined        <- no SessionStart hook exists to seed one
+prompt sent
+  +1s -> working
+  +3s -> idle
+phase sequence: working -> idle
+final agentState: {"phase":"idle","since":"2026-08-25T23:02:32.462Z",
+  "workingMsTotal":1654,"nativeSubagentCount":0,"idle":{"kind":"done"},
+  "stateSource":"hook","stateConfidence":1,
+  "stateObservedAt":"2026-08-25T23:02:32.462Z"}
+
+Its durable checkpoint shows the whole designed chain running for the first time:
+
+  bootstrap segment device: missing   components {"transcript":0,"hook":0}
+  final     segment device: 2049      components {"transcript":38730,"hook":2}
+  lastAcceptedLiveCursor           :  {"transcript":38730,"hook":2}
+  turnEpoch 1  phase idle  workingMs 1654
+  terminalFence verdict: done  epoch 1
+
+The prompt hook is folded while the file is still absent (hook plane 0 -> 1, the
+transcript plane held), and the Stop then rotates the segment off `missing` onto
+the real device/inode once claude has flushed the file.

@@ -1,0 +1,151 @@
+{
+  "cell": "A5",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a5",
+  "at": "2026-08-27T03:40:18.046Z",
+  "pin": {
+    "cell": "A5",
+    "at": "2026-08-27T03:40:18.092Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4082608 kB",
+      "SwapFree": "37017424 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "tool call/result pair and reload history are intact",
+  "control": {
+    "fired": true,
+    "what": "the transcript fixture prompt landing as a durable user turn",
+    "detail": "user=true; assistant=true; items=6"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+    "USER              true",
+    "ASSISTANT         true",
+    "TOOL ITEMS        [{\"role\":\"tool\",\"text\":\"\",\"toolName\":\"Bash\",\"toolInput\":\"cat /tmp/pod-2918/probes/claude-a5/transcript-fixture.txt\",\"ts\":\"2026-08-27T03:41:15.898Z\"},{\"role\":\"tool\",\"text\":\"\",\"ts\":\"2026-08-27T03:41:16.138Z\"}]",
+    "RESULT ITEMS      [{\"role\":\"tool\",\"text\":\"\",\"ts\":\"2026-08-27T03:41:16.138Z\"}]",
+    "RELOAD SAME       true",
+    "RELOAD ITEMS      6"
+  ],
+  "data": {
+    "sid": "6cf3cdb8-c4ba-4db4-a7e7-a54402c5910b",
+    "marker": "P2918-A5-MARKER-MTAZ70DL",
+    "before": [
+      {
+        "role": "user",
+        "text": "Use your Bash tool to run cat /tmp/pod-2918/probes/claude-a5/transcript-fixture.txt and then reply with only the test marker it contains.",
+        "ts": "2026-08-27T03:41:13.499Z"
+      },
+      {
+        "role": "assistant",
+        "text": "I'll read the fixture file.",
+        "ts": "2026-08-27T03:41:15.411Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-2918/probes/claude-a5/transcript-fixture.txt",
+        "ts": "2026-08-27T03:41:15.898Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-27T03:41:16.138Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P2918-A5-MARKER-MTAZ70DL",
+        "ts": "2026-08-27T03:41:17.537Z"
+      },
+      {
+        "role": "system",
+        "text": "",
+        "ts": "2026-08-27T03:41:17.621Z"
+      }
+    ],
+    "after": [
+      {
+        "role": "user",
+        "text": "Use your Bash tool to run cat /tmp/pod-2918/probes/claude-a5/transcript-fixture.txt and then reply with only the test marker it contains.",
+        "ts": "2026-08-27T03:41:13.499Z"
+      },
+      {
+        "role": "assistant",
+        "text": "I'll read the fixture file.",
+        "ts": "2026-08-27T03:41:15.411Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-2918/probes/claude-a5/transcript-fixture.txt",
+        "ts": "2026-08-27T03:41:15.898Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-27T03:41:16.138Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P2918-A5-MARKER-MTAZ70DL",
+        "ts": "2026-08-27T03:41:17.537Z"
+      },
+      {
+        "role": "system",
+        "text": "",
+        "ts": "2026-08-27T03:41:17.621Z"
+      }
+    ],
+    "toolItems": [
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-2918/probes/claude-a5/transcript-fixture.txt",
+        "ts": "2026-08-27T03:41:15.898Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-27T03:41:16.138Z"
+      }
+    ],
+    "resultItems": [
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-27T03:41:16.138Z"
+      }
+    ],
+    "paired": true,
+    "sameHistory": true
+  }
+}

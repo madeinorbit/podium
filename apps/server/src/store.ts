@@ -45,9 +45,15 @@ import { asMachineId, type MachineId } from '@podium/model'
 import { stateDir } from '@podium/runtime/config'
 import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
 import { SyncRepository } from '@podium/sync'
-import { backupDatabase, createLatestDatabaseBackupCache } from './migrations/backup'
+import { isFeatureEnabled } from './features'
+import { backupDatabase } from './migrations/backup'
 import { DRIZZLE_MIGRATIONS } from './migrations/drizzle-manifest.generated'
 import { runDrizzleMigrations } from './migrations/index'
+import {
+  type SnapshotVerification,
+  SnapshotVerifier,
+  type SnapshotVerifierDeps,
+} from './migrations/snapshot-verifier'
 import { OperationStore } from './modules/operations/store'
 import { AccountsRepository } from './store/accounts'
 import { ApprovalsRepository } from './store/approvals'
@@ -56,6 +62,7 @@ import { AutomationsRepository } from './store/automations'
 import { ConversationsRepository } from './store/conversations'
 import { EventsRepository } from './store/events'
 import { GrantsRepository } from './store/grants'
+import { InteractionsRepository } from './store/interactions'
 import { IssuesRepository } from './store/issues'
 import { LocksRepository } from './store/locks'
 import { MachinesRepository } from './store/machines'
@@ -64,6 +71,7 @@ import { MessagesRepository } from './store/messages'
 import { MessagingTopicsRepository } from './store/messaging-topics'
 import { NotificationFactsRepository } from './store/notification-facts'
 import { ObservationCheckpointsRepository } from './store/observation-checkpoints'
+import { QuotaHistoryRepository } from './store/quota-history'
 import { ReadWatermarksRepository } from './store/read-watermarks'
 import { normalizeRepoPath, ReposRepository } from './store/repos'
 import { ServerSecretsRepository } from './store/server-secrets'
@@ -73,6 +81,7 @@ import { SettingsAuditRepository } from './store/settings-audit'
 import { ShippingRepository } from './store/shipping'
 import { SuperagentRepository } from './store/superagent'
 import { TelegramBindingsRepository } from './store/telegram-bindings'
+import { TranscriptCostsRepository } from './store/transcript-costs'
 import { UserLayoutRepository } from './store/user-layout'
 import { UserReadPositionRepository } from './store/user-read-position'
 import { UsersRepository } from './store/users'
@@ -92,7 +101,8 @@ export function defaultDbPath(): string {
 
 export class SessionStore {
   private readonly db: SqlDatabase
-  private readonly databaseBackups: ReturnType<typeof createLatestDatabaseBackupCache>
+  /** Worker-backed recovery-snapshot proofs (POD-3068) — see `migrations/snapshot-verifier.ts`. */
+  private readonly snapshotVerifier: SnapshotVerifier
   readonly repos: ReposRepository
   readonly sessions: SessionsRepository
   /** Durable causal observer generations and accepted checkpoints [spec:SP-cdb2]. */
@@ -135,11 +145,19 @@ export class SessionStore {
   readonly events: EventsRepository
   /** Cross-producer notification deduplication [spec:SP-ba61]. */
   readonly notificationFacts: NotificationFactsRepository
+  /** One row per run of a plan quota window (POD-1571) — the only place Podium
+   *  keeps a quota number after the live read that produced it goes stale. */
+  readonly quotaHistory: QuotaHistoryRepository
+  /** One row per transcript the usage harvest has read (POD-1858) — what a task
+   *  cost, after the harvest's 7-day window has rolled past the work. */
+  readonly transcriptCosts: TranscriptCostsRepository
   /** Unified agent messaging (#237) [spec:SP-34d7]. */
   readonly messages: MessagesRepository
   /** Recap watermarks (#237) [spec:SP-34d7 read-toolkit tier 3]. */
   readonly readWatermarks: ReadWatermarksRepository
   readonly approvals: ApprovalsRepository
+  /** Blocking asks (POD-2020, spec §4) — durable so a stuck session is enumerable. */
+  readonly interactions: InteractionsRepository
   readonly workflows: WorkflowsRepository
   /** Advisory named lease locks [spec:SP-85d1] — podium lock / merge-lock. */
   readonly locks: LocksRepository
@@ -170,16 +188,26 @@ export class SessionStore {
    */
   readonly hostMachineId: MachineId
 
+  /**
+   * Whether this boot has a full-text search index — the resolved
+   * `command-palette` flag (PDM-25). Readers that must NOT offer a search the
+   * index cannot back (the superagent's `search_conversations`/`search_all`)
+   * ask this rather than re-resolving the flag, so they can never disagree with
+   * what the constructor actually built.
+   */
+  readonly searchIndexEnabled: boolean
+
   constructor(
     private readonly path: string = defaultDbPath(),
     hostMachineId: MachineId = asMachineId(randomUUID()),
-    options: { queryOnly?: boolean } = {},
+    /** Read-only recovery boot plus verifier seams injected by boundary tests. */
+    options: SnapshotVerifierDeps & { queryOnly?: boolean } = {},
   ) {
     // The value crosses into its id space HERE, once: it arrives as the bytes of a
     // state-dir file (or a fresh mint) and leaves as the machine identity every row,
     // route and grant in this process is keyed by.
     this.hostMachineId = asMachineId(hostMachineId)
-    this.databaseBackups = createLatestDatabaseBackupCache(path)
+    this.snapshotVerifier = new SnapshotVerifier(path, options)
     if (path !== ':memory:') mkdirSync(dirname(path), { recursive: true })
     // `openStoreDatabase` is `openDatabase` everywhere except under a test runner
     // that installed the pre-migrated fixture (see store-database.ts). The migration
@@ -188,7 +216,7 @@ export class SessionStore {
     this.db = openStoreDatabase(path)
     if (!options.queryOnly) this.db.exec('PRAGMA journal_mode = WAL')
     this.db.exec('PRAGMA busy_timeout = 5000')
-    // node:sqlite enables foreign keys on a fresh connection. Migrations use
+    // The driver enables foreign keys on a fresh connection. Migrations use
     // SQLite's table-rebuild pattern (create/copy/drop/rename), where dropping a
     // parent with enforcement on would cascade-delete child rows. The chain owns
     // this window; enforcement is restored immediately after it succeeds.
@@ -227,6 +255,7 @@ export class SessionStore {
       this.hostMachineId,
     )
     this.approvals = new ApprovalsRepository(this.db)
+    this.interactions = new InteractionsRepository(this.db)
     this.conversations = new ConversationsRepository(this.db, this.hostMachineId)
     this.sync = new SyncRepository(this.db)
     this.auth = new AuthRepository(this.db)
@@ -243,6 +272,8 @@ export class SessionStore {
     this.telegramBindings = new TelegramBindingsRepository(this.db)
     this.events = new EventsRepository(this.db)
     this.notificationFacts = new NotificationFactsRepository(this.db)
+    this.quotaHistory = new QuotaHistoryRepository(this.db)
+    this.transcriptCosts = new TranscriptCostsRepository(this.db)
     this.messages = new MessagesRepository(this.db)
     this.readWatermarks = new ReadWatermarksRepository(this.db)
     this.workflows = new WorkflowsRepository(this.db)
@@ -252,6 +283,9 @@ export class SessionStore {
     this.shipping = new ShippingRepository(this.db)
     this.operations = new OperationStore(this.db)
     this.messagingTopics = new MessagingTopicsRepository(this.db)
+    this.searchIndexEnabled = options.queryOnly
+      ? false
+      : isFeatureEnabled('command-palette', this.settings.getSettings())
 
     if (options.queryOnly) {
       this.transferFenceHeld = true
@@ -270,7 +304,12 @@ export class SessionStore {
     // "no reader ever sees a legacy machine id" true by construction instead of by
     // call-order discipline.
     this.migrateLegacyMachineIdentity(this.hostMachineId)
-    this.conversations.ensureFts()
+    // Search is one switch (PDM-25): the `command-palette` flag that shows Cmd+K
+    // also decides whether this boot carries a full-text index at all. Read ONCE,
+    // here — flipping the toggle takes effect at the next boot, so nothing has to
+    // rebuild an index underneath a running process. `settings` is constructed
+    // above, so a config-forced value is honoured on the very first boot.
+    this.conversations.ensureFts(this.searchIndexEnabled)
     this.superagent.seedGlobalThread()
     // The legacy repos.json import is the ONE writer left that can still hand the
     // repo-identity upgrade work — its rows land with a NULL repo_id and no prefix —
@@ -426,22 +465,81 @@ export class SessionStore {
    */
   snapshotBeforeUpdate(fromVersion: string, targetVersion: string): string | undefined {
     if (this.path === ':memory:') return undefined
-    const safe = (version: string): string =>
-      version
-        .replace(/[^a-zA-Z0-9._-]+/g, '_')
-        .slice(0, 80)
+    const safe = (version: string): string => version.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 80)
     const snapshot = backupDatabase(
       this.db,
       this.path,
       `update-${safe(fromVersion)}-to-${safe(targetVersion)}`,
+      undefined,
+      undefined,
+      () => this.snapshotVerifier.verifiedFallbackPath(),
     )
-    this.databaseBackups.record(snapshot)
+    // Staged, not proved. The record is published before anything can await the
+    // proof so a crash in between is legible as "staged and never verified".
+    if (snapshot) this.snapshotVerifier.recordStaged(snapshot, randomUUID())
     return snapshot
   }
 
-  /** Newest verified recovery point available for downgrade guidance. */
+  /**
+   * Stage a snapshot behind the database fence and PROVE it in a child process.
+   *
+   * The only caller is the update operation's server-replacement step, which may
+   * legitimately wait: awaiting this Promise leaves the event loop free, so
+   * health and read requests continue while the verifier scans (POD-3068).
+   */
+  async verifiedSnapshotBeforeUpdate(
+    fromVersion: string,
+    targetVersion: string,
+  ): Promise<SnapshotVerification> {
+    const staged = this.snapshotBeforeUpdate(fromVersion, targetVersion)
+    if (!staged) {
+      return {
+        ok: false,
+        code: 'no-snapshotable-file',
+        detail: 'the database has no snapshotable file',
+        durationMs: 0,
+      }
+    }
+    let expectedSchemaVersion: string | undefined
+    try {
+      expectedSchemaVersion = this.schemaVersionForTransfer()
+    } catch {
+      // A store with no migration identity still gets a quick_check proof; the
+      // schema comparison is the part that is skipped, not the verification.
+    }
+    return this.snapshotVerifier.verify(staged, expectedSchemaVersion)
+  }
+
+  /**
+   * Newest VERIFIED recovery point, read from metadata and a `stat` only.
+   *
+   * Deliberately inert: this is called from update planning, which is a request
+   * path, and reached even by a machine-only plan that will never take a
+   * snapshot. It opens nothing, waits for nothing, writes nothing and STARTS
+   * NOTHING — an earlier revision queued a background verifier from here, which
+   * quietly reintroduced "planning an unrelated update spawns a disk scan".
+   * `undefined` means nothing is proved right now, which is an honest answer.
+   *
+   * {@link discoverDatabaseSnapshots} is what changes that, at boot.
+   */
   latestDatabaseSnapshot(): string | undefined {
-    return this.path === ':memory:' ? undefined : this.databaseBackups.latest()
+    if (this.path === ':memory:') return undefined
+    return this.snapshotVerifier.verifiedFallbackPath()
+  }
+
+  /**
+   * Boot/maintenance hook: reconcile the verification catalogue with the
+   * snapshots actually on disk and queue at most one background verifier.
+   *
+   * This is the ONLY caller allowed to start a verifier without an operation
+   * asking for one, and it is where 0.1.0 compatibility lives: an installation
+   * upgrading into the verifier has retained `<db>.backup-v*` files and no
+   * catalogue, and boot migrations stage snapshots without publishing records.
+   * Returns whether a background verification was started.
+   */
+  discoverDatabaseSnapshots(): boolean {
+    if (this.path === ':memory:') return false
+    return this.snapshotVerifier.discoverAndQueue()
   }
 
   private transferFenceHeld = false
@@ -474,6 +572,7 @@ export class SessionStore {
   }
 
   close(): void {
+    this.snapshotVerifier.close()
     this.db.close()
   }
 
@@ -591,9 +690,10 @@ export class SessionStore {
    * and reruns update nothing. Ambiguous and contradictory rows remain countable
    * on every boot so the operator can see that the migration left work behind.
    */
-  migrateLegacyIssueWorktreeMachineIdentity(
-    hostMachineId: MachineId,
-  ): { backfilledByMachine: Record<string, number>; unresolved: number } {
+  migrateLegacyIssueWorktreeMachineIdentity(hostMachineId: MachineId): {
+    backfilledByMachine: Record<string, number>
+    unresolved: number
+  } {
     const result = this.transact(() => {
       const candidates = this.db
         .prepare(
@@ -630,10 +730,10 @@ export class SessionStore {
             ORDER BY attributed.id`,
         )
         .all(hostMachineId) as {
-          id: string
-          target_machine_id: string | null
-          contradictory_session: number
-        }[]
+        id: string
+        target_machine_id: string | null
+        contradictory_session: number
+      }[]
 
       const update = this.db.prepare(
         'UPDATE issues SET machine_id = ? WHERE id = ? AND machine_id IS NULL',
@@ -658,9 +758,7 @@ export class SessionStore {
         .sort(([a], [b]) => a.localeCompare(b))
         .map(([machineId, count]) => `${machineId}=${count}`)
         .join(', ') || 'none'
-    log.info(
-      `backfilled worktree rows by machine: ${counts}; left ${result.unresolved} unresolved`,
-    )
+    log.info(`backfilled worktree rows by machine: ${counts}; left ${result.unresolved} unresolved`)
     return result
   }
 }

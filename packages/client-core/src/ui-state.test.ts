@@ -5,6 +5,9 @@ import {
   createMemoryRouterWindow,
   createRoutedUiState,
   createRouterUiState,
+  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
+  FLIGHT_DECK_DISPLAY_KEY,
+  FLIGHT_DECK_EXPANDED_WIDTH_KEY,
   type ReplicatedUiStatePort,
   readStoredDensity,
   requireReplicatedLayoutKey,
@@ -76,6 +79,7 @@ describe('workspace ui-state routing', () => {
         startScreen: 'auto',
         chatCapable: true,
         isMobile: true,
+        terminalCapable: true,
         saved: 'native',
       }),
     ).toBe('native')
@@ -84,6 +88,28 @@ describe('workspace ui-state routing', () => {
         startScreen: 'auto',
         chatCapable: true,
         isMobile: true,
+        terminalCapable: true,
+      }),
+    ).toBe('chat')
+    expect(
+      effectivePanelMode({
+        startScreen: 'native',
+        chatCapable: true,
+        isMobile: false,
+        terminalCapable: true,
+        serverFamily: true,
+      }),
+    ).toBe('chat')
+    // …and a session with no PTY behind the native view takes neither branch:
+    // there is no second view for the saved entry to be a preference between
+    // (POD-2290).
+    expect(
+      effectivePanelMode({
+        startScreen: 'auto',
+        chatCapable: true,
+        isMobile: false,
+        terminalCapable: false,
+        saved: 'native',
       }),
     ).toBe('chat')
   })
@@ -119,6 +145,12 @@ describe('workspace ui-state routing', () => {
     expect(readStoredDensity(ui)).toBe('compact')
     expect(local.get(SHELL_DENSITY_KEY)).toBe('compact')
     expect(replicated.get(SHELL_DENSITY_KEY)).toBeUndefined()
+  })
+
+  it('keeps the Flight Deck brief cutoff on this device', () => {
+    expect(uiStateRoute(FLIGHT_DECK_BRIEF_CUTOFF_KEY).home).toBe('device-local')
+    expect(uiStateRoute(FLIGHT_DECK_DISPLAY_KEY).home).toBe('device-local')
+    expect(uiStateRoute(FLIGHT_DECK_EXPANDED_WIDTH_KEY).home).toBe('device-local')
   })
 
   it('moves legacy replicated values once, then removes the principal-local copy', () => {

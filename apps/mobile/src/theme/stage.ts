@@ -1,5 +1,5 @@
 import { ISSUE_STATUS_LABELS, type IssueStatus } from '@podium/model'
-import { color } from './theme'
+import { adaptiveColor, color } from './theme'
 
 /**
  * Workflow-stage colour, on the phone [POD-529 parity].
@@ -16,13 +16,13 @@ import { color } from './theme'
  * "waiting on you" (The Signal Rule), and a stage is never an ask.
  */
 export const STAGE_COLOR: Readonly<Record<IssueStatus, string>> = {
-  proposed: '#d946ef',
+  proposed: adaptiveColor('#a21caf', '#d946ef'),
   backlog: color.textFaint,
   planning: color.textDim,
-  in_progress: '#3b82f6',
-  review: '#0ea5e9',
-  shipping: '#8b5cf6',
-  done: color.success,
+  in_progress: adaptiveColor('#1d4ed8', '#3b82f6'),
+  review: adaptiveColor('#0369a1', '#0ea5e9'),
+  shipping: adaptiveColor('#6d28d9', '#a78bfa'),
+  done: color.successText,
   // The cancelled family is DIM, never green (POD-1074). Success is the colour
   // of work that landed; an issue closed as cancelled, duplicate or superseded
   // did not land, and wearing the same tick was the whole complaint.

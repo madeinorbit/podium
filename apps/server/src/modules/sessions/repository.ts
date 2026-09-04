@@ -1,3 +1,4 @@
+import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 import type { MachineId, SessionId, SessionMeta } from '@podium/model'
 import { AgentKind } from '@podium/model'
 
@@ -18,7 +19,7 @@ import { AgentKind } from '@podium/model'
 export type SessionWirePrincipal = SessionStatePrincipal
 
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
-import type { MetadataChange } from '@podium/protocol'
+import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { EntityChangeSpec } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
@@ -39,6 +40,7 @@ import { createLogger } from '@podium/logger'
 import { Session, type SessionDurableState, type SessionVolatileField } from './session'
 import type { SessionStatePrincipal, SessionStateService } from './session-state/service'
 import type { SessionView } from './view'
+import { runtimeTranscriptItemFromEvent } from './runtime-transcript'
 
 const log = createLogger('server:sessions')
 
@@ -71,6 +73,10 @@ export interface SessionRepositoryPorts {
   observationLeases: SessionObservationLeases
   autoContinue(): AutoContinueController
   toMachine(machineId: MachineId, message: ControlMessage): void
+  toPtyInput(machineId: MachineId, input: DaemonPtyInputBatch): void
+  /** Does the daemon attached for this machine RIGHT NOW have `cap`? Live, per
+   *  socket — see `MachineService.daemonSupports` (POD-3239). */
+  machineSupports(machineId: MachineId, cap: string): boolean
   broadcastSessions(): void
   flushBroadcasts(): void
   runScheduledBroadcast(): void
@@ -416,6 +422,13 @@ export class SessionRepository {
       geometry: { ...(r.geometry ?? { cols: 80, rows: 24 }) },
       machineId,
       toDaemon: (msg) => this.toMachine(this.sessions.get(r.id)?.machineId ?? machineId, msg),
+      daemonReportsGeometry: () =>
+        this.ports.machineSupports(
+          this.sessions.get(r.id)?.machineId ?? machineId,
+          CAP_DAEMON_GEOMETRY_APPLIED,
+        ),
+      sendInput: (input) =>
+        this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
       onActivity: () => {
         if (this.persistActivityIfWritable(session)) this.broadcastSessions()
       },
@@ -437,6 +450,19 @@ export class SessionRepository {
       ...(r.name && r.nameSource ? { nameSource: r.nameSource } : {}),
       ...(r.model ? { model: r.model } : {}),
       ...(r.effort ? { effort: r.effort } : {}),
+      /**
+       * THE RUNTIME REQUEST SURVIVES THE RESTART (POD-3081). Without this line
+       * the columns are written and never read back, which is worse than not
+       * having them: a reconfigured session comes back displaying the model it
+       * was LAUNCHED with while its driver — whose own journal did survive —
+       * goes on answering as the one it was configured to. That is the
+       * requested-vs-observed split saying the thing it exists to prevent.
+       *
+       * Absent on the row = never configured, which is different from
+       * "configured back to the launch value" and must stay different.
+       */
+      ...(r.requestedModel ? { requestedModel: r.requestedModel } : {}),
+      ...(r.requestedEffort ? { requestedEffort: r.requestedEffort } : {}),
       ...(r.accountId ? { accountId: r.accountId } : {}),
       ...(r.loginHarness ? { loginHarness: r.loginHarness } : {}),
       ...(r.spawnedBy ? { spawnedBy: r.spawnedBy } : {}),
@@ -461,11 +487,33 @@ export class SessionRepository {
       ...(r.resumeKind && r.resumeValue
         ? { resume: { kind: r.resumeKind, value: r.resumeValue } }
         : {}),
+      /**
+       * THE FIX THIS COLUMN EXISTS FOR (POD-2290 round 2). `reloadStatus` above
+       * turns a persisted live/starting row into `reconnecting`, and a
+       * reconnecting row with no driver family is exactly where the panel falls
+       * back to "assume a terminal" — the original bug's screen, driven live by
+       * the reviewer with the daemon held down. `driverId` is deliberately NOT
+       * restored beside it: that one names a live handle, and this row has none
+       * until a daemon rebinds.
+      */
+      ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
+      ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
       // Passed through, never defaulted: a row from before this column exists
       // makes no claim about whether its launch ever had a conversation, and
       // inventing `'never'` for it would authorize discarding one.
       ...(r.conversationBinding ? { conversationBinding: r.conversationBinding } : {}),
     })
+    // Re-seed runtime-backed transcript items before the session reaches clients.
+    // Terminal drivers use this durable bridge when the legacy observation path
+    // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
+    const runtimeItems =
+      this.ports.store?.events
+        .listRuntimeTranscriptEvents(session.sessionId)
+        .flatMap((event) => {
+          const item = runtimeTranscriptItemFromEvent(event)
+          return item ? [item] : []
+        }) ?? []
+    if (runtimeItems.length > 0) session.terminal.applyRuntimeDelta(runtimeItems)
     return session
   }
 

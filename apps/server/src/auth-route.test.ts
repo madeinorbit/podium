@@ -190,6 +190,50 @@ describe('auth-route', () => {
     expect(res.status).toBe(400)
   })
 
+  test('reports a successful cookie login', async () => {
+    await setPassword('hunter2')
+    const seen: unknown[] = []
+    const app = makeApp({ onLogin: (event) => seen.push(event) })
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'hunter2' }),
+    })
+    expect(res.status).toBe(200)
+    expect(seen).toEqual([{ userId: FIRST_ADMIN_USER_ID, delivery: 'cookie' }])
+  })
+
+  test('does not report a rejected login', async () => {
+    // The signal is "someone got in", not "someone tried". A failed attempt that
+    // counted as a login would make every brute-force burst look like traffic.
+    await setPassword('hunter2')
+    const seen: unknown[] = []
+    const app = makeApp({ onLogin: (event) => seen.push(event) })
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'nope' }),
+    })
+    expect(res.status).toBe(401)
+    expect(seen).toEqual([])
+  })
+
+  test('an observer that throws does not break the login', async () => {
+    await setPassword('hunter2')
+    const app = makeApp({
+      onLogin: () => {
+        throw new Error('observer exploded')
+      },
+    })
+    const res = await app.request('/auth/login', {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ password: 'hunter2' }),
+    })
+    expect(res.status).toBe(200)
+    expect(cookieValue(res)).toBeTruthy()
+  })
+
   test('login with the wrong password is rejected with 401 and sets no cookie', async () => {
     await setPassword('hunter2')
     const res = await makeApp().request('/auth/login', {

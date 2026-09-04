@@ -21,6 +21,9 @@ export interface ServerProfileContextValue {
   profiles: ServerProfile[]
   config: ServerConfig
   bearer: string | null
+  /** Whether startup reverified the saved server or opened its bound replica
+   *  from a previously verified profile while the server was unreachable. */
+  activation: 'verified' | 'offline-cache'
   runtimeKey: string
   isEphemeralOverride: boolean
   beginAddServer(): void
@@ -29,6 +32,9 @@ export interface ServerProfileContextValue {
   removeProfile(profileId: string): Promise<void>
   updateCredential(bearer: string | null): Promise<void>
   recordUser(userId: string): Promise<void>
+  /** Revalidate an offline-opened profile before releasing its saved bearer or
+   *  allowing the parked outbox to drain. */
+  revalidateOfflineProfile(): Promise<void>
 }
 
 export const ServerProfileContext = createContext<ServerProfileContextValue | null>(null)

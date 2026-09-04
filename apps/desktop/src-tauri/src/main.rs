@@ -9,18 +9,18 @@ mod bootstrap;
 mod logging;
 mod updater;
 
+use std::collections::VecDeque;
 use std::path::Path;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
-use tauri::menu::{Menu, MenuItem};
-#[cfg(target_os = "macos")]
 use tauri::menu::{MenuBuilder, MenuItemBuilder, SubmenuBuilder};
 use tauri::path::BaseDirectory;
-use tauri::tray::TrayIconBuilder;
 #[cfg(target_os = "macos")]
 use tauri::window::{Effect, EffectState, EffectsBuilder};
 use tauri::{AppHandle, Manager, Url, WebviewUrl, WebviewWindowBuilder};
+use tauri_plugin_deep_link::DeepLinkExt;
+use tauri_plugin_dialog::DialogExt;
 use updater::{check_update, claim_update_ownership, install_update, set_update_channel};
 
 const DESKTOP_SUPERVISED_ENV: &str = "PODIUM_DESKTOP_SUPERVISED";
@@ -36,12 +36,29 @@ const DAEMON_BLOCKED_EXIT_CODE: i32 = 78;
 /// can put in an exit handler covers "the exit handler never ran", so the backend polls
 /// for our death instead (packages/runtime/src/supervisor.ts).
 const SUPERVISOR_PID_ENV: &str = "PODIUM_SUPERVISOR_PID";
+const PODIUM_URL_SCHEME: &str = "podium";
+// Each pre-activation layer rejects its newest input after 32 accepted URLs.
+// Keeping the native queue finite prevents an OS-delivered burst from growing
+// without bound while the webview is absent or cannot evaluate the bridge.
+const NATIVE_OPEN_QUEUE_CAPACITY: usize = 32;
+const SUPERVISOR_SHUTDOWN_FILE_ENV: &str = "PODIUM_SUPERVISOR_SHUTDOWN_FILE";
+
+fn supervisor_shutdown_file() -> std::path::PathBuf {
+    bootstrap::state_dir()
+        .join("desktop-supervisors")
+        .join(format!("{}.shutdown", std::process::id()))
+}
+
+fn bundled_sidecar_resource(windows: bool) -> &'static str {
+    if windows {
+        "resources/podium.exe"
+    } else {
+        "resources/podium"
+    }
+}
 const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "core:window:allow-start-dragging",
     "core:window:allow-internal-toggle-maximize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-minimize",
-    "core:window:allow-close",
     "core:window:allow-set-theme",
     "allow-claim-update-ownership",
     "allow-check-update",
@@ -113,13 +130,122 @@ struct PayloadRepairState {
     busy: AtomicBool,
 }
 
+#[derive(Default)]
+struct NativeOpenQueue {
+    state: Mutex<NativeOpenQueueState>,
+}
+
+#[derive(Default)]
+struct NativeOpenQueueState {
+    pending: VecDeque<String>,
+    draining: bool,
+}
+
+fn is_configured_podium_url(url: &Url) -> bool {
+    url.scheme() == PODIUM_URL_SCHEME
+}
+
+fn native_open_eval(raw: &str) -> String {
+    let literal = serde_json::to_string(raw).unwrap_or_else(|_| "\"\"".to_string());
+    format!("window.__PODIUM_DELIVER_NATIVE_OPEN__?.({literal});")
+}
+
+fn enqueue_native_open(queue: &NativeOpenQueue, raw: String) -> bool {
+    let mut state = queue.state.lock().unwrap();
+    // The head being evaluated is still accepted work even while it is
+    // temporarily outside `pending`. Count it so a concurrent arrival cannot
+    // turn a full 32-entry queue into 33 when that head has to be restored.
+    let accepted = state.pending.len() + usize::from(state.draining);
+    if accepted >= NATIVE_OPEN_QUEUE_CAPACITY {
+        log::warn!("dropping newest OS-delivered Podium URL because the native-open queue is full");
+        return false;
+    }
+    state.pending.push_back(raw);
+    true
+}
+
+fn drain_native_open_queue(queue: &NativeOpenQueue, mut deliver: impl FnMut(&str) -> bool) {
+    {
+        let mut state = queue.state.lock().unwrap();
+        if state.draining {
+            return;
+        }
+        state.draining = true;
+    }
+
+    loop {
+        let Some(raw) = ({
+            let mut state = queue.state.lock().unwrap();
+            let next = state.pending.pop_front();
+            if next.is_none() {
+                state.draining = false;
+            }
+            next
+        }) else {
+            return;
+        };
+
+        if !deliver(&raw) {
+            let mut state = queue.state.lock().unwrap();
+            state.pending.push_front(raw);
+            state.draining = false;
+            return;
+        }
+    }
+}
+
+fn deliver_or_queue_native_open(app: &AppHandle, queue: &NativeOpenQueue, url: &Url) {
+    if !is_configured_podium_url(url) {
+        log::warn!("refusing OS-delivered URL outside the configured podium scheme");
+        return;
+    }
+    log::info!("accepted an OS-delivered Podium URL");
+    let raw = url.as_str().to_string();
+    // Every accepted URL enters one authoritative FIFO before delivery. A
+    // warm URL must never bypass older cold work or a head restored after an
+    // eval failure, and concurrent flush attempts are serialized by the
+    // queue's draining flag.
+    enqueue_native_open(queue, raw);
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+    // A deep link is an explicit request to return to Podium. CloseRequested
+    // hides the main window, so warm delivery must restore it before the page
+    // activates the target. RunEvent::Reopen only covers Dock activation.
+    let _ = window.show();
+    let _ = window.set_focus();
+    flush_native_open_queue(&window, queue);
+}
+
+fn flush_native_open_queue(window: &tauri::WebviewWindow, queue: &NativeOpenQueue) {
+    drain_native_open_queue(queue, |raw| {
+        if let Err(error) = window.eval(native_open_eval(raw)) {
+            log::warn!("could not flush a native Podium URL: {error}");
+            return false;
+        }
+        true
+    });
+}
+
+/// Initialization scripts run before the React tree. Rust can therefore hand
+/// cold and warm URLs to this tiny page-local queue without racing the host's
+/// effect. The host marks itself ready only after its CustomEvent listener is
+/// installed, and every queued raw URL is dispatched once through that event.
+fn native_open_bridge_script() -> &'static str {
+    include_str!("../native-open.js")
+}
+
 fn local_host_sidecar_command(
     runnable: &Path,
     sidecar_args: &[String],
     port: u16,
     web_dir: &Path,
     mobile_web_dir: &Path,
+    shutdown_file: &Path,
 ) -> Command {
+    // A transfer or prior orderly stop may have consumed this marker. Every new child starts
+    // from an absent marker; the path is scoped to this shell PID.
+    let _ = std::fs::remove_file(shutdown_file);
     let mut command = Command::new(runnable);
     command
         .args(sidecar_args)
@@ -139,17 +265,24 @@ fn local_host_sidecar_command(
             mobile_web_dir.to_string_lossy().to_string(),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
+        .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
+        .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
 }
 
-fn replacement_daemon_command(runnable: &Path, server_url: &str) -> Command {
+fn replacement_daemon_command(
+    runnable: &Path,
+    server_url: &str,
+    shutdown_file: &Path,
+) -> Command {
+    let _ = std::fs::remove_file(shutdown_file);
     let mut command = Command::new(runnable);
     command
         .args(["daemon", "--server", server_url, "--takeover"])
         .env(PODIUM_CLI_PATH_ENV, runnable)
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env(SUPERVISOR_PID_ENV, std::process::id().to_string());
+        .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
+        .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
 }
 
@@ -340,26 +473,30 @@ fn spawn_local_document_watchdog(
 /// invisible and far below the 500ms floor of the respawn backoff, so it costs no reaction time.
 const SUPERVISION_POLL: std::time::Duration = std::time::Duration::from_millis(200);
 
-/// How long a reaped backend gets to exit on SIGTERM before we SIGKILL it. The backend's own
-/// shutdown is a log drain and a pidfile removal — sub-second work — and this budget sits on the
-/// quit path a human is watching, so it is deliberately short.
-#[cfg(unix)]
-const REAP_GRACE: std::time::Duration = std::time::Duration::from_millis(1500);
-#[cfg(unix)]
+/// How long a reaped backend gets to close sessions, drain logs, and remove its pidfile before a
+/// forced kill. The supervisor checks the cross-platform shutdown marker once per second and the
+/// normal server close budget is four seconds, so six seconds leaves room for both.
+const REAP_GRACE: std::time::Duration = std::time::Duration::from_secs(6);
 const REAP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
 
 /// Ask the backend to exit, and make sure it does.
 ///
-/// `Child::kill` is SIGKILL, which is the wrong first move for a process that owns a pidfile and a
-/// log sink: killed outright it leaves a live-looking run-registry record behind, and the NEXT
-/// launch has to decide whether that record's PID is a real holder or a recycled one. SIGTERM
-/// first lets the backend remove its own record and drain its logs; SIGKILL stays as the backstop
-/// for a backend that will not go, so quitting can never hang on it.
+/// `Child::kill` is the wrong first move for a process that owns sessions, a pidfile, and a log
+/// sink. The marker gives every OS the same cooperative path through the runtime supervisor.
+/// Unix also receives SIGTERM for compatibility with older sidecars. A forced kill stays as the
+/// bounded backstop, so quitting can never hang indefinitely.
 ///
-/// Unix only for the signal — `std::process` has no portable "terminate politely", and a raw
-/// `kill(2)` declaration is cheaper than a `libc` dependency for one call. Elsewhere (and if the
-/// grace runs out) this is exactly the old behavior.
+/// Unix only for the signal because `std::process` has no portable "terminate politely". The
+/// marker is the primary cross-platform request, including on Windows.
 fn reap_backend(child: &mut std::process::Child) {
+    let shutdown_file = supervisor_shutdown_file();
+    if let Some(parent) = shutdown_file.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    if let Err(error) = std::fs::write(&shutdown_file, b"shutdown\n") {
+        log::warn!("cannot request graceful backend shutdown: {error}");
+    }
+
     #[cfg(unix)]
     {
         // SIGTERM. Declared here rather than pulled in via `libc`: this is the crate's only FFI,
@@ -373,17 +510,17 @@ fn reap_backend(child: &mut std::process::Child) {
             unsafe {
                 kill(pid, SIGTERM);
             }
-            let deadline = std::time::Instant::now() + REAP_GRACE;
-            while std::time::Instant::now() < deadline {
-                match child.try_wait() {
-                    // Exited on its own terms, or is already unwaitable — either way, done.
-                    Ok(Some(_)) | Err(_) => return,
-                    Ok(None) => std::thread::sleep(REAP_POLL),
-                }
-            }
-            log::warn!("backend did not exit within the SIGTERM grace; killing");
         }
     }
+    let deadline = std::time::Instant::now() + REAP_GRACE;
+    while std::time::Instant::now() < deadline {
+        match child.try_wait() {
+            // Exited on its own terms, or is already unwaitable — either way, done.
+            Ok(Some(_)) | Err(_) => return,
+            Ok(None) => std::thread::sleep(REAP_POLL),
+        }
+    }
+    log::warn!("backend did not exit within the graceful shutdown budget; killing");
     let _ = child.kill();
     let _ = child.wait();
 }
@@ -422,6 +559,47 @@ use std::os::unix::ffi::OsStrExt;
 #[cfg(not(any(target_os = "linux", target_os = "macos")))]
 fn process_executable(_pid: u32) -> Option<std::path::PathBuf> {
     None
+}
+
+/// Render the complete child termination fact that matters to supervision. `ExitStatus::code()`
+/// alone loses the most useful distinction here: a daemon killed by a signal is not the same
+/// event as one that deliberately returned the terminal-refusal code. Keep this helper platform
+/// neutral so the same record shape is available in Linux, macOS, and Windows diagnostics.
+fn exit_status_details(status: Option<&std::process::ExitStatus>) -> String {
+    let Some(status) = status else {
+        return "status=unavailable code=None signal=None".to_string();
+    };
+    // Annotated because the `#[cfg(not(unix))]` arm is a bare `None` with nothing to infer from:
+    // on Windows this block is the ONLY definition of `signal`, and inference has no other site
+    // to take the parameter from. Unix compiles either way, so the mistake is invisible until a
+    // Windows build runs.
+    let signal: Option<i32> = {
+        #[cfg(unix)]
+        {
+            std::os::unix::process::ExitStatusExt::signal(status)
+        }
+        #[cfg(not(unix))]
+        {
+            None
+        }
+    };
+    format!(
+        "status={status:?} code={:?} signal={signal:?} success={} raw={:?}",
+        status.code(),
+        status.success(),
+        status,
+    )
+}
+
+/// Include the PID and the executable the kernel says that PID is actually running. The launch
+/// path knows which file it asked for, but an atomic payload swap can make that path stale by the
+/// time a respawn occurs; `/proc`/`proc_pidpath` is the evidence of what really ran.
+fn child_details(child: &std::process::Child) -> String {
+    let pid = child.id();
+    let executable = process_executable(pid)
+        .map(|path| path.to_string_lossy().into_owned())
+        .unwrap_or_else(|| "<unavailable>".to_string());
+    format!("pid={pid} executable={executable}")
 }
 
 #[cfg(unix)]
@@ -559,10 +737,21 @@ fn await_child_exit(
             let mut guard = child_state.lock().unwrap();
             match guard.as_mut() {
                 Some(child) => match child.try_wait() {
-                    Ok(Some(status)) => return Some(Some(status)),
+                    Ok(Some(status)) => {
+                        log::info!(
+                            "supervised backend child exited; pid={} {}",
+                            child.id(),
+                            exit_status_details(Some(&status)),
+                        );
+                        return Some(Some(status));
+                    }
                     Ok(None) => {}
                     Err(error) => {
-                        log::warn!("cannot poll the supervised backend: {error}");
+                        log::error!(
+                            "cannot poll the supervised backend; pid={} executable={:?}: {error}",
+                            child.id(),
+                            process_executable(child.id()),
+                        );
                         return Some(None);
                     }
                 },
@@ -600,6 +789,7 @@ fn spawn_respawn_monitor<F, S, D>(
     D: Fn() -> bootstrap::BackendExitDecision + Send + 'static,
 {
     std::thread::spawn(move || {
+        log::info!("native backend monitor started; label={label}");
         let mut backoff_ms: u64 = 500;
         let mut transferred_server_url: Option<String> = None;
         let mut paused_exit_pid: Option<u32> = None;
@@ -618,14 +808,26 @@ fn spawn_respawn_monitor<F, S, D>(
                 local_restart.as_ref(),
             )
             else {
+                log::info!("native backend monitor stopped: child slot is empty; label={label}");
                 break;
             };
+            log::warn!(
+                "native backend exit observed; label={label} observed_pid={observed_pid:?} executable={:?} {}",
+                observed_pid.and_then(process_executable),
+                exit_status_details(exited.as_ref()),
+            );
 
             if shutting_down.load(Ordering::Acquire) {
+                log::info!("native backend monitor stopping during shell shutdown; label={label}");
                 break;
             }
 
             let exit_code = exited.as_ref().and_then(std::process::ExitStatus::code);
+            log::info!(
+                "native backend exit classification; label={label} code={exit_code:?} respawn={} status={}",
+                should_respawn_backend(exit_code),
+                exit_status_details(exited.as_ref()),
+            );
             if !should_respawn_backend(exit_code) {
                 log::warn!(
                     "backend exited {DAEMON_BLOCKED_EXIT_CODE} after a terminal server refusal; \
@@ -636,6 +838,10 @@ fn spawn_respawn_monitor<F, S, D>(
             }
 
             let successor_file = successor.file.lock().ok().and_then(|path| path.clone());
+            log::info!(
+                "native backend successor marker; label={label} path={successor_file:?} exists={}",
+                successor_file.as_ref().is_some_and(|path| path.exists()),
+            );
             if let Some((path, pid)) = successor_file
                 .as_deref()
                 .and_then(|path| take_live_successor_pid(path).map(|pid| (path, pid)))
@@ -654,6 +860,7 @@ fn spawn_respawn_monitor<F, S, D>(
             } else {
                 exit_decision()
             };
+            log::info!("native backend exit decision; label={label} decision={decision:?}");
             let intentional_transfer = match decision {
                 bootstrap::BackendExitDecision::Respawn => false,
                 bootstrap::BackendExitDecision::Retarget {
@@ -684,6 +891,18 @@ fn spawn_respawn_monitor<F, S, D>(
                     let _ = child_state.lock().map(|mut child| child.take());
                     break;
                 }
+                bootstrap::BackendExitDecision::BlockedServerTransport { reason } => {
+                    log::error!(
+                        "backend exited for a server blocked by desktop transport policy: {reason}"
+                    );
+                    app_handle
+                        .dialog()
+                        .message(reason.clone())
+                        .title("Server connection blocked")
+                        .blocking_show();
+                    let _ = child_state.lock().map(|mut child| child.take());
+                    break;
+                }
             };
 
             if !intentional_transfer {
@@ -705,12 +924,23 @@ fn spawn_respawn_monitor<F, S, D>(
                 break;
             }
 
+            let spawn_kind = if transferred_server_url.is_some() {
+                "daemon-after-transfer"
+            } else {
+                "original-topology"
+            };
+            log::info!(
+                "native backend respawn attempt; label={label} kind={spawn_kind} target={:?} backoff_ms={backoff_ms}",
+                transferred_server_url.as_deref().unwrap_or("<local>"),
+            );
             let spawned = match transferred_server_url.as_deref() {
                 Some(server_url) => spawn_daemon_fn(server_url),
                 None => spawn_fn(),
             };
             match spawned {
                 Ok(mut new_child) => {
+                    let spawned_details = child_details(&new_child);
+                    log::info!("native backend respawn spawn succeeded; label={label} {spawned_details}");
                     // Shutdown can begin between the check above and this store. By then the
                     // exit handlers have already emptied the slot, so a child parked here now
                     // would outlive the app and keep holding its port. Re-check under the lock
@@ -721,9 +951,10 @@ fn spawn_respawn_monitor<F, S, D>(
                         break;
                     }
                     *guard = Some(new_child);
+                    log::info!("native backend child slot stored; label={label} {spawned_details}");
                     backoff_ms = 500;
                 }
-                Err(e) => log::error!("respawn failed: {e}"),
+                Err(error) => log::error!("native backend respawn failed; label={label} kind={spawn_kind} error={error}"),
             }
         }
     });
@@ -747,6 +978,10 @@ const DESKTOP_PLATFORM: &str = "macos";
 const DESKTOP_PLATFORM: &str = "windows";
 #[cfg(all(not(target_os = "macos"), not(target_os = "windows")))]
 const DESKTOP_PLATFORM: &str = "linux";
+#[cfg(target_os = "macos")]
+const NATIVE_DECORATIONS: bool = false;
+#[cfg(not(target_os = "macos"))]
+const NATIVE_DECORATIONS: bool = true;
 
 /// Eval a web-app menu hook if the page has registered it. Missing handlers are
 /// a no-op: setup/onboarding has nothing to spawn, and an empty workspace must
@@ -796,7 +1031,7 @@ fn native_desktop_hook(
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
     // because the webview answers a same-origin `_blank` with an in-app window. Runs on the
-    // opener:default grant the shim already uses ("external-link-opener" capability).
+    // narrow open-url grant the shim already uses ("external-link-opener" capability).
     let open_external = ",\n            openExternal: (url) => window.__TAURI_INTERNALS__.invoke('plugin:opener|open_url', { url })";
     // Native appearance sync (macOS vibrancy): the NSVisualEffectView behind the
     // transparent command bar renders with the WINDOW's NSAppearance, which follows
@@ -829,6 +1064,7 @@ fn native_desktop_hook(
     format!(
         r#"window.__PODIUM_DESKTOP__ = Object.freeze({{
             platform: "{DESKTOP_PLATFORM}",
+            nativeDecorations: {NATIVE_DECORATIONS},
             currentVersion: {current_version_literal},
             bridgeVersion: {NATIVE_DESKTOP_BRIDGE_VERSION},
             launchMode: {launch_mode_expression}{machine_id},
@@ -902,6 +1138,16 @@ fn payload_unavailable_injection(error: &str) -> String {
     )
 }
 
+/// Initialization for the bundled document when a configured remote server violates the desktop
+/// transport policy. The untrusted page never loads, and the signed frame explains the refusal.
+fn server_transport_blocked_injection(error: &str) -> String {
+    let error_literal = serde_json::to_string(error)
+        .unwrap_or_else(|_| "\"the configured server uses an insecure transport\"".to_string());
+    format!(
+        "window.__PODIUM_SERVER_TRANSPORT_BLOCKED__ = true;\nwindow.__PODIUM_SERVER_TRANSPORT_ERROR__ = {error_literal};"
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "camelCase")]
 struct DaemonConnectivity {
@@ -960,9 +1206,15 @@ fn enable_hosting(pair_code: String) -> Result<(), String> {
 /// pointed at the ws(s) relay URL mapped to http(s) (see `remote_window_target`), so
 /// the capability pattern must be derived from that mapped URL — a raw `wss://…`
 /// origin would never match the page's `https://…` origin and the grant would be dead.
-fn remote_capability_pattern(server_url: &str) -> Result<String, String> {
-    let url = tauri::Url::parse(&bootstrap::webview_http_url(server_url))
-        .map_err(|error| error.to_string())?;
+///
+/// It therefore takes the LOADED origin, not "the server URL": under split hosting those
+/// differ (`bootstrap::remote_window_origin_url`), and it is the loaded one the page's
+/// `window.__TAURI__` calls come from. The transport policy is applied here too — a grant is
+/// the native bridge, and it is never handed to an origin the window was refused permission
+/// to load — and the ws(s) → http(s) mapping inside it keeps every self-hosted install, which
+/// passes a ws(s) server URL, on today's behaviour; an https app host passes through unchanged.
+fn remote_capability_pattern(window_origin: &str) -> Result<String, String> {
+    let url = bootstrap::validated_webview_http_url(window_origin)?;
     Ok(format!("{}/*", url.origin().ascii_serialization()))
 }
 
@@ -1069,12 +1321,15 @@ fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Resu
     let opener = tauri::ipc::CapabilityBuilder::new("transfer-external-link-opener")
         .window("main")
         .remote(pattern.clone())
-        .permission("opener:default");
+        .permission("opener:allow-open-url")
+        .permission("opener:allow-default-urls");
     let sqlite = tauri::ipc::CapabilityBuilder::new("transfer-replica-sqlite")
         .window("main")
         .remote(pattern.clone())
-        .permission("sql:default")
-        .permission("sql:allow-execute");
+        .permission("sql:allow-load")
+        .permission("sql:allow-select")
+        .permission("sql:allow-execute")
+        .permission("sql:allow-close");
     let updates = tauri::ipc::CapabilityBuilder::new("transfer-update-bridge")
         .window("main")
         .remote(pattern)
@@ -1102,6 +1357,7 @@ fn main() {
     // reading. `CARGO_PKG_VERSION` rather than `app.package_info()` because the
     // app does not exist yet; they are the same string.
     logging::init(env!("CARGO_PKG_VERSION"));
+    let native_open_queue = Arc::new(NativeOpenQueue::default());
     let mut builder = tauri::Builder::default();
     // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
     // window and exit the duplicate. Registered FIRST so it fires before any setup work.
@@ -1117,6 +1373,10 @@ fn main() {
             }
         }));
     }
+    // Keep this immediately after single-instance. Its `deep-link` feature
+    // turns a Linux/Windows second process argv into the same open-url event
+    // macOS sends to the running process.
+    builder = builder.plugin(tauri_plugin_deep_link::init());
     let app = builder
         // Auto-updater stack: updater (check/download/install signed artifacts),
         // dialog (the prompt-then-restart confirmation), process (app.restart()).
@@ -1142,7 +1402,28 @@ fn main() {
             set_update_channel,
             repair_payload
         ])
-        .setup(|app| {
+        .setup(move |app| {
+            app.manage(native_open_queue.clone());
+            #[cfg(target_os = "linux")]
+            if let Err(error) = app.deep_link().register_all() {
+                // Installed desktop entries still carry the static scheme.
+                // Runtime registration is the AppImage/dev fallback and must
+                // not make an otherwise usable shell fail to start.
+                log::warn!("could not register desktop deep links at runtime: {error}");
+            }
+            if let Some(urls) = app.deep_link().get_current()? {
+                for url in urls {
+                    deliver_or_queue_native_open(app.handle(), &native_open_queue, &url);
+                }
+            }
+            let deep_link_app = app.handle().clone();
+            let warm_open_queue = native_open_queue.clone();
+            app.deep_link().on_open_url(move |event| {
+                for url in event.urls() {
+                    deliver_or_queue_native_open(&deep_link_app, &warm_open_queue, &url);
+                }
+            });
+
             // TEST AID: record the running app version so the e2e can deterministically
             // distinguish 0.1.0 from 0.1.1 across a self-replace+restart. Only writes when
             // PODIUM_STATE_DIR is set (the e2e sets it to a scratch dir); a no-op otherwise.
@@ -1169,8 +1450,30 @@ fn main() {
                 log::error!("could not initialize desktop update channel: {error}");
                 error
             })?;
-            let action = bootstrap::resolve_launch(cfg.mode.as_deref(), cfg.server_url.as_deref());
+            let action = bootstrap::resolve_launch(
+                cfg.mode.as_deref(),
+                cfg.server_url.as_deref(),
+                cfg.ui_url.as_deref(),
+            );
             log::info!("launch action: {action:?}");
+            // Reject an insecure configured server before starting a daemon, loading its page, or
+            // deriving any remote native capability from it. Local shell modes have no remote
+            // server at this point; their loopback served origin is validated below like any other
+            // capability target.
+            // `ui_url` is deliberately NOT a gate here: an app host the policy refuses is
+            // IGNORED by `remote_window_target`, which falls back to the validated server URL.
+            // Only the server URL can stop the launch.
+            let server_transport_error = match &action {
+                bootstrap::LaunchAction::LocalDaemon { server_url, .. }
+                | bootstrap::LaunchAction::ClientOnly { server_url, .. } => {
+                    bootstrap::validate_server_transport(server_url).err()
+                }
+                bootstrap::LaunchAction::LocalAllInOne
+                | bootstrap::LaunchAction::LocalServerOnly => None,
+            };
+            if let Some(error) = server_transport_error.as_deref() {
+                log::error!("configured server rejected by desktop transport policy: {error}");
+            }
             // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the
             // hosting toggle [spec:SP-3701].
             let launch_mode_tag = match &action {
@@ -1194,6 +1497,10 @@ fn main() {
             // (if anything) we spawned. ClientOnly leaves it None.
             let child_state: Arc<Mutex<Option<std::process::Child>>> = Arc::new(Mutex::new(None));
             app.manage(child_state.clone());
+            let shutdown_file = supervisor_shutdown_file();
+            // A normal previous quit leaves its marker behind after the backend has drained.
+            // This process owns a PID-specific marker, so clearing it cannot affect another shell.
+            let _ = std::fs::remove_file(&shutdown_file);
             let successor = Arc::new(DesktopSuccessorState::default());
             app.manage(successor.clone());
             let local_restart = Arc::new(LocalRestartPause::default());
@@ -1211,9 +1518,13 @@ fn main() {
             // WKWebView's WebSocket from a tauri:// page to a remote TLS relay fails (1006).
             // Placeholder until the readiness probe (local) or remote_window_target (remote).
             let mut webview_url = WebviewUrl::default();
-            // Origin that needs CapabilityBuilder::remote grants. Local served-local uses the
-            // stable loopback URL; remote modes use the configured serverUrl.
-            let remote_window_server_url: Option<String>;
+            // Origin that needs CapabilityBuilder::remote grants — THE ORIGIN THE WINDOW
+            // ACTUALLY LOADS, which is the only thing a grant can match. Local served-local
+            // uses the stable loopback URL; remote modes use the server URL, or the app host
+            // when the server advertised one (PDM-34, `bootstrap::remote_window_origin_url`).
+            // None until a branch sets it: a server the transport policy refused loads no
+            // window, and so is granted nothing.
+            let mut remote_window_origin: Option<String> = None;
 
             let initial_action = action.clone();
 
@@ -1284,6 +1595,7 @@ fn main() {
                                     port,
                                     &web_dir,
                                     &mobile_web_dir,
+                                    &shutdown_file,
                                 )
                                 .spawn()
                                 {
@@ -1293,6 +1605,7 @@ fn main() {
                                         payload_start_error = Some(reason);
                                     }
                                     Ok(child) => {
+                                        log::info!("native backend initial host spawn succeeded; {}", child_details(&child));
                                         *child_state.lock().unwrap() = Some(child);
 
                                         // Supervise only a child that actually started. A failed
@@ -1302,6 +1615,8 @@ fn main() {
                                         let web_dir2 = web_dir.clone();
                                         let mobile_web_dir2 = mobile_web_dir.clone();
                                         let sidecar_args2 = sidecar_args.clone();
+                                        let shutdown_file2 = shutdown_file.clone();
+                                        let daemon_shutdown_file = shutdown_file.clone();
                                         let transition_action = initial_action.clone();
                                         let monitor_app = app.handle().clone();
                                         let source_cookie_url = Url::parse(
@@ -1322,6 +1637,7 @@ fn main() {
                                                     port,
                                                     &web_dir2,
                                                     &mobile_web_dir2,
+                                                    &shutdown_file2,
                                                 )
                                                 .spawn()
                                             },
@@ -1329,6 +1645,7 @@ fn main() {
                                                 replacement_daemon_command(
                                                     &runnable_daemon,
                                                     server_url,
+                                                    &daemon_shutdown_file,
                                                 )
                                                 .spawn()
                                             },
@@ -1337,7 +1654,7 @@ fn main() {
                                                     &transition_action,
                                                 )
                                             },
-                                            format!("on port {port}"),
+                                            format!("on port {port}; executable={}", runnable.display()),
                                         );
                                     }
                                 }
@@ -1349,18 +1666,17 @@ fn main() {
                     // when the sidecar is up we load it; grants for an unused origin are
                     // harmless if we fall back to baked.
                     wait_local_port = Some(port);
-                    remote_window_server_url =
-                        Some(bootstrap::local_served_http_url(port));
+                    remote_window_origin = Some(bootstrap::local_served_http_url(port));
                 }
 
-                bootstrap::LaunchAction::LocalDaemon { server_url } => {
+                bootstrap::LaunchAction::LocalDaemon { server_url, ui_url } => {
                     // Spawn the local `podium`; it reads config → daemon mode → connects to the
                     // remote server. There is NO local server, so do not force PODIUM_PORT and do
                     // not wait for a local /health — the web client connects to the remote.
                     let install = payload_install
                         .as_ref()
                         .expect("a daemon host has an external payload");
-                    if payload_start_error.is_none() {
+                    if server_transport_error.is_none() && payload_start_error.is_none() {
                         match bootstrap::ensure_executable(&install.join("podium")) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
@@ -1369,7 +1685,13 @@ fn main() {
                             }
                             Ok(runnable) => {
                                 log::info!("spawning daemon {runnable:?} → {server_url}");
-                                match replacement_daemon_command(&runnable, &server_url).spawn() {
+                                match replacement_daemon_command(
+                                    &runnable,
+                                    &server_url,
+                                    &shutdown_file,
+                                )
+                                .spawn()
+                                {
                                     Err(error) => {
                                         let reason =
                                             format!("daemon payload spawn failed: {error}");
@@ -1377,10 +1699,13 @@ fn main() {
                                         payload_start_error = Some(reason);
                                     }
                                     Ok(child) => {
+                                        log::info!("native backend initial daemon spawn succeeded; {}", child_details(&child));
                                         *child_state.lock().unwrap() = Some(child);
                                         let runnable2 = runnable.clone();
                                         let runnable_daemon = runnable.clone();
                                         let respawn_server_url = server_url.clone();
+                                        let shutdown_file2 = shutdown_file.clone();
+                                        let daemon_shutdown_file = shutdown_file.clone();
                                         spawn_respawn_monitor(
                                             child_state.clone(),
                                             shutting_down.clone(),
@@ -1392,6 +1717,7 @@ fn main() {
                                                 replacement_daemon_command(
                                                     &runnable2,
                                                     &respawn_server_url,
+                                                    &shutdown_file2,
                                                 )
                                                 .spawn()
                                             },
@@ -1399,11 +1725,12 @@ fn main() {
                                                 replacement_daemon_command(
                                                     &runnable_daemon,
                                                     server_url,
+                                                    &daemon_shutdown_file,
                                                 )
                                                 .spawn()
                                             },
                                             || bootstrap::BackendExitDecision::Respawn,
-                                            "(daemon)".to_string(),
+                                            format!("(daemon); executable={}", runnable.display()),
                                         );
                                     }
                                 }
@@ -1411,16 +1738,30 @@ fn main() {
                         }
                     }
 
-                    remote_window_server_url = Some(server_url.clone());
-                    (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
+                    if server_transport_error.is_none() {
+                        remote_window_origin = Some(bootstrap::remote_window_origin_url(
+                            &server_url,
+                            ui_url.as_deref(),
+                        ));
+                        (webview_url, window_injection) =
+                            bootstrap::remote_window_target(&server_url, ui_url.as_deref())
+                                .expect("the validated remote server URL remains valid");
+                    }
                     wait_local_port = None;
                 }
 
-                bootstrap::LaunchAction::ClientOnly { server_url } => {
+                bootstrap::LaunchAction::ClientOnly { server_url, ui_url } => {
                     // No backend, no monitor — just point the window at the remote server.
-                    log::info!("client mode → {server_url} (no local backend)");
-                    remote_window_server_url = Some(server_url.clone());
-                    (webview_url, window_injection) = bootstrap::remote_window_target(&server_url);
+                    if server_transport_error.is_none() {
+                        log::info!("client mode → {server_url} (no local backend)");
+                        remote_window_origin = Some(bootstrap::remote_window_origin_url(
+                            &server_url,
+                            ui_url.as_deref(),
+                        ));
+                        (webview_url, window_injection) =
+                            bootstrap::remote_window_target(&server_url, ui_url.as_deref())
+                                .expect("the validated remote server URL remains valid");
+                    }
                     wait_local_port = None;
                 }
             }
@@ -1434,7 +1775,8 @@ fn main() {
             // (which load the relay origin directly) get it too.
             let mut opener_capability = tauri::ipc::CapabilityBuilder::new("external-link-opener")
                 .window("main")
-                .permission("opener:default");
+                .permission("opener:allow-open-url")
+                .permission("opener:allow-default-urls");
             // [spec:SP-3701] The enable_hosting command is granted ONLY to a client-mode window
             // (the sole state where the toggle exists), scoped to the configured hub origin.
             let mut hosting_capability = (launch_mode_tag == "client").then(|| {
@@ -1449,8 +1791,10 @@ fn main() {
             // already serves all app JS and is fully trusted).
             let mut sqlite_capability = tauri::ipc::CapabilityBuilder::new("replica-sqlite")
                 .window("main")
-                .permission("sql:default")
-                .permission("sql:allow-execute");
+                .permission("sql:allow-load")
+                .permission("sql:allow-select")
+                .permission("sql:allow-execute")
+                .permission("sql:allow-close");
             // Update bridge (POD-1670): the in-app dialog drives check/install through
             // these commands. REMOTE MODE IS THE CASE THAT MATTERS — the shell loads the
             // remote server's own web bundle, so the page invoking them lives on that
@@ -1463,10 +1807,10 @@ fn main() {
             // `podium://update-progress`, and a page that may invoke the install
             // but may not subscribe to the event gets a spinner that never moves
             // — the exact silence the progress events were added to end. The
-            // static `default.json` grants `core:default` (which includes
-            // listen) but declares no remote block, so it covers the local
-            // origin only; remote mode, where the page is served by the remote
-            // server, needs it named here alongside the commands it belongs to.
+            // static `default.json` grants exactly listen and unlisten but no
+            // remote block, so it covers the local origin only. Remote mode,
+            // where the page is served by the remote server, needs those exact
+            // permissions named here alongside the commands they belong to.
             let mut update_capability = tauri::ipc::CapabilityBuilder::new("update-bridge")
                 .window("main")
                 .permission("allow-claim-update-ownership")
@@ -1475,8 +1819,8 @@ fn main() {
                 .permission("allow-repair-payload")
                 .permission("core:event:allow-listen")
                 .permission("core:event:allow-unlisten");
-            if let Some(server_url) = remote_window_server_url {
-                match remote_capability_pattern(&server_url) {
+            if let Some(window_origin) = remote_window_origin {
+                match remote_capability_pattern(&window_origin) {
                     Ok(pattern) => {
                         window_capability = window_capability.remote(pattern.clone());
                         opener_capability = opener_capability.remote(pattern.clone());
@@ -1485,7 +1829,7 @@ fn main() {
                         hosting_capability = hosting_capability.map(|c| c.remote(pattern));
                     }
                     Err(error) => log::warn!(
-                        "no remote window capability for invalid URL {server_url:?}: {error}"
+                        "no remote window capability for invalid URL {window_origin:?}: {error}"
                     ),
                 }
             }
@@ -1611,25 +1955,90 @@ fn main() {
                 app.set_menu(menu)?;
             }
 
-            // Build the tray icon with Open / Quit menu items.
-            // The debug-only runtime proof uses a minimal scratch X server with no icon theme.
-            if !runtime_probe_enabled() {
-                let open = MenuItem::with_id(app, "open", "Open Podium ADE", true, None::<&str>)?;
-                let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;
-                let menu = Menu::with_items(app, &[&open, &quit])?;
-                let _tray = TrayIconBuilder::new()
-                    .menu(&menu)
-                    .on_menu_event(|app, event| match event.id.as_ref() {
-                        "open" => {
-                            if let Some(w) = app.get_webview_window("main") {
-                                let _ = w.show();
-                                let _ = w.set_focus();
-                            }
-                        }
-                        "quit" => app.exit(0),
-                        _ => {}
-                    })
+            // Windows and Linux reserve Ctrl+W and several other application chords before the
+            // webview sees them. Bind the same web-owned actions through a native menu so the OS
+            // handles accelerators once and Close Tab can never fall through to window close.
+            #[cfg(not(target_os = "macos"))]
+            {
+                let new_agent = MenuItemBuilder::with_id("new-agent", "New Agent")
+                    .accelerator("CmdOrCtrl+N")
                     .build(app)?;
+                let add_project =
+                    MenuItemBuilder::with_id("add-project", "Add Project…").build(app)?;
+                let close_tab = MenuItemBuilder::with_id("close-tab", "Close Tab")
+                    .accelerator("CmdOrCtrl+W")
+                    .build(app)?;
+                let quit = MenuItemBuilder::with_id("quit-app", "Quit Podium ADE")
+                    .accelerator("CmdOrCtrl+Q")
+                    .build(app)?;
+                let file_menu = SubmenuBuilder::new(app, "File")
+                    .item(&new_agent)
+                    .item(&add_project)
+                    .separator()
+                    .item(&close_tab)
+                    .separator()
+                    .item(&quit)
+                    .build()?;
+                let undo = MenuItemBuilder::with_id("edit-undo", "Undo")
+                    .accelerator("CmdOrCtrl+Z")
+                    .build(app)?;
+                let redo = MenuItemBuilder::with_id("edit-redo", "Redo")
+                    .accelerator("Shift+CmdOrCtrl+Z")
+                    .build(app)?;
+                let edit_menu = SubmenuBuilder::new(app, "Edit")
+                    .item(&undo)
+                    .item(&redo)
+                    .separator()
+                    .cut()
+                    .copy()
+                    .paste()
+                    .select_all()
+                    .build()?;
+                let settings = MenuItemBuilder::with_id("open-settings", "Settings…")
+                    .accelerator("CmdOrCtrl+,")
+                    .build(app)?;
+                let focus_session_prompt =
+                    MenuItemBuilder::with_id("focus-session-prompt", "Focus Session Prompt")
+                        .accelerator("CmdOrCtrl+L")
+                        .build(app)?;
+                let toggle_session_view =
+                    MenuItemBuilder::with_id("toggle-session-view", "Toggle Chat / Native View")
+                        .accelerator("Shift+CmdOrCtrl+L")
+                        .build(app)?;
+                let toggle_left =
+                    MenuItemBuilder::with_id("toggle-left-sidebar", "Toggle Left Sidebar")
+                        .accelerator("Shift+CmdOrCtrl+B")
+                        .build(app)?;
+                let toggle_flight =
+                    MenuItemBuilder::with_id("toggle-flight-deck", "Toggle Flight Deck")
+                        .accelerator("Alt+CmdOrCtrl+F")
+                        .build(app)?;
+                let toggle_right =
+                    MenuItemBuilder::with_id("toggle-right-sidebar", "Toggle Right Sidebar")
+                        .accelerator("CmdOrCtrl+B")
+                        .build(app)?;
+                let view_menu = SubmenuBuilder::new(app, "View")
+                    .item(&settings)
+                    .separator()
+                    .item(&focus_session_prompt)
+                    .item(&toggle_session_view)
+                    .separator()
+                    .item(&toggle_left)
+                    .item(&toggle_flight)
+                    .item(&toggle_right)
+                    .build()?;
+                let check_updates =
+                    MenuItemBuilder::with_id("check-updates", "Check for Updates…").build(app)?;
+                let about =
+                    MenuItemBuilder::with_id("about-podium", "About Podium ADE").build(app)?;
+                let help_menu = SubmenuBuilder::new(app, "Help")
+                    .item(&check_updates)
+                    .item(&about)
+                    .build()?;
+                let menu = MenuBuilder::new(app)
+                    .items(&[&file_menu, &edit_menu, &view_menu, &help_menu])
+                    .build()?;
+                app.set_menu(menu)?;
             }
 
             // Wait for the local backend (if any) to accept connections, then open the window.
@@ -1667,17 +2076,26 @@ fn main() {
                 machine_id.as_deref(),
             );
             let opener_shim = bootstrap::opener_shim_script();
+            let native_open_bridge = native_open_bridge_script();
             let runtime_probe = runtime_probe_script();
             // Remote modes already resolved webview_url + window_injection. Local modes
             // fill them after the readiness probe inside the spawn below.
             let remote_init_injection = window_injection;
             let watchdog_shutting_down = shutting_down.clone();
+            let server_transport_error_for_window = server_transport_error;
             let payload_start_error_for_window = payload_start_error;
             std::thread::spawn(move || {
-                let (resolved_url, resolved_injection) = if let Some(error) = payload_start_error_for_window {
-                    log::error!("opening signed payload repair surface: {error}");
-                    (WebviewUrl::default(), payload_unavailable_injection(&error))
-                } else if let Some(port) = wait_local_port {
+                let (resolved_url, resolved_injection) =
+                    if let Some(error) = server_transport_error_for_window {
+                        log::error!("opening bundled transport refusal surface: {error}");
+                        (
+                            WebviewUrl::default(),
+                            server_transport_blocked_injection(&error),
+                        )
+                    } else if let Some(error) = payload_start_error_for_window {
+                        log::error!("opening signed payload repair surface: {error}");
+                        (WebviewUrl::default(), payload_unavailable_injection(&error))
+                    } else if let Some(port) = wait_local_port {
                     // Native runtime proof seam: debug builds may force the scratch host
                     // origin so a tiny test server can set an HttpOnly cookie before the
                     // committed transition. It is not a Podium server, so it must skip the
@@ -1736,14 +2154,65 @@ fn main() {
                 };
                 // External-link shim (ALL modes): route window.open/_blank to the OS browser.
                 let init = format!(
-                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_crash_report}\n{runtime_probe}"
+                    "{resolved_injection}\n{restart_hook}\n{native_desktop_hook}\n{opener_shim}\n{native_open_bridge}\n{native_crash_report}\n{runtime_probe}"
                 );
+                let page_open_queue = native_open_queue.clone();
+                let navigation_notice_open = Arc::new(AtomicBool::new(false));
                 let handle2 = handle.clone();
                 let _ = handle.run_on_main_thread(move || {
+                    let navigation_app = handle2.clone();
+                    let navigation_notice = navigation_notice_open.clone();
                     let window_builder = WebviewWindowBuilder::new(&handle2, "main", resolved_url)
                         .title("Podium ADE")
                         .inner_size(1200.0, 800.0)
-                        .initialization_script(&init);
+                        .min_inner_size(900.0, 600.0)
+                        // Redirects and script-assigned locations do not pass through the link
+                        // shim. Reapply the transport policy at the webview boundary so a secure
+                        // server cannot move this native-capable window onto plaintext remote
+                        // content after startup.
+                        .on_navigation(move |url| {
+                            let Err(error) = bootstrap::validate_desktop_navigation(url) else {
+                                return true;
+                            };
+                            log::error!(
+                                "blocked desktop navigation to {}: {error}",
+                                url.origin().ascii_serialization()
+                            );
+                            if !navigation_notice.swap(true, Ordering::AcqRel) {
+                                let notice_closed = navigation_notice.clone();
+                                navigation_app
+                                    .dialog()
+                                    .message(error)
+                                    .title("Server connection blocked")
+                                    .show(move |_| {
+                                        notice_closed.store(false, Ordering::Release);
+                                    });
+                            }
+                            false
+                        })
+                        // [POD-1598] Tauri installs a native OS drag-drop handler by
+                        // default, and it consumes the drag BEFORE the page: the document
+                        // never receives `dragover`/`drop` at all, so every HTML5 drop zone
+                        // the web app renders is dead in the desktop build no matter what
+                        // the page does — the composer's file attach included. Off on ALL
+                        // three platforms rather than behind a cfg, because the docs
+                        // ("required ... on Windows") understate it. The handler
+                        // tauri-runtime-wry installs returns `true` unconditionally, and
+                        // true means HANDLED: on macOS wry then answers `draggingEntered:`
+                        // itself instead of forwarding to WKWebView's super, and on Linux it
+                        // returns true from GTK `drag-drop` after `drop_finish`, so WebKitGTK
+                        // never sees the drop either. Dropping this call is what re-enables
+                        // each platform's own webview handling — wry only wires any of it up
+                        // when a handler is present. Nothing in this shell consumes the
+                        // native events it gives up: the shell uploads nothing, and the page
+                        // owns the workspace the bytes land in.
+                        .disable_drag_drop_handler()
+                        .initialization_script(&init)
+                        .on_page_load(move |window, payload| {
+                            if matches!(payload.event(), tauri::webview::PageLoadEvent::Finished) {
+                                flush_native_open_queue(&window, &page_open_queue);
+                            }
+                        });
 
                     // [spec:SP-3834] Native desktop chrome replaces the separate OS title bar.
                     #[cfg(target_os = "macos")]
@@ -1764,9 +2233,6 @@ fn main() {
                         .title_bar_style(tauri::TitleBarStyle::Overlay)
                         .hidden_title(true)
                         .traffic_light_position(tauri::LogicalPosition::new(14.0, 22.0));
-                    #[cfg(not(target_os = "macos"))]
-                    let window_builder = window_builder.decorations(false);
-
                     // Schedule the fallback independently of window construction: a page that
                     // never loads cannot claim ownership, and even a failed webview build must
                     // leave the shell with a native update path.
@@ -1849,16 +2315,26 @@ fn main() {
             // and closes a tab on the selected issue while any remain. An empty
             // workspace is a no-op — the main window is not closable from here.
             "close-tab" => eval_menu_hook(app, "__PODIUM_CLOSE_TAB__"),
+            "edit-undo" => eval_menu_hook(app, "__PODIUM_UNDO__"),
+            "edit-redo" => eval_menu_hook(app, "__PODIUM_REDO__"),
+            "quit-app" => app.exit(0),
             _ => {}
         })
         .on_window_event(|window, event| {
             match event {
-                // FIX 3: hide-on-close so the tray "Open Podium ADE" is meaningful. Intercept
-                // the close button → hide the window instead of destroying it. The tray
-                // "Quit" item calls app.exit(0) which is the real exit path.
+                // macOS keeps the application alive when its only window closes and reopens it
+                // through the Dock. Windows and Linux take the platform-default close path,
+                // which exits the app and its supervised backend. There is deliberately no tray
+                // icon claiming a background mode the product has not asked for.
+                #[cfg(target_os = "macos")]
                 tauri::WindowEvent::CloseRequested { api, .. } => {
                     api.prevent_close();
                     let _ = window.hide();
+                }
+                #[cfg(not(target_os = "macos"))]
+                tauri::WindowEvent::CloseRequested { api, .. } => {
+                    api.prevent_close();
+                    window.app_handle().exit(0);
                 }
                 tauri::WindowEvent::Destroyed => {
                     // Reap the child when the window is actually destroyed (e.g. app.exit).
@@ -1883,7 +2359,7 @@ fn main() {
 
     app.run(|app_handle, event| {
         // Dock-icon click with the window hidden (hide-on-close): reshow it, matching
-        // normal macOS app behavior — previously only the tray "Open Podium ADE" could.
+        // normal macOS app behavior without inventing a separate menu-bar mode.
         #[cfg(target_os = "macos")]
         if let tauri::RunEvent::Reopen { .. } = event {
             if let Some(w) = app_handle.get_webview_window("main") {
@@ -1919,6 +2395,129 @@ mod tests {
             .find(|(name, _)| *name == key)
             .and_then(|(_, value)| value)
             .map(|value| value.to_string_lossy().into_owned())
+    }
+
+    #[test]
+    fn bundled_sidecar_resource_matches_the_platform_binary_name() {
+        assert_eq!(bundled_sidecar_resource(false), "resources/podium");
+        assert_eq!(bundled_sidecar_resource(true), "resources/podium.exe");
+    }
+
+    #[test]
+    fn native_open_boundary_accepts_only_the_configured_scheme() {
+        assert!(is_configured_podium_url(
+            &Url::parse("podium://issues/POD-1710").unwrap()
+        ));
+        assert!(!is_configured_podium_url(
+            &Url::parse("https://podium.example/issues/POD-1710").unwrap()
+        ));
+        assert!(!is_configured_podium_url(
+            &Url::parse("javascript:alert(1)").unwrap()
+        ));
+    }
+
+    #[test]
+    fn native_open_page_bridge_queues_until_the_custom_event_listener_is_ready() {
+        let bridge = native_open_bridge_script();
+        assert!(bridge.contains("new CustomEvent('podium:native-open', { detail: raw })"));
+        assert!(bridge.contains("pending.length >= PENDING_CAPACITY"));
+        assert!(bridge.contains("const PENDING_CAPACITY = 32"));
+        assert!(bridge.contains("window.__PODIUM_NATIVE_OPEN_ACK__"));
+        assert!(bridge.contains("inFlight = false"));
+
+        let eval = native_open_eval("podium://issues/POD-1710?note='quoted'");
+        assert!(eval.contains("window.__PODIUM_DELIVER_NATIVE_OPEN__"));
+        assert!(eval.contains("podium://issues/POD-1710"));
+        assert!(eval.contains("'quoted'"));
+    }
+
+    #[test]
+    fn native_open_queue_rejects_newest_input_at_capacity() {
+        let queue = NativeOpenQueue::default();
+        for index in 0..NATIVE_OPEN_QUEUE_CAPACITY {
+            assert!(enqueue_native_open(
+                &queue,
+                format!("podium://issues/POD-{index}")
+            ));
+        }
+        assert!(!enqueue_native_open(
+            &queue,
+            "podium://issues/POD-excess".to_string()
+        ));
+
+        let state = queue.state.lock().unwrap();
+        assert_eq!(state.pending.len(), NATIVE_OPEN_QUEUE_CAPACITY);
+        assert_eq!(
+            state.pending.front().map(String::as_str),
+            Some("podium://issues/POD-0")
+        );
+        assert_eq!(
+            state.pending.back().map(String::as_str),
+            Some("podium://issues/POD-31")
+        );
+    }
+
+    #[test]
+    fn native_open_queue_rejects_new_input_while_a_full_queue_head_is_in_flight() {
+        let queue = NativeOpenQueue::default();
+        let accepted = (0..NATIVE_OPEN_QUEUE_CAPACITY)
+            .map(|index| format!("podium://issues/POD-{index}"))
+            .collect::<Vec<_>>();
+        for raw in &accepted {
+            assert!(enqueue_native_open(&queue, raw.clone()));
+        }
+
+        drain_native_open_queue(&queue, |raw| {
+            assert_eq!(raw, accepted[0]);
+            assert!(!enqueue_native_open(
+                &queue,
+                "podium://issues/POD-excess".to_string()
+            ));
+            false
+        });
+
+        let mut delivered = Vec::new();
+        drain_native_open_queue(&queue, |raw| {
+            delivered.push(raw.to_string());
+            true
+        });
+        assert_eq!(delivered, accepted);
+    }
+
+    #[test]
+    fn native_open_queue_keeps_later_input_behind_a_failed_head() {
+        let queue = NativeOpenQueue::default();
+        assert!(enqueue_native_open(
+            &queue,
+            "podium://issues/POD-A".to_string()
+        ));
+        assert!(enqueue_native_open(
+            &queue,
+            "podium://issues/POD-B".to_string()
+        ));
+
+        drain_native_open_queue(&queue, |raw| {
+            assert_eq!(raw, "podium://issues/POD-A");
+            assert!(enqueue_native_open(
+                &queue,
+                "podium://issues/POD-C".to_string()
+            ));
+            false
+        });
+
+        let mut delivered = Vec::new();
+        drain_native_open_queue(&queue, |raw| {
+            delivered.push(raw.to_string());
+            true
+        });
+        assert_eq!(
+            delivered,
+            [
+                "podium://issues/POD-A",
+                "podium://issues/POD-B",
+                "podium://issues/POD-C",
+            ]
+        );
     }
 
     /// ⌘Q. Supervision must leave the child slot lockable while the backend is alive, because
@@ -2022,8 +2621,13 @@ mod tests {
             18787,
             Path::new("web"),
             Path::new("mobile"),
+            Path::new("desktop.shutdown"),
         );
-        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let daemon = replacement_daemon_command(
+            Path::new("podium"),
+            "wss://new.example",
+            Path::new("desktop.shutdown"),
+        );
 
         for (label, command) in [
             ("local host sidecar", &host),
@@ -2038,6 +2642,11 @@ mod tests {
                 command_env(command, PODIUM_CLI_PATH_ENV).as_deref(),
                 Some("podium"),
                 "{label} must expose the exact bundled CLI to managed sessions"
+            );
+            assert_eq!(
+                command_env(command, SUPERVISOR_SHUTDOWN_FILE_ENV).as_deref(),
+                Some("desktop.shutdown"),
+                "{label} must expose the graceful shutdown marker"
             );
         }
 
@@ -2076,8 +2685,13 @@ mod tests {
             18787,
             Path::new("web"),
             Path::new("mobile"),
+            Path::new("desktop.shutdown"),
         );
-        let daemon = replacement_daemon_command(Path::new("podium"), "wss://new.example");
+        let daemon = replacement_daemon_command(
+            Path::new("podium"),
+            "wss://new.example",
+            Path::new("desktop.shutdown"),
+        );
         let expected = std::process::id().to_string();
 
         for (label, command) in [
@@ -2099,9 +2713,6 @@ mod tests {
             [
                 "core:window:allow-start-dragging",
                 "core:window:allow-internal-toggle-maximize",
-                "core:window:allow-toggle-maximize",
-                "core:window:allow-minimize",
-                "core:window:allow-close",
                 "core:window:allow-set-theme",
                 "allow-claim-update-ownership",
                 "allow-check-update",
@@ -2298,6 +2909,27 @@ mod tests {
     }
 
     #[test]
+    fn remote_capability_is_granted_to_the_app_host_under_split_hosting() {
+        // PDM-34: the page lives on the app host, so the grant has to name the app host.
+        // Derived through the same helper the navigation uses, so the two cannot disagree
+        // and leave the native bridge granted to an origin nothing is loaded from.
+        let origin = bootstrap::remote_window_origin_url(
+            "wss://api.meetpodium.com",
+            Some("https://app.meetpodium.com"),
+        );
+        assert_eq!(
+            remote_capability_pattern(&origin),
+            Ok("https://app.meetpodium.com/*".to_string())
+        );
+        // And with no app host it is still the API origin, exactly as before.
+        let same_origin = bootstrap::remote_window_origin_url("wss://api.meetpodium.com", None);
+        assert_eq!(
+            remote_capability_pattern(&same_origin),
+            Ok("https://api.meetpodium.com/*".to_string())
+        );
+    }
+
+    #[test]
     fn remote_capability_pattern_uses_the_loaded_http_origin_for_ws_urls() {
         // config.serverUrl is commonly ws(s)://; the window loads the http(s) mapping
         // of it, so the capability must be granted to THAT origin.
@@ -2306,8 +2938,9 @@ mod tests {
             Ok("https://relay.example:55555/*".to_string())
         );
         assert_eq!(
-            remote_capability_pattern("ws://relay.example:18787"),
-            Ok("http://relay.example:18787/*".to_string())
+            remote_capability_pattern("ws://127.42.0.9:18787"),
+            Ok("http://127.42.0.9:18787/*".to_string())
         );
+        assert!(remote_capability_pattern("ws://relay.example:18787").is_err());
     }
 }

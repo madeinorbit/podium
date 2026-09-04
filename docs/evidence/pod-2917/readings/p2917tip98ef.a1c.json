@@ -1,0 +1,64 @@
+{
+  "cell": "A1C",
+  "harness": "shell",
+  "cwd": "/tmp/pod-2917-tip0828/probes/shell-a1c",
+  "at": "2026-08-28T11:07:59.588Z",
+  "pin": {
+    "cell": "A1C",
+    "at": "2026-08-28T11:07:59.609Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "checkoutSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "serverSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "daemonSha": "98ef8d6e08ee53acef2c9dbb1edeafe62e4e88e8",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T10:35:29.926Z",
+      "appVersion": "dev+98ef8d6",
+      "sourceSha": "98ef8d6",
+      "bundleVersion": "bundle+Dbh-P3IM"
+    },
+    "serverPid": "313446",
+    "daemonPid": "313566",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2917-the-shell-column-nobody-has-driven",
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "20241468 kB",
+      "SwapFree": "41942992 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "dead-session send returned a typed refusal and did not disappear silently",
+  "control": {
+    "fired": true,
+    "what": "a baseline prompt appearing as a durable user turn before death",
+    "detail": "baseline user=true; baseline reply=true"
+  },
+  "evidence": [
+    "BASELINE          {\"needle\":\"P2874-A1C-CONTROL-MTCULHAQ\",\"sent\":{\"method\":\"native-input\",\"command\":\"shellPrint(P2874-A1C-CONTROL-MTCULHAQ)\"},\"user\":{\"ok\":true,\"ms\":502},\"assistant\":{\"ok\":true,\"ms\":502}}",
+    "DEAD SEND         {\"ok\":false,\"reason\":\"dead-lettered: session no longer exists\",\"disposition\":\"dead_letter\"}",
+    "TYPED REFUSAL     true",
+    "SILENT ACCEPT     false"
+  ],
+  "data": {
+    "sid": "03ec5a80-1af8-47b1-bd68-d50f4f6b858f",
+    "dead": "P2874-A1C-DEAD-MTCULJ8T",
+    "payload": {
+      "ok": false,
+      "reason": "dead-lettered: session no longer exists",
+      "disposition": "dead_letter"
+    },
+    "typed": true,
+    "delivered": false
+  }
+}

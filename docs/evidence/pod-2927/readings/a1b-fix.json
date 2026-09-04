@@ -1,0 +1,81 @@
+{
+  "id": "A1b",
+  "armLabel": "fix",
+  "runtimeArm": "headless",
+  "verdict": "PASS",
+  "summary": "busy send returned queued position 1, survived a real socket reload, and delivered after the busy turn",
+  "control": {
+    "fired": true,
+    "what": "a real first turn is working before the second send",
+    "detail": "phase reached working in 311ms; busy marker BUSY-S6WLFH later completed"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A1b / A1c  sending when the session cannot take it now   harness=grok",
+    "selected row      a1b",
+    "==============================================================================",
+    "A1b  send while busy",
+    "------------------------------------------------------------------------------",
+    "  session 5c49d4d1-51bc-4b6d-b913-ee4493c17b4c",
+    "  driver           grok-acp (family server)",
+    "  CONTROL          phase reached 'working': true (311ms)",
+    "  second send      {\"ok\":true,\"queued\":true,\"position\":1,\"disposition\":\"queued\"}",
+    "  disposition      \"queued\"",
+    "  position in the send's return: 1",
+    "  position in any socket frame:  (no frame carried one)",
+    "  frames seen      sessionAgentStateChanged=3 hostMetricsChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1 transcriptDelta=1",
+    "  after reload     sessions.queue -> null",
+    "  waiting for the busy turn to finish and the queued one to run …",
+    "  busy turn ended  true (BUSY-S6WLFH)",
+    "  queued delivered true (QUEUED-SF9PIE)",
+    "  A1b PASS",
+    "      queued with position: yes (queued, position 1)",
+    "      survived a real reload (socket closed and reopened): true",
+    "      delivered when idle: true",
+    "A1c  send to a DEAD session",
+    "------------------------------------------------------------------------------",
+    "==============================================================================",
+    "A1b  PASS",
+    "A1c  SKIPPED",
+    "=============================================================================="
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "workingWithinMs": 311,
+    "queued": true,
+    "disposition": "queued",
+    "position": 1,
+    "positionFrameCount": 0,
+    "queueQueryAfterReload": null,
+    "busyTurnEnded": true,
+    "queuedTurnDelivered": true,
+    "busyMarker": "BUSY-S6WLFH",
+    "queuedMarker": "QUEUED-SF9PIE"
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a1b-fix-961a",
+  "pin": {
+    "codeCommit": "961a6992480ad279776af4354fcd2935f6bed0e8",
+    "codeTree": "34eda83b25464e236425ecb479fa4879ebed6eab",
+    "serverPid": 2139364,
+    "daemonPid": 2139454,
+    "webSourceSha": "961a699",
+    "webBundle": "bundle+k9dcbf_p",
+    "wireSchemaDigest": "986ebf5e8e57820c",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "showsQueuedWithPosition": "PASS — send returned disposition=queued and position=1",
+    "survivesPageReload": "PASS — the original socket was closed, a new socket opened, and the queued marker later appeared despite sessions.queue returning null",
+    "deliveredWhenIdle": "PASS — BUSY-S6WLFH completed, then QUEUED-SF9PIE completed"
+  },
+  "admission": {
+    "diskFreeKb": 12123052,
+    "memAvailableKb": 4647120,
+    "load1": 6.73,
+    "testHeavyLease": "free",
+    "health": "ok"
+  },
+  "localTimestamp": "2026-08-27 13:06:34 CEST",
+  "parentContext": "POD-2920 parent/fix evidence is already recorded for codex and claude; the earlier c26 Grok attempt was coordinator-discarded and is not reused."
+}

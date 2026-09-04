@@ -1,0 +1,57 @@
+{
+  "cell": "A8",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a8",
+  "at": "2026-08-27T03:50:50.143Z",
+  "pin": {
+    "cell": "A8",
+    "at": "2026-08-27T03:50:50.174Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "1055674",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4933552 kB",
+      "SwapFree": "37070596 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "login path is visible; completing external OAuth is outside this rig",
+  "control": {
+    "fired": true,
+    "what": "logged-out Claude spawn producing a live terminal surface",
+    "detail": "attached=1; screenBytes=3408"
+  },
+  "evidence": [
+    "SCREEN            \"78\\nAccessingworkspace:\\n/tmp/pod-2918/probes/claude-a8\\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyour\\nowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,\\ntakeamomenttoreviewwhat'sinthisfolderfirst.\\nClaudeCode'llbeabletoread,edit,andexecutefileshere.\\nSecurityguide\\n1.Yes,Itrustthisfolder\\n2.No,exit\\nEntertoconfirmEsctocancel\\n]11;?[>0q(B\\n]0; Claude CodeClaudeCodev2.1.231                                                     Tips for getting                       WelcomebackMichael!startedAskClaudetocreatea                       What'snew                                         Added the `SendFeedbac     Opus5(1M cotext)  API Usage Billing      Added `{id, text,col    mike.wirth@gmail.com's Orgaization           AddedatiponBashpe/tmp/pod-2918/probes/claude-a8/release-notesformoreTry\\\"fixtypecheck errors\\\"automodeon(shift+tabtocycle)foragents                          NotloggedinRun/login\\nhigh/effort\\n(B(B\"",
+    "LOGIN PATH        true",
+    "STATUS            {\"sessionId\":\"b594dce0-a97e-48fd-9856-a0677361d8ee\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":null,\"effort\":null,\"contextUsagePercent\":null,\"a"
+  ],
+  "data": {
+    "sid": "b594dce0-a97e-48fd-9856-a0677361d8ee",
+    "loginPath": true,
+    "screen": "78\nAccessingworkspace:\n/tmp/pod-2918/probes/claude-a8\nQuicksafetycheck:Isthisaprojectyoucreatedoroneyoutrust?(Likeyour\nowncode,awell-knownopensourceproject,orworkfromyourteam).Ifnot,\ntakeamomenttoreviewwhat'sinthisfolderfirst.\nClaudeCode'llbeabletoread,edit,andexecutefileshere.\nSecurityguide\n1.Yes,Itrustthisfolder\n2.No,exit\nEntertoconfirmEsctocancel\n]11;?[>0q(B\n]0; Claude CodeClaudeCodev2.1.231                                                     Tips for getting                       WelcomebackMichael!startedAskClaudetocreatea                       What'snew                                         Added the `SendFeedbac     Opus5(1M cotext)  API Usage Billing      Added `{id, text,col    mike.wirth@gmail.com's Orgaization           AddedatiponBashpe/tmp/pod-2918/probes/claude-a8/release-notesformoreTry\"fixtypecheck errors\"automodeon(shift+tabtocycle)foragents                          NotloggedinRun/login\nhigh/effort\n(B(B"
+  }
+}

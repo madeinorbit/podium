@@ -4,23 +4,22 @@ import {
   openBunDatabase,
   serializeBunDatabase,
 } from './bun'
-import { openNodeDatabase } from './node'
 import { attributeQueries } from './query-attribution'
 import type { OpenOptions, SqlDatabase } from './types'
 
-export { transaction } from './transaction'
 export { bunSqliteClient } from './bun'
 export {
   attributeQueries,
   formatTopQueries,
+  type QueryCost,
   queryAttributionEnabled,
   queryAttributionSnapshot,
   queryAttributionTotals,
   queryCallerStacks,
   queryKey,
   resetQueryAttribution,
-  type QueryCost,
 } from './query-attribution'
+export { transaction } from './transaction'
 export type { OpenOptions, SqlDatabase, SqlParam, SqlRunResult, SqlStatement } from './types'
 
 /** True when running under the Bun runtime. */
@@ -29,20 +28,33 @@ export function isBunRuntime(): boolean {
 }
 
 /**
- * Open a SQLite database with the runtime's built-in driver: `bun:sqlite` under Bun,
- * `node:sqlite` under Node. Neither pulls in a native addon.
+ * Open a SQLite database with Bun's built-in `bun:sqlite` driver — no native addon,
+ * so `bun build --compile` stays free of embedded `.node` files.
+ *
+ * Bun-only (PDM-25). The Node adapter this used to fall back to was dead weight: the
+ * drizzle migrator, `openDatabaseFromImage` and `serializeDatabase` all throw under
+ * Node already, every test lane runs `bun --bun`, and the shipped binary IS a Bun
+ * build. A Node caller now gets one clear error instead of a database that opens and
+ * then fails at the first migration. A test asserts the Node driver stays gone.
  */
 export function openDatabase(path: string, opts?: OpenOptions): SqlDatabase {
-  return decorate(isBunRuntime() ? openBunDatabase(path, opts) : openNodeDatabase(path, opts))
+  if (!isBunRuntime()) {
+    throw new Error(
+      '@podium/runtime/sqlite requires the Bun runtime (bun:sqlite). Run this under `bun` ' +
+        '(or `bun --bun <runner>` for a test lane) — there is no Node driver.',
+    )
+  }
+  return decorate(openBunDatabase(path, opts))
 }
 
 /**
  * A fresh in-memory database seeded from a page image (`serializeDatabase`).
  *
  * The image is COPIED, so every call yields an independent database and repeated
- * calls on one image never see each other's writes. Bun-only: `node:sqlite` has no
- * `sqlite3_deserialize`, and the one consumer — apps/server's pre-migrated store
- * fixture — runs under the Bun test runtime like the shipped binary does.
+ * calls on one image never see each other's writes. Needs `sqlite3_deserialize`,
+ * which the shim reaches only through `bun:sqlite`; the one consumer — apps/server's
+ * pre-migrated store fixture — runs under the Bun test runtime like the shipped
+ * binary does.
  */
 export function openDatabaseFromImage(image: Uint8Array): SqlDatabase {
   if (!isBunRuntime()) {

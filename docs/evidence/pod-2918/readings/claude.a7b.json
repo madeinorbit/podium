@@ -1,0 +1,205 @@
+{
+  "cell": "A7B",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a7b",
+  "at": "2026-08-27T03:47:19.081Z",
+  "pin": {
+    "cell": "A7B",
+    "at": "2026-08-27T03:47:19.115Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "1055674",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5261232 kB",
+      "SwapFree": "37066264 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "hibernate/wake preserved the conversation and answered after wake",
+  "control": {
+    "fired": true,
+    "what": "pre-hibernate conversation replying with a unique codeword",
+    "detail": "user=true; reply=true"
+  },
+  "evidence": [
+    "SEEDED            {\"ok\":true,\"disposition\":\"delivered\"}",
+    "SEEDED REPLY      true",
+    "HIBERNATE         {\"result\":{\"data\":{\"ok\":true}}}",
+    "PARKED            true 93ms",
+    "RESURRECT         {\"result\":{\"data\":{\"ok\":true}}}",
+    "LIVE              true 594ms",
+    "RECALL            {\"ok\":true,\"disposition\":\"delivered\"}",
+    "RECALLED          true",
+    "STATUS            {\"sessionId\":\"e652dcf3-19b7-46ee-9847-15120330955d\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePer"
+  ],
+  "data": {
+    "sid": "e652dcf3-19b7-46ee-9847-15120330955d",
+    "secret": "P2874-A7B-MTAZG173",
+    "base": {
+      "needle": "P2874-A7B-CONTROL-MTAZG174",
+      "sent": {
+        "result": {
+          "data": {
+            "ok": true,
+            "disposition": "delivered"
+          }
+        }
+      },
+      "user": {
+        "ok": true,
+        "ms": 583,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A7B-CONTROL-MTAZG174. Do not use tools.",
+            "ts": "2026-08-27T03:48:14.441Z"
+          }
+        ]
+      },
+      "assistant": {
+        "ok": true,
+        "ms": 1821,
+        "items": [
+          {
+            "role": "user",
+            "text": "Reply with exactly this word and nothing else: P2874-A7B-CONTROL-MTAZG174. Do not use tools.",
+            "ts": "2026-08-27T03:48:14.441Z"
+          },
+          {
+            "role": "assistant",
+            "text": "P2874-A7B-CONTROL-MTAZG174",
+            "ts": "2026-08-27T03:48:16.537Z"
+          },
+          {
+            "role": "system",
+            "text": "",
+            "ts": "2026-08-27T03:48:16.686Z"
+          }
+        ]
+      }
+    },
+    "seededReply": true,
+    "hibernated": {
+      "result": {
+        "data": {
+          "ok": true
+        }
+      }
+    },
+    "parked": {
+      "ok": true,
+      "ms": 93,
+      "row": {
+        "sessionId": "e652dcf3-19b7-46ee-9847-15120330955d",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-pty",
+        "requestedDriverId": null,
+        "status": "hibernated",
+        "phase": "idle",
+        "machine": "flatblock",
+        "model": "claude-opus-5",
+        "effort": "high",
+        "contextUsagePercent": null,
+        "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [],
+        "files": [],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 92,
+          "phase": "idle",
+          "status": "hibernated",
+          "driverId": "claude-pty"
+        }
+      ]
+    },
+    "resurrected": {
+      "result": {
+        "data": {
+          "ok": true
+        }
+      }
+    },
+    "live": {
+      "ok": true,
+      "ms": 594,
+      "row": {
+        "sessionId": "e652dcf3-19b7-46ee-9847-15120330955d",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-pty",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "idle",
+        "machine": "flatblock",
+        "model": "claude-opus-5",
+        "effort": "high",
+        "contextUsagePercent": null,
+        "account": "native:claude-code:6623e9a1ae253fe9ebb48a7adf7de0d0fefdb570042366c63f25b9b0a7864241",
+        "error": null,
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [],
+        "files": [],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 71,
+          "phase": "idle",
+          "status": "starting",
+          "driverId": "claude-pty"
+        },
+        {
+          "ms": 594,
+          "phase": "idle",
+          "status": "live",
+          "driverId": "claude-pty"
+        }
+      ]
+    },
+    "recall": {
+      "result": {
+        "data": {
+          "ok": true,
+          "disposition": "delivered"
+        }
+      }
+    },
+    "recalled": true
+  }
+}

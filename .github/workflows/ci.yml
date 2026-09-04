@@ -157,6 +157,35 @@ jobs:
       - name: signed headless update verifier
         run: bash scripts/verify-headless-update.sh
 
+  # Nothing can be cached while the output differs per run. This builds the web
+  # and mobile clients twice, in two fresh worktrees of one commit, and requires
+  # the dists to be byte-identical — stamp, manifest and .br/.gz siblings
+  # included (spec 2026-08-28-cached-release-build-design §4.3). It caught the
+  # workbox service-worker sourcemap on its first run.
+  client-build-determinism:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: '1.3.14'
+      - uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+      - run: bun install --frozen-lockfile --ignore-scripts
+      # NO turbo cache on this job, deliberately. Every other build lane shares
+      # TURBO_CACHE_DIR so an unchanged client is restored instead of rebuilt; here that
+      # would destroy the proof. The two worktrees are the same commit with the same
+      # inputs, so they hash the same, so the second would RESTORE the first's output and
+      # the diff would be identical by construction — a green that says nothing about
+      # whether the build is deterministic. This job builds both clients twice, for real,
+      # through the package scripts rather than the cached lane. That is also what makes
+      # the caching everywhere else safe to trust (POD-3053).
+      - name: two fresh worktrees build byte-identical clients
+        run: bash scripts/prove-client-build-deterministic.sh
+
   # Schema migrations [spec:SP-4428]: drizzle-kit check fails when two branches
   # authored non-commutative migrations (touching the same table) — the merge
   # conflict our hand-rolled runner could never see. Also guards the bundled

@@ -16,7 +16,13 @@ import type {
   MachineId,
 } from '@podium/model'
 import type { AgentKind, UserId } from '@podium/model'
-import type { MetadataChange, SubscriptionRegistry } from '@podium/protocol'
+import type {
+  MetadataChange,
+  SubscriptionRegistry,
+} from '@podium/protocol'
+import type {
+  QueueDrainAbandonedReason,
+} from '@podium/protocol/daemon'
 import type { EntityChangeSpec, MutationLedgerPort } from '@podium/sync'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { ClientConn } from '../../gateway/client-registry'
@@ -86,6 +92,18 @@ export interface SessionLifecycleDeps {
   /** Record that the queued input's bytes reached the CLI, which is short of
    *  delivery: the agent takes it at its own turn boundary (POD-1242). */
   noteQueuedMessageInjected?(messageId: string, sessionId: SessionId): void
+  /** Persist the sender-facing correction when a driver queue abandons delivery. */
+  queueDrainAbandoned?(input: {
+    sessionId: SessionId
+    turnIds: readonly string[]
+    reason: QueueDrainAbandonedReason
+  }): void
+  /** Cancel a queued source intent after the harness reports that the operator
+   *  interrupted the physical delivery before it became a turn. */
+  interruptQueuedMessage?(messageId: string): void
+  /** Cancel the named operator chat message, or the newest one when a native
+   *  terminal interrupt has no chat-side message id. */
+  interruptPendingMessage?(sessionId: SessionId, messageId?: string): void
   /**
    * FRAMEWORK IDEMPOTENCY (POD-382): the composition root's ONE
    * `MutationLedger`. Threaded through rather than constructed here — the service
@@ -123,7 +141,11 @@ export interface SessionLifecycleDeps {
   machines: MachinesService
   rpc: DaemonRpcService
   /** Start-path notification; the propagation service decides whether login is needed. */
-  onSpawnTargetLogin?(input: { machineId: MachineId; agentKind: AgentKind; ownerUserId: UserId }): void
+  onSpawnTargetLogin?(input: {
+    machineId: MachineId
+    agentKind: AgentKind
+    ownerUserId: UserId
+  }): void
   memory: MemoryService
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex

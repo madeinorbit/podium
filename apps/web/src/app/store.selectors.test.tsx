@@ -22,7 +22,7 @@ const TEST_PRINCIPAL = asClientPrincipal(asUserId('operator'))
 
 const fakeTrpc = {
   sync: { changesSince: { query: () => new Promise(() => {}) } },
-  discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [] }) } },
+  discovery: { refreshRepos: { mutate: async () => ({ repositories: [], diagnostics: [], machines: [] }) } },
   pins: { list: { query: async () => ({ panels: [], worktrees: [], repos: [] }) } },
   tabs: { listOrders: { query: async () => ({}) } },
   settings: { get: { query: async () => ({ sidebar: { repoSort: 'lastUsed', repoOrder: [] } }) } },

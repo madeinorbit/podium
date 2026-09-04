@@ -53,13 +53,24 @@ const SessionContextMenu = lazy(() =>
   })),
 )
 
+
+/** The terminal-outcome word for a session the kernel killed for memory, and
+ *  the value the chip's failure styling keys on (POD-2413). */
+export const OOM_OUTCOME = 'out of memory'
+
 /** The one aside shell the sidebar renders into. The aside itself never scrolls —
  *  only the work list inside it — so the footer stays pinned. */
 export const SIDEBAR_ASIDE_CLASS =
   // No right seam (POD-725): the work list is separated from the flight deck by
   // a tone step, as the design draws it. A border here plus the deck's own edge
   // put two lines in the same 1px of screen.
-  'flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
+  // A NAMED CONTAINER (POD-1469). The column is resized by hand, so what its
+  // controls have to answer to is the COLUMN's width, never the viewport's — a
+  // 200px sidebar on a 3440px display is the case a `sm:` breakpoint gets
+  // exactly backwards. `Add repository` reads it to decide whether its words
+  // fit; anything else in this column that has to give ground reads the same
+  // one.
+  'worklist-column flex w-full min-h-0 flex-col bg-sidebar text-sidebar-foreground'
 
 export const SIDEBAR_WIDTH_KEY = 'podium:sidebar:width'
 export const SIDEBAR_WIDTH_MIN = 200
@@ -73,13 +84,43 @@ export const SIDEBAR_WIDTH_DEFAULT = 306
  *  basis in `styles.css` — the animation ends on a pixel CSS then owns. */
 export const SIDEBAR_RAIL_WIDTH = 58
 
-/** The drawer's own motion (POD-769), matched to the Flight Deck's fold in
- *  AppShell: the same 280ms and the same decelerating curve, because these are
- *  the two columns of one shell opening and closing. Exported since POD-1584
- *  put the LEFT column on the same gesture — three hand-copied spellings of one
- *  curve is how a shell ends up with three slightly different folds. */
+/** THE DRAWER's own motion (POD-769) — {@link ResizableColumn}'s `collapsed`
+ *  mode, where a column that was not taking any room starts taking some. An
+ *  entrance, so a strong ease-out: almost all of the travel up front, because
+ *  arrival is the thing the eye is waiting for.
+ *
+ *  The two shell COLUMNS used to fold on these numbers too and no longer do —
+ *  see {@link COLUMN_FOLD_MS} below for what a fold wants instead, and why. */
 export const COLLAPSE_MS = 280
 export const COLLAPSE_EASE = 'cubic-bezier(0.22, 1, 0.36, 1)'
+
+/**
+ * A SHELL COLUMN'S FOLD, which is a different animation from the drawer above
+ * even though it used to borrow its numbers (POD-1672).
+ *
+ * The drawer ENTERS and EXITS — a section that was not there is there — and an
+ * entrance wants the strong ease-out above: almost all of the travel up front,
+ * because the thing the eye is waiting for is arrival.
+ *
+ * A column fold MOVES something already on screen. Measured off the fold
+ * harness with every animation frozen and stepped, `cubic-bezier(0.22, 1,
+ * 0.36, 1)` puts 306→68 of a 306→58 collapse — 96% of it — into the first
+ * 140ms and spends the remaining 140ms crossing nine pixels. That is a lurch
+ * followed by a still frame, and the still frame is where POD-1658 then put
+ * the rail's crossfade, so the one thing left moving on screen was two legible
+ * compositions dissolving through each other. Flicker, exactly as reported.
+ *
+ * This curve spreads the same travel across the whole duration — 276, 229,
+ * 163, 115, 90, 75, 66, 61, 59, 58 at each tenth — so the column is still
+ * visibly closing at 70% of the way through, which is where the swap now
+ * happens. Both shell columns fold on it; the drawer keeps its own.
+ *
+ * Not to be confused with `work-folds.tsx`'s module-local FOLD_EASE, which is
+ * a section's HEIGHT opening inside the list. Different animation, different
+ * curve, deliberately not shared.
+ */
+export const COLUMN_FOLD_MS = 240
+export const COLUMN_FOLD_EASE = 'cubic-bezier(0.4, 0.4, 0.15, 1)'
 
 /**
  * A fixed-width column with a drag-to-resize edge (`handleSide`, default right —
@@ -677,7 +718,12 @@ export function PanelRow({
       ? 'reaped'
       : session.stopReason === 'forced'
         ? 'interrupted'
-        : 'finished'
+        : // The kernel killed this session's process tree for memory
+          // (POD-2413). "finished" would be the row quietly agreeing with a
+          // death it can name.
+          session.stopReason === 'oom'
+          ? OOM_OUTCOME
+          : 'finished'
     : (idleDone && session.status === 'hibernated') ||
         session.agentState?.phase === 'ended' ||
         session.status === 'exited'
@@ -892,7 +938,17 @@ export function PanelRow({
           )}
           {terminalOutcome && (
             <span
-              className="shell-type-micro flex-none rounded border border-emerald-500/35 px-1 uppercase tracking-wide text-emerald-600 dark:text-emerald-400"
+              className={cn(
+                'shell-type-micro flex-none rounded border px-1 uppercase tracking-wide',
+                // A DEATH DOES NOT WEAR THE FINISHED COLOUR. Every other outcome
+                // here ended on purpose; a session the kernel killed for memory
+                // did not, and rendering it in the same emerald as "finished"
+                // reads as a clean ending at a glance — which is the one thing
+                // this chip must not say (POD-2413).
+                terminalOutcome === OOM_OUTCOME
+                  ? 'border-destructive/35 text-destructive'
+                  : 'border-emerald-500/35 text-emerald-600 dark:text-emerald-400',
+              )}
               data-testid="session-outcome-chip"
             >
               {terminalOutcome}

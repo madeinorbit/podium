@@ -1,5 +1,6 @@
 import { execFile, execFileSync } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs'
+import { createHash, generateKeyPairSync, sign } from 'node:crypto'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
@@ -7,12 +8,23 @@ import {
   desiredParentUnit,
   legacyUnitNames,
 } from '@podium/runtime/topology-migration'
-import { describe, expect, it } from 'vitest'
+import { afterAll, describe, expect, it } from 'vitest'
 import { coupleDesktopPairing } from './docker-update-e2e/couple-desktop-pairing'
+import { snapshotCandidate, verifyCandidateSnapshot } from './release-candidate-snapshot'
+import {
+  V0_1_0_DESKTOP_PUBKEY,
+  verifyStableBridgeCandidate,
+} from './verify-stable-bridge-candidate'
 
 const run = promisify(execFile)
 const root = join(import.meta.dirname, '..')
 const lane = readFileSync(join(root, 'scripts/docker-update-e2e/real-release-lane.sh'), 'utf8')
+const harness = readFileSync(join(root, 'scripts/docker-update-e2e.sh'), 'utf8')
+const releaseWorkflow = readFileSync(join(root, '.github/workflows/release.yml'), 'utf8')
+const scratch: string[] = []
+afterAll(() => {
+  for (const path of scratch.splice(0)) rmSync(path, { recursive: true, force: true })
+})
 
 /**
  * WHAT THIS PINS, AND WHY IT IS NOT THE GATE ITSELF.
@@ -40,6 +52,11 @@ function fromTag(path: string): string {
 }
 
 describe('real-release row expectations still match the code they describe', () => {
+  it('keeps both shell entry points syntactically valid', () => {
+    execFileSync('bash', ['-n', join(root, 'scripts/docker-update-e2e.sh')])
+    execFileSync('bash', ['-n', join(root, 'scripts/docker-update-e2e/real-release-lane.sh')])
+  })
+
   it('expects the unit names the topology module actually produces for a default install', () => {
     // The row is the DEFAULT instance on purpose (see the lane header), so these
     // are the default-instance names.
@@ -175,6 +192,23 @@ describe('real-release row expectations still match the code they describe', () 
     expect(baked).toHaveLength(60)
   })
 
+  it('carries the desktop updater key the published v0.1.0 shell actually baked', () => {
+    const config = JSON.parse(fromTag('apps/desktop/src-tauri/tauri.conf.json')) as {
+      plugins: { updater: { pubkey: string } }
+    }
+    expect(V0_1_0_DESKTOP_PUBKEY).toBe(config.plugins.updater.pubkey)
+    expect(Buffer.from(V0_1_0_DESKTOP_PUBKEY, 'base64').toString('utf8')).toContain(
+      'minisign public key',
+    )
+    const shippedLock = fromTag('apps/desktop/src-tauri/Cargo.lock')
+    expect(shippedLock).toMatch(/name = "minisign-verify"\nversion = "0\.2\.5"/)
+    const verifierManifest = readFileSync(
+      join(root, 'scripts/stable-candidate-minisign/Cargo.toml'),
+      'utf8',
+    )
+    expect(verifierManifest).toContain('minisign-verify = "=0.2.5"')
+  })
+
   it('serves the feed with the HOST script, not whatever ref the source checkout is on', () => {
     // `/work/source` is HEAD normally and HOLD_REF in hold mode, so the copy of
     // edge-feed.ts in there is not necessarily the one this lane needs. A hold run
@@ -225,6 +259,49 @@ describe('real-release row expectations still match the code they describe', () 
     )
     expect(setup).not.toContain('acknowledgeNoPassword')
   })
+
+  it('keeps the production signing secret out of prepared-candidate mode', () => {
+    expect(harness).toContain('the prepared-candidate proof refuses PODIUM_UPDATE_SIGNING_KEY')
+    const proof = releaseWorkflow.slice(
+      releaseWorkflow.indexOf('Prove the stable candidate from published v0.1.0'),
+      releaseWorkflow.indexOf('Preserve stable bridge proof evidence'),
+    )
+    expect(proof).toContain('PODIUM_UPDATE_E2E_REAL_TARGET_DIR=')
+    expect(proof).not.toContain('PODIUM_UPDATE_SIGNING_KEY')
+    expect(proof).toContain('PODIUM_UPDATE_E2E_REAL_DESKTOP_VERIFIER=')
+    expect(lane).toContain('No private key enters this')
+  })
+
+  it('proves and seals the complete candidate before the named publish boundary', () => {
+    const prepare = releaseWorkflow.indexOf('Prepare the complete stable candidate')
+    const seal = releaseWorkflow.indexOf('Seal the stable candidate bytes')
+    const proof = releaseWorkflow.indexOf('Prove the stable candidate from published v0.1.0')
+    const publish = releaseWorkflow.indexOf('Publish one multi-platform release')
+    expect(prepare).toBeGreaterThan(-1)
+    expect(seal).toBeGreaterThan(prepare)
+    expect(proof).toBeGreaterThan(seal)
+    expect(publish).toBeGreaterThan(proof)
+    expect(releaseWorkflow.slice(proof, publish)).not.toMatch(/gh release (create|upload)/)
+  })
+
+  it('mounts the accepted candidate read-only and installs unmodified v0.1.0', () => {
+    expect(harness).toContain('"$REAL_TARGET_DIR:$REAL_CANDIDATE_ROOT:ro"')
+    const bootstrap = lane.slice(
+      lane.indexOf('prepare_real_release_bootstrap()'),
+      lane.indexOf('# ---------------------------------------------------------------------------\n# 3.'),
+    )
+    expect(bootstrap).toContain('REAL_PRODUCTION_CANDIDATE == 1')
+    expect(bootstrap).toContain('kept the published $REAL_RELEASE_TAG installer and binary bytes unchanged')
+    const install = lane.slice(lane.indexOf('install_real_release()'), lane.indexOf('real_release_setup()'))
+    const productionBranch = install.slice(
+      install.indexOf('REAL_PRODUCTION_CANDIDATE == 1'),
+      install.indexOf('else'),
+    )
+    expect(productionBranch).not.toContain('PODIUM_INSTALL_PUBKEY')
+    expect(harness).toContain(
+      '( "$ONLY" == real-release && "$REAL_PRODUCTION_CANDIDATE" == 0 )',
+    )
+  })
 })
 
 describe('patch-trust-root refuses everything but its one exact site', () => {
@@ -234,6 +311,7 @@ describe('patch-trust-root refuses everything but its one exact site', () => {
 
   function fixture(body: string): string {
     const dir = mkdtempSync(join(tmpdir(), 'podium-trust-root-'))
+    scratch.push(dir)
     const file = join(dir, 'binary')
     writeFileSync(file, body)
     return file
@@ -264,6 +342,143 @@ describe('patch-trust-root refuses everything but its one exact site', () => {
   it('refuses a replacement of a different length, which would move every offset', async () => {
     const file = fixture(`x${oldKey}y`)
     await expect(run('bun', [script, file, oldKey, 'short'])).rejects.toThrow(/differ in length/)
+  })
+})
+
+describe('prepared stable bridge candidate', () => {
+  function candidate() {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-stable-bridge-'))
+    scratch.push(dir)
+    const version = '0.1.1'
+    const tag = `v${version}`
+    const { privateKey, publicKey } = generateKeyPairSync('ed25519')
+    const pubkey = publicKey.export({ type: 'spki', format: 'der' }).toString('base64')
+    const headless: Record<string, { url: string; signature: string; digest: string }> = {}
+    for (const [platform, name, body] of [
+      ['linux-x86_64', 'podium-headless-linux-x64.tar.gz', 'x64 candidate'],
+      ['linux-aarch64', 'podium-headless-linux-arm64.tar.gz', 'arm64 candidate'],
+    ] as const) {
+      const bytes = Buffer.from(body)
+      const signature = sign(null, bytes, privateKey).toString('base64')
+      writeFileSync(join(dir, name), bytes)
+      writeFileSync(join(dir, `${name}.sig`), signature)
+      headless[platform] = {
+        url: `https://github.com/madeinorbit/podium/releases/download/${tag}/${name}`,
+        signature,
+        digest: `sha256-${createHash('sha256').update(bytes).digest('base64')}`,
+      }
+    }
+    const desktopName = 'Podium_0.1.1_amd64.AppImage'
+    const desktopPublicKey = `untrusted comment: minisign public key E7620F1842B4E81F
+RWQf6LRCGA9i53mlYecO4IzT51TGPpvWucNSCh1CBM0QTaLn73Y7GFO3`
+    const desktopSignature = `untrusted comment: signature from minisign secret key
+RUQf6LRCGA9i559r3g7V1qNyJDApGip8MfqcadIgT9CuhV3EMhHoN1mGTkUidF/z7SrlQgXdy8ofjb7bNJJylDOocrCo8KLzZwo=
+trusted comment: timestamp:1556193335\tfile:test
+y/rUw2y8/hOUYjZU71eHp/Wo1KZ40fGy2VJEDl34XMJM+TX48Ss/17u3IvIfbVR1FkZZSNCisQbuQY+bHwhEBg==`
+    writeFileSync(join(dir, desktopName), 'test')
+    writeFileSync(join(dir, `${desktopName}.sig`), desktopSignature)
+    writeFileSync(
+      join(dir, 'podium-update.json'),
+      JSON.stringify({
+        version,
+        platforms: Object.fromEntries(
+          Object.entries(headless).map(([platform, value]) => [
+            platform,
+            { url: value.url, signature: value.signature },
+          ]),
+        ),
+        artifacts: { headless: { delivery: 'feed', platforms: headless } },
+      }),
+    )
+    writeFileSync(
+      join(dir, 'latest.json'),
+      JSON.stringify({
+        version,
+        platforms: {
+          'linux-x86_64': {
+            url: `https://github.com/madeinorbit/podium/releases/download/${tag}/${desktopName}`,
+            signature: desktopSignature,
+          },
+        },
+      }),
+    )
+    const verifyDesktop = (artifact: string, signaturePath: string) => {
+      execFileSync(
+        'cargo',
+        [
+          'run',
+          '--quiet',
+          '--locked',
+          '--manifest-path',
+          join(root, 'scripts/stable-candidate-minisign/Cargo.toml'),
+          '--',
+          desktopPublicKey,
+          artifact,
+          signaturePath,
+        ],
+        { stdio: 'pipe' },
+      )
+    }
+    return { dir, version, tag, pubkey, verifyDesktop }
+  }
+
+  it('accepts a matching pair only after every referenced prepared artifact is present', () => {
+    const fixture = candidate()
+    expect(verifyStableBridgeCandidate(fixture)).toEqual({
+      headlessArtifacts: 2,
+      desktopArtifacts: 1,
+    })
+  })
+
+  it('refuses a desktop signature string without cryptographic verification', () => {
+    const fixture = candidate()
+    const { verifyDesktop: _, ...unverified } = fixture
+    expect(() => verifyStableBridgeCandidate(unverified)).toThrow(/desktop updater key/)
+  })
+
+  it('refuses one tampered headless platform even when the runnable x64 candidate is valid', () => {
+    const fixture = candidate()
+    writeFileSync(join(fixture.dir, 'podium-headless-linux-arm64.tar.gz'), 'tampered')
+    expect(() => verifyStableBridgeCandidate(fixture)).toThrow(/linux-aarch64.*not signed/)
+  })
+
+  it('refuses a desktop manifest from a different release', () => {
+    const fixture = candidate()
+    const path = join(fixture.dir, 'latest.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as { version: string }
+    writeFileSync(path, JSON.stringify({ ...manifest, version: '0.1.0' }))
+    expect(() => verifyStableBridgeCandidate(fixture)).toThrow(/must both name 0\.1\.1/)
+  })
+
+  it('refuses a referenced desktop artifact whose prepared bytes are absent', () => {
+    const fixture = candidate()
+    const path = join(fixture.dir, 'latest.json')
+    const manifest = JSON.parse(readFileSync(path, 'utf8')) as {
+      platforms: Record<string, { url: string; signature: string }>
+    }
+    manifest.platforms['linux-x86_64']!.url =
+      `https://github.com/madeinorbit/podium/releases/download/${fixture.tag}/missing.AppImage`
+    writeFileSync(path, JSON.stringify(manifest))
+    expect(() => verifyStableBridgeCandidate(fixture)).toThrow(/missing artifact/)
+  })
+
+  it('refuses desktop bytes that do not match their genuine minisign signature', () => {
+    const fixture = candidate()
+    writeFileSync(join(fixture.dir, 'Podium_0.1.1_amd64.AppImage'), 'Test')
+    expect(() => verifyStableBridgeCandidate(fixture)).toThrow(/desktop linux-x86_64.*not signed/)
+  })
+
+  it('seals the accepted directory so publish cannot substitute later bytes', () => {
+    const fixture = candidate()
+    const snapshotDir = mkdtempSync(join(tmpdir(), 'podium-candidate-seal-'))
+    scratch.push(snapshotDir)
+    const snapshot = join(snapshotDir, 'snapshot.json')
+    writeFileSync(snapshot, JSON.stringify(snapshotCandidate(fixture.dir)))
+    verifyCandidateSnapshot(fixture.dir, snapshot)
+    writeFileSync(join(fixture.dir, 'podium-headless-linux-x64.tar.gz'), 'substituted')
+    expect(() => verifyCandidateSnapshot(fixture.dir, snapshot)).toThrow(
+      /changed after its v0\.1\.0 acceptance proof/,
+    )
   })
 })
 

@@ -13,6 +13,9 @@
 import type { MachineId, UserId } from '@podium/model'
 import {
   type AcceptorStep,
+  CAP_DAEMON_GEOMETRY_APPLIED,
+  CAP_TERMINAL_INPUT_BINARY_V1,
+  CAP_TERMINAL_OUTPUT_BINARY_V1,
   type CapabilityRef,
   createDefaultAuthRegistry,
   createHandshakeAcceptor,
@@ -74,9 +77,14 @@ export const createDaemonAcceptor = (deps: DaemonAcceptorDeps): HandshakeAccepto
       machines: createMachineDirectory(deps.machines, deps.verifyOnly ? { verifyOnly: true } : {}),
       mint: gatewayCapabilityMinter,
     }),
-    // No negotiated capabilities on the daemon link today; the mechanism is here
-    // and additive (ADR 5 D3.3), so adding one is adding a token to this list.
-    supportedCaps: [],
+    supportedCaps: [
+      CAP_TERMINAL_OUTPUT_BINARY_V1,
+      CAP_TERMINAL_INPUT_BINARY_V1,
+      // POD-3239: a daemon that reports the grid it APPLIED. Supported here from
+      // the moment the frame exists so the negotiation is in place; the session
+      // module reads the accepted set to choose its geometry writer path.
+      CAP_DAEMON_GEOMETRY_APPLIED,
+    ],
     transport: {
       endpoint: '/daemon',
       connectionId: deps.connectionId,
@@ -105,6 +113,8 @@ export type DaemonFrameOutcome =
       readonly build?: PeerBuild
       /** The capability offer from the authenticated hello, before intersection. */
       readonly offeredCaps: string[]
+      /** The actual negotiated intersection; only these may select a transport. */
+      readonly acceptedCaps: string[]
     }
   | { readonly kind: 'rejected'; readonly reply: DaemonHandshakeReply | PeerHelloReply }
   | { readonly kind: 'deliver'; readonly machineId: MachineId; readonly raw: string }
@@ -149,6 +159,7 @@ export const receiveDaemonFrame = (
         reply: reply(step.reply),
         pairingGrant: step.peer.directoryContext,
         offeredCaps: [...hello.caps],
+        acceptedCaps: [...step.peer.caps.accepted],
         ...(hello.build === undefined ? {} : { build: hello.build }),
       }
     }

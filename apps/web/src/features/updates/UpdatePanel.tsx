@@ -16,6 +16,7 @@
 import type { JSX } from 'react'
 import { Button } from '@/components/ui/button'
 import type { UpdatePanelView } from './operation-view'
+import type { ReloadHandshakeStatus } from './reload-handshake'
 import type { PanelActionKind } from './use-update-state'
 
 export interface UpdatePanelProps {
@@ -23,6 +24,8 @@ export interface UpdatePanelProps {
   pending: PanelActionKind | null
   onAction: (kind: PanelActionKind) => void
   onHide: () => void
+  reloadStatus?: ReloadHandshakeStatus
+  onResetCachedInterface?: () => void
 }
 
 function StepList({ view }: { view: UpdatePanelView }): JSX.Element | null {
@@ -77,6 +80,8 @@ export function UpdatePanel({
   pending,
   onAction,
   onHide,
+  reloadStatus,
+  onResetCachedInterface,
 }: UpdatePanelProps): JSX.Element | null {
   if (view.state === 'none') return null
 
@@ -176,6 +181,42 @@ export function UpdatePanel({
           <p className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px] leading-[1.5] text-muted-foreground">
             {view.note}
           </p>
+        )}
+
+        {reloadStatus && (
+          <div
+            data-testid="service-worker-status"
+            role="status"
+            className="rounded-md border border-border/70 bg-muted/25 px-3 py-2 text-[11px] leading-[1.5]"
+          >
+            <p className="font-medium text-foreground">{reloadStatus.message}</p>
+            {reloadStatus.detail && (
+              <p className="mt-1 text-muted-foreground">{reloadStatus.detail}</p>
+            )}
+            <details className="mt-2">
+              <summary className="cursor-pointer text-muted-foreground">
+                Service-worker state
+              </summary>
+              <p className="mt-1 font-mono text-[10px] text-muted-foreground">
+                controller={reloadStatus.snapshot.controller ?? 'none'} · active=
+                {reloadStatus.snapshot.active ?? 'none'} · installing=
+                {reloadStatus.snapshot.installing ?? 'none'} · waiting=
+                {reloadStatus.snapshot.waiting ?? 'none'}
+              </p>
+            </details>
+            {reloadStatus.canReset && onResetCachedInterface && (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                data-testid="reset-cached-interface"
+                className="mt-2"
+                onClick={onResetCachedInterface}
+              >
+                Reset cached interface
+              </Button>
+            )}
+          </div>
         )}
 
         {view.notes?.summary && (

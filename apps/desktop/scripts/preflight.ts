@@ -19,6 +19,7 @@ import { fileURLToPath } from 'node:url'
 const os = platform() // 'darwin' | 'linux' | 'win32' | ...
 const isMac = os === 'darwin'
 const isLinux = os === 'linux'
+const isWindows = os === 'win32'
 
 /** A tool is present if it runs and exits 0. */
 const runs = (bin: string, args: string[]): boolean => {
@@ -44,14 +45,17 @@ if (!runs('cargo', ['--version'])) {
   } else {
     problems.push({
       what: 'Rust toolchain not found (Tauri needs `cargo`).',
-      fix: 'curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"',
+      fix: isWindows
+        ? 'winget install --id Rustlang.Rustup   # choose the MSVC host toolchain, then restart the terminal'
+        : 'curl --proto \'=https\' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && source "$HOME/.cargo/env"',
     })
   }
 }
 
 // 2. A C compiler — build-bun.ts compiles the vendored abduco (cc/gcc/clang) during
-//    `package:headless`, which stage-sidecar.ts runs. No compiler => the build dies there.
-if (!['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
+//    `package:headless`, which stage-sidecar.ts runs. Windows uses ConPTY and deliberately
+//    skips abduco, so requiring a POSIX compiler there rejects a valid Tauri toolchain.
+if (!isWindows && !['cc', 'gcc', 'clang'].some((c) => runs(c, ['--version']))) {
   problems.push({
     what: 'No C compiler found (cc/gcc/clang) — needed to build the embedded abduco.',
     fix: isMac

@@ -1,0 +1,121 @@
+{
+  "id": "A6b",
+  "arm": "headless",
+  "verdict": "PASS",
+  "summary": "four view switches preserved the session, scrollback, geometry, and both post-switch controls",
+  "control": {
+    "fired": true,
+    "what": "chat answers and CLI echoes on the same session before any view switch",
+    "detail": "chat=true cli=true bytes=6041 driver=grok-acp"
+  },
+  "evidence": [
+    "PRODUCT DRIVER    driverId=grok-acp family=server",
+    "AGENT PIDS        before=1955027,1962832 after=1955027,1962832,1964703,1964704,1964705,1964727 stable=true",
+    "GEOMETRY BASE     {\"cols\":120,\"rows\":40}",
+    "SWITCHES           [{\"label\":\"1 chat\",\"mode\":\"chat\",\"marker\":true,\"bytes\":6041,\"geometry\":{\"cols\":120,\"rows\":40},\"pids\":[1955027,1962832,1963738,1963777]},{\"label\":\"2 CLI\",\"mode\":\"native\",\"marker\":true,\"bytes\":18266,\"geometry\":{\"cols\":120,\"rows\":40},\"pids\":[1955027,1962832,1963807,1963808,1963809,1963828]},{\"label\":\"3 chat\",\"mode\":\"chat\",\"marker\":true,\"bytes\":18266,\"geometry\":{\"cols\":120,\"rows\":40},\"pids\":[1955027,1962832]},{\"label\":\"4 CLI\",\"mode\":\"native\",\"marker\":true,\"bytes\":31007,\"geometry\":{\"cols\":120,\"rows\":40},\"pids\":[1955027,1962832,1964216,1964217,1964218,1964242]}]",
+    "MARKERS            true",
+    "CHAT AFTER         true (CHATAFTER-48HHII)",
+    "CLI AFTER          true (CLIAFTER-L9I6B3)",
+    "GEOMETRY STABLE    true known=true"
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "pidStable": true,
+    "markers": true,
+    "sizeStable": true,
+    "sizeKnown": true,
+    "afterChat": true,
+    "afterCli": true,
+    "observations": [
+      {
+        "label": "1 chat",
+        "mode": "chat",
+        "marker": true,
+        "bytes": 6041,
+        "geometry": {
+          "cols": 120,
+          "rows": 40
+        },
+        "pids": [
+          1955027,
+          1962832,
+          1963738,
+          1963777
+        ]
+      },
+      {
+        "label": "2 CLI",
+        "mode": "native",
+        "marker": true,
+        "bytes": 18266,
+        "geometry": {
+          "cols": 120,
+          "rows": 40
+        },
+        "pids": [
+          1955027,
+          1962832,
+          1963807,
+          1963808,
+          1963809,
+          1963828
+        ]
+      },
+      {
+        "label": "3 chat",
+        "mode": "chat",
+        "marker": true,
+        "bytes": 18266,
+        "geometry": {
+          "cols": 120,
+          "rows": 40
+        },
+        "pids": [
+          1955027,
+          1962832
+        ]
+      },
+      {
+        "label": "4 CLI",
+        "mode": "native",
+        "marker": true,
+        "bytes": 31007,
+        "geometry": {
+          "cols": 120,
+          "rows": 40
+        },
+        "pids": [
+          1955027,
+          1962832,
+          1964216,
+          1964217,
+          1964218,
+          1964242
+        ]
+      }
+    ]
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a6b",
+  "memoryMb": 3925,
+  "pin": "PIN OK row=A6b arm=headless instance=grok2927 serverPid=1954661 daemonPid=1954780 serverSha=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 webSourceSha=c26c267 driver=policy state=/home/mgw/.local/state/podium/grok2927 home=/home/mgw\nPIN TREES codeCommit=c26c267be1c4b2f8cc6ccc2e66ea675e84024587 codeTree=7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4 runtimeHead=b70cb4f7b62034e3dc03343c0df6201fd806b2a5 runtimeTree=b57225d107cde7e23ca293271ab0c3de4c34f6d1 nonDocDiff=0\nPIN FLAGS no-PODIUM_STATE_DIR no-ABDUCO_SOCKET_DIR inherited-HOME",
+  "sessionIds": [
+    "78bd70c5-3f90-4092-b52d-f30ac0ce8c80"
+  ],
+  "at": "2026-08-27T10:03:22.589Z",
+  "criterionClauses": {
+    "fourDirectionSwitches": "PASS — observed chat, native CLI, chat, native CLI on the same session",
+    "noRestart": "PASS — both original agent PIDs 1955027 and 1962832 remained present after switching",
+    "noScrollbackCorruption": "PASS — baseline marker remained visible in all four observations",
+    "correctSize": "PASS — known geometry stayed 120x40 throughout",
+    "chatStillFunctional": "PASS — post-switch send answered with CHATAFTER-48HHII",
+    "cliStillFunctional": "PASS — post-switch input echoed CLIAFTER-L9I6B3"
+  },
+  "admission": {
+    "diskFreeKb": 12672500,
+    "memAvailableKb": 3928028,
+    "load1": 9.24,
+    "testHeavyLease": "free"
+  },
+  "localTimestamp": "2026-08-27 12:03:22 CEST"
+}

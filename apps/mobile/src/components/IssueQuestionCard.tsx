@@ -111,7 +111,7 @@ const styles = StyleSheet.create({
   },
   error: {
     marginLeft: 'auto',
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
   },
   question: {
@@ -143,16 +143,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: space.sm,
   },
+  // Quiet accent, matching the chat ask band's primary option (2026-08-28
+  // device feedback retired the filled bisque chip): a bisque keyline and
+  // tinted label over a soft wash keep it the card's clear next step without
+  // a solid yellow slab inside an already accent-washed card.
   primary: {
     minHeight: 40,
     borderRadius: radius.sm,
-    backgroundColor: color.accent,
+    borderWidth: 1,
+    borderColor: color.accentBorder,
+    backgroundColor: color.accentSoft,
     paddingHorizontal: space.md,
     justifyContent: 'center',
   },
   primaryText: {
     ...sans(600),
-    color: color.onAccent,
+    color: color.accentTint,
     fontSize: font.small,
   },
   resolve: {

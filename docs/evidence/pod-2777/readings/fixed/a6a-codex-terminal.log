@@ -1,0 +1,34 @@
+==============================================================================
+A6a  terminal attach and type   harness=codex
+==============================================================================
+session 0c0baf11-3c56-4e91-9f11-359a5c9abf57 created
+BOUND DRIVER       generic-pty (family terminal)
+STATUS             live
+
+ATTACHED FRAME     {"resumed":false,"outputSeen":true,"epoch":0,"geometry":{"cols":80,"rows":24},"controllerId":"c1"}
+CONTROL            terminal produced 5812 byte(s) on attach, before any keystroke
+                   the product's own durable counter says outputSeen=true
+
+1. ECHO            typed "ECHO-48HGET" -> ECHOED on screen (+87 bytes)
+2. RESIZE          ->100x30 repainted 2379 byte(s); ->160x45 repainted 2379 byte(s)
+3. SECOND VIEWER   received 4305 byte(s); 12/12 of its last lines also on viewer 1; sees the typed mark: yes
+
+   viewer 1 tail:
+     |  model:     gpt-5.6-sol xhigh   /model to change 
+     |  directory: /tmp/pod-2777/repo                   
+     |   Tip: New Use /fast to enable our fastest inference with increased plan usage.
+     |  You have 1 usage limit reset available. Run /usage to use one.
+     |  The cloudflare-api MCP server is not logged in. Run `codex mcp login cloudflare-api`.
+     |  MCP startup incomplete (failed: cloudflare-api)   ECHO-48HGET   gpt-5.6-sol xhigh  /tmp/pod-2777/re
+   viewer 2 tail:
+     |  model:     gpt-5.6-sol xhigh   /model to change 
+     |  directory: /tmp/pod-2777/repo                   
+     |   Tip: New Use /fast to enable our fastest inference with increased plan usage.
+     |  You have 1 usage limit reset available. Run /usage to use one.
+     |  The cloudflare-api MCP server is not logged in. Run `codex mcp login cloudflare-api`.
+     |  MCP startup incomplete (failed: cloudflare-api)   ECHO-48HGET   gpt-5.6-sol xhigh  /tmp/pod-2777/re
+
+==============================================================================
+A6a  PASS   echo=true  resize-repaint=4758B  second-viewer=4305B/12 shared lines
+     control FIRED — 5812 terminal byte(s) before any keystroke
+==============================================================================

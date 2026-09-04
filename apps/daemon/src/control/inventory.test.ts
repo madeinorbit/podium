@@ -2,11 +2,8 @@ import type { Inventory } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-// The handler builds inventory via @podium/harness, which shells out to real CLIs.
-// Mock it so the test exercises the daemon's report/cache/rebuild logic in
-// isolation without spawning anything. The mock returns the MACHINE-KEYED shape
-// (POD-397): the probe hands back the machine its facts are about, and the handler
-// must send THAT id rather than reaching for ctx.machineId a second time.
+// The machine runtime owns the real CLI probe. This fake keeps the test on the
+// report/cache/rebuild behavior and proves the handler enters through that root.
 const buildInventory = vi.fn<() => Promise<Inventory>>()
 // Same reasoning for the model probe (POD-1466): it shells out to grok/cursor/
 // opencode/codex and calls the Anthropic models API. The mock records the OPTIONS
@@ -14,15 +11,45 @@ const buildInventory = vi.fn<() => Promise<Inventory>>()
 // part of the daemon's wiring worth pinning.
 const probeModels = vi.fn<(opts: unknown) => Promise<Record<string, unknown[]>>>()
 vi.mock('@podium/harness', () => ({
-  buildMachineInventory: async (opts: { machineId: string }) => ({
-    machineId: opts.machineId,
-    inventory: await buildInventory(),
-  }),
   probeAllModels: (opts: unknown) => probeModels(opts),
 }))
+vi.mock('@podium/agent-runtime', () => ({
+  gateCodexVersion: vi.fn((version: string) =>
+    version === 'codex-cli 0.101.0' ? null : { code: 'unsupported' },
+  ),
+  gateGrokVersion: vi.fn((version: string) =>
+    version === 'grok 0.3.0' ? null : { code: 'unsupported' },
+  ),
+  gateOpencodeVersion: vi.fn((version: string) =>
+    version === '1.2.3' ? null : { code: 'unsupported' },
+  ),
+}))
+vi.mock('../runtime/codex-app-server', () => ({
+  codexAppServerVersionProbe: vi.fn(() => new Promise(() => {})),
+}))
+vi.mock('../runtime/grok-acp-server', () => ({
+  grokAcpVersionProbe: vi.fn(() => new Promise(() => {})),
+}))
+vi.mock('../runtime/opencode-server', () => ({
+  opencodeVersionProbe: vi.fn(() => new Promise(() => {})),
+  opencode2VersionProbeForExecutable: vi.fn(async () => ({ drivable: true })),
+}))
+
+import { gateCodexVersion, gateGrokVersion, gateOpencodeVersion } from '@podium/agent-runtime'
+import { codexAppServerVersionProbe } from '../runtime/codex-app-server'
+import { grokAcpVersionProbe } from '../runtime/grok-acp-server'
+import {
+  opencode2VersionProbeForExecutable,
+  opencodeVersionProbe,
+} from '../runtime/opencode-server'
 
 import type { DaemonContext } from './context'
-import { inventoryHandlers, reportInventory, startInventoryRefresh } from './inventory'
+import {
+  inventoryHandlers,
+  reportInventory,
+  startInventoryRefresh,
+  terminalRuntimeDriverInventory,
+} from './inventory'
 
 const INV: Inventory = {
   os: 'linux',
@@ -30,10 +57,37 @@ const INV: Inventory = {
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
   tools: [{ name: 'gh', installed: false }],
 }
-
+const withBaselineDrivers = (inventory: Inventory): Inventory => ({
+  ...inventory,
+  runtimeDrivers: [
+    ...terminalRuntimeDriverInventory(),
+    { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+  ],
+})
+const HEADLESS_INV: Inventory = {
+  ...INV,
+  agents: [
+    ...INV.agents,
+    { kind: 'codex', installed: true, version: 'codex-cli 0.101.0', login: { state: 'in' } },
+    { kind: 'grok', installed: true, version: 'grok 0.3.0', login: { state: 'in' } },
+    { kind: 'opencode', installed: true, version: '1.2.3', login: { state: 'in' } },
+  ],
+}
 const LOGGED_OUT_INV: Inventory = {
   ...INV,
   agents: [{ kind: 'claude-code', installed: true, login: { state: 'out' } }],
+}
+
+const TIMED_OUT_INV: Inventory = {
+  ...INV,
+  agents: [
+    {
+      kind: 'claude-code',
+      installed: null,
+      probeError: { reason: 'timed-out', timeoutMs: 60_000 },
+      login: { state: 'in' },
+    },
+  ],
 }
 
 let seq = 0
@@ -45,8 +99,40 @@ function makeCtx(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     send: (m: DaemonMessage) => sent.push(m),
     machineId: 'm-test',
     homeDir: `/fake/home/${seq++}`,
+    agentRuntime: { inventory: () => buildInventory() },
   } as unknown as DaemonContext
   return { ctx, sent }
+}
+
+function makeRuntimeCtx(opencode2Executable?: string): {
+  ctx: DaemonContext
+  sent: DaemonMessage[]
+  current: ReturnType<typeof vi.fn>
+  refresh: ReturnType<typeof vi.fn>
+  reprobe: ReturnType<typeof vi.fn>
+} {
+  const sent: DaemonMessage[] = []
+  const snapshot = {
+    inventory: withBaselineDrivers(INV),
+    commandEnvironment: {
+      resolve: (name: string) => (name === 'opencode2' ? opencode2Executable : undefined),
+    },
+  }
+  const current = vi.fn(async () => snapshot)
+  const refresh = vi.fn(async () => snapshot)
+  const reprobe = vi.fn(async () => snapshot)
+  const ctx = {
+    send: (message: DaemonMessage) => sent.push(message),
+    machineId: 'm-runtime',
+    agentRuntime: { inventory: async () => INV },
+    harnessRuntime: {
+      current,
+      refresh,
+      reprobe,
+      isCurrent: (candidate: unknown) => candidate === snapshot,
+    },
+  } as unknown as DaemonContext
+  return { ctx, sent, current, refresh, reprobe }
 }
 
 describe('daemon inventory reporting (#222)', () => {
@@ -56,7 +142,71 @@ describe('daemon inventory reporting (#222)', () => {
   it('sends an inventoryReport frame carrying the built inventory', async () => {
     const { ctx, sent } = makeCtx()
     await reportInventory(ctx)
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
+    expect(sent).toEqual([
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+    ])
+  })
+
+  it('re-probes the production runtime on reconnect instead of replaying its snapshot', async () => {
+    const { ctx, sent, current, reprobe } = makeRuntimeCtx()
+    await reportInventory(ctx)
+    expect(reprobe).toHaveBeenCalledTimes(1)
+    expect(current).not.toHaveBeenCalled()
+    expect(sent).toEqual([
+      { type: 'inventoryReport', machineId: 'm-runtime', inventory: withBaselineDrivers(INV) },
+    ])
+  })
+
+  it('advertises OpenCode 2 only after probing the generation-resolved executable', async () => {
+    const { ctx, sent } = makeRuntimeCtx('/agent-home/bin/opencode2')
+
+    await reportInventory(ctx)
+
+    expect(opencode2VersionProbeForExecutable).toHaveBeenCalledWith('/agent-home/bin/opencode2')
+    expect(sent[0]).toMatchObject({
+      inventory: {
+        runtimeDrivers: expect.arrayContaining([
+          { harness: 'opencode', id: 'opencode2-server', family: 'server' },
+        ]),
+      },
+    })
+  })
+
+  it('projects headless availability from the completed inventory without driver probes', async () => {
+    const { ctx, sent } = makeCtx()
+    buildInventory.mockResolvedValueOnce(HEADLESS_INV)
+
+    await reportInventory(ctx)
+
+    expect(gateCodexVersion).toHaveBeenCalledWith('codex-cli 0.101.0')
+    expect(gateGrokVersion).toHaveBeenCalledWith('grok 0.3.0')
+    expect(gateOpencodeVersion).toHaveBeenCalledWith('1.2.3')
+    expect(codexAppServerVersionProbe).not.toHaveBeenCalled()
+    expect(grokAcpVersionProbe).not.toHaveBeenCalled()
+    expect(opencodeVersionProbe).not.toHaveBeenCalled()
+    expect(sent).toEqual([
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: {
+          ...HEADLESS_INV,
+          runtimeDrivers: [
+            ...terminalRuntimeDriverInventory(),
+            { harness: 'claude-code', id: 'claude-sdk', family: 'embedded' },
+            { harness: 'codex', id: 'codex-app-server', family: 'server' },
+            { harness: 'grok', id: 'grok-acp', family: 'server' },
+            { harness: 'opencode', id: 'opencode-server', family: 'server' },
+          ],
+        },
+      },
+    ])
+  })
+
+  it('routes inventoryRequest through the single-flight re-probe', async () => {
+    const { ctx, refresh, reprobe } = makeRuntimeCtx()
+    inventoryHandlers.inventoryRequest(ctx, { type: 'inventoryRequest' })
+    await vi.waitFor(() => expect(reprobe).toHaveBeenCalledTimes(1))
+    expect(refresh).not.toHaveBeenCalled()
   })
 
   it('caches: a second report (reconnect) re-sends without rebuilding', async () => {
@@ -67,12 +217,37 @@ describe('daemon inventory reporting (#222)', () => {
     expect(sent).toHaveLength(2)
   })
 
+  it('does not cache a timeout, so a quieter reconnect can succeed', async () => {
+    const { ctx, sent } = makeCtx()
+    buildInventory.mockResolvedValueOnce(TIMED_OUT_INV).mockResolvedValueOnce(INV)
+
+    await reportInventory(ctx)
+    await reportInventory(ctx)
+
+    expect(buildInventory).toHaveBeenCalledTimes(2)
+    expect(sent).toEqual([
+      {
+        type: 'inventoryReport',
+        machineId: 'm-test',
+        inventory: withBaselineDrivers(TIMED_OUT_INV),
+      },
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+    ])
+  })
+
   it('inventoryRequest forces a rebuild', async () => {
     const { ctx } = makeCtx()
     await reportInventory(ctx) // seed the cache
     inventoryHandlers.inventoryRequest(ctx, { type: 'inventoryRequest' })
     await Promise.resolve() // let the void promise settle
     await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
+  })
+
+  it('an explicit reprobe refreshes the cached fallback inventory', async () => {
+    const { ctx } = makeCtx()
+    await reportInventory(ctx)
+    await reportInventory(ctx, { reprobe: true })
+    expect(buildInventory).toHaveBeenCalledTimes(2)
   })
 
   it('periodically rebuilds inventory and stops cleanly', async () => {
@@ -82,7 +257,9 @@ describe('daemon inventory reporting (#222)', () => {
       const stop = startInventoryRefresh(ctx, 100)
       await vi.advanceTimersByTimeAsync(100)
       expect(buildInventory).toHaveBeenCalledTimes(1)
-      expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
+      expect(sent).toEqual([
+        { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+      ])
       stop()
       await vi.advanceTimersByTimeAsync(200)
       expect(buildInventory).toHaveBeenCalledTimes(1)
@@ -109,12 +286,47 @@ describe('daemon inventory reporting (#222)', () => {
 
     const stale = reportInventory(ctx)
     const fresh = reportInventory(ctx, { rebuild: true })
-    resolveFresh(INV)
-    await fresh
+    expect(buildInventory).toHaveBeenCalledTimes(1)
     resolveStale(LOGGED_OUT_INV)
-    await stale
+    await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
+    resolveFresh(INV)
+    await Promise.all([stale, fresh])
 
-    expect(sent).toEqual([{ type: 'inventoryReport', machineId: 'm-test', inventory: INV }])
+    expect(sent).toEqual([
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+    ])
+  })
+
+  it('coalesces forced rebuilds behind an in-flight probe wave', async () => {
+    const { ctx, sent } = makeCtx()
+    let resolveStale!: (inventory: Inventory) => void
+    let resolveFresh!: (inventory: Inventory) => void
+    buildInventory
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStale = resolve
+        }),
+      )
+      .mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveFresh = resolve
+        }),
+      )
+
+    const initial = reportInventory(ctx)
+    const firstForced = reportInventory(ctx, { rebuild: true })
+    const secondForced = reportInventory(ctx, { rebuild: true })
+    expect(buildInventory).toHaveBeenCalledTimes(1)
+
+    resolveStale(LOGGED_OUT_INV)
+    await vi.waitFor(() => expect(buildInventory).toHaveBeenCalledTimes(2))
+    resolveFresh(INV)
+    await Promise.all([initial, firstForced, secondForced])
+
+    expect(buildInventory).toHaveBeenCalledTimes(2)
+    expect(sent).toEqual([
+      { type: 'inventoryReport', machineId: 'm-test', inventory: withBaselineDrivers(INV) },
+    ])
   })
 
   it('a failed build is never cached, never throws, and the next call retries', async () => {

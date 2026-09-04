@@ -1,5 +1,5 @@
 import { withoutShells } from '@podium/client-core/focus'
-import { subIssuesOf } from '@podium/client-core/viewmodels'
+import { resolveIssueEdge, subIssuesOf } from '@podium/client-core/viewmodels'
 import {
   type IssueCloseReason,
   type IssueId,
@@ -7,28 +7,35 @@ import {
   type IssueWire,
   issueStatusMenuEntries,
   issueStatusValueOf,
+  parseIssueStatusValue,
   type SessionId,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { ChevronDown, ChevronUp, MoreHorizontal } from 'lucide-react-native'
+import { ChevronDown, ChevronUp, MoreHorizontal } from '../components/icons'
 import { useCallback, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import {
   useBooting,
+  useCoarseNow,
   useConnected,
   useIssue,
   useIssues,
-  useMobileStore,
+  useReplica,
   useSessions,
+  useStoreActions,
+  useTrpc,
 } from '../client/hooks'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { Composer } from '../components/Composer'
+import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
+import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { Icon } from '../components/Icon'
 import { IdSquare } from '../components/IdSquare'
 import { IssueCloseSheet } from '../components/IssueCloseSheet'
 import { IssueColorSheet } from '../components/IssueColorSheet'
 import { IssueQuestionCard } from '../components/IssueQuestionCard'
+import { IssueTargetSheet } from '../components/IssueTargetSheet'
 import { BootstrapCrossfade, DetailSkeleton } from '../components/LaunchPlaceholders'
 import { PressableScale } from '../components/PressableScale'
 import { HeaderButton, Screen } from '../components/Screen'
@@ -37,6 +44,7 @@ import { ErrorNote } from '../components/task-detail/chrome'
 import { IssueActivitySection, MailSection } from '../components/task-detail/IssueActivity'
 import { IssueAgentPanel } from '../components/task-detail/IssueAgentPanel'
 import { IssueBanners } from '../components/task-detail/IssueBanners'
+import { GitReviewSection } from '../components/task-detail/GitReviewSection'
 import {
   IssueBrief,
   IssueDescription,
@@ -50,10 +58,11 @@ import { IssueSubIssues } from '../components/task-detail/IssueSubIssues'
 import { PromptSheet } from '../components/task-detail/PromptSheet'
 import { EmptyState } from '../components/ui'
 import { useCollapsed } from '../hooks/useCollapsed'
+import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { TASK_DETAILS_FOLD_KEY } from '../lib/fold-keys'
 import { issueCommands, type RunMutation } from '../lib/issue-detail'
+import { issueCloseBlockers } from '../lib/issue-close'
 import { sessionHref } from '../lib/session-route'
-import { taskBoardOrder, taskNeighbours } from '../lib/task-board'
 import { useIssueActivity } from '../lib/use-issue-detail'
 import { issueColorHex } from '../theme/issueColors'
 import { color, space } from '../theme/theme'
@@ -81,15 +90,14 @@ import { color, space } from '../theme/theme'
  * Each section is its own module under `../components/task-detail/`, chosen by
  * the question it answers; every mutation is a named command in
  * `../lib/issue-detail.ts`; the three lazy reads are one hook. What is LEFT here
- * is the state that genuinely spans sections — which sheet is open, the busy /
- * error pair, and the neighbour navigation — because pushing any of those down
- * would duplicate them.
+ * is the state that genuinely spans sections — which sheet is open and the
+ * busy / error pair — because pushing either of those down would duplicate them.
  *
  * THE COMPOSER IS PINNED, NOT APPENDED. A task with twenty artifacts and a day of
  * events puts the reply box thousands of pixels down the scroll, so replying
  * would mean first travelling past everything you were replying to.
  */
-export function IssueScreen() {
+export function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
   const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
@@ -123,9 +131,14 @@ export function IssueScreen() {
   return (
     <BootstrapCrossfade resolved={resolved} placeholder={<DetailSkeleton />}>
       {issue ? (
-        <IssueContent issue={issue} onBack={goBack} />
+        <IssueContent issue={issue} onBack={goBack} dismiss={dismiss} />
       ) : (
-        <Screen title="Task" onBack={goBack}>
+        <Screen
+          title="Task"
+          onBack={goBack}
+          backAs={dismiss ? 'text' : 'chevron'}
+          backLabel={dismiss ? 'Done' : undefined}
+        >
           {certainAbsence ? <EmptyState title="Task not found." fill /> : <DetailSkeleton />}
         </Screen>
       )}
@@ -151,8 +164,11 @@ type OpenSheet =
   /** Carries the ending being recorded — the guard is raised BY a close, so it
    *  has to remember which one it is guarding (POD-1129). */
   | { kind: 'confirm-close'; reason: IssueCloseReason }
+  | { kind: 'child-status'; child: IssueWire }
+  | { kind: 'confirm-child-close'; child: IssueWire; reason: IssueCloseReason }
   | { kind: 'flag' }
   | { kind: 'colour' }
+  | { kind: 'launch' }
 
 /** The relation kinds the phone offers. `parent-child` and `supersedes` are
  *  deliberately absent: parentage has its own row and supersede/duplicate are
@@ -160,9 +176,23 @@ type OpenSheet =
  *  fact be stated two ways. */
 const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
-function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void }) {
+function IssueContent({
+  issue,
+  onBack,
+  dismiss,
+}: {
+  issue: IssueWire
+  onBack: () => void
+  dismiss: boolean
+}) {
   const router = useRouter()
-  const store = useMobileStore()
+  const trpc = useTrpc()
+  // The picked action set doubles as the page's IssueWriteActions — every
+  // field is identity-stable, so this subscription never re-renders the page.
+  const actions = useStoreActions()
+  const { resumeAndSend } = actions
+  const replica = useReplica()
+  const coarseNow = useCoarseNow()
   const issues = useIssues()
   const allSessions = useSessions()
 
@@ -170,6 +200,7 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
   const [error, setError] = useState<string | null>(null)
   const [sheet, setSheet] = useState<OpenSheet>(null)
   const [detailsOpen, detailsCollapsed] = useDetailsFold()
+  const keyboardLift = useKeyboardLift()
 
   /** Run a mutation, surfacing any thrown error verbatim as an inline note. */
   const run: RunMutation = async (fn) => {
@@ -184,11 +215,11 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
     }
   }
   const commands = issueCommands({
-    trpc: store.trpc,
+    trpc,
     issue,
     sessions: allSessions,
     run,
-    actions: store,
+    actions,
     // Only reached when the shared derivation found something to say; a clean
     // close never gets this far (POD-1129).
     requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),
@@ -226,11 +257,6 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         .sort((a, b) => b.seq - a.seq),
     [issues, issue.repoPath, issue.id],
   )
-  const { prev, next } = useMemo(
-    () => taskNeighbours(taskBoardOrder(issues), issue.id),
-    [issues, issue.id],
-  )
-
   const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
@@ -249,12 +275,16 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
    */
   const closeIf = (kind: NonNullable<OpenSheet>['kind']) => () =>
     setSheet((cur) => (cur?.kind === kind ? null : cur))
-  const mateActions = (onPick: (id: string) => void): SheetAction[] =>
-    mates.map((m) => ({
-      label: m.title,
-      meta: issueDisplayRef(m),
-      onPress: () => onPick(m.id),
-    }))
+  const resolveEdge = useMemo(() => {
+    const byId = new Map(issues.map((candidate) => [candidate.id, candidate]))
+    return (id: string | undefined | null) =>
+      resolveIssueEdge(
+        id,
+        (targetId) => byId.get(targetId as IssueId),
+        'opaque',
+        (targetId) => replica.exitKind?.('issue', targetId as IssueId),
+      )
+  }, [issues, replica])
 
   const repoName = issue.repoPath.split('/').filter(Boolean).pop() ?? issue.repoPath
   const breadcrumb = parent
@@ -271,6 +301,8 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       // the board's nesting exists to remove.
       subtitle={breadcrumb}
       onBack={onBack}
+      backAs={dismiss ? 'text' : 'chevron'}
+      backLabel={dismiss ? 'Done' : undefined}
       {...(hex ? { accent: hex } : {})}
       leading={
         <PressableScale
@@ -295,119 +327,107 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         </PressableScale>
       }
       right={
-        <>
-          {/* An end-of-list neighbour renders as an INERT glyph rather than
-              vanishing: three controls that become two shift everything beside
-              them, and the first and last task on the board are exactly where an
-              operator is most likely to be aiming at the button that moved. */}
-          {prev ? (
-            <HeaderButton label="Previous task" onPress={() => openIssue(prev)}>
-              <Icon as={ChevronUp} size={17} color={color.text} />
-            </HeaderButton>
-          ) : (
-            <View
-              style={styles.headerInert}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <Icon as={ChevronUp} size={17} color={color.textMicro} />
-            </View>
-          )}
-          {next ? (
-            <HeaderButton label="Next task" onPress={() => openIssue(next)}>
-              <Icon as={ChevronDown} size={17} color={color.text} />
-            </HeaderButton>
-          ) : (
-            <View
-              style={styles.headerInert}
-              accessibilityElementsHidden
-              importantForAccessibility="no-hide-descendants"
-            >
-              <Icon as={ChevronDown} size={17} color={color.textMicro} />
-            </View>
-          )}
-          <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
-            <Icon as={MoreHorizontal} size={17} color={color.text} />
-          </HeaderButton>
-        </>
+        <HeaderButton label="More actions" onPress={() => setSheet({ kind: 'menu' })}>
+          <Icon as={MoreHorizontal} size={17} color={color.text} />
+        </HeaderButton>
       }
     >
-      <ScrollView
-        contentContainerStyle={styles.content}
-        keyboardShouldPersistTaps="handled"
-        keyboardDismissMode="on-drag"
-      >
-        <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
+      {/* The same keyboard contract the chat screens carry: on iOS the pinned
+          composer otherwise sits UNDER the keyboard, so a comment was typed
+          blind — the field disappeared on focus. The lift is the keyboard's own
+          overlap (see useKeyboardHeight), not an avoiding view's frame
+          arithmetic. The sheets stay outside: they are modal layers and place
+          themselves. */}
+      <View style={[styles.flex, { paddingBottom: keyboardLift }]} testID="issue-keyboard-avoider">
+        <ScrollView
+          contentContainerStyle={styles.content}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+        >
+          <IssueBanners issue={issue} busy={busy} commands={commands} onRestored={onBack} />
 
-        {issue.needsHuman ? (
-          <View style={styles.question}>
-            <IssueQuestionCard
-              issue={issue}
-              onAnswer={
-                askingSession
-                  ? (answer) => store.resumeAndSend(askingSession.sessionId, answer)
-                  : undefined
-              }
-              onOpenSession={askingSession ? () => openSession(askingSession.sessionId) : undefined}
-              // The card awaits its resolver; the command is fire-and-forget
-              // through the page's runner, which already owns the busy/error pair.
-              onResolve={async () => commands.resolveNeedsHuman()}
+          {issue.needsHuman ? (
+            <View style={styles.question}>
+              <IssueQuestionCard
+                issue={issue}
+                onAnswer={
+                  askingSession
+                    ? (answer) => resumeAndSend(askingSession.sessionId, answer)
+                    : undefined
+                }
+                onOpenSession={
+                  askingSession ? () => openSession(askingSession.sessionId) : undefined
+                }
+                // The card awaits its resolver; the command is fire-and-forget
+                // through the page's runner, which already owns the busy/error pair.
+                onResolve={async () => commands.resolveNeedsHuman()}
+              />
+            </View>
+          ) : null}
+
+          <IssueTitle issue={issue} busy={busy} commands={commands} />
+          <StatusStrip issue={issue} />
+          <PropertyBar
+            issue={issue}
+            onStage={() => setSheet({ kind: 'stage' })}
+            onPriority={() => setSheet({ kind: 'priority' })}
+            onType={() => setSheet({ kind: 'type' })}
+          />
+
+          <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
+          <IssueDescription issue={issue} busy={busy} commands={commands} />
+          <IssueBrief issue={issue} />
+          <LongFormFields issue={issue} busy={busy} commands={commands} />
+          <IssueAgentPanel issue={issue} />
+          {issue.worktreePath ? (
+            <GitReviewSection
+              root={issue.worktreePath}
+              {...(issue.machineId === undefined ? {} : { machineId: issue.machineId })}
             />
-          </View>
-        ) : null}
+          ) : null}
+          <IssueSubIssues
+            issue={issue}
+            subIssues={children}
+            busy={busy}
+            commands={commands}
+            sessions={allSessions}
+            now={coarseNow}
+            onOpen={openIssue}
+            onStatus={(child) => setSheet({ kind: 'child-status', child })}
+          />
+          <MailSection mail={mail} />
+          <IssueProperties
+            issue={issue}
+            sessions={sessions}
+            parent={parent}
+            resolveEdge={resolveEdge}
+            busy={busy}
+            commands={commands}
+            open={detailsOpen}
+            onToggle={detailsCollapsed}
+            onOpenSession={openSession}
+            onOpenIssue={openIssue}
+            onPickParent={() => setSheet({ kind: 'parent' })}
+            onAddRelation={() => setSheet({ kind: 'relation-type' })}
+          />
+          <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
+        </ScrollView>
 
-        <IssueTitle issue={issue} busy={busy} commands={commands} />
-        <StatusStrip issue={issue} />
-        <PropertyBar
-          issue={issue}
-          onStage={() => setSheet({ kind: 'stage' })}
-          onPriority={() => setSheet({ kind: 'priority' })}
-          onType={() => setSheet({ kind: 'type' })}
-        />
-
-        <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
-        <IssueDescription issue={issue} busy={busy} commands={commands} />
-        <IssueBrief issue={issue} />
-        <LongFormFields issue={issue} busy={busy} commands={commands} />
-        <IssueAgentPanel issue={issue} />
-        <IssueSubIssues
-          issue={issue}
-          subIssues={children}
-          busy={busy}
-          commands={commands}
-          onOpen={openIssue}
-        />
-        <MailSection mail={mail} />
-        <IssueProperties
-          issue={issue}
-          sessions={sessions}
-          parent={parent}
-          busy={busy}
-          commands={commands}
-          open={detailsOpen}
-          onToggle={detailsCollapsed}
-          onOpenSession={openSession}
-          onOpenIssue={openIssue}
-          onPickParent={() => setSheet({ kind: 'parent' })}
-          onAddRelation={() => setSheet({ kind: 'relation-type' })}
-        />
-        <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
-      </ScrollView>
-
-      {/* Pinned with the composer, not placed where the failing control was. A
+        {/* Pinned with the composer, not placed where the failing control was. A
           rebase fired from the Details fold at the bottom of a long page would
           otherwise report its error a full screen above the thumb that asked
           for it. */}
-      {error ? (
-        <View style={styles.errorBand}>
-          <ErrorNote message={error} />
-        </View>
-      ) : null}
+        {error ? (
+          <View style={styles.errorBand}>
+            <ErrorNote message={error} />
+          </View>
+        ) : null}
 
-      <Composer
-        placeholder="Comment, or @mention an agent on this task…"
-        onSend={(text) => commands.postComment(text, appendLocalComment)}
-      />
+        <Composer
+          placeholder="Comment, or @mention an agent on this task…"
+          onSend={(text) => commands.postComment(text, appendLocalComment)}
+        />
+      </View>
 
       <ActionSheet
         visible={sheet?.kind === 'stage'}
@@ -451,11 +471,12 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         onClose={closeIf('type')}
       />
 
-      <ActionSheet
+      <IssueTargetSheet
         visible={sheet?.kind === 'parent'}
         title="Parent"
         subtitle={mates.length === 0 ? 'No other task in this repo to nest under.' : undefined}
-        actions={mateActions((id) => commands.setParent(id))}
+        issues={mates}
+        onPick={(target) => commands.setParent(target.id)}
         onClose={closeIf('parent')}
       />
 
@@ -469,21 +490,40 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
         onClose={closeIf('relation-type')}
       />
 
-      <ActionSheet
+      <IssueTargetSheet
         visible={sheet?.kind === 'relation-target'}
         title={sheet?.kind === 'relation-target' ? sheet.type : ''}
-        actions={mateActions((id) => {
-          if (sheet?.kind === 'relation-target') commands.addRelation(sheet.type, id)
-        })}
+        issues={mates}
+        onPick={(target) => {
+          if (sheet?.kind === 'relation-target') commands.addRelation(sheet.type, target.id)
+        }}
         onClose={closeIf('relation-target')}
       />
 
-      <ActionSheet
+      <IssueTargetSheet
         visible={sheet?.kind === 'supersede'}
         title="Supersede with"
         subtitle="This task is closed as replaced by the one you pick."
-        actions={mateActions((id) => commands.supersedeWith(id))}
+        issues={mates}
+        onPick={(target) => commands.supersedeWith(target.id)}
         onClose={closeIf('supersede')}
+      />
+
+      <ActionSheet
+        visible={sheet?.kind === 'child-status'}
+        title={sheet?.kind === 'child-status' ? `${issueDisplayRef(sheet.child)} status` : 'Status'}
+        actions={
+          sheet?.kind === 'child-status'
+            ? issueStatusMenuEntries().map((entry) => ({
+                label: entry.label,
+                ...(entry.hint ? { hint: entry.hint } : {}),
+                icon: <StageGlyph stage={entry.status} size={15} ground={color.surface} />,
+                selected: entry.value === issueStatusValueOf(sheet.child),
+                onPress: () => selectChildStatus(sheet.child, entry.value),
+              }))
+            : []
+        }
+        onClose={closeIf('child-status')}
       />
 
       <ActionSheet
@@ -519,12 +559,29 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
           — a count of retired decisions, a count of dirty files, each with its
           own consequence — and a two-line subtitle can hold none of it. */}
       <IssueCloseSheet
-        issue={issue}
+        issue={sheet?.kind === 'confirm-child-close' ? sheet.child : issue}
         sessions={allSessions}
-        reason={sheet?.kind === 'confirm-close' ? sheet.reason : null}
+        reason={
+          sheet?.kind === 'confirm-close' || sheet?.kind === 'confirm-child-close'
+            ? sheet.reason
+            : null
+        }
         busy={busy}
-        onConfirm={commands.closeNow}
-        onClose={closeIf('confirm-close')}
+        onConfirm={(reason) => {
+          if (sheet?.kind === 'confirm-child-close') {
+            void run(() => actions.closeIssue(sheet.child.id, reason))
+            setSheet(null)
+            return
+          }
+          commands.closeNow(reason)
+        }}
+        onClose={() =>
+          setSheet((current) =>
+            current?.kind === 'confirm-close' || current?.kind === 'confirm-child-close'
+              ? null
+              : current,
+          )
+        }
       />
 
       <PromptSheet
@@ -540,6 +597,10 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
       <IssueColorSheet
         issue={sheet?.kind === 'colour' ? issue : null}
         onClose={closeIf('colour')}
+      />
+      <ConfiguredIssueLaunchSheet
+        issue={sheet?.kind === 'launch' ? issue : null}
+        onClose={closeIf('launch')}
       />
     </Screen>
   )
@@ -557,12 +618,12 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
     if (agents.length === 0 && live) {
       actions.push({
         label: 'Start an agent',
-        hint: 'Spawns this task’s default agent on its own checkout.',
-        onPress: commands.startWork,
+        hint: 'Choose agent, model, effort, and machine before starting.',
+        onPress: () => setSheet({ kind: 'launch' }),
       })
-    } else if (live) {
-      actions.push({ label: 'Add an agent', onPress: commands.addSession })
     }
+    // No "Add an agent" once one is running (2026-08-27 device review): a
+    // second agent launches from the mission's deck or its 3-dots menu.
     if (live) actions.push({ label: 'Add a shell', onPress: commands.addShell })
     if (live) {
       actions.push({
@@ -600,6 +661,20 @@ function IssueContent({ issue, onBack }: { issue: IssueWire; onBack: () => void 
     }
     return actions
   }
+
+  function selectChildStatus(child: IssueWire, value: string): void {
+    const intent = parseIssueStatusValue(value)
+    if (!intent) return
+    if (intent.kind === 'stage') {
+      void run(() => actions.updateIssue(child.id, { stage: intent.stage }))
+      return
+    }
+    if (issueCloseBlockers(child, allSessions).length > 0) {
+      setSheet({ kind: 'confirm-child-close', child, reason: intent.reason })
+      return
+    }
+    void run(() => actions.closeIssue(child.id, intent.reason))
+  }
 }
 
 /** The Details fold, remembered per principal in the replica's ui-state — the
@@ -612,6 +687,9 @@ function useDetailsFold(): [boolean, () => void] {
 }
 
 const styles = StyleSheet.create({
+  flex: {
+    flex: 1,
+  },
   content: {
     paddingHorizontal: space.lg,
     paddingTop: space.lg,
@@ -626,12 +704,5 @@ const styles = StyleSheet.create({
     borderTopWidth: StyleSheet.hairlineWidth,
     borderTopColor: color.border,
     backgroundColor: color.dangerSoft,
-  },
-  headerInert: {
-    width: 28,
-    height: 28,
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: 0.45,
   },
 })

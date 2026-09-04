@@ -1,6 +1,6 @@
 # Logging (for agents)
 
-Everything Podium runs — server, daemon, janitor, CLI, web, desktop webview, the
+Everything Podium runs — server, daemon, CLI, web, desktop webview, the
 Expo app — logs through **one core**, `@podium/logger`. `console.*` in product
 source is a lint failure (`console-ownership` in
 [`scripts/check-boundaries.ts`](../../scripts/check-boundaries.ts)); the
@@ -87,7 +87,7 @@ absent.
 | role | `v` | set by |
 |------|-----|--------|
 | released binary (any role) | the release version, e.g. `0.9.9` | `PODIUM_APP_VERSION`, baked in by `scripts/build-bun.ts` |
-| server / daemon / janitor / cli from source | `dev+<short sha>`, plus `-dirty` when the tree differs from that commit | `resolveLogVersion` in `packages/runtime/src/logging.ts` |
+| server / daemon / cli from source | `dev+<short sha>`, plus `-dirty` when the tree differs from that commit | `resolveLogVersion` in `packages/runtime/src/logging.ts` |
 | web / desktop (the same bundle) | `PODIUM_APP_VERSION`, or `dev+<short sha>` on a dest host | `pageBuildVersion` in `apps/web/src/lib/logging/build-version.ts`, from `<meta name="podium-version">` or the Vite define |
 | mobile | the build-time inline, else `dev` | `appVersion()` in `apps/mobile/src/lib/logging.ts` |
 
@@ -107,15 +107,49 @@ presence. Those assertions exist now; if you add a role, add one for it too.
 
 | Where | How |
 |---|---|
-| Server / daemon / janitor / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
+| Server / daemon / CLI | `PODIUM_LOG_LEVEL=debug` for everything |
 | One namespace | `PODIUM_LOG='daemon:*=debug'` — comma/space separated, most specific pattern wins |
 | Clients (no env: browser, webview, phone) | `podium logs level debug --role web` from a shell on the server host — see below |
+| A REMOTE machine's daemon (no shell on it) | `podium logs daemon-level debug --machine <id>` from the coordinating server — see below |
 | Desktop Rust side | `PODIUM_LOG_LEVEL` only; the per-namespace syntax is not implemented in the crate |
 
 Raising a client's level raises the console **and** the forwarding stream
 together — one knob, so a client's reported level and its visible level can
 never disagree. On the server family, `PODIUM_LOG_LEVEL`/`PODIUM_LOG` always
 beat the process's own default; nothing pins its own threshold.
+
+### Namespace floors — a namespace worth more than the default
+
+A few namespaces exist to be read *after the fact*, by an operator, from a log
+file. The update path is the canonical case: a client's default is `warn`, so
+every line describing what a Reload click actually did was written at `info` and
+forwarded nowhere, and every question about it was unanswerable (POD-3224).
+
+```ts
+setNamespaceFloor('web:updates', 'info')   // at a composition root
+PODIUM_LOG_FLOOR='daemon:update=info'      // or from the environment
+```
+
+A floor says **at least this much**, and that is the whole difference from
+`setNamespaceLevel`. Rules resolve most-specific-wins, so `web:updates=info`
+would beat a global raise to `debug` and silently *cap* the one namespace an
+operator raised the client to `debug` in order to read. A floor folds in with
+`moreVerbose`, so it can only ever make a namespace louder — never quieter than
+what somebody asked for, and never quieter than the default.
+
+The daemon's steady forwarded stream reads the same floors, so a floored
+namespace leaves the machine at its floor without an operator having raised
+anything. That makes the floor a **call-site obligation**: what goes at `info`
+in a floored namespace must be a transition or an outcome, bounded by the thing
+being described. Anything that repeats on a timer goes at `debug`, where it
+costs the flight recorder and nothing else.
+
+Floored today: `web:updates`, `web:sw`, `web:reload`, `web:version-guard`,
+`web:chunk-recovery`, `web:boot` (declared in
+[`apps/web/src/lib/logging/update-logs.ts`](../../apps/web/src/lib/logging/update-logs.ts))
+and `daemon:update` (declared in `apps/daemon/src/host-runtime.ts`). What each of
+those lines answers, and how to follow one update across all three log sources:
+[reading-an-update-from-logs.md](reading-an-update-from-logs.md).
 
 ### Raising a client you are not sitting at
 
@@ -195,12 +229,56 @@ The user at the client can do the same thing from **Settings → Privacy →
 Diagnostic detail** ("turn up for 30 minutes"), which drives the identical knob —
 for hosted installs, phones, and anyone you cannot give a shell command to.
 
+### Raising a daemon on a machine you have no shell on
+
+Same problem one plane out: a remote host's daemon has an env you cannot set and
+a journal you cannot read without SSH. From the **coordinating server**:
+
+```sh
+podium logs daemons                                     # which machines have a live daemon
+podium logs daemon-level debug --machine <id> --for 30m # turn one up
+# …reproduce the problem…
+podium logs fleet-<id> --pretty                         # read what it forwarded
+podium logs daemon-level reset --machine <id>           # put it back
+```
+
+Everything the client verbs promise holds here — the listing is also a reset, a
+raise that matched nothing exits non-zero, `--for` defaults to 30 minutes and is
+capped at 24h — plus three differences that are the whole design:
+
+- **A daemon forwards `warn`+ without being asked** (POD-3184), the same as a
+  browser, and a raise turns it *up* rather than *on*. An `error` also brings the
+  recorder's recent unsent records with it, so a forwarded failure arrives with
+  the minute that explains it rather than on its own. What a raise adds is
+  `debug`/`trace` for a bounded window.
+  The exception is a daemon sharing a process with the server — an all-in-one
+  install, or your own machine. Its records are already in that machine's own
+  log files, so it forwards nothing until you raise it, and an empty
+  `fleet-<your own machine>.ndjson` there is correct rather than a broken
+  pipeline.
+- **The raise ships the recent past.** The daemon keeps a `trace` flight recorder
+  in memory at all times and sends what it has not already forwarded as the first
+  batch, so the central file starts *before* the moment you typed the command —
+  including records below the level the daemon was running at.
+- **The machine is not self-reported.** The daemon frame carries no machine
+  field. The server files the records under the machine the daemon socket
+  *authenticated as*, so `fleet-<id>.ndjson` is a claim the server made, where
+  `clients/<origin>.ndjson` is a claim the client made about itself.
+
+A raise that a machine misses because it was offline is simply not delivered —
+the command sends only to machines with a live socket and lists what it reached.
+Re-issue it; nothing is queued, deliberately.
+
+Underneath it is one call to `logs.setDaemonLevel` (tRPC, admin) — the sibling
+of `logs.setLevel` above, same admin floor, same "no state on the server" rule —
+which pushes a `setDaemonLogLevel` control frame down the daemon socket.
+
 ## Where the logs are
 
 The two process families wire different sink sets, and the difference matters
 when you are wondering where a line went.
 
-**Server family** (server, daemon, janitor, CLI) gets **exactly one** sink,
+**Server family** (server, daemon, CLI) gets **exactly one** sink,
 chosen by how the process is supervised — no double-writing:
 
 | Supervised as | Sink | Destination |
@@ -226,6 +304,22 @@ On disk:
 - **Server family:** `~/.podium/logs/<role>.ndjson`, rotated at 10 MB × 5.
 - **Forwarded client logs:** `~/.podium/logs/clients/<origin>.ndjson`, one file
   per origin (role + machine), same rotation.
+- **Forwarded remote-daemon logs:** `~/.podium/logs/fleet/<machine>.ndjson`, one
+  file per machine, same rotation. A separate directory from `clients/` on
+  purpose: the machine there is the one the server *authenticated*, not one a
+  peer described itself as, and the two evidentiary grades should not share a
+  filename space.
+- **How both forwarded families are written:** one primitive
+  (`apps/server/src/modules/logs/queued-writer.ts`). Ingestion **never writes on
+  the request or socket callback that carried the batch**. Records are tagged and
+  queued, and the queue drains in bounded slices between event-loop turns, so a
+  500-record batch costs the next request a slice rather than the batch. The
+  queue is bounded and drops **oldest**; those drops are counted apart from the
+  drops a sender reports about its own queue, because a lossy link and a
+  saturated server are different problems. A sender's reported drops are also
+  written **into the file** as a marker record, so a gap is not ambiguous to
+  whoever reads it. At shutdown the final drain is unsliced — there is no request
+  left to protect and the tail is the part that explains the stop.
 - **Under systemd:** nothing on disk here — records go to the unit's stdout and
   journald owns them.
 - **`~/.podium/logs/<role>.log`** (no `.ndjson`) still exists in detached mode
@@ -243,12 +337,16 @@ Reading them:
 podium logs                      # tail the component logs
 podium logs --pretty             # NDJSON rendered for humans
 podium logs web-<machine>        # a forwarded client's own file, by origin
+podium logs fleet-<machine>      # a raised remote daemon's own file, by machine
 podium logs export-crash         # bundle recent crash events for support
 ```
 
 `podium logs clients` and `podium logs level` are the same verb's reach into a
 connected client — see [Raising a client you are not sitting
-at](#raising-a-client-you-are-not-sitting-at).
+at](#raising-a-client-you-are-not-sitting-at). `podium logs daemons` and
+`podium logs daemon-level` are its reach into a remote machine's daemon — see
+[Raising a daemon on a machine you have no shell
+on](#raising-a-daemon-on-a-machine-you-have-no-shell-on).
 
 Under systemd `podium logs` points you at `journalctl` instead, which is the
 authority there.

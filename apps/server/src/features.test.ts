@@ -106,6 +106,33 @@ describe('getFeatureStates [spec:SP-f4b9]', () => {
   })
 })
 
+describe('runtime-drivers feature', () => {
+  const stableRelease = { PODIUM_APP_VERSION: '1.0.0' }
+  const stableConfig: PodiumConfig = { updateChannel: 'stable' }
+
+  it('is listed off by default on stable and honors its persisted toggle', () => {
+    expect(
+      getFeatureStates(settings(), stableConfig, stableRelease).flags.find(
+        (flag) => flag.id === 'runtime-drivers',
+      ),
+    ).toMatchObject({
+      visibility: 'stable',
+      listed: true,
+      enabled: false,
+      source: 'default',
+      locked: false,
+    })
+    expect(
+      isFeatureEnabled(
+        'runtime-drivers',
+        settings({ 'runtime-drivers': true }),
+        stableConfig,
+        stableRelease,
+      ),
+    ).toBe(true)
+  })
+})
+
 describe('isFeatureEnabled', () => {
   it('returns false by default', () => {
     expect(isFeatureEnabled(HIDDEN, settings(), {}, { PODIUM_APP_VERSION: 'dev' })).toBe(false)

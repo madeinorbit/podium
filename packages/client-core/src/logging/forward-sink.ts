@@ -38,15 +38,52 @@ import type { LogRecord, Sink } from '@podium/logger'
 
 /** `MAX_TEXT` in packages/commands/src/logs/contracts.ts. */
 const MAX_TEXT = 8192
+/** `MAX_REPORTED_DROPS` in packages/commands/src/logs/contracts.ts — RESTATED
+ *  rather than imported, for the reason the caps above are: this module is
+ *  bundled into a browser and a phone, and a value import would drag the whole
+ *  zod contract table in behind it. Restating is a drift risk, so it is CHECKED
+ *  rather than trusted, by `forward-sink.test.ts`. */
+export const REPORTED_DROPS_CAP = 1_000_000
 const MAX_NS = 256
 const MAX_NAME = 256
 const MAX_STACK = MAX_TEXT * 4
 const MAX_TS = 64
 
+/** What a batch says about what did NOT make it into the batch. */
+export interface ForwardMeta {
+  /** Records this sink lost since the last batch the server accepted — overflow
+   *  or an unsendable batch. Absent when there is nothing to report.
+   *
+   *  It travels WITH a batch rather than as its own call because the point of it
+   *  is to mark a gap in the per-origin file at the place the gap is (POD-3167),
+   *  and because a client that cannot reach the server must not answer that by
+   *  making a second request. */
+  dropped?: number
+}
+
 export interface ForwardingSinkOptions {
   /** Ship one batch. Rejecting is expected and handled; it must not throw at us
    *  in a way we do not catch, but a synchronous throw is handled too. */
-  send(records: ForwardedLogRecord[]): Promise<void> | void
+  send(records: ForwardedLogRecord[], meta: ForwardMeta): Promise<void> | void
+  /**
+   * SHIP A BATCH THE DOCUMENT WILL NOT OUTLIVE (POD-3224 follow-up).
+   *
+   * The ordinary `send` is a promise, and a promise is worth nothing at
+   * `pagehide`: the document is torn down, its fetches are cancelled, and the
+   * five-second flush timer never fires. That lost precisely the records this
+   * whole issue exists to deliver — on the two traced Reload clicks, the click,
+   * the handshake outcome and the navigation itself were all written within
+   * ~200 ms of a navigation that then cut them.
+   *
+   * So this one must HAND OFF rather than await: `fetch(..., {keepalive:true})`
+   * or `navigator.sendBeacon`, both of which the browser promises to deliver
+   * after the page is gone. It returns whether the browser ACCEPTED the payload,
+   * not whether the server got it — nobody is left to find that out.
+   *
+   * Optional: a runtime with no unload (a test, the phone) supplies none, and
+   * {@link ForwardingSink.flushOnUnload} then does nothing.
+   */
+  sendOnUnload?(records: ForwardedLogRecord[], meta: ForwardMeta): boolean
   /** Flush at most this often when the batch never fills up. Spec: 5 s. */
   flushIntervalMs?: number
   /** Flush as soon as this many records are queued. Spec: 50. */
@@ -70,6 +107,13 @@ export interface ForwardingSink extends Sink {
   /** Records dropped since boot — by overflow or by an unsendable batch. */
   dropped(): number
   flush(): Promise<void>
+  /**
+   * Hand the queue to the browser NOW, for a document that is about to go.
+   *
+   * Synchronous by contract — there is no later. Returns how many records were
+   * handed off, which is what a test asserts on.
+   */
+  flushOnUnload(): number
   close(): Promise<void>
 }
 
@@ -81,6 +125,16 @@ const DEFAULTS = {
   retryMaxMs: 60_000,
   maxAttempts: 5,
 } as const
+
+/**
+ * How many bytes an unload hand-off may carry.
+ *
+ * `keepalive` fetch and `sendBeacon` are both capped at 64 KB by the browser,
+ * and a payload over the cap is REFUSED WHOLE — which on this path means losing
+ * everything rather than the excess. 48 KB leaves room for the tRPC envelope
+ * and the origin around the records.
+ */
+const UNLOAD_BUDGET_BYTES = 48 * 1024
 
 function clamp(value: string, max: number): { text: string; clamped: boolean } {
   if (value.length <= max) return { text: value, clamped: false }
@@ -159,6 +213,11 @@ export function createForwardingSink(options: ForwardingSinkOptions): Forwarding
   let current: ForwardedLogRecord[] | null = null
   let attempts = 0
   let droppedCount = 0
+  /** Drops not yet carried on a batch the server accepted. Reset only once such
+   *  a batch has actually gone out, so a failed send does not lose the report —
+   *  the same rule the daemon's forwarder follows at the other end of the same
+   *  design. */
+  let unreportedDrops = 0
   let timer: ReturnType<typeof setTimeout> | null = null
   let inFlight: Promise<void> | null = null
   let closed = false
@@ -201,11 +260,16 @@ export function createForwardingSink(options: ForwardingSinkOptions): Forwarding
     const batch = current ?? queue.splice(0, batchSize)
     if (batch.length === 0) return Promise.resolve()
     current = batch
+    // Clamped to the contract's ceiling: a report the server would refuse for
+    // being too large is a batch refused at the head of a FIFO queue, which is
+    // the one failure this sink is built to avoid.
+    const reporting = Math.min(unreportedDrops, REPORTED_DROPS_CAP)
     const run = (async () => {
       try {
-        await options.send(batch)
+        await options.send(batch, reporting > 0 ? { dropped: reporting } : {})
         current = null
         attempts = 0
+        unreportedDrops -= reporting
       } catch (err) {
         attempts += 1
         notice(
@@ -217,6 +281,7 @@ export function createForwardingSink(options: ForwardingSinkOptions): Forwarding
           // Unsendable — almost certainly refused rather than undeliverable.
           // Dropping it is what keeps the queue behind it moving.
           droppedCount += batch.length
+          unreportedDrops += batch.length
           current = null
           attempts = 0
         }
@@ -242,12 +307,70 @@ export function createForwardingSink(options: ForwardingSinkOptions): Forwarding
       while (queue.length > maxQueue) {
         queue.shift()
         droppedCount += 1
+        unreportedDrops += 1
       }
       // A retry is armed with a backoff this write must not preempt: arriving
       // records are not evidence the server came back.
       if (attempts > 0 || inFlight !== null) return
       if (queue.length >= batchSize) void pump()
       else arm(flushIntervalMs)
+    },
+    /**
+     * THE DOCUMENT IS GOING. Hand over what matters, in one synchronous call.
+     *
+     * FROM THE TAIL, and that is the whole design. The queue is oldest-first and
+     * the budget cannot hold all of it, but the records worth saving here are the
+     * NEWEST ones: an unload flush exists because something happened in the last
+     * few hundred milliseconds — a Reload click, its handshake outcome, the
+     * navigation — and a head-first drain would spend the budget on records that
+     * have already had five seconds of chances and lose exactly those.
+     *
+     * Whatever will not fit is COUNTED as dropped rather than silently left in a
+     * queue that is about to cease to exist, so the gap is visible in the file.
+     */
+    flushOnUnload(): number {
+      const beacon = options.sendOnUnload
+      if (!beacon || closed) return 0
+      // `current` is a batch already taken out of the queue for a send that has
+      // not resolved. On unload it will never resolve, so it goes back — at the
+      // front, where it belongs in emission order.
+      const all = current === null ? queue : [...current, ...queue]
+      if (all.length === 0) return 0
+
+      let bytes = 0
+      let firstKept = all.length
+      for (let i = all.length - 1; i >= 0; i--) {
+        const record = all[i]
+        if (record === undefined) continue
+        // Cheap and deliberately approximate: the exact envelope is the
+        // transport's business, and being a little conservative costs one record.
+        bytes += JSON.stringify(record).length + 2
+        if (bytes > UNLOAD_BUDGET_BYTES) break
+        firstKept = i
+      }
+      const batch = all.slice(firstKept)
+      if (batch.length === 0) return 0
+      const abandoned = all.length - batch.length
+      const reporting = Math.min(unreportedDrops + abandoned, REPORTED_DROPS_CAP)
+
+      let accepted = false
+      try {
+        accepted = beacon(batch, reporting > 0 ? { dropped: reporting } : {})
+      } catch {
+        // A refusing beacon is not a reason to throw out of `pagehide`.
+        accepted = false
+      }
+      if (!accepted) return 0
+
+      // Only now: a visibilitychange that does NOT end in a navigation leaves
+      // this page alive, and a queue emptied on a hand-off the browser refused
+      // would lose records for nothing.
+      droppedCount += abandoned
+      unreportedDrops = 0
+      current = null
+      queue.length = 0
+      disarm()
+      return batch.length
     },
     async flush(): Promise<void> {
       // Bounded rather than `while`: a send that keeps failing must not turn

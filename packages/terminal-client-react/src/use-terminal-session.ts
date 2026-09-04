@@ -4,6 +4,7 @@ import type { TerminalAppearance } from '@podium/terminal-client/appearance'
 import type { MountedSession } from '@podium/terminal-client/session-mount'
 import type { RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
+import { nativePromise } from './native-promise'
 
 type TerminalRuntime = typeof import('@podium/terminal-client/session-mount')
 
@@ -14,18 +15,28 @@ let terminalRuntimePromise: Promise<TerminalRuntime> | undefined
 const TERMINAL_RUNTIME_RETRY_DELAYS_MS = [250, 1_000] as const
 
 function loadTerminalRuntime(): Promise<TerminalRuntime> {
-  terminalRuntimePromise ??= import('@podium/terminal-client/session-mount').catch((cause) => {
-    terminalRuntimePromise = undefined
-    throw cause
-  })
+  // Metro implements split imports with a standards-compatible thenable, but
+  // that object is not a native Promise and has no `.catch()`. Normalize it at
+  // the boundary before the shared retry/cache logic uses Promise methods.
+  // Vite returns a native Promise here, so this stays a no-op on desktop.
+  terminalRuntimePromise ??= nativePromise(import('@podium/terminal-client/session-mount')).catch(
+    (cause) => {
+      terminalRuntimePromise = undefined
+      throw cause
+    },
+  )
   return terminalRuntimePromise
 }
 
-/** Start the renderer chunk on terminal intent without mounting or attaching a PTY. */
-export function preloadTerminalRuntime(): void {
-  void loadTerminalRuntime().catch((cause) => {
-    console.error('Could not load the terminal renderer', cause)
-  })
+/** Start the renderer chunk without mounting or attaching a PTY. The promise
+ * lets an after-paint prefetch own the complete fetch/evaluation window. */
+export function preloadTerminalRuntime(): Promise<void> {
+  return loadTerminalRuntime().then(
+    () => {},
+    (cause) => {
+      console.error('Could not load the terminal renderer', cause)
+    },
+  )
 }
 
 export interface UseTerminalSessionOptions {
@@ -66,8 +77,17 @@ export interface UseTerminalSessionOptions {
    * — never a remount, so memoize it in the caller. Omit for the defaults.
    */
   appearance?: TerminalAppearance
-  /** Terminal grid reconciliation policy; see MountSessionOptions.gridMode. */
-  gridMode?: 'control' | 'server-grid'
+  /** How this viewer presents a box that is not W; see MountSessionOptions.crop. */
+  crop?: 'clip' | 'scroll'
+  /**
+   * The session's last-known grid W, from the store row (POD-3239 B1). Read at
+   * MOUNT TIME only: it is the size this buffer is BORN at, and after that the
+   * server's attach snapshot and its reports are what move it — a later row
+   * update must not remount the terminal.
+   */
+  initialGeometry?: { cols: number; rows: number }
+  /** What {@link initialGeometry} is worth; see MountSessionOptions.geometryState. */
+  geometryState?: 'current' | 'unknown' | 'absent'
   readyTimeoutMs?: number
   /** Per-frame callback (mountSession's onFrame) — e.g. sampling the rendered
    *  prompt. Latest identity is used; changing it never remounts. */
@@ -85,7 +105,7 @@ export interface UseTerminalSessionOptions {
 }
 
 export interface UseTerminalSessionResult {
-  /** Optional outer crop viewport; render around containerRef when gridMode uses it. */
+  /** The outer viewport that IS the box — render it around containerRef (B3). */
   viewportRef: RefObject<HTMLDivElement | null>
   /** Attach to the terminal's container element. */
   containerRef: RefObject<HTMLDivElement | null>
@@ -157,8 +177,14 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   // effect below on the live instance (a font change must not remount the PTY).
   const appearanceRef = useRef(opts.appearance)
   appearanceRef.current = opts.appearance
-  const gridModeRef = useRef(opts.gridMode)
-  gridModeRef.current = opts.gridMode
+  const cropRef = useRef(opts.crop)
+  cropRef.current = opts.crop
+  // Mount-time-only, like appearance and crop above: the birth grid is a
+  // property of THIS mount, not a prop the live terminal follows.
+  const initialGeometryRef = useRef(opts.initialGeometry)
+  initialGeometryRef.current = opts.initialGeometry
+  const geometryStateRef = useRef(opts.geometryState)
+  geometryStateRef.current = opts.geometryState
   const echoLatencyEnabledRef = useRef(opts.echoLatencyEnabled)
   echoLatencyEnabledRef.current = opts.echoLatencyEnabled
 
@@ -188,7 +214,11 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
               sessionId,
               active: activeRef.current,
               ...(appearanceRef.current ? { appearance: appearanceRef.current } : {}),
-              ...(gridModeRef.current ? { gridMode: gridModeRef.current } : {}),
+              ...(cropRef.current ? { crop: cropRef.current } : {}),
+              ...(initialGeometryRef.current
+                ? { initialGeometry: initialGeometryRef.current }
+                : {}),
+              ...(geometryStateRef.current ? { geometryState: geometryStateRef.current } : {}),
               ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
               ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
               ...(testRef.current ? { test: true } : {}),

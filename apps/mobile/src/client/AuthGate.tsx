@@ -1,10 +1,11 @@
+import { UserId } from '@podium/model'
 import { type ReactNode, useEffect, useState } from 'react'
 import { LoginScreen } from '../screens/LoginScreen'
 import { type AuthStatus, fetchAuthStatus } from './auth'
 import { AuthStatusContext } from './auth-context'
 import { demoEnabled } from './demoData'
 import { LaunchReadyView } from './launch-ready'
-import { useServerProfile } from './ServerProfileGate'
+import { useServerProfile } from './server-profile-context'
 
 type GateState = 'checking' | 'open' | 'login' | 'unreachable'
 
@@ -14,13 +15,26 @@ type GateState = 'checking' | 'open' | 'login' | 'unreachable'
  * never start in a 401 loop. Auth-disabled servers pass straight through.
  */
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { config, bearer, updateCredential } = useServerProfile()
+  const { activation, config, bearer, profile, updateCredential } = useServerProfile()
   const demo = demoEnabled()
   const [state, setState] = useState<GateState>(() => (demo ? 'open' : 'checking'))
   const [authStatus, setAuthStatus] = useState<AuthStatus | null>(null)
 
   useEffect(() => {
     if (demo) return
+    if (activation === 'offline-cache' && profile.userId) {
+      // The server cannot answer, but this profile already names the exact
+      // profileId + userId namespace the replica was written under. This is a
+      // cached identity assertion for local reads only. The first live 401 or
+      // unauthenticated status response retires it and returns to sign-in.
+      setAuthStatus({
+        needsAuth: profile.mode === 'protected',
+        authed: true,
+        userId: UserId.parse(profile.userId),
+      })
+      setState('open')
+      return
+    }
     let alive = true
     fetchAuthStatus(config.httpOrigin, bearer)
       .then((status) => {
@@ -37,7 +51,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     return () => {
       alive = false
     }
-  }, [bearer, config.httpOrigin, demo])
+  }, [activation, bearer, config.httpOrigin, demo, profile.mode, profile.userId])
 
   // The persistent LaunchBoundary above this gate owns the visible splash.
   // Returning null keeps it mounted instead of starting the reveal over here.

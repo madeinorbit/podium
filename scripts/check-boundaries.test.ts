@@ -13,6 +13,7 @@ import {
   checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
   checkManifestFile,
+  checkPlaneLeakAll,
   checkPrincipalFree,
   checkSessionBindingFieldAccess,
   checkUiStorageOwnership,
@@ -850,5 +851,143 @@ describe("manifest-browser-reach (b) — a declared entrypoint's TRANSITIVE clos
       'packages/sync/src/replica/index.ts': `import type { Stats } from 'node:fs'\nexport type X = Stats\n`,
     })
     expect(checkBrowserGraphAll(root)).toEqual([])
+  })
+})
+
+describe('manifest-plane-leak — the browser barrel does not reach the daemon plane (POD-2470)', () => {
+  /** A miniature of packages/protocol: a barrel, a domain module it re-exports,
+   *  and a daemon entry that owns one module of its own. */
+  function plant(files: Record<string, string>): string {
+    const root = mkdtempSync(join(tmpdir(), 'plane-leak-'))
+    for (const [rel, source] of Object.entries(files)) {
+      const abs = join(root, rel)
+      mkdirSync(join(abs, '..'), { recursive: true })
+      writeFileSync(abs, source)
+    }
+    return root
+  }
+
+  const CLEAN: Record<string, string> = {
+    'packages/protocol/src/index.ts': `export * from './messages'\n`,
+    'packages/protocol/src/messages/index.ts': `export * from './sync'\n`,
+    'packages/protocol/src/messages/sync.ts': `export const Sync = 1\n`,
+    'packages/protocol/src/daemon.ts': `export * from './messages/runtime'\n`,
+    'packages/protocol/src/messages/runtime.ts': `export const RuntimeEvent = 1\n`,
+  }
+
+  it('says YES on a clean split — the control', () => {
+    expect(checkPlaneLeakAll(plant(CLEAN))).toEqual([])
+  })
+
+  it('says YES on the REAL repo — the control that matters', () => {
+    // The synthetic control can pass against a walker that reads nothing; this
+    // one proves the actual protocol barrel is actually clean today.
+    expect(checkPlaneLeakAll(fileURLToPath(new URL('..', import.meta.url)))).toEqual([])
+  })
+
+  it('refuses the ALIASED re-export — the line that defeated the name-level guard', () => {
+    // Verbatim the regression a reviewer used to walk through the first
+    // attempt at this guard, which compared export NAMES: the daemon-plane
+    // value reaches the browser under a name no namespace check was watching
+    // for. The edge is identical, so the edge check does not care.
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/messages/index.ts': `export * from './sync'\nexport { RuntimeEvent as BrowserRuntimeEvent } from './runtime'\n`,
+    })
+    const v = checkPlaneLeakAll(root)
+    expect(v.map((x) => x.rule)).toEqual(['manifest-plane-leak'])
+    expect(v[0]?.specifier).toBe('packages/protocol/src/messages/runtime.ts')
+  })
+
+  it('refuses the leak TWO HOPS down — the shape a barrel-only scan cannot see', () => {
+    // The original POD-2470 leak: `sync.ts` parsed one interaction schema out of
+    // the daemon-plane module, so nothing the barrel names is the culprit.
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/messages/sync.ts': `import { RuntimeEvent } from './runtime'\nexport const Sync = RuntimeEvent\n`,
+    })
+    const v = checkPlaneLeakAll(root)
+    expect(v.map((x) => x.specifier)).toEqual(['packages/protocol/src/messages/runtime.ts'])
+    // The chain, not just the endpoint — the endpoint alone does not tell you
+    // which import to go and change.
+    expect(v[0]?.message).toContain(
+      'packages/protocol/src/index.ts -> packages/protocol/src/messages/index.ts -> ' +
+        'packages/protocol/src/messages/sync.ts -> packages/protocol/src/messages/runtime.ts',
+    )
+  })
+
+  it('protects a NEW daemon-plane module with no edit to this rule', () => {
+    // The property that makes this survive the next contract: the forbidden set
+    // is read from daemon.ts at check time. POD-1761 W1 added a whole new family
+    // and every hand-listed assertion stayed green because none knew to grow.
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/daemon.ts': `export * from './messages/runtime'\nexport * from './messages/shipping'\n`,
+      'packages/protocol/src/messages/shipping.ts': `export const ShipEffect = 1\n`,
+      'packages/protocol/src/messages/sync.ts': `import { ShipEffect } from './shipping'\nexport const Sync = ShipEffect\n`,
+    })
+    expect(checkPlaneLeakAll(root).map((x) => x.specifier)).toEqual([
+      'packages/protocol/src/messages/shipping.ts',
+    ])
+  })
+
+  it('refuses the barrel reaching its OWN package by specifier — the route around the walk', () => {
+    // The rename defeat's natural successor: don't name './runtime' at all,
+    // name '@podium/protocol/daemon'. That is a bare specifier, so a walk that
+    // follows relative imports never sees where it lands.
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/messages/index.ts': `export * from './sync'\nexport * from '@podium/protocol/daemon'\n`,
+    })
+    const v = checkPlaneLeakAll(root)
+    expect(v.map((x) => x.specifier)).toEqual(['@podium/protocol/daemon'])
+  })
+
+  it('still allows the barrel to import a DIFFERENT workspace', () => {
+    // The rule above is about self-reference, not about npm or sibling packages
+    // — @podium/model is where the branded ids live and the barrel needs them.
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/messages/sync.ts': `import { SessionIdField } from '@podium/model'\nexport const Sync = SessionIdField\n`,
+    })
+    expect(checkPlaneLeakAll(root)).toEqual([])
+  })
+
+  it('does not fire on a type-only edge (erased at build, no bundle cost)', () => {
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/messages/index.ts': `export * from './sync'\nexport type { RuntimeEvent } from './runtime'\n`,
+    })
+    expect(checkPlaneLeakAll(root)).toEqual([])
+  })
+
+  it('refuses an UNRESOLVABLE import — a truncated closure is green for the wrong reason', () => {
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/messages/sync.ts': `export * from './gone'\n`,
+    })
+    const v = checkPlaneLeakAll(root)
+    expect(v.map((x) => x.specifier)).toEqual(['./gone'])
+    expect(v[0]?.message).toContain('TRUNCATES')
+  })
+
+  it('refuses a MISSING barrel — an absent entry makes the closure vacuously green', () => {
+    const { 'packages/protocol/src/index.ts': _dropped, ...withoutBarrel } = CLEAN
+    const v = checkPlaneLeakAll(plant(withoutBarrel))
+    expect(v.map((x) => x.rule)).toEqual(['manifest-plane-leak'])
+    expect(v[0]?.message).toContain('vacuously green')
+  })
+
+  it('refuses an EMPTY forbidden set — a guard that cannot fail is not a guard', () => {
+    // If daemon.ts stops owning modules of its own, every leak becomes
+    // undetectable and the suite above still reports success. That state has to
+    // be a decision someone makes, not one this rule absorbs silently.
+    const root = plant({
+      ...CLEAN,
+      'packages/protocol/src/daemon.ts': `export const nothing = 1\n`,
+    })
+    const v = checkPlaneLeakAll(root)
+    expect(v.map((x) => x.rule)).toEqual(['manifest-plane-leak'])
+    expect(v[0]?.message).toContain('EMPTY')
   })
 })

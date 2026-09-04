@@ -74,6 +74,7 @@ echo "manifest version $TARGET_VERSION declares exactly: $MANIFEST_PLATFORMS"
 # check reads as a pass. Content-addressed, so a warm cache makes this a no-op.
 bun scripts/abduco-cross.ts >/dev/null || fail "could not build the reference abduco helpers"
 ABDUCO_HASH="$(bun -e 'import{abducoSourceHash}from"./scripts/abduco-cross.ts";console.log(abducoSourceHash().slice(0,16))')"
+ABDUCO_CACHE="$(bun scripts/abduco-cross.ts --print-cache-dir)"
 
 for pair in $PLATFORMS; do
   platform="${pair%%:*}"
@@ -103,7 +104,7 @@ for pair in $PLATFORMS; do
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
     --source-commit "$TARGET_SOURCE" \
-    --abduco "dist-bun/abduco-cache/${platform}-${ABDUCO_HASH}" || exit 1
+    --abduco "$ABDUCO_CACHE/${platform}-${ABDUCO_HASH}" || exit 1
 
   BUNDLE_VERSION="$(tar -xzOf "$DIR/$asset" headless/VERSION | tr -d '\n')"
   [ "$BUNDLE_VERSION" = "$TARGET_VERSION" ] \

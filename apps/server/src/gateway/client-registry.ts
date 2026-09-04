@@ -54,11 +54,25 @@ export interface ClientConn {
   send: Send<ServerMessage>
   /** Lossy stream sink. False means the frame was dropped under pressure. */
   sendStream?: (message: ServerMessage) => boolean
+  /** Explicit binary transport sink; absent on legacy/in-process peers. */
+  sendBinary?: (bytes: Uint8Array) => void
+  /** Lossy binary stream sink. False means the frame was dropped under pressure. */
+  sendBinaryStream?: (bytes: Uint8Array) => boolean
   /** Last grid this client measured for each terminal it mounted. Geometry is
    * session-specific: split panes can have different widths, and the 80x24
    * viewport in `hello` is only a transport bootstrap default. Sharing one
    * viewport across sessions can resize the foreground PTY from another pane. */
   viewports: Map<string, Geometry>
+  /**
+   * THE VIEWPORT-REQUEST WATERMARK (POD-3239 B6): the highest `seq` this
+   * connection has had PROCESSED for each session. A request at or below it is a
+   * duplicate — counted, never re-applied.
+   *
+   * Per (connection, session) and nowhere else, which is why it lives here: it
+   * dies with the socket, so a reconnected client legitimately starts again at 1
+   * and cannot be locked out by the watermark its previous socket left behind.
+   */
+  viewportSeq: Map<string, number>
   attached: Set<SessionId>
   /** Feature caps from the client's `hello` (e.g. CAP_METADATA_DELTA). Empty until
    *  hello arrives, so a pre-hello client is treated as legacy — it receives

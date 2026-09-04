@@ -1,0 +1,65 @@
+ok  server pid=893437 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at f3691cf
+  ok  daemon pid=893504 cwd=/home/mgw/src/podium/.worktrees/issue-2777-the-acceptance-drive-for-the-epic spawned at f3691cf
+  ok  exactly one daemon (pid 893504) on state root /tmp/pod-2777/state
+  ok  worktree at f3691cf95e33692d6c0ca192e455b31753238952, clean
+  ok  server answers on :19847 (not the operator's 19797)
+  ok  web bundle served from :19847 was built at f3691cf
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"f3691cf95e33692d6c0ca192e455b31753238952","short":"f3691cf","spawnedSha":"f3691cf95e33692d6c0ca192e455b31753238952","serverPid":893437,"daemonPid":893504,"webSourceSha":"f3691cf","contract":"1","streaming":"1","driver":""}
+VERIFIED: p2777 (server + daemon + web bundle) is running f3691cf95e33692d6c0ca192e455b31753238952 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+
+==============================================================================
+ACCEPTANCE DRIVE   harness=opencode  arm=headless  expecting driver 'opencode-server'
+PIN                f3691cf95e33692d6c0ca192e455b31753238952 (web bundle f3691cf, server pid 893437, daemon pid 893504)
+==============================================================================
+session 43a57337-9ba5-481b-ac6f-ea02de474206 created; giving the harness 25000ms to come up
+BOUND DRIVER       opencode-server (family server)
+
+letting the turn run 8500ms BEFORE opening the chat (the hard ordering)
+
+── interrupt — interrupt a running turn
+   REFUSED  control did not fire — refusing to report this measurement
+   control: DID NOT FIRE — none; phase=working, 0 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   CONTROL WATCHED   the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)
+   CONTROL SAW       none; phase=working, 0 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+   The signal that must arrive whether or not this behaviour works did not
+   arrive, so a result here cannot be told apart from a dead rig. The
+   probe's own reading was: FAIL — could not get a running turn to interrupt
+   REFUSING to report it, including as a failure.
+   
+   --- what the probe saw anyway (diagnostic, not a result) ---
+   WATCHED           none; phase=working, 0 preview frame(s), 0 new transcript chars, 0 new terminal bytes
+
+── resume — resume after a kill
+   PASS  THIS conversation came back — REMEMBER-QZ7RQ2 recalled, original exchange intact, same pointer
+   control: FIRED — the session repeated REMEMBER-QZ7RQ2 before it was parked
+   SECRET            REMEMBER-QZ7RQ2 — spoken only in the pre-kill conversation
+   HIBERNATE         {"ok":true}; PARKED after 25ms (status=hibernated)
+   RESURRECT         {"ok":true}
+     → back live?    NO — status=exited
+   RESUMEANDSEND     {"ok":true,"queued":true,"disposition":"queued"}
+     → back live?    YES after 6217ms
+   TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove
+                     only resurrect would report that landed fix as broken.
+   RECALL            the secret came back after 5023ms
+   SAME CONVERSATION YES — pointer conv_3e9c0f69-4eb6-4836- unchanged across the park
+   ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret
+   WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,
+                     partly because the drive-level check was "both strings appear".
+                     Containing the word is not being the conversation.
+   WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any
+                     check that only asks whether resume returned ok.
+   NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row
+                     (resurrect then answers 'unknown session'), so this drives the
+                     hibernate/resurrect round trip a person actually performs.
+
+==============================================================================
+RESULT  opencode / headless / driver=opencode-server
+==============================================================================
+probe           verdict   control   summary
+------------------------------------------------------------------------------
+interrupt       REFUSED   MISSING   control did not fire — refusing to report this measurement
+resume          PASS      fired     THIS conversation came back — REMEMBER-QZ7RQ2 recalled, original exchange intact, same pointer
+==============================================================================
+written /tmp/pod-2777/results/opencode.headless.json
+EXIT=0

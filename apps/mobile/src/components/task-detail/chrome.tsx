@@ -1,4 +1,4 @@
-import { ChevronRight } from 'lucide-react-native'
+import { ChevronRight } from '../icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
 import { Animated, StyleSheet, Text, TextInput, View } from 'react-native'
 import { useReduceMotion } from '../../hooks/useReduceMotion'
@@ -104,7 +104,10 @@ export function Disclosure({
     <View testID={testID}>
       <PressableScale
         accessibilityRole="button"
+        // `aria-expanded` beside `accessibilityState`: react-native-web 0.21 reads
+        // only the former, so the web build announced no state at all. [POD-1664]
         accessibilityState={{ expanded: open }}
+        aria-expanded={open}
         accessibilityLabel={label}
         onPress={onToggle}
         scaleTo={0.995}
@@ -353,7 +356,7 @@ const styles = StyleSheet.create({
   },
   error: {
     ...sans(400),
-    color: color.danger,
+    color: color.dangerText,
     fontSize: font.tiny,
     lineHeight: leading(font.tiny),
   },

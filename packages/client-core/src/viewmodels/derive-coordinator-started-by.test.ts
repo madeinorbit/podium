@@ -18,7 +18,7 @@ import {
   rowMotionPhase,
   rowStatusLine,
   rowWaitingCount,
-  sessionVisibleInSidebar,
+  sessionVisibleInLiveRoster,
   type IssueNavigationModel,
   type SidebarSections,
   type UnifiedIssueRow,
@@ -362,9 +362,9 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       readAt: oldRead,
       unread: false,
     })
-    expect(sessionVisibleInSidebar({ ...stopped, unread: true }, NOW)).toBe(true)
-    expect(sessionVisibleInSidebar(stopped, NOW)).toBe(false)
-    expect(sessionVisibleInSidebar({ ...stopped, readAt: recentRead }, NOW)).toBe(true)
+    expect(sessionVisibleInLiveRoster({ ...stopped, unread: true }, NOW)).toBe(true)
+    expect(sessionVisibleInLiveRoster(stopped, NOW)).toBe(false)
+    expect(sessionVisibleInLiveRoster({ ...stopped, readAt: recentRead }, NOW)).toBe(true)
   })
 
   it('decays idle-done sessions attached to closed issues even when their process lingers', () => {
@@ -387,21 +387,21 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
       unread: false,
       readAt: new Date(NOW - 47 * HOUR).toISOString(),
     })
-    expect(sessionVisibleInSidebar(finished, NOW, closed)).toBe(false)
+    expect(sessionVisibleInLiveRoster(finished, NOW, closed)).toBe(false)
     expect(
-      sessionVisibleInSidebar(
+      sessionVisibleInLiveRoster(
         { ...finished, readAt: new Date(NOW - HOUR).toISOString() },
         NOW,
         closed,
       ),
     ).toBe(true)
-    expect(sessionVisibleInSidebar(finished, NOW, issue({ stage: 'in_progress' }))).toBe(true)
+    expect(sessionVisibleInLiveRoster(finished, NOW, issue({ stage: 'in_progress' }))).toBe(true)
   })
 
   it('bounds unseen terminal sessions instead of retaining them forever', () => {
     const stoppedAt = new Date(NOW - 8 * 24 * HOUR).toISOString()
     expect(
-      sessionVisibleInSidebar(
+      sessionVisibleInLiveRoster(
         sess('old-unseen', {
           status: 'hibernated',
           stoppedAt,
@@ -410,6 +410,21 @@ describe('sidebar completion decay [spec:SP-6144]', () => {
         }),
         NOW,
       ),
+    ).toBe(false)
+  })
+
+  it('excludes exited and archived sessions even while their final turn is unread', () => {
+    const stoppedAt = new Date(NOW - HOUR).toISOString()
+    const unread = {
+      stoppedAt,
+      unread: true,
+      readAt: null,
+    }
+    expect(
+      sessionVisibleInLiveRoster(sess('exited', { ...unread, status: 'exited' }), NOW),
+    ).toBe(false)
+    expect(
+      sessionVisibleInLiveRoster(sess('archived', { ...unread, archived: true }), NOW),
     ).toBe(false)
   })
 

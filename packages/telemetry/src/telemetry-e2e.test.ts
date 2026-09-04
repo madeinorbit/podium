@@ -224,7 +224,15 @@ describe('what the wire actually carries', () => {
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
     setConsent({ usage: 'on' })
     const e = emitter()
-    for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'shell'] as const) {
+    for (const kind of [
+      'claude-code',
+      'codex',
+      'grok',
+      'opencode',
+      'cursor',
+      'pi',
+      'shell',
+    ] as const) {
       e.recordSession(kind)
     }
     e.markFeature('issues')

@@ -34,7 +34,6 @@ function setup() {
   const sock = new FakeSocket()
   const hub = new SocketHub({
     url: 'ws://x',
-    viewport: { cols: 80, rows: 24, dpr: 1 },
     makeSocket: () => sock,
   })
   return { sock, hub }
@@ -93,6 +92,7 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     worktreesChanged: noop,
     attentionEvent: noop,
     transcriptDelta: noop,
+    turnPreview: noop,
     issuesChanged: noop,
     issueUpdated: noop,
     metadataDelta: noop,
@@ -162,7 +162,6 @@ describe('SocketHub subscription seam (on/emit)', () => {
     const relocations: Array<[string, string, string | undefined]> = []
     const hub = new SocketHub({
       url: 'ws://source.example/client',
-      viewport: { cols: 80, rows: 24, dpr: 1 },
       makeSocket: () => sock,
       onServerRelocation: (publicUrl, transferId, claimToken) =>
         relocations.push([publicUrl, transferId, claimToken]),

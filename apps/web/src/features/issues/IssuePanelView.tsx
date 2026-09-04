@@ -8,11 +8,13 @@ import {
   deckDestinationFor,
   groupRelations,
   type IssueEvent,
+  issueDisplayTitle,
   issueForPanel,
   operationalState,
   type PresenceKind,
   type PresenceNote,
   presenceNote,
+  reposToViews,
   sessionNeedsHuman,
   subIssuesOf,
 } from '@podium/client-core/viewmodels'
@@ -41,6 +43,11 @@ import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
+import { SessionNameEditor } from '@/lib/WorkerLabel'
+import { rosterCostMeta } from '../cost/cost-format'
+import { costSectionMeta, TaskCostSection } from '../cost/TaskCostSection'
+import { useTaskCost } from '../cost/useTaskCost'
+import { inlineRenameEditor, useInlineRename } from '../worklist/use-inline-rename'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
 import {
   DOCK_BODY,
@@ -187,6 +194,7 @@ function UnifiedRow({
   sub,
   meta,
   needs = false,
+  errored = false,
   onOpen,
   onStatusPick,
 }: {
@@ -199,6 +207,11 @@ function UnifiedRow({
    *  Flight Deck's task line use, so one task never reads three ways in three
    *  columns. No box, no rule, no icon: one amber voice per row. */
   needs?: boolean
+  /** …and this row's agent stopped on an ERROR, which is the one thing on this
+   *  line that is not the system working as intended. Still a `needs` row — it
+   *  wants you the same way — but red, matching the sidebar row and the session
+   *  row that say the same thing about the same agent (POD-1601). */
+  errored?: boolean
   onOpen: () => void
 }): JSX.Element {
   const closed = sub.stage === 'done' || Boolean(sub.closedReason)
@@ -239,7 +252,9 @@ function UnifiedRow({
         className={cn(
           DOCK_STAMP,
           'flex-none',
-          needs ? 'font-semibold text-attention' : 'text-text-faint',
+          errored ? 'font-semibold text-destructive' : undefined,
+          needs && !errored ? 'font-semibold text-attention' : undefined,
+          !needs && 'text-text-faint',
         )}
       >
         {meta}
@@ -435,15 +450,42 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  */
 function InspectHead({
   issue,
+  title,
+  onRename,
   onOpenInWork,
 }: {
   issue: IssueViewModel
+  /** What this task is CALLED — `issueDisplayTitle`, derived once by the panel
+   *  body, which already holds the session list it needs. Never `issue.title`
+   *  (POD-1618): a draft carries the composer's placeholder there, so this head
+   *  announced "Draft" for the very task the sidebar row was naming. */
+  title: string
+  /** Write a new name. The panel body owns the mutation for the same reason it
+   *  owns the title: one store subscription for the surface, not one per box. */
+  onRename: (next: string) => void
   /** Point the rest of the shell at this task. The ONE control on this surface
    *  that moves the app: the explorer syncs INWARD, so browsing a stranger's
    *  task must never drag the deck along with it, and the operator who does
    *  want to go there needs one obvious way to say so. */
   onOpenInWork?: () => void
 }): JSX.Element {
+  // RENAMEABLE HERE (POD-1618). The name was readonly on the one surface whose
+  // whole job is judging a task and acting on it: the sidebar row could be
+  // renamed by double-click or by its menu, and the panel showing the same task
+  // offered neither. Same hook, same commit policy, so the two cannot disagree
+  // about what a blur does — and renaming a draft is also what promotes it
+  // (the server clears the draft flag on the first real title).
+  const rename = useInlineRename(title, onRename)
+  const renameEditor = inlineRenameEditor(rename, ({ value, onCommit, onCancel }) => (
+    <SessionNameEditor
+      value={value}
+      onCommit={onCommit}
+      onCancel={onCancel}
+      // The head's own type, not the editor's 12px row default: the field
+      // stands exactly where the name was, so it has to be the same size as it.
+      className="shell-type-reading w-full min-w-0 rounded-sm border border-primary/60 bg-background px-1 py-0 font-semibold text-secondary-foreground outline-none"
+    />
+  ))
   return (
     // 8 / 6 / 10 / 14 / 14 (POD-1457). Tight where things belong together —
     // the crossing, the name and the state chips are one group — and the
@@ -484,14 +526,19 @@ function InspectHead({
           </button>
         )}
       </div>
-      <h2
-        className="shell-type-reading mt-1.5 line-clamp-2 font-semibold text-secondary-foreground"
-        title={issue.title}
-        data-testid="dock-title"
-      >
-        {issue.title}
-      </h2>
-      <IssueCompactControls issue={issue} />
+      {renameEditor ? (
+        <div className="mt-1.5">{renameEditor}</div>
+      ) : (
+        <h2
+          className="shell-type-reading mt-1.5 line-clamp-2 cursor-text font-semibold text-secondary-foreground"
+          title={title}
+          data-testid="dock-title"
+          onDoubleClick={() => rename.begin()}
+        >
+          {title}
+        </h2>
+      )}
+      <IssueCompactControls issue={issue} onRename={rename.begin} />
     </header>
   )
 }
@@ -797,18 +844,30 @@ export function IssuePanelView({
    */
   onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
-  const { sessions, setPane, setView, setSelectedIssueId, markIssueRead, markSessionRead } =
-    useStoreSelector(
-      (s) => ({
-        sessions: s.sessions,
-        setPane: s.setPane,
-        setView: s.setView,
-        setSelectedIssueId: s.setSelectedIssueId,
-        markIssueRead: s.markIssueRead,
-        markSessionRead: s.markSessionRead,
-      }),
-      shallowEqual,
-    )
+  const {
+    sessions,
+    repos,
+    trpc,
+    updateIssue,
+    setPane,
+    setView,
+    setSelectedIssueId,
+    markIssueRead,
+    markSessionRead,
+  } = useStoreSelector(
+    (s) => ({
+      sessions: s.sessions,
+      repos: s.repos,
+      trpc: s.trpc,
+      updateIssue: s.updateIssue,
+      setPane: s.setPane,
+      setView: s.setView,
+      setSelectedIssueId: s.setSelectedIssueId,
+      markIssueRead: s.markIssueRead,
+      markSessionRead: s.markSessionRead,
+    }),
+    shallowEqual,
+  )
   const issues = useReplicaIssues()
   // Every task row in this column carries its own status door (POD-1271); the
   // apply and its close guard are shared by all of them, once, here.
@@ -821,7 +880,18 @@ export function IssuePanelView({
         : null,
     [issues, sessions, cwd, sessionId, issueId],
   )
+  // WHAT THIS TASK COST. Read here rather than inside the section so the hook
+  // sits above this component's own early return for an unresolvable id — and
+  // so the section stays a pure render of a view, which is what lets the task
+  // detail page reuse it against its own feed.
+  const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
   const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  // The same derivation the Flight Deck makes from the same slice — every
+  // worktree root the shell knows, for `issueDisplayTitle` below.
+  const allWorktreePaths = useMemo(
+    () => reposToViews(repos).flatMap((repo) => repo.worktrees.map((worktree) => worktree.path)),
+    [repos],
+  )
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
@@ -832,7 +902,6 @@ export function IssuePanelView({
   // whispers (⤷ tick), this panel names every edge.
   const relations = useMemo(() => (issue ? groupRelations(issue) : []), [issue])
   const [showCompleted, setShowCompleted] = useState(false)
-  const [showAllActive, setShowAllActive] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 
   /**
@@ -880,7 +949,8 @@ export function IssuePanelView({
   // like, and it is a place you can act from. This used to render an intake
   // canvas written for a chat that had not become work yet, which on a level
   // pointed at a real-but-unshowable task read as a panel about nothing
-  // (POD-1277). The trail collapses to match, in the explorer's own effect.
+  // (POD-1277). The trail collapses to match, in the explorer provider's own
+  // effect — which also runs while this panel is unmounted (POD-1471).
   if (!issue) {
     return <IssueExplorerList />
   }
@@ -892,9 +962,11 @@ export function IssuePanelView({
   ).length
 
   const all = issueSessions(issue, sessions)
-  // Needs-you first — the answer affordance now lives on the session row, and
-  // the roster folds at five, so a waiting agent must never be the one behind
-  // the fold. Then the coordinator, then most-recently-active.
+  // Needs-you first — the answer affordance lives on the session row, so a
+  // waiting agent belongs where the eye starts. Then the coordinator, then
+  // most-recently-active. The five-row fold this ordering was written to
+  // survive is gone (POD-1859): the roster lists EVERY open session, and the
+  // Cost section below accounts for the ones it will never show.
   const activeSessions = all.filter(isOpenSession).sort((a, b) => {
     const aNeeds = sessionNeedsHuman(a)
     const bNeeds = sessionNeedsHuman(b)
@@ -904,7 +976,6 @@ export function IssuePanelView({
     return b.lastActiveAt.localeCompare(a.lastActiveAt)
   })
   const retiredSessions = all.filter((s) => !isOpenSession(s))
-  const shownSessions = showAllActive ? activeSessions : activeSessions.slice(0, 5)
   // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
   // "this issue has live sessions", which is the branch that renders agent rows
   // instead. No local fallback — a second set of words here is what drifts.
@@ -922,6 +993,21 @@ export function IssuePanelView({
   // has no reason to know about.
   const workable = !issue.closedReason && !issue.archived
 
+  // WHAT THIS TASK IS CALLED, and the write that changes it (POD-1618). Both are
+  // derived HERE rather than in the head, which would otherwise open a second
+  // subscription to the session list this component already holds. The worktree
+  // paths are the fallback arm of `sessionsForIssueNav` and are read only for a
+  // row with no `memberSessionIds`; the view-model builder always supplies them,
+  // so this is the shape the derivation asks for rather than a lookup it makes.
+  const title = issueDisplayTitle(issue, sessions, allWorktreePaths)
+  // UNCAUGHT, like every other outboxed curation write (`use-unified-work.ts`):
+  // the queue keeps a rejected write, replays it on reconnect, and parks it in
+  // the recovery surface with its own toast. A `.catch` here would be a second
+  // error policy for one mutation, and a second toast for one refusal.
+  const renameIssue = (next: string): void => {
+    void updateIssue(issue.id, { title: next })
+  }
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* TWO BOXES, and only two. Everything above the scroll lives in this
@@ -938,6 +1024,8 @@ export function IssuePanelView({
             finished or archived task has a history to read, not a seat to take. */}
         <InspectHead
           issue={issue}
+          title={title}
+          onRename={renameIssue}
           onOpenInWork={
             onNavigate && workable && deckDestinationFor(issues, sessions, issue.id)
               ? () => showInDeck(issue)
@@ -1047,7 +1135,8 @@ export function IssuePanelView({
                   key={sub.id}
                   sub={sub}
                   meta={state.label}
-                  needs={state.state === 'needs-you'}
+                  needs={state.state === 'needs-you' || state.state === 'error'}
+                  errored={state.state === 'error'}
                   onOpen={() => openLinked(sub)}
                   onStatusPick={(value) => rowStatus.pick(sub, value)}
                 />
@@ -1110,9 +1199,28 @@ export function IssuePanelView({
           )}
         </DockPart>
 
-        <DockPart title="Agents & sessions" count={activeSessions.length} testId="dock-sessions">
+        {/* The roster is live-only, so on a long task it shows two agents out of
+            ten and says nothing about the other eight. `meta` is the slot for
+            one machine-voice fact ABOUT a section, and this is the fact that
+            stops the list lying by omission — the same rollup figure the Cost
+            section below states in full, over the session count it was read
+            from. */}
+        <DockPart
+          title="Agents & sessions"
+          count={activeSessions.length}
+          meta={
+            costView?.state === 'costed'
+              ? rosterCostMeta(
+                  costView.rollup.estCostUsd,
+                  costView.rollup.sessionCount,
+                  costView.own.sessionCount,
+                )
+              : undefined
+          }
+          testId="dock-sessions"
+        >
           {activeSessions.length > 0
-            ? shownSessions.map((session) => (
+            ? activeSessions.map((session) => (
                 <IssueSessionRow
                   key={session.sessionId}
                   session={session}
@@ -1127,13 +1235,6 @@ export function IssuePanelView({
               // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
               // so one task never reads two ways in two columns.
               presence && <PresenceLine note={presence} />}
-          {activeSessions.length > 5 && (
-            <FoldRow
-              open={showAllActive}
-              label={showAllActive ? 'Show fewer' : `${activeSessions.length - 5} more active`}
-              onToggle={() => setShowAllActive((v) => !v)}
-            />
-          )}
           {retiredSessions.length > 0 && (
             <>
               <FoldRow
@@ -1154,6 +1255,11 @@ export function IssuePanelView({
                 ))}
             </>
           )}
+        </DockPart>
+
+        {/* The accounting for the sessions the roster above will never show. */}
+        <DockPart title="Cost" meta={costSectionMeta(costView)} testId="dock-cost">
+          <TaskCostSection view={costView} />
         </DockPart>
 
         {/* Where the work happens — an address, not a check. */}

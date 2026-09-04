@@ -37,7 +37,7 @@ describe('web shell structure', () => {
   //
   // These two cases used to grep `SidebarUnified.tsx` alone. That file has since
   // been decomposed — `sidebarSections` moved behind the published worklist
-  // slice, `RepoScanFlow` into `spawn-row.tsx`, the group label into
+  // slice, `openAddProject` into `new-task-row.tsx`, the group label into
   // `work-folds.tsx` — so the greps went red while the CONTRACT they guard was
   // intact and, worse, would have gone GREEN again on a file that had lost the
   // behaviour and kept the word. A source-scan whose subject is one file
@@ -46,7 +46,7 @@ describe('web shell structure', () => {
   const readWorklist = () =>
     [
       'features/worklist/SidebarUnified.tsx',
-      'features/worklist/spawn-row.tsx',
+      'features/worklist/new-task-row.tsx',
       'features/worklist/work-folds.tsx',
       'features/worklist/use-unified-work.ts',
       'app/DesktopMenuHost.tsx',

@@ -32,12 +32,18 @@ interface ViewStateCall {
 let lastHub: FakeHub
 class FakeHub {
   viewStates: ViewStateCall[] = []
+  viewModeStates: Array<Record<string, 'native' | 'chat'> | undefined> = []
   visibleCalls: boolean[] = []
   constructor() {
     lastHub = this
   }
-  setViewState(visible: string[], focused: string | null): void {
+  setViewState(
+    visible: string[],
+    focused: string | null,
+    modes?: Record<string, 'native' | 'chat'>,
+  ): void {
     this.viewStates.push({ visible, focused })
+    this.viewModeStates.push(modes)
   }
   setVisible(v: boolean): void {
     this.visibleCalls.push(v)
@@ -85,7 +91,7 @@ vi.mock('@podium/client-core/socket-transport', () => ({
 
 const fakeTrpc = {
   discovery: {
-    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [], diagnostics: [] })) },
+    refreshRepos: { mutate: vi.fn(async () => ({ repositories: [], diagnostics: [], machines: [] })) },
   },
   pins: { list: { query: vi.fn(async () => ({ panels: [], repos: [], worktrees: [] })) } },
   tabs: { listOrders: { query: vi.fn(async () => ({})) } },
@@ -108,6 +114,7 @@ let api: {
   toggleSplit: () => void
   splitWorkspacePane: (paneId: string, axis: 'row' | 'column') => void
   focusWorkspacePane: (paneId: string) => void
+  setPanelMode: (sessionId: SessionId, mode: 'native' | 'chat') => void
 } | null = null
 
 function Consumer(): null {
@@ -118,6 +125,7 @@ function Consumer(): null {
     toggleSplit: s.toggleSplit,
     splitWorkspacePane: s.splitWorkspacePane,
     focusWorkspacePane: s.focusWorkspacePane,
+    setPanelMode: s.setPanelMode,
   }
   return null
 }
@@ -173,6 +181,22 @@ describe('store reports viewState', () => {
     mount()
     act(() => api?.setPane('A', asSessionId('s1')))
     expect(last()).toEqual({ visible: ['s1'], focused: 's1' })
+  })
+
+  it('re-reports a visible session whenever its rendered mode changes', () => {
+    mount()
+    act(() => api?.setPane('A', asSessionId('s1')))
+    expect(lastHub.viewModeStates.at(-1)).toEqual({ s1: 'native' })
+
+    const beforeChat = lastHub.viewStates.length
+    act(() => api?.setPanelMode(asSessionId('s1'), 'chat'))
+    expect(lastHub.viewStates).toHaveLength(beforeChat + 1)
+    expect(lastHub.viewModeStates.at(-1)).toEqual({ s1: 'chat' })
+
+    const beforeNative = lastHub.viewStates.length
+    act(() => api?.setPanelMode(asSessionId('s1'), 'native'))
+    expect(lastHub.viewStates).toHaveLength(beforeNative + 1)
+    expect(lastHub.viewModeStates.at(-1)).toEqual({ s1: 'native' })
   })
 
   it('split off: setPane(B) has no pane to write to, so only A is reported', () => {

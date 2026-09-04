@@ -1,0 +1,41 @@
+==============================================================================
+A4a / A4b  permission ask, and answering it twice   harness=opencode
+==============================================================================
+session 35402c18-3943-4604-9fb7-8cf406e48780 created
+BOUND DRIVER       opencode-server (family server)
+
+CONTROL            the turn produced 3 transcript item(s), 3 delta frame(s) — FIRED
+
+A4a  the ask, as chat sees it
+     kind             permission  id=per_03da62519001r8CpFRY1pGg9aM
+     source           protocol / answerable=structured
+     enumerable       yes — interactions.list carried it while open, not only the stream
+     typed payload    toolName=bash canAlwaysAllow=true
+     open asks        2 — MORE THAN ONE for a single permission
+                      protocol/structured id=per_03da62519001r8CpFRY1pGg9aM toolName=bash
+                      screen-classifier/keystroke-emulated id=ixn_8bb58633-9401-4430-a8cf-e8baa607b019 toolName=echo TOOLRAN-PR5GOK > /home/mgw/pod-2777-a4-external/TOOLRAN-PR5GOK.txt
+
+     FIRST ANSWER     {"kind":"permission","decision":"allow-once"}
+     returned         {"ok":true}
+     resolved         the ask left the open set
+     side effect      1 file(s) in /home/mgw/pod-2777-a4-external: TOOLRAN-PR5GOK.txt
+
+A4a  the TERMINAL half — BLOCKED, not driven, and not counted as a pass.
+     The row requires the same ask to appear in the terminal and answering to
+     resolve BOTH. On this rig the native client terminal is never hosted:
+     POD-2853 overflows the abduco socket path, the attach is answered with
+     outputSeen=false and zero bytes, and the cause appears only as a daemon
+     warn. Measured in a6a.ts on this same instance and commit.
+
+A4b  answering the SAME ask a second time
+     returned         {"ok":false,"reason":"already-answered"}
+     classifier check the FIRST answer classifies as: not a refusal (success)
+     typed refusal    true — via typed result, reason="already-answered"
+     silent success   false
+     double action    false — 1 file(s) before, 1 after
+
+==============================================================================
+A4a  PARTIAL — chat half PASS, terminal half BLOCKED on POD-2853
+A4b  PASS — second answer was a typed error, double action: false
+     controls: turn produced transcript items FIRED; first answer succeeded and resolved FIRED
+==============================================================================

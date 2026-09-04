@@ -1,0 +1,74 @@
+{
+  "cell": "A7A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2918/probes/claude-a7a",
+  "at": "2026-08-27T03:45:48.464Z",
+  "pin": {
+    "cell": "A7A",
+    "at": "2026-08-27T03:45:48.507Z",
+    "sourceRoot": "/tmp/pod-2918/source-40c",
+    "checkoutSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "serverSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "daemonSha": "40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "web": {
+      "wireSchemaDigest": "986ebf5e8e57820c",
+      "wireVersion": 2,
+      "builtAt": "2026-08-27T01:52:00.954Z",
+      "appVersion": "dev+40c198e",
+      "sourceSha": "40c198e",
+      "bundleVersion": "bundle+BN6ReJPR"
+    },
+    "serverPid": "735180",
+    "daemonPid": "789168",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/tmp/pod-2918/source-40c",
+    "daemonCwd": "/tmp/pod-2918/source-40c",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5056956 kB",
+      "SwapFree": "37020348 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "daemon restart retained the same live conversation and codeword",
+  "control": {
+    "fired": true,
+    "what": "pre-restart Claude codeword user turn",
+    "detail": "{\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"user\":true,\"reply\":true}"
+  },
+  "evidence": [
+    "BASELINE          {\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"user\":true,\"reply\":true}",
+    "POST RESTART PIN   40c198eae5987da8cfa81ac20582ad9161d8270e",
+    "RECALL            {\"sent\":{\"ok\":true,\"disposition\":\"delivered\"},\"assistant\":true,\"ms\":37}",
+    "STATUS            {\"sessionId\":\"c341eb3a-5630-43fb-a6cc-0d0965deaa2a\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":\"claude-pty\",\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePer",
+    "SCREEN TAIL       \"\\nYou'veused98%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\\n*\\n]0; Claude Code]0; Remember security codeword\\nSimmering\\n Simmering\\nautomodeon(shift+tabtocycle)esctointerruptforagents\\nYou'veused98%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\\n*\\n]0; Remember security codewordP2874-A7A-MTAZE3A4\\n(runningstophook)\\n 1s4tokens)\\n]0; Remember security codewordCrunched for 2s for agents\\nAskClaudetocreatea\\nWhat'snew\\nAddedthe`SendFeedbac\\nOpus5(1Mcontext)ClaudeMaxAdded`{id,text,cool\\nmike.wirth@gmail.com'sOrganizationAddedatiponBashpe\\n/tmp/pod-2918/probes/claude-a7a/release-notesformore\\n2MCPserversneedauthenticationrun/mcp\\nRememberthiscodeword:P2874-A7A-MTAZE3A4.Replywithexactly\\nP2874-A7A-MTAZE3A4.Donotusetools.\\nP2874-A7A-MTAZE3A4\\nCrunchedfor2s\\nautomodeon(shift+tabtocycle)foragents\\n(BWhatcodeworddidIaskyoutoremember?Replywithexactly  P2874-A7A-MTAZE3A4. Do not use tools.\\nautomodeon(shift+tabtocycle)\""
+  ],
+  "data": {
+    "sid": "c341eb3a-5630-43fb-a6cc-0d0965deaa2a",
+    "secret": "P2874-A7A-MTAZE3A4",
+    "base": {
+      "sent": {
+        "ok": true,
+        "disposition": "delivered"
+      },
+      "user": true,
+      "reply": true
+    },
+    "recall": {
+      "sent": {
+        "ok": true,
+        "disposition": "delivered"
+      },
+      "assistant": true,
+      "ms": 37
+    }
+  }
+}

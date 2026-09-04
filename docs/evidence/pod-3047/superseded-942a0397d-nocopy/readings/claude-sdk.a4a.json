@@ -1,0 +1,188 @@
+{
+  "cell": "A4A",
+  "driver": "claude-sdk",
+  "cwd": "/tmp/pod-3047n/probes/claude-sdk-a4a",
+  "at": "2026-08-28T16:26:38.249Z",
+  "pin": {
+    "cell": "A4A",
+    "at": "2026-08-28T16:26:38.269Z",
+    "sourceRoot": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "checkoutSha": "5cef0dd8e99efc2fb46b2518b0d2afe8cdbb1166",
+    "pinSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "serverSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "daemonSha": "942a0397dd0d30614d5424061a27cdc95c8a460e",
+    "web": {
+      "wireSchemaDigest": "c847f4452ebd568b",
+      "wireVersion": 2,
+      "builtAt": "2026-08-28T00:43:29.922Z",
+      "appVersion": "dev+4d405af",
+      "sourceSha": "4d405af",
+      "bundleVersion": "bundle+4Wa3Yyf5"
+    },
+    "webReuseProof": {
+      "servedSourceSha": "4d405af",
+      "headShort": "5cef0dd",
+      "appsWebIdentical": true
+    },
+    "serverPid": "1875467",
+    "daemonPid": "1875670",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-3047-claude-sdk-current-acceptance",
+    "tosOnDaemon": true,
+    "freeMemory": {
+      "MemTotal": "24603312 kB",
+      "MemAvailable": "18352620 kB",
+      "SwapFree": "41212476 kB"
+    },
+    "rootFreeKiB": 82196240,
+    "load1m": 5.59,
+    "credential": {
+      "live": {
+        "present": true,
+        "path": "/home/mgw/.claude/.credentials.json",
+        "mtime": "2026-08-28T14:15:35.225Z",
+        "size": 962
+      },
+      "isolated": {
+        "present": false,
+        "path": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/.credentials.json"
+      }
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null
+    }
+  },
+  "transcriptsOnDisk": {
+    "instanceAgentHome": {
+      "dir": "/home/mgw/.local/state/podium/p3047n/agent-home/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a4a",
+      "exists": true,
+      "files": 1
+    },
+    "operatorHome": {
+      "dir": "/home/mgw/.claude/projects/-tmp-pod-3047n-probes-claude-sdk-a4a",
+      "exists": true,
+      "files": 5
+    }
+  },
+  "verdict": "PASS",
+  "summary": "permission ask appeared and answering resolved it",
+  "control": {
+    "fired": true,
+    "what": "the session becoming live independent of whether an ask is raised",
+    "detail": "attached=1; items=2"
+  },
+  "evidence": [
+    "ASKS              [{\"id\":\"ixn_e1a1b959-67cf-40f2-b8ee-4e1226747c26\",\"sessionId\":\"f0a162ba-a388-4d60-aecd-01b8e8cc5290\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"claude-code\",\"reason\":\"auth-expired\"},\"askedAt\":\"2026-08-28T16:26:41.809Z\",\"source\":\"protocol\",\"answerable\":\"keystroke-emulated\",\"status\":\"asked\",\"fingerprint\":\"7650a909b0ffd16105d9cf1f941cad37\"},{\"id\":\"ixn_df67fd39-e55f-4215-a5d3-306b5f3c43d6\",\"sessionId\":\"f0a162ba-a388-4d60-aecd-01b8e8cc5290\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"authentication\",\"reason\":\"auth-expired\"},\"askedAt\":\"2026-08-28T16:26:41.827Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"status\":\"asked\",\"fingerprint\":\"c2f4ffe7e4229c0f26620e53813c4f68\"}]",
+    "TERMINAL          false",
+    "ANSWERS           [{\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}},{\"result\":{\"data\":{\"ok\":false,\"reason\":\"unknown-interaction\",\"detail\":\"answer is for a permission ask; this one is login\"}}}]",
+    "RESOLVED          true"
+  ],
+  "data": {
+    "sid": "f0a162ba-a388-4d60-aecd-01b8e8cc5290",
+    "probe": {
+      "asks": [
+        {
+          "id": "ixn_e1a1b959-67cf-40f2-b8ee-4e1226747c26",
+          "sessionId": "f0a162ba-a388-4d60-aecd-01b8e8cc5290",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "claude-code",
+            "reason": "auth-expired"
+          },
+          "askedAt": "2026-08-28T16:26:41.809Z",
+          "source": "protocol",
+          "answerable": "keystroke-emulated",
+          "status": "asked",
+          "fingerprint": "7650a909b0ffd16105d9cf1f941cad37"
+        },
+        {
+          "id": "ixn_df67fd39-e55f-4215-a5d3-306b5f3c43d6",
+          "sessionId": "f0a162ba-a388-4d60-aecd-01b8e8cc5290",
+          "kind": "login",
+          "payload": {
+            "v": 1,
+            "provider": "authentication",
+            "reason": "auth-expired"
+          },
+          "askedAt": "2026-08-28T16:26:41.827Z",
+          "source": "screen-classifier",
+          "answerable": "keystroke-emulated",
+          "status": "asked",
+          "fingerprint": "c2f4ffe7e4229c0f26620e53813c4f68"
+        }
+      ],
+      "terminal": false,
+      "chatFrame": true,
+      "ms": 2009
+    },
+    "answers": [
+      {
+        "result": {
+          "data": {
+            "ok": false,
+            "reason": "unknown-interaction",
+            "detail": "answer is for a permission ask; this one is login"
+          }
+        }
+      },
+      {
+        "result": {
+          "data": {
+            "ok": false,
+            "reason": "unknown-interaction",
+            "detail": "answer is for a permission ask; this one is login"
+          }
+        }
+      }
+    ],
+    "cleared": {
+      "ok": true,
+      "ms": 14,
+      "row": {
+        "sessionId": "f0a162ba-a388-4d60-aecd-01b8e8cc5290",
+        "agentKind": "claude-code",
+        "harness": "claude-code",
+        "driverId": "claude-sdk",
+        "requestedDriverId": null,
+        "status": "live",
+        "phase": "errored",
+        "machine": "flatblock",
+        "model": null,
+        "effort": null,
+        "contextUsagePercent": null,
+        "account": "native:claude-code",
+        "error": {
+          "class": "authentication",
+          "retryable": false,
+          "detail": "Claude Code returned an error result: Not logged in · Please run /login"
+        },
+        "draft": false,
+        "nativeSubagentCount": 0,
+        "nativeSubagents": [],
+        "subagents": [],
+        "issue": null,
+        "commits": [
+          "b4e0850 probe seed"
+        ],
+        "files": [
+          "## main"
+        ],
+        "unackedMessages": 0
+      },
+      "samples": [
+        {
+          "ms": 14,
+          "phase": "errored",
+          "status": "live",
+          "driverId": "claude-sdk"
+        }
+      ]
+    }
+  }
+}

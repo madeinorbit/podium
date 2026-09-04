@@ -1,0 +1,21 @@
+<!doctype html>
+<!--
+  The page for harness/loadpanel-entry.tsx (POD-1603). Served at
+  /harness/loadpanel.html by `vite --config vite.loadpanel.config.ts`.
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Machine-load panel harness</title>
+    <style>
+      /* The window the popover is cut into, so the panel is judged on the
+         ground it actually floats over rather than on white. */
+      body { margin: 0; padding: 28px; background: var(--background); }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/harness/loadpanel-entry.tsx"></script>
+  </body>
+</html>

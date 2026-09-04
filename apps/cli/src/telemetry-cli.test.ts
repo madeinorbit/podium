@@ -53,7 +53,7 @@ describe('podium telemetry (status)', () => {
 
   it('shows the endpoint reports would go to', () => {
     telemetryCliMain([], io)
-    expect(text()).toContain('https://telemetry.podium.dev')
+    expect(text()).toContain('https://pulse.meetpodium.com/v1/u')
   })
 })
 

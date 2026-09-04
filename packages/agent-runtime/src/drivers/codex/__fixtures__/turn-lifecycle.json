@@ -1,0 +1,229 @@
+{
+  "_recordedFrom": "codex-cli 0.147.0. NOTE THE ORDER: the turn/start RESPONSE lands BEFORE turn/started.",
+  "turnStartRequest": {
+    "jsonrpc": "2.0",
+    "id": 3,
+    "method": "turn/start",
+    "params": {
+      "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+      "input": [
+        {
+          "type": "text",
+          "text": "Say exactly: ALPHA. Nothing else.",
+          "text_elements": []
+        }
+      ]
+    }
+  },
+  "turnStartResponse": {
+    "id": 3,
+    "result": {
+      "turn": {
+        "id": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "items": [],
+        "itemsView": "notLoaded",
+        "status": "inProgress",
+        "error": null,
+        "startedAt": null,
+        "completedAt": null,
+        "durationMs": null
+      }
+    }
+  },
+  "notifications": [
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "status": {
+          "type": "active",
+          "activeFlags": []
+        }
+      },
+      "emittedAtMs": 1786700011053
+    },
+    {
+      "method": "turn/started",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turn": {
+          "id": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+          "items": [],
+          "itemsView": "notLoaded",
+          "status": "inProgress",
+          "error": null,
+          "startedAt": 1786700009,
+          "completedAt": null,
+          "durationMs": null
+        }
+      },
+      "emittedAtMs": 1786700011059
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "019fff9f-6655-74c0-88ac-8a17f84d46b2",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Say exactly: ALPHA. Nothing else.",
+              "text_elements": []
+            }
+          ]
+        },
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "startedAtMs": 1786700064341
+      },
+      "emittedAtMs": 1786700064387
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "userMessage",
+          "id": "019fff9f-6655-74c0-88ac-8a17f84d46b2",
+          "clientId": null,
+          "content": [
+            {
+              "type": "text",
+              "text": "Say exactly: ALPHA. Nothing else.",
+              "text_elements": []
+            }
+          ]
+        },
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "completedAtMs": 1786700064341
+      },
+      "emittedAtMs": 1786700064388
+    },
+    {
+      "method": "item/started",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_09b8f025797c3655016a7ee12660d08191a5865d0e3c0c1f2a",
+          "text": "",
+          "phase": "final_answer",
+          "memoryCitation": null
+        },
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "startedAtMs": 1786700070444
+      },
+      "emittedAtMs": 1786700070451
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "itemId": "msg_09b8f025797c3655016a7ee12660d08191a5865d0e3c0c1f2a",
+        "delta": "AL"
+      },
+      "emittedAtMs": 1786700070452
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "itemId": "msg_09b8f025797c3655016a7ee12660d08191a5865d0e3c0c1f2a",
+        "delta": "PHA"
+      },
+      "emittedAtMs": 1786700070452
+    },
+    {
+      "method": "item/agentMessage/delta",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "itemId": "msg_09b8f025797c3655016a7ee12660d08191a5865d0e3c0c1f2a",
+        "delta": "."
+      },
+      "emittedAtMs": 1786700070461
+    },
+    {
+      "method": "item/completed",
+      "params": {
+        "item": {
+          "type": "agentMessage",
+          "id": "msg_09b8f025797c3655016a7ee12660d08191a5865d0e3c0c1f2a",
+          "text": "ALPHA.",
+          "phase": "final_answer",
+          "memoryCitation": null
+        },
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "completedAtMs": 1786700070800
+      },
+      "emittedAtMs": 1786700070807
+    },
+    {
+      "method": "thread/tokenUsage/updated",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turnId": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+        "tokenUsage": {
+          "total": {
+            "totalTokens": 15392,
+            "inputTokens": 15385,
+            "cachedInputTokens": 11008,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 7,
+            "reasoningOutputTokens": 0
+          },
+          "last": {
+            "totalTokens": 15392,
+            "inputTokens": 15385,
+            "cachedInputTokens": 11008,
+            "cacheWriteInputTokens": 0,
+            "outputTokens": 7,
+            "reasoningOutputTokens": 0
+          },
+          "modelContextWindow": 258400
+        }
+      },
+      "emittedAtMs": 1786700070911
+    },
+    {
+      "method": "thread/status/changed",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "status": {
+          "type": "idle"
+        }
+      },
+      "emittedAtMs": 1786700071872
+    },
+    {
+      "method": "turn/completed",
+      "params": {
+        "threadId": "019fff9e-6a2f-76a1-bc73-e5673850d80c",
+        "turn": {
+          "id": "019fff9e-8e7f-7441-9303-cc3a48bb264c",
+          "items": [
+            {
+              "type": "agentMessage",
+              "id": "msg_09b8f025797c3655016a7ee12660d08191a5865d0e3c0c1f2a",
+              "text": "ALPHA.",
+              "phase": "final_answer",
+              "memoryCitation": null
+            }
+          ],
+          "itemsView": "summary",
+          "status": "completed",
+          "error": null,
+          "startedAt": 1786700009,
+          "completedAt": 1786700071,
+          "durationMs": 62603
+        }
+      },
+      "emittedAtMs": 1786700071879
+    }
+  ]
+}

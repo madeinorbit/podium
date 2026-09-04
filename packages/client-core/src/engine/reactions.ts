@@ -335,8 +335,43 @@ export class Reactions {
   }
 
   readonly onVisibilityChange = (): void => {
+    this.updateIssueVisitBaseline()
     this.ports.hub.setVisible(this.isVisible())
     this.reportViewState()
+    if (this.isVisible()) {
+      this.updateMarkReadTimer()
+      this.updateIssueMarkReadTimer()
+    } else {
+      this.markReadKey = null
+      this.issueMarkReadKey = null
+      if (this.markReadTimer !== null) clearTimeout(this.markReadTimer)
+      if (this.issueMarkReadTimer !== null) clearTimeout(this.issueMarkReadTimer)
+      this.markReadTimer = null
+      this.issueMarkReadTimer = null
+    }
+  }
+
+  /**
+   * Preserve the pre-mark-read issue cursor for one foreground visit.
+   *
+   * Issue replica updates do not move an existing baseline. A mission switch,
+   * or returning after the platform hid the app, starts a new visit.
+   */
+  updateIssueVisitBaseline(): void {
+    const state = this.ports.state()
+    const issue = this.isVisible() ? foregroundIssue(state) : undefined
+    if (!issue) {
+      if (state.issueVisitBaseline !== null) this.ports.publish({ issueVisitBaseline: null })
+      return
+    }
+    if (state.issueVisitBaseline?.issueId === issue.id) return
+    this.ports.publish({
+      issueVisitBaseline: {
+        issueId: issue.id,
+        readAt: issue.readAt,
+        openedAt: new Date().toISOString(),
+      },
+    })
   }
 
   /** Mark the session the operator is LOOKING AT read on view (#138), keyed on

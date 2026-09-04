@@ -1,0 +1,111 @@
+{
+  "at": "2026-08-28T09:51:48.047Z",
+  "seam": "GET https://api.anthropic.com/api/oauth/usage (apps/daemon/src/quota-claude.ts)",
+  "credential": {
+    "path": "/home/mgw/.claude/.credentials.json",
+    "mtime": "2026-08-28T06:20:34.463Z",
+    "mode": "100600",
+    "sizeBytes": 962,
+    "subscriptionType": "max",
+    "rateLimitTier": "default_claude_max_20x",
+    "scopes": [
+      "user:file_upload",
+      "user:inference",
+      "user:mcp_servers",
+      "user:profile",
+      "user:sessions:claude_code"
+    ],
+    "expiresAtIso": "2026-08-28T14:20:34.109Z",
+    "refreshTokenExpiresAtIso": "2026-09-09T23:01:08.115Z",
+    "expired": false,
+    "remainingMinutes": 269,
+    "insideTenMinuteFloor": false,
+    "hasAccessToken": true,
+    "hasRefreshToken": true
+  },
+  "usageHttpStatus": 200,
+  "classification": "claude-weekly-quota-exhausted; monthly-spend-not-exhausted; oauth unexpired",
+  "exhaustedWindows": [
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 100,
+      "resetsAt": "2026-08-28T11:00:00.267688+00:00",
+      "labels": []
+    }
+  ],
+  "monthlyWindows": [],
+  "weeklyWindows": [
+    {
+      "kind": "weekly_all",
+      "group": "weekly",
+      "percent": 100,
+      "resetsAt": "2026-08-28T11:00:00.267688+00:00",
+      "labels": []
+    },
+    {
+      "kind": "weekly_scoped",
+      "group": "weekly",
+      "percent": 32,
+      "resetsAt": "2026-08-28T11:00:00.268015+00:00",
+      "labels": ["Fable"]
+    }
+  ],
+  "usage": {
+    "windowCount": 3,
+    "windows": [
+      {
+        "kind": "session",
+        "group": "session",
+        "percent": 0,
+        "resetsAt": null,
+        "labels": []
+      },
+      {
+        "kind": "weekly_all",
+        "group": "weekly",
+        "percent": 100,
+        "resetsAt": "2026-08-28T11:00:00.267688+00:00",
+        "labels": []
+      },
+      {
+        "kind": "weekly_scoped",
+        "group": "weekly",
+        "percent": 32,
+        "resetsAt": "2026-08-28T11:00:00.268015+00:00",
+        "labels": ["Fable"]
+      }
+    ],
+    "fiveHour": {
+      "utilization": 0,
+      "resets_at": null
+    },
+    "sevenDay": {
+      "utilization": 100,
+      "resets_at": "2026-08-28T11:00:00.267688+00:00"
+    },
+    "extraUsage": {
+      "is_enabled": false,
+      "monthly_limit": 0,
+      "used_credits": 0,
+      "spend_limit_reached": false,
+      "disabled_reason": "org_level_disabled_until"
+    },
+    "spend": {
+      "percent": 0,
+      "severity": "normal",
+      "enabled": false,
+      "disabled_reason": "org_level_disabled_until",
+      "spend_limit_reached": false
+    }
+  },
+  "diskAtClassification": {
+    "availGib": 91.93,
+    "floorGib": 5,
+    "floorOk": true,
+    "coordinatorClaimedAvailGib": 1.9,
+    "swapUsedBytes": 0
+  },
+  "credentialMtimeAfterUsageGet": "2026-08-28T06:20:34Z",
+  "oauthRefreshTriggered": false
+}

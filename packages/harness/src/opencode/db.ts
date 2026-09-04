@@ -1,4 +1,5 @@
-import { statSync } from 'node:fs'
+import { createHash } from 'node:crypto'
+import { existsSync, statSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { openDatabase, type SqlDatabase } from '@podium/runtime/sqlite'
@@ -27,10 +28,44 @@ export function opencodeDataRoot(homeDir?: string): string {
 export function opencodeDbPath(homeDir?: string): string {
   return join(opencodeDataRoot(homeDir), 'opencode.db')
 }
+/**
+ * The OpenCode store for a fresh interactive Podium session.
+ *
+ * OpenCode's normal store is keyed by directory, so it cannot be shared by two
+ * terminal sessions in one cwd. Keep the Podium id out of the filesystem path
+ * itself: session ids are opaque input, while this hash gives every session a
+ * stable, collision-resistant file under Podium's own data area.
+ */
+export function opencodeSessionDbPath(
+  homeDir: string | undefined,
+  podiumSessionId: string,
+): string {
+  const key = createHash('sha256').update(podiumSessionId).digest('hex')
+  return join(homeDir ?? homedir(), '.local', 'share', 'podium', 'opencode', `${key}.db`)
+}
 
-export function openOpencodeDb(homeDir?: string): SqlDatabase | undefined {
+/**
+ * Select the database for one interactive session.
+ *
+ * Fresh sessions always get their own store. A resumed session whose isolated
+ * store already exists uses it; otherwise it is an older session created before
+ * isolation existed, so preserve its legacy shared store and rely on its exact
+ * native resume id. The latter fallback is safe for reads and lets old sessions
+ * continue to launch without silently losing their history.
+ */
+export function opencodeDbPathForSession(input: {
+  homeDir?: string
+  podiumSessionId?: string
+  resumeValue?: string
+}): string | undefined {
+  if (!input.podiumSessionId) return undefined
+  const path = opencodeSessionDbPath(input.homeDir, input.podiumSessionId)
+  return !input.resumeValue || existsSync(path) ? path : undefined
+}
+
+export function openOpencodeDb(homeDir?: string, databasePath?: string): SqlDatabase | undefined {
   try {
-    return openDatabase(opencodeDbPath(homeDir), { readOnly: true })
+    return openDatabase(databasePath ?? opencodeDbPath(homeDir), { readOnly: true })
   } catch {
     return undefined
   }
@@ -59,8 +94,8 @@ export function openOpencodeDbAt(dataRoot: string): SqlDatabase | undefined {
  * Returns `undefined` if even the main DB can't be statted (caller must then treat
  * the change-state as unknown and do a fresh read rather than trust a cache).
  */
-export function opencodeDbMtimeMs(homeDir?: string): number | undefined {
-  const base = opencodeDbPath(homeDir)
+export function opencodeDbMtimeMs(homeDir?: string, databasePath?: string): number | undefined {
+  const base = databasePath ?? opencodeDbPath(homeDir)
   let main: number
   try {
     main = statSync(base).mtimeMs
@@ -115,7 +150,16 @@ export function findLatestOpencodeSession(
   cwd: string,
   sinceMs?: number,
 ): OpencodeSessionRow | undefined {
-  const rows = db
+  return findOpencodeSessions(db, cwd, sinceMs)[0]
+}
+
+/** Find fresh directory candidates without collapsing an identity decision to "latest". */
+export function findOpencodeSessions(
+  db: SqlDatabase,
+  cwd: string,
+  sinceMs?: number,
+): OpencodeSessionRow[] {
+  return db
     .prepare(
       `SELECT s.id, s.directory, s.title, s.time_created AS timeCreated,
               s.model AS model,
@@ -128,7 +172,6 @@ export function findLatestOpencodeSession(
        LIMIT 5`,
     )
     .all(cwd, sinceMs ?? null, sinceMs ?? 0) as OpencodeSessionRow[]
-  return rows[0]
 }
 
 export function loadOpencodeMessageParts(
@@ -140,22 +183,33 @@ export function loadOpencodeMessageParts(
 ): OpencodeMessagePartRow[] {
   const cursorClause =
     sincePartId === undefined
-      ? 'p.time_updated > ?'
-      : '(p.time_updated > ? OR (p.time_updated = ? AND p.id > ?))'
+      ? 'timeUpdated > ?'
+      : '(timeUpdated > ? OR (timeUpdated = ? AND partId > ?))'
   const params =
     sincePartId === undefined
-      ? [sessionId, sinceTimeUpdated]
-      : [sessionId, sinceTimeUpdated, sinceTimeUpdated, sincePartId]
+      ? [sessionId, sessionId, sinceTimeUpdated]
+      : [sessionId, sessionId, sinceTimeUpdated, sinceTimeUpdated, sincePartId]
   return db
     .prepare(
-      `SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
-              p.time_created AS timeCreated, p.time_updated AS timeUpdated,
-              m.data AS messageData, p.data AS partData
-       FROM part p
-       JOIN message m ON m.id = p.message_id
-       WHERE p.session_id = ?
-         AND ${cursorClause}
-       ORDER BY p.time_updated ASC, p.id ASC`,
+      `SELECT messageId, partId, sessionId, timeCreated, timeUpdated, messageData, partData
+       FROM (
+         SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
+                p.time_created AS timeCreated, p.time_updated AS timeUpdated,
+                m.data AS messageData, p.data AS partData
+         FROM part p
+         JOIN message m ON m.id = p.message_id
+         WHERE p.session_id = ?
+         UNION ALL
+         SELECT m.id AS messageId, 'interrupt:' || m.id AS partId, m.session_id AS sessionId,
+                m.time_updated AS timeCreated, m.time_updated AS timeUpdated,
+                m.data AS messageData, '{"type":"interrupt"}' AS partData
+         FROM message m
+         WHERE m.session_id = ?
+           AND json_valid(m.data)
+           AND json_extract(m.data, '$.error.name') IN ('MessageAborted', 'MessageAbortedError')
+       )
+       WHERE ${cursorClause}
+       ORDER BY timeUpdated ASC, partId ASC`,
     )
     .all(...params) as OpencodeMessagePartRow[]
 }
@@ -168,15 +222,26 @@ export function loadOpencodeTranscriptTail(
 ): OpencodeMessagePartRow[] {
   const rows = db
     .prepare(
-      `SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
-              p.time_created AS timeCreated, p.time_updated AS timeUpdated,
-              m.data AS messageData, p.data AS partData
-       FROM part p
-       JOIN message m ON m.id = p.message_id
-       WHERE p.session_id = ?
-       ORDER BY p.time_updated DESC, p.id DESC
+      `SELECT messageId, partId, sessionId, timeCreated, timeUpdated, messageData, partData
+       FROM (
+         SELECT m.id AS messageId, p.id AS partId, p.session_id AS sessionId,
+                p.time_created AS timeCreated, p.time_updated AS timeUpdated,
+                m.data AS messageData, p.data AS partData
+         FROM part p
+         JOIN message m ON m.id = p.message_id
+         WHERE p.session_id = ?
+         UNION ALL
+         SELECT m.id AS messageId, 'interrupt:' || m.id AS partId, m.session_id AS sessionId,
+                m.time_updated AS timeCreated, m.time_updated AS timeUpdated,
+                m.data AS messageData, '{"type":"interrupt"}' AS partData
+         FROM message m
+         WHERE m.session_id = ?
+           AND json_valid(m.data)
+           AND json_extract(m.data, '$.error.name') IN ('MessageAborted', 'MessageAbortedError')
+       )
+       ORDER BY timeCreated DESC, partId DESC
        LIMIT ?`,
     )
-    .all(sessionId, maxParts) as OpencodeMessagePartRow[]
+    .all(sessionId, sessionId, maxParts) as OpencodeMessagePartRow[]
   return rows.reverse()
 }

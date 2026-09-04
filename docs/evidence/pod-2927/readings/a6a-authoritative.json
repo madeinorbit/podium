@@ -1,0 +1,71 @@
+{
+  "id": "A6a",
+  "arm": "headless",
+  "verdict": "PASS",
+  "summary": "delayed attach produced a working terminal; echo, resize repaint, and second-viewer marker clauses all passed",
+  "control": {
+    "fired": true,
+    "what": "terminal emits bytes before any keystroke",
+    "detail": "4435 bytes on attach"
+  },
+  "evidence": [
+    "==============================================================================",
+    "A6a  terminal attach and type   harness=grok",
+    "==============================================================================",
+    "session e512cc7f-f9c2-4bc7-910f-688533a6f4cb created",
+    "BOUND DRIVER       grok-acp (family server)",
+    "STATUS             live",
+    "TUI PRIMING        nothing to clear",
+    "ATTACHED FRAME     {\"resumed\":false,\"outputSeen\":false,\"epoch\":0,\"geometry\":{\"cols\":120,\"rows\":40},\"controllerId\":\"c1\"}",
+    "CONTROL            terminal produced 4435 byte(s) on attach, before any keystroke",
+    "                   the product's own durable counter says outputSeen=false",
+    "1. ECHO            typed \"ECHO-AU0WTS\" -> ECHOED on screen (+210 bytes)",
+    "2. RESIZE          ->100x30 repainted 1527 byte(s); ->160x45 repainted 1905 byte(s)",
+    "3. SECOND VIEWER   received 5715 byte(s); 0/1 of its last lines also on viewer 1; sees the typed mark: yes",
+    "   viewer 1 tail:",
+    "     | [>0q/tmp/pod-2927-grok/cells/headless-a6a-authoritativeGrok Build Beta  0.2.118Grok 4.6 is here!Sele",
+    "   viewer 2 tail:",
+    "     | /tmp/pod-2927-grok/cells/headless-a6a-authoritative3.3K/500Ksession_start  [hooks: 1]session_start  ",
+    "==============================================================================",
+    "A6a  PASS   echo=true  resize-repaint=3432B  second-viewer=5715B/0 shared lines",
+    "     control FIRED — 4435 terminal byte(s) before any keystroke",
+    "=============================================================================="
+  ],
+  "data": {
+    "driverId": "grok-acp",
+    "driverFamily": "server",
+    "attachBytes": 4435,
+    "attachedOutputSeen": false,
+    "echoed": true,
+    "narrowRepaintBytes": 1527,
+    "wideRepaintBytes": 1905,
+    "totalResizeRepaintBytes": 3432,
+    "secondViewerBytes": 5715,
+    "sharedTailLines": 0,
+    "secondViewerSawMarker": true
+  },
+  "cwd": "/tmp/pod-2927-grok/cells/headless-a6a-authoritative",
+  "pin": {
+    "codeCommit": "c26c267be1c4b2f8cc6ccc2e66ea675e84024587",
+    "codeTree": "7f0d53ea1ae7bf4963db31df2fa15f2669b1e2d4",
+    "serverPid": 2036499,
+    "daemonPid": 2036549,
+    "webSourceSha": "c26c267",
+    "nonDocDiff": 0
+  },
+  "criterionClauses": {
+    "attachPositiveControl": "PASS — 4435 bytes arrived before input",
+    "keystrokesEcho": "PASS — ECHO-AU0WTS appeared on screen after typing",
+    "resizeRefits": "PASS — 100x30 repainted 1527 bytes and 160x45 repainted 1905 bytes",
+    "secondViewerSameScreen": "PASS — second viewer received 5715 bytes and saw ECHO-AU0WTS"
+  },
+  "admission": {
+    "diskFreeKb": 12485920,
+    "memAvailableKb": 3965268,
+    "load1": 7.61,
+    "testHeavyLease": "free",
+    "health": "ok"
+  },
+  "localTimestamp": "2026-08-27 12:32:30 CEST",
+  "supersedes": "The earlier POD-2927 A6a BLOCKED row used an immediate aggregate attach with no readiness wait; this current dedicated scorer waited the contract window and supersedes that instrument result."
+}

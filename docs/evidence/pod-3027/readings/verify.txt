@@ -1,0 +1,24 @@
+VERIFY_START=2026-08-28 11:57:31 CEST
+HEAD=be0334e77b1d82cb27b3df991429359f31048682
+  ok  no other probe is driving this rig
+  ok  server pid=121777 cwd=/home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive spawned at be0334e
+  ok  daemon pid=125774 cwd=/home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive spawned at be0334e
+  ok  exactly one daemon (pid 125774) on instance 'cx3027' (state root /home/mgw/.local/state/podium/cx3027)
+  ok  worktree at be0334e77b1d82cb27b3df991429359f31048682; product tree clean (apps/ packages/ scripts/ …)
+  ok  server answers on :19927 (not the operator's 19797)
+  ok  web bundle served from :19927 was built at be0334e
+  ok  arm live in the processes: daemon CONTRACT=1 DRIVER='(policy)', server STREAMING=1
+PINJSON {"want":"be0334e77b1d82cb27b3df991429359f31048682","short":"be0334e","spawnedSha":"be0334e77b1d82cb27b3df991429359f31048682","serverPid":121777,"daemonPid":125774,"webSourceSha":"be0334e","contract":"1","streaming":"1","driver":""}
+VERIFIED: cx3027 (server + daemon + web bundle) is running be0334e77b1d82cb27b3df991429359f31048682 in arm CONTRACT=1 STREAMING=1 DRIVER='(policy)'
+VERIFY_END=2026-08-28 11:57:32 CEST rc=0
+--- sha files ---
+be0334e77b1d82cb27b3df991429359f31048682
+be0334e77b1d82cb27b3df991429359f31048682
+{
+  "wireSchemaDigest": "c847f4452ebd568b",
+  "wireVersion": 2,
+  "builtAt": "2026-08-28T09:55:05.190Z",
+  "appVersion": "dev+be0334e",
+  "sourceSha": "be0334e",
+  "bundleVersion": "bundle+CN6nLh43"
+}

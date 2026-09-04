@@ -1,3 +1,4 @@
+import { resolveCursorBin } from '../cursor/cli.js'
 import { join } from 'node:path'
 import { cursorRecordToItems } from '@podium/transcript'
 import { cursorStateProvider, observeCursorState } from '../agent-state/cursor.js'
@@ -9,6 +10,7 @@ import {
   type AgentManifest,
   fileTranscript,
   isSet,
+  selectRuntimeDriver,
   supported,
   type TranscriptSourceInput,
   transcriptFileExists,
@@ -45,6 +47,7 @@ export const cursorManifest: AgentManifest = {
     observationProvider: 'none',
     observationProtocol: 'generic',
     submitVerification: false,
+    composerReadiness: 'on-bind',
     rawFirstTurn: false,
     exclusiveInteractiveResume: false,
     promptTitleFallback: false,
@@ -56,6 +59,7 @@ export const cursorManifest: AgentManifest = {
     interruptQuitsWhenIdle: false,
   },
   resumeKind: 'cursor-chat',
+  environment: { removeInherited: [] },
 
   inventory: {
     executable: {
@@ -70,6 +74,8 @@ export const cursorManifest: AgentManifest = {
     loginCommandProbe: unsupported('Cursor has no supported native login-status command'),
     loginIdentity: unsupported('Cursor does not expose a stable local account identity yet'),
     portableCredential: unsupported('Cursor credential portability is not supported yet'),
+    // Wins over the file-stored account in ~/.config/cursor/auth.json.
+    foreignCredentialEnv: ['CURSOR_API_KEY'],
     detectLogin: () => ({ state: 'unknown' }),
   },
 
@@ -79,7 +85,7 @@ export const cursorManifest: AgentManifest = {
       ...(isSet(opts.model) ? ['--model', opts.model] : []),
     ]
     const instructions = composeAgentInstructions(opts.instructions)
-    if (!instructions) return { cmd: 'agent', args, cwd: opts.cwd }
+    if (!instructions) return { cmd: resolveCursorBin(undefined, opts.env), args, cwd: opts.cwd }
     if (!opts.runtimeDir) throw new Error('cursor launch requires an instruction runtime directory')
     const manifestPath = join(opts.runtimeDir, '.cursor-plugin', 'plugin.json')
     const rulePath = join(opts.runtimeDir, 'rules', 'podium-session-context.mdc')
@@ -98,7 +104,7 @@ export const cursorManifest: AgentManifest = {
     const rule = `---\ndescription: Podium session context\nalwaysApply: true\n---\n\n${instructions}\n`
     // No effort flag (capabilities.effortFlag 'none') and no argv prompt.
     return {
-      cmd: 'agent',
+      cmd: resolveCursorBin(undefined, opts.env),
       args: [...args, '--plugin-dir', opts.runtimeDir],
       cwd: opts.cwd,
       files: [
@@ -114,9 +120,21 @@ export const cursorManifest: AgentManifest = {
     const model = opts.model || 'auto'
     const sys = opts.systemPrompt?.trim() ? opts.systemPrompt.trim() : undefined
     const prompt = sys ? `${sys}\n\n---\n\n${opts.prompt}` : opts.prompt
-    return { cmd: 'agent', args: ['-p', '--model', model, prompt] }
+    return { cmd: resolveCursorBin(undefined, opts.env), args: ['-p', '--model', model, prompt] }
   }),
 
+  // TERMINAL TODAY, and unlike grok the reason is IGNORANCE rather than a
+  // deferred driver: nobody has probed cursor-agent for an ACP mode. Recorded as
+  // an open question in the reason below rather than asserted as an absence,
+  // because POD-2025 has just shown how easily that assertion turns out wrong.
+  runtime: {
+    server: unsupported(
+      'no verified server mode: the public ACP registry lists Cursor as an agent, but nobody has probed cursor-agent the way POD-2025 probed grok — verify before turning this into a spec',
+    ),
+    embedded: unsupported('cursor-agent ships no library to host in-process'),
+    terminal: { driverId: 'generic-pty', sendProof: ['transcript-echo'] },
+    select: (ctx) => selectRuntimeDriver(ctx, ['generic-pty']),
+  },
   headless: supported({
     driver: 'resume-exec',
     outputFormat: 'text',
@@ -132,7 +150,7 @@ export const cursorManifest: AgentManifest = {
       const context = opts.contextPrompt?.trim()
       const prompt = [sys, context, opts.prompt].filter(Boolean).join('\n\n---\n\n')
       return {
-        cmd: 'agent',
+        cmd: resolveCursorBin(undefined, opts.env),
         args: [
           '-p',
           '--resume',

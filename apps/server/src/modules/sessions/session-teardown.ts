@@ -250,6 +250,10 @@ export class SessionTeardown {
       force?: boolean
       /** True when the CALLER is stopping itself — defer process kill. */
       selfStop?: boolean
+      /** Also signal a process for a session already parked by an earlier stop.
+       *  Closed-issue cleanup uses this to converge after a lost daemon reply;
+       *  ordinary hibernate/stop deliberately leaves parked sessions resumable. */
+      reapParked?: boolean
       /** Parent-close/issue-stop provenance; direct forced stops derive below. */
       stopReason?: 'self' | 'parent' | 'forced'
       /**
@@ -348,12 +352,14 @@ export class SessionTeardown {
           },
         )
         if (!freed.ok) {
-          if (wasRunning && !input.selfStop) this.killStoppedSession(session)
+          if ((wasRunning || input.reapParked === true) && !input.selfStop)
+            this.killStoppedSession(session)
           return {
             ok: true,
             reason: `session stopped but worktree not freed: ${freed.output}`,
             worktreeFreed: false,
-            deferredKill: input.selfStop === true && wasRunning,
+            deferredKill:
+              input.selfStop === true && (wasRunning || input.reapParked === true),
           }
         }
         worktreeFreed = freed.worktreeFreed
@@ -362,12 +368,13 @@ export class SessionTeardown {
 
     // Peer/operator: kill now. Self-stop: hold the kill until the relay has
     // delivered agentRelayResult (finalizeDeferredStopKill) [spec:SP-9904].
-    if (wasRunning && !input.selfStop) this.killStoppedSession(session)
+    if ((wasRunning || input.reapParked === true) && !input.selfStop)
+      this.killStoppedSession(session)
 
     return {
       ok: true,
       worktreeFreed,
-      deferredKill: input.selfStop === true && wasRunning,
+      deferredKill: input.selfStop === true && (wasRunning || input.reapParked === true),
     }
   }
 
@@ -403,6 +410,8 @@ export class SessionTeardown {
       force?: boolean
       /** Session performing the stop (for self-stop deferral when it is a member). */
       callerSessionId?: SessionId
+      /** Re-send the process reap for sessions already parked before the close. */
+      reapParked?: boolean
       /**
        * Who asked for the stop (POD-1344). Stamped onto free-worktree audit
        * comments. Absent only on genuinely caller-less paths — those fall back
@@ -438,6 +447,7 @@ export class SessionTeardown {
           sessionId: m.sessionId,
           force: input.force,
           selfStop: input.callerSessionId === m.sessionId,
+          ...(input.reapParked ? { reapParked: true } : {}),
           stopReason: input.force ? 'forced' : 'parent',
           principal,
         },

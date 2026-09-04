@@ -36,7 +36,7 @@ afterEach(() => rmSync(dir, { recursive: true, force: true }))
 describe('grading a served dist', () => {
   it('CAN SAY NO: a matched pair is ok and says nothing', () => {
     buildDist()
-    stamp({ wireSchemaDigest: wireSchemaDigest(), wireVersion: 2, builtAt: '2026-08-03T00:00:00Z' })
+    stamp({ wireSchemaDigest: wireSchemaDigest(), wireVersion: 2 })
     const status = gradeWebBundle(dir)
     expect(status.grade).toBe('ok')
     expect(describeBundleDiagnostic(status)).toBeNull()
@@ -44,7 +44,7 @@ describe('grading a served dist', () => {
 
   it('calls a mismatched pair stale and gives the operator a diagnostic', () => {
     buildDist()
-    stamp({ wireSchemaDigest: 'deadbeefdeadbeef', builtAt: '2026-07-31T23:17:00Z' })
+    stamp({ wireSchemaDigest: 'deadbeefdeadbeef' })
     const status = gradeWebBundle(dir)
     expect(status.grade).toBe('stale')
     expect(status.bundleDigest).toBe('deadbeefdeadbeef')
@@ -72,8 +72,16 @@ describe('grading a served dist', () => {
 
   it('treats a stamp with no digest field as unstamped', () => {
     buildDist()
-    stamp({ builtAt: '2026-08-03T00:00:00Z' })
+    stamp({ wireVersion: 2 })
     expect(gradeWebBundle(dir).grade).toBe('unstamped')
+  })
+
+  // Builds stopped writing builtAt when the stamp became a pure function of its
+  // inputs, but a dist built before that is still on disk on running servers.
+  it('grades a legacy stamp that still carries builtAt', () => {
+    buildDist()
+    stamp({ wireSchemaDigest: wireSchemaDigest(), builtAt: '2026-08-03T00:00:00Z' })
+    expect(gradeWebBundle(dir).grade).toBe('ok')
   })
 
   it('says nothing at all when there is no dist — a source run is not a defect', () => {
@@ -107,7 +115,7 @@ describe('grading a served dist', () => {
     stamp({ wireSchemaDigest: 'deadbeefdeadbeef' })
     expect(gradeWebBundle(dir).grade).toBe('stale')
     // A rebuild while the server runs must clear the diagnostic without a restart.
-    stamp({ wireSchemaDigest: wireSchemaDigest(), builtAt: '2026-08-03T12:00:00Z' })
+    stamp({ wireSchemaDigest: wireSchemaDigest(), wireVersion: 2 })
     expect(gradeWebBundle(dir).grade).toBe('ok')
   })
 

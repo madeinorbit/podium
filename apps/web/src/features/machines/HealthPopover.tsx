@@ -1,80 +1,45 @@
 import { Popover } from '@base-ui/react/popover'
 import type { JSX, ReactElement, ReactNode } from 'react'
-import { cloneElement, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * The topbar health-chip popover shell (quota + machine load): hover opens a
- * read-only preview anchored under the chip. Machine load can still pin that
- * panel on click (stays up, grows the breakdown) until Esc / outside click.
- * Quota does not — `pinOnClick={false}` keeps one hover tier, no second zoom.
+ * The topbar health-chip popover shell (quota + machine load): hover opens the
+ * panel anchored under the chip, Esc or a click outside dismisses it.
+ *
+ * ONE TIER, NO PIN. Machine load used to offer a second zoom — click to pin the
+ * panel open and grow the process breakdown into it. Quota never did
+ * (`pinOnClick={false}` was already the flag that said so), and load has now
+ * dropped it too: the panel shows everything it knows the moment it opens, so
+ * there is no second state left to reach and nothing a click could reveal.
  */
 export function HealthPopover({
   trigger,
   children,
-  pinnedWide = true,
-  pinOnClick = true,
   popupClassName,
 }: {
-  /** The chip button; rendered as the popover trigger. Its props are widened so
-   *  the shell can stamp the `data-pinned` flag onto it (see below). */
+  /** The chip button; rendered as the popover trigger. */
   trigger: ReactElement<Record<string, unknown>>
-  /** Panel content, told whether the panel is pinned (clicked) or hover-only. */
-  children: (pinned: boolean) => ReactNode
-  /** Widen the panel from 296px to 336px once pinned. */
-  pinnedWide?: boolean
-  /** When false, click toggles the same hover panel and never pins it. */
-  pinOnClick?: boolean
+  /** Panel content. */
+  children: ReactNode
   /** Feature-specific treatment for a panel whose design differs from the
    *  shared machine-health shell. */
   popupClassName?: string
 }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const [pinned, setPinned] = useState(false)
   return (
-    <Popover.Root
-      open={open}
-      onOpenChange={(next, details) => {
-        // A click on the chip means "pin the breakdown" only when this shell
-        // offers a second zoom. Quota's hover panel is the whole story.
-        if (pinOnClick && details.reason === 'trigger-press') {
-          setPinned(true)
-          setOpen(true)
-          return
-        }
-        // Hovering away must not dismiss a pinned panel.
-        if (!next && pinned && details.reason === 'trigger-hover') return
-        setOpen(next)
-        if (!next) setPinned(false)
-      }}
-    >
-      {/* Base UI marks the trigger `data-popup-open` for the hover preview too,
-          so the chip needs its own flag to render pinned as a distinct rung —
-          otherwise a panel you clicked open looks exactly like one you merely
-          pointed at, and nothing on screen says which. */}
-      <Popover.Trigger
-        render={cloneElement(trigger, { 'data-pinned': pinned ? '' : undefined })}
-        openOnHover
-        delay={80}
-      />
+    <Popover.Root open={open} onOpenChange={setOpen}>
+      <Popover.Trigger render={trigger} openOnHover delay={80} />
       <Popover.Portal>
         <Popover.Positioner side="bottom" align="end" sideOffset={6} className="isolate z-50">
-          <Popover.Popup
-            className={cn(
-              'health-popover',
-              popupClassName,
-              pinned && pinnedWide && 'health-popover-pinned',
-            )}
-          >
-            {children(pinned)}
-          </Popover.Popup>
+          <Popover.Popup className={cn('health-popover', popupClassName)}>{children}</Popover.Popup>
         </Popover.Positioner>
       </Popover.Portal>
     </Popover.Root>
   )
 }
 
-/** Micro mono footer; the hover tier's only chrome ("click to pin breakdown"). */
+/** Micro mono footer; the panel's only chrome ("sampled 14:32:07", "esc closes"). */
 export function HealthPopoverFooter({
   left,
   right,

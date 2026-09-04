@@ -1,0 +1,65 @@
+DRIVE_UP_START=2026-08-28 11:54:36 CEST
+web bundle is at 'none', want be0334e — building (this is the slow step)…
+web bundle built at be0334e
+  bundle-size budget: ok
+  ok  state root /home/mgw/.local/state/podium/p3027 (product-derived, not overridden)
+      the product will pick ABDUCO_SOCKET_DIR=/tmp/podium-1001
+      and TMUX_TMPDIR=/home/mgw/.local/state/podium/p3027/runtime/tmux
+528 |       instanceUuid: mintUuidIntoMarker(dir, existing),
+529 |     }
+530 |   }
+531 |   const entries = existsSync(dir) ? readdirSync(dir) : []
+532 |   if (entries.length > 0 && id !== DEFAULT_INSTANCE_ID && !env.PODIUM_ADOPT_STATE) {
+533 |     throw new Error(
+                    ^
+error: refusing to adopt non-empty state directory /home/mgw/.local/state/podium/p3027 for instance 'p3027'; choose an empty root or set PODIUM_ADOPT_STATE=1 for an intentional migration
+      at ensureInstanceStateIdentity (/home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/packages/runtime/src/instance.ts:533:15)
+      at saveConfig (/home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/packages/runtime/src/config.ts:425:3)
+      at /home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/[eval]:3:3
+
+Bun v1.3.14 (Linux x64)
+DRIVE_UP_END=2026-08-28 11:55:09 CEST rc=1
+DRIVE_UP2_START=2026-08-28 11:55:37 CEST instance=cx3027
+web bundle already at be0334e (skipping build)
+  ok  state root /home/mgw/.local/state/podium/cx3027 (product-derived, not overridden)
+      the product will pick ABDUCO_SOCKET_DIR=/tmp/podium-1001
+      and TMUX_TMPDIR=/home/mgw/.local/state/podium/cx3027/runtime/tmux
+528 |       instanceUuid: mintUuidIntoMarker(dir, existing),
+529 |     }
+530 |   }
+531 |   const entries = existsSync(dir) ? readdirSync(dir) : []
+532 |   if (entries.length > 0 && id !== DEFAULT_INSTANCE_ID && !env.PODIUM_ADOPT_STATE) {
+533 |     throw new Error(
+                    ^
+error: refusing to adopt non-empty state directory /home/mgw/.local/state/podium/cx3027 for instance 'cx3027'; choose an empty root or set PODIUM_ADOPT_STATE=1 for an intentional migration
+      at ensureInstanceStateIdentity (/home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/packages/runtime/src/instance.ts:533:15)
+      at saveConfig (/home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/packages/runtime/src/config.ts:425:3)
+      at /home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/[eval]:3:3
+
+Bun v1.3.14 (Linux x64)
+DRIVE_UP2_END=2026-08-28 11:55:37 CEST rc=1
+DRIVE_UP3_START=2026-08-28 11:56:18 CEST ADOPT_STATE=1 instance=cx3027
+web bundle already at be0334e (skipping build)
+  ok  state root /home/mgw/.local/state/podium/cx3027 (product-derived, not overridden)
+      the product will pick ABDUCO_SOCKET_DIR=/tmp/podium-1001
+      and TMUX_TMPDIR=/home/mgw/.local/state/podium/cx3027/runtime/tmux
+claimed instance 'cx3027' and wrote first-run config through the runtime setup path
+started server pid=121777 at be0334e
+server healthy on :19927
+agent home seeded at /home/mgw/.local/state/podium/cx3027/agent-home
+started daemon pid=121925 at be0334e
+scratch repo at /tmp/pod-3027/repo
+cookie jar at /tmp/pod-3027/cookie-jar
+harness binaries this arm will run:
+  codex     /home/mgw/.local/bin/codex               codex-cli 0.150.1
+  grok      /home/mgw/.local/bin/grok                grok 0.2.118 (1e1687c1cf) [stable]
+  opencode  /home/mgw/.opencode/bin/opencode         1.18.16
+  claude    /home/mgw/.local/bin/claude              2.1.236 (Claude Code)
+
+instance 'cx3027' up
+  API      http://127.0.0.1:19927   (password: p2777; loopback only)
+  ARM      CONTRACT=1 STREAMING=1 DRIVER=(policy)
+  web      /home/mgw/src/podium/.worktrees/issue-3027-codex-approval-drive/apps/web/dist
+  state    /home/mgw/.local/state/podium/cx3027
+  logs     /tmp/pod-3027/logs
+DRIVE_UP3_END=2026-08-28 11:56:22 CEST rc=0

@@ -1,0 +1,17 @@
+{
+  "at": "2026-08-30T12:33:47.434Z",
+  "issue": "POD-3112",
+  "kind": "r18-opencode-continuity",
+  "journeyId": "opencode-paired-final-tip",
+  "epicPin": "deeb58e62eb7b4347bc984279316754657637f84",
+  "instance": "p3112-oc-a7a-r21",
+  "ports": [
+    20413,
+    47415,
+    47416
+  ],
+  "providerPrompts": 0,
+  "verdict": "REFUSED",
+  "reason": "Error: REFUSED runtime-drivers setting not enabled",
+  "finishedAt": "2026-08-30T12:33:49.475Z"
+}

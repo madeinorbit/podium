@@ -252,9 +252,17 @@ export const panelApplyInput = z.object({
   title: z.string().optional(),
   /** Extra file paths bundled with `path` into one artifact snapshot ([spec:SP-0fc9]). */
   extraPaths: z.array(z.string()).optional(),
+  /** Pull a raster screenshot from the invoking issue session's checkout. */
+  terminalEvidence: z.boolean().optional(),
+  /** Filled by the CLI from its current checkout; never accepted without terminalEvidence. */
+  sourceRoot: z.string().optional(),
 })
 
 export const createInput = z.object({
+  // Client-minted identities let insert-shaped optimistic UI reconcile in place.
+  // The service refuses collisions before it creates or starts anything.
+  id: IssueIdField.optional(),
+  startSessionId: SessionIdField.optional(),
   repoPath: z.string(),
   title: z.string().min(1),
   description: z.string().optional(),

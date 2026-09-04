@@ -1,0 +1,75 @@
+{
+  "cell": "A7A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a7a",
+  "at": "2026-08-26T12:11:14.362Z",
+  "pin": {
+    "cell": "A7A",
+    "at": "2026-08-26T12:11:14.479Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2328567",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "4820040 kB",
+      "SwapFree": "37415564 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "daemon restart retained the same live conversation and codeword",
+  "control": {
+    "fired": true,
+    "what": "pre-restart Claude codeword user turn",
+    "detail": "{\"sent\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"},\"user\":true,\"reply\":true}"
+  },
+  "evidence": [
+    "BASELINE          {\"sent\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"},\"user\":true,\"reply\":true}",
+    "POST RESTART PIN   6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "RECALL            {\"sent\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"},\"assistant\":true,\"ms\":68}",
+    "STATUS            {\"sessionId\":\"c9666a4a-19d4-4f18-9ce8-17f0c095866a\",\"agentKind\":\"claude-code\",\"harness\":\"claude-code\",\"driverId\":null,\"requestedDriverId\":null,\"status\":\"live\",\"phase\":\"idle\",\"machine\":\"flatblock\",\"model\":\"claude-opus-5\",\"effort\":\"high\",\"contextUsagePercent\":nu",
+    "SCREEN TAIL       \"in)\\nWhat'snew\\nAddedastartupwarnin\\nOpus5(1Mcontext)ClaudeMaxAddedanAutomodetab\\nmike.wirth@gmail.com'sOrganizationAddedtheturn'scompl\\n/tmp/pod-2874/probes/claude-a7a/release-notesformore\\n2MCPserversneedauthenticationrun/mcp\\nRememberthiscodeword:P2874-A7A-MTA1Z49D.Replywithexactly\\nP2874-A7A-MTA1Z49D.Donotusetools.\\nP2874-A7A-MTA1Z49D\\nWorkedfor2s\\nautomodeon(shift+tabtocycle)foragents\\nYou'veused87%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\\nAskClaudetocreatea\\nWhat'snew\\nAddedastartupwarnin\\nOpus5(1Mcontext)ClaudeMaxAddedanAutomodetab\\nmike.wirth@gmail.com'sOrganizationAddedtheturn'scompl\\n/tmp/pod-2874/probes/claude-a7a/release-notesformore\\n2MCPserversneedauthenticationrun/mcp\\nRememberthiscodeword:P2874-A7A-MTA1Z49D.Replywithexactly\\nP2874-A7A-MTA1Z49D.Donotusetools.\\nP2874-A7A-MTA1Z49D\\nWorkedfor2s\\nautomodeon(shift+tabtocycle)foragents\\nYou'veused87%ofyourweeklylimitresetsAug28,1pm(Europe/Berlin)\""
+  ],
+  "data": {
+    "sid": "c9666a4a-19d4-4f18-9ce8-17f0c095866a",
+    "secret": "P2874-A7A-MTA1Z49D",
+    "base": {
+      "sent": {
+        "ok": true,
+        "queued": true,
+        "disposition": "queued"
+      },
+      "user": true,
+      "reply": true
+    },
+    "recall": {
+      "sent": {
+        "ok": true,
+        "queued": true,
+        "disposition": "queued"
+      },
+      "assistant": true,
+      "ms": 68
+    }
+  }
+}

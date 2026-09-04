@@ -18,10 +18,10 @@ import { checkIssueAccess } from '../../../issue-authz'
 import { SPAWN_BUDGET_PER_DAY } from '../brakes'
 import type { MailHandlerContext } from './context'
 
-export function spawnAgentHandler(
+export async function spawnAgentHandler(
   ctx: MailHandlerContext,
   input: ContractInput<typeof spawnAgentContract>,
-): unknown {
+): Promise<unknown> {
   const { caller, deps, access } = ctx
   if (!caller.principal) throw new Error('agent spawn requires an authenticated principal')
   const attribution = attributionOf(caller.principal)
@@ -176,6 +176,11 @@ export function spawnAgentHandler(
       throw new Error(`machine ${machineId} is not reachable right now`)
     }
   }
+  // A newly attached daemon is online before its first probe completes. Wait for
+  // that current-connection fact instead of letting SessionStart judge the
+  // persisted snapshot from the previous connection. The wait stays below the
+  // relay deadline; on expiry SessionStart returns the honest probing refusal.
+  if (machineId && harness !== 'shell') await deps.awaitMachineInventory?.(machineId)
   const sessionOwner = issues.ownedTarget(issue.id, 'read')?.owner ?? callerOwner
   const spawned = deps.spawnSession({
     ownerUserId: sessionOwner,

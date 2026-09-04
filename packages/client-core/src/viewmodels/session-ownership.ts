@@ -210,6 +210,56 @@ export interface IssueMembershipRef {
   memberSessionIds?: string[]
 }
 
+/**
+ * Sessions by id, and their POSITION in the slice — one pass per session array.
+ *
+ * {@link sessionsForIssueNav}'s explicit-membership branch used to answer by
+ * scanning the whole session slice per issue, so a surface that asks it once per
+ * row (the Flight Deck builds `sessionsByIssue` over every visible issue) paid
+ * issues × sessions per publish: 2.1M comparisons on the live corpus of 1,642
+ * issues and 1,311 sessions, and the profile put this function's two lines near
+ * the top of main-thread self time.
+ *
+ * Keyed on the ARRAY'S IDENTITY, the same contract {@link missionIssueIndex}
+ * rests on: the replica facade documents that an unchanged slice keeps the
+ * identical array reference, so a changed slice is always a different array.
+ *
+ * `order` is what keeps the answer BYTE-IDENTICAL to the old filter: walking
+ * `memberSessionIds` yields the issue's own order, and the callers that do not
+ * re-sort (the tab strip) were reading slice order. Sorting the small member
+ * list back into slice position restores it without touching the slice.
+ */
+interface SessionSliceLookup {
+  byId: Map<string, SessionMeta>
+  order: Map<string, number>
+}
+
+const sessionSliceLookups = new WeakMap<readonly SessionMeta[], SessionSliceLookup>()
+let sessionLookupBuilds = 0
+
+function sessionSliceLookup(sessions: readonly SessionMeta[]): SessionSliceLookup {
+  const cached = sessionSliceLookups.get(sessions)
+  if (cached) return cached
+  sessionLookupBuilds += 1
+  const byId = new Map<string, SessionMeta>()
+  const order = new Map<string, number>()
+  for (let i = 0; i < sessions.length; i += 1) {
+    const session = sessions[i] as SessionMeta
+    byId.set(session.sessionId, session)
+    order.set(session.sessionId, i)
+  }
+  const lookup: SessionSliceLookup = { byId, order }
+  sessionSliceLookups.set(sessions, lookup)
+  return lookup
+}
+
+/** How many times the per-slice session lookup has been built — the seam the
+ *  regression test uses to assert it is once per session slice rather than once
+ *  per issue. Same shape as `missionIndexStats`. */
+export function sessionOwnershipStats(): { lookups: number } {
+  return { lookups: sessionLookupBuilds }
+}
+
 /** Explicit-attachment-first session grouping for an issue row (issue-as-workspace):
  *  sessions with `issueId === issue.id` are first-class members; sessions with NO
  *  issueId fall back to cwd containment in the issue's worktree (legacy). A session
@@ -218,8 +268,8 @@ export interface IssueMembershipRef {
  *  (sidebar policy) — the workspace tab strip opts them back in. */
 export function sessionsForIssueNav(
   issue: IssueMembershipRef,
-  sessions: SessionMeta[],
-  allWorktreePaths: string[],
+  sessions: readonly SessionMeta[],
+  allWorktreePaths: readonly string[],
   opts: { includeShells?: boolean } = {},
   ownership?: SessionOwnershipIndex,
 ): SessionMeta[] {
@@ -229,12 +279,22 @@ export function sessionsForIssueNav(
   }
   const memberIds = issue.memberSessionIds
   if (memberIds !== undefined) {
-    const ids = new Set(memberIds)
-    return sessions.filter((s) => {
-      if (s.archived || isHeadlessSession(s)) return false
-      if (!opts.includeShells && s.agentKind === 'shell') return false
-      return ids.has(s.sessionId)
-    })
+    if (memberIds.length === 0) return []
+    // Walk the (short) member list against the slice index rather than the slice
+    // against the member set — same rows, same slice order, no full scan.
+    const { byId, order } = sessionSliceLookup(sessions)
+    const out: SessionMeta[] = []
+    const taken = new Set<string>()
+    for (const id of memberIds) {
+      if (taken.has(id)) continue
+      taken.add(id)
+      const s = byId.get(id)
+      if (!s || s.archived || isHeadlessSession(s)) continue
+      if (!opts.includeShells && s.agentKind === 'shell') continue
+      out.push(s)
+    }
+    out.sort((a, b) => (order.get(a.sessionId) ?? 0) - (order.get(b.sessionId) ?? 0))
+    return out
   }
   const wt = issue.worktreePath
   // Longest-match containment needs the full root list (a repo root contains its

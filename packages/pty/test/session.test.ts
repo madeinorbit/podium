@@ -167,6 +167,19 @@ function fakePty(): {
   }
 }
 
+describe('wrapPty raw output', () => {
+  it('emits arbitrary bytes without text or base64 conversion', () => {
+    const { proc, emit } = fakePty()
+    const session = wrapPty(proc, { cols: 80, rows: 24 })
+    const frames: Uint8Array[] = []
+    session.onFrame((frame) => frames.push(frame.data))
+    emit(Uint8Array.of(0x00, 0xff, 0xc3, 0x28, 0x1b))
+    expect(frames).toHaveLength(1)
+    expect(Array.from(frames[0] ?? [])).toEqual([0x00, 0xff, 0xc3, 0x28, 0x1b])
+    session.dispose()
+  })
+})
+
 describe('wrapPty redraw repaint mode', () => {
   it('hard repaint injects Ctrl-L on top of the SIGWINCH nudge', () => {
     const { proc, writes, resizes } = fakePty()

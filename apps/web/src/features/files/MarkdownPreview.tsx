@@ -1,12 +1,13 @@
 // apps/web/src/MarkdownPreview.tsx
 
-import type { SessionId } from '@podium/model/browser'
 import { shallowEqual } from '@podium/client-core/store'
+import type { SessionId } from '@podium/model/browser'
 import { type JSX, useMemo } from 'react'
 import { useStoreSelector } from '@/app/store'
 import { assetUrl } from '@/lib/asset-url'
 import { handleCodeCopyClick } from '@/lib/code-copy'
 import { resolveAgainstCwd } from '@/lib/file-path'
+import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 import { cn } from '@/lib/utils'
 import { renderMarkdownBlocks } from './markdown-blocks'
 
@@ -41,6 +42,11 @@ export function MarkdownPreview({
 
   const onClick = (e: React.MouseEvent): void => {
     if (handleCodeCopyClick(e)) return // copy button works even without a session
+    // A link into this Podium needs no session, and must be claimed here: the
+    // preview's anchors are marked exactly like the transcript's, and without a
+    // handler an internal link full-page-navigates the SPA off this file
+    // (POD-1606).
+    if (handlePodiumLinkClick(e)) return
     if (!sessionId) return // worktree-scoped preview has no session; links are inert until MarkdownPreview is scope-aware
     const a = (e.target as HTMLElement).closest('a.file-link') as HTMLAnchorElement | null
     if (!a) return

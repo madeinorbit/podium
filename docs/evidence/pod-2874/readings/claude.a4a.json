@@ -1,0 +1,104 @@
+{
+  "cell": "A4A",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a4a",
+  "at": "2026-08-26T12:00:05.036Z",
+  "pin": {
+    "cell": "A4A",
+    "at": "2026-08-26T12:00:05.185Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2253065",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "6366020 kB",
+      "SwapFree": "36889764 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "BLOCKED",
+  "summary": "no permission ask was raised under the seeded auto-mode posture",
+  "control": {
+    "fired": true,
+    "what": "the session attach/terminal stream becoming live independent of whether auto mode raises an ask",
+    "detail": "attached=1; screenBytes=19590; transcriptItems=7"
+  },
+  "evidence": [
+    "SEND              {\"result\":{\"data\":{\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}}}",
+    "ASK LIST          [] after 45951ms",
+    "TERMINAL          true",
+    "CHAT FRAME        true",
+    "ITEMS             [{\"role\":\"user\",\"text\":\"Use your Bash tool to run exactly: printf P2874-A4A-MTA1KSL2 > /tmp/pod-2874-external/P2874-A4A-MTA1KSL2.txt ; then tell me whether it succeeded.\",\"ts\":\"2026-08-26T12:00:11.492Z\"},{\"role\":\"tool\",\"text\":\"\",\"toolName\":\"Bash\",\"toolInput\":\"printf P2874-A4A-MTA1KSL2 > /tmp/pod-2874-external/P2874-A4A-MTA1KSL2.txt ; echo \\\"exit=$?\\\"\",\"ts\":\"2026-08-26T12:00:16.289Z\"},{\"role\":\"tool\",\"text\":\"\",\"ts\":\"2026-08-26T12:00:18.316Z\"},{\"role\":\"tool\",\"text\":\"\",\"toolName\":\"Bash\",\"toolInput\":\"ls -ld /tmp/pod-2874-external 2>&1; ls -ld /tmp/pod-2874 2>&1 | head -3\",\"ts\":\"2026-08-26T12:00:21.069Z\"},{\"role\":\"tool\",\"text\":\"\",\"ts\":\"2026-08-26T12:00:23.029Z\"},{\"role\":\"assistant\",\"text\":\"It failed.\\n\\n```\\n/bin/bash: line 1: /tmp/pod-2874-external/P2874-A4A-MTA1KSL2.txt: No such file or directory\\nexit=1\\n```\\n\\nCause: the directory `/tmp/pod-2874-external` doesn't exist, and `>` won't create parent directories. Nothing was written — no file, and no partial output anywhere.\\n\\nI ran the command exactly as given and did not create the directory, since that wasn't part of what you asked. If you want it, say so and I'll run `mkdir -p /tmp/pod-2874-external` first and then the same `printf"
+  ],
+  "data": {
+    "sid": "8877abfc-b854-4e10-954f-5b98064da5a9",
+    "probe": {
+      "asks": [],
+      "terminal": true,
+      "chatFrame": true,
+      "ms": 45951,
+      "marker": "P2874-A4A-MTA1KSL2"
+    },
+    "items": [
+      {
+        "role": "user",
+        "text": "Use your Bash tool to run exactly: printf P2874-A4A-MTA1KSL2 > /tmp/pod-2874-external/P2874-A4A-MTA1KSL2.txt ; then tell me whether it succeeded.",
+        "ts": "2026-08-26T12:00:11.492Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "printf P2874-A4A-MTA1KSL2 > /tmp/pod-2874-external/P2874-A4A-MTA1KSL2.txt ; echo \"exit=$?\"",
+        "ts": "2026-08-26T12:00:16.289Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-26T12:00:18.316Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "ls -ld /tmp/pod-2874-external 2>&1; ls -ld /tmp/pod-2874 2>&1 | head -3",
+        "ts": "2026-08-26T12:00:21.069Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-26T12:00:23.029Z"
+      },
+      {
+        "role": "assistant",
+        "text": "It failed.\n\n```\n/bin/bash: line 1: /tmp/pod-2874-external/P2874-A4A-MTA1KSL2.txt: No such file or directory\nexit=1\n```\n\nCause: the directory `/tmp/pod-2874-external` doesn't exist, and `>` won't create parent directories. Nothing was written — no file, and no partial output anywhere.\n\nI ran the command exactly as given and did not create the directory, since that wasn't part of what you asked. If you want it, say so and I'll run `mkdir -p /tmp/pod-2874-external` first and then the same `printf`.",
+        "ts": "2026-08-26T12:00:26.726Z"
+      },
+      {
+        "role": "system",
+        "text": "",
+        "ts": "2026-08-26T12:00:26.893Z"
+      }
+    ]
+  }
+}

@@ -90,6 +90,7 @@ describe('runCliSetup', () => {
       expect(loadConfig()).toMatchObject({
         mode: 'all-in-one',
         publicUrl: 'https://vps.ts.net',
+        networkOption: 'tailscale-funnel',
         persistence: 'systemd',
       })
       expect(startBackend).toHaveBeenCalledWith({
@@ -131,6 +132,7 @@ describe('runCliSetup', () => {
       await run(['1', '1', 'https://box.ts.net', 's3cret', 'n'], setPw)
       expect(loadConfig().mode).toBe('all-in-one')
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+      expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(setPw).toHaveBeenCalledWith('s3cret')
       expect(loadConfig().persistence).toBe('detached') // answered "n" to systemd
     })
@@ -139,6 +141,7 @@ describe('runCliSetup', () => {
       await run(['2', '1', 'https://relay.ts.net', '', 'open', 'y'])
       expect(loadConfig().mode).toBe('server')
       expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
+      expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(loadConfig().persistence).toBe('systemd') // answered "y"
     })
 
@@ -380,8 +383,12 @@ describe('runCliSetup', () => {
 
     it('change the reachable URL only (option 4), leaving the mode + password', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['4', '1', 'https://new.ts.net'], setPw)
+      // The trailing CHANGE is the confirmation a REPLACEMENT now asks for: this
+      // box already has a URL, and every machine that joined at it is about to be
+      // stranded (PDM-26).
+      await run(['4', '1', 'https://new.ts.net', 'CHANGE'], setPw)
       expect(loadConfig().publicUrl).toBe('https://new.ts.net')
+      expect(loadConfig().networkOption).toBe('tailscale-funnel')
       expect(loadConfig().mode).toBe('all-in-one')
       expect(setPw).not.toHaveBeenCalled()
     })
@@ -587,5 +594,89 @@ describe('runCliSetup', () => {
       })
       expect(hostPrinted.join('\n')).toContain('6) Change telemetry')
     })
+  })
+})
+
+/**
+ * What the DEPLOYMENT owns, `podium setup` may not write (PDM-26) — and
+ * replacing a live public URL is a decision, not a step.
+ */
+describe('runCliSetup under a deployment that owns the answers', () => {
+  let dir: string
+  const priorDir = process.env.PODIUM_STATE_DIR
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-clisetup-env-'))
+    process.env.PODIUM_STATE_DIR = dir
+  })
+  afterEach(() => {
+    vi.unstubAllEnvs()
+    process.env.PODIUM_STATE_DIR = priorDir
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const run = (answers: string[], deps: Record<string, unknown> = {}) => {
+    let i = 0
+    const out: string[] = []
+    return {
+      out,
+      done: runCliSetup(
+        { prompt: async () => answers[i++] ?? '', print: (s) => out.push(s) },
+        18787,
+        {
+          setPassword: vi.fn(async () => {}),
+          startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
+          waitForEnrollment: async () => {},
+          ...deps,
+        },
+      ),
+    }
+  }
+
+  it('refuses the mode menu items under PODIUM_MODE, before asking anything else', async () => {
+    vi.stubEnv('PODIUM_MODE', 'server')
+    const { out, done } = run(['1'])
+    await done
+    expect(out.join('\n')).toMatch(/PODIUM_MODE is set in this deployment's environment/)
+    expect(loadConfig().mode).toBeUndefined()
+  })
+
+  it('refuses the URL edit under PODIUM_PUBLIC_URL', async () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
+    vi.stubEnv('PODIUM_PUBLIC_URL', 'https://forced.example')
+    const { out, done } = run(['4'])
+    await done
+    expect(out.join('\n')).toMatch(/PODIUM_PUBLIC_URL is set in this deployment's environment/)
+    expect(loadConfig().publicUrl).toBe('https://a.example')
+  })
+
+  it('asks before replacing a live public URL, and leaves it alone on a refusal', async () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
+    // menu 4 → network option 4 (manual) → the new URL → the confirmation word
+    const { out, done } = run(['4', '4', 'https://b.example', 'no'])
+    await done
+    expect(out.join('\n')).toMatch(/strands every machine that joined at the old URL/)
+    expect(loadConfig().publicUrl).toBe('https://a.example')
+  })
+
+  it('replaces it when the operator types the word', async () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
+    const { done } = run(['4', '4', 'https://b.example', 'CHANGE'])
+    await done
+    expect(loadConfig().publicUrl).toBe('https://b.example')
+  })
+
+  it('--confirm-url-change answers the question ahead of a prompt that cannot be shown', async () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
+    const { done } = run(['4', '4', 'https://b.example'], { confirmUrlChange: true })
+    await done
+    expect(loadConfig().publicUrl).toBe('https://b.example')
+  })
+
+  it('re-pasting the SAME URL is never a change and is never questioned', async () => {
+    saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
+    const { out, done } = run(['4', '4', 'https://a.example'])
+    await done
+    expect(out.join('\n')).not.toMatch(/strands every machine/)
+    expect(loadConfig().publicUrl).toBe('https://a.example')
   })
 })

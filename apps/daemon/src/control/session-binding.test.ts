@@ -46,7 +46,7 @@ describe('SessionBinding control authority', () => {
       durableLabel: 'podium-missing-reattach-binding',
       agentKind: 'codex',
       cwd: '/repo',
-      geometry: { cols: 80, rows: 24 },
+      lastKnownGeometry: { cols: 80, rows: 24 },
     })
     await Promise.resolve()
 

@@ -1,0 +1,41 @@
+{
+  "cell": "A9",
+  "arm": "terminal",
+  "harness": "opencode",
+  "driver": "generic-pty",
+  "verdict": "BLOCKED",
+  "summary": "The current-tip terminal arm was not started because root free space fell below the fail-closed 5 GiB floor.",
+  "evidence": [
+    "preflight root free=5228788 KiB",
+    "required floor=5242880 KiB (5 GiB)",
+    "no terminal server, daemon, web build, named instance, or session was started",
+    "no positive control, stamp proof, PID census, or spawn-time pin was inferred"
+  ],
+  "data": {
+    "controlFired": false,
+    "stampProof": false,
+    "serverStarted": false,
+    "daemonStarted": false,
+    "sessionStarted": false,
+    "rootFreeKb": 5228788,
+    "floorKb": 5242880,
+    "reason": "disk floor gate refused before generic-pty arm bring-up"
+  },
+  "instance": "p2929z",
+  "codePin": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+  "pin": {
+    "codeSha": "2e1648ca89e7f28fe42d6d62aeb2b0ad224cfd42",
+    "server": null,
+    "daemon": null,
+    "bundleSourceSha": null,
+    "expectedDriver": "generic-pty",
+    "actualRuntimeDriver": null
+  },
+  "lease": "test:heavy was released before this blocked result was written",
+  "recordedAt": "2026-08-28T04:52:25Z",
+  "error": "",
+  "log": [
+    "free_kb=5228788 floor_kb=5242880",
+    "BLOCKED: below 5GiB floor; no terminal arm started"
+  ]
+}

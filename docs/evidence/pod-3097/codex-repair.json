@@ -1,0 +1,1004 @@
+{
+  "schema": "pod-3097-a11-v1",
+  "issue": "POD-3097",
+  "cell": "codex",
+  "verdict": "PASS",
+  "startedAt": "2026-08-29T22:54:22.296Z",
+  "finishedAt": "2026-08-29T22:55:14.022Z",
+  "control": {
+    "marker": "P3097-CODEX-CONTROL-RJSWBBX",
+    "startedAt": "2026-08-29T22:54:26.650Z",
+    "finishedAt": "2026-08-29T22:54:30.456Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+      "status": "live",
+      "phase": "idle",
+      "driverId": "codex-app-server",
+      "driverFamily": "server",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "resume": {
+        "kind": "codex-thread",
+        "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+      }
+    },
+    "fired": true
+  },
+  "expectedDriver": "codex-app-server",
+  "before": {
+    "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+    }
+  },
+  "target": {
+    "model": "gpt-5.6-luna",
+    "effort": "max"
+  },
+  "configuredAt": "2026-08-29T22:55:00.704Z",
+  "configureOutcome": {
+    "ok": true,
+    "effective": "next-turn"
+  },
+  "immediate": {
+    "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+    }
+  },
+  "nextTurn": {
+    "marker": "P3097-CODEX-CONFIGURED-V5OL7HV",
+    "startedAt": "2026-08-29T22:55:00.741Z",
+    "finishedAt": "2026-08-29T22:55:03.286Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+      "agentKind": "codex",
+      "accountId": "native:claude-code",
+      "title": "repo",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T22:55:03.000Z",
+        "workingMsTotal": 4000,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c0",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T22:54:25.584Z",
+      "lastActiveAt": "2026-08-29T22:55:03.000Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "codex-thread",
+        "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+      },
+      "transcriptAvailable": true,
+      "observedModel": "gpt-5.6-luna",
+      "observedEffort": "max",
+      "requestedModel": "gpt-5.6-luna",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "codex-app-server",
+      "requestedDriverId": "codex-app-server",
+      "driverFamily": "server",
+      "conversationPodiumId": "conv_8129ef33-6407-4482-a05e-b5e34bcaf944",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": false
+    }
+  },
+  "afterTurn": {
+    "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "observedModel": "gpt-5.6-luna",
+    "observedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+    }
+  },
+  "reloaded": {
+    "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "observedModel": "gpt-5.6-luna",
+    "observedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+    }
+  },
+  "restarted": {
+    "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+    }
+  },
+  "persistenceTurn": {
+    "marker": "P3097-CODEX-PERSISTED-9I53KHX",
+    "startedAt": "2026-08-29T22:55:09.625Z",
+    "finishedAt": "2026-08-29T22:55:12.942Z",
+    "sent": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "userObserved": true,
+    "assistantObserved": true,
+    "row": {
+      "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+      "agentKind": "codex",
+      "accountId": "native:claude-code",
+      "title": "repo",
+      "cwd": "/tmp/pod-3097-a11/repo",
+      "status": "live",
+      "agentState": {
+        "phase": "idle",
+        "since": "2026-08-29T22:55:12.000Z",
+        "workingMsTotal": 4000,
+        "nativeSubagentCount": 0,
+        "idle": {
+          "kind": "done"
+        }
+      },
+      "controllerId": "c0",
+      "geometry": {
+        "cols": 120,
+        "rows": 40
+      },
+      "epoch": 0,
+      "clientCount": 1,
+      "createdAt": "2026-08-29T22:54:25.584Z",
+      "lastActiveAt": "2026-08-29T22:55:12.751Z",
+      "origin": {
+        "kind": "spawn"
+      },
+      "archived": false,
+      "readAt": null,
+      "unread": true,
+      "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+      "machineName": "flatblock",
+      "resumable": true,
+      "resume": {
+        "kind": "codex-thread",
+        "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+      },
+      "transcriptAvailable": true,
+      "observedModel": "gpt-5.6-luna",
+      "observedEffort": "max",
+      "requestedModel": "gpt-5.6-luna",
+      "requestedEffort": "max",
+      "configureFields": [
+        "model",
+        "effort"
+      ],
+      "driverId": "codex-app-server",
+      "requestedDriverId": "codex-app-server",
+      "driverFamily": "server",
+      "conversationPodiumId": "conv_8129ef33-6407-4482-a05e-b5e34bcaf944",
+      "spawnedBy": "user",
+      "createdBy": {
+        "actor": {
+          "kind": "user",
+          "id": "user:sole"
+        },
+        "onBehalfOf": "user:sole"
+      },
+      "harnessHandoff": true,
+      "harnessPromptModeHints": false
+    }
+  },
+  "final": {
+    "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+    "status": "live",
+    "phase": "idle",
+    "driverId": "codex-app-server",
+    "driverFamily": "server",
+    "configureFields": [
+      "model",
+      "effort"
+    ],
+    "requestedModel": "gpt-5.6-luna",
+    "requestedEffort": "max",
+    "observedModel": "gpt-5.6-luna",
+    "observedEffort": "max",
+    "resume": {
+      "kind": "codex-thread",
+      "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+    }
+  },
+  "initialPins": {
+    "at": "2026-08-29T22:54:22.311Z",
+    "head": "31c09aee6509a52f9263742c706375e97ec2149b",
+    "integrationTip": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "mergeBase": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "nonEvidenceChanges": [],
+    "integrationNonEvidenceChanges": [
+      "apps/daemon/src/claude-sdk-client.ts",
+      "apps/daemon/src/claude-sdk-host.test.ts",
+      "apps/daemon/src/claude-sdk-host.ts",
+      "apps/daemon/src/claude-sdk-protocol.ts",
+      "apps/daemon/src/headless-drivers.ts",
+      "apps/daemon/src/host-runtime.ts",
+      "apps/daemon/src/runtime/claude-sdk-driver.test.ts",
+      "apps/daemon/src/runtime/claude-sdk-driver.ts",
+      "apps/daemon/src/runtime/codex-driver.ts",
+      "apps/daemon/src/runtime/opencode-driver.ts",
+      "apps/web/src/features/terminal/AgentPanel.tsx",
+      "apps/web/src/features/terminal/agent-panel-arbitration.test.tsx",
+      "apps/web/src/features/terminal/test-support/presence-mock.ts",
+      "packages/agent-runtime/src/drivers/claude-sdk/runtime.ts",
+      "packages/agent-runtime/src/drivers/codex/codex-app-server.conformance.test.ts",
+      "packages/agent-runtime/src/drivers/codex/runtime.ts",
+      "packages/agent-runtime/src/drivers/opencode/opencode-server.conformance.test.ts",
+      "packages/agent-runtime/src/drivers/opencode/runtime.ts"
+    ],
+    "trees": {
+      "server": "d2f27572119d8f11837fd1242db249e5f80939a7",
+      "daemon": "46419367bb0d29df07a3b87cdee8a6412ae60fb4",
+      "web": "bf6d93251133d7eeabd664afdb5009333c34bc02"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T22:54:00.228Z",
+      "appVersion": "dev+31c09ae",
+      "sourceSha": "31c09ae",
+      "bundleVersion": "bundle+yw8v15Ej"
+    },
+    "server": {
+      "pid": "1891675",
+      "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1891899",
+      "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T225409Z",
+    "capacity": {
+      "load1m": 10.51,
+      "memAvailable": "18917128 kB",
+      "rootFreeKiB": 73600100
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "finalPins": {
+    "at": "2026-08-29T22:55:12.986Z",
+    "head": "31c09aee6509a52f9263742c706375e97ec2149b",
+    "integrationTip": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "mergeBase": "71cb2b78855b32e445380b064040e8e9fe9784de",
+    "nonEvidenceChanges": [],
+    "integrationNonEvidenceChanges": [
+      "apps/daemon/src/claude-sdk-client.ts",
+      "apps/daemon/src/claude-sdk-host.test.ts",
+      "apps/daemon/src/claude-sdk-host.ts",
+      "apps/daemon/src/claude-sdk-protocol.ts",
+      "apps/daemon/src/headless-drivers.ts",
+      "apps/daemon/src/host-runtime.ts",
+      "apps/daemon/src/runtime/claude-sdk-driver.test.ts",
+      "apps/daemon/src/runtime/claude-sdk-driver.ts",
+      "apps/daemon/src/runtime/codex-driver.ts",
+      "apps/daemon/src/runtime/opencode-driver.ts",
+      "apps/web/src/features/terminal/AgentPanel.tsx",
+      "apps/web/src/features/terminal/agent-panel-arbitration.test.tsx",
+      "apps/web/src/features/terminal/test-support/presence-mock.ts",
+      "packages/agent-runtime/src/drivers/claude-sdk/runtime.ts",
+      "packages/agent-runtime/src/drivers/codex/codex-app-server.conformance.test.ts",
+      "packages/agent-runtime/src/drivers/codex/runtime.ts",
+      "packages/agent-runtime/src/drivers/opencode/opencode-server.conformance.test.ts",
+      "packages/agent-runtime/src/drivers/opencode/runtime.ts"
+    ],
+    "trees": {
+      "server": "d2f27572119d8f11837fd1242db249e5f80939a7",
+      "daemon": "46419367bb0d29df07a3b87cdee8a6412ae60fb4",
+      "web": "bf6d93251133d7eeabd664afdb5009333c34bc02"
+    },
+    "servedWeb": {
+      "wireSchemaDigest": "4c6f2e46828ec294",
+      "wireVersion": 2,
+      "builtAt": "2026-08-29T22:54:00.228Z",
+      "appVersion": "dev+31c09ae",
+      "sourceSha": "31c09ae",
+      "bundleVersion": "bundle+yw8v15Ej"
+    },
+    "server": {
+      "pid": "1897823",
+      "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "daemon": {
+      "pid": "1898080",
+      "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+      "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+      "instance": "p3097-a11",
+      "stateRoot": "/tmp/pod-3097-a11/state",
+      "agentHome": "/tmp/pod-3097-a11/agent-home",
+      "port": "20097",
+      "hookPort": "47097",
+      "relayPort": "47098"
+    },
+    "instance": "p3097-a11",
+    "stateRoot": "/tmp/pod-3097-a11/state",
+    "agentHome": "/tmp/pod-3097-a11/agent-home",
+    "ports": {
+      "server": "20097",
+      "hook": "47097",
+      "relay": "47098",
+      "operatorForbidden": "19797"
+    },
+    "generation": "20260829T225504Z",
+    "capacity": {
+      "load1m": 10.44,
+      "memAvailable": "18818536 kB",
+      "rootFreeKiB": 73781352
+    },
+    "harnesses": {
+      "codex": "codex-cli 0.150.1",
+      "opencode": "1.18.25",
+      "claude": "2.1.236 (Claude Code)",
+      "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+    }
+  },
+  "events": [
+    {
+      "at": "2026-08-29T22:54:22.296Z",
+      "event": "cell-start",
+      "detail": {
+        "cell": "codex"
+      }
+    },
+    {
+      "at": "2026-08-29T22:54:23.338Z",
+      "event": "initial-pins-proved",
+      "detail": {
+        "at": "2026-08-29T22:54:22.311Z",
+        "head": "31c09aee6509a52f9263742c706375e97ec2149b",
+        "integrationTip": "71cb2b78855b32e445380b064040e8e9fe9784de",
+        "mergeBase": "71cb2b78855b32e445380b064040e8e9fe9784de",
+        "nonEvidenceChanges": [],
+        "integrationNonEvidenceChanges": [
+          "apps/daemon/src/claude-sdk-client.ts",
+          "apps/daemon/src/claude-sdk-host.test.ts",
+          "apps/daemon/src/claude-sdk-host.ts",
+          "apps/daemon/src/claude-sdk-protocol.ts",
+          "apps/daemon/src/headless-drivers.ts",
+          "apps/daemon/src/host-runtime.ts",
+          "apps/daemon/src/runtime/claude-sdk-driver.test.ts",
+          "apps/daemon/src/runtime/claude-sdk-driver.ts",
+          "apps/daemon/src/runtime/codex-driver.ts",
+          "apps/daemon/src/runtime/opencode-driver.ts",
+          "apps/web/src/features/terminal/AgentPanel.tsx",
+          "apps/web/src/features/terminal/agent-panel-arbitration.test.tsx",
+          "apps/web/src/features/terminal/test-support/presence-mock.ts",
+          "packages/agent-runtime/src/drivers/claude-sdk/runtime.ts",
+          "packages/agent-runtime/src/drivers/codex/codex-app-server.conformance.test.ts",
+          "packages/agent-runtime/src/drivers/codex/runtime.ts",
+          "packages/agent-runtime/src/drivers/opencode/opencode-server.conformance.test.ts",
+          "packages/agent-runtime/src/drivers/opencode/runtime.ts"
+        ],
+        "trees": {
+          "server": "d2f27572119d8f11837fd1242db249e5f80939a7",
+          "daemon": "46419367bb0d29df07a3b87cdee8a6412ae60fb4",
+          "web": "bf6d93251133d7eeabd664afdb5009333c34bc02"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "4c6f2e46828ec294",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T22:54:00.228Z",
+          "appVersion": "dev+31c09ae",
+          "sourceSha": "31c09ae",
+          "bundleVersion": "bundle+yw8v15Ej"
+        },
+        "server": {
+          "pid": "1891675",
+          "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1891899",
+          "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T225409Z",
+        "capacity": {
+          "load1m": 10.51,
+          "memAvailable": "18917128 kB",
+          "rootFreeKiB": 73600100
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:54:25.568Z",
+      "event": "live-catalog-read",
+      "detail": {
+        "fetchedAt": 1788044065557,
+        "counts": {
+          "grok": 2,
+          "cursor": 0,
+          "opencode": 32,
+          "codex": 7,
+          "claude-code": 10
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:54:25.593Z",
+      "event": "session-created",
+      "detail": {
+        "sid": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+        "agentKind": "codex"
+      }
+    },
+    {
+      "at": "2026-08-29T22:54:26.641Z",
+      "event": "driver-bound",
+      "detail": {
+        "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "codex-app-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "resume": {
+          "kind": "codex-thread",
+          "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:00.675Z",
+      "event": "independent-positive-control",
+      "detail": {
+        "marker": "P3097-CODEX-CONTROL-RJSWBBX",
+        "startedAt": "2026-08-29T22:54:26.650Z",
+        "finishedAt": "2026-08-29T22:54:30.456Z",
+        "sent": {
+          "ok": true,
+          "disposition": "delivered"
+        },
+        "userObserved": true,
+        "assistantObserved": true,
+        "row": {
+          "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+          }
+        },
+        "fired": true
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:00.703Z",
+      "event": "configure-request",
+      "detail": {
+        "model": "gpt-5.6-luna",
+        "effort": "max"
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:00.740Z",
+      "event": "configure-reply",
+      "detail": {
+        "configureOutcome": {
+          "ok": true,
+          "effective": "next-turn"
+        },
+        "immediate": {
+          "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "max",
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:03.398Z",
+      "event": "next-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-CODEX-CONFIGURED-V5OL7HV",
+          "startedAt": "2026-08-29T22:55:00.741Z",
+          "finishedAt": "2026-08-29T22:55:03.286Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+            "agentKind": "codex",
+            "accountId": "native:claude-code",
+            "title": "repo",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T22:55:03.000Z",
+              "workingMsTotal": 4000,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c0",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T22:54:25.584Z",
+            "lastActiveAt": "2026-08-29T22:55:03.000Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "codex-thread",
+              "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+            },
+            "transcriptAvailable": true,
+            "observedModel": "gpt-5.6-luna",
+            "observedEffort": "max",
+            "requestedModel": "gpt-5.6-luna",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "codex-app-server",
+            "requestedDriverId": "codex-app-server",
+            "driverFamily": "server",
+            "conversationPodiumId": "conv_8129ef33-6407-4482-a05e-b5e34bcaf944",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": true,
+            "harnessPromptModeHints": false
+          }
+        },
+        "row": {
+          "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "max",
+          "observedModel": "gpt-5.6-luna",
+          "observedEffort": "max",
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:03.477Z",
+      "event": "fresh-client-reload",
+      "detail": {
+        "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "codex-app-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "gpt-5.6-luna",
+        "requestedEffort": "max",
+        "observedModel": "gpt-5.6-luna",
+        "observedEffort": "max",
+        "resume": {
+          "kind": "codex-thread",
+          "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:03.730Z",
+      "event": "isolated-restart-start"
+    },
+    {
+      "at": "2026-08-29T22:55:08.887Z",
+      "event": "isolated-restart-complete",
+      "detail": {
+        "stdout": ""
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:09.617Z",
+      "event": "post-server-daemon-restart",
+      "detail": {
+        "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+        "status": "live",
+        "phase": "idle",
+        "driverId": "codex-app-server",
+        "driverFamily": "server",
+        "configureFields": [
+          "model",
+          "effort"
+        ],
+        "requestedModel": "gpt-5.6-luna",
+        "requestedEffort": "max",
+        "resume": {
+          "kind": "codex-thread",
+          "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:12.962Z",
+      "event": "post-restart-provider-turn-observed",
+      "detail": {
+        "turn": {
+          "marker": "P3097-CODEX-PERSISTED-9I53KHX",
+          "startedAt": "2026-08-29T22:55:09.625Z",
+          "finishedAt": "2026-08-29T22:55:12.942Z",
+          "sent": {
+            "ok": true,
+            "disposition": "delivered"
+          },
+          "userObserved": true,
+          "assistantObserved": true,
+          "row": {
+            "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+            "agentKind": "codex",
+            "accountId": "native:claude-code",
+            "title": "repo",
+            "cwd": "/tmp/pod-3097-a11/repo",
+            "status": "live",
+            "agentState": {
+              "phase": "idle",
+              "since": "2026-08-29T22:55:12.000Z",
+              "workingMsTotal": 4000,
+              "nativeSubagentCount": 0,
+              "idle": {
+                "kind": "done"
+              }
+            },
+            "controllerId": "c0",
+            "geometry": {
+              "cols": 120,
+              "rows": 40
+            },
+            "epoch": 0,
+            "clientCount": 1,
+            "createdAt": "2026-08-29T22:54:25.584Z",
+            "lastActiveAt": "2026-08-29T22:55:12.751Z",
+            "origin": {
+              "kind": "spawn"
+            },
+            "archived": false,
+            "readAt": null,
+            "unread": true,
+            "machineId": "2856eaec-17fd-4384-beae-ec03aaeeda51",
+            "machineName": "flatblock",
+            "resumable": true,
+            "resume": {
+              "kind": "codex-thread",
+              "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+            },
+            "transcriptAvailable": true,
+            "observedModel": "gpt-5.6-luna",
+            "observedEffort": "max",
+            "requestedModel": "gpt-5.6-luna",
+            "requestedEffort": "max",
+            "configureFields": [
+              "model",
+              "effort"
+            ],
+            "driverId": "codex-app-server",
+            "requestedDriverId": "codex-app-server",
+            "driverFamily": "server",
+            "conversationPodiumId": "conv_8129ef33-6407-4482-a05e-b5e34bcaf944",
+            "spawnedBy": "user",
+            "createdBy": {
+              "actor": {
+                "kind": "user",
+                "id": "user:sole"
+              },
+              "onBehalfOf": "user:sole"
+            },
+            "harnessHandoff": true,
+            "harnessPromptModeHints": false
+          }
+        },
+        "row": {
+          "sessionId": "b4a4e886-4fce-4fc7-a8cf-7c91888dc0d0",
+          "status": "live",
+          "phase": "idle",
+          "driverId": "codex-app-server",
+          "driverFamily": "server",
+          "configureFields": [
+            "model",
+            "effort"
+          ],
+          "requestedModel": "gpt-5.6-luna",
+          "requestedEffort": "max",
+          "observedModel": "gpt-5.6-luna",
+          "observedEffort": "max",
+          "resume": {
+            "kind": "codex-thread",
+            "value": "01a04fbb-3d3d-7fd1-b0a2-ed422f4f32fe"
+          }
+        }
+      }
+    },
+    {
+      "at": "2026-08-29T22:55:14.022Z",
+      "event": "final-pins-proved",
+      "detail": {
+        "at": "2026-08-29T22:55:12.986Z",
+        "head": "31c09aee6509a52f9263742c706375e97ec2149b",
+        "integrationTip": "71cb2b78855b32e445380b064040e8e9fe9784de",
+        "mergeBase": "71cb2b78855b32e445380b064040e8e9fe9784de",
+        "nonEvidenceChanges": [],
+        "integrationNonEvidenceChanges": [
+          "apps/daemon/src/claude-sdk-client.ts",
+          "apps/daemon/src/claude-sdk-host.test.ts",
+          "apps/daemon/src/claude-sdk-host.ts",
+          "apps/daemon/src/claude-sdk-protocol.ts",
+          "apps/daemon/src/headless-drivers.ts",
+          "apps/daemon/src/host-runtime.ts",
+          "apps/daemon/src/runtime/claude-sdk-driver.test.ts",
+          "apps/daemon/src/runtime/claude-sdk-driver.ts",
+          "apps/daemon/src/runtime/codex-driver.ts",
+          "apps/daemon/src/runtime/opencode-driver.ts",
+          "apps/web/src/features/terminal/AgentPanel.tsx",
+          "apps/web/src/features/terminal/agent-panel-arbitration.test.tsx",
+          "apps/web/src/features/terminal/test-support/presence-mock.ts",
+          "packages/agent-runtime/src/drivers/claude-sdk/runtime.ts",
+          "packages/agent-runtime/src/drivers/codex/codex-app-server.conformance.test.ts",
+          "packages/agent-runtime/src/drivers/codex/runtime.ts",
+          "packages/agent-runtime/src/drivers/opencode/opencode-server.conformance.test.ts",
+          "packages/agent-runtime/src/drivers/opencode/runtime.ts"
+        ],
+        "trees": {
+          "server": "d2f27572119d8f11837fd1242db249e5f80939a7",
+          "daemon": "46419367bb0d29df07a3b87cdee8a6412ae60fb4",
+          "web": "bf6d93251133d7eeabd664afdb5009333c34bc02"
+        },
+        "servedWeb": {
+          "wireSchemaDigest": "4c6f2e46828ec294",
+          "wireVersion": 2,
+          "builtAt": "2026-08-29T22:54:00.228Z",
+          "appVersion": "dev+31c09ae",
+          "sourceSha": "31c09ae",
+          "bundleVersion": "bundle+yw8v15Ej"
+        },
+        "server": {
+          "pid": "1897823",
+          "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "daemon": {
+          "pid": "1898080",
+          "sha": "16c1c9c446bd67e8537884c725d9e8e4fabe5afa",
+          "cwd": "/home/mgw/src/podium/.worktrees/issue-3097-current-tip-configure-proof",
+          "instance": "p3097-a11",
+          "stateRoot": "/tmp/pod-3097-a11/state",
+          "agentHome": "/tmp/pod-3097-a11/agent-home",
+          "port": "20097",
+          "hookPort": "47097",
+          "relayPort": "47098"
+        },
+        "instance": "p3097-a11",
+        "stateRoot": "/tmp/pod-3097-a11/state",
+        "agentHome": "/tmp/pod-3097-a11/agent-home",
+        "ports": {
+          "server": "20097",
+          "hook": "47097",
+          "relay": "47098",
+          "operatorForbidden": "19797"
+        },
+        "generation": "20260829T225504Z",
+        "capacity": {
+          "load1m": 10.44,
+          "memAvailable": "18818536 kB",
+          "rootFreeKiB": 73781352
+        },
+        "harnesses": {
+          "codex": "codex-cli 0.150.1",
+          "opencode": "1.18.25",
+          "claude": "2.1.236 (Claude Code)",
+          "grok": "grok 0.2.118 (1e1687c1cf) [stable]"
+        }
+      }
+    }
+  ]
+}

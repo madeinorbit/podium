@@ -11,6 +11,7 @@
  * had no reader anywhere in the tree and is gone (POD-1501).
  */
 import type { SessionMeta } from '@podium/model'
+import type { MissionRollup } from '../../mission'
 import { isSessionWorking } from '../../session-status'
 import { subtreeUnread } from '../../unread'
 import type { IssueNavigationModel } from '../issues'
@@ -28,6 +29,8 @@ export type UnifiedIssueRow = {
   startedByChildren?: UnifiedIssueRow[]
   /** Own + descendant sessions, used only for bubbled status/attention. */
   aggregateSessions?: SessionMeta[]
+  /** Canonical task progress and whether the root is a child-derived container. */
+  missionRollup?: MissionRollup
   /**
    * Where this row's work went, when it went somewhere else (POD-1193) — the
    * compact phrase, `continued · POD-1192`. Present IFF the work carried on
@@ -88,6 +91,7 @@ function reuseRow(previous: UnifiedWorkRow | undefined, next: UnifiedWorkRow): U
     previous.issue === next.issue &&
     previous.activityAt === next.activityAt &&
     previous.continuation === next.continuation &&
+    previous.missionRollup === next.missionRollup &&
     sameRefs(previous.sessions, next.sessions) &&
     sameRefs(previous.aggregateSessions, next.aggregateSessions) &&
     sameRefs(previousChildren, children)

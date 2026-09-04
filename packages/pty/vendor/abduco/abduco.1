@@ -104,6 +104,13 @@ Force creation of session when there is an already terminated session of the sam
 after showing its exit status.
 .It Fl l
 Attach with the lowest priority, meaning this client will be the last to control the size.
+.It Fl N
+podium extension: attach without announcing a size.
+The client sends no size on connect and ignores the master's request for one when
+it becomes the controlling client, so attaching never resizes or signals the running
+program; only a
+.Dv SIGWINCH
+on this client afterwards does.
 .It Fl p
 Pass through content of standard input to the session.
 Implies the

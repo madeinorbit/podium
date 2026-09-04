@@ -2,6 +2,7 @@ import { asIssueId, asMachineId, asSessionId, type SessionMeta } from '@podium/m
 import { describe, expect, it } from 'vitest'
 import {
   hostAgentsView,
+  hostDiskView,
   hostLoadView,
   idleSessionSplit,
   listReclaimableWorktreesClient,
@@ -344,5 +345,43 @@ describe('residentWorktreeKey', () => {
         ]),
       ),
     ).toEqual(['/r/.worktrees/a', '/r/.worktrees/b'])
+  })
+})
+
+describe('hostDiskView', () => {
+  const GIB = 1024 ** 3
+  const disk = (usedGib: number, availGib: number, totalGib: number) => ({
+    path: '/home/podium',
+    totalBytes: totalGib * GIB,
+    usedBytes: usedGib * GIB,
+    availableBytes: availGib * GIB,
+  })
+
+  it("uses df's arithmetic, so the root reserve is not counted as headroom", () => {
+    // 412 used, 46 available, 463 total: 5 GiB exists but is root's, so the
+    // honest answer is 412/458 = 90% and NOT 412/463 = 89%.
+    const view = hostDiskView(disk(412, 46, 463))
+    expect(view.pct).toBe(90)
+    expect(view.label).toBe('412/463 GB')
+    expect(view.freeLabel).toBe('46 GB free')
+    expect(view.severity).toBe('critical')
+  })
+
+  it('prints one unit for the pair, at the volume’s own scale', () => {
+    const view = hostDiskView(disk(1433.6, 2252.8, 3686.4))
+    expect(view.label).toBe('1.4/3.6 TB')
+    expect(view.freeLabel).toBe('2.2 TB free')
+  })
+
+  it('grades the same way memory does, and never divides by zero', () => {
+    expect(hostDiskView(disk(400, 600, 1024)).severity).toBe('ok')
+    expect(hostDiskView(disk(800, 200, 1024)).severity).toBe('warn')
+    const empty = hostDiskView(disk(0, 0, 0))
+    expect(empty.pct).toBe(0)
+    expect(empty.severity).toBe('ok')
+  })
+
+  it('names the volume it sampled, since a host has more than one', () => {
+    expect(hostDiskView(disk(412, 46, 463)).title).toContain('/home/podium')
   })
 })

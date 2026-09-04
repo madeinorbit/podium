@@ -1,0 +1,140 @@
+{
+  "cell": "A5",
+  "harness": "claude",
+  "cwd": "/tmp/pod-2874/probes/claude-a5",
+  "at": "2026-08-26T12:02:59.279Z",
+  "pin": {
+    "cell": "A5",
+    "at": "2026-08-26T12:02:59.309Z",
+    "checkoutSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "serverSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "daemonSha": "6c10b6643a7c86f3d951216dcf029528ff50d671",
+    "web": {
+      "wireSchemaDigest": "3434afac488e513a",
+      "wireVersion": 2,
+      "builtAt": "2026-08-26T10:59:05.103Z",
+      "appVersion": "dev+6c10b66",
+      "sourceSha": "6c10b66",
+      "bundleVersion": "bundle+B_1436Qd"
+    },
+    "serverPid": "2252117",
+    "daemonPid": "2253065",
+    "serverAlive": true,
+    "daemonAlive": true,
+    "serverCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "daemonCwd": "/home/mgw/src/podium/.worktrees/issue-2874-acceptance-drive-claude-and-shell-column",
+    "freeMemory": {
+      "MemTotal": "12242288 kB",
+      "MemAvailable": "5295432 kB",
+      "SwapFree": "36992772 kB"
+    },
+    "forbiddenOverrides": {
+      "PODIUM_STATE_DIR": null,
+      "PODIUM_AGENT_HOME": null,
+      "ABDUCO_SOCKET_DIR": null,
+      "TMUX_TMPDIR": null,
+      "PODIUM_WEB_DIR": null
+    }
+  },
+  "verdict": "PASS",
+  "summary": "tool call/result pair and reload history are intact",
+  "control": {
+    "fired": true,
+    "what": "the transcript fixture prompt landing as a durable user turn",
+    "detail": "user=true; assistant=true; items=5"
+  },
+  "evidence": [
+    "SEND              {\"ok\":true,\"queued\":true,\"disposition\":\"queued\"}",
+    "USER              true",
+    "ASSISTANT         true",
+    "TOOL ITEMS        [{\"role\":\"tool\",\"text\":\"\",\"toolName\":\"Bash\",\"toolInput\":\"cat /tmp/pod-2874/probes/claude-a5/transcript-fixture.txt\",\"ts\":\"2026-08-26T12:03:06.574Z\"},{\"role\":\"tool\",\"text\":\"\",\"ts\":\"2026-08-26T12:03:07.154Z\"}]",
+    "RESULT ITEMS      [{\"role\":\"tool\",\"text\":\"\",\"ts\":\"2026-08-26T12:03:07.154Z\"}]",
+    "RELOAD SAME       true",
+    "RELOAD ITEMS      5"
+  ],
+  "data": {
+    "sid": "82bbc9fa-38c7-4f39-aebf-414498fab6f3",
+    "secret": "P2874-A5-MTA1OI2U",
+    "before": [
+      {
+        "role": "user",
+        "text": "Use your Bash tool to run cat /tmp/pod-2874/probes/claude-a5/transcript-fixture.txt and then reply with only the secret word it contains.",
+        "ts": "2026-08-26T12:03:03.976Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-2874/probes/claude-a5/transcript-fixture.txt",
+        "ts": "2026-08-26T12:03:06.574Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-26T12:03:07.154Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P2874-A5-MTA1OI2U",
+        "ts": "2026-08-26T12:03:08.537Z"
+      },
+      {
+        "role": "system",
+        "text": "",
+        "ts": "2026-08-26T12:03:08.751Z"
+      }
+    ],
+    "after": [
+      {
+        "role": "user",
+        "text": "Use your Bash tool to run cat /tmp/pod-2874/probes/claude-a5/transcript-fixture.txt and then reply with only the secret word it contains.",
+        "ts": "2026-08-26T12:03:03.976Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-2874/probes/claude-a5/transcript-fixture.txt",
+        "ts": "2026-08-26T12:03:06.574Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-26T12:03:07.154Z"
+      },
+      {
+        "role": "assistant",
+        "text": "P2874-A5-MTA1OI2U",
+        "ts": "2026-08-26T12:03:08.537Z"
+      },
+      {
+        "role": "system",
+        "text": "",
+        "ts": "2026-08-26T12:03:08.751Z"
+      }
+    ],
+    "toolItems": [
+      {
+        "role": "tool",
+        "text": "",
+        "toolName": "Bash",
+        "toolInput": "cat /tmp/pod-2874/probes/claude-a5/transcript-fixture.txt",
+        "ts": "2026-08-26T12:03:06.574Z"
+      },
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-26T12:03:07.154Z"
+      }
+    ],
+    "resultItems": [
+      {
+        "role": "tool",
+        "text": "",
+        "ts": "2026-08-26T12:03:07.154Z"
+      }
+    ],
+    "paired": true,
+    "sameHistory": true
+  }
+}

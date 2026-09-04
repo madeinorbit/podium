@@ -314,6 +314,58 @@ describe('accountViews', () => {
 })
 
 describe('accountViews catalog', () => {
+  function opencodeMachine(state: 'in' | 'out'): MachineRecord {
+    return {
+      id: asMachineId(`opencode-${state}`),
+      name: `opencode-${state}`,
+      hostname: `opencode-${state}`,
+      createdAt: '2026-08-30T00:00:00.000Z',
+      lastSeenAt: '2026-08-30T00:00:00.000Z',
+      podiumManaged: true,
+      updateChannelOverride: null,
+      ownerUserId: null,
+      appVersion: null,
+      wireSchemaDigest: null,
+      installKind: null,
+      deliveryCaps: [],
+      supervised: false,
+      buildReportedAt: null,
+      components: ['daemon'],
+      inventory: Inventory.parse({
+        os: 'linux',
+        arch: 'x64',
+        agents: [
+          {
+            kind: 'opencode',
+            installed: true,
+            login: {
+              state,
+              ...(state === 'in' ? { account: 'OpenCode · synthetic-provider' } : {}),
+            },
+          },
+        ],
+      }),
+    }
+  }
+
+  it('projects OpenCode inventory login state into a native account row', () => {
+    const connected = accountViews(settings(), accounts, [opencodeMachine('in')]).find(
+      (view) => view.id === 'native:opencode',
+    )
+    const loggedOut = accountViews(settings(), accounts, [opencodeMachine('out')]).find(
+      (view) => view.id === 'native:opencode',
+    )
+
+    expect(connected).toMatchObject({
+      provider: 'opencode',
+      harness: 'opencode',
+      identity: 'OpenCode · synthetic-provider',
+      machines: ['opencode-in'],
+      status: 'connected',
+    })
+    expect(loggedOut).toMatchObject({ status: 'not-configured' })
+  })
+
   function catalogMachine(
     id: string,
     name: string,

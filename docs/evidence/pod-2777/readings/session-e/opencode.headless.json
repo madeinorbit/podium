@@ -1,0 +1,322 @@
+{
+  "harness": "opencode",
+  "arm": "headless",
+  "driverId": "opencode-server",
+  "driverFamily": "server",
+  "pin": {
+    "want": "15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f",
+    "short": "15e5afe",
+    "spawnedSha": "15e5afe79767cf1ae94b67d08d8dcfacf65a9f6f",
+    "serverPid": 2461863,
+    "daemonPid": 2461938,
+    "webSourceSha": "15e5afe",
+    "contract": "1",
+    "streaming": "1",
+    "driver": ""
+  },
+  "at": "2026-08-28T19:23:09.453Z",
+  "partial": [
+    "stream",
+    "interrupt"
+  ],
+  "results": [
+    {
+      "id": "attach",
+      "title": "attach a file",
+      "catalogRow": "§5 promptForm declared — both halves or unsupported (DECLARED on all four)",
+      "control": {
+        "fired": true,
+        "what": "a plain send on this same session having already produced a reply (probe 1)",
+        "detail": "probe 1 PASSED here, so this session can send and answer"
+      },
+      "ms": 5005,
+      "verdict": "PASS",
+      "summary": "the agent read the file and echoed FILESECRET-7VT24I",
+      "evidence": [
+        "STAGED            path=/tmp/pod-2777/state/uploads/ab7b8f9f-5109-4147-8210-99021c3eab6a/11de46cc-792b-4415-b145-f3fdf56373d4.txt ref={\"id\":\"11de46cc-792b-4415-b145-f3fdf56373d4\",\"path\":\"/tmp/pod-2777/state/uploads/ab7b8f9f-5109-4147-8210-99021c3eab6a/11de46cc-792b-4415-b145-f3fdf56373d4.txt\",\"filename\":\"podium-2777-secret.txt\",\"med",
+        "SECRET IN FILE    FILESECRET-7VT24I — present in the bytes and nowhere else",
+        "SEND              {\"ok\":true,\"disposition\":\"delivered\"}",
+        "                  (a 'queued' disposition here would mean the session was still busy)",
+        "ECHOED BACK       yes, after 4573ms",
+        "APPROVALS NEEDED  0 — the staging dir is OUTSIDE the repo, so reading the",
+        "                  attachment raises an external_directory permission ask. A drive that",
+        "                  did not answer it would time out and report \"never read the file\".",
+        "WHY A NONCE       an agent can agree that it sees a file without reading one;",
+        "                  it cannot produce these bytes without having read them."
+      ],
+      "data": {
+        "secret": "FILESECRET-7VT24I",
+        "staged": true,
+        "echoed": true,
+        "echoMs": 4573
+      },
+      "pin": "e28013a",
+      "at": "2026-08-25T18:41:14.916Z"
+    },
+    {
+      "id": "interaction",
+      "title": "a pending interaction (permission / approval)",
+      "catalogRow": "§3 permission / approval ask (WIRED — `approval` is in the refusal vocabulary, no conformance property)",
+      "control": {
+        "fired": true,
+        "what": "the turn producing durable transcript items at all (transcriptDelta on the same socket)",
+        "detail": "13 new transcript item(s) after the prompt; 19 delta frame(s) total"
+      },
+      "ms": 21015,
+      "verdict": "BLOCKED",
+      "summary": "no ask — this harness ran the tool without asking (permissive posture)",
+      "evidence": [
+        "INTERACTIONS.LIST empty for this session after 21s",
+        "TOOL CALLS SEEN   bash, bash, bash, bash, bash, bash, bash, bash, bash, bash, bash",
+        "BLOCKED, NOT FAILED: the harness approved its own tool call, so the",
+        "product was never handed an ask to surface. That is a fact about this",
+        "rig's permission posture, not about the product's ask plane."
+      ],
+      "data": {
+        "asks": 0,
+        "toolRan": true
+      },
+      "pin": "e28013a",
+      "at": "2026-08-25T18:41:14.916Z"
+    },
+    {
+      "id": "model-switch",
+      "title": "model / effort switch",
+      "catalogRow": "§7 switch model / switch effort (DECLARED — no conformance property, no product caller)",
+      "control": {
+        "fired": true,
+        "what": "the session readable at all, reporting the model it was asked for",
+        "detail": "model=(unset) observedModel=(none)"
+      },
+      "ms": 18,
+      "verdict": "BLOCKED",
+      "summary": "no product surface exists to switch model or effort mid-session",
+      "evidence": [
+        "REQUESTED MODEL   (session default)",
+        "OBSERVED MODEL    (none — renders \"requested, not yet observed\")",
+        "OBSERVED EFFORT   (none)",
+        "DECLARATION       codex: configure unsupported (\"model and effort are set at",
+        "                  thread start and per turn\"); opencode: unsupported; terminal:",
+        "                  unsupported (\"a TUI takes its model at launch\"); grok: supported",
+        "                  for permissionMode ONLY, explicitly not model/effort.",
+        "PRODUCT SURFACE   no server or daemon code calls handle.configure(); sessions.sendText",
+        "                  carries no per-turn model or effort override either.",
+        "READING           the declaration and the behaviour agree, and the product does",
+        "                  not offer a switch it cannot honour. Nothing is broken and",
+        "                  nothing is proven — the cell is empty on BOTH arms, so this is",
+        "                  not a way in which headless is better or worse."
+      ],
+      "data": {
+        "requested": null,
+        "observed": null,
+        "observedEffort": null,
+        "productSurface": false
+      },
+      "pin": "e28013a",
+      "at": "2026-08-25T18:41:14.916Z"
+    },
+    {
+      "id": "stop",
+      "title": "stop (the session — the turn-scoped stop is absent from the contract)",
+      "catalogRow": "§1 stop a turn distinctly from interrupting (ABSENT); §10 a stop that is verified rather than assumed (absent)",
+      "control": {
+        "fired": true,
+        "what": "the session present and readable in sessions.list immediately before the stop",
+        "detail": "present, status=live phase=working"
+      },
+      "ms": 328,
+      "verdict": "PASS",
+      "summary": "session left its running state 153ms after stop (status=hibernated)",
+      "evidence": [
+        "BEFORE            status=live phase=working",
+        "STOP RETURNED     {\"ok\":true,\"worktreeFreed\":false,\"deferredKill\":false}",
+        "AFTER             status=hibernated phase=working",
+        "VERIFIED IN       153ms",
+        "NOTE              this is sessions.stop (the SESSION). The catalogue records",
+        "                  \"stop this turn, keep the session\" as ABSENT from the contract",
+        "                  on all four drivers; this drive does not pretend otherwise."
+      ],
+      "data": {
+        "stoppedMs": 153,
+        "statusAfter": "hibernated",
+        "elapsed": 311
+      },
+      "pin": "e28013a",
+      "at": "2026-08-25T18:41:14.916Z"
+    },
+    {
+      "id": "resume",
+      "title": "resume after a kill",
+      "catalogRow": "§4 resume() brings the CONVERSATION back, not just the ref (proven)",
+      "control": {
+        "fired": true,
+        "what": "a conversation existing to restore — the pre-park turn answered with the secret",
+        "detail": "the session repeated REMEMBER-O6GDWN before it was parked"
+      },
+      "ms": 18364,
+      "verdict": "PASS",
+      "summary": "THIS conversation came back — REMEMBER-O6GDWN recalled, original exchange intact, same pointer",
+      "evidence": [
+        "SECRET            REMEMBER-O6GDWN — spoken only in the pre-kill conversation",
+        "HIBERNATE         {\"ok\":true}; PARKED after 55ms (status=hibernated)",
+        "RESURRECT         {\"ok\":true}",
+        "  → back live?    YES after 7355ms",
+        "RESUMEANDSEND     {\"ok\":true,\"disposition\":\"delivered\"}",
+        "  → back live?    YES after 40ms",
+        "TWO VERBS         POD-2775 fixed resumeAndSend, not resurrect. A probe that drove",
+        "                  only resurrect would report that landed fix as broken.",
+        "RECALL            the secret came back after 6591ms",
+        "SAME CONVERSATION YES — pointer conv_53e17262-ec9c-4b11- unchanged across the park",
+        "ORIGINAL EXCHANGE present — the transcript still carries the prompt that planted the secret",
+        "WHY THREE CHECKS  a resume mutated to a STRANGER'S thread id passed 269 tests,",
+        "                  partly because the drive-level check was \"both strings appear\".",
+        "                  Containing the word is not being the conversation.",
+        "WHY THIS SHAPE    a healthy BLANK session carrying the old ref passes any",
+        "                  check that only asks whether resume returned ok.",
+        "NOT COVERED       recovery from an UNCLEAN death. sessions.kill REMOVES the row",
+        "                  (resurrect then answers 'unknown session'), so this drives the",
+        "                  hibernate/resurrect round trip a person actually performs."
+      ],
+      "data": {
+        "secret": "REMEMBER-O6GDWN",
+        "recalled": true,
+        "recallMs": 6591,
+        "backLiveAfterResurrect": true,
+        "backLiveAfterResumeAndSend": true,
+        "sameConversation": true,
+        "carriesOriginal": true,
+        "conversationBefore": "conv_53e17262-ec9c-4b11-a5eb-73b117a0f71e",
+        "conversationAfter": "conv_53e17262-ec9c-4b11-a5eb-73b117a0f71e"
+      },
+      "pin": "21e9f04",
+      "at": "2026-08-25T22:32:50.187Z"
+    },
+    {
+      "id": "reply",
+      "title": "send a turn, get a reply",
+      "catalogRow": "§1 send opens a turn, reports the delivery actually used (pinned)",
+      "control": {
+        "fired": true,
+        "what": "our own prompt landing on the durable transcript plane (transcriptDelta)",
+        "detail": "2 transcriptDelta frame(s); prompt echoed on transcript: yes"
+      },
+      "ms": 10593,
+      "verdict": "PASS",
+      "summary": "replied with the nonce in 10.3s",
+      "evidence": [
+        "SENT              Reply with exactly this word and nothing else: PODIUM-ESDDLH. Do not use any tools.",
+        "SEND ACCEPTED     {\"ok\":true,\"disposition\":\"delivered\"}",
+        "NONCE             PODIUM-ESDDLH — a blank session cannot produce this by luck",
+        "REPLY             arrived after 10326ms",
+        "ASSISTANT TEXT    13 chars: \"PODIUM-ESDDLH\"",
+        "ELAPSED           10584ms"
+      ],
+      "data": {
+        "nonce": "PODIUM-ESDDLH",
+        "replyMs": 10326,
+        "chars": 13
+      },
+      "pin": "76fb384",
+      "at": "2026-08-26T09:11:04.192Z"
+    },
+    {
+      "id": "provider-error",
+      "title": "a provider error surfaced honestly",
+      "catalogRow": "§6 provider overloaded / rate limit (pinned in the drivers; product surfacing is POD-2604)",
+      "control": {
+        "fired": true,
+        "what": "this harness answering a normal question on this arm (probe 1)",
+        "detail": "probe 1 PASSED, so a failure in this probe is attributable to the injected fault"
+      },
+      "ms": 10956,
+      "verdict": "PASS",
+      "summary": "surfaced as errored",
+      "evidence": [
+        "INJECTED FAULT    model=\"opencode/laguna-s-2.1-free\" — RETIRED from opencode's gateway: the",
+        "                  session binds, is marked live, the send is ACCEPTED with a",
+        "                  turnEpoch, and then nothing ever settles (POD-2604).",
+        "SESSION           4dbe1a4e-dddf-44c2-9688-40bf041ce0c0",
+        "ERROR CLASS       (none)",
+        "ERROR DETAIL      (none)",
+        "PHASE / STATUS    phase=errored status=live",
+        "SURFACED AFTER    10418ms",
+        "The product told the truth about a turn that could not run."
+      ],
+      "data": {
+        "errorClass": null,
+        "phase": "errored",
+        "status": "live",
+        "surfacedMs": 10418
+      },
+      "pin": "76fb384",
+      "at": "2026-08-26T09:11:04.193Z"
+    },
+    {
+      "id": "stream",
+      "title": "streaming deltas actually arrive",
+      "catalogRow": "§2 first turn a viewer joins streams (codex proven; grok/opencode wired)",
+      "control": {
+        "fired": true,
+        "what": "transcriptDelta — the DURABLE plane, on the same socket and the same subscription",
+        "detail": "2 frame(s), first at +2ms"
+      },
+      "ms": 3,
+      "verdict": "PASS",
+      "summary": "62 preview frames, 1731→6858 chars, monotonic per row",
+      "evidence": [
+        "JOINED            8776ms into a turn ALREADY RUNNING (the hard ordering, not the easy one)",
+        "PHASE AT JOIN     working — a turn was in flight when the viewer arrived",
+        "PREVIEW FRAMES    62",
+        "FIRST             +3ms  epoch=1 seq=410 rows=2 chars=1731",
+        "LAST              +6139ms  epoch=1 seq=1658 rows=2 chars=6858",
+        "GROWTH            61/61 transitions increased the visible character count",
+        "MONOTONIC/ROW     YES — no row ever shrank",
+        "FINE WATCH        ACQUIRED — the daemon moved the driver's fine refcount for this session",
+        "FRAME TYPES       turnPreview=62 hostMetricsChanged=6 transcriptDelta=2 sessionAgentStateChanged=2 welcome=1 machinesChanged=1 approvalsChanged=1 attached=1 presenceRoomState=1 presenceRoomDelta=1"
+      ],
+      "data": {
+        "previewFrames": 62,
+        "firstChars": 1731,
+        "lastChars": 6858,
+        "grew": 61,
+        "shrinks": 0,
+        "joinedMs": 8776
+      },
+      "pin": "15e5afe",
+      "at": "2026-08-28T19:23:09.452Z"
+    },
+    {
+      "id": "interrupt",
+      "title": "interrupt a running turn",
+      "catalogRow": "§1 interrupt a running turn (WIRED — declared capability, no conformance property)",
+      "control": {
+        "fired": true,
+        "what": "the turn observed IN FLIGHT immediately before the interrupt — phase=working with previews (headless), or the PTY output bytes growing (terminal)",
+        "detail": "1 preview frame(s) and 6410 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6410 new transcript chars, 0 new terminal bytes"
+      },
+      "ms": 12625,
+      "verdict": "PASS",
+      "summary": "turn stopped 9ms after interrupt, but nothing marks it",
+      "evidence": [
+        "WAS RUNNING       1 preview frame(s) and 6410 new transcript chars — tokens are being produced; phase=working, 1 preview frame(s), 6410 new transcript chars, 0 new terminal bytes",
+        "INTERRUPT SENT    {\"ok\":true,\"requested\":\"protocol\"}",
+        "SETTLED           phase left 'working' after 9ms",
+        "TRANSCRIPT MARK   no item carries event:'interrupt'",
+        "TEXT              6410 chars at the call -> 6410 chars at settle",
+        "FRAMES AFTER      0 preview frame(s) arrived AFTER the call",
+        "TERMINAL BYTES    0 at the call -> +0 after 6s -> +0 after 12s",
+        "AFTER THE CALL    phase=idle status=live error=none",
+        "SCORED ON         phase leaving 'working'"
+      ],
+      "data": {
+        "settledMs": 9,
+        "marked": false,
+        "charsBefore": 6410,
+        "charsAfter": 6410,
+        "framesAfterInterrupt": 0
+      },
+      "pin": "15e5afe",
+      "at": "2026-08-28T19:23:09.452Z"
+    }
+  ]
+}

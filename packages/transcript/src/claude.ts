@@ -232,6 +232,14 @@ function stripSystemReminders(text: string): string {
 // Harvest the paths into toolPaths — the web renders them as inline thumbnails
 // and the server's file-relay policy allow-lists exactly the paths a transcript
 // references — and strip the raw markers from the shown text.
+//
+// Claude Code writes a SECOND marker for the same image: a bare `[Image #N]`
+// placeholder sitting inline at the paste position, ahead of the prompt the
+// human typed. It carries no path, so harvesting never touched it — and because
+// only the `: source:` form was stripped, every pasted screenshot left a literal
+// "[Image #1]" glued to the front of the message the feed showed (POD-1605).
+// Strip it after the source form, which also matches `[Image #N: source: …]`
+// and must get first refusal on the numbered spelling.
 function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
   const paths: string[] = []
   const text = stripSystemReminders(raw)
@@ -239,6 +247,7 @@ function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
       paths.push(p.trim())
       return ''
     })
+    .replace(/\[Image #\d+\]/g, '')
     .replace(/[ \t]+\n/g, '\n')
     .trim()
   return { text, paths }
@@ -287,17 +296,17 @@ function userItems(
       tags.push({ kind: 'file', ...(typeof src?.title === 'string' ? { label: src.title } : {}) })
     } else if (b.type === 'tool_result') {
       const toolUseId = typeof b.tool_use_id === 'string' ? b.tool_use_id : undefined
-      items.push({
-        // Parallel tool calls put several tool_result blocks in one record; key
-        // off the tool_use_id (unique per call) so the items don't collide as
-        // React keys when their originating calls scrolled out of the buffer.
-        id: toolUseId ? `${uuid ?? 'r'}-result-${toolUseId}` : freshId('tr'),
-        role: 'tool',
-        ts,
-        text: '',
-        toolResult: truncate(blockContentToText(b.content), 2000),
-        ...(toolUseId ? { toolUseId } : {}),
-      })
+      items.push(
+        claudeToolResultItem({
+          // Parallel tool calls put several tool_result blocks in one record; key
+          // off the tool_use_id (unique per call) so the items don't collide as
+          // React keys when their originating calls scrolled out of the buffer.
+          id: toolUseId ? `${uuid ?? 'r'}-result-${toolUseId}` : freshId('tr'),
+          output: b.content,
+          ...(ts ? { ts } : {}),
+          ...(toolUseId ? { toolUseId } : {}),
+        }),
+      )
     }
   }
   // Paths label the image tags in order (uploads and markers are emitted
@@ -398,27 +407,15 @@ function assistantItems(
       textParts.push(b.text)
     } else if (b.type === 'tool_use' && typeof b.name === 'string') {
       const toolUseId = typeof b.id === 'string' ? b.id : undefined
-      // AskUserQuestion is the agent asking the human — carry the full structured
-      // input so the chat renders an interactive question card instead of a
-      // collapsed tool row, and preview the question text rather than a JSON blob.
-      const isAsk = b.name === 'AskUserQuestion'
-      const paths = toolPathsFromInput(b.input)
-      const title = isAsk ? undefined : toolTitleFromInput(b.input)
-      const toolInputJson = isAsk
-        ? safeAskQuestionInputJson(b.input)
-        : safeToolEditJsonFromInput(b.name, b.input)
-      items.push({
-        id: toolUseId ?? freshId('t'),
-        role: 'tool',
-        ts,
-        text: '',
-        toolName: b.name,
-        toolInput: isAsk ? askQuestionPreview(b.input) : toolInputPreview(b.input),
-        ...(title ? { toolTitle: title } : {}),
-        ...(toolInputJson ? { toolInputJson } : {}),
-        ...(toolUseId ? { toolUseId } : {}),
-        ...(paths.length ? { toolPaths: paths } : {}),
-      })
+      items.push(
+        claudeToolCallItem({
+          id: toolUseId ?? freshId('t'),
+          toolName: b.name,
+          input: b.input,
+          ...(ts ? { ts } : {}),
+          ...(toolUseId ? { toolUseId } : {}),
+        }),
+      )
     }
   }
   const text = textParts.join('\n').trim()
@@ -438,6 +435,75 @@ function assistantItems(
     })
   }
   return items
+}
+
+/**
+ * ONE TOOL CALL AS A TRANSCRIPT ITEM — the shape, in one place (POD-3050).
+ *
+ * Two paths produce this item and they must agree byte for byte: the JSONL
+ * parser above, replaying a Claude Code session from disk, and the Claude SDK
+ * driver, publishing the call live as the model issues it. When they disagreed
+ * the same conversation rendered one way live and another way after a reload,
+ * which is the failure this function exists to make impossible — there is no
+ * second copy of the field list to drift.
+ *
+ * `id` is the caller's, not derived here: the parser has a provider `tool_use.id`
+ * (and a synthesized fallback when a record omits it), and only the caller knows
+ * which it holds.
+ */
+export function claudeToolCallItem(input: {
+  id: string
+  toolName: string
+  input: unknown
+  ts?: string
+  toolUseId?: string
+}): TranscriptItem {
+  // AskUserQuestion is the agent asking the human — carry the full structured
+  // input so the chat renders an interactive question card instead of a
+  // collapsed tool row, and preview the question text rather than a JSON blob.
+  const isAsk = input.toolName === 'AskUserQuestion'
+  const paths = toolPathsFromInput(input.input)
+  const title = isAsk ? undefined : toolTitleFromInput(input.input)
+  const toolInputJson = isAsk
+    ? safeAskQuestionInputJson(input.input)
+    : safeToolEditJsonFromInput(input.toolName, input.input)
+  return {
+    id: input.id,
+    role: 'tool',
+    ...(input.ts ? { ts: input.ts } : {}),
+    text: '',
+    toolName: input.toolName,
+    toolInput: isAsk ? askQuestionPreview(input.input) : toolInputPreview(input.input),
+    ...(title ? { toolTitle: title } : {}),
+    ...(toolInputJson ? { toolInputJson } : {}),
+    ...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
+    ...(paths.length ? { toolPaths: paths } : {}),
+  }
+}
+
+/**
+ * ONE TOOL RESULT AS A TRANSCRIPT ITEM. The counterpart to `claudeToolCallItem`,
+ * shared by the same two paths for the same reason.
+ *
+ * `toolResult` is ALWAYS set, empty string included. A tool that printed nothing
+ * still returned, and the renderer reads the presence of this item — not its
+ * length — as "the call finished". Absent content and empty content are the same
+ * fact here and both arrive as `''`.
+ */
+export function claudeToolResultItem(input: {
+  id: string
+  output: unknown
+  ts?: string
+  toolUseId?: string
+}): TranscriptItem {
+  return {
+    id: input.id,
+    role: 'tool',
+    ...(input.ts ? { ts: input.ts } : {}),
+    text: '',
+    toolResult: truncate(blockContentToText(input.output), 2000),
+    ...(input.toolUseId ? { toolUseId: input.toolUseId } : {}),
+  }
 }
 
 const FILE_PATH_KEYS = [

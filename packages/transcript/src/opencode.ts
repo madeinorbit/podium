@@ -28,6 +28,22 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
   const role = stringField(messageInfo, 'role')
   const partType = stringField(part, 'type')
   const ts = epochToIso(row.timeUpdated ?? row.timeCreated)
+  const aborted = isOpencodeMessageAborted(messageInfo)
+  if (partType === 'interrupt' && aborted) {
+    return [
+      {
+        id: 'opencode-interrupt-' + row.messageId,
+        role: 'user',
+        ...(ts ? { ts } : {}),
+        text: '[Request interrupted by user]',
+        event: 'interrupt',
+      },
+    ]
+  }
+  // The abort envelope owns the whole assistant message. Text/tool rows can be
+  // observed before the synthetic interrupt row and must not survive it as a
+  // natural completion beside the provider's durable interruption marker.
+  if (aborted) return []
 
   switch (partType) {
     case 'text': {
@@ -90,6 +106,12 @@ export function opencodePartToItems(row: OpencodeMessagePartRow): TranscriptItem
     default:
       return []
   }
+}
+
+export function isOpencodeMessageAborted(message: Record<string, unknown>): boolean {
+  const error = recordField(message, 'error')
+  const name = error ? stringField(error, 'name') : undefined
+  return name === 'MessageAborted' || name === 'MessageAbortedError'
 }
 
 export function opencodeRowsToItems(rows: OpencodeMessagePartRow[]): TranscriptItem[] {

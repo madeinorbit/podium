@@ -4,8 +4,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, FIRST_ADMIN_USER_ID, type MachineId } from '@podium/model'
 import { afterEach, describe, expect, it } from 'vitest'
-import { startDaemon, type DaemonHandle } from '../apps/daemon/src/daemon'
-import { startServer, type ServerHandle } from '../apps/server/src/server'
+import { type DaemonHandle, startDaemon } from '../apps/daemon/src/daemon'
+import { noJanitorWorkerForTests } from '../apps/server/src/janitor-host'
+import { type ServerHandle, startServer } from '../apps/server/src/server'
 
 const DONOR_ID = asMachineId('00000000-0000-4000-8000-000000001708')
 const TARGET_ID = asMachineId('00000000-0000-4000-8000-000000001709')
@@ -148,7 +149,11 @@ describe('real daemon-to-daemon login propagation', () => {
       installClaudeFixture(donorHome, true)
       installClaudeFixture(targetHome, false)
 
-      server = await startServer({ host: '127.0.0.1', port: 0 })
+      server = await startServer({
+        janitorWorkerForTests: noJanitorWorkerForTests,
+        host: '127.0.0.1',
+        port: 0,
+      })
       const serverUrl = 'ws://127.0.0.1:' + server.port
       const startFixtureDaemon = async (
         machineId: MachineId,

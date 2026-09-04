@@ -9,6 +9,7 @@ import type {
   MachineId,
   SessionId,
   SessionMeta,
+  UserId,
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
@@ -100,6 +101,8 @@ export type IssuePanelOp =
       entry?: string
       files?: { path: string; size: number }[]
       sourcePaths?: string[]
+      /** Set only by the explicit same-issue terminal-evidence path. */
+      sourceKind?: 'terminal-evidence'
     }
   | { op: 'artifact-remove'; index: number }
   | { op: 'deferred-add'; text: string }
@@ -168,6 +171,7 @@ export interface IssueDeps {
    *  their exact initiating session/operator when known, with `issue:<id>` as the
    *  legacy direct-service fallback. [spec:SP-ccb2] */
   spawnSession(o: {
+    sessionId?: SessionId
     cwd: string
     /** Explicit issue attachment (POD-529): the workflow knows the issue, so the
      *  session must not fall back to cwd-derived attachment (or a DRAFT birth ref). */
@@ -289,6 +293,18 @@ export interface IssueDeps {
   /** Send-time mail delivery hook (issue #103): the registry nudges the target
    *  issue's live agent session. Best-effort — sendMail swallows its failures. */
   onMailSent?(row: IssueRow, message: IssueMessageRow): void
+  /** Fired after a durable closed-predicate flip so session teardown can begin. */
+  onIssueClosed?(input: { issueId: IssueId }): void
+  /**
+   * An issue came into existence, for a composition root that publishes it
+   * (podium-cloud's analytics subscriber).
+   *
+   * The in-process twin of the `issue.created` row `create()` already appends to
+   * the durable event log, called from the same line — so this is not a fresh
+   * judgement about when an issue is created, it is the existing one, observed.
+   * Best-effort: the call site swallows a throw.
+   */
+  onIssueCreated?(event: { issueId: IssueId; title: string; ownerUserId: UserId }): void
   /** Permanent artifact snapshot store ([spec:SP-0fc9] #441) — the server-pull
    *  snapshotter panelArtifactAdd/Remove ride. Optional so existing test deps
    *  literals stay valid; absent ⇒ legacy path-only artifact entries. */
@@ -300,6 +316,12 @@ export interface IssueDeps {
       sourcePath: string
       extraPaths?: string[]
     }): Promise<{
+      artifactId: ArtifactId
+      entry: string
+      files: { path: string; size: number }[]
+      sourcePaths?: string[]
+    }>
+    upload(o: { issueId: IssueId; filename: string; dataBase64: string }): Promise<{
       artifactId: ArtifactId
       entry: string
       files: { path: string; size: number }[]
@@ -371,6 +393,8 @@ export interface CreateIssueInput
       | 'color'
       | 'draft'
     > {
+  /** Client-minted id for the first session when `startNow` is true. */
+  startSessionId?: SessionId
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean

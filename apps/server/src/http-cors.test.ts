@@ -1,6 +1,6 @@
 import { Hono } from 'hono'
 import { describe, expect, test } from 'vitest'
-import { isAllowedHttpOrigin, podiumCors } from './http-cors'
+import { httpOriginVerdict, isAllowedHttpOrigin, podiumCors } from './http-cors'
 
 describe('isAllowedHttpOrigin', () => {
   test('the desktop shell origin is allowed against any backend host', () => {
@@ -74,5 +74,99 @@ describe('podiumCors', () => {
   test('the response varies on Origin so a cache cannot cross-serve it', async () => {
     const res = await call('POST', { origin: 'tauri://localhost', 'content-type': 'text/plain' })
     expect(res.headers.get('vary')).toContain('Origin')
+  })
+})
+
+describe('isAllowedHttpOrigin with an allowed-origins list', () => {
+  const allowed = new Set(['https://app.meetpodium.com'])
+
+  test('an exact allowed origin is accepted against a foreign backend host', () => {
+    expect(isAllowedHttpOrigin('https://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      true,
+    )
+  })
+
+  test('scheme, host and port must all match', () => {
+    expect(isAllowedHttpOrigin('http://app.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      false,
+    )
+    expect(
+      isAllowedHttpOrigin('https://app.meetpodium.com:8443', 'api.meetpodium.com', allowed),
+    ).toBe(false)
+    expect(isAllowedHttpOrigin('https://evil.meetpodium.com', 'api.meetpodium.com', allowed)).toBe(
+      false,
+    )
+  })
+
+  test('the list is an additional accept path, never a replacement', () => {
+    expect(isAllowedHttpOrigin('tauri://localhost', 'api.meetpodium.com', allowed)).toBe(true)
+    expect(isAllowedHttpOrigin(undefined, 'api.meetpodium.com', allowed)).toBe(false)
+    expect(isAllowedHttpOrigin('https://evil.example', '127.0.0.1:18787', allowed)).toBe(false)
+  })
+
+  test('an omitted list behaves exactly as before', () => {
+    expect(isAllowedHttpOrigin('https://app.meetpodium.com', 'api.meetpodium.com')).toBe(false)
+  })
+})
+
+describe('httpOriginVerdict names why it refused', () => {
+  test('each refusal has its own reason', () => {
+    expect(httpOriginVerdict(undefined, 'api.meetpodium.com')).toBe('no-origin')
+    expect(httpOriginVerdict('not a url', 'api.meetpodium.com')).toBe('parse')
+    expect(httpOriginVerdict('https://evil.example', 'api.meetpodium.com')).toBe('not-allowed')
+    expect(
+      httpOriginVerdict(
+        'https://app.meetpodium.com',
+        'api.meetpodium.com',
+        new Set(['https://app.meetpodium.com']),
+      ),
+    ).toBe('allowed')
+  })
+})
+
+describe('podiumCors with an allowed origin', () => {
+  const refusals: string[] = []
+  const app = new Hono()
+  app.use(
+    '/trpc/*',
+    podiumCors({
+      allowed: new Set(['https://app.meetpodium.com']),
+      onRefused: (info) => refusals.push(`${info.reason}:${info.origin}`),
+    }),
+  )
+  app.post('/trpc/issues.list', (c) => c.json({ ok: true }))
+
+  const call = (origin: string) =>
+    app.request('http://api.meetpodium.com/trpc/issues.list', {
+      method: 'POST',
+      headers: {
+        host: 'api.meetpodium.com',
+        origin,
+        'content-type': 'application/json',
+      },
+      body: '{}',
+    })
+
+  test('the app host gets a reflected origin and credentials', async () => {
+    const res = await call('https://app.meetpodium.com')
+    expect(res.headers.get('access-control-allow-origin')).toBe('https://app.meetpodium.com')
+    expect(res.headers.get('access-control-allow-credentials')).toBe('true')
+  })
+
+  test('an unknown origin is refused, and the refusal is reported with its reason', async () => {
+    const res = await call('https://evil.example')
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(refusals).toEqual(['not-allowed:https://evil.example'])
+  })
+
+  test('a caller with no Origin is not a misconfiguration and is not reported', async () => {
+    refusals.length = 0
+    const res = await app.request('http://api.meetpodium.com/trpc/issues.list', {
+      method: 'POST',
+      headers: { host: 'api.meetpodium.com', 'content-type': 'application/json' },
+      body: '{}',
+    })
+    expect(res.headers.get('access-control-allow-origin')).toBeNull()
+    expect(refusals).toEqual([])
   })
 })

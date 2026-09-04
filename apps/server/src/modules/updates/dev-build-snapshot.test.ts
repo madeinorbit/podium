@@ -93,6 +93,7 @@ describe('approved development build timing evidence', () => {
       ['dependency-preparation', 'bun-install', 'success'],
       ['validation', 'final-source-identity', 'success'],
       ['checkout', 'remove-detached-worktree', 'success'],
+      ['checkout', 'snapshot-teardown', 'success'],
     ])
   })
 
@@ -127,10 +128,13 @@ describe('approved development build timing evidence', () => {
         outcome: 'failure',
       }),
     )
+    expect(tasks.map((record) => record.task)).toContain('remove-detached-worktree')
+    // The temp parent's delete closes the phase record set, so nothing between the
+    // worktree removal and the last byte leaving disk is unattributed.
     expect(tasks.at(-1)).toEqual(
       expect.objectContaining({
         phase: 'checkout',
-        task: 'remove-detached-worktree',
+        task: 'snapshot-teardown',
         outcome: 'success',
       }),
     )

@@ -1,0 +1,156 @@
+{
+  "verdict": "PASS",
+  "driverRequested": "grok",
+  "productDriverId": "grok-acp",
+  "productDriverFamily": "server",
+  "sessionId": "ccdc5f49-8c4f-4e51-8027-23b0077f8270",
+  "cwd": "/tmp/pod-2927-grok-current/probes/grok-a1b-superseding-5a",
+  "pins": {
+    "pin": "5a01098aae2cea4bbc4d7a7e893c1b70a15b137a",
+    "server": {
+      "pid": 2291866,
+      "spawnSha": "5a01098aae2cea4bbc4d7a7e893c1b70a15b137a",
+      "cwd": "/tmp/pod-2927-epic-5a"
+    },
+    "daemon": {
+      "pid": 2292188,
+      "spawnSha": "5a01098aae2cea4bbc4d7a7e893c1b70a15b137a",
+      "cwd": "/tmp/pod-2927-epic-5a"
+    },
+    "servedWeb": {
+      "spawnSourceSha": "5a01098aae2cea4bbc4d7a7e893c1b70a15b137a",
+      "servedStamp": "5a01098",
+      "bundle": "bundle+D0-MLqzq",
+      "wireSchemaDigest": "986ebf5e8e57820c"
+    },
+    "instance": "grok2927",
+    "codeTree": "a55459ebebced6da2c55771fd358c6f68e14a0e2"
+  },
+  "hostAtStart": {
+    "load": [
+      9.23,
+      11.03,
+      10.28
+    ],
+    "memAvailableKb": 5857344,
+    "rootFreeKb": 12027876
+  },
+  "control": {
+    "receipt": {
+      "ok": true,
+      "disposition": "delivered"
+    },
+    "durableUserTurn": true,
+    "phaseWorking": true,
+    "token": "P2927-GROK-CONTROL-E5YQ3O"
+  },
+  "queued": {
+    "callerReceipt": {
+      "ok": true,
+      "queued": true,
+      "position": 1,
+      "disposition": "queued"
+    },
+    "physicalPosition": 1,
+    "durableBeforeReload": {
+      "id": "msg_411e0098-96c9-4351-b288-dd1ad766eb41",
+      "threadId": "msg_411e0098-96c9-4351-b288-dd1ad766eb41",
+      "inReplyTo": null,
+      "from": "operator",
+      "to": "session:ccdc5f49-8c4f-4e51-8027-23b0077f8270",
+      "kind": "message",
+      "urgency": "next-turn",
+      "lifecycle": "wait",
+      "body": "Reply with exactly P2927-GROK-QUEUED-REPLY-75DRCH and nothing else. Do not use tools.",
+      "createdAt": "2026-08-27T12:08:23.204Z",
+      "status": "queued",
+      "queuePosition": 1,
+      "ackedBy": null,
+      "deliveredAt": null,
+      "deliveredTo": null,
+      "injectedAt": null,
+      "expiresAt": null,
+      "clampedFrom": null,
+      "hop": 0,
+      "readAt": null,
+      "deadLetteredAt": null,
+      "deliveryDeferredAt": null,
+      "deliveryDeferredReason": null,
+      "expectsResponse": false
+    },
+    "durableAfterReload": {
+      "id": "msg_411e0098-96c9-4351-b288-dd1ad766eb41",
+      "threadId": "msg_411e0098-96c9-4351-b288-dd1ad766eb41",
+      "inReplyTo": null,
+      "from": "operator",
+      "to": "session:ccdc5f49-8c4f-4e51-8027-23b0077f8270",
+      "kind": "message",
+      "urgency": "next-turn",
+      "lifecycle": "wait",
+      "body": "Reply with exactly P2927-GROK-QUEUED-REPLY-75DRCH and nothing else. Do not use tools.",
+      "createdAt": "2026-08-27T12:08:23.204Z",
+      "status": "queued",
+      "queuePosition": 1,
+      "ackedBy": null,
+      "deliveredAt": null,
+      "deliveredTo": null,
+      "injectedAt": null,
+      "expiresAt": null,
+      "clampedFrom": null,
+      "hop": 0,
+      "readAt": null,
+      "deadLetteredAt": null,
+      "deliveryDeferredAt": null,
+      "deliveryDeferredReason": null,
+      "expectsResponse": false
+    },
+    "delivered": {
+      "id": "msg_411e0098-96c9-4351-b288-dd1ad766eb41",
+      "threadId": "msg_411e0098-96c9-4351-b288-dd1ad766eb41",
+      "inReplyTo": null,
+      "from": "operator",
+      "to": "session:ccdc5f49-8c4f-4e51-8027-23b0077f8270",
+      "kind": "message",
+      "urgency": "next-turn",
+      "lifecycle": "wait",
+      "body": "Reply with exactly P2927-GROK-QUEUED-REPLY-75DRCH and nothing else. Do not use tools.",
+      "createdAt": "2026-08-27T12:08:23.204Z",
+      "status": "delivered",
+      "ackedBy": null,
+      "deliveredAt": "2026-08-27T12:08:30.916Z",
+      "deliveredTo": "ccdc5f49-8c4f-4e51-8027-23b0077f8270",
+      "injectedAt": null,
+      "expiresAt": null,
+      "clampedFrom": null,
+      "hop": 0,
+      "readAt": null,
+      "deadLetteredAt": null,
+      "deliveryDeferredAt": null,
+      "deliveryDeferredReason": null,
+      "expectsResponse": false
+    },
+    "requestedReply": "P2927-GROK-QUEUED-REPLY-75DRCH",
+    "exactReply": "P2927-GROK-QUEUED-REPLY-75DRCH"
+  },
+  "isolation": {
+    "instance": "grok2927",
+    "uniqueCwd": "/tmp/pod-2927-grok-current/probes/grok-a1b-superseding-5a",
+    "genericPtyOverride": null
+  },
+  "startedAt": "2026-08-27T12:08:20.879Z",
+  "finishedAt": "2026-08-27T12:08:32.622Z",
+  "elapsedMs": 11743,
+  "id": "A1b",
+  "armLabel": "fix supersedes rejected 961 reading",
+  "localTimestamp": "2026-08-27 14:08:32 CEST",
+  "criterionClauses": {
+    "callerReceipt": "PASS — queued disposition with physical position 1",
+    "durableBeforeReload": "PASS — ledger row msg_411e0098-96c9-4351-b288-dd1ad766eb41 was queued at queuePosition 1",
+    "durableAfterReload": "PASS — fresh logged-in caller read the same id and body queued at queuePosition 1 before delivery",
+    "deliveredWhenIdle": "PASS — the same ledger row reached delivered and the reloaded transcript returned exact token P2927-GROK-QUEUED-REPLY-75DRCH"
+  },
+  "narrowStaleness": {
+    "runtimeToEpicNonDocDiff": [],
+    "result": "exact current product tip"
+  }
+}

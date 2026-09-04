@@ -50,7 +50,7 @@ import {
 } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { isEpic } from './issue-hierarchy'
-import type { EpicProgress, IssuesDisplay } from './issues-display'
+import { confirmedWorkingAgentCount, type EpicProgress, type IssuesDisplay } from './issues-display'
 
 /** Slot → pixels. One switch, so the rank order in `issue-card.ts` is the only
  *  place the composition is decided. */
@@ -217,7 +217,12 @@ function IssueCardLeaf({
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
   onDragStart: (event: ReactPointerEvent, issue: IssueViewModel) => void
 }): JSX.Element {
-  const slots = issueCardStateSlots(issue, { badges, stageCounts, progress })
+  const slots = issueCardStateSlots(issue, {
+    badges,
+    stageCounts,
+    progress,
+    workingAgents: confirmedWorkingAgentCount(sessions, now),
+  })
   const hex = issueColorHex(issue.color)
   const epic = isEpic(issue)
   return (

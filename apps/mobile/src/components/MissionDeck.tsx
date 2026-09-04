@@ -13,29 +13,29 @@ import {
   flightDeckRowHasPayload,
   flightDeckRowIsFolded,
   formatClock,
+  type IssueContinuation,
   isCoordinatorSession,
   issueAbandoned,
-  type IssueContinuation,
   issueContinuation,
   issueNote,
-  motionPhase,
   missionDepartures,
+  motionPhase,
   presenceNote,
+  readFlightDeckFolds,
   sessionAsksOnIssue,
   sessionRole,
   sessionSettled,
   sessionTitle,
   treeGuides,
-  readFlightDeckFolds,
   writeFlightDeckFolds,
 } from '@podium/client-core/viewmodels'
-import type { IssueWire, SessionId, SessionMeta, IssueId } from '@podium/model'
+import type { IssueId, IssueWire, SessionId, SessionMeta } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from 'lucide-react-native'
-import { useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo } from 'react'
+import { ArrowDown, Check, ChevronsDownUp, ChevronsUpDown, Plus, X } from './icons'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { applyFolds } from '../lib/deck-rows'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
+import { applyFolds, deckContentHeight } from '../lib/deck-rows'
 import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -100,7 +100,7 @@ const readMode = (raw: string | null): FlightDeckMode =>
   raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
-export function MissionDeck({
+export const MissionDeck = memo(function MissionDeck({
   root,
   issues,
   sessions,
@@ -109,10 +109,12 @@ export function MissionDeck({
   currentSessionId,
   onOpenSession,
   onOpenTask,
+  onOpenTaskMenu,
   onLaunchAgent,
   onTuckRoot,
   onFileRoot,
   onOpenDeparture,
+  onContentHeight,
 }: {
   root: IssueWire
   issues: readonly IssueWire[]
@@ -125,10 +127,14 @@ export function MissionDeck({
   currentSessionId: SessionId | undefined
   onOpenSession: (session: SessionMeta) => void
   onOpenTask: (issue: IssueWire) => void
+  onOpenTaskMenu?: (issue: IssueWire) => void
   onLaunchAgent: () => void
   onTuckRoot: () => void
   onFileRoot: () => void
   onOpenDeparture: (issueId: IssueId) => void
+  /** The deck's natural height, re-reported whenever the rows it renders
+   *  change — the mission screen sizes and animates the panel from it. */
+  onContentHeight: (height: number) => void
 }) {
   const [mode, setMode] = usePersistedUiState<FlightDeckMode>(
     FLIGHT_DECK_MODE_KEY,
@@ -142,8 +148,10 @@ export function MissionDeck({
   )
 
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+  // UNSPREAD ON PURPOSE: the engine memoizes per (issues, sessions) ARRAY
+  // IDENTITY — copying here would mint fresh identities and defeat that cache.
   const rows = useMemo(
-    () => buildFlightDeckRows([...issues], [...sessions], root.id, mode, allWorktreePaths),
+    () => buildFlightDeckRows(issues, sessions, root.id, mode, allWorktreePaths),
     [issues, sessions, root.id, mode, allWorktreePaths],
   )
   const shown = useMemo(() => applyFolds(rows, folds), [rows, folds])
@@ -298,6 +306,30 @@ export function MissionDeck({
     allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
   const rootFinished = Boolean(root.closedReason || root.stage === 'done')
 
+  // WHAT THE DECK IS ABOUT TO RENDER, COUNTED — the same predicates the JSX
+  // below uses, so the height the panel animates to and the rows that appear
+  // in it cannot disagree. Rows are fixed-height constants, which is what lets
+  // this be arithmetic instead of an onLayout round trip.
+  const emptyBlock = spineRows.length === 0 && rootSessions.length === 0 && proposals.length === 0
+  const contentHeight = deckContentHeight({
+    strips: spineRows.length,
+    bands:
+      rootSessions.length +
+      spineRows.reduce(
+        (n, row) => n + (flightDeckRowIsFolded(row, folds) ? 0 : deckSessions(row, mode).length),
+        0,
+      ),
+    proposals: proposals.length,
+    departures: departures.length,
+    signposts:
+      (rootContinuation ? 1 : 0) + (emptyBlock && !rootContinuation && rootRetired ? 1 : 0),
+    sections: (proposals.length > 0 ? 1 : 0) + (rootContinuation || departures.length > 0 ? 1 : 0),
+    empty: emptyBlock && !rootContinuation && !rootRetired,
+  })
+  useEffect(() => {
+    onContentHeight(contentHeight)
+  }, [contentHeight, onContentHeight])
+
   return (
     <View style={styles.panel}>
       <View style={styles.controls}>
@@ -310,7 +342,14 @@ export function MissionDeck({
                 onPress={() => setMode(m.id)}
                 scaleTo={0.99}
                 accessibilityRole="button"
+                // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
+                // than instead of it. react-native-web 0.21 reads only the `aria-*` spelling,
+                // so the web build announced no state at all; and `aria-selected` is only
+                // valid on a listbox/tab/grid role, so on a `button` it is ignored — the
+                // browser-visible way to say a button is the chosen one is `aria-pressed`.
+                // React Native still reads `accessibilityState` on device. [POD-1664]
                 accessibilityState={{ selected: on }}
+                aria-pressed={on}
                 accessibilityLabel={m.label}
                 style={[styles.segBtn, on ? styles.segBtnOn : null]}
               >
@@ -440,6 +479,7 @@ export function MissionDeck({
             currentSessionId={currentSessionId}
             onToggleFold={() => toggleFold(row)}
             onOpenTask={onOpenTask}
+            onOpenTaskMenu={onOpenTaskMenu}
             onOpenSession={onOpenSession}
           />
         ))}
@@ -489,7 +529,7 @@ export function MissionDeck({
       </ScrollView>
     </View>
   )
-}
+})
 
 function SpineRow({
   row,
@@ -505,6 +545,7 @@ function SpineRow({
   currentSessionId,
   onToggleFold,
   onOpenTask,
+  onOpenTaskMenu,
   onOpenSession,
 }: {
   row: FlightDeckRow
@@ -523,6 +564,7 @@ function SpineRow({
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
   onOpenTask: (i: IssueWire) => void
+  onOpenTaskMenu?: (i: IssueWire) => void
   onOpenSession: (s: SessionMeta) => void
 }) {
   const state = deckIssueState(row.issue, row.sessions, byId)
@@ -571,6 +613,7 @@ function SpineRow({
         context={context}
         foldable={hasPayload(row)}
         onPress={() => onOpenTask(row.issue)}
+        onLongPress={context ? undefined : () => onOpenTaskMenu?.(row.issue)}
         onToggleFold={onToggleFold}
       />
       {bands.map((session, i) => (

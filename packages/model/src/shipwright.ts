@@ -97,7 +97,7 @@ export type ShipwrightModelContract = z.infer<typeof ShipwrightModelContract>
 export const ShipwrightRoute = z
   .object({
     level: ShipwrightLevel,
-    agent: z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor']),
+    agent: z.enum(['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi']),
     model: z.string().min(1),
     effort: z.string().min(1),
     family: z.string().min(1),

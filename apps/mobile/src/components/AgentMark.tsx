@@ -1,10 +1,9 @@
 import type { AgentKind } from '@podium/model'
-import { SquareTerminal } from 'lucide-react-native'
-import type { ComponentType } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import Svg, { Path } from 'react-native-svg'
 import { color, mono, radius } from '../theme/theme'
 import { Icon } from './Icon'
+import { type AppIcon, SquareTerminal } from './icons'
 
 /**
  * HARNESS IDENTITY ON THE PHONE — the real brand marks, not initials.
@@ -54,7 +53,7 @@ const MARKS: Record<string, MarkSpec> = {
 }
 
 /**
- * Harnesses drawn from a lucide glyph instead of a brand path — a shell is a
+ * Harnesses drawn from a platform glyph instead of a brand path — a shell is a
  * tool, not a brand, and inventing a logo for it would say otherwise. The
  * desktop gives it the same terminal square.
  *
@@ -63,7 +62,7 @@ const MARKS: Record<string, MarkSpec> = {
  * harness is a lookup rather than a comparison (see the axiom's own note in
  * scripts/architecture-manifest.ts). Adding a harness stays a new row.
  */
-const GLYPHS: Record<string, ComponentType<{ size: number; color: string }>> = {
+const GLYPHS: Record<string, AppIcon> = {
   shell: SquareTerminal,
 }
 
@@ -72,7 +71,7 @@ const GLYPHS: Record<string, ComponentType<{ size: number; color: string }>> = {
  *
  * Three tiers, resolved in the order the desktop resolves them:
  *  - a branded harness gets its real mark;
- *  - a glyph harness gets its lucide square;
+ *  - a glyph harness gets its platform terminal square;
  *  - anything else — a harness this build has never heard of, which the wire
  *    can genuinely carry — keeps the initial it always drew. An unknown mark is
  *    worse than a letter, because it would claim a brand.

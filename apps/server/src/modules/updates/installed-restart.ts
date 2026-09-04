@@ -20,10 +20,23 @@
  */
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { createLogger } from '@podium/logger'
 import type { UpdateTarget } from '@podium/protocol'
 import { resolveInstallDir } from '@podium/runtime/config'
 import { requestParentHandover, requestParentSwap } from '@podium/runtime/parent-control'
 import { liveRecord } from '@podium/runtime/run-registry'
+
+/**
+ * THE TWO ASKS THE SERVER MAKES OF ITS OWN PARENT, ON THE RECORD (POD-3224).
+ *
+ * These are the only points where the coordinator hands its own replacement to
+ * another process, and until now they were completely silent on this side: the
+ * server step showed "Updating your server…", the process died, and whether the
+ * swap had even been requested was knowable only from the parent's journal — a
+ * different log, on a machine whose server had just gone away. A failure went
+ * out as an exception through the step, so the ask itself left no trace at all.
+ */
+const log = createLogger('server:updates')
 
 export interface InstalledUpdateDeps {
   env?: NodeJS.ProcessEnv
@@ -100,7 +113,29 @@ export function createInstalledCoordinatorUpdate(
       }))
 
   return async (target) => {
-    await requestSwap(target, deps.pinnedPubkey)
+    const startedAt = Date.now()
+    log.info('asking the parent to swap this server onto a new bundle', {
+      targetVersion: target.version,
+      ...(target.artifacts?.web?.digest ? { targetWebDigest: target.artifacts.web.digest } : {}),
+      pinned: deps.pinnedPubkey !== undefined,
+    })
+    try {
+      await requestSwap(target, deps.pinnedPubkey)
+    } catch (err) {
+      // The parent's own sentence, recorded HERE as well: the step turns it into
+      // a user-facing failure and the parent writes its own line, but only this
+      // one ties the two together by target and elapsed time.
+      log.error('the parent refused or failed the swap', {
+        targetVersion: target.version,
+        elapsedMs: Date.now() - startedAt,
+        err,
+      })
+      throw err
+    }
+    log.info('the parent reports the bundle on disk is now the target', {
+      targetVersion: target.version,
+      elapsedMs: Date.now() - startedAt,
+    })
     deps.onInstalled?.(target.version)
   }
 }
@@ -139,17 +174,33 @@ export function createInstalledCoordinatorRestart(
   const pending = deps.pendingVersion
 
   return () => {
-    if (requested) return
+    if (requested) {
+      log.debug('a parent handover has already been requested; not asking again', {})
+      return
+    }
     const expectedVersion = pending?.() ?? installedVersionOnDisk(env) ?? env.PODIUM_APP_VERSION
     if (!expectedVersion) {
+      log.error('cannot ask for a handover without an expected version', {})
       throw new Error('parent handover requires an expected version')
     }
     const result = requestHandover(expectedVersion)
     if (!result.ok) {
+      log.error('the parent refused the handover', { expectedVersion, reason: result.reason })
       throw new Error(
         `machine-cannot-restart: no supervising parent to hand over to (${result.reason})`,
       )
     }
+    /**
+     * THE LAST LINE THIS PROCESS WRITES ABOUT ITS OWN UPDATE.
+     *
+     * Everything after it belongs to the successor, so the successor's boot
+     * record and this line are the two ends of the coordinator gap — which is
+     * exactly the window in which every client's poll starts failing.
+     */
+    log.info('the parent accepted the handover; this server is being replaced', {
+      expectedVersion,
+      successorParentPid: result.pid,
+    })
     // LATCHED ONLY ON SUCCESS. Latching before the ask meant a step that threw
     // once reported "Restarting the server…" forever, because every re-`ensure()`
     // returned silently without ever asking again.

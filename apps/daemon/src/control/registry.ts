@@ -1,4 +1,5 @@
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { runtimeHandlers } from '../runtime/handlers'
 import { serverTransferHandlers } from '../server-transfer'
 import { approvalHandlers } from './approvals'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -10,6 +11,7 @@ import { handoffHandlers } from './handoff'
 import { headlessHandlers } from './headless'
 import { inventoryHandlers } from './inventory'
 import { serverEndpointHandlers } from './server-endpoint'
+import { logHandlers } from './logs'
 import { sessionHandlers } from './session'
 import { shippingHandlers } from './shipping'
 import { transcriptHandlers } from './transcripts'
@@ -26,6 +28,7 @@ import { workspaceHandlers } from './workspace'
  */
 export const CONTROL_HANDLERS: ControlHandlers = {
   ...sessionHandlers,
+  ...runtimeHandlers,
   ...discoveryHandlers,
   ...transcriptHandlers,
   ...fileHandlers,
@@ -36,6 +39,7 @@ export const CONTROL_HANDLERS: ControlHandlers = {
   ...approvalHandlers,
   ...credentialHandlers,
   ...inventoryHandlers,
+  ...logHandlers,
   ...updateHandlers,
   ...serverTransferHandlers,
   ...serverEndpointHandlers,

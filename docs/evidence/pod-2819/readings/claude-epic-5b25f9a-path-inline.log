@@ -1,0 +1,18 @@
+
+=== claude / attach — EPIC TIP 5b25f9a — shape=path-inline ===
+   SESSION            6dac7d11-fd33-4be5-81d0-5cbeefc6e48a
+   BOUND DRIVER       claude-pty
+   STATUS             live
+   TUI PRIMER         nothing to clear
+   CONTROL            FIRED — replied PODIUM-D21A03 in 3176ms
+   STAGED             /tmp/pod-2777/state/uploads/6dac7d11-fd33-4be5-81d0-5cbeefc6e48a/5476f01d-05b0-4c50-a001-a961297db4c8.txt
+   SECRET IN FILE     FILESECRET-4A7BF5 — present in the bytes and nowhere else
+   PROMPT BEGINS      "Read the file at /tmp/pod-2777/state/upl"
+   PRE-ATTACH         screen clear
+   SEND               {"ok":true,"disposition":"delivered"}
+   ECHOED BACK        yes, after 6726ms
+   APPROVALS          0
+   PTY BYTES          9127 arrived after the send
+
+   PASS — EPIC TIP 5b25f9a — shape=path-inline
+   ASSISTANT SAID  "\nFILESECRET-4A7BF5"
