@@ -62,10 +62,9 @@ import {
  * A new version arriving is an OFFER (§3.2, §6.1) — the thing a human decides
  * about. If this listened for it, every publication would install itself on the
  * whole connected fleet, which is not convergence but auto-update, and nobody
- * asked for it. Its two triggers are a machine RECONNECTING and an operation
- * ENDING, and both inherit a decision that was already made: the first by §9.1
- * ("stragglers converge to the current target without a new human decision"),
- * the second by the click that started the operation.
+ * asked for it. Reconnect, settlement, and boot recovery all require the same
+ * durable approval for the exact published version. A newer offer never
+ * inherits approval from an older operation.
  *
  * …AND THE INHERITANCE HAS A BOUNDARY (POD-2907). Both of those decisions were
  * made about the FLEET this coordinator serves. Neither of them is a decision to
@@ -105,6 +104,7 @@ export type ReconcileRefusal =
    */
   | 'coordinator'
   | 'no-target'
+  | 'not-approved'
   | 'not-packaged-rollout-target'
   | 'at-target'
   | 'offline'
@@ -139,6 +139,7 @@ export interface ReconcileFacts {
   /** The target published for THIS machine's channel — never a global default. */
   target: UpdateTarget | undefined
   /** Is an exclusive lifecycle operation running right now? Read per call. */
+  approvedTargetVersion?: string
   operationActive: boolean
   /** How many grants this reconciler has already issued for this exact target. */
   attempts: number
@@ -212,6 +213,8 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
     return { converge: false, because: 'coordinator' }
   }
   if (!facts.target) return { converge: false, because: 'no-target' }
+  if (facts.target.version !== facts.approvedTargetVersion)
+    return { converge: false, because: 'not-approved' }
   if (!isPackagedRolloutTarget(machine)) {
     return { converge: false, because: 'not-packaged-rollout-target' }
   }
@@ -307,30 +310,22 @@ export class UpdateReconciler {
     this.enqueue(machineId)
   }
 
-  /**
-   * An exclusive operation reached a terminal state: sweep everyone still
-   * behind. This is the line that makes a FAILED operation self-healing — the
-   * machines it never reached converge in the background instead of waiting for
-   * a human to press Try again (§3.6, plan task 4).
-   *
-   * EXCEPT A CANCEL, and the exception is the whole reason this takes the
-   * outcome rather than nothing. The sweep's licence is decision §9.1: the human
-   * decision was made when the operation STARTED, so finishing its remainder in
-   * the background needs no second click. A cancel is that decision being
-   * withdrawn — sweeping after one would hand out exactly the update the person
-   * just stopped, seconds after they stopped it, which is the worst possible
-   * moment to be helpful.
-   *
-   * A later RECONNECT is still converged, and that is not a contradiction: the
-   * standing reconciliation is scoped to "any daemon that reconnects behind the
-   * current target" (§3.6), not to any one operation. The cancel ended an
-   * operation; it did not unpublish the target.
-   */
-  onOperationSettled(outcome?: string): void {
+  /** Settlement may converge only the channel and exact target the user approved. */
+  onOperationSettled(channel: UpdateChannel, target: UpdateTarget, outcome?: string): void {
     if (outcome === 'canceled') return
+    if (this.deps.updates.target(channel)?.version !== target.version) return
     this.wokenBy = 'operation-settled'
-    for (const machine of this.deps.updates.fleet()) this.enqueue(machine.id)
+    for (const machine of this.deps.updates.fleet()) {
+      if (this.deps.updates.channelOf(machine) === channel) this.enqueue(machine.id)
+    }
     this.pump()
+  }
+
+  /** Recover a sweep lost across coordinator handover; the ordinary guard applies. */
+  onBoot(): void {
+    for (const machine of this.deps.updates.fleet()) {
+      if (machine.online) this.enqueue(machine.id)
+    }
   }
 
   /**
@@ -507,6 +502,9 @@ export class UpdateReconciler {
     const decision = decideReconciliation({
       machine,
       target,
+      approvedTargetVersion: machine
+        ? this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))?.version
+        : undefined,
       operationActive: this.deps.operationActive(),
       attempts,
       ...(this.deps.maxAttempts === undefined ? {} : { maxAttempts: this.deps.maxAttempts }),

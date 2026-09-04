@@ -1714,6 +1714,8 @@ export async function startServer(
     void refreshTargetsOnBoot({
       refresh: (channel) => registry.modules.updates.refreshTarget(channel),
     }).then(() => {
+      // Adoption and target hydration are both complete: recover a lost settle sweep.
+      registry.modules.updatesReconciler?.onBoot()
       // Only after the immediate resolve succeeds or records its per-channel
       // refusal do we expose health and arm the delayed retry. The delay remains
       // exactly the scheduler's 2–7 minute jitter; it is recovery, not boot.

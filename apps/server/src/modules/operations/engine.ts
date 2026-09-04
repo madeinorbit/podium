@@ -104,7 +104,7 @@ export interface OperationEngineDeps {
   /** Injectable so a test can name its operations; production mints `op_<uuid>`. */
   newId?: () => string
   /** Called after every persisted transition, for whoever pushes state to clients. */
-  onChanged?: (row: OperationRow) => void
+  onChanged?: (row: OperationRow, previousState: string | undefined) => void
 }
 
 export type StartResult =
@@ -266,7 +266,7 @@ export class OperationEngine {
         (place) => `${place.id}:${place.reason ?? 'unstated'}`,
       ),
     })
-    this.announce(operation.id)
+    this.announce(operation.id, undefined)
 
     // START CREATES THE OPERATION; IT DOES NOT RUN IT TO COMPLETION. The caller
     // is a button press, and what it needs back is an identity to render — the
@@ -1107,11 +1107,12 @@ export class OperationEngine {
           }
         : {}),
     })
+    const previousState = this.deps.store.get(finished.id)?.state
     this.deps.store.update(finished)
     this.disarm(finished.id)
     this.contexts.delete(finished.id)
     this.deps.store.sweepRetention(finished.kind)
-    this.announce(finished.id)
+    this.announce(finished.id, previousState)
     return finished
   }
 
@@ -1147,7 +1148,7 @@ export class OperationEngine {
     }
     this.deps.store.markTerminal(row.id, 'failed', at)
     this.disarm(row.id)
-    this.announce(row.id)
+    this.announce(row.id, row.state)
     return { id: row.id, kind: row.kind, state: 'failed', exclusionGroup: row.exclusionGroup }
   }
 
@@ -1202,8 +1203,9 @@ export class OperationEngine {
     state?: Operation['state'],
   ): Operation {
     const next: PersistedOperation = { ...operation, updatedAt: at, ...(state ? { state } : {}) }
+    const previousState = this.deps.store.get(next.id)?.state
     this.deps.store.update(next)
-    this.announce(next.id)
+    this.announce(next.id, previousState)
     return next
   }
 
@@ -1409,9 +1411,9 @@ export class OperationEngine {
     return operation
   }
 
-  private announce(operationId: string): void {
+  private announce(operationId: string, previousState: string | undefined): void {
     const row = this.deps.store.get(operationId)
-    if (row) this.deps.onChanged?.(row)
+    if (row) this.deps.onChanged?.(row, previousState)
   }
 
   private now(): number {
