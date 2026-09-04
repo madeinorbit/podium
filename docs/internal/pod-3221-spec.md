@@ -1676,3 +1676,29 @@ AND THE HONEST LIMIT ON THE EVIDENCE, which POD-3395 stated rather than let stan
 distinguish the getter from the assigned field today, because ambient routing does not exist yet. The
 lane is green either way. Rule 34a's change is verified as NOT-A-REGRESSION, not as a fix, and it is
 the pre-flip lint (already owed) that turns this from a convention into something checkable.
+
+### Rule 39a — the derivation is the right instrument; its RAW OUTPUT is not the answer
+
+[POD-3397, 2026-09-04. Its first rule-39 pass flagged four mismatches and all four were the script.]
+
+Rule 39 says derive the column counts rather than eyeball them, and that stands. But a script that
+pairs each converted projection against the FIRST SELECT in its enclosing method MIS-PAIRS every method
+that issues several statements. POD-3397's four false positives, all resolved by reading the original
+SQL:
+
+    upsertIssue                    read 1/?   original is SELECT revision          -> 1/1
+    assignRepoIdToIssuesUnder      read 1/2   twice; the other originals are
+                                              SELECT MAX(seq) AS m and a seq lookup -> 1/1 each
+    listRuntimeTranscriptEvents    read 2/1   the INNER subquery really is
+                                              SELECT id, payload                    -> 2/2
+
+RESOLVE EVERY MISMATCH INDIVIDUALLY AGAINST THE ORIGINAL SQL before reporting one. A wave that reports
+a script's raw mismatch count has reported defects it does not have — which is the MIRROR of the
+failure rule 39 exists to prevent, and just as misleading to whoever reads the handoff.
+
+AND ANSWER THE RULE'S REAL QUESTION, NOT ITS STATED ROUTE. POD-3397 spreads `getTableColumns` nowhere,
+so rule 39's literal trigger cannot arise in its files — and it derived the n/n counts anyway, because
+the question is whether ANY converted read returns more columns than the statement it replaced. It
+reported 16 bare `.select()` sites each replacing an original `SELECT *` (exact by construction) and 38
+explicit projections all n/n, widest 5/5. That is the shape of a complete answer: a checked negative
+with its denominator, not "the rule does not apply to me".
