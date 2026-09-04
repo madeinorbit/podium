@@ -184,12 +184,17 @@ They were invisible because the COUNT stayed at 67 while causes moved underneath
 user-visible — applying a suggested stage leaves the suggestion showing — and the other refuses a
 write in issues.start after a worktree free.
 
-RULE: comparing by failing-test-NAME set rather than by count is necessary but NOT sufficient. A name
-set proves your change added nothing; it says nothing about what was already in the set and
-unexamined. Any standing red that a gate subtracts must be GROUPED BY CAUSE at least once, and the
+RULE, TWO PARTS. First: A DELTA GATE SUBTRACTS A NAME SET, NEVER A NUMBER. POD-3368 measured head 67
+and base 67 — the same count, a DIFFERENT SET — with two of our regressions masked by two failures we
+had fixed. A count cannot express that and a name set states it in one line. The base name set is
+reproducible in about six minutes per arm by the method in
+docs/internal/pod-3368-boundary-lane-causes.md; produce head.names and base.names and diff them.
+
+Second: a name set proves your change added nothing, and says nothing about what was ALREADY in the
+set and unexamined. Any standing red a gate subtracts must be GROUPED BY CAUSE at least once, and the
 grouping must record for each cause the introducing commit and whether it is an ancestor of
-origin/dev/mw. Until that exists, "pre-existing" means "nobody has looked", and an epic that
-subtracts a number by hand is an epic that cannot see its own regressions inside it.
+origin/dev/mw — with "diagnosed to a mechanism but not to a commit" reported as its own category
+rather than folded into "pre-existing". Until that exists, "pre-existing" means "nobody has looked".
 
 This is the second time grouping-by-cause paid for itself: POD-3336 found the POD-2708 bracketed-paste
 guard had been dark for a week inside a tidy cluster of fixture breakage.
