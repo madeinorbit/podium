@@ -660,3 +660,58 @@ against `PRAGMA table_info` on the migrated database (5/5, 4/4, 10/10 ×3, 11/11
 (`auth.listClientSessions`). No mismatch to resolve, so rule 39a's false-positive class did not arise;
 the counts came from printed SQL compared against the shipped table, never from pairing a projection
 with the first SELECT in its method.
+
+## 11. Both arms on `d1e86d0e8`, and the rule 32 patch, verified
+
+### 11.1 The delta, as a NAME SET
+
+Control restored with `git restore --source=d1e86d0e8` over the sixteen source files (copied out
+first, no stash), and `git diff --stat` against the base printed EMPTY — the control arm is
+byte-identical to the tip, which is the property that makes the comparison mean anything.
+`PODIUM_TEST_WORKERS=1` on all six runs.
+
+| Lane | Control | Treatment | New failures | Fixed |
+| --- | --- | --- | --- | --- |
+| `server:store` | 70 files / 943 tests / 0 | 70 / 943 / **0** | none | none |
+| `server:services` | 129 / 2290 / 37 | 129 / 2290 / 37 | **none — name set identical** | none |
+| `server:boundary` | 120 / 2367 / 51 | 120 / 2367 / 53 | **two, both below** | none |
+
+    + account frame read cache reads the account once per frame and re-reads on the next turn
+    + account frame read cache caches "no account" as an answer, because that is the verdict callers act on
+
+Both are the probe going dark, §7.4's finding, and nothing else in 5,600 tests moved. The services
+lane is why this is measured as a set and not a count: 37 and 37 over an identical set, on a box that
+was at load 20 with three other waves' lanes running through it.
+
+**The two failures are now down to ONE cause, not the two §7.4 recorded.** Cause 1 — the probe sitting
+on a feed that a converted repository never reaches — was FIXED at this tip by the coordinator's
+`clientOverWrapper` (POD-3395), which routes the seam's drizzle through the instrumented handle
+instead of past it. What remains is only the SQL-text matcher.
+
+### 11.2 The patch, and its mutation check
+
+The widening is a one-line change plus its comment, and it is NOT landed here: rule 32 makes an
+instrument the coordinator's to repair. The patch is `pod-3393-frame-cache-matcher.patch`, attached to
+this issue.
+
+    -    if (observation.sql.includes('FROM users WHERE id')) reads += 1
+    +    if (READS_ONE_ACCOUNT.test(observation.sql)) reads += 1
+
+    const READS_ONE_ACCOUNT = /from\s+"?users"?\s+where\s+(?:"users"\.)?"?id"?\s*=/i
+
+It accepts BOTH spellings rather than replacing one with the other, because unconverted repositories
+keep emitting the hand-written form until the ledger empties. Applied locally, all four tests pass.
+
+Then mutation-checked against the REAL file rather than a fixture — the check is that removing the
+behaviour the instrument guards still reddens it AFTER the widening, with an ISOLATING reason code.
+Three removals, three different and correct codes:
+
+| Mutation | Reddens | The message, which is the behaviour |
+| --- | --- | --- |
+| the frame cache never HITS (`if (cache.has(userId))` → `if (false)`) | 2 tests | `expected 3 to be 1` — three reads where the pass should have taken one |
+| the frame cache never EXPIRES (read-scope slot → a permanent Map) | 2 tests | `expected 1 to be greater than 1` — no re-read on the next turn; and `expected undefined to be 'Minted'`, a mint inside the frame gone invisible |
+| the widening REVERTED, code untouched | 2 tests | `expected 0 to be greater than 0` — the probe observing nothing, which is the defect the patch fixes |
+
+The third row is the one that matters for rule 32: it is the same red the lane shows today, and it
+proves the widening is load-bearing rather than cosmetic. Every mutation was reverted by copying the
+file back and verifying with `diff` against a `git show HEAD:` copy, never by re-applying a pattern.
