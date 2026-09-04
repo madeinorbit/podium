@@ -1473,3 +1473,40 @@ means, never by what the column declaration says.
 
 This also leaves the corrupt-blob oracle's six throw cases exactly as POD-3245 classified them, which
 is the answer to whether that shared file needed rewriting: it did not.
+
+### Rule 34a — `db` is a GETTER, not an assigned field, or rule 35 cannot work
+
+[POD-3396 spotted the analogous hazard for `transact` and wrapped it rather than assigning straight
+across. The same reasoning applies with more force to `db`, and nobody had applied it — including me,
+when I wrote rule 34's snippet. Corrected 2026-09-04, while five waves were mid-rename.]
+
+Rule 34's snippet said `this.db = queries.db`. That FREEZES `db` to the root drizzle instance at
+construction time. Rule 35 requires `db` to resolve the ENCLOSING TRANSACTION on every access:
+
+    private get db() { return currentTransaction() ?? this.queries.db }
+
+A field assigned once in a constructor can never do that. Landing rule 34 as written would mean
+touching all 39 repositories a THIRD time at B1 to convert each field into a getter — after touching
+them for the conversion and again for the destructure.
+
+THE SHAPE, and it is what every wave should be renaming to right now:
+
+    constructor(private readonly queries: SyncQueries) {}
+
+    protected get db() {
+      return this.queries.db          // B1 changes THIS LINE ONLY, in one place
+    }
+    protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
+
+CALL SITES ARE IDENTICAL to rule 34 — `this.db.select(...)` and `this.transact(() => ...)`. This is a
+change to the two declarations, not to any method body, and not to `store.ts`.
+
+WHY `transact` IS AN ARROW FIELD RATHER THAN A STRAIGHT ASSIGNMENT, which is POD-3396's argument and I
+am adopting it as the standard: `syncQueriesOver` returns an arrow closing over the handle, so
+`this.transact = queries.transact` happens to work TODAY. It stops working the moment the
+implementation uses `this` — which is exactly what rule 35's adapter does — and it stops working
+SILENTLY, as a detached method. Costs one closure per repository instance. Silent is the failure mode
+this epic keeps paying for, so we pay the closure.
+
+THE POINT OF BOTH: after this, a repository is touched ONCE more in the whole epic, and that touch is
+`async`/`await`. The connection question resolves in one getter body, in one place.
