@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { asIssueId, asMachineId, asSessionId } from '@podium/model'
+import { asIssueId, asMachineId, asSessionId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { sessionTitleRule } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
@@ -47,20 +47,24 @@ describe('server agent relay handler (P1b)', () => {
     // this the default fixture has a daemon SOCKET but no machines ROW, so a fleet
     // read comes back empty — and an empty array satisfies every per-row assertion
     // below without executing one of them. This seeding is what lets those fail.
+    //
+    // Both rows carry an OWNER, as every production machine row does: the
+    // capability-scoped projection filters on `canSeeMachine`, so an ownerless
+    // row is invisible to the resolved principal and `machines.reprobe` refuses.
     store = await openTestStore(':memory:')
     await store.machines.upsertMachine({
       id: machineId,
       name: 'ludovico',
       hostname: 'ludovico.local',
       tokenHash: 'hash-1',
-      ownerUserId: null,
+      ownerUserId: FIRST_ADMIN_USER_ID,
     })
     await store.machines.upsertMachine({
       id: 'm2',
       name: 'quiet-box',
       hostname: 'quiet-box.example.net',
       tokenHash: 'hash-2',
-      ownerUserId: null,
+      ownerUserId: FIRST_ADMIN_USER_ID,
     })
     await store.repos.addRepo('/home/a/src/podium', asMachineId(machineId))
     await store.repos.addRepo('/home/b/src/podium', asMachineId('m2'))
@@ -183,6 +187,14 @@ describe('server agent relay handler (P1b)', () => {
   })
 
   it('allows a same-issue child spawn and bounded await through the relay (#475)', async () => {
+    // Placement resolves to the machine the issue's worktree is STAMPED with
+    // (POD-2646), which for this injected store is its own host machine — not the
+    // 'm1' row the fixture attaches its relay daemon to. A production host row
+    // always has its daemon attached; without this the spawn refuses with
+    // 'machine <host-uuid> is not reachable right now'. Attached HERE rather than
+    // in beforeEach because a third live machine changes the fleet projections
+    // the enumeration and quota tests in this file assert on.
+    registry.gateway.attachDaemon(registry.sessionStore.hostMachineId, () => {})
     const spawnReply = captureReply(registry, machineId)
     registry.gateway.routeDaemonFrame(machineId, {
       type: 'agentRelayRequest',
