@@ -89,6 +89,22 @@ must exist on that machine before the Turso items start.
 - No landing on `main` or `dev/mw` before the close checkpoint; no sub-issue started from any
   branch other than the integration branch.
 
+## `add-session` creates a session that is not yet running
+
+Added 2026-09-04. POD-3330 was already started on a shared branch with only a hibernated session, so
+`podium issue start` refused it and `podium issue add-session` is the documented path. That call
+reported "session added" and the session showed `status: live` — with NO agentState, no processes, no
+transcript and no file activity. It had not begun. A `podium session send … --wake` started it, and
+the phase went to `working` within seconds.
+
+So `live` from add-session means the record exists, not that an agent is running, and the usual stall
+test cannot tell that state from a dead one: both have zero processes and nothing written. After
+add-session, send it its opening instruction and CONFIRM the phase moves before treating it as
+staffed. Otherwise a worker sits at zero for an entire tick and the tree says it is in progress.
+
+Note also that `--model` and `--effort` are not add-session flags: set them with `podium issue update`
+first, and the spawned session picks them up from the issue.
+
 ## `session stop` frees the worktree, which deletes untracked files
 
 Added 2026-09-04. POD-3358 was wedged on a permission prompt for copying `.env`. I removed the
