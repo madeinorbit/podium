@@ -1348,6 +1348,44 @@ check for inbound foreign keys, exactly as POD-3392 performed it with `pragma_in
 migrated database.
 
 
+### Rule 31b — `client_sessions` keeps its atomic `INSERT OR REPLACE`, pinned to that one site
+
+[Ruling on POD-3403, 2026-09-04, closing the question rule 31a opened. The audit is POD-3403's; the
+exemption mechanism and its path pin are mine, and the reason they are mine is in the last paragraph.]
+
+The site is `AuthRepository.recordSession` (`apps/server/src/store/auth.ts`). `client_sessions` carries
+a PRIMARY KEY on `token_hash` AND a separate unique index `idx_client_sessions_session_id`. That is
+exactly rule 31a's DO UPDATE row: a mobile re-pair reusing a `session_id` under a new `token_hash`
+conflicts on the UNTARGETED constraint, which `INSERT OR REPLACE` applies today and
+`onConflictDoUpdate` would throw on. Converting it starts refusing a write that currently succeeds, on
+the auth path, so the statement STAYS.
+
+THE EXEMPTION IS THREE CONDITIONS, NOT A TOKEN. Like rule 31a's UPDATE-conflict exemption, the token
+alone grants nothing. `check-boundaries.ts` requires ALL of:
+
+    the file is exactly apps/server/src/store/auth.ts
+    the statement's span carries `// REPLACE-STATEMENT POD-3403`
+    the statement body opens `INSERT OR REPLACE`
+
+IT IS PATH-PINNED AND POD-3406's IS NOT, DELIBERATELY. An `UPDATE OR IGNORE` that loses a race leaves
+the row alone. `INSERT OR REPLACE` DELETES the conflicting row and reinserts it, so it fires
+`ON DELETE CASCADE` on every inbound foreign key — rule 31a's own closing sentence. A token-plus-shape
+exemption would let any future site adopt that behaviour by typing the token. Pinning the path forces
+the next `INSERT OR REPLACE` back here for its own ruling with its own foreign-key audit, which is the
+answer we want it to have to produce.
+
+NOT A `DECISION` MARKER. The policy is answered, and Stage A's exit gate counts UNANSWERED markers to
+zero (rule 33). A `DECISION` token here would block the gate forever.
+
+WHAT I GOT WRONG. POD-3403 wrote all three halves — spec rule, lint exemption, site comment. I told it
+to revert every shared-file edit after it collided with POD-3406 in the same two files, and kept only
+its site work. The site work DEPENDS on the other two halves, so what came back cited a rule that did
+not exist and used a token nothing recognised, and `lint:boundaries` reddened on `auth.ts:91` at the
+trial merge. The redirect was mine and so was the gap. When a worker's change spans a site and the
+rule that permits it, splitting them leaves the site indefensible; either take both halves or take
+neither.
+
+
 ### Rule 34 — the capability object is a CONSTRUCTOR detail; call sites read `this.db` and `this.transact`
 
 [Operator decision, 2026-09-04, on seeing `this.queries.db.insert(...)` at call sites. My error in

@@ -1228,6 +1228,21 @@ const STORE_BOUNDARY_DECISION_MARKER = /\/\/\s*DECISION POD-\d+/
  */
 const UPDATE_CONFLICT_STATEMENT_MARKER = /^\s*\/\/\s*UPDATE-CONFLICT STATEMENT POD-3406\b/
 
+/**
+ * Rule 31b's `INSERT OR REPLACE` exemption (POD-3403), and it is PATH-PINNED
+ * where {@link UPDATE_CONFLICT_STATEMENT_MARKER} is not.
+ *
+ * `UPDATE OR IGNORE` losing a race leaves the row alone. `INSERT OR REPLACE`
+ * DELETES the conflicting row and reinserts, firing `ON DELETE CASCADE` on
+ * every inbound foreign key. A token-plus-shape exemption would let any future
+ * site adopt that by typing the token; pinning the path sends the next one back
+ * for its own foreign-key audit. All THREE must hold — the token alone grants
+ * nothing.
+ */
+const REPLACE_STATEMENT_MARKER = /^\s*\/\/\s*REPLACE-STATEMENT POD-3403\b/
+const REPLACE_STATEMENT_SQL = /^\s*INSERT\s+OR\s+REPLACE\b/i
+const REPLACE_STATEMENT_FILE = 'apps/server/src/store/auth.ts'
+
 /** `.prepare(` — a prepared statement is a raw handle by definition. */
 // THE DISCRIMINATOR IS THE ARGUMENT, not the method — the same rule rule 1 uses
 // for `.all(sql`…`)` two definitions down. A raw connection prepare ALWAYS takes
@@ -1651,16 +1666,30 @@ function rawHandleViolations(file: string, source: string): Violation[] {
     }
     return false
   }
+  const spanHasReplaceStatementMarker = (start: number): boolean => {
+    const [from, to] = spanLines(start)
+    const sourceLines = source.split('\n')
+    for (let line = from; line <= to; line++) {
+      if (REPLACE_STATEMENT_MARKER.test(sourceLines[line - 1] ?? '')) return true
+    }
+    return false
+  }
   for (const m of stripped.matchAll(new RegExp(RAW_EXECUTION_CALL.source, 'g'))) {
     const start = m.index ?? 0
     const at = lineAt(start)
     if (spanIsDecisionMarked(start)) continue
     const statementBody = stripped.slice(start + m[0].length)
     if (UPDATE_CONFLICT_SQL.test(statementBody) && spanHasUpdateConflictMarker(start)) continue
+    if (
+      file === REPLACE_STATEMENT_FILE &&
+      REPLACE_STATEMENT_SQL.test(statementBody) &&
+      spanHasReplaceStatementMarker(start)
+    )
+      continue
     add(
       at,
       `.${m[1]}(sql\`…\`)`,
-      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token.`,
+      `hands a WHOLE raw statement to drizzle's \`.${m[1]}()\`. A \`sql\` FRAGMENT inside a builder query is fine anywhere; a whole statement belongs behind the search port unless it is an \`UPDATE OR <conflict-algorithm>\` carrying the \`UPDATE-CONFLICT STATEMENT POD-3406\` token, or the ONE \`INSERT OR REPLACE\` site rule 31b pins by path (\`${REPLACE_STATEMENT_FILE}\`). A NEW \`INSERT OR REPLACE\` site does not get that token by typing it: OR REPLACE deletes the conflicting row and cascades, so it needs its own ruling and its own foreign-key audit.`,
     )
   }
   return violations
