@@ -5,10 +5,10 @@
  * modules/lock/service.ts.
  */
 
-import type { IssueId, SessionId, RepoId } from '@podium/model'
-import { asRepoId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import type { IssueId, RepoId, SessionId } from '@podium/model'
+import { and, asc, eq, lte, sql } from 'drizzle-orm'
+import { locks, lockWaiters } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** Waiter session sentinel for direct-HTTP operator callers (no session id). */
 export const OPERATOR_LOCK_SESSION = 'operator'
@@ -62,97 +62,107 @@ export interface LockWaiterRow {
   enqueuedAt: string
 }
 
+/**
+ * THE ONE DECISION THIS FILE'S MAPPING STILL MAKES [spec §6 rule 6].
+ *
+ * `locks.holder_session_id` and `lock_waiters.session_id` are `$type<SessionId>`
+ * in the schema, and the domain type is the {@link LockSessionKey} UNION: a real
+ * session, the operator sentinel, the unknown-relay sentinel, or `system:<job>`.
+ *
+ * READING widens and needs nothing — `SessionId` is one member of the union, so
+ * drizzle's own row type is assignable to {@link LockRow} as it stands, which is
+ * why the per-column mapper this file used to carry is gone rather than ported.
+ *
+ * WRITING narrows, and that is the decision: storing `'operator'` or
+ * `'system:steward'` in a column the schema brands `SessionId` is deliberate and
+ * documented (POD-362), not an accident of an untyped driver. It is spelled here,
+ * once, so the two write sites do not each re-argue it.
+ */
+const asColumnSession = (key: LockSessionKey): SessionId => key as SessionId
+
 export class LocksRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
-  }
-
-  private mapLock(r: Record<string, unknown>): LockRow {
-    return {
-      repoId: asRepoId(r.repo_id as string),
-      name: r.name as string,
-      // SERIALIZATION EDGE: untyped columns re-entering their id spaces.
-      holderSessionId: (r.holder_session_id as LockSessionKey | null) ?? null,
-      holderIssueId: (r.holder_issue_id as IssueId | null) ?? null,
-      holderLabel: r.holder_label as string,
-      note: (r.note as string | null) ?? null,
-      acquiredAt: r.acquired_at as string,
-      expiresAt: r.expires_at as string,
-    }
-  }
-
-  private mapWaiter(r: Record<string, unknown>): LockWaiterRow {
-    return {
-      id: r.id as number,
-      repoId: asRepoId(r.repo_id as string),
-      name: r.name as string,
-      // SERIALIZATION EDGE: untyped columns re-entering their id spaces.
-      sessionId: r.session_id as LockSessionKey,
-      issueId: (r.issue_id as IssueId | null) ?? null,
-      label: r.label as string,
-      ttlSeconds: r.ttl_seconds as number,
-      note: (r.note as string | null) ?? null,
-      enqueuedAt: r.enqueued_at as string,
-    }
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
 
   getLock(repoId: RepoId, name: string): LockRow | null {
-    const r = this.db
-      .prepare('SELECT * FROM locks WHERE repo_id = ? AND name = ?')
-      .get(repoId, name) as Record<string, unknown> | undefined
-    return r ? this.mapLock(r) : null
+    return (
+      this.db
+        .select()
+        .from(locks)
+        .where(and(eq(locks.repoId, repoId), eq(locks.name, name)))
+        .get() ?? null
+    )
   }
 
   listLocks(repoId: RepoId): LockRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM locks WHERE repo_id = ? ORDER BY name')
-      .all(repoId) as Record<string, unknown>[]
-    return rows.map((r) => this.mapLock(r))
+    return this.db
+      .select()
+      .from(locks)
+      .where(eq(locks.repoId, repoId))
+      .orderBy(asc(locks.name))
+      .all()
   }
 
   /** Locks in `repoId` whose lease has expired at `nowIso` (lazy-expiry sweep). */
   listExpiredLocks(repoId: RepoId, nowIso: string): LockRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM locks WHERE repo_id = ? AND expires_at <= ?')
-      .all(repoId, nowIso) as Record<string, unknown>[]
-    return rows.map((r) => this.mapLock(r))
+    // INCLUSIVE at the instant: a lease expiring exactly now is expired.
+    return this.db
+      .select()
+      .from(locks)
+      .where(and(eq(locks.repoId, repoId), lte(locks.expiresAt, nowIso)))
+      .all()
   }
 
   /** Every lock a session currently holds (session-bound auto-release). */
   listLocksHeldBySession(sessionId: LockSessionKey): LockRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM locks WHERE holder_session_id = ?')
-      .all(sessionId) as Record<string, unknown>[]
-    return rows.map((r) => this.mapLock(r))
+    // EQUALITY, not `IS` — and unlike {@link renewLock} that is the point: a
+    // NULL holder is the operator's lease, and the session-exit sweep must not
+    // pick it up. The two predicates in this file differ on purpose.
+    return this.db
+      .select()
+      .from(locks)
+      .where(eq(locks.holderSessionId, asColumnSession(sessionId)))
+      .all()
   }
 
   /** Write (insert or replace) the current lease for (repo_id, name). */
   upsertLock(row: LockRow): void {
+    const values = {
+      repoId: row.repoId,
+      name: row.name,
+      holderSessionId: row.holderSessionId === null ? null : asColumnSession(row.holderSessionId),
+      holderIssueId: row.holderIssueId,
+      holderLabel: row.holderLabel,
+      note: row.note,
+      acquiredAt: row.acquiredAt,
+      expiresAt: row.expiresAt,
+    }
     this.db
-      .prepare(
-        `INSERT INTO locks
-           (repo_id, name, holder_session_id, holder_issue_id, holder_label, note, acquired_at, expires_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(repo_id, name) DO UPDATE SET
-           holder_session_id = excluded.holder_session_id,
-           holder_issue_id = excluded.holder_issue_id,
-           holder_label = excluded.holder_label,
-           note = excluded.note,
-           acquired_at = excluded.acquired_at,
-           expires_at = excluded.expires_at`,
-      )
-      .run(
-        row.repoId,
-        row.name,
-        row.holderSessionId,
-        row.holderIssueId,
-        row.holderLabel,
-        row.note,
-        row.acquiredAt,
-        row.expiresAt,
-      )
+      .insert(locks)
+      .values(values)
+      .onConflictDoUpdate({
+        target: [locks.repoId, locks.name],
+        set: {
+          holderSessionId: values.holderSessionId,
+          holderIssueId: values.holderIssueId,
+          holderLabel: values.holderLabel,
+          note: values.note,
+          acquiredAt: values.acquiredAt,
+          expiresAt: values.expiresAt,
+        },
+      })
+      .run()
   }
 
   /** Extend the current lease. Guarded on the holder session (atomic renew —
@@ -163,25 +173,40 @@ export class LocksRepository {
     holderSessionId: LockSessionKey | null,
     expiresAt: string,
   ): boolean {
+    // `IS`, NOT `eq`, and it is load-bearing: the operator's lease has a NULL
+    // holder, `= NULL` matches no row, and an operator lock would then be
+    // unrenewable and expire under its holder. A `sql` FRAGMENT rather than a
+    // conditional `isNull`/`eq` so this stays ONE statement text — the branch
+    // would put two entries in the statement cache for one call site.
     const r = this.db
-      .prepare(
-        `UPDATE locks SET expires_at = ?
-         WHERE repo_id = ? AND name = ? AND holder_session_id IS ?`,
+      .update(locks)
+      .set({ expiresAt })
+      .where(
+        and(
+          eq(locks.repoId, repoId),
+          eq(locks.name, name),
+          sql`${locks.holderSessionId} IS ${holderSessionId}`,
+        ),
       )
-      .run(expiresAt, repoId, name, holderSessionId)
+      .run()
     return r.changes === 1
   }
 
   deleteLock(repoId: RepoId, name: string): void {
-    this.db.prepare('DELETE FROM locks WHERE repo_id = ? AND name = ?').run(repoId, name)
+    this.db
+      .delete(locks)
+      .where(and(eq(locks.repoId, repoId), eq(locks.name, name)))
+      .run()
   }
 
   /** FIFO queue for one lock, in grant order. */
   listWaiters(repoId: RepoId, name: string): LockWaiterRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM lock_waiters WHERE repo_id = ? AND name = ? ORDER BY id')
-      .all(repoId, name) as Record<string, unknown>[]
-    return rows.map((r) => this.mapWaiter(r))
+    return this.db
+      .select()
+      .from(lockWaiters)
+      .where(and(eq(lockWaiters.repoId, repoId), eq(lockWaiters.name, name)))
+      .orderBy(asc(lockWaiters.id))
+      .all()
   }
 
   /** Enqueue a waiter. Idempotent per (repo_id, name, session_id): re-acquiring
@@ -189,32 +214,51 @@ export class LocksRepository {
    *  the original row id, timestamp, and FIFO position. */
   enqueueWaiter(w: Omit<LockWaiterRow, 'id'>): void {
     this.db
-      .prepare(
-        `INSERT INTO lock_waiters
-           (repo_id, name, session_id, issue_id, label, ttl_seconds, note, enqueued_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(repo_id, name, session_id) DO UPDATE SET
-           ttl_seconds = excluded.ttl_seconds,
-           note = excluded.note`,
-      )
-      .run(w.repoId, w.name, w.sessionId, w.issueId, w.label, w.ttlSeconds, w.note, w.enqueuedAt)
+      .insert(lockWaiters)
+      .values({
+        repoId: w.repoId,
+        name: w.name,
+        sessionId: asColumnSession(w.sessionId),
+        issueId: w.issueId,
+        label: w.label,
+        ttlSeconds: w.ttlSeconds,
+        note: w.note,
+        enqueuedAt: w.enqueuedAt,
+      })
+      .onConflictDoUpdate({
+        target: [lockWaiters.repoId, lockWaiters.name, lockWaiters.sessionId],
+        // TWO COLUMNS AND ONLY TWO. `label`, `issue_id` and `enqueued_at` are
+        // deliberately absent: a re-acquire updates what the waiter is asking
+        // for, never its identity or its place in the queue.
+        set: { ttlSeconds: w.ttlSeconds, note: w.note },
+      })
+      .run()
   }
 
   removeWaiter(id: number): void {
-    this.db.prepare('DELETE FROM lock_waiters WHERE id = ?').run(id)
+    this.db.delete(lockWaiters).where(eq(lockWaiters.id, id)).run()
   }
 
   removeWaiterBySession(repoId: RepoId, name: string, sessionId: LockSessionKey): void {
     this.db
-      .prepare('DELETE FROM lock_waiters WHERE repo_id = ? AND name = ? AND session_id = ?')
-      .run(repoId, name, sessionId)
+      .delete(lockWaiters)
+      .where(
+        and(
+          eq(lockWaiters.repoId, repoId),
+          eq(lockWaiters.name, name),
+          eq(lockWaiters.sessionId, asColumnSession(sessionId)),
+        ),
+      )
+      .run()
   }
 
   /** Locks a session is queued on (session-exit queue pruning). */
   listWaitsBySession(sessionId: SessionId): LockWaiterRow[] {
-    const rows = this.db
-      .prepare('SELECT * FROM lock_waiters WHERE session_id = ? ORDER BY id')
-      .all(sessionId) as Record<string, unknown>[]
-    return rows.map((r) => this.mapWaiter(r))
+    return this.db
+      .select()
+      .from(lockWaiters)
+      .where(eq(lockWaiters.sessionId, sessionId))
+      .orderBy(asc(lockWaiters.id))
+      .all()
   }
 }

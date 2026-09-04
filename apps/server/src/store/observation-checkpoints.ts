@@ -1,8 +1,13 @@
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import { ObservationProvider, SessionObservationCheckpointV1 } from '@podium/protocol'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, eq, isNull, sql } from 'drizzle-orm'
+import {
+  sessionObservationCheckpoints,
+  sessionObservationRebinds,
+  sessionTerminalCandidates,
+} from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -51,58 +56,98 @@ export type ObservationRebindResult =
       lease: ObservationLeaseRecord
     }
 
+/** The columns every lease read projects — the same list, spelled once. */
+const LEASE_COLUMNS = {
+  sessionId: sessionObservationCheckpoints.sessionId,
+  provider: sessionObservationCheckpoints.provider,
+  providerSessionId: sessionObservationCheckpoints.providerSessionId,
+  bindingVersion: sessionObservationCheckpoints.bindingVersion,
+  observationGeneration: sessionObservationCheckpoints.observationGeneration,
+  checkpointJson: sessionObservationCheckpoints.checkpointJson,
+  updatedAt: sessionObservationCheckpoints.updatedAt,
+}
+
+type LeaseSelect = Pick<
+  typeof sessionObservationCheckpoints.$inferSelect,
+  | 'sessionId'
+  | 'provider'
+  | 'providerSessionId'
+  | 'bindingVersion'
+  | 'observationGeneration'
+  | 'checkpointJson'
+  | 'updatedAt'
+>
+
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * The query builder every method below reads through [spec rules 34, 34a].
+   *
+   * A GETTER, not a field assigned in the constructor: rule 35 makes transaction
+   * routing ambient, so this has to resolve the ENCLOSING transaction on every
+   * access, and a field frozen at construction never could. B1 changes this one
+   * line; no call site moves.
+   */
+  protected get db() {
+    return this.queries.db
   }
 
-  private mapRow(r: Record<string, unknown>): ObservationLeaseRecord | null {
+  /**
+   * The synchronous span this file used to get from the runtime helper directly,
+   * routed through the store's port so the executor knows the span exists.
+   *
+   * AN ARROW FIELD, not `this.transact = queries.transact` [spec rule 34a,
+   * POD-3396's finding]. Assigning it across works only while the implementation
+   * ignores its own `this` — which today's closure does and rule 35's adapter
+   * over drizzle's transaction will not. It would then break as a detached
+   * method, silently. One closure per instance is the price.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
+
+  private mapRow(r: LeaseSelect): ObservationLeaseRecord | null {
     const provider = ObservationProvider.safeParse(r.provider)
     if (!provider.success) {
       log.warn('ignoring an observation lease with an invalid provider', {
-        sessionId: String(r.session_id),
+        sessionId: String(r.sessionId),
         provider: r.provider,
       })
       return null
     }
     let checkpoint: ObservationLeaseRecord['checkpoint'] = null
-    if (r.checkpoint_json != null) {
+    if (r.checkpointJson != null) {
       try {
-        const parsed = SessionObservationCheckpointV1.safeParse(
-          typeof r.checkpoint_json === 'string' ? JSON.parse(r.checkpoint_json) : r.checkpoint_json,
-        )
+        // QUARANTINE, NOT `mode: 'json'` (spec §6 rule 4). The column is plain
+        // `text()`: a corrupt checkpoint is logged and read as absent, where a
+        // JSON column would throw and take the lease with it.
+        const parsed = SessionObservationCheckpointV1.safeParse(JSON.parse(r.checkpointJson))
         if (!parsed.success) throw new Error(parsed.error.message)
         checkpoint = parsed.data
       } catch (err) {
         log.warn('ignoring a corrupt observation checkpoint', {
           err,
-          sessionId: String(r.session_id),
+          sessionId: String(r.sessionId),
         })
       }
     }
     return {
-      // SERIALIZATION EDGE: an untyped sqlite column re-entering its id space.
-      sessionId: r.session_id as SessionId,
+      sessionId: r.sessionId,
       provider: provider.data,
-      providerSessionId: (r.provider_session_id as string | null) ?? null,
-      bindingVersion: Number(r.binding_version),
-      observationGeneration: Number(r.observation_generation),
+      providerSessionId: r.providerSessionId,
+      bindingVersion: r.bindingVersion,
+      observationGeneration: r.observationGeneration,
       checkpoint,
-      updatedAt: r.updated_at as string,
+      updatedAt: r.updatedAt,
     }
   }
 
   private read(sessionId: SessionId): ObservationLeaseRecord | null {
     const row = this.db
-      .prepare(
-        `SELECT session_id, provider, provider_session_id, binding_version,
-                observation_generation, checkpoint_json, updated_at
-         FROM session_observation_checkpoints WHERE session_id = ?`,
-      )
-      .get(sessionId) as Record<string, unknown> | undefined
+      .select(LEASE_COLUMNS)
+      .from(sessionObservationCheckpoints)
+      .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
+      .get()
     return row ? this.mapRow(row) : null
   }
 
@@ -118,36 +163,38 @@ export class ObservationCheckpointsRepository {
     resultingObservationGeneration: number
   } | null {
     const row = this.db
-      .prepare(
-        `SELECT provider, from_provider_session_id, from_binding_version,
-                from_observation_generation, to_provider_session_id,
-                resulting_binding_version, resulting_observation_generation
-         FROM session_observation_rebinds WHERE session_id = ?`,
-      )
-      .get(sessionId) as Record<string, unknown> | undefined
+      .select({
+        provider: sessionObservationRebinds.provider,
+        fromProviderSessionId: sessionObservationRebinds.fromProviderSessionId,
+        fromBindingVersion: sessionObservationRebinds.fromBindingVersion,
+        fromObservationGeneration: sessionObservationRebinds.fromObservationGeneration,
+        toProviderSessionId: sessionObservationRebinds.toProviderSessionId,
+        resultingBindingVersion: sessionObservationRebinds.resultingBindingVersion,
+        resultingObservationGeneration: sessionObservationRebinds.resultingObservationGeneration,
+      })
+      .from(sessionObservationRebinds)
+      .where(eq(sessionObservationRebinds.sessionId, sessionId))
+      .get()
     if (!row) return null
     const provider = ObservationProvider.safeParse(row.provider)
     if (!provider.success) return null
     return {
       provider: provider.data,
-      fromProviderSessionId: (row.from_provider_session_id as string | null) ?? null,
-      fromBindingVersion: Number(row.from_binding_version),
-      fromObservationGeneration: Number(row.from_observation_generation),
-      toProviderSessionId: row.to_provider_session_id as string,
-      resultingBindingVersion: Number(row.resulting_binding_version),
-      resultingObservationGeneration: Number(row.resulting_observation_generation),
+      fromProviderSessionId: row.fromProviderSessionId,
+      fromBindingVersion: row.fromBindingVersion,
+      fromObservationGeneration: row.fromObservationGeneration,
+      toProviderSessionId: row.toProviderSessionId,
+      resultingBindingVersion: row.resultingBindingVersion,
+      resultingObservationGeneration: row.resultingObservationGeneration,
     }
   }
 
   loadAll(): ObservationLeaseRecord[] {
-    const rows = this.db
-      .prepare(
-        `SELECT session_id, provider, provider_session_id, binding_version,
-                observation_generation, checkpoint_json, updated_at
-         FROM session_observation_checkpoints ORDER BY session_id`,
-      )
-      .all() as Record<string, unknown>[]
-    return rows
+    return this.db
+      .select(LEASE_COLUMNS)
+      .from(sessionObservationCheckpoints)
+      .orderBy(sessionObservationCheckpoints.sessionId)
+      .all()
       .map((row) => this.mapRow(row))
       .filter((row): row is ObservationLeaseRecord => row !== null)
   }
@@ -166,25 +213,52 @@ export class ObservationCheckpointsRepository {
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string | null,
   ): ObservationLeaseRecord {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const updatedAt = new Date().toISOString()
       this.db
-        .prepare(
-          `INSERT OR IGNORE INTO session_observation_checkpoints
-             (session_id, schema_version, provider, provider_session_id,
-              binding_version, observation_generation, checkpoint_json, updated_at)
-           VALUES (?, 1, ?, ?, 1, 0, NULL, ?)`,
-        )
-        .run(sessionId, provider, providerSessionId, updatedAt)
+        .insert(sessionObservationCheckpoints)
+        .values({
+          sessionId,
+          schemaVersion: 1,
+          provider,
+          providerSessionId,
+          bindingVersion: 1,
+          observationGeneration: 0,
+          checkpointJson: null,
+          updatedAt,
+        })
+        // WAS `INSERT OR IGNORE`, and the two are NOT generally interchangeable
+        // (spec rule 31). Measured on bun:sqlite: `OR IGNORE` suppresses UNIQUE,
+        // PRIMARY KEY, NOT NULL and CHECK, while `DO NOTHING` suppresses only the
+        // uniqueness conflict. Foreign keys do not enter it — NEITHER form
+        // suppresses those, which is why "this table has no foreign keys" is the
+        // wrong premise and is not the one relied on here.
+        //
+        // THE CONDITION IS THAT NO NOT NULL AND NO CHECK VIOLATION IS REACHABLE,
+        // and on the shipped table it holds: no CHECK constraints, one index
+        // (the primary key's own, which both forms suppress), and every NOT NULL
+        // column here — schema_version, provider, binding_version,
+        // observation_generation, updated_at — is supplied from a literal or a
+        // non-nullable parameter. So the only violation either form can meet is
+        // the primary key. The enumeration is in the commit message.
+        .onConflictDoNothing()
+        .run()
       this.db
-        .prepare(
-          `UPDATE session_observation_checkpoints
-           SET observation_generation = observation_generation + 1,
-               provider_session_id = COALESCE(provider_session_id, ?),
-               updated_at = ?
-           WHERE session_id = ? AND provider = ?`,
+        .update(sessionObservationCheckpoints)
+        .set({
+          // Read-modify-write IN THE STATEMENT, not in the caller: the fence has
+          // to advance atomically with respect to any other observer.
+          observationGeneration: sql`${sessionObservationCheckpoints.observationGeneration} + 1`,
+          providerSessionId: sql`COALESCE(${sessionObservationCheckpoints.providerSessionId}, ${providerSessionId})`,
+          updatedAt,
+        })
+        .where(
+          and(
+            eq(sessionObservationCheckpoints.sessionId, sessionId),
+            eq(sessionObservationCheckpoints.provider, provider),
+          ),
         )
-        .run(providerSessionId, updatedAt, sessionId, provider)
+        .run()
       // A SPENT proof does not survive its observer's life. Consumption is the
       // last act of one hibernation; a fresh fence means the session is being
       // observed again, and `confirmTerminalCandidate` refuses to touch a
@@ -218,7 +292,7 @@ export class ObservationCheckpointsRepository {
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     nextProviderSessionId: string
   }): ObservationRebindResult {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const current = this.read(input.sessionId)
       if (!current) throw new Error(`missing observation lease for ${input.sessionId}`)
       if (current.provider !== input.provider) {
@@ -263,63 +337,58 @@ export class ObservationCheckpointsRepository {
       const observationGeneration = current.observationGeneration + 1
       const updatedAt = new Date().toISOString()
       const result = this.db
-        .prepare(
-          `UPDATE session_observation_checkpoints
-           SET provider_session_id = ?,
-               binding_version = ?,
-               observation_generation = ?,
-               checkpoint_json = ?,
-               updated_at = ?
-           WHERE session_id = ?
-             AND provider = ?
-             AND binding_version = ?
-             AND observation_generation = ?
-             AND (provider_session_id = ? OR (provider_session_id IS NULL AND ? IS NULL))`,
-        )
-        .run(
-          input.nextProviderSessionId,
+        .update(sessionObservationCheckpoints)
+        .set({
+          providerSessionId: input.nextProviderSessionId,
           bindingVersion,
           observationGeneration,
-          null,
+          checkpointJson: null,
           updatedAt,
-          input.sessionId,
-          input.provider,
-          input.bindingVersion,
-          input.observationGeneration,
-          input.providerSessionId,
-          input.providerSessionId,
+        })
+        .where(
+          and(
+            eq(sessionObservationCheckpoints.sessionId, input.sessionId),
+            eq(sessionObservationCheckpoints.provider, input.provider),
+            eq(sessionObservationCheckpoints.bindingVersion, input.bindingVersion),
+            eq(sessionObservationCheckpoints.observationGeneration, input.observationGeneration),
+            // THE FULL COMPARE-AND-SWAP, reproduced rather than simplified: the
+            // `IS NULL AND ? IS NULL` arm is what lets a lease with no provider
+            // session id be rebound at all, and `= NULL` would match no row.
+            sql`(${sessionObservationCheckpoints.providerSessionId} = ${input.providerSessionId} OR (${sessionObservationCheckpoints.providerSessionId} IS NULL AND ${input.providerSessionId} IS NULL))`,
+          ),
         )
+        .run()
       if (Number(result.changes) !== 1) {
         throw new Error(`observation rebind lease changed for ${input.sessionId}`)
       }
+      const receiptRow = {
+        sessionId: input.sessionId,
+        provider: input.provider,
+        fromProviderSessionId: input.providerSessionId,
+        fromBindingVersion: input.bindingVersion,
+        fromObservationGeneration: input.observationGeneration,
+        toProviderSessionId: input.nextProviderSessionId,
+        resultingBindingVersion: bindingVersion,
+        resultingObservationGeneration: observationGeneration,
+        updatedAt,
+      }
       this.db
-        .prepare(
-          `INSERT INTO session_observation_rebinds
-             (session_id, provider, from_provider_session_id, from_binding_version,
-              from_observation_generation, to_provider_session_id,
-              resulting_binding_version, resulting_observation_generation, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(session_id) DO UPDATE SET
-             provider = excluded.provider,
-             from_provider_session_id = excluded.from_provider_session_id,
-             from_binding_version = excluded.from_binding_version,
-             from_observation_generation = excluded.from_observation_generation,
-             to_provider_session_id = excluded.to_provider_session_id,
-             resulting_binding_version = excluded.resulting_binding_version,
-             resulting_observation_generation = excluded.resulting_observation_generation,
-             updated_at = excluded.updated_at`,
-        )
-        .run(
-          input.sessionId,
-          input.provider,
-          input.providerSessionId,
-          input.bindingVersion,
-          input.observationGeneration,
-          input.nextProviderSessionId,
-          bindingVersion,
-          observationGeneration,
-          updatedAt,
-        )
+        .insert(sessionObservationRebinds)
+        .values(receiptRow)
+        .onConflictDoUpdate({
+          target: sessionObservationRebinds.sessionId,
+          set: {
+            provider: receiptRow.provider,
+            fromProviderSessionId: receiptRow.fromProviderSessionId,
+            fromBindingVersion: receiptRow.fromBindingVersion,
+            fromObservationGeneration: receiptRow.fromObservationGeneration,
+            toProviderSessionId: receiptRow.toProviderSessionId,
+            resultingBindingVersion: receiptRow.resultingBindingVersion,
+            resultingObservationGeneration: receiptRow.resultingObservationGeneration,
+            updatedAt: receiptRow.updatedAt,
+          },
+        })
+        .run()
       this.cancelTerminalCandidate(input.sessionId)
       const lease = this.read(input.sessionId)
       if (!lease) throw new Error(`missing rebound observation lease for ${input.sessionId}`)
@@ -330,27 +399,28 @@ export class ObservationCheckpointsRepository {
   /** Persist only against the still-current lease; stale sockets cannot win. */
   save(checkpoint: SessionObservationCheckpointV1): void {
     const result = this.db
-      .prepare(
-        `UPDATE session_observation_checkpoints
-         SET provider_session_id = COALESCE(provider_session_id, ?),
-             checkpoint_json = ?,
-             updated_at = ?
-         WHERE session_id = ?
-           AND provider = ?
-           AND binding_version = ?
-           AND observation_generation = ?
-           AND (provider_session_id IS NULL OR provider_session_id = ?)`,
+      .update(sessionObservationCheckpoints)
+      .set({
+        providerSessionId: sql`COALESCE(${sessionObservationCheckpoints.providerSessionId}, ${checkpoint.providerSessionId})`,
+        checkpointJson: JSON.stringify(checkpoint),
+        updatedAt: checkpoint.acceptedAt,
+      })
+      .where(
+        and(
+          eq(sessionObservationCheckpoints.sessionId, checkpoint.podiumSessionId),
+          eq(sessionObservationCheckpoints.provider, checkpoint.provider),
+          eq(sessionObservationCheckpoints.bindingVersion, checkpoint.bindingVersion),
+          eq(
+            sessionObservationCheckpoints.observationGeneration,
+            checkpoint.lifecycleObservationGeneration,
+          ),
+          // NOT the same predicate as `rebindExact`'s: an UNSET provider session
+          // id accepts any writer, where a set one must match. Keeping the two
+          // spelled differently is the point.
+          sql`(${sessionObservationCheckpoints.providerSessionId} IS NULL OR ${sessionObservationCheckpoints.providerSessionId} = ${checkpoint.providerSessionId})`,
+        ),
       )
-      .run(
-        checkpoint.providerSessionId,
-        JSON.stringify(checkpoint),
-        checkpoint.acceptedAt,
-        checkpoint.podiumSessionId,
-        checkpoint.provider,
-        checkpoint.bindingVersion,
-        checkpoint.lifecycleObservationGeneration,
-        checkpoint.providerSessionId,
-      )
+      .run()
     if (Number(result.changes) !== 1) {
       throw new Error(`observation checkpoint lease changed for ${checkpoint.podiumSessionId}`)
     }
@@ -358,23 +428,28 @@ export class ObservationCheckpointsRepository {
 
   getTerminalCandidate(sessionId: SessionId): TerminalCandidateRecord | null {
     const row = this.db
-      .prepare(
-        `SELECT proof_json, confirmed_at, consumed_at, updated_at
-         FROM session_terminal_candidates WHERE session_id = ?`,
-      )
-      .get(sessionId) as Record<string, unknown> | undefined
+      .select({
+        proofJson: sessionTerminalCandidates.proofJson,
+        confirmedAt: sessionTerminalCandidates.confirmedAt,
+        consumedAt: sessionTerminalCandidates.consumedAt,
+        updatedAt: sessionTerminalCandidates.updatedAt,
+      })
+      .from(sessionTerminalCandidates)
+      .where(eq(sessionTerminalCandidates.sessionId, sessionId))
+      .get()
     if (!row) return null
     try {
-      const proof = JSON.parse(String(row.proof_json)) as Omit<
+      // QUARANTINE, as `mapRow`: an unreadable proof reads as no proof.
+      const proof = JSON.parse(row.proofJson) as Omit<
         TerminalCandidateRecord,
         'confirmedAt' | 'consumedAt' | 'updatedAt'
       >
       if (proof.facts?.schemaVersion !== 1 || proof.facts.sessionId !== sessionId) return null
       return {
         ...proof,
-        confirmedAt: (row.confirmed_at as string | null) ?? null,
-        consumedAt: (row.consumed_at as string | null) ?? null,
-        updatedAt: row.updated_at as string,
+        confirmedAt: row.confirmedAt,
+        consumedAt: row.consumedAt,
+        updatedAt: row.updatedAt,
       }
     } catch {
       return null
@@ -388,18 +463,30 @@ export class ObservationCheckpointsRepository {
       firstLivePollSequence: 0,
       lastLivePollSequence: 0,
     }
+    this.upsertProof(facts.sessionId, proof, at)
+  }
+
+  /**
+   * Write a fresh proof, CLEARING both stamps — the shape `record` and `arm`
+   * share. It was two identical statements before the conversion; they are one
+   * here because a difference between them would have been a defect either way.
+   */
+  private upsertProof(sessionId: SessionId, proof: unknown, at: string): void {
+    const proofJson = JSON.stringify(proof)
     this.db
-      .prepare(
-        `INSERT INTO session_terminal_candidates
-           (session_id, proof_json, confirmed_at, consumed_at, updated_at)
-         VALUES (?, ?, NULL, NULL, ?)
-         ON CONFLICT(session_id) DO UPDATE SET
-           proof_json = excluded.proof_json,
-           confirmed_at = NULL,
-           consumed_at = NULL,
-           updated_at = excluded.updated_at`,
-      )
-      .run(facts.sessionId, JSON.stringify(proof), at)
+      .insert(sessionTerminalCandidates)
+      .values({
+        sessionId,
+        proofJson,
+        confirmedAt: null,
+        consumedAt: null,
+        updatedAt: at,
+      })
+      .onConflictDoUpdate({
+        target: sessionTerminalCandidates.sessionId,
+        set: { proofJson, confirmedAt: null, consumedAt: null, updatedAt: at },
+      })
+      .run()
   }
 
   /** Arm pass one at this observer sequence, discarding whatever was there. */
@@ -413,18 +500,7 @@ export class ObservationCheckpointsRepository {
       firstLivePollSequence: livePollSequence,
       lastLivePollSequence: livePollSequence,
     }
-    this.db
-      .prepare(
-        `INSERT INTO session_terminal_candidates
-           (session_id, proof_json, confirmed_at, consumed_at, updated_at)
-         VALUES (?, ?, NULL, NULL, ?)
-         ON CONFLICT(session_id) DO UPDATE SET
-           proof_json = excluded.proof_json,
-           confirmed_at = NULL,
-           consumed_at = NULL,
-           updated_at = excluded.updated_at`,
-      )
-      .run(facts.sessionId, JSON.stringify(proof), at)
+    this.upsertProof(facts.sessionId, proof, at)
   }
 
   /**
@@ -446,7 +522,7 @@ export class ObservationCheckpointsRepository {
     livePollSequence: number,
     at: string,
   ): 'recorded' | 'confirmed' | 'unchanged' | 'rehabilitated' {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const current = this.getTerminalCandidate(facts.sessionId)
       if (current?.consumedAt) {
         if (facts.observerGeneration <= current.facts.observerGeneration) return 'unchanged'
@@ -474,12 +550,20 @@ export class ObservationCheckpointsRepository {
         lastLivePollSequence: livePollSequence,
       }
       this.db
-        .prepare(
-          `UPDATE session_terminal_candidates
-           SET proof_json = ?, confirmed_at = COALESCE(confirmed_at, ?), updated_at = ?
-           WHERE session_id = ? AND consumed_at IS NULL`,
+        .update(sessionTerminalCandidates)
+        .set({
+          proofJson: JSON.stringify(proof),
+          // COALESCE, so a second confirmation keeps the FIRST instant.
+          confirmedAt: sql`COALESCE(${sessionTerminalCandidates.confirmedAt}, ${confirmed ? at : null})`,
+          updatedAt: at,
+        })
+        .where(
+          and(
+            eq(sessionTerminalCandidates.sessionId, facts.sessionId),
+            isNull(sessionTerminalCandidates.consumedAt),
+          ),
         )
-        .run(JSON.stringify(proof), confirmed ? at : null, at, facts.sessionId)
+        .run()
       return confirmed ? 'confirmed' : 'recorded'
     })
   }
@@ -491,7 +575,7 @@ export class ObservationCheckpointsRepository {
    * repaint counters may advance; every causal/work fact must remain identical.
    */
   renewTerminalCandidate(facts: TerminalCandidateFacts, at: string): boolean {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const current = this.getTerminalCandidate(facts.sessionId)
       if (
         !current?.confirmedAt ||
@@ -523,13 +607,20 @@ export class ObservationCheckpointsRepository {
         lastLivePollSequence: current.lastLivePollSequence,
       }
       const result = this.db
-        .prepare(
-          `UPDATE session_terminal_candidates
-           SET proof_json = ?, updated_at = ?
-           WHERE session_id = ? AND proof_json = ?
-             AND confirmed_at IS NOT NULL AND consumed_at IS NULL`,
+        .update(sessionTerminalCandidates)
+        .set({ proofJson: JSON.stringify(proof), updatedAt: at })
+        .where(
+          and(
+            eq(sessionTerminalCandidates.sessionId, facts.sessionId),
+            // The PREVIOUS proof text is part of the guard: a renewal only lands
+            // on the exact row it read, so a concurrent write cannot be
+            // overwritten by a translation of a proof that is no longer there.
+            eq(sessionTerminalCandidates.proofJson, previousProof),
+            sql`${sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
+            isNull(sessionTerminalCandidates.consumedAt),
+          ),
         )
-        .run(JSON.stringify(proof), at, facts.sessionId, previousProof)
+        .run()
       return Number(result.changes) === 1
     })
   }
@@ -553,21 +644,30 @@ export class ObservationCheckpointsRepository {
     )
       return false
     const result = this.db
-      .prepare(
-        `UPDATE session_terminal_candidates SET consumed_at = ?, updated_at = ?
-         WHERE session_id = ? AND confirmed_at IS NOT NULL AND consumed_at IS NULL`,
+      .update(sessionTerminalCandidates)
+      .set({ consumedAt: at, updatedAt: at })
+      .where(
+        and(
+          eq(sessionTerminalCandidates.sessionId, facts.sessionId),
+          sql`${sessionTerminalCandidates.confirmedAt} IS NOT NULL`,
+          isNull(sessionTerminalCandidates.consumedAt),
+        ),
       )
-      .run(at, at, facts.sessionId)
+      .run()
     return Number(result.changes) === 1
   }
 
   cancelTerminalCandidate(sessionId: SessionId): void {
-    this.db.prepare('DELETE FROM session_terminal_candidates WHERE session_id = ?').run(sessionId)
+    this.db
+      .delete(sessionTerminalCandidates)
+      .where(eq(sessionTerminalCandidates.sessionId, sessionId))
+      .run()
   }
 
   purge(sessionId: SessionId): void {
     this.db
-      .prepare('DELETE FROM session_observation_checkpoints WHERE session_id = ?')
-      .run(sessionId)
+      .delete(sessionObservationCheckpoints)
+      .where(eq(sessionObservationCheckpoints.sessionId, sessionId))
+      .run()
   }
 }

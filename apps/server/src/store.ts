@@ -307,7 +307,7 @@ export class SessionStore {
     // injected as late-bound lambdas, bound WITHIN the set being built: sessions
     // purge observation checkpoints, issues resolve their stable repo_id via the
     // repos aggregate, and a repo-identity upgrade dual-writes onto issues.
-    this.observationCheckpoints = new ObservationCheckpointsRepository(this.executor)
+    this.observationCheckpoints = new ObservationCheckpointsRepository(this.queries)
     this.sessions = new SessionsRepository(this.queries, (id) =>
       this.observationCheckpoints.purge(id),
     )
@@ -321,7 +321,7 @@ export class SessionStore {
       this.tableWrites,
     )
     this.approvals = new ApprovalsRepository(this.executor)
-    this.interactions = new InteractionsRepository(this.executor)
+    this.interactions = new InteractionsRepository(this.queries)
     this.conversations = new ConversationsRepository(this.queries, this.hostMachineId)
     // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
     // so it takes the narrow port the PACKAGE declares and this object satisfies
@@ -338,7 +338,7 @@ export class SessionStore {
     this.secrets = new ServerSecretsRepository(this.executor)
     this.settingsAudit = new SettingsAuditRepository(this.executor)
     this.accounts = new AccountsRepository(this.executor)
-    this.machines = new MachinesRepository(this.executor)
+    this.machines = new MachinesRepository(this.queries)
     this.grants = new GrantsRepository(this.executor)
     this.users = new UsersRepository(this.executor)
     this.telegramBindings = new TelegramBindingsRepository(this.executor)
@@ -349,9 +349,9 @@ export class SessionStore {
     this.messages = new MessagesRepository(this.queries)
     this.readWatermarks = new ReadWatermarksRepository(this.executor)
     this.workflows = new WorkflowsRepository(this.queries)
-    this.locks = new LocksRepository(this.executor)
-    this.maintenance = new MaintenanceRepository(this.executor)
-    this.automations = new AutomationsRepository(this.executor)
+    this.locks = new LocksRepository(this.queries)
+    this.maintenance = new MaintenanceRepository(this.queries)
+    this.automations = new AutomationsRepository(this.queries)
     this.shipping = new ShippingRepository(this.queries)
     this.operations = new OperationStore(this.executor)
     this.messagingTopics = new MessagingTopicsRepository(this.queries)
