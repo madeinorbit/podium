@@ -2448,9 +2448,10 @@ export const sessionHandlers: Pick<
     // viewer gets the last screen, and the program is not touched at all.
     const replay = (bridge as { replay?: (tailBytes: number) => Promise<void> }).replay
     if (msg.replayRequired && replay) {
-      void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) =>
-        log.warn('host replay failed; falling back to a repaint', { err, sessionId: msg.sessionId }),
-      )
+      void replay.call(bridge, HOST_REPLAY_TAIL_BYTES).catch((err) => {
+        log.warn('host replay failed; falling back to a repaint', { err, sessionId: msg.sessionId })
+        bridge.redraw()
+      })
       return
     }
     bridge.redraw()
