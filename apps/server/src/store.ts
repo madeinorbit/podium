@@ -122,6 +122,8 @@ export class SessionStore {
    * belongs to Stage B, not to a binding change.
    */
   private readonly executor: RootStoreExecutor<QueryClient>
+  /** Stage A's synchronous seam, handed to converted repositories. Transitional. */
+  private readonly stage: NonNullable<RootStoreExecutor<QueryClient>['stageA']>
   /**
    * The store's per-table write announcement (POD-3247).
    *
@@ -277,6 +279,26 @@ export class SessionStore {
     // read from inside a body refuses rather than deadlocking — nothing asks for
     // one yet, and a second connection to `:memory:` would be a second database.
     this.executor = createBunStoreExecutor({ database: this.db })
+
+    /**
+     * STAGE A'S SEAM, asserted ONCE here [spec rule 27b]. A converted repository
+     * takes `stage.db` (and `stage.spans` where it opens a transaction) in the
+     * constructor slot its `SqlDatabase` occupied, so it carries no branch for a
+     * case its own constructor cannot produce and `executor.stageA` appears in no
+     * repository. B1 deletes this and passes the async instance instead.
+     *
+     * The seam is absent only on a non-bun handle. Every path that builds a
+     * SessionStore is bun-backed; the restore path builds its own executor and
+     * does not come through here.
+     */
+    const stage = this.executor.stageA
+    if (!stage) {
+      throw new Error(
+        'SessionStore: the Stage A drizzle seam is absent — the handle is not bun-backed. ' +
+          'Converted repositories cannot be constructed (POD-3221 spec rule 27b).',
+      )
+    }
+    this.stage = stage
 
     // Compose the per-aggregate repositories. The three cross-aggregate edges are
     // injected as late-bound lambdas, bound WITHIN the set being built: sessions
