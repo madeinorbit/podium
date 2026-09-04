@@ -1844,7 +1844,7 @@ export function checkStoreBoundaryLedger(repoRoot: string): Violation[] {
         file,
         specifier: file,
         rule: 'store-boundary-ledger',
-        message: `${file}: listed in STAGE_A_UNCONVERTED but holds no raw handle — it is CONVERTED. Delete the line from scripts/check-boundaries.ts in the same commit as the conversion. Stage A is complete when the array is empty (POD-3221 method §5, Phase A exit).`,
+        message: `${file}: listed in STAGE_A_UNCONVERTED but holds no raw handle — it is CONVERTED. This is the SIGNAL a wave reports, not a line a wave deletes: STAGE_A_UNCONVERTED is shared by every wave and the coordinator removes entries when landing each one, so a converting branch shows this finding until then and that is expected. Stage A is complete when the array is empty (POD-3221 method §5, Phase A exit).`,
       })
     }
   }

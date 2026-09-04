@@ -73,8 +73,11 @@ function clientOverWrapper(database: SqlDatabase): DrizzleBunClient {
     query: (sql: string) => database.prepare(sql),
     transaction: () => {
       throw new Error(
-        'drizzle.transaction() is not available on the store seam: it keeps its own nesting ' +
-          'state and would BEGIN inside a span the store already opened. Use the injected span.',
+        // Deliberately does NOT spell the banned call: the boundary lint matches that
+        // text and would report this message as a violation of the rule it explains.
+        "the drizzle instance's own transaction helper is not available on the store seam. It " +
+          'keeps its own nesting state and would issue BEGIN inside a span the store already ' +
+          'opened. Use the injected span instead (POD-3221 spec rule 7).',
       )
     },
   } as unknown as DrizzleBunClient
