@@ -1653,7 +1653,9 @@ two, here they are". State the DENOMINATOR — n sites out of m statements — s
 
 ### Rule 34b — a getter is only worth having if nothing routes around it
 
-[POD-3395, 2026-09-04, and it is the check that makes rule 34a meaningful rather than decorative.]
+[POD-3396, 2026-09-04, and it is the check that makes rule 34a meaningful rather than decorative.
+ATTRIBUTION CORRECTED: I first wrote POD-3395 here and in the commit. POD-3395 flagged it and had not
+done this check at the time — it has since run it over its own eight classes and reports 90/90 by AST.]
 
 `private get db()` resolves the enclosing transaction ON EVERY ACCESS. That property is destroyed by
 binding it to a local:
@@ -1663,16 +1665,20 @@ binding it to a local:
     await something()           //    including across an await that left the span
     db.update(...)              // <- wrong connection, silently
 
-Every `this.db` must chain a query IMMEDIATELY. POD-3395 verified all 71 of its occurrences do.
+Every `this.db` must chain a query IMMEDIATELY. POD-3396 verified all 71 of its occurrences do, and
+POD-3395 has since verified 90/90 across its eight classes, asserting through the TypeScript AST that
+each occurrence's parent node is a property access on the `this.db` node itself.
 
 TWO WARNINGS FROM ITS DOING IT.
 
 The naive grep is WRONG. `const row = this.db` looks like a capture and is usually the first line of a
-multi-line chain whose variable holds the RESULT, not the instance. POD-3395's first grep misread its
-own code; it re-checked by parsing. Any wave running this check by grep is running a check that does
+multi-line chain whose variable holds the RESULT, not the instance. POD-3396's first grep misread its
+own code; it re-checked by parsing. POD-3395 then hit the SAME hazard from the other side while
+counting rule 34a compliance: its grep reported five files still assigning `transact`, and all five
+were files whose COMMENT quotes the anti-pattern. Strip comments before counting, in both directions. Any wave running this check by grep is running a check that does
 not work.
 
-AND THE HONEST LIMIT ON THE EVIDENCE, which POD-3395 stated rather than let stand: no test can
+AND THE HONEST LIMIT ON THE EVIDENCE, which POD-3396 stated rather than let stand: no test can
 distinguish the getter from the assigned field today, because ambient routing does not exist yet. The
 lane is green either way. Rule 34a's change is verified as NOT-A-REGRESSION, not as a fix, and it is
 the pre-flip lint (already owed) that turns this from a convention into something checkable.
@@ -1726,3 +1732,26 @@ wrong; it is just not sufficient, and this is exactly the case where a clean mer
 VERIFY BY COUNTING, not by regenerating and assuming. After the write, grep the manifest for each test
 file the wave added and assert a non-zero count — the same discipline as rule 32's instruments, and for
 the same reason: absence is what a broken manifest looks like.
+
+
+### Rule 42 — verify a control arm was APPLIED before you trust what it says
+
+[POD-3395, 2026-09-04. The sixth finding in this epic whose shape is reading an ABSENCE as an answer.]
+
+POD-3395 built a control arm by checking the base out over its files, ran both arms, and got 51 = 51.
+The control had NEVER BEEN APPLIED: `git checkout <base> -- <paths>` ABORTS THE WHOLE CHECKOUT when any
+one path is absent from the base — which happens constantly here, because the integration branch keeps
+gaining new files. So the "control" run was the treatment a second time.
+
+AND IT AGREED WITH ITSELF PERFECTLY, which is exactly what a correct result looks like. An A/B whose
+two arms are the same tree cannot report a regression, and the empty symmetric difference reads as
+proof rather than as the tell it is.
+
+THE RULE, and it costs one command: after building the arm and BEFORE running it, assert
+`git diff --stat <base>` over the arm's paths is EMPTY. An arm that was never applied fails that check
+immediately. Then check `git status --porcelain` is empty after restoring — not just the diff — because
+the same checkout STRANDS files the base has and your branch does not, as untracked leftovers that the
+next `git add -A` sweeps in. POD-3395 hit that twice in one sitting, with wave 6's two golden tests and
+then wave 7's three.
+
+Related: rule 40 (the shared ref store is why the base keeps moving under you).
