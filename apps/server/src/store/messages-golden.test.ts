@@ -32,12 +32,23 @@ import { createBunStoreExecutor } from './executor'
 import { MessagesRepository } from './messages'
 import type { MessageRow } from './types'
 
+/**
+ * Stage A's synchronous drizzle seam, built the way `SessionStore` asserts it
+ * [POD-3221 spec rule 27b]. Local to this file on purpose: hoisting it into
+ * `test-support` would put several parallel conversion waves in one shared file.
+ */
+const stageDb = (database: Parameters<typeof createBunStoreExecutor>[0]['database']) => {
+  const stage = createBunStoreExecutor({ database }).stageA
+  if (!stage) throw new Error('the Stage A drizzle seam is absent on this handle')
+  return stage.db
+}
+
 let db: ReturnType<typeof openDatabase>
 let messages: MessagesRepository
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  messages = new MessagesRepository(createBunStoreExecutor({ database: db }))
+  messages = new MessagesRepository(stageDb(db))
 })
 
 const TARGET = 'iss_target'
