@@ -1134,6 +1134,39 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
     }
   })
 
+  it("allows rule 31b's INSERT OR REPLACE only on the auth path, with the token AND the shape", () => {
+    // THREE CONDITIONS, EACH PINNED SEPARATELY. The exception was canaried once
+    // by hand at merge time (POD-3403), which proves the checker was right that
+    // day and guards nothing afterwards: a later edit that drops the path test or
+    // widens the SQL matcher keeps the suite green. OR REPLACE DELETES the
+    // conflicting row and fires ON DELETE CASCADE, so the path pin is the part
+    // that stops a second destructive site from adopting it by typing the token.
+    const AUTH = 'apps/server/src/store/auth.ts'
+    const statement = 'INSERT OR REPLACE INTO client_sessions (token_hash) VALUES (${tokenHash})'
+    const marked = (sql: string) =>
+      ['this.db.run(', '  // REPLACE-STATEMENT POD-3403', `  sql\`${sql}\`,`, ')'].join('\n')
+
+    expect(checkStoreRawHandles(AUTH, marked(statement))).toEqual([])
+
+    // 1. the token, absent
+    expect(
+      checkStoreRawHandles(AUTH, `this.db.run(sql\`${statement}\`)\n`),
+    ).toHaveLength(1)
+
+    // 2. the shape — every other conflict algorithm, and a bare INSERT
+    for (const other of [
+      'INSERT OR IGNORE INTO client_sessions (token_hash) VALUES (${tokenHash})',
+      'INSERT OR ABORT INTO client_sessions (token_hash) VALUES (${tokenHash})',
+      'INSERT INTO client_sessions (token_hash) VALUES (${tokenHash})',
+      'UPDATE client_sessions SET token_hash = ${tokenHash}',
+    ]) {
+      expect(checkStoreRawHandles(AUTH, marked(other))).toHaveLength(1)
+    }
+
+    // 3. the path — the SAME token and the SAME statement in another repository
+    expect(checkStoreRawHandles(REPO, marked(statement))).toHaveLength(1)
+  })
+
   it('flags PRAGMA, sqlite_master and ATTACH inside a `sql` BODY, not just in an import line', () => {
     const constructs = [
       'PRAGMA table_info(sessions)',
