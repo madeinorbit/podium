@@ -85,6 +85,23 @@ jobs:
       # that runs in a second. Same split, same reason, as `lint:architecture`.
       - name: span effects (nothing observable inside a transaction body)
         run: bun run lint:span-effects
+      # BLOCKING, its own step. The other half of spec §3.6: a store read that
+      # runs when a CONSTRUCTOR or a GETTER runs, which at the flip becomes a
+      # promise nothing can await. POD-3256 emptied the category; this is what
+      # stops it refilling.
+      #
+      # It ran nowhere until POD-3372, and while it ran nowhere it rotted into
+      # exactly the shape the step above warns about: it classified a callee by
+      # the declaration `getSymbolAtLocation` returns, which for an IMPORTED name
+      # is the import specifier in the importing file — so all 32 repository
+      # constructors calling `legacyHandle` (declared in `store/executor/`, which
+      # is excluded) were reported as database reads, and a genuine store call
+      # imported into a file outside `store/` would have been dropped. It follows
+      # the alias to the declaration site now, and its `--probe` fixture fails the
+      # step if either half regresses. Same cost and same reason for its own step
+      # as span-effects: it builds a TypeScript program over apps/server.
+      - name: hidden reads (no store read in a constructor or a getter)
+        run: bun run audit:hidden-reads
       # BLOCKING, its own step, same reason as every ratchet above — and this one
       # is the POD-1369 class twice over. It catches the merge defect nothing else
       # reports: both branches ADD the same declaration, git auto-merges them as

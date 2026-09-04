@@ -109,6 +109,7 @@
     "audit:ledger-tail": "bun scripts/audit-ledger-commit-tail.ts --probe && bun scripts/audit-ledger-commit-tail.ts",
     "audit:durable-classes": "bun scripts/audit-durable-classes.ts --probe && bun scripts/audit-durable-classes.ts",
     "audit:store-census": "bun scripts/store-coverage-census.ts check",
+    "audit:hidden-reads": "bun scripts/scan-hidden-store-reads.ts --probe && bun scripts/scan-hidden-store-reads.ts",
     "audit:god-objects": "bun scripts/audit-god-objects.ts --probe && bun scripts/audit-god-objects.ts",
     "audit:ambient-principals": "bun scripts/audit-ambient-principals.ts --probe && bun scripts/audit-ambient-principals.ts",
     "audit:serving-path": "bun scripts/audit-serving-path.ts --probe && bun scripts/audit-serving-path.ts",
