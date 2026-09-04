@@ -27,7 +27,7 @@ const TEST_MACHINE = asMachineId('machine-under-test')
 
 import { resolvePrincipal, userCommandPrincipal } from './command-principal'
 import { IssuePublisher } from './modules/issues/publish'
-import { MessageDeliveryService } from './modules/messages/service'
+import { MessageDeliveryService, NEXT_TURN_DELIVERY_BUDGET_MS } from './modules/messages/service'
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
@@ -4112,7 +4112,22 @@ describe('hibernation', () => {
   })
 
   it('hands a live busy Grok ledger send to exit recovery and the next bind', async () => {
-    const reg = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
+    // A contract-bound session takes the CONFIRMING send path, which waits the whole
+    // next-turn budget on a busy target. One virtual clock — `sleep` advances the same
+    // offset `now` reads — so the wait is spent in fake time and the assertion below can
+    // prove it happened. Real timers here cost 25 REAL seconds and read as a hang
+    // [POD-3380 cause 14]; the production budget is untouched.
+    let clockOffset = 0
+    const reg = SessionRegistry.create(undefined, undefined, {
+      instanceId: 'default',
+      now: () => Date.now() + clockOffset,
+      mailAwait: {
+        sleep: async (ms) => {
+          clockOffset += ms
+        },
+        pollMs: 1_000_000, // one sleep clears the whole budget
+      },
+    })
     try {
       const daemon: ControlMessage[] = []
       reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (message) => daemon.push(message))
@@ -4165,11 +4180,26 @@ describe('hibernation', () => {
         'sendText',
         { sessionId, text: 'accepted while Grok was busy' },
       )
+      // THE RECORDED DECISION, pinned [POD-3044 → POD-3386, spec rule 21]. This session
+      // binds with `runtimeContract: true`, so the composition root selects `confirm`:
+      // the send waits for the row to leave `queued`, and on a BUSY target it spends the
+      // whole budget and answers `accepted` — "durably captured, not yet confirmed".
+      // `queued` (what this pinned before POD-3044) says the same thing about the ROW and
+      // differs only in that nothing waited, which is why the two lines below are
+      // unchanged. The waiting is the decision, so assert it directly rather than trust
+      // the token: a fixture clock that never advanced means the legacy `immediate` mode,
+      // whatever disposition came back. POD-379's `queued` pin is NOT this case — it is an
+      // unreachable machine on a legacy-driven session, and POD-3044 kept `immediate`
+      // there on purpose.
+      // The one sleep covers the budget MINUS whatever real time the send itself took
+      // before reaching it (the poll sleeps `deadline - now()`), so allow a loaded box a
+      // few seconds of that. `immediate` never sleeps at all and leaves this at 0.
+      expect(clockOffset).toBeGreaterThanOrEqual(NEXT_TURN_DELIVERY_BUDGET_MS - 5_000)
       expect(result).toEqual({
         ok: true,
         queued: true,
         position: 1,
-        disposition: 'queued',
+        disposition: 'accepted',
       })
       expect(reg.sessionStore.sync.listQueuedMessages(sessionId)).toEqual([])
       const message = reg.sessionStore.messages

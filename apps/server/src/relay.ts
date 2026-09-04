@@ -229,6 +229,19 @@ interface SessionRegistryOptions {
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
+  /**
+   * Poll seam for the blocking send (`sendAndConfirm` → `awaitDelivered`), which
+   * `MessageGate` already declares and no composition root has ever filled. A
+   * `next-turn` send to a BUSY target legitimately waits the whole
+   * `NEXT_TURN_DELIVERY_BUDGET_MS` (25s) before answering `accepted`, so a fixture
+   * that drives that case pays 25 seconds of REAL time and blows vitest's 20s
+   * `testTimeout` — the boundary lane read that as a hang for a week [POD-3380].
+   * Injecting a virtual clock here (`sleep` advancing the same offset `now` reads)
+   * makes the fixture pay the budget in fake time; the production constant is
+   * untouched and is POD-3388's question, not this seam's. Absent — every
+   * composition root — means real timers.
+   */
+  mailAwait?: { sleep?(ms: number): Promise<void>; pollMs?: number }
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
    *  (the default — every existing test), NO mirror traffic is produced. */
   mirrorLakeDir?: string
@@ -1958,6 +1971,11 @@ export class SessionRegistry {
         createIssue: (o) => issues.create({ ...o, startNow: false }),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => new Date(this.now()).toISOString(),
+        // Fixture-only poll seam; see SessionRegistryOptions.mailAwait [POD-3386].
+        ...(options.mailAwait?.sleep ? { sleep: options.mailAwait.sleep } : {}),
+        ...(options.mailAwait?.pollMs !== undefined
+          ? { awaitPollMs: options.mailAwait.pollMs }
+          : {}),
         // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
         // wake sticky when the parent observes the child settled, so a later
         // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
