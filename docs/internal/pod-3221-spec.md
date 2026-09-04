@@ -1512,3 +1512,49 @@ this epic keeps paying for, so we pay the closure.
 
 THE POINT OF BOTH: after this, a repository is touched ONCE more in the whole epic, and that touch is
 `async`/`await`. The connection question resolves in one getter body, in one place.
+
+### Rule 38 — do NOT unwrap drizzle's error in the seam; unwrap at the two sites that CLASSIFY
+
+[POD-3397, POD-3398 and POD-3396 all independently proposed "unwrap once at `syncQueriesOver`, rather
+than at 39 call sites". It is the right instinct and it cannot be done there. Measured 2026-09-04.]
+
+WHERE IT CANNOT GO. `clientOverWrapper` is BELOW drizzle: our client throws the raw error and drizzle
+wraps it afterwards. Measured with a client-level catch in place —
+
+    [client saw]  SQLiteError        SQLITE_CONSTRAINT_PRIMARYKEY
+    [caller saw]  DrizzleQueryError  code undefined, cause SQLiteError
+
+— so the seam as it exists cannot see the wrapper, let alone remove it.
+
+WHERE IT WOULD HAVE TO GO, AND WHY WE ARE NOT PUTTING IT THERE. A Proxy over the drizzle instance does
+work for a direct call:
+
+    db.run(sql`…`)                          proxy unwraps -> SQLiteError, code intact
+
+but NOT for the chained builder, which is what every converted repository writes, because the error is
+thrown at `.run()` on the builder and not at `db.insert()`:
+
+    db.insert(t).values({...}).run()        proxy does nothing -> DrizzleQueryError, code undefined
+
+Making it work means a DEEP proxy wrapping every builder object returned at every link of every chain,
+on the hottest path in the system. That is a large amount of magic and a per-query allocation cost, to
+serve two call sites.
+
+THE RULE: unwrap where the error is CLASSIFIED, not where it is raised.
+
+Two production sites read a driver error, and both are already the right place:
+  - `store/spike/turso-append/libsql-driver.ts` `classify()` — reads `error.code`, then falls back to
+    a `/SQLITE_BUSY|database is locked/i` message regex. This is the one that matters: a wrapped busy
+    error classifies as FATAL and the bounded retry never runs (driver.ts:119-159). E.5 inherits it.
+  - `packages/sync/src/adapters/mobile-sqlite/sql.ts` — the same shape for disk-full.
+
+Each unwraps `.cause` TRANSITIVELY before classifying — do not assume one level — and each gets a test
+that a WRAPPED error still classifies correctly, not only a raw one. That preserves every production
+behaviour, because zero production sites match on error TEXT (checked).
+
+WHAT GENUINELY CHANGES, and it is accepted rather than papered over: a caller that catches and reads
+`.message` now sees "Failed query: …". One test asserts on that message
+(`modules/shipping/service.test.ts`, "rolls back cancellation state when its durable issue event cannot
+commit"). The rollback it actually tests still works; only the message moved. A conversion commit may
+not modify an assertion, so the COORDINATOR updates that one to assert on the cause — it is a real and
+accepted behaviour change at the boundary, not a wave's bookkeeping.
