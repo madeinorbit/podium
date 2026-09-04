@@ -69,8 +69,8 @@ async function fixture() {
   return { store, session, repo }
 }
 
-const rowTitle = (store: SessionStore, id: string): string | null | undefined =>
-  store.sessions.loadSessions().find((row) => row.id === id)?.title
+const rowTitle = async (store: SessionStore, id: string): Promise<string | null | undefined> =>
+  (await store.sessions.loadSessions()).find((row) => row.id === id)?.title
 
 describe('the session durable baseline waits for the outermost commit (POD-3361)', () => {
   it('drops a baseline the enclosing span rolled back', async () => {
@@ -89,7 +89,7 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     ).toThrow('enclosing span failed')
 
     // The database forgot the row write.
-    expect(rowTitle(f.store, 'fold-1')).toBe('committed title')
+    expect(await rowTitle(f.store, 'fold-1')).toBe('committed title')
     // THE MECHANISM: so must the baseline, or it reports a state no commit kept.
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('committed title')
   })
@@ -125,11 +125,11 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     f.repo.persist(f.session)
 
     f.session.title = 'kept'
-    f.store.transact(() => {
+    await f.store.transact(() => {
       f.repo.persist(f.session)
     })
 
-    expect(rowTitle(f.store, 'fold-1')).toBe('kept')
+    expect(await rowTitle(f.store, 'fold-1')).toBe('kept')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('kept')
   })
 
@@ -144,7 +144,7 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     const f = await fixture()
     f.repo.persist(f.session)
 
-    f.store.transact(() => {
+    await f.store.transact(() => {
       f.session.title = 'first nested write'
       f.repo.persist(f.session)
 
@@ -159,7 +159,7 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
       expect(f.session.title).toBe('first nested write')
     })
 
-    expect(rowTitle(f.store, 'fold-1')).toBe('first nested write')
+    expect(await rowTitle(f.store, 'fold-1')).toBe('first nested write')
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('first nested write')
   })
 })
