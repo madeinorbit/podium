@@ -30,7 +30,11 @@ import {
   shippingJobRequestFingerprint,
   shippingTrainSubsetFingerprint,
 } from '@podium/protocol/daemon'
-import type { EntityChangeSpec } from '@podium/sync'
+import type {
+  BaselineFoldPort,
+  EntityChangeSpec,
+  LedgerCommitOp,
+} from '@podium/sync'
 import type { CommandPrincipal } from '../../command-principal'
 import {
   type RootIntegrationReceiptStore,
@@ -166,7 +170,7 @@ export interface ShippingIssuePort {
 }
 
 export interface ShippingLedgerPort {
-  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): { result: T }
+  commit<T>(op: LedgerCommitOp<T>): { result: T }
   reconcile(entity: 'shipOrder', rows: { id: string; value: unknown }[]): unknown
 }
 
@@ -263,6 +267,13 @@ export interface ShippingServiceDeps {
   repair?: ShippingRepairPort
   beforeRepairAcknowledge?: (resultToken: string) => void
   background?: boolean
+  /**
+   * Where the LEASE PROJECTION waits for the outermost commit [POD-3366]. Both
+   * claims install a lease on the statement after a `ledger.commit`, and that
+   * commit is a savepoint when a caller already has a span open. Unset means
+   * every install is immediate.
+   */
+  applyCommit?: BaselineFoldPort
 }
 
 export interface ResourceLease {
@@ -366,7 +377,7 @@ export { canonicalShippingDestination } from './queue'
 export class ShippingService {
   private readonly greenPrefixes = new GreenPrefixCache()
   private readonly now: () => string
-  private readonly leases = new LeaseProjection()
+  private readonly leases: LeaseProjection
   private readonly activeResourceLeases = new Set<ResourceLease>()
   private readonly inFlight = new Set<string>()
   private admissionTail: Promise<void> = Promise.resolve()
@@ -376,6 +387,7 @@ export class ShippingService {
   private ticking = false
 
   constructor(private readonly deps: ShippingServiceDeps) {
+    this.leases = new LeaseProjection(deps.applyCommit)
     this.now = deps.now ?? (() => new Date().toISOString())
     if (deps.background !== false) this.start()
   }

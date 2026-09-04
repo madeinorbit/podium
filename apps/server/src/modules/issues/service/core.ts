@@ -25,9 +25,10 @@ import {
   type UserId,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
-import type { EntityChangeSpec } from '@podium/sync'
+import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
+import { afterCommit } from '../../../store/executor/synchronous-span'
 import { decodePanel, fromStorage } from '../../../store/issue-storage'
 import { normalizeBlankIssueText } from '../blank-text'
 import { countIssueWireBuild } from '../instrumentation'
@@ -80,7 +81,40 @@ export class IssueStore {
    * nothing else, because no other code holds a marker.
    */
   private viewerState: Map<string, StoredIssueUserState> | null = null
-  constructor(readonly deps: IssueDeps) {}
+  /**
+   * ROWS THIS SPAN INSTALLED WHOSE COMMIT HAS NOT HAPPENED YET [POD-3366].
+   *
+   * `null` for an id means a staged REMOVAL. Empty — and therefore free —
+   * outside an enclosing span, which is every top-level mutation: a
+   * `ledger.commit` with no caller's span around it IS the outermost commit,
+   * and the row installs at once, exactly where it does today.
+   *
+   * WHY THE MAP CANNOT SIMPLY DEFER. `rows` is read constantly between a nested
+   * write and the enclosing commit — `rowOrThrow` for the next command in the
+   * same orchestrated span, `toWire`'s children and blocked scans, `emitEvent`
+   * reading a subject's repoPath, `deleteIfEmptyDraft`. A bare deferral would
+   * show all of them the PRE-write row while the database, inside the savepoint,
+   * already holds the new one. So the install is staged where those readers see
+   * it and reaches {@link hydrated} only through a commit application.
+   */
+  private readonly stagedRows: StagedOverlay<string, IssueRow>
+  /**
+   * The composed view, rebuilt lazily and only while something is staged.
+   *
+   * Composing costs one map copy, and it is paid on the first `rows` read after
+   * a staged write rather than on every read: outside a span this field is never
+   * populated and the getter returns the committed map itself. Rebuilt when the
+   * overlay's version moves, which is the overlay's answer to "has anything
+   * been staged, promoted or dropped since you last looked".
+   */
+  private composedRows: { version: number; rows: Map<string, IssueRow> } | undefined
+  constructor(readonly deps: IssueDeps) {
+    this.stagedRows = new StagedOverlay<string, IssueRow>(
+      deps.applyCommit,
+      (id, row) => this.applyRow(id, row ?? null),
+      'issue-row-install',
+    )
+  }
 
   /**
    * Freeze the machine choice an implicit operation would otherwise make inside
@@ -196,9 +230,62 @@ export class IssueStore {
    *  The getter used to hydrate on first touch. It does not any more (POD-3256):
    *  a getter cannot await, so the load is an explicit step {@link init} that
    *  the factory runs, and this getter only serves what that step loaded. */
-  get rows(): Map<string, IssueRow> {
-    return this.requireHydrated().rows
+  get rows(): ReadonlyMap<string, IssueRow> {
+    const committed = this.requireHydrated().rows
+    if (this.stagedRows.empty) return committed
+    const version = this.stagedRows.version
+    if (this.composedRows?.version !== version) {
+      const composed = new Map(committed)
+      for (const [id, row] of this.stagedRows.entries()) {
+        if (row === undefined) composed.delete(id)
+        else composed.set(id, row)
+      }
+      this.composedRows = { version, rows: composed }
+    }
+    return this.composedRows.rows
   }
+
+  /**
+   * THE ONE WAY A ROW ENTERS OR LEAVES THE MAP, and the reason {@link rows} is
+   * a `ReadonlyMap` [POD-3366].
+   *
+   * Making the getter read-only is what stops the wrong version being available
+   * rather than merely discouraged: the three sites that used to `rows.set(...)`
+   * on the statement after a `ledger.commit` no longer typecheck, and a
+   * fourteenth site written the old way is a compile error instead of a rule
+   * somebody has to know.
+   *
+   * With no span open this commit IS the outermost commit and the row installs
+   * at once. Inside one it is staged — visible to every in-window reader through
+   * the getter — and promoted by a commit application. There is no abort arm: a
+   * staged row still there when no span is open belongs to a unit of work that
+   * ended without committing, and {@link freshenStagedRows} drops it on the way
+   * IN, so a crash cannot leave the map claiming a row the database threw away.
+   */
+  installRow(id: string, row: IssueRow | null): void {
+    // One call: the overlay decides whether a span is open, stages or installs
+    // accordingly, registers the promotion, and drops what a rollback left. This
+    // was the THIRD hand-rolled copy of that decision and it is gone with the
+    // other two [POD-3366].
+    this.stagedRows.set(id, row ?? undefined)
+    // Whichever way it went, the map a reader sees has moved, so every cached
+    // wire built from it is stale [POD-723].
+    this.bumpIssueInputs()
+  }
+
+  /** Write straight through to the committed map. */
+  private applyRow(id: string, row: IssueRow | null): void {
+    const committed = this.requireHydrated().rows
+    if (row === null) {
+      committed.delete(id)
+      // A purged issue's memo would otherwise outlive its row. `hydrate` used to
+      // prune these by dropping the whole map [POD-723]; a targeted removal has
+      // to say so.
+      this.wireCache.delete(id)
+    } else committed.set(id, row)
+  }
+
+
 
   /**
    * DRAFT-THEN-INSTALL, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
@@ -305,7 +392,16 @@ export class IssueStore {
    * that is true rather than three writes stale.
    */
   private installDraft(row: IssueRow, pin: number | null | undefined): void {
-    this.rows.set(row.id, this.draftOf(row))
+    this.installRow(row.id, this.draftOf(row))
+    // THE RE-PIN IS NOT DEFERRED, and that is deliberate [POD-3366]. It is not a
+    // shared projection: it records, on the caller's own private draft object,
+    // which revision the database now holds for it — the same thing the shipping
+    // lease projection's version records, and for the same purpose. A caller
+    // that persists one draft repeatedly (`cleanup()` writes it four times) must
+    // carry a precondition that is true of the row inside this span, not one
+    // that is three writes stale. If the enclosing span then rolls back, the pin
+    // is ahead of the restored row and the draft's NEXT write is refused by its
+    // own precondition — fail-closed, which is the safe direction.
     if (pin !== undefined) this.draftOrigins.set(row, row.revision ?? null)
   }
 
@@ -344,6 +440,10 @@ export class IssueStore {
   }
 
   private hydrate(): void {
+    // A wholesale reload replaces the committed truth, so the composed view
+    // built over it is meaningless. Anything STAGED is dropped by the overlay
+    // itself the next time it is read with no span open.
+    this.composedRows = undefined
     const map = new Map<string, IssueRow>()
     for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
@@ -1179,7 +1279,18 @@ export class IssueStore {
     wires = committed.wires
     this.bumpIssueInputs()
     for (const row of rows) this.installDraft(row, pins.get(row.id))
-    for (const eventId of eventIds) this.deps.store.events.announceEvent(eventId)
+    // THE ANNOUNCEMENT WAITS FOR THE OUTERMOST COMMIT [POD-3366]. `appendEvent`
+    // routes its own announcement through `afterCommit` (spec §3.3 mechanism 3)
+    // and this path opted out of that with `announce: false` so the listener
+    // would see the map install first. Opting out of the deferral WITH it was
+    // the bug: nested inside a caller's span this announced an event row the
+    // enclosing span could still roll back, which is the exact direction
+    // `appendEvent`'s own comment was written to prevent. Registered here
+    // instead — after the row installs above, because the registry keeps the
+    // order they were registered in.
+    afterCommit(() => {
+      for (const eventId of eventIds) this.deps.store.events.announceEvent(eventId)
+    }, 'issue-persist-many-events')
     return { issues: wires, result }
   }
 

@@ -13,7 +13,12 @@ import type {
 } from '@podium/model'
 import type { MetadataChange, RepoOp } from '@podium/protocol'
 import type { PodiumSettings } from '@podium/runtime'
-import type { EntityChangeSpec } from '@podium/sync'
+import type {
+  BaselineFoldPort,
+  EntityChangeSpec,
+  LedgerCommitOp,
+  LedgerCommitResult,
+} from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
 import type { IssueMessageRow, IssueRow, SessionStore } from '../../../store'
@@ -44,10 +49,7 @@ export interface IssueFunnel {
  *  boot paths. Structurally satisfied by {@link @podium/sync.Ledger}; narrow
  *  so tests can fake it. */
 export interface IssueLedger {
-  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
-    result: T
-    changes: MetadataChange[]
-  }
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
   /** 'issueProjection' is the NORMALIZED kind [POD-796] — a SECOND kind
    *  alongside 'issue', reconciled from the same truth in the same pass, never a
    *  reshaping of it (the ledger stores one value per (kind, id), so 'issue'
@@ -152,6 +154,17 @@ export type { IssueTree, IssueTreeNode, IssueTreeSession }
 
 export interface IssueDeps {
   store: SessionStore
+  /**
+   * Where a ROW INSTALL waits for the outermost commit [POD-3366].
+   *
+   * `IssueStore.rows` is the authoritative in-memory issue projection, and every
+   * persist used to install into it on the statement after a `ledger.commit`.
+   * Nested inside a caller's span that commit is a savepoint, and a savepoint
+   * release is not a commit. Unset means every install is immediate, which is
+   * what a fixture with a pass-through `transact` wants and is where the install
+   * happens today.
+   */
+  applyCommit?: BaselineFoldPort
   listSessions(): SessionMeta[]
   /** ONE session by id, without the full reader-scoped pass [POD-1646].
    *  Optional for the same reason `listSessionsForIssue` is — the many test

@@ -21,7 +21,7 @@ export type SessionWirePrincipal = SessionStatePrincipal
 import { FIRST_ADMIN_USER_ID } from '@podium/model'
 import type { DaemonPtyInputBatch, MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { BaselineFoldPort, EntityChangeSpec } from '@podium/sync'
+import { type BaselineFoldPort, type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import { isFeatureEnabled } from '../../features'
 import type { SessionRow, SessionStore } from '../../store'
@@ -157,14 +157,24 @@ export class SessionRepository {
    * earlier nested write's fields on the live object while the enclosing span
    * may still go on to commit them, so the next persist would write the stale
    * fields back over the committed row. The overlay keeps that reader seeing
-   * exactly what it sees today; only the committed map waits.
+   * exactly what it sees today; only the committed map waits. It was the SECOND
+   * of four distinct in-window readers the programme found, each with its own
+   * argument, which is what makes the read-through the cost of deferring an
+   * install rather than a trick that worked twice.
+   *
+   * THE LAYER IS NO LONGER HAND-ROLLED HERE [POD-3366]. `StagedOverlay` owns
+   * the staging, the promotion and the drop-on-the-way-in; this class keeps only
+   * what a promotion MEANS for its committed map. The copy this replaced
+   * promoted by looking its own entry up again at drain time — and its own
+   * freshen path empties that array whenever `spanOpen()` is false, which is
+   * exactly what the drain looks like. A co-batched commit application that
+   * merely READ a baseline first would have emptied it, the `findIndex` would
+   * have returned -1, and the install would have been dropped with no error.
+   * Latent rather than active — no live ordering reaches it today — but latent
+   * and unreachable are different claims and only one survives a new caller, so
+   * the shared promotion closes over its value instead.
    */
-  private readonly stagedSessionStates: {
-    token: number
-    sessionId: SessionId
-    state: SessionDurableState
-  }[] = []
-  private nextDurableBaselineToken = 1
+  private readonly stagedSessionStates: StagedOverlay<SessionId, SessionDurableState>
   /** True while an activity flush is running — see {@link flushActivity}. */
   private flushingActivity = false
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
@@ -172,7 +182,16 @@ export class SessionRepository {
   static readonly VOLATILE_SLICE_MAX_ITEMS = 32
   static readonly VOLATILE_SLICE_MAX_CPU_MS = 8
 
-  constructor(private readonly ports: SessionRepositoryPorts) {}
+  constructor(private readonly ports: SessionRepositoryPorts) {
+    this.stagedSessionStates = new StagedOverlay<SessionId, SessionDurableState>(
+      ports.applyCommit,
+      (sessionId, state) => {
+        if (state) this.capturedSessionStates.set(sessionId, state)
+        else this.capturedSessionStates.delete(sessionId)
+      },
+      'session-durable-baseline-fold',
+    )
+  }
 
   private get sessions(): Map<SessionId, Session> {
     return this.ports.sessions
@@ -359,51 +378,17 @@ export class SessionRepository {
    * installs at once, which is where it happens today.
    */
   private commitDurableBaseline(sessionId: SessionId, state: SessionDurableState): void {
-    this.freshenDurableBaselines()
-    const fold = this.ports.applyCommit
-    if (!fold?.spanOpen()) {
-      this.capturedSessionStates.set(sessionId, state)
-      return
-    }
-    const token = this.nextDurableBaselineToken++
-    this.stagedSessionStates.push({ token, sessionId, state })
-    fold.onCommit(() => this.promoteDurableBaseline(token), 'session-durable-baseline-fold')
-  }
-
-  /** Fold one staged baseline into the committed map, from the commit
-   *  application of the span that staged it. */
-  private promoteDurableBaseline(token: number): void {
-    const index = this.stagedSessionStates.findIndex((staged) => staged.token === token)
-    if (index === -1) return
-    const [staged] = this.stagedSessionStates.splice(index, 1)
-    if (staged) this.capturedSessionStates.set(staged.sessionId, staged.state)
-  }
-
-  /**
-   * Drop what a rolled-back span left staged, checked on the way IN rather than
-   * reported on the way out [POD-3361, and the asymmetry POD-3328 kept].
-   *
-   * A staged baseline reaches the committed map through its commit application
-   * and nowhere else, so anything still staged when NO span is open belongs to
-   * a unit of work that ended without committing. Nothing has to remember to
-   * report a rollback, so a report that never arrives — a crash, not merely a
-   * caught exception — cannot leave memory claiming a state the database threw
-   * away. There is no abort hook, deliberately.
-   */
-  private freshenDurableBaselines(): void {
-    if (this.stagedSessionStates.length === 0) return
-    if (!this.ports.applyCommit?.spanOpen()) this.stagedSessionStates.length = 0
+    // One call. The overlay decides whether a span is open, stages or installs
+    // accordingly, registers the promotion, and drops what a rollback left — the
+    // four things this method used to do in order, and the ones the two other
+    // copies of this layer each got slightly differently [POD-3366].
+    this.stagedSessionStates.set(sessionId, state)
   }
 
   /** The durable baseline this session would be rolled back to: the staged
    *  state if this span installed one, else the committed one. */
   private durableBaselineFor(sessionId: SessionId): SessionDurableState | undefined {
-    this.freshenDurableBaselines()
-    for (let i = this.stagedSessionStates.length - 1; i >= 0; i--) {
-      const staged = this.stagedSessionStates[i]
-      if (staged?.sessionId === sessionId) return staged.state
-    }
-    return this.capturedSessionStates.get(sessionId)
+    return this.stagedSessionStates.peek(sessionId)?.value ?? this.capturedSessionStates.get(sessionId)
   }
 
   /** The committed durable baseline for a session, for tests and diagnostics.
@@ -780,12 +765,11 @@ export class SessionRepository {
     this.capturedSessionStates.delete(sessionId)
     // Memory-only, and the staged layer goes with it: this drops a session from
     // the process, so a baseline still waiting for a commit has nothing left to
-    // be the baseline OF [POD-3361].
-    for (let i = this.stagedSessionStates.length - 1; i >= 0; i--) {
-      if (this.stagedSessionStates[i]?.sessionId === sessionId) {
-        this.stagedSessionStates.splice(i, 1)
-      }
-    }
+    // be the baseline OF [POD-3361]. Staged as a REMOVAL, which is how the
+    // overlay spells "gone" — the in-window readers see it absent, exactly as
+    // the splice this replaced made them, and the promotion's delete is a no-op
+    // against the line above.
+    if (this.stagedSessionStates.peek(sessionId)) this.stagedSessionStates.set(sessionId, undefined)
     if (this.pendingVolatileSessions.size === 0) this.clearVolatileSessionCaptureTimer()
   }
 }

@@ -213,38 +213,31 @@ interface ScopedSubscription {
 }
 
 export class Authority implements AuthorityPort {
-  private readonly baseline = new ChangeBaseline()
+  private readonly baseline: ChangeBaseline
   private readonly subscribers = new Set<ScopedSubscription>()
 
   constructor(private readonly deps: AuthorityDeps) {
+    // The baseline takes the fold port itself [POD-3366]: "is a span open?" is
+    // ONE decision, made where the staging happens, instead of being asked here
+    // and answered there.
+    this.baseline = new ChangeBaseline(deps.applyCommit)
     this.baseline.seed(deps.store)
   }
 
   /** Current durable values for one entity kind, used only for full snapshot assembly. */
   snapshot(entity: MetadataEntityKind): readonly unknown[] {
-    this.freshen()
+    this.baseline.freshen()
     return this.baseline.values(entity)
-  }
-
-  /**
-   * Drop a pending layer left behind by a span that rolled back (POD-3328).
-   *
-   * A staged batch reaches the committed baseline through its commit
-   * application and nowhere else, so a batch still staged when NO span is open
-   * belongs to a unit of work that ended without committing. Checking it on the
-   * way in — rather than being told on the way out — is what keeps the unsafe
-   * direction unreachable: nothing has to remember to report a rollback, and a
-   * report that never arrives cannot leave memory claiming a row the database
-   * never kept.
-   */
-  private freshen(): void {
-    if (!this.deps.applyCommit?.spanOpen()) this.baseline.discardPending()
   }
 
   commit<T>(op: AuthorityCommit<T>): AuthorityCommitOutcome<T> {
     // 0. Before the span opens, while "is a span open?" still answers about the
-    //    CALLER's span rather than this commit's own.
-    this.freshen()
+    //    CALLER's span rather than this commit's own. The check is on the way IN
+    //    and there is deliberately no abort hook: nothing has to REMEMBER to
+    //    report a rollback, so a report that never arrives — a crash, not merely
+    //    a caught exception — cannot leave memory claiming a row the database
+    //    never kept [POD-3328].
+    this.baseline.freshen()
     // 1. AUTHORIZE. Before anything reads state, and a throw ends the call.
     op.authorize?.()
 
@@ -298,7 +291,7 @@ export class Authority implements AuthorityPort {
   }
 
   capture(specs: readonly StagedChangeSpec[]): readonly SequencedChange[] {
-    this.freshen()
+    this.baseline.freshen()
     const eventTime = this.deps.now()
     const staged = this.stage(specs)
     const seqs = staged.length > 0 ? this.append(staged, eventTime) : []
@@ -309,7 +302,7 @@ export class Authority implements AuthorityPort {
     entity: MetadataEntityKind,
     rows: readonly { readonly id: string; readonly value: unknown }[],
   ): readonly SequencedChange[] {
-    this.freshen()
+    this.baseline.freshen()
     const specs: StagedChangeSpec[] = rows.map((r) => ({
       entity,
       entityId: r.id,
@@ -554,18 +547,12 @@ export class Authority implements AuthorityPort {
           }
         : { entity: row.spec.entity, id: row.spec.entityId, op: 'remove' },
     )
-    const fold = this.deps.applyCommit
-    if (fold?.spanOpen()) {
-      // A SAVEPOINT RELEASE IS NOT A COMMIT (POD-3328). These rows are staged
-      // where the in-span readers can see them and reach the committed baseline
-      // only if the enclosing unit of work actually commits.
-      const token = this.baseline.stagePending(folds)
-      fold.onCommit(() => {
-        this.baseline.promotePending(token)
-      }, 'authority-baseline-fold')
-    } else {
-      for (const row of folds) this.baseline.apply(row)
-    }
+    // A SAVEPOINT RELEASE IS NOT A COMMIT (POD-3328). `fold` says what this
+    // MEANS and nothing about when: with a span open the rows are staged where
+    // in-span readers can see them and reach the committed baseline only if the
+    // enclosing unit of work actually commits; with none open this IS the
+    // outermost commit and they apply at once.
+    this.baseline.fold(folds)
     const changes: SequencedChange[] = rows.map((row, i) => ({
       ...row.spec,
       seq: seqs[i] as number,

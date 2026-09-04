@@ -6,6 +6,7 @@ import { IssueNotFound } from './issues/service/not-found'
 import type { HandoffCaller } from './sessions/handoff/ports'
 import type { SessionLifecycle } from './sessions/lifecycle'
 import { systemPrincipal } from '../command-principal'
+import { afterCommit } from '../store/executor/synchronous-span'
 
 const log = createLogger('server:closed-issue-reaper')
 
@@ -193,20 +194,40 @@ export class IssueSessionLifecycle {
       .filter((s) => !deletedIds.has(s.sessionId))
     const issuePlan = this.deps.issues.prepareSoftDelete(current.id, remainingSessions)
 
-    const { changes } = this.deps.ledger.commit({
+    this.deps.ledger.commit({
       write: () => {
         sessionPlan.write()
         issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
+      // THE RUNTIME HALF WAITS FOR THE OUTERMOST COMMIT [POD-3366]. It used to
+      // run on the statement after this call, and when a caller already has a
+      // span open that statement is on the success path of a SAVEPOINT release,
+      // not of a commit. What it does is irreversible — `removeSessionRuntime`
+      // detaches every client and the PTY — so running it while the tombstone
+      // can still be rolled back tears down a session the database keeps.
+      //
+      // Deferring is also the right answer for the in-window reader, which here
+      // is anything listing sessions inside the enclosing span: it sees the
+      // session still alive, and if that span rolls back the session IS still
+      // alive, so the map was right the whole time.
+      apply: (_result, changes) => {
+        const ledgerCursor = changes.at(-1)?.seq
+        if (ledgerCursor === undefined) {
+          throw new Error('issue/session delete committed no changes')
+        }
+        sessionPlan.apply(changes, ledgerCursor)
+        issuePlan.apply()
+      },
     })
-    const ledgerCursor = changes.at(-1)?.seq
-    if (ledgerCursor === undefined) throw new Error('issue/session delete committed no changes')
-
-    sessionPlan.apply(changes, ledgerCursor)
-    issuePlan.apply()
-    this.deps.sessions.broadcastSessions()
-    issuePlan.publish()
+    // The two BROADCASTS are mechanism 3, not mechanism 1, and they are
+    // registered separately for that reason: a fan-out failure is an external
+    // effect nobody waits for, and routing it through the commit application
+    // above would report a socket problem as a divergent projection.
+    afterCommit(() => {
+      this.deps.sessions.broadcastSessions()
+      issuePlan.publish()
+    }, 'issue-session-delete-broadcast')
 
     return { issue: issuePlan.wire(), deletedSessionIds: sessionPlan.sessionIds }
   }
@@ -229,20 +250,29 @@ export class IssueSessionLifecycle {
     ]
     const issuePlan = this.deps.issues.prepareRestore(current.id, restoredSessions)
 
-    const { changes } = this.deps.ledger.commit({
+    this.deps.ledger.commit({
       write: () => {
         sessionPlan.write()
         issuePlan.write()
       },
       changes: () => [...sessionPlan.changes(), ...issuePlan.changes()],
+      // The same argument as the delete above, in the other direction: the
+      // restore's apply INSTALLS runtime sessions and reloads the session state,
+      // and installing a live session for a restore the enclosing span can still
+      // roll back leaves the map holding sessions no row backs [POD-3366].
+      apply: (_result, changes) => {
+        const ledgerCursor = changes.at(-1)?.seq
+        if (ledgerCursor === undefined) {
+          throw new Error('issue/session restore committed no changes')
+        }
+        sessionPlan.apply(changes, ledgerCursor)
+        issuePlan.apply()
+      },
     })
-    const ledgerCursor = changes.at(-1)?.seq
-    if (ledgerCursor === undefined) throw new Error('issue/session restore committed no changes')
-
-    sessionPlan.apply(changes, ledgerCursor)
-    issuePlan.apply()
-    this.deps.sessions.broadcastSessions()
-    issuePlan.publish()
+    afterCommit(() => {
+      this.deps.sessions.broadcastSessions()
+      issuePlan.publish()
+    }, 'issue-session-restore-broadcast')
 
     return {
       issue: issuePlan.wire(),

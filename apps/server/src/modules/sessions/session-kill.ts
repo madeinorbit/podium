@@ -22,10 +22,11 @@ import { createLogger } from '@podium/logger'
 import type { SessionId, MachineId } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
-import type { EntityChangeSpec } from '@podium/sync'
+import type { EntityChangeSpec, LedgerCommitOp, LedgerCommitResult } from '@podium/sync'
 import type { AutoContinueController } from '../../auto-continue'
 import type { ClientRegistry } from '../../gateway/client-registry'
 import type { SessionStore } from '../../store'
+import { afterCommit } from '../../store/executor/synchronous-span'
 import type { EventBus } from '../bus'
 import type { MachinesService } from '../machines/service'
 import type { SessionDaemonProjection } from './daemon-projection'
@@ -36,10 +37,7 @@ import type { SessionStateService } from './session-state/service'
 const log = createLogger('server:sessions')
 
 export type KillLedger = {
-  commit<T>(op: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
-    result: T
-    changes: MetadataChange[]
-  }
+  commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
 }
 
 export interface SessionKillPorts {
@@ -126,23 +124,39 @@ export class SessionKill {
     // the session fully alive — still in the map, clients attached, PTY not
     // signalled — and propagates to the caller, instead of tearing down live
     // state for a row the rolled-back transaction still holds.
-    const { changes } = this.ports.ledger.commit({
+    this.ports.ledger.commit({
       write: () => {
         this.ports.store.sessions.softDeleteSessions([input.sessionId], deletedAt, 'standalone')
         this.ports.store.sync.deleteQueuedMessagesForSession(input.sessionId)
       },
       changes: () => this.sessionRemovalSpecs(input.sessionId),
+      // THE LIVE TEARDOWN WAITS FOR THE OUTERMOST COMMIT [POD-3366], which is
+      // what the paragraph above always meant. "Durable tombstone FIRST, live
+      // teardown after" was written against a top-level commit; nested inside a
+      // caller's span this commit is a SAVEPOINT, and its release is not a
+      // commit. The teardown is IRREVERSIBLE — the PTY is detached and every
+      // client attachment dropped — so on that path it tore a session down for
+      // a tombstone the enclosing span could still roll back, and there is no
+      // un-kill to compensate with.
+      apply: (_result, changes) => {
+        this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
+        this.ports.repository.publishSessionProjection(changes)
+      },
     })
-    this.removeSessionRuntime(input.sessionId, { retiredAt: deletedAt })
-    this.ports.repository.publishSessionProjection(changes)
-    this.ports.broadcastSessions()
-    // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
-    // kill deletes the row from the map BEFORE the daemon's agentExit arrives,
-    // so the agentExit-path emit would be skipped — fire it here. killSession
-    // is never the hibernate path (hibernateSession only flips status).
-    // Capture spawnedBy before the row is gone so the steward can still resolve
-    // a session-spawner parent wake (POD-904 / exit-without-report).
-    this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
+    // The broadcast and the death notification are mechanism 3: external
+    // effects nobody waits for, whose failure must not be reported as a
+    // divergent projection. `session` was captured before the commit, so the
+    // notification can still resolve a session-spawner parent wake (POD-904)
+    // after the row is gone.
+    afterCommit(() => {
+      this.ports.broadcastSessions()
+      // Session-death notification [spec:SP-85d1] (lock auto-release et al.): a
+      // kill deletes the row from the map BEFORE the daemon's agentExit
+      // arrives, so the agentExit-path emit would be skipped — fire it here.
+      // killSession is never the hibernate path (hibernateSession only flips
+      // status).
+      this.emitSessionExited(input.sessionId, session?.exitCode ?? -1, session?.spawnedBy, session)
+    }, 'session-kill-broadcast')
   }
 
   /**

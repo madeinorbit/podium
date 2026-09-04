@@ -1396,7 +1396,7 @@ export class IssueCrudModule {
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
-        this.store.rows.set(row.id, row)
+        this.store.installRow(row.id, row)
         this.store.emitEvent('issue.deleted', row.id, { seq: row.seq, deletedAt })
       },
       publish: () => this.store.broadcastList(),
@@ -1422,11 +1422,58 @@ export class IssueCrudModule {
       },
       changes: () => [{ entity: 'issue', id, op: 'remove' }],
     })
-    this.store.reload()
+    // THE INSTALL IS A TARGETED REMOVAL, NOT A WHOLE-MAP RE-READ [POD-3366].
+    //
+    // This was `this.store.reload()`, and it is the one site in POD-3361's audit
+    // whose install did not fit the deferral shape at all. A reload re-reads the
+    // database from INSIDE the enclosing span, so it read the savepoint's
+    // uncommitted truth and installed it as the committed map — and not merely
+    // for the row being purged, because a reload drops the whole map and rebuilds
+    // it. An outer rollback therefore left every row derived from rolled-back
+    // state, which is strictly worse than the single-install defect at the other
+    // twelve sites, and no commit application fixes it: deferring a whole-map
+    // re-read past the commit just moves when the wrong question is asked.
+    //
+    // A removal of the one id is what this method actually did, and it stages
+    // like every other install: visible to in-window readers, promoted by the
+    // outermost commit, dropped on the way IN if that commit never happens.
+    // Equivalent to the reload here because both callers refuse to purge a draft
+    // with children or sessions, so nothing cascades out of the map with it.
+    this.store.installRow(id, null)
+    // AND THE CASCADE, IN MEMORY, because the engine does it in the database and
+    // the reload used to be how it reached the map. `deleteIssue` relies on
+    // `ON DELETE SET NULL` to clear `parent_id` / `superseded_by` /
+    // `duplicate_of` on OTHER rows, so a removal of just this id leaves those
+    // rows pointing at an issue that no longer exists.
+    //
+    // I FOUND THIS BY LOSING A TEST, not by reading the schema: narrowing the
+    // reload to one id broke "deleting an issue clears scalar back-references on
+    // other issues", which is exactly the coverage that existed for the half of
+    // `reload()` I had argued was not load-bearing. Mirrored here rather than
+    // re-read from the database, because a read inside this span would ask the
+    // savepoint what is true and the answer is not durable yet.
+    for (const row of this.store.rows.values()) {
+      if (row.parentId !== id && row.supersededBy !== id && row.duplicateOf !== id) continue
+      this.store.installRow(row.id, {
+        ...row,
+        ...(row.parentId === id ? { parentId: null } : {}),
+        ...(row.supersededBy === id ? { supersededBy: null } : {}),
+        ...(row.duplicateOf === id ? { duplicateOf: null } : {}),
+      })
+    }
     // The full-list tail reconciles BOTH kinds (POD-796), so the purge reaches
     // the normalized feed as the remove reconcile derives from full truth.
     // POD-1203 deleted the funnel snapshot half; `reconcileAndPublish` is the
     // whole tail now.
+    //
+    // AND IT STAYS INSIDE THE SPAN, which is the other half of why this site did
+    // not fit the arm: `reconcileAndPublish` appends change ROWS through
+    // `ledger.reconcile`. That is a durable write, and it belongs where it rolls
+    // back with the transaction. Moving it to a commit application would put a
+    // durable write after the outermost commit, outside any transaction at all.
+    // It reads `allWire()` off the map, which is why the removal above has to be
+    // visible in-window rather than merely deferred — otherwise the full-truth
+    // diff would declare the purged issue still present.
     this.store.reconcileAndPublish(this.store.deps.publishSpecs.issuesChanged(this.store.allWire()))
     // Hard delete: drop any artifact snapshots too ([spec:SP-0fc9], best-effort).
     void this.store.deps.artifacts?.removeIssue(id).catch(() => {})
@@ -1463,7 +1510,7 @@ export class IssueCrudModule {
       },
       changes: () => [{ entity: 'issue', id: row.id, op: 'upsert', value: wire() }],
       apply: () => {
-        this.store.rows.set(row.id, row)
+        this.store.installRow(row.id, row)
         this.store.emitEvent('issue.restored', row.id, { seq: row.seq, restoredAt })
       },
       publish: () => this.store.broadcastList(),

@@ -7,7 +7,13 @@ import type {
   SessionId,
 } from '@podium/model'
 import type { MetadataChange } from '@podium/protocol'
-import type { EntityChangeSpec } from '@podium/sync'
+import {
+  type BaselineFoldPort,
+  type EntityChangeSpec,
+  type LedgerCommitOp,
+  type LedgerCommitResult,
+  StagedProjection,
+} from '@podium/sync'
 import type { SessionStore } from '../../store'
 import type { DaemonRequestPort } from '../daemon-request'
 import { type LakeReadSession, TranscriptLake } from './lake'
@@ -19,10 +25,7 @@ export type { LakeReadSession } from './lake'
 export type { MemoryReader } from './types'
 
 export interface MemoryLedger {
-  commit<T>(operation: { write: () => T; changes: (result: T) => EntityChangeSpec[] }): {
-    result: T
-    changes: MetadataChange[]
-  }
+  commit<T>(operation: LedgerCommitOp<T>): LedgerCommitResult<T>
   reconcile(entity: 'conversation', rows: { id: string; value: unknown }[]): MetadataChange[]
 }
 
@@ -31,6 +34,15 @@ export interface MemoryServiceDeps {
   now(): number
   ledger: MemoryLedger
   onDiagnosticsChanged(diagnostics: readonly ConversationDiagnosticWire[]): void
+  /**
+   * Where the conversation list waits for the OUTERMOST commit [POD-3366].
+   *
+   * The list is process-owned memory installed on the success path of a
+   * `ledger.commit` that may be a SAVEPOINT inside a caller's wider span, and a
+   * savepoint release is not a commit. Unset means every install is immediate,
+   * which is what a unit test with a pass-through `transact` wants.
+   */
+  applyCommit?: BaselineFoldPort
   /** The ONE daemon-RPC correlator (POD-318) — the broker's exported port,
    *  passed straight through to the lake's ranged reads. */
   daemonRequest: DaemonRequestPort
@@ -41,7 +53,19 @@ export interface MemoryServiceDeps {
  * transcript index, subagent evidence repair, and visibility-scoped omni-search.
  */
 export class MemoryService {
-  private latestConversations: ConversationSummaryWire[] = []
+  /**
+   * THE CONVERSATION LIST SERVED TO CLIENTS, installed only once the commit
+   * behind it is durable [POD-3366].
+   *
+   * A `StagedProjection` rather than a bare field because this list has
+   * IN-WINDOW READERS and they are not hypothetical: `setConversationMeta`
+   * reads it as its own precondition, so two meta writes inside one enclosing
+   * span would lose the first if the install were merely deferred, and
+   * `reconcileConversationList` diffs full truth against it. The staged layer
+   * is what lets those reads see this span's own work while the committed slot
+   * still holds only what the database kept.
+   */
+  private readonly latestConversations: StagedProjection<ConversationSummaryWire[]>
   private latestDiagnostics: ConversationDiagnosticWire[] = []
   private readonly machineByConversation = new Map<string, MachineId>()
   private lastDiagnosticsBroadcast = JSON.stringify([])
@@ -53,6 +77,11 @@ export class MemoryService {
     private readonly deps: MemoryServiceDeps,
     options: { mirrorLakeDir?: string } = {},
   ) {
+    this.latestConversations = new StagedProjection<ConversationSummaryWire[]>(
+      [],
+      deps.applyCommit,
+      'memory-conversation-list',
+    )
     this.visibility = new MemoryVisibilityPolicy(deps.store)
     this.searcher = new MemorySearchService(deps.store, this.visibility)
     this.lake = new TranscriptLake(
@@ -83,7 +112,7 @@ export class MemoryService {
   }
 
   allConversations(): ConversationSummaryWire[] {
-    return this.latestConversations
+    return this.latestConversations.read()
   }
 
   diagnostics(): ConversationDiagnosticWire[] {
@@ -99,7 +128,7 @@ export class MemoryService {
     for (const conversation of conversations)
       this.machineByConversation.set(conversation.id, machineId)
     for (const id of removed) this.machineByConversation.delete(id)
-    this.latestConversations = this.indexConversations(conversations, machineId, removed)
+    this.latestConversations.install(this.indexConversations(conversations, machineId, removed))
     this.latestDiagnostics = diagnostics
     this.broadcastDiagnostics()
   }
@@ -205,7 +234,7 @@ export class MemoryService {
   reconcileConversationList(): void {
     this.deps.ledger.reconcile(
       'conversation',
-      this.latestConversations.map((conversation) => ({
+      this.latestConversations.read().map((conversation) => ({
         id: conversation.id,
         value: conversation,
       })),
@@ -235,7 +264,9 @@ export class MemoryService {
     reader: MemoryReader,
     input: { id: string; name?: string; summary?: string },
   ): void {
-    const current = this.latestConversations.find((conversation) => conversation.id === input.id)
+    const current = this.latestConversations
+      .read()
+      .find((conversation) => conversation.id === input.id)
     // Both come from the same `onDiscovery` push (POD-318): there is no
     // placeholder machine to fall back to any more, so a conversation with no
     // known machine is as unreadable as one that does not exist.
@@ -268,8 +299,11 @@ export class MemoryService {
         },
       ],
     })
-    this.latestConversations = this.latestConversations.map((conversation) =>
-      conversation.id === input.id ? next : conversation,
+    // Installed through the projection, not assigned: with an enclosing span
+    // open the row this describes is not durable yet, and the assignment that
+    // used to sit here claimed it was.
+    this.latestConversations.update((list) =>
+      list.map((conversation) => (conversation.id === input.id ? next : conversation)),
     )
   }
 
