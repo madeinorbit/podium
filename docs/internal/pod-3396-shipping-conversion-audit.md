@@ -211,7 +211,14 @@ The count reconciles: 31 `.get()`, 13 `.all()`, 27 `.run()` = 71.
 
 ## The four things worth a reviewer's attention
 
-**1. Five columns are read as TEXT although the schema declares them `mode: 'json'`.** This is
+**1. Five columns are read as TEXT although the schema declares them `mode: 'json'`.** RULED, and
+this stands: spec rule 37, 2026-09-04. The general form the coordinator wrote from it is better than
+the permission argument this section originally made — *the declared mode describes how a column is
+USUALLY read, not how every reader must. A reader whose contract is about the STORED REPRESENTATION —
+custody, digests, signature payloads, anything hashed or compared byte for byte — reads text and says
+so at the site. A reader whose contract is about the VALUE takes the mode, per rule 28. Decide by what
+the comparison MEANS, never by what the column declaration says.* The corrupt-blob oracle's six throw
+cases stay exactly as POD-3245 classified them; no wave touches that shared file. This is
 the one place the conversion deliberately declines what rule 28 describes, and the reasoning is
 in a block comment above the projection constants. Two independent reasons: the stored TEXT of
 `ship_train_manifests.validation_profile` / `.provider_ref` and `ship_train_members.delivery_depends_on`
