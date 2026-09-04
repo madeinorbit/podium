@@ -475,6 +475,11 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const [pending, setPending] = useState<PanelActionKind | null>(null)
   const generation = useRef(0)
   const awaitingObservation = useRef(false)
+  const recoveryWithoutId = useRef(false)
+  const actionBaseline = useRef<{ latestId: string | null | undefined; startedAt: number }>({
+    latestId: undefined,
+    startedAt: 0,
+  })
   const [observationWait, setObservationWait] = useState(false)
   const [proposal, setProposal] = useState<ReleaseProposal | null | undefined>()
   const [proposalPending, setProposalPending] = useState(false)
@@ -547,23 +552,6 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     setOperation(op)
     setNow(at)
   }, [])
-
-  const acceptStartOutcome = useCallback(
-    (outcome?: StartUpdateOutcome): void => {
-      generation.current += 1
-      if (outcome?.operationId) {
-        watched.current.add(outcome.operationId)
-        rememberWatched(outcome.operationId, clock())
-      }
-      if (outcome?.operation) {
-        foldObservedOperation(outcome.operation, clock())
-      } else {
-        awaitingObservation.current = true
-        setObservationWait(true)
-      }
-    },
-    [clock, foldObservedOperation],
-  )
 
   useEffect(() => {
     if (!observationWait) return
@@ -693,6 +681,19 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       if (observedGeneration === generation.current) {
         if (live !== undefined) foldObservedOperation(live, at)
         if (latest !== undefined) setLatest(latest)
+        if (awaitingObservation.current && recoveryWithoutId.current && live === null && latest) {
+          const baseline = actionBaseline.current
+          // A new lifecycle history row can be the entire update after a cut
+          // answer. Do not turn an already-known completion into fresh news.
+          const newHistory =
+            latest.id !== baseline.latestId &&
+            (baseline.latestId !== undefined ||
+              (latest.createdAt ?? latest.startedAt ?? -Infinity) >= baseline.startedAt)
+          if (newHistory && isOperationTerminal(latest)) {
+            watched.current.add(latest.id)
+            rememberWatched(latest.id, at)
+          }
+        }
         // A successful active read, or a complete active+history "none", is
         // authoritative. Failed history cannot lose a fast terminal outcome.
         if (awaitingObservation.current && (live || (live === null && latest !== undefined))) {
@@ -718,6 +719,27 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   })
 
   const refresh = query.refresh
+
+  const acceptStartOutcome = useCallback(
+    (outcome?: StartUpdateOutcome): void => {
+      generation.current += 1
+      if (outcome?.operationId) {
+        watched.current.add(outcome.operationId)
+        rememberWatched(outcome.operationId, clock())
+      }
+      if (outcome?.operation) {
+        foldObservedOperation(outcome.operation, clock())
+      } else {
+        recoveryWithoutId.current = !outcome?.operationId
+        awaitingObservation.current = true
+        setObservationWait(true)
+        // Idle recovery changes cadence and reads immediately. Already-active
+        // polling needs an explicit post-action read, even if an old read hangs.
+        if (active) refresh()
+      }
+    },
+    [active, clock, foldObservedOperation, refresh],
+  )
 
   // THE RENDER CLOCK. Only while something is moving: a panel showing an offer
   // has nothing that ages, and a timer running against a still surface is the
@@ -1049,6 +1071,9 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
        * restart the update itself requested".
        */
       const startedAt = clock()
+      if (kind === 'start' || kind === 'retry') {
+        actionBaseline.current = { latestId: latest === null ? null : latest?.id, startedAt }
+      }
       updatesLog.info('update action started', {
         action: kind,
         surface,
@@ -1154,6 +1179,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
       clock,
       desktopChannel,
       expectedDesktopVersion,
+      latest,
       operationId,
       options.reload,
       refresh,

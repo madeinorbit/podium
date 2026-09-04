@@ -977,6 +977,68 @@ describe('update mutation observations', () => {
     expect(screen.queryByTestId('update-primary')).toBeNull()
   })
 
+  it.each([
+    false,
+    true,
+  ])('cut-response history recovery preserves pre-click completion=%s', async (oldCompletion) => {
+    setupTransport()
+    mocks.active.mockResolvedValue(null)
+    const completed = { ...running, state: 'done', createdAt: Date.now() - 60_000 }
+    mocks.history.mockResolvedValue(oldCompletion ? [completed] : [])
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await waitFor(() => expect(results.at(-1)?.view.state).toBe('offer'))
+    mocks.start.mockRejectedValue(new ServerUnavailableError())
+    const recovery = deferred<null>()
+    mocks.active.mockReturnValue(recovery.promise)
+    await act(async () => {
+      await results.at(-1)?.run('start')
+    })
+    expect(button().disabled).toBe(true)
+    mocks.history.mockResolvedValue([completed])
+    await act(async () => {
+      recovery.resolve(null)
+    })
+    expect(results.at(-1)?.view.state).toBe(oldCompletion ? 'offer' : 'done')
+    expect(results.at(-1)?.pending).toBeNull()
+    if (oldCompletion) expect(button().disabled).toBe(false)
+    else expect(screen.queryByTestId('update-primary')).toBeNull()
+  })
+
+  it('starts an immediate id-only retry read while the active poll is still hanging', async () => {
+    setupTransport()
+    vi.useFakeTimers()
+    mocks.active.mockResolvedValue(running)
+    const results: UpdateStateResult[] = []
+    render(<Probe onResult={(r) => results.push(r)} />)
+    await flush()
+    const oldPoll = deferred<null>()
+    mocks.active.mockReturnValue(oldPoll.promise)
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1_000)
+    })
+    const beforeRetry = mocks.active.mock.calls.length
+    const recovery = deferred<null>()
+    mocks.active.mockReturnValue(recovery.promise)
+    mocks.retry.mockResolvedValue({ operationId: 'op_retried' })
+    await act(async () => {
+      await results.at(-1)?.run('retry')
+    })
+    expect(mocks.active).toHaveBeenCalledTimes(beforeRetry + 1)
+    expect(results.at(-1)?.pending).toBe('retry')
+    mocks.history.mockResolvedValue([{ ...running, id: 'op_retried', state: 'done' }])
+    await act(async () => {
+      recovery.resolve(null)
+    })
+    expect(results.at(-1)?.view.state).toBe('done')
+    expect(results.at(-1)?.operation?.id).toBe('op_retried')
+    expect(results.at(-1)?.pending).toBeNull()
+    await act(async () => {
+      oldPoll.resolve(null)
+    })
+    expect(results.at(-1)?.operation?.id).toBe('op_retried')
+  })
+
   it('bounds uncertain recovery and offers a retryable error', async () => {
     setupTransport()
     mocks.active.mockResolvedValue(null)
