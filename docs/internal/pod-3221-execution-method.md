@@ -173,6 +173,27 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
 
+A STANDING FAILURE COUNT HIDES NEW FAILURES (POD-3368, 2026-09-04). The boundary lane has failed 67
+tests for the life of this epic. Four independent workers measured it, all agreed, and every delta
+gate subtracted it by hand. Within an hour of someone finally grouping those failures BY CAUSE, two
+of them turned out to be OURS — introduced by 72d2b4718 (POD-3259), which is on the integration
+branch and not an ancestor of origin/dev/mw. Verified by running the file at 72d2b4718^: 309 passed,
+0 failed; at the tip, 2 failed.
+
+They were invisible because the COUNT stayed at 67 while causes moved underneath it. One of them is
+user-visible — applying a suggested stage leaves the suggestion showing — and the other refuses a
+write in issues.start after a worktree free.
+
+RULE: comparing by failing-test-NAME set rather than by count is necessary but NOT sufficient. A name
+set proves your change added nothing; it says nothing about what was already in the set and
+unexamined. Any standing red that a gate subtracts must be GROUPED BY CAUSE at least once, and the
+grouping must record for each cause the introducing commit and whether it is an ancestor of
+origin/dev/mw. Until that exists, "pre-existing" means "nobody has looked", and an epic that
+subtracts a number by hand is an epic that cannot see its own regressions inside it.
+
+This is the second time grouping-by-cause paid for itself: POD-3336 found the POD-2708 bracketed-paste
+guard had been dark for a week inside a tidy cluster of fixture breakage.
+
 A CHECK AT A TRANSPORT OR PROCESS BOUNDARY MUST BE SHOWN TO FIRE (POD-3358, 2026-09-04). Its guard
 enforcing the per-run table prefix read `init.body` — which `@libsql/client/web` never sets, because
 the statement travels in a Request object. The guard could not fail, and every test still passed.
