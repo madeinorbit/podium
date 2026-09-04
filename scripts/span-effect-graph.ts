@@ -259,6 +259,19 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'MessagesDeps.transact',
   },
   {
+    // The sync adapter's port over the store's transaction [POD-3338 for the
+    // port, POD-3416 for what it carries]. It IS an opener: the server fills it
+    // with the nesting-safe runtime helper over the executor's connection, so a
+    // body handed to it runs inside a unit of work — or inside a savepoint when
+    // a caller already opened one. Declared here rather than in
+    // NOT_A_SPAN_OPENER because a package cannot name the server's binding, so
+    // this declaration is the only place the call site can be recognised from.
+    file: 'packages/sync/src/adapters/sqlite/store-queries.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'SyncQueries.transact',
+  },
+  {
     file: 'packages/sync/src/authority/ports.ts',
     symbol: 'TransactPort',
     body: 'arg0',
