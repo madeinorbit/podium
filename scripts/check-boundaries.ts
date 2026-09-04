@@ -1859,8 +1859,7 @@ export function checkSqlRawLiteral(file: string, source: string): Violation[] {
     // never sees `sql.raw(...)` at all and so was inert both times.
     const constant = CONSTANT_IDENTIFIER_STATEMENTS.get(file)
     const tokenOnLine =
-      constant !== undefined &&
-      (source.split('\n')[line - 1] ?? '').includes(constant.token)
+      constant !== undefined && (source.split('\n')[line - 1] ?? '').includes(constant.token)
     if (
       argument !== null &&
       !SQL_RAW_STRING_LITERAL.test(argument.trim()) &&
