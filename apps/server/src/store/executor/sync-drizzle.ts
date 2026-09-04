@@ -41,8 +41,26 @@ import { drizzle } from 'drizzle-orm/bun-sqlite'
  *  than imported from `bun:sqlite`, which does not resolve without @types/bun. */
 type DrizzleBunClient = Extract<Parameters<typeof drizzle>[0], { client: unknown }>['client']
 
-/** The synchronous drizzle database Stage A repositories query through. */
-export type SyncDrizzle = ReturnType<typeof buildSyncDrizzle>
+/**
+ * The synchronous drizzle database Stage A repositories query through.
+ *
+ * `transaction` IS OMITTED DELIBERATELY, so `this.db.transaction(...)` is a
+ * COMPILE ERROR rather than a convention [spec rule 45].
+ *
+ * WHY: drizzle's own transaction keeps its own nesting state and would issue a
+ * fresh BEGIN inside a span the store already opened. The store's span is the
+ * only transaction boundary — it is what applies BEGIN IMMEDIATE (drizzle
+ * defaults to DEFERRED), the bounded busy retry, and the post-commit tail.
+ *
+ * WHY A TYPE AND NOT THE RUNTIME STUB WE HAD: the stub lived in the client and
+ * threw on `transaction()`. Measured, it also refuses the STORE'S OWN adapter,
+ * which reaches drizzle's transaction on purpose — so it would have made the
+ * async design impossible and sent the next reader back to hand-rolled
+ * savepoints. A missing member cannot collide with our own call.
+ *
+ * The adapter inside this file holds the un-omitted type and can still call it.
+ */
+export type SyncDrizzle = Omit<ReturnType<typeof buildSyncDrizzle>, 'transaction'>
 
 /**
  * The client drizzle sees: OUR INSTRUMENTED WRAPPER, never the raw handle.
