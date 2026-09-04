@@ -39,8 +39,8 @@
 import { SERVER_SECRET_KEYS } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
-import { createBunStoreExecutor } from '../store/executor'
 import { ServerSecretsRepository } from '../store/server-secrets'
+import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -291,7 +291,7 @@ describe('the repository reads what the migration wrote', () => {
       apiKeys: { openai: SEEDED['apiKeys.openai'], anthropic: '', openrouter: '' },
     })
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(createBunStoreExecutor({ database: db }))
+    const secrets = new ServerSecretsRepository(stageASeam(db))
 
     // The POSITIVE control beside the negative: a repository that returned
     // `undefined` for everything would satisfy the absence assertion alone.
@@ -304,9 +304,7 @@ describe('the repository reads what the migration wrote', () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
 
-    const presence = await new ServerSecretsRepository(
-      createBunStoreExecutor({ database: db }),
-    ).presence()
+    const presence = await new ServerSecretsRepository(stageASeam(db)).presence()
     expect(presence.map((p) => p.key).sort()).toEqual([...SERVER_SECRET_KEYS].sort())
     expect(presence.every((p) => p.present)).toBe(true)
     // The projection has no value key BY CONSTRUCTION (it is a separate shape,
@@ -318,7 +316,7 @@ describe('the repository reads what the migration wrote', () => {
   it('a cleared secret leaves no row, and a blank write is a clear', async () => {
     const db = preMigrationDb()
     runDrizzleMigrations(db, throughThisMigration())
-    const secrets = new ServerSecretsRepository(createBunStoreExecutor({ database: db }))
+    const secrets = new ServerSecretsRepository(stageASeam(db))
 
     await secrets.clear('apiKeys.openai')
     expect(await secrets.get('apiKeys.openai')).toBeUndefined()

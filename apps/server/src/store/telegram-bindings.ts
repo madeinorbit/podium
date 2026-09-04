@@ -31,8 +31,12 @@
 
 import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { asc, eq } from 'drizzle-orm'
+import { telegramChatBindings } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
+
+/** The stored row, as drizzle's own execution path maps it back. */
+type BindingRow = typeof telegramChatBindings.$inferSelect
 
 /**
  * Rebuild the attribution pair from its three columns — the same shape
@@ -44,10 +48,10 @@ import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
  * newer version (or by hand) resolving to a user under a kind nothing checked —
  * the unknown-input-fails-open shape.
  */
-function toAttribution(r: Record<string, unknown>): Attribution | undefined {
-  const kind = r.actor_kind
-  const id = (r.actor_id as string | null | undefined) ?? null
-  const onBehalfOf = (r.on_behalf_of as string | null | undefined) ?? null
+function toAttribution(r: BindingRow): Attribution | undefined {
+  const kind = r.actorKind
+  const id = r.actorId ?? null
+  const onBehalfOf = r.onBehalfOf ?? null
   if (kind === 'user') {
     if (!id) return undefined
     return {
@@ -69,31 +73,42 @@ function toAttribution(r: Record<string, unknown>): Attribution | undefined {
   return undefined
 }
 
-function toBinding(r: Record<string, unknown>): TelegramChatBinding | undefined {
-  const chatId = r.chat_id
-  const userId = r.user_id
-  const boundAt = r.bound_at
-  if (typeof chatId !== 'string' || chatId === '') return undefined
-  if (typeof userId !== 'string' || userId === '') return undefined
-  if (typeof boundAt !== 'string') return undefined
+/**
+ * THE EMPTINESS CHECKS ARE DECISIONS AND STAY (spec §6 rule 6).
+ *
+ * The `typeof` halves of these guards went with the conversion: they existed
+ * only because the raw driver returned `unknown`, and drizzle's own execution
+ * path now types these columns off the schema (rule 5, trust the database's
+ * types). The `=== ''` halves are not narrowing — an empty chat or user id is a
+ * row this reader refuses, on the same fail-closed ground as
+ * {@link toAttribution}, and dropping them would admit a binding keyed on the
+ * empty string.
+ */
+function toBinding(r: BindingRow): TelegramChatBinding | undefined {
+  if (r.chatId === '') return undefined
+  if (r.userId === '') return undefined
   const boundBy = toAttribution(r)
   if (!boundBy) return undefined
-  return { chatId, userId: asUserId(userId), boundAt, boundBy }
+  return { chatId: r.chatId, userId: asUserId(r.userId), boundAt: r.boundAt, boundBy }
 }
 
 export class TelegramBindingsRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /** The query builder, resolved on every access so B1 changes this line and nothing else
+   *  [POD-3221 spec rule 34a]. */
+  protected get db() {
+    return this.queries.db
   }
 
   /** Every binding, for the resolver to answer over. Unreadable rows are omitted
    *  — see {@link toAttribution} on why omission is the fail-closed direction. */
   list(): TelegramChatBinding[] {
     const rows = this.db
-      .prepare('SELECT * FROM telegram_chat_bindings ORDER BY bound_at ASC')
-      .all() as Record<string, unknown>[]
+      .select()
+      .from(telegramChatBindings)
+      .orderBy(asc(telegramChatBindings.boundAt))
+      .all()
     return rows.flatMap((r) => {
       const binding = toBinding(r)
       return binding ? [binding] : []
@@ -107,34 +122,41 @@ export class TelegramBindingsRepository {
   }
 
   /**
-   * Write a binding. `INSERT OR REPLACE` on the chat-id primary key: re-running
+   * Write a binding. An upsert on the chat-id primary key: re-running
    * the ceremony for a chat REBINDS it and re-stamps who did so, which is the
    * behaviour that lets a person hand a shared chat over deliberately. It is
    * also why `boundBy` is stored rather than derived — after a rebind, the only
    * record of who took the chat is this row.
+   *
+   * `INSERT OR REPLACE` became `onConflictDoUpdate`, and the equivalence was
+   * checked rather than assumed (POD-3403). `telegram_chat_bindings` has one
+   * uniqueness constraint — the `chat_id` primary key, no UNIQUE index — so the
+   * conflict target is unambiguous, and the insert names all six columns, so the
+   * delete-and-reinsert semantics `OR REPLACE` had cannot revert an omitted
+   * column to its default. Nothing references this table, so nothing could have
+   * cascaded off the delete either.
    */
   upsert(binding: TelegramChatBinding): void {
     const actor = binding.boundBy.actor
+    const values = {
+      chatId: binding.chatId,
+      userId: binding.userId,
+      boundAt: binding.boundAt,
+      actorKind: actor.kind,
+      actorId: actor.kind === 'system' ? actor.job : actor.id,
+      onBehalfOf: binding.boundBy.onBehalfOf,
+    }
     this.db
-      .prepare(
-        `INSERT OR REPLACE INTO telegram_chat_bindings
-           (chat_id, user_id, bound_at, actor_kind, actor_id, on_behalf_of)
-         VALUES (?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        binding.chatId,
-        binding.userId,
-        binding.boundAt,
-        actor.kind,
-        actor.kind === 'system' ? actor.job : actor.id,
-        binding.boundBy.onBehalfOf,
-      )
+      .insert(telegramChatBindings)
+      .values(values)
+      .onConflictDoUpdate({ target: telegramChatBindings.chatId, set: values })
+      .run()
   }
 
   /** Remove a binding. The chat stops resolving to anyone on the next message —
    *  no reaper, no cache to invalidate, because resolution reads this table
    *  live. */
   remove(chatId: string): void {
-    this.db.prepare('DELETE FROM telegram_chat_bindings WHERE chat_id = ?').run(chatId)
+    this.db.delete(telegramChatBindings).where(eq(telegramChatBindings.chatId, chatId)).run()
   }
 }

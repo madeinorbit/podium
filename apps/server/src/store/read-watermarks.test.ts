@@ -38,7 +38,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import type { ReaderRef } from '../modules/sessions/read-toolkit'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { createBunStoreExecutor } from './executor'
+import { stageASeam } from '../test-support/stage-a-seam'
 import { ReadWatermarksRepository } from './read-watermarks'
 
 const ALPHA: SessionId = asSessionId('sess_alpha')
@@ -70,7 +70,7 @@ function rowCount(): number {
 
 beforeEach(() => {
   db = openMigratedTestDatabase()
-  watermarks = new ReadWatermarksRepository(createBunStoreExecutor({ database: db }))
+  watermarks = new ReadWatermarksRepository(stageASeam(db))
 })
 
 describe('ReadWatermarksRepository', () => {

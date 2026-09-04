@@ -41,6 +41,7 @@ import { FIRST_ADMIN_USER_ID, settingsPathsInTier } from '@podium/model'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { describe, expect, it } from 'vitest'
 import { UserPreferencesRepository } from '../store/user-preferences'
+import { stageASeam } from '../test-support/stage-a-seam'
 import { DRIZZLE_MIGRATIONS } from './drizzle-manifest.generated'
 import { runDrizzleMigrations } from './index'
 
@@ -257,7 +258,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
   it('keeps JSON TYPES — booleans are booleans and the array is an array', () => {
     // The `->` vs `->>` property, asserted as types rather than as values so it
     // cannot pass on a stringified `"true"`.
-    const prefs = new UserPreferencesRepository(migrated())
+    const prefs = new UserPreferencesRepository(stageASeam(migrated()))
     expect(prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.enabled')).toBe(true)
     expect(prefs.get(FIRST_ADMIN_USER_ID, 'notifications.web')).toBe(true)
     expect(prefs.get(FIRST_ADMIN_USER_ID, 'autoContinue.promptDismissed')).toBe(false)
@@ -306,7 +307,7 @@ describe('the COPY happens, and lands under the right key with the right type', 
     // Unlike POD-419's secrets, where `''` meant "not configured": an empty ntfy
     // topic means "mobile push off", which is a choice this person made.
     const db = migrated(nestedBlob({ notifications: { ntfyTopic: '', web: true } }))
-    const prefs = new UserPreferencesRepository(db)
+    const prefs = new UserPreferencesRepository(stageASeam(db))
     expect(prefs.get(FIRST_ADMIN_USER_ID, 'notifications.ntfyTopic')).toBe('')
   })
 
@@ -350,7 +351,7 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
     // Deleting the INSERT..SELECT leaves the DDL, the CLEAR and three green
     // structural checks — and fails this.
     const db = migrated()
-    const prefs = new UserPreferencesRepository(db)
+    const prefs = new UserPreferencesRepository(stageASeam(db))
     const blob = rawBlob(db)
     for (const key of LIFTED_KEYS) {
       const segments = key.split('.')

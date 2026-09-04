@@ -28,18 +28,13 @@
 
 import {
   advanceReadPosition,
-  type ReadPositionSnapshot,
   isReadStreamId,
+  type ReadPositionSnapshot,
   type UserId,
 } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
-
-interface CursorRow {
-  stream_id: string
-  last_event_id: number
-  seen_at: string | null
-}
+import { and, eq } from 'drizzle-orm'
+import { userReadPosition } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** One stored position. `undefined` from a reader means "never read this stream". */
 export interface StoredReadPosition {
@@ -48,23 +43,35 @@ export interface StoredReadPosition {
 }
 
 export class UserReadPositionRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /** The query builder, resolved on every access so B1 changes this line and nothing else
+   *  [POD-3221 spec rule 34a]. */
+  protected get db() {
+    return this.queries.db
   }
+
+  /** An arrow field rather than an assignment, so the span helper keeps its `this`
+   *  when rule 35's adapter starts using one [POD-3221 spec rule 34a]. */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** One person's position in every stream they have read. Absent key = never. */
   getSnapshot(userId: UserId): ReadPositionSnapshot {
     const rows = this.db
-      .prepare('SELECT stream_id, last_event_id, seen_at FROM user_read_position WHERE user_id = ?')
-      .all(userId) as CursorRow[]
+      .select({
+        streamId: userReadPosition.streamId,
+        lastEventId: userReadPosition.lastEventId,
+        seenAt: userReadPosition.seenAt,
+      })
+      .from(userReadPosition)
+      .where(eq(userReadPosition.userId, userId))
+      .all()
     const out: Record<string, StoredReadPosition> = {}
     for (const row of rows) {
       // A feed retired from the vocabulary stops being reported rather than
       // being rendered as an unknown stream the client cannot place.
-      if (!isReadStreamId(row.stream_id)) continue
-      out[row.stream_id] = { lastEventId: row.last_event_id, seenAt: row.seen_at }
+      if (!isReadStreamId(row.streamId)) continue
+      out[row.streamId] = { lastEventId: row.lastEventId, seenAt: row.seenAt }
     }
     return out
   }
@@ -72,13 +79,14 @@ export class UserReadPositionRepository {
   /** One stream's position for one person, or `undefined` when never read. */
   get(userId: UserId, streamId: string): StoredReadPosition | undefined {
     const row = this.db
-      .prepare(
-        'SELECT last_event_id, seen_at FROM user_read_position WHERE user_id = ? AND stream_id = ?',
-      )
-      .get(userId, streamId) as { last_event_id: number; seen_at: string | null } | undefined
-    return row === undefined
-      ? undefined
-      : { lastEventId: row.last_event_id, seenAt: row.seen_at }
+      .select({
+        lastEventId: userReadPosition.lastEventId,
+        seenAt: userReadPosition.seenAt,
+      })
+      .from(userReadPosition)
+      .where(and(eq(userReadPosition.userId, userId), eq(userReadPosition.streamId, streamId)))
+      .get()
+    return row === undefined ? undefined : { lastEventId: row.lastEventId, seenAt: row.seenAt }
   }
 
   /**
@@ -100,18 +108,31 @@ export class UserReadPositionRepository {
         `'${streamId}' is not a known event stream (POD-1380 / isReadStreamId), so it has no cursor row`,
       )
     }
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const current = this.get(userId, streamId)
       const next = advanceReadPosition(current, {
         lastEventId: proposed.lastEventId,
         seenAt: proposed.seenAt,
       })
       if (next === null) return null
+      // `INSERT OR REPLACE` -> `onConflictDoUpdate` on the composite primary
+      // key. `user_read_position` has that one uniqueness constraint and the
+      // insert names all five columns, so the two forms agree (POD-3403).
+      const values = {
+        userId,
+        streamId,
+        lastEventId: next.lastEventId,
+        seenAt: next.seenAt,
+        updatedAt,
+      }
       this.db
-        .prepare(
-          'INSERT OR REPLACE INTO user_read_position (user_id, stream_id, last_event_id, seen_at, updated_at) VALUES (?, ?, ?, ?, ?)',
-        )
-        .run(userId, streamId, next.lastEventId, next.seenAt, updatedAt)
+        .insert(userReadPosition)
+        .values(values)
+        .onConflictDoUpdate({
+          target: [userReadPosition.userId, userReadPosition.streamId],
+          set: values,
+        })
+        .run()
       return next
     })
   }

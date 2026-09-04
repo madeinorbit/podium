@@ -7,9 +7,10 @@
  * via accountViews().
  */
 
-import type { AccountId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { type AccountId, asAccountId } from '@podium/model'
+import { asc, eq } from 'drizzle-orm'
+import { accounts } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 export interface ManagedAccountRow {
   id: AccountId
@@ -23,17 +24,17 @@ export interface ManagedAccountRow {
   createdAt: number
 }
 
-interface Row {
-  id: AccountId
-  provider: string
-  kind: string
-  credential: string
-  identity: string
-  scope: string
-  created_at: number
-}
-
-function toRow(r: Row): ManagedAccountRow {
+/**
+ * The stored row, narrowed to the domain row.
+ *
+ * BOTH TERNARIES ARE DECISIONS AND STAY (spec §6 rule 6). The columns are plain
+ * `text()` with no CHECK, so a value outside either union is representable; each
+ * ternary picks the CONSERVATIVE member — `api-key` over `oauth`, `role` over
+ * `ambient` — so a row that is somehow neither is treated as the narrower
+ * capability rather than the broader one. They are not the driver-returned-
+ * `unknown` casts the conversion removes.
+ */
+function toRow(r: typeof accounts.$inferSelect): ManagedAccountRow {
   return {
     id: r.id,
     provider: r.provider,
@@ -41,37 +42,70 @@ function toRow(r: Row): ManagedAccountRow {
     credential: r.credential,
     identity: r.identity,
     scope: r.scope === 'ambient' ? 'ambient' : 'role',
-    createdAt: r.created_at,
+    createdAt: r.createdAt,
   }
 }
 
 export class AccountsRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /** The query builder, resolved on every access so B1 changes this line and nothing else
+   *  [POD-3221 spec rule 34a]. */
+  protected get db() {
+    return this.queries.db
   }
 
   list(): ManagedAccountRow[] {
-    const rows = this.db.prepare('SELECT * FROM accounts ORDER BY created_at ASC').all() as Row[]
-    return rows.map(toRow)
+    return this.db.select().from(accounts).orderBy(asc(accounts.createdAt)).all().map(toRow)
   }
 
   get(id: string): ManagedAccountRow | undefined {
-    const row = this.db.prepare('SELECT * FROM accounts WHERE id = ?').get(id) as Row | undefined
+    const row = this.db
+      .select()
+      .from(accounts)
+      .where(eq(accounts.id, asAccountId(id)))
+      .get()
     return row ? toRow(row) : undefined
   }
 
+  /**
+   * `INSERT OR REPLACE` becomes `onConflictDoUpdate` on the primary key.
+   *
+   * EQUIVALENT HERE, and it was checked rather than assumed (POD-3403 amended
+   * checklist item 1 after wave 2 measured the case where it is not). `accounts`
+   * has exactly ONE uniqueness constraint — the `id` primary key, no UNIQUE
+   * index — so the conflict target is unambiguous and `DO UPDATE` cannot raise
+   * where `OR REPLACE` would have resolved. The insert also names every one of
+   * the seven columns, which settles the OTHER difference between the forms:
+   * `OR REPLACE` deletes the row and reinserts it, so a column the insert omits
+   * would revert to its default, while `DO UPDATE` preserves it. With a full
+   * column list the two agree. No table references `accounts`, so the
+   * delete-and-reinsert could not have cascaded either.
+   */
   upsert(row: ManagedAccountRow): void {
+    const values = {
+      id: row.id,
+      provider: row.provider,
+      kind: row.kind,
+      credential: row.credential,
+      identity: row.identity,
+      scope: row.scope,
+      createdAt: row.createdAt,
+    }
     this.db
-      .prepare(
-        `INSERT OR REPLACE INTO accounts (id, provider, kind, credential, identity, scope, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(row.id, row.provider, row.kind, row.credential, row.identity, row.scope, row.createdAt)
+      .insert(accounts)
+      .values(values)
+      .onConflictDoUpdate({
+        target: accounts.id,
+        set: values,
+      })
+      .run()
   }
 
   remove(id: string): void {
-    this.db.prepare('DELETE FROM accounts WHERE id = ?').run(id)
+    this.db
+      .delete(accounts)
+      .where(eq(accounts.id, asAccountId(id)))
+      .run()
   }
 }

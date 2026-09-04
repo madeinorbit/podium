@@ -44,9 +44,10 @@
  */
 
 import type { RedactionReport } from '@podium/commands'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
+import { asc } from 'drizzle-orm'
 import { attributionOf, type CommandPrincipal } from '../command-principal'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { settingsAuditEvents } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** Whether the command was carried out or refused. A refusal is an audit fact:
  *  a trail that records only successes cannot answer "who TRIED to rotate this
@@ -118,10 +119,12 @@ export function settingsAuditRow(input: {
 }
 
 export class SettingsAuditRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /** The query builder, resolved on every access so B1 changes this line and nothing else
+   *  [POD-3221 spec rule 34a]. */
+  protected get db() {
+    return this.queries.db
   }
 
   /**
@@ -131,21 +134,18 @@ export class SettingsAuditRepository {
    */
   append(row: SettingsAuditRow): void {
     this.db
-      .prepare(
-        `INSERT INTO settings_audit_events
-          (command, outcome, actor_kind, actor_id, on_behalf_of, detail_json, redacted_paths, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.command,
-        row.outcome,
-        row.actorKind,
-        row.actorId,
-        row.onBehalfOf,
-        JSON.stringify(row.detail ?? {}),
-        JSON.stringify(row.redactedPaths),
-        row.createdAt,
-      )
+      .insert(settingsAuditEvents)
+      .values({
+        command: row.command,
+        outcome: row.outcome,
+        actorKind: row.actorKind,
+        actorId: row.actorId,
+        onBehalfOf: row.onBehalfOf,
+        detailJson: JSON.stringify(row.detail ?? {}),
+        redactedPaths: JSON.stringify(row.redactedPaths),
+        createdAt: row.createdAt,
+      })
+      .run()
   }
 
   /**
@@ -164,17 +164,24 @@ export class SettingsAuditRepository {
    */
   list(limit = 100): SettingsAuditRow[] {
     const rows = this.db
-      .prepare('SELECT * FROM settings_audit_events ORDER BY id ASC LIMIT ?')
-      .all(limit) as Record<string, unknown>[]
+      .select()
+      .from(settingsAuditEvents)
+      .orderBy(asc(settingsAuditEvents.id))
+      .limit(limit)
+      .all()
     return rows.map((r) => ({
-      command: r.command as string,
+      command: r.command,
+      // `outcome` and `actor_kind` are plain text() columns held to their
+      // vocabularies by CHECK constraints rather than by a drizzle `$type`, so
+      // the narrowing stays. It is the database's own guarantee being read, not
+      // a driver-returned `unknown` being asserted away.
       outcome: r.outcome as SettingsAuditOutcome,
-      actorKind: r.actor_kind as SettingsAuditActorKind,
-      actorId: (r.actor_id as string | null | undefined) ?? null,
-      onBehalfOf: (r.on_behalf_of as string | null | undefined) ?? null,
-      detail: parseJson(r.detail_json),
-      redactedPaths: (parseJson(r.redacted_paths) as string[] | undefined) ?? [],
-      createdAt: r.created_at as string,
+      actorKind: r.actorKind as SettingsAuditActorKind,
+      actorId: r.actorId ?? null,
+      onBehalfOf: r.onBehalfOf ?? null,
+      detail: parseJson(r.detailJson),
+      redactedPaths: (parseJson(r.redactedPaths) as string[] | undefined) ?? [],
+      createdAt: r.createdAt,
     }))
   }
 }

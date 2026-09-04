@@ -1,14 +1,14 @@
 import { asAccountId } from '@podium/model'
 import { beforeEach, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
+import { stageASeam } from '../test-support/stage-a-seam'
 import { AccountsRepository } from './accounts'
-import { createBunStoreExecutor } from './executor'
 
 let repo: AccountsRepository
 
 beforeEach(() => {
   const db = openMigratedTestDatabase()
-  repo = new AccountsRepository(createBunStoreExecutor({ database: db }))
+  repo = new AccountsRepository(stageASeam(db))
 })
 
 it('round-trips a managed account', async () => {

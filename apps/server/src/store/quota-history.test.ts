@@ -197,3 +197,95 @@ describe('retention', () => {
     expect(await store.quotaHistory.countAll()).toBe(1)
   })
 })
+
+/**
+ * THE CONFLICT ARM OF `insert`, which no test walked before [POD-3392].
+ *
+ * `record` reaches `insert` only when the sample opens a NEW window instance,
+ * and it normally opens one whose bucket is free — so the `ON CONFLICT
+ * (account_key, window_key, resets_at_bucket) DO UPDATE` clause, and the three
+ * folds in it, were never executed. Found by mutation: replacing
+ * `MAX(peak_percent, excluded.peak_percent)` with a plain `excluded.peak_percent`
+ * left all 13 tests in this file green.
+ *
+ * That matters because the clause is not decoration. Two window INSTANCES can
+ * land in one 60-second bucket — a pool that empties keeps almost the same reset
+ * time, so `isSameInstance` says "new instance" (the drop exceeds `RESET_DROP_PP`)
+ * while `bucketOf` says "same bucket". The row that already exists must then
+ * absorb the new one and KEEP ITS PEAK, because the peak is what the ledger's bar
+ * height is drawn from; taking `excluded`'s value would let a reset to 3% erase a
+ * 90% week.
+ */
+describe('two instances in one bucket', () => {
+  const RESETS = Date.parse('2026-08-25T01:00:00.000Z')
+
+  it('folds into the existing row and keeps the higher peak', async () => {
+    // A window observed high, then a pool reset that keeps the same reset time.
+    await store.quotaHistory.record(
+      sample({ usedPercent: 90, resetsAtMs: RESETS, atMs: 1_000 }),
+      SAMPLING,
+    )
+    // usedPercent drops by more than RESET_DROP_PP (25), so this is a NEW
+    // instance by `isSameInstance` — but `bucketOf` puts it in the same bucket.
+    const second = await store.quotaHistory.record(
+      sample({ usedPercent: 5, resetsAtMs: RESETS, atMs: 2_000 }),
+      SAMPLING,
+    )
+
+    expect(second.openedWindow).toBe(true)
+    // One row, because the bucket is the row's identity.
+    expect(await store.quotaHistory.countAll()).toBe(1)
+
+    const rows = await store.quotaHistory.list(0, Date.now())
+    // The fold, one assertion per `DO UPDATE SET` clause.
+    expect(rows[0]?.peakPercent).toBe(90)
+    expect(rows[0]?.sampleCount).toBe(2)
+    expect(rows[0]?.lastSeenAt).toBe(new Date(2_000).toISOString())
+  })
+})
+
+/**
+ * `partial` IS THE WAVE'S ONLY `mode: 'boolean'` COLUMN [POD-3221 spec rule 28].
+ *
+ * `quota_windows.partial` is declared `integer({ mode: 'boolean' })`, so drizzle's
+ * own execution path returns TRUE or FALSE where the raw driver returned 1 or 0.
+ * The pre-conversion mapper compared `row.partial === 1` and wrote
+ * `instance.partial ? 1 : 0`; both are gone, because against a boolean
+ * `true === 1` is FALSE and every row would have read as not partial.
+ *
+ * NOTHING ASSERTED THIS COLUMN BEFORE. A grep of this file for `partial` returned
+ * only the fixture, so the mistake rule 28 describes would have been invisible
+ * here: no error, no type error, and a wrong answer that looks like the ordinary
+ * one. Both arms are pinned below, because a test that only ever saw `false`
+ * cannot tell a working mapper from one that always returns `false`.
+ */
+describe('the partial flag survives the round trip', () => {
+  const RESETS = Date.parse('2026-09-01T00:00:00.000Z')
+  const WINDOW_MINUTES = 300
+  const STARTED = RESETS - WINDOW_MINUTES * 60_000
+
+  it('a window first seen long after it started is PARTIAL', async () => {
+    // Well past `max(samplingInterval, window * PARTIAL_MISSED_FRACTION)`.
+    await store.quotaHistory.record(
+      sample({
+        resetsAtMs: RESETS,
+        windowMinutes: WINDOW_MINUTES,
+        atMs: STARTED + 4 * 60 * 60_000,
+      }),
+      SAMPLING,
+    )
+
+    const rows = await store.quotaHistory.list(0, Date.now())
+    expect(rows[0]?.partial).toBe(true)
+  })
+
+  it('a window caught at its start is NOT partial', async () => {
+    await store.quotaHistory.record(
+      sample({ resetsAtMs: RESETS, windowMinutes: WINDOW_MINUTES, atMs: STARTED }),
+      SAMPLING,
+    )
+
+    const rows = await store.quotaHistory.list(0, Date.now())
+    expect(rows[0]?.partial).toBe(false)
+  })
+})

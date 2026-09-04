@@ -30,19 +30,18 @@
  * a blank and a reader cannot mistake one for a configured secret.
  */
 
-import { createHash, randomUUID
-} from 'node:crypto'
-import { SERVER_SECRET_KEYS, type SecretPresenceWire, type ServerSecretKey, type UserId } from '@podium/model'
-import { PortableCredentialBundle } from '@podium/protocol'
+import { createHash, randomUUID } from 'node:crypto'
+import {
+  SERVER_SECRET_KEYS,
+  type SecretPresenceWire,
+  type ServerSecretKey,
+  type UserId,
+} from '@podium/model'
 import type { PortableCredentialBundle as PortableCredentialBundleValue } from '@podium/protocol'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
-
-interface SecretRow {
-  key: string
-  value: string
-  updated_at: string
-}
+import { PortableCredentialBundle } from '@podium/protocol'
+import { eq } from 'drizzle-orm'
+import { serverSecrets } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 function nativeLoginTransferKey(principalUserId: UserId, transferId: string): string {
   const principal = createHash('sha256').update(principalUserId).digest('hex')
@@ -50,10 +49,12 @@ function nativeLoginTransferKey(principalUserId: UserId, transferId: string): st
 }
 
 export class ServerSecretsRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /** The query builder, resolved on every access so B1 changes this line and nothing else
+   *  [POD-3221 spec rule 34a]. */
+  protected get db() {
+    return this.queries.db
   }
 
   /**
@@ -85,8 +86,10 @@ export class ServerSecretsRepository {
     transferId: string,
   ): PortableCredentialBundleValue | undefined {
     const row = this.db
-      .prepare('SELECT value FROM server_secrets WHERE key = ?')
-      .get(nativeLoginTransferKey(principalUserId, transferId)) as { value: string } | undefined
+      .select({ value: serverSecrets.value })
+      .from(serverSecrets)
+      .where(eq(serverSecrets.key, nativeLoginTransferKey(principalUserId, transferId)))
+      .get()
     if (!row) return undefined
     try {
       const parsed = PortableCredentialBundle.safeParse(JSON.parse(row.value))
@@ -98,8 +101,9 @@ export class ServerSecretsRepository {
 
   clearNativeLoginTransfer(principalUserId: UserId, transferId: string): void {
     this.db
-      .prepare('DELETE FROM server_secrets WHERE key = ?')
-      .run(nativeLoginTransferKey(principalUserId, transferId))
+      .delete(serverSecrets)
+      .where(eq(serverSecrets.key, nativeLoginTransferKey(principalUserId, transferId)))
+      .run()
   }
 
   private writeNativeLoginTransfer(
@@ -109,21 +113,25 @@ export class ServerSecretsRepository {
     updatedAt: string,
   ): void {
     this.db
-      .prepare(
-        'INSERT INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?) ' +
-          'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-      )
-      .run(
-        nativeLoginTransferKey(principalUserId, transferId),
-        JSON.stringify(bundle),
+      .insert(serverSecrets)
+      .values({
+        key: nativeLoginTransferKey(principalUserId, transferId),
+        value: JSON.stringify(bundle),
         updatedAt,
-      )
+      })
+      .onConflictDoUpdate({
+        target: serverSecrets.key,
+        set: { value: JSON.stringify(bundle), updatedAt },
+      })
+      .run()
   }
 
   get(key: ServerSecretKey): string | undefined {
-    const row = this.db.prepare('SELECT value FROM server_secrets WHERE key = ?').get(key) as
-      | { value: string }
-      | undefined
+    const row = this.db
+      .select({ value: serverSecrets.value })
+      .from(serverSecrets)
+      .where(eq(serverSecrets.key, key))
+      .get()
     return row?.value
   }
 
@@ -148,11 +156,10 @@ export class ServerSecretsRepository {
       return
     }
     this.db
-      .prepare(
-        'INSERT INTO server_secrets (key, value, updated_at) VALUES (?, ?, ?) ' +
-          'ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at',
-      )
-      .run(key, value, updatedAt)
+      .insert(serverSecrets)
+      .values({ key, value, updatedAt })
+      .onConflictDoUpdate({ target: serverSecrets.key, set: { value, updatedAt } })
+      .run()
   }
 
   /**
@@ -171,15 +178,17 @@ export class ServerSecretsRepository {
   }
 
   clear(key: ServerSecretKey): void {
-    this.db.prepare('DELETE FROM server_secrets WHERE key = ?').run(key)
+    this.db.delete(serverSecrets).where(eq(serverSecrets.key, key)).run()
   }
 
   /** When this key's secret was last replaced, or `undefined` when absent. */
   updatedAt(key: ServerSecretKey): string | undefined {
-    const row = this.db.prepare('SELECT updated_at FROM server_secrets WHERE key = ?').get(key) as
-      | { updated_at: string }
-      | undefined
-    return row?.updated_at
+    const row = this.db
+      .select({ updatedAt: serverSecrets.updatedAt })
+      .from(serverSecrets)
+      .where(eq(serverSecrets.key, key))
+      .get()
+    return row?.updatedAt
   }
 
   /**
@@ -193,8 +202,13 @@ export class ServerSecretsRepository {
    */
   presence(): SecretPresenceWire[] {
     const rows = this.db
-      .prepare('SELECT key, value, updated_at FROM server_secrets')
-      .all() as SecretRow[]
+      .select({
+        key: serverSecrets.key,
+        value: serverSecrets.value,
+        updatedAt: serverSecrets.updatedAt,
+      })
+      .from(serverSecrets)
+      .all()
     const byKey = new Map(rows.map((r) => [r.key, r]))
     return SERVER_SECRET_KEYS.map((key) => {
       const row = byKey.get(key)
@@ -202,7 +216,7 @@ export class ServerSecretsRepository {
         key,
         present: row !== undefined,
         fingerprint: null,
-        updatedAt: row?.updated_at ?? null,
+        updatedAt: row?.updatedAt ?? null,
       }
     })
   }
