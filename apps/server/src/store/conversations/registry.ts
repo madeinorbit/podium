@@ -2,19 +2,21 @@ import { randomUUID } from 'node:crypto'
 import { asConversationId, type ConversationId, type MachineId } from '@podium/model'
 import { and, eq, inArray, isNotNull, isNull, like, max, sql } from 'drizzle-orm'
 import { conversationIdentities, conversationSegments } from '../../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from '../executor/sync-drizzle'
+import type { SyncQueries } from '../executor/sync-drizzle'
 
 /** Stable Podium identities and the machine-native artifacts that evidence them. */
 export class ConversationRegistryRepository {
-  /**
-   * The query capability, INJECTED rather than reached for [spec rule 27b]. B1
-   * fills this same slot with the asynchronous pair, so the flip is `async`,
-   * `await` and the return type and no query body moves.
-   */
-  private readonly db: SyncDrizzle
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
 
   repairSubagentSegmentPaths(): void {

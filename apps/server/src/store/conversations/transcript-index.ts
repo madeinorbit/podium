@@ -1,7 +1,7 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { and, eq, gt, sql } from 'drizzle-orm'
 import { conversationSegments } from '../../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from '../executor/sync-drizzle'
+import type { SyncQueries } from '../executor/sync-drizzle'
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -18,18 +18,27 @@ export interface TranscriptSearchCandidate {
 /** Mirror-fed transcript FTS rows and their durable byte cursors. */
 export class TranscriptIndexRepository {
   private available = false
-  /**
-   * The query capability, INJECTED rather than reached for [spec rule 27b]. B1
-   * fills this same slot with the asynchronous pair, so the flip is `async`,
-   * `await` and the return type and no query body moves.
-   */
-  private readonly db: SyncDrizzle
-  private readonly transact: SyncQueries['transact']
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
-    this.transact = queries.transact
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`
+   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
+   * detached method. One closure per instance is the price.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Create the transcript FTS5 table. Called at boot only when the

@@ -19,7 +19,7 @@ import {
   superagentQueuedInputs,
   superagentThreads,
 } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
   PendingSuperagentTurnRow,
@@ -30,19 +30,27 @@ import type {
 } from './types'
 
 export class SuperagentRepository {
-  /**
-   * The query capability, INJECTED rather than reached for [spec rule 27b]. It
-   * fills the slot the raw handle used to occupy, and B1 fills that same slot
-   * with the ASYNCHRONOUS pair — so the flip is `async`, `await` and the return
-   * type, and not one line of the query bodies below.
-   */
-  private readonly db: SyncDrizzle
-  private readonly transact: SyncQueries['transact']
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
-    this.transact = queries.transact
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`
+   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
+   * detached method. One closure per instance is the price.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
   seedGlobalThread(ownerUserId: UserId = FIRST_ADMIN_USER_ID): void {

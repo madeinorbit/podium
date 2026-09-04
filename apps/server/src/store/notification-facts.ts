@@ -1,7 +1,7 @@
 import type { IssueId } from '@podium/model'
 import { and, eq, gte, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm'
 import { notificationFacts } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -16,16 +16,17 @@ interface FactClaim {
 
 /** Durable atomic claims behind the steward's notification arbiter [spec:SP-ba61]. */
 export class NotificationFactsRepository {
-  /**
-   * The query capability, INJECTED rather than reached for [spec rule 27b]. It
-   * fills the slot the raw handle used to occupy, and B1 fills that same slot
-   * with the ASYNCHRONOUS pair — so the flip is `async`, `await` and the return
-   * type, and not one line of the query bodies below.
-   */
-  private readonly db: SyncDrizzle
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(queries: SyncQueries) {
-    this.db = queries.db
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
 
   /**
