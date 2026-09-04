@@ -29,7 +29,7 @@ import type {
   StoreDriver,
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
-import { syncDrizzleOver, syncSpansOver } from './sync-drizzle'
+import { syncQueriesOver } from './sync-drizzle'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
 
 export interface BunDriverOptions {
@@ -304,13 +304,12 @@ export function createBunStoreExecutor(
       ...(onClose ? { onClose } : {}),
     }),
     legacy: database,
-    // Stage A's synchronous seam, built here because this is where the bun handle
-    // is known [spec rule 27a]. Undefined on a non-bun handle, which the restore
-    // path and some fixtures use; a repository that needs it asserts at its own
-    // constructor. B1 removes this line with the seam.
+    // The synchronous query capability, built here because this is where the bun
+    // handle is known. Undefined on a non-bun handle, which the restore path and
+    // some fixtures use.
     ...(() => {
-      const db = syncDrizzleOver(database)
-      return db ? { stageA: { db, spans: syncSpansOver(database) } } : {}
+      const sync = syncQueriesOver(database)
+      return sync ? { syncQueries: sync } : {}
     })(),
     ...executor,
   })

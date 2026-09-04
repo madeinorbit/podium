@@ -79,10 +79,15 @@ export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle | undefined 
  * Routing through the store's port keeps the call site's SHAPE the same across the
  * flip, which is the property that makes a wave's commit survive B1 unedited.
  */
-export interface SyncSpans {
+export interface SyncQueries {
+  /** The synchronous drizzle instance a repository queries through. */
+  readonly db: SyncDrizzle
+  /** A synchronous transaction, with the savepoint semantics of the runtime helper it replaces. */
   transact<T>(fn: () => T): T
 }
 
-export function syncSpansOver(database: SqlDatabase): SyncSpans {
-  return { transact: (fn) => transaction(database, fn) }
+/** The synchronous query capability over `database`, or undefined when it is not bun-backed. */
+export function syncQueriesOver(database: SqlDatabase): SyncQueries | undefined {
+  const db = syncDrizzleOver(database)
+  return db === undefined ? undefined : { db, transact: (fn) => transaction(database, fn) }
 }

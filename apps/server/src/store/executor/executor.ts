@@ -26,7 +26,7 @@
  * scope-bound.
  */
 
-import type { SyncDrizzle, SyncSpans } from './sync-drizzle'
+import type { SyncQueries } from './sync-drizzle'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import {
   ALWAYS_ALIVE,
@@ -68,14 +68,17 @@ export interface StoreExecutor<TClient = QueryClient> {
   readonly drizzle: TClient
   readonly legacy: SqlDatabase | undefined
   /**
-   * STAGE A ONLY [spec rule 27a]. The synchronous drizzle instance a repository
-   * converts onto while its methods are still synchronous, and the synchronous
-   * span it opens. Undefined when the handle is not bun-backed; a repository that
-   * needs it asserts at its own constructor so the failure names the repository.
-   * B1 deletes both: the field becomes {@link StoreExecutor.drizzle} and the span
-   * becomes {@link StoreExecutor.transact}.
+   * THE SYNCHRONOUS QUERY CAPABILITY: a drizzle instance and a transaction that
+   * return values rather than promises. Present when the handle is bun-backed,
+   * which is every path that builds a SessionStore.
+   *
+   * It exists because a local SQLite handle IS synchronous, and repositories are
+   * synchronous today. Its asynchronous counterpart is {@link StoreExecutor.drizzle}
+   * with {@link StoreExecutor.transact}, which is what a networked backend requires.
+   * B1 moves repositories from this pair to that one; the query bodies are the same
+   * either way, which is what makes the existing suite the flip's oracle.
    */
-  readonly stageA: { readonly db: SyncDrizzle; readonly spans: SyncSpans } | undefined
+  readonly syncQueries: SyncQueries | undefined
   readonly context: StoreContext
   transact<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
   read<T>(fn: (tx: StoreExecutor<TClient>) => Promise<T>): Promise<T>
@@ -116,8 +119,8 @@ export interface RootStoreExecutor<TClient = QueryClient> extends StoreExecutor<
 }
 
 export interface StoreExecutorOptions<TClient> {
-  /** Stage A's synchronous seam; see {@link StoreExecutor.stageA}. Transitional. */
-  stageA?: { readonly db: SyncDrizzle; readonly spans: SyncSpans }
+  /** The synchronous query capability; see {@link StoreExecutor.syncQueries}. */
+  syncQueries?: SyncQueries
   driver: StoreDriver<TClient>
   /** The raw handle, for repositories not yet converted. Transitional. */
   legacy?: SqlDatabase
@@ -397,7 +400,7 @@ export function createStoreExecutor<TClient>(
     const bound: StoreExecutor<TClient> = {
       drizzle: driver.client(frameRouter(frame), frameBatchRouter(frame)),
       legacy: options.legacy,
-      stageA: options.stageA,
+      syncQueries: options.syncQueries,
       context: {},
       transact: (fn) => transactOn(frame, fn),
       read: (fn) => readOn(frame, fn),
@@ -735,7 +738,7 @@ export function createStoreExecutor<TClient>(
   const root: RootStoreExecutor<TClient> = {
     drizzle: driver.client(ambientRouter, ambientBatchRouter),
     legacy: options.legacy,
-    stageA: options.stageA,
+    syncQueries: options.syncQueries,
     context: {},
     transact,
     read,

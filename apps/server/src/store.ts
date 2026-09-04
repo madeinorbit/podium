@@ -122,8 +122,8 @@ export class SessionStore {
    * belongs to Stage B, not to a binding change.
    */
   private readonly executor: RootStoreExecutor<QueryClient>
-  /** Stage A's synchronous seam, handed to converted repositories. Transitional. */
-  private readonly stage: NonNullable<RootStoreExecutor<QueryClient>['stageA']>
+  /** The synchronous query capability, handed to converted repositories. */
+  private readonly syncQueries: NonNullable<RootStoreExecutor<QueryClient>['syncQueries']>
   /**
    * The store's per-table write announcement (POD-3247).
    *
@@ -281,24 +281,26 @@ export class SessionStore {
     this.executor = createBunStoreExecutor({ database: this.db })
 
     /**
-     * STAGE A'S SEAM, asserted ONCE here [spec rule 27b]. A converted repository
-     * takes `stage.db` (and `stage.spans` where it opens a transaction) in the
-     * constructor slot its `SqlDatabase` occupied, so it carries no branch for a
-     * case its own constructor cannot produce and `executor.stageA` appears in no
-     * repository. B1 deletes this and passes the async instance instead.
+     * The synchronous query capability, resolved ONCE here [spec rule 27b]. A
+     * converted repository takes `sync.db` — and `sync.transact` where it opens a
+     * transaction — in the constructor slot its `SqlDatabase` occupied, so it
+     * carries no branch for a case its own constructor cannot produce and no
+     * repository names the executor at all.
      *
-     * The seam is absent only on a non-bun handle. Every path that builds a
-     * SessionStore is bun-backed; the restore path builds its own executor and
-     * does not come through here.
+     * B1 passes the ASYNCHRONOUS pair here instead; the repositories' query bodies
+     * do not change, only their signatures.
+     *
+     * Absent only on a non-bun handle. Every path that builds a SessionStore is
+     * bun-backed; the restore path builds its own executor and does not come here.
      */
-    const stage = this.executor.stageA
-    if (!stage) {
+    const sync = this.executor.syncQueries
+    if (!sync) {
       throw new Error(
-        'SessionStore: the Stage A drizzle seam is absent — the handle is not bun-backed. ' +
-          'Converted repositories cannot be constructed (POD-3221 spec rule 27b).',
+        'SessionStore: the synchronous query capability is absent — the handle is not ' +
+          'bun-backed, so converted repositories cannot be constructed (POD-3221 rule 27b).',
       )
     }
-    this.stage = stage
+    this.syncQueries = sync
 
     // Compose the per-aggregate repositories. The three cross-aggregate edges are
     // injected as late-bound lambdas, bound WITHIN the set being built: sessions
