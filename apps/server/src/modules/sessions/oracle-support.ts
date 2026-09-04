@@ -197,6 +197,14 @@ export function makeOracle(
      * `Date.now`, which is every other caller.
      */
     now?: () => number
+    /**
+     * The mail gate's bounded-wait seam, threaded to
+     * {@link SessionRegistryOptions.mailAwait}. A fixture whose send rides the
+     * confirming path pairs it with `now` so the delivery budget is spent on a
+     * virtual clock rather than in real seconds — the budget itself is
+     * production policy and is never shortened.
+     */
+    mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
   } = {},
 ): Oracle {
   const store = openTestStore(':memory:')
@@ -226,6 +234,7 @@ export function makeOracle(
     instanceId: 'default',
     ...(opts.portableStateFence ? { portableStateFence: opts.portableStateFence } : {}),
     ...(opts.now ? { now: opts.now } : {}),
+    ...(opts.mailAwait ? { mailAwait: opts.mailAwait } : {}),
   })
   registries.push(reg)
   // The daemon the oracle attaches is THIS HOST's (POD-318): the registry

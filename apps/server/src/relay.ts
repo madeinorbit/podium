@@ -229,6 +229,19 @@ interface SessionRegistryOptions {
   telegramSetup?: TelegramSetupClient
   generateTelegramSetupCode?: () => string
   now?: () => number
+  /**
+   * The mail gate's BOUNDED-WAIT seam (`MessageGateDeps.awaitPollMs`/`sleep`),
+   * which `sendAndConfirm` and `awaitAgent` already accept but nothing above
+   * them could reach. Absent — every production boot and every existing test —
+   * means real timers and the shipped poll interval.
+   *
+   * A fixture injects it so an urgency-gated send spends its delivery budget on
+   * a virtual clock instead of 25 real seconds: pair a `sleep` that advances
+   * {@link SessionRegistryOptions.now} with a `pollMs` above the budget, and the
+   * whole wait resolves in one step with no timer. It never shortens the budget
+   * itself — that constant is production policy.
+   */
+  mailAwait?: { pollMs?: number; sleep?(ms: number): Promise<void> }
   /** Root of the transcript lake ($PODIUM_STATE_DIR/transcripts). Opt-in: when unset
    *  (the default — every existing test), NO mirror traffic is produced. */
   mirrorLakeDir?: string
@@ -1958,6 +1971,14 @@ export class SessionRegistry {
         createIssue: (o) => issues.create({ ...o, startNow: false }),
         appendEvent: (e) => this.store.events.appendEvent(e),
         now: () => new Date(this.now()).toISOString(),
+        // Bounded-wait seam, absent unless a fixture injected one (see
+        // SessionRegistryOptions.mailAwait). The gate's `now` above is what
+        // `sendAndConfirm` measures the budget with, so an injected `sleep` that
+        // moves the registry clock retires the wait without a timer.
+        ...(options.mailAwait?.pollMs !== undefined
+          ? { awaitPollMs: options.mailAwait.pollMs }
+          : {}),
+        ...(options.mailAwait?.sleep ? { sleep: options.mailAwait.sleep } : {}),
         // Parent-await consume-on-ack (POD-917/POD-923): clear the session-parent
         // wake sticky when the parent observes the child settled, so a later
         // genuine re-completion can re-fire once. Matches NotificationArbiter.retire.
