@@ -19,7 +19,7 @@
  */
 
 import { type AgentInventory, asMachineId, asUserId, SOLE_USER_ID } from '@podium/model'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   disposeOracles,
   MUST_NOT_CHANGE,
@@ -374,10 +374,19 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
   it(`${INVENTORY_PENDING}: a target whose live daemon has not reported yet refuses in the same class, with a message that does not borrow the timeout`, async () => {
     const { handoff } = await handoffToLoadedTarget({ targetReports: false })
 
-    await expect(handoff()).rejects.toMatchObject({
-      code: 'PRECONDITION_FAILED',
-      message:
-        "could not determine whether claude-code is installed on target machine 'Loaded' (inventory not reported yet); retry shortly",
-    })
+    // Production joins the reconnect probe for up to 25s before this fallback
+    // refusal. Advance that exact timer rather than making the lane sleep.
+    vi.useFakeTimers()
+    try {
+      const refusal = expect(handoff()).rejects.toMatchObject({
+        code: 'PRECONDITION_FAILED',
+        message:
+          "could not determine whether claude-code is installed on target machine 'Loaded' (inventory not reported yet); retry shortly",
+      })
+      await vi.advanceTimersByTimeAsync(25_000)
+      await refusal
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

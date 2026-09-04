@@ -16,7 +16,7 @@
  *    allowlist, and turns both daemon failure modes into TRPCErrors.
  */
 
-import { asMachineId, asSessionId } from '@podium/model'
+import { asMachineId, asSessionId, BUILTIN_HARNESS_KINDS } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
@@ -51,6 +51,22 @@ function answerUploads(
   svc.attachDaemon(machineId, (msg) => {
     seen.push(msg)
     if (machineId === o.store.hostMachineId) o.daemon.push(msg)
+    if (msg.type === 'inventoryRequest') {
+      svc.routeDaemonFrame(machineId, {
+        type: 'inventoryReport',
+        machineId,
+        inventory: {
+          os: 'linux',
+          arch: 'x64',
+          agents: BUILTIN_HARNESS_KINDS.map((kind) => ({
+            kind,
+            installed: true,
+            login: { state: 'in' as const },
+          })),
+          tools: [],
+        },
+      })
+    }
     if (msg.type === 'imageUploadRequest') {
       const r = reply(msg)
       svc.routeDaemonFrame(machineId, {

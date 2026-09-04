@@ -1,4 +1,10 @@
-import { asSessionId, FIRST_ADMIN_USER_ID, type RepoId, type SessionId } from '@podium/model'
+import {
+  asSessionId,
+  FIRST_ADMIN_USER_ID,
+  type Inventory,
+  type RepoId,
+  type SessionId,
+} from '@podium/model'
 /**
  * ORACLE — session handoff across two machines (POD-379 for POD-642).
  *
@@ -136,6 +142,8 @@ async function handoffFixture(
      *  assertion — the POD-379 round-4 failure mode, in a file that has to stay
      *  sharp because two of its tests exist to catch exactly that mutant. */
     onTargetProbe?: () => void
+    /** Leave m2 pending until the server requests this connection's inventory. */
+    deferTargetInventory?: boolean
     /**
      * Model a source release that takes this many ms (POD-1409). Off by default so
      * the rest of the file stays fast; the release test turns it on.
@@ -161,14 +169,14 @@ async function handoffFixture(
     tokenHash: 'y',
     ownerUserId: asUserId('user:sole'),
   })
-  const inventory = JSON.stringify({
+  const inventory: Inventory = {
     os: 'linux',
     arch: 'x64',
     agents: [{ kind: 'claude-code', installed: true, login: { state: 'in' } }],
     tools: [],
-  })
-  await store.machines.setMachineInventory('m1', inventory)
-  await store.machines.setMachineInventory('m2', inventory)
+  }
+  await store.machines.setMachineInventory('m1', JSON.stringify(inventory))
+  await store.machines.setMachineInventory('m2', JSON.stringify(inventory))
   await store.repos.addRepo('/source/repo', asMachineId('m1'), 'git@github.com:example/repo.git')
   await store.repos.addRepo('/target/repo', asMachineId('m2'), 'git@github.com:example/repo.git')
   const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
@@ -285,9 +293,24 @@ async function handoffFixture(
           : {}),
       })
   })
+  // A real daemon reports inventory immediately after authentication. Persisted
+  // inventory belongs to the previous socket, so the fixture must not leave the
+  // new connection permanently in the reconnect-probing state.
+  reg.gateway.routeDaemonFrame('m1', {
+    type: 'inventoryReport',
+    machineId: asMachineId('m1'),
+    inventory,
+  })
   reg.gateway.attachDaemon('m2', (msg) => {
     target.push(msg)
     timeline.push({ machine: 'm2', type: msg.type, msg })
+    if (msg.type === 'inventoryRequest' && opts.deferTargetInventory) {
+      reg.gateway.routeDaemonFrame('m2', {
+        type: 'inventoryReport',
+        machineId: asMachineId('m2'),
+        inventory,
+      })
+    }
     if (msg.type === 'repoOpRequest') {
       // The bundle-base handshake: the target proves which of the source's SHAs
       // it already has. `targetHasBase: false` is the d73e9121 shape — a target
@@ -327,6 +350,13 @@ async function handoffFixture(
         observationGeneration: 2,
       })
   })
+  if (!opts.deferTargetInventory) {
+    reg.gateway.routeDaemonFrame('m2', {
+      type: 'inventoryReport',
+      machineId: asMachineId('m2'),
+      inventory,
+    })
+  }
 
   const { sessionId } = await reg.modules.issueSessionLifecycle.resumeSession({
     agentKind: 'claude-code',
@@ -435,6 +465,21 @@ const handoffRecords = async (f: HandoffFixture): Promise<unknown[]> =>
     }))
 
 describe('oracle: handoff success across two machines', () => {
+  it('waits for a reconnected target inventory before placement can refuse or move anything', async () => {
+    const f = await handoffFixture({ deferTargetInventory: true })
+
+    await expect(
+      f.reg.modules.issueSessionLifecycle.handoffSession(
+        { sessionId: f.sessionId, machineId: asMachineId('m2') },
+        TEST_CALLER,
+      ),
+    ).resolves.toEqual({ ok: true, newCwd: '/target/repo/.worktrees/x' })
+
+    expect(f.at('m2', 'inventoryRequest')).toBeGreaterThanOrEqual(0)
+    expect(f.at('m2', 'inventoryRequest')).toBeLessThan(f.at('m1', 'repoOpRequest'))
+    expect(f.at('m2', 'inventoryRequest')).toBeLessThan(f.at('m1', 'kill'))
+  })
+
   it(`${MUST_NOT_CHANGE}: the row is re-homed onto the target and resumed there, and the source is told to kill`, async () => {
     const f = await handoffFixture()
 

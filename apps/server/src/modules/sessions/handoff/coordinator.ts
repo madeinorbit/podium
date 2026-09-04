@@ -147,6 +147,10 @@ export class HandoffCoordinator {
     caller: HandoffCaller,
     assertMachineUse: AssertMachineUse,
   ): Promise<HandoffResult> {
+    // Admission has already established that this caller may use both
+    // machines. Join the target daemon's reconnect probe before placement
+    // interprets an omitted inventory as a retryable refusal.
+    await this.ports.waitForInventory(input.machineId)
     const placement = resolveHandoffPlacement(this.ports, input, caller)
     const prepared = await this.preflight.prepare(placement, input, assertMachineUse)
     return this.transfer.apply(placement, prepared, input, caller, assertMachineUse)

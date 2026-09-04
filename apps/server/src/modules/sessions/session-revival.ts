@@ -136,6 +136,18 @@ export class SessionRevival {
       }
       return { sessionId: existing.sessionId }
     }
+    // An explicit fresh-resume target may have reconnected a moment ago. Wait
+    // before resolving its harness capability, and before preparing anything
+    // that will be committed with the eventual spawn.
+    if (input.machineId && input.agentKind !== 'shell') {
+      await this.ports.machines.waitForInventory(input.machineId)
+    }
+    const machineId = this.ports.machines.resolveMachineForAgent(
+      input.machineId,
+      input.cwd,
+      input.agentKind,
+      input.use,
+    )
     const issueId = this.ports.issueAccess.soleOwnerForCwd(input.cwd) ?? undefined
     // MINT SITE: a server-minted session id. The brand belongs where the id is
     // GENERATED — nothing upstream had it, so this is not an adapter cast.
@@ -153,12 +165,7 @@ export class SessionRevival {
       title: input.title,
       origin: { kind: 'resume', conversationId: input.conversationId },
       resume: input.resume,
-      machineId: this.ports.machines.resolveMachineForAgent(
-        input.machineId,
-        input.cwd,
-        input.agentKind,
-        input.use,
-      ),
+      machineId,
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),
@@ -240,6 +247,7 @@ export class SessionRevival {
         ),
       listRepos: () => this.ports.store.repos.listRepos(),
       listMachines: () => this.ports.machines.listMachines(),
+      waitForInventory: (machineId) => this.ports.machines.waitForInventory(machineId),
       issueMeta: (issueId) => this.ports.issueAccess.getMeta(issueId) ?? undefined,
       rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
       ensureTargetRepo: (sourceRepo, targetMachineId) =>
