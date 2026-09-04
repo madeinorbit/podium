@@ -602,3 +602,61 @@ call, or report the line the `sql` template starts on rather than the line the c
 to the coordinator. The workaround that must NOT be taken is hoisting the statement into a variable so
 `.run(statement)` stops matching the regex: that silences the ban AND makes the ledger report `auth.ts`
 as converted when it is not.
+
+## 10. Second rebase, onto `d1e86d0e8` — wave 6 landed, and rules 34b, 36a, 39a arrived
+
+Rebased again, clean, no conflict; `git log d1e86d0e8..HEAD` is this wave's five commits and nothing
+else. The three new rules are each a CHECK on work already done rather than a change to it, and each
+is answered below with its denominator, which is what rules 36a and 39a ask for.
+
+### 10.1 Rule 34b — every `this.db` chains a query immediately: 38 of 38
+
+The getter is worth having only if nothing binds it to a local, because a bound local resolves once
+and every use after it — especially across an `await` that left the span — serves a stale instance.
+
+Checked by PARSING rather than grepping, and specifically by looking at what FOLLOWS each occurrence
+rather than what precedes it, which is the trap rule 34b names: `const row = this.db` is not a capture,
+it is the first line of a chain whose variable holds the RESULT. Comments and block comments were
+stripped first so that prose mentioning `this.db` cannot count.
+
+| File | `this.db` occurrences | Captures |
+| --- | --- | --- |
+| `users.ts` | 7 | 0 |
+| `auth.ts` | 11 | 0 |
+| `grants.ts` | 7 | 0 |
+| `settings.ts` | 3 | 0 |
+| `approvals.ts` | 5 | 0 |
+| `user-layout.ts` | 5 | 0 |
+| **total** | **38** | **0** |
+
+Rule 34b's own limit applies here and is worth repeating rather than eliding: no test in the tree can
+tell the getter from an assigned field today, because ambient routing does not exist yet. This is
+verified as NOT-A-REGRESSION, not as a fix.
+
+### 10.2 Rule 36a — the site list is DERIVED, and the denominator is 2 of 19
+
+Not "I reviewed my fragments". The six files hold **37 terminal statements** (38 counting
+`auth.createClientSession`'s raw one) and **19 `.select(...)` projections**. Scanning every projection
+body for a `sql` fragment returns exactly **two**:
+
+    users.ts:173     { present: sql<number>`1` }
+    grants.ts:276    { n: count() }
+
+Both printed, and neither names a COLUMN, so buildSelection's rewrite has nothing to strip a qualifier
+from: `select 1 from "user_credentials" where …` and `select count(*) from "grants" where …`. Rule
+36a's latent-harm case — a bare identifier that binds correctly today and inherits the defect when
+someone adds a join — cannot arise from a literal or from `count(*)`.
+
+The third fragment in the wave names columns and is NOT in a select list: `approvals.transition`'s two
+`COALESCE` clauses, in an UPDATE's SET, which emit fully qualified.
+
+### 10.3 Rule 39a — the complete answer, with its denominator
+
+Wave 2 spreads `getTableColumns` nowhere, so rule 39's literal trigger has no site. The real question
+— does any converted read return more columns than the statement it replaced — is answered for all 37
+statements in §9.2 and §9.5: **10 bare `.select()` sites** each replacing an original `SELECT *`, exact
+against `PRAGMA table_info` on the migrated database (5/5, 4/4, 10/10 ×3, 11/11 ×3, and the two
+`user_credentials` reads), and **9 explicit projections** all n/n, widest 10/10
+(`auth.listClientSessions`). No mismatch to resolve, so rule 39a's false-positive class did not arise;
+the counts came from printed SQL compared against the shipped table, never from pairing a projection
+with the first SELECT in its method.
