@@ -24,14 +24,15 @@ import { asMachineId, asSessionId } from '@podium/model'
 import { Ledger } from '@podium/sync'
 import { describe, expect, it, vi } from 'vitest'
 import { SessionStore } from '../../store'
+import { openTestStore } from '../../test-support/open-test-store'
 import { applyAfterCommit, spanOpen } from '../../store/executor/synchronous-span'
 import { SessionRepository } from './repository'
 import { Session } from './session'
 
 const MACHINE = asMachineId('fold-machine')
 
-function fixture() {
-  const store = new SessionStore(':memory:')
+async function fixture() {
+  const store = await openTestStore(':memory:')
   const session = new Session({
     sessionId: asSessionId('fold-1'),
     durableLabel: 'podium-fold-1',
@@ -72,8 +73,8 @@ const rowTitle = (store: SessionStore, id: string): string | null | undefined =>
   store.sessions.loadSessions().find((row) => row.id === id)?.title
 
 describe('the session durable baseline waits for the outermost commit (POD-3361)', () => {
-  it('drops a baseline the enclosing span rolled back', () => {
-    const f = fixture()
+  it('drops a baseline the enclosing span rolled back', async () => {
+    const f = await fixture()
     f.repo.persist(f.session) // no span open: 'committed title' installs at once
 
     f.session.title = 'rolled back'
@@ -93,12 +94,12 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('committed title')
   })
 
-  it('does not restore the live session to a state the rollback threw away', () => {
+  it('does not restore the live session to a state the rollback threw away', async () => {
     // The second consequence, and the reachable one: after the rollback the
     // NEXT failed persist restores the live object from the baseline. If the
     // baseline kept the rolled-back draft, the live session is restored to a
     // state no commit ever saw — and the next successful persist writes it back.
-    const f = fixture()
+    const f = await fixture()
     f.repo.persist(f.session)
 
     f.session.title = 'rolled back'
@@ -119,8 +120,8 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     expect(f.session.title).toBe('committed title')
   })
 
-  it('still installs the baseline when the enclosing span commits', () => {
-    const f = fixture()
+  it('still installs the baseline when the enclosing span commits', async () => {
+    const f = await fixture()
     f.repo.persist(f.session)
 
     f.session.title = 'kept'
@@ -132,7 +133,7 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     expect(f.repo.committedDurableState(f.session.sessionId)?.title).toBe('kept')
   })
 
-  it('a second nested persist in the same span sees the first one (the in-window reader)', () => {
+  it('a second nested persist in the same span sees the first one (the in-window reader)', async () => {
     // WHY THIS TEST EXISTS. Deferring is only free if nothing reads the baseline
     // between the savepoint release and the outermost commit. Something does:
     // `persist`'s own catch arm restores the live object from it. A bare
@@ -140,7 +141,7 @@ describe('the session durable baseline waits for the outermost commit (POD-3361)
     // nested write's fields on a live object whose row the enclosing span may
     // still commit, so the next persist would write the stale title back over
     // it. The staged layer keeps that reader seeing what it sees today.
-    const f = fixture()
+    const f = await fixture()
     f.repo.persist(f.session)
 
     f.store.transact(() => {
