@@ -272,6 +272,17 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     label: 'SyncQueries.transact',
   },
   {
+    // The SERVER's own SyncQueries.transact — the structural twin of the entry
+    // above, and unnamed until now. POD-3416 found it while declaring its port:
+    // it is the same shape, on the same connection, and the only reason the sync
+    // one was declared first is that a package cannot name the server's binding.
+    // Mine had no such excuse.
+    file: 'apps/server/src/store/executor/sync-drizzle.ts',
+    symbol: 'transact',
+    body: 'arg0',
+    label: 'SyncQueries.transact (server)',
+  },
+  {
     file: 'packages/sync/src/authority/ports.ts',
     symbol: 'TransactPort',
     body: 'arg0',
@@ -380,7 +391,6 @@ const POST_COMMIT_REGISTRARS: readonly { readonly file: string; readonly symbol:
   // whose span never committed is never promoted. Same category as the rows
   // above: the callback is code already moved OUT of the transaction, so its
   // argument subtree is deliberately not walked.
-
 ]
 
 /* ------------------------------------------------------- capability tables */
@@ -479,7 +489,7 @@ export interface PortRule {
 export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   'packages/sync/src/ledger.ts#LedgerCommitOp.changes': {
     kind: 'contained',
-    why: 'a pure derivation: it maps the write\'s result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.',
+    why: "a pure derivation: it maps the write's result to the change specs that describe it. It reads the value the write returned and computes; it performs no database call and no effect of any kind, so a rollback leaves nothing for anything outside the process to have seen.",
   },
   /* --- POD-3366's shared staged layer -------------------------------------- */
   'packages/sync/src/authority/staged-projection.ts#StagedOverlay.commit': {
@@ -489,17 +499,21 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   /* --- POD-3328's baseline fold port -------------------------------------- */
   'packages/sync/src/authority/ports.ts#BaselineFoldPort.spanOpen': {
     kind: 'contained',
-    why: "a predicate asking whether an enclosing unit of work is open. It reads the ambient span state and returns a boolean; it writes nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether the fold applies at once or waits for the outermost commit, which is the rule-19 judgement — but asking the question is not itself an effect.",
+    why: 'a predicate asking whether an enclosing unit of work is open. It reads the ambient span state and returns a boolean; it writes nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether the fold applies at once or waits for the outermost commit, which is the rule-19 judgement — but asking the question is not itself an effect.',
   },
   'packages/sync/src/authority/ports.ts#CommitRegistration.live': {
     kind: 'contained',
-    why: "a predicate asking whether ONE registered commit application is still going to run, which is `BaselineFoldPort.spanOpen` at frame granularity [POD-3364]. It reads a flag the registry cleared on the rollback path and returns a boolean; it writes nothing, registers nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether a staged entry is dropped on the way in — the same rule-19 judgement `spanOpen` carries, and asking the question is not itself an effect.",
+    why: 'a predicate asking whether ONE registered commit application is still going to run, which is `BaselineFoldPort.spanOpen` at frame granularity [POD-3364]. It reads a flag the registry cleared on the rollback path and returns a boolean; it writes nothing, registers nothing, and nothing outside the process can tell it was called. Its ANSWER decides whether a staged entry is dropped on the way in — the same rule-19 judgement `spanOpen` carries, and asking the question is not itself an effect.',
   },
   /* --- the sync adapter's narrow port over the store's query capability
          [POD-3338 for the port, POD-3416 for what it carries] --------------- */
   'packages/sync/src/adapters/sqlite/store-queries.ts#SyncQueries.transact': {
     kind: 'contained',
     why: "the sync adapter's port over the store's transaction. The server's implementation is the nesting-safe runtime helper over the SAME connection the composition root's own spans run on, so this OPENS a unit of work or degrades to a savepoint inside one; it performs no effect of its own and nothing outside the process can tell it ran until the outermost commit. Declared separately from the server's `SyncQueries` only because a package may not import an app.",
+  },
+  'apps/server/src/store/executor/sync-drizzle.ts#SyncQueries.transact': {
+    kind: 'contained',
+    why: "the store's own synchronous span, and the twin of the sync adapter's port above. It runs the nesting-safe runtime helper over the executor's connection, so it OPENS a unit of work or degrades to a savepoint inside one; it performs no effect of its own and nothing outside the process can tell it ran until the outermost commit.",
   },
   /* --- the raw SQLite handle, still in place until the flip ---------------- */
   'packages/runtime/src/sqlite/types.ts#SqlStatement.run': {
