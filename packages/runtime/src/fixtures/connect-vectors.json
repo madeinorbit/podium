@@ -1,0 +1,12 @@
+{
+  "installationId": "pdm_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "publicKeyWire": "ed25519:Yb4W_eUdGfEBvvJA5jmEIPuzJTRDG72a4nL7_XMu26o",
+  "privateKeyPkcs8": "MC4CAQAwBQYDK2VwBCIEIET5SFzE7J8EHT7hRI7WRU4McSn7c0MNKlC5Ac3bNwPj",
+  "path": "/v1/installations/pdm_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "body": "{\"generation\":1,\"issuedAt\":\"2026-09-04T10:00:00Z\",\"expiresAt\":null,\"endpoints\":[{\"url\":\"https://abc.trycloudflare.com\",\"priority\":100}]}",
+  "bodyHashHex": "db48cc1867f1de412f9ddef1506d97ce086719fd2453dc9c635e43529bdb97f0",
+  "timestamp": 1788000000,
+  "signature": "EiMG37GWRXQ5upv2XwlqiuW-m44MlI6faPFobLJMgSbnhBeYgHQNLz8buxv3Vx84gJ5XX_Ia4ss0x79-2qttDg",
+  "challenge": "c2FtcGxlLWNoYWxsZW5nZS1ieXRlcw",
+  "reachabilitySignature": "aJ05mp7CNXGkb7iu1fJBWaYFim7xnDACu_gdh8NJKwvKn520DQ2JPNRmJNl9Qw9TneawO6IRZ2AgXqw0YGMKCA"
+}
