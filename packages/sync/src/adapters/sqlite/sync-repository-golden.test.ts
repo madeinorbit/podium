@@ -50,6 +50,30 @@ const change = (
   payload: string | null,
 ): ChangeLogWriteRow => ({ entity, entityId, op, payload }) as ChangeLogWriteRow
 
+/**
+ * A repository over a connection that RECORDS the statements it is handed.
+ *
+ * Two of the properties below cannot be asserted on a returned value, and
+ * finding that out is the reason this exists rather than a nicer-looking test:
+ * a rule-39 widening was mutated into `changesSince` and every assertion in this
+ * file stayed green, because the mapper builds an explicit object and the extra
+ * column is read, returned and thrown away. That is rule 39's own argument for
+ * why no test catches it — so the assertion has to be on the STATEMENT.
+ */
+const recordingRepo = (): { repo: SyncRepository; sql: () => string[] } => {
+  const recorded: string[] = []
+  const connection = createTestSyncDatabase()
+  const realPrepare = connection.prepare.bind(connection)
+  ;(connection as unknown as { prepare: (s: string) => unknown }).prepare = (s: string) => {
+    recorded.push(s.replace(/\s+/g, ' ').trim())
+    return realPrepare(s)
+  }
+  return {
+    repo: new SyncRepository(createTestSyncQueries(connection), testSyncServerTables),
+    sql: () => recorded,
+  }
+}
+
 describe('the change log', () => {
   it('assigns contiguous seqs ACROSS the 100-row chunk boundary', () => {
     // The chunking is the reason `lastInsertRowid` is read at all: each chunk is
@@ -119,11 +143,86 @@ describe('the change log', () => {
     expect(repo.changesSince(99)).toEqual([])
   })
 
+  it('leaves NOTHING behind when a later chunk of one append fails', () => {
+    // THE SPAN `appendChanges` OPENS FOR ITSELF, which is a different property
+    // from the caller's span in `store-queries.test.ts` and is not reached by it:
+    // a repository whose `transact` merely called through would still roll back
+    // inside a caller's transaction, and would leave the first 100 rows behind
+    // when nobody had opened one. The batch is 100 rows per statement, so a bad
+    // row at 150 fails the SECOND chunk after the first has already been written.
+    const rows = Array.from({ length: 200 }, (_, i) => change('issue', `i${i}`, 'upsert', '{}'))
+    rows[150] = { entity: null, entityId: 'bad', op: 'upsert', payload: '{}' } as never
+    expect(() => repo.appendChanges(rows, 1)).toThrow()
+    expect(stored('SELECT COUNT(*) AS n FROM changes')).toEqual([{ n: 0 }])
+    expect(stored('SELECT COUNT(*) AS n FROM change_latest')).toEqual([{ n: 0 }])
+  })
+
   it('carries a `remove` through with a null payload', () => {
     repo.appendChanges([change('issue', 'i1', 'remove', null)], 3)
     expect(repo.changesSince(0)).toEqual([
       { seq: 1, entity: 'issue', entityId: 'i1', op: 'remove', payload: null },
     ])
+  })
+})
+
+describe('the statements themselves', () => {
+  it('projects exactly the columns each read needs, and no more [rule 39]', () => {
+    // THE WIDENING RULE 39 FORBIDS IS INVISIBLE DOWNSTREAM, so it is pinned here
+    // on the emitted SELECT list. The counts are the ones the hand-written
+    // statements named: five of nine on `changes`, four of four on
+    // `change_latest`, eleven of thirteen on `queued_messages`, three of five on
+    // `upstream_outbox`.
+    const { repo, sql } = recordingRepo()
+    repo.changesSince(0)
+    repo.latestChangeStates()
+    repo.listQueuedMessages(session('s1'))
+    repo.listParkedUpstreamMutations()
+    const selects = sql().filter((s) => s.startsWith('select'))
+    const projection = (from: string): string[] => {
+      const statement = selects.find((s) => s.includes(`from "${from}"`)) ?? ''
+      return (statement.slice(0, statement.indexOf(' from ')).match(/"[a-z_]+"/g) ?? []).map((c) =>
+        c.replaceAll('"', ''),
+      )
+    }
+    expect(projection('changes')).toEqual(['seq', 'entity', 'entity_id', 'op', 'payload'])
+    expect(projection('change_latest')).toEqual(['seq', 'entity', 'entity_id', 'payload'])
+    expect(projection('queued_messages')).toEqual([
+      'id',
+      'text',
+      'attempts',
+      'input_origin',
+      'principal_kind',
+      'principal_ref',
+      'delegation_ref',
+      'actor_kind',
+      'actor_id',
+      'on_behalf_of',
+      'source_message_id',
+    ])
+    expect(projection('upstream_outbox')).toEqual(['mutation_id', 'proc', 'queued_at'])
+  })
+
+  it('keeps the rowid tiebreak on both FIFO reads', () => {
+    // `queued_at` and `queued_at` again is a real tie, and the engine's own
+    // answer for it is not a promise — it is whatever the index the planner
+    // picked happens to yield. The original statements said `ORDER BY … , rowid
+    // ASC` and the conversion must keep saying it. Asserted on the statement
+    // because a fixture cannot produce a tie the engine orders differently.
+    const { repo, sql } = recordingRepo()
+    repo.listQueuedMessages(session('s1'))
+    repo.listParkedUpstreamMutations()
+    const ordered = sql().filter((s) => s.includes('order by'))
+    expect(ordered).toHaveLength(2)
+    for (const statement of ordered) expect(statement).toMatch(/, rowid asc$/)
+  })
+
+  it('reads the age threshold through the changes_event_time index', () => {
+    // The one `sql` fragment in a FROM clause, and the only thing that keeps the
+    // prune's age scan off a table scan. Dropping it changes no answer, so no
+    // value assertion can see it.
+    const { repo, sql } = recordingRepo()
+    repo.planChangePrune({ keepRows: 1, maxAgeMs: 1, now: 100 })
+    expect(sql().some((s) => s.includes('indexed by "changes_event_time"'))).toBe(true)
   })
 })
 
