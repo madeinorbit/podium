@@ -616,7 +616,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
     await run(engine, 'test')
 
-    expect(engine.cancel('op_1')).toMatchObject({ canceled: true })
+    expect(await engine.cancel('op_1')).toMatchObject({ canceled: true })
     expect(store.get('op_1')?.state).toBe('canceled')
     expect(store.get('op_1')?.finishedAt).not.toBeNull()
   })
@@ -626,7 +626,7 @@ describe('cancel is gated on reversibility (§3.2)', () => {
     registry.register(testKind({ runners: { first: runner(blocks), second: runner(done) } }))
     await run(engine, 'test')
 
-    expect(engine.cancel('op_1')).toEqual({
+    expect(await engine.cancel('op_1')).toEqual({
       canceled: false,
       refused: 'irreversible',
       step: 'first',
@@ -641,22 +641,22 @@ describe('cancel is gated on reversibility (§3.2)', () => {
       testKind({ runners: { first: runner(blocks, undefined), second: runner(done) } }),
     )
     await run(engine, 'test')
-    expect(engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
+    expect(await engine.cancel('op_1')).toMatchObject({ refused: 'irreversible' })
   })
 
   it('refuses an operation that never existed, or already ended', async () => {
     const { registry, engine } = harness()
     registry.register(testKind())
-    expect(engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
+    expect(await engine.cancel('op_nope')).toEqual({ canceled: false, refused: 'not-found' })
     await run(engine, 'test')
-    expect(engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
+    expect(await engine.cancel('op_1')).toEqual({ canceled: false, refused: 'already-finished' })
   })
 
   it('frees the group once canceled', async () => {
     const { registry, engine } = harness()
     registry.register(testKind({ runners: { first: runner(blocks, true), second: runner(done) } }))
     await run(engine, 'test')
-    engine.cancel('op_1')
+    await engine.cancel('op_1')
     expect(await run(engine, 'test')).toMatchObject({ started: true })
   })
 })
