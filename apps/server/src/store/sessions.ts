@@ -521,27 +521,28 @@ export class SessionsRepository {
     const cleanId = id.trim()
     if (!cleanId) throw new Error('pin id is empty')
     if (pinned) {
-      // NOT CONVERTED, by ruling (POD-3403, spec §6): `INSERT OR IGNORE` is not
-      // `onConflictDoNothing()`. `OR IGNORE` suppresses EVERY constraint
-      // violation on the statement — foreign key, NOT NULL and CHECK included —
-      // while drizzle's `DO NOTHING` suppresses only the uniqueness conflict and
-      // lets the rest throw. So the literal conversion changes behaviour in both
-      // directions, and the rule is to leave the statement as it stands.
+      // `INSERT OR IGNORE` CONVERTS HERE, and the enumeration is why (spec rule
+      // 31, POD-3403). The two forms differ in general: `OR IGNORE` suppresses
+      // UNIQUE, PRIMARY KEY, NOT NULL and CHECK, while `onConflictDoNothing`
+      // suppresses uniqueness conflicts only. (Neither suppresses FOREIGN KEY,
+      // so foreign keys are not part of this comparison.) They are therefore
+      // equivalent at a site exactly when no NOT NULL and no CHECK violation is
+      // reachable — and at this one, neither is:
       //
-      // FOR THIS TABLE the two are in fact equivalent, and the evidence is in
-      // the handoff rather than acted on here: `pins` as actually built carries
-      // exactly one constraint, the composite primary key
-      // (user_id, kind, id) — no foreign key and no UNIQUE index, in the
-      // baseline and in the per-user-state rebuild alike. The ruling is a
-      // category rule and I am not making a per-site exception to it.
-      //
-      // Written through the drizzle instance rather than a raw handle: this file
-      // is converted and holds no connection, so the statement keeps its exact
-      // text while the file keeps its ledger line off.
-      this.queries.db.run(
-        // DECISION POD-3403
-        sql`INSERT OR IGNORE INTO ${pinsTable} (user_id, kind, id, pinned_at) VALUES (${userId}, ${kind}, ${cleanId}, ${new Date().toISOString()})`,
-      )
+      //   CHECK       none. `PRAGMA index_list(pins)` on the SHIPPED table
+      //               returns one index, `sqlite_autoindex_pins_1`, unique,
+      //               origin `pk`; the table SQL carries no CHECK clause.
+      //   NOT NULL    all four columns are notnull=1 with no default, and every
+      //               one is refused above before this line is reached:
+      //               `user_id` by `requireUserId` (throws on blank), `kind` by
+      //               the `PIN_KINDS` membership throw, `id` by the empty-string
+      //               throw on the trimmed value, and `pinned_at` is a freshly
+      //               built ISO string.
+      this.queries.db
+        .insert(pinsTable)
+        .values({ userId, kind, id: cleanId, pinnedAt: new Date().toISOString() })
+        .onConflictDoNothing()
+        .run()
     } else {
       this.queries.db
         .delete(pinsTable)
