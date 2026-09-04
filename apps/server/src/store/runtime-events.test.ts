@@ -947,6 +947,7 @@ describe('durable runtime observation gate', () => {
       events,
       session: () => undefined,
       persist: () => {},
+      write: () => {},
       board: () => {},
       now: () => 0,
     })

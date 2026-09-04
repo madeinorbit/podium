@@ -39,7 +39,7 @@ import type { MachineId } from '@podium/model'
 import type { MachinePrincipal } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { driverFamilyForId, isServerFamilyResumeKind } from '../../harness-manifest'
-import type { Session, SessionVolatileField } from './session'
+import type { Session, SessionDurableState, SessionVolatileField } from './session'
 
 const log = createLogger('server:sessions')
 
@@ -64,7 +64,8 @@ export interface MachineReconcilerPorts {
   rebindHeadless(session: Session): void
   markVolatileSessionDirty(sessionId: Session['sessionId'], fields: SessionVolatileField[]): void
   /** Durable write for a row this module repaired [POD-1953]. */
-  persist(session: Session): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
 }
 
@@ -284,15 +285,16 @@ export class SessionMachineReconciler {
     // Set directly rather than through `markReconnecting`: that guard exists to
     // stop a detach from dragging a PARKED row back, which is the very thing it
     // would have to allow here. Its refusal stays intact for its own caller.
-    session.status = 'reconnecting'
-    session.exitCode = undefined
     // `lastActiveAt` is deliberately NOT stamped. The session is alive but it has
     // not done anything, and pretending otherwise would both reorder the board on
     // a bookkeeping repair and hide the row from the idle governor. If the park
     // was right, the governor takes it again on its next tick — and now the kill
     // reports whether that one landed.
     this.ports.markVolatileSessionDirty(session.sessionId, ['status'])
-    this.ports.persist(session)
+    this.ports.write(session, (draft) => {
+      draft.status = 'reconnecting'
+      draft.exitCode = undefined
+    })
     this.ports.toMachine(machineId, this.ports.reattachMessage(session, machineId))
     this.ports.broadcastSessions()
   }

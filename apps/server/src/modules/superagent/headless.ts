@@ -22,7 +22,7 @@ import type {
 import { canonicalHeadlessTurnFacts } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
 import { harnessSupportsNoTools } from '../../harness-manifest'
-import { Session } from '../sessions/session'
+import { Session, type SessionDurableState } from '../sessions/session'
 
 export interface HeadlessDeps {
   /** Deployment-qualified durable namespace, injected by server composition. */
@@ -39,6 +39,8 @@ export interface HeadlessDeps {
   /** A fresh copy of the default PTY geometry (headless rows still carry one). */
   defaultGeometry(): Geometry
   persist(session: Session): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(session: Session, mutate: (draft: SessionDurableState) => void): void
   broadcastSessions(): void
   clients(): Iterable<{ send(msg: ServerMessage): void }>
 }
@@ -186,8 +188,11 @@ export class HeadlessService {
   setHeadlessResume(sessionId: SessionId, resume: ResumeRef): void {
     const session = this.deps.getSession(sessionId)
     if (!session?.headless) return
-    session.resume = resume
-    this.deps.persist(session)
+    // Through `setResume` on the draft [POD-3330]: a bag has no setter, so a
+    // bare assignment would skip the `conversationBinding` promotion — on the
+    // very path whose comment at the mint site says this call is what promotes
+    // a headless session off its `'never'` claim.
+    this.deps.write(session, (draft) => session.setResume(resume, draft))
     this.deps.broadcastSessions()
   }
 
@@ -203,19 +208,28 @@ export class HeadlessService {
         const priorTotal = prior?.workingMsTotal ?? 0
         const completedStretch =
           prior?.phase === 'working' ? Math.max(0, now.getTime() - Date.parse(prior.since)) : 0
-        session.setAgentState({
-          phase: nextPhase,
-          since: now.toISOString(),
-          workingMsTotal: priorTotal + completedStretch,
-          nativeSubagentCount: prior?.nativeSubagentCount ?? 0,
-          ...(nextPhase === 'idle'
-            ? { idle: { kind: event.kind === 'turn-end' && event.error ? 'interrupted' : 'done' } }
-            : {}),
-          stateSource: 'poll',
-          stateConfidence: 1,
-          stateObservedAt: now.toISOString(),
-        })
-        this.deps.persist(session)
+        this.deps.write(session, (draft) =>
+          session.setAgentState(
+            {
+              phase: nextPhase,
+              since: now.toISOString(),
+              workingMsTotal: priorTotal + completedStretch,
+              nativeSubagentCount: prior?.nativeSubagentCount ?? 0,
+              ...(nextPhase === 'idle'
+                ? {
+                    idle: {
+                      kind: event.kind === 'turn-end' && event.error ? 'interrupted' : 'done',
+                    },
+                  }
+                : {}),
+              stateSource: 'poll',
+              stateConfidence: 1,
+              stateObservedAt: now.toISOString(),
+            },
+            true,
+            draft,
+          ),
+        )
         this.deps.broadcastSessions()
       }
     }

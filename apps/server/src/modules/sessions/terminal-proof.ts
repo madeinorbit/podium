@@ -37,7 +37,7 @@ import type { SessionId } from '@podium/model'
 import type { ObservationCheckpointsRepository } from '../../store/observation-checkpoints'
 import type { ObservationLeaseRecord, TerminalCandidateFacts } from '../../store/types'
 import type { SessionObservationLeases } from './observation-leases'
-import type { Session } from './session'
+import type { Session, SessionDurableFields } from './session'
 
 /**
  * Only the checkpoint operations this module needs, so it cannot reach the rest
@@ -106,10 +106,23 @@ export class SessionTerminalProof {
    * `JSON.stringify`, so a set that came back in a different order would read as
    * a different proof and silently refuse a legitimate hibernate.
    */
+  /**
+   * `d` is the durable source the SUBJECT session's own fields are read from
+   * [POD-3330], defaulting to the live object. A caller that is recording a
+   * candidate as part of a write passes that write's DRAFT, because the facts
+   * have to describe the session the row is about to describe — `lastActiveAt`
+   * in particular moves in the same breath as the checkpoint this is derived
+   * from, and a candidate recorded against the pre-write value is one the
+   * hibernate path's byte-for-byte re-derivation would refuse.
+   *
+   * Child sessions are read live and deliberately: they are OTHER sessions, and
+   * no draft of this write says anything about them.
+   */
   facts(
     session: Session,
     lease: ObservationLeaseRecord,
     checkpoint = lease.checkpoint,
+    d: SessionDurableFields = session,
   ): TerminalCandidateFacts | null {
     const fence = checkpoint?.terminalFence
     if (!checkpoint || !fence || fence.closing) return null
@@ -159,19 +172,19 @@ export class SessionTerminalProof {
       providerCursor: checkpoint.providerCursor ?? fence.providerCursor,
       lastLiveReceiptAt: checkpoint.lastLiveReceiptAt,
       lastTransitionId: checkpoint.lastTransitionId,
-      lastActiveAt: session.lastActiveAt,
+      lastActiveAt: d.lastActiveAt,
       lastInputAtMs: session.terminal.lastInputAtMs,
       lastOutputAtMs: session.terminal.lastOutputAtMs,
       lastResumedAtMs: session.terminal.lastResumedAtMs,
       inputCount: session.terminal.inputCount,
       outputCount: session.terminal.outputCount,
       activityCount: session.terminal.activityCount,
-      queuedInputCount: session.queuedMessageCount,
+      queuedInputCount: d.queuedMessageCount,
       pendingMessages: addressedMessages,
       autoContinueActive: this.ports.autoContinueActive(session.sessionId),
       activeWork,
-      resumable: session.resume !== undefined,
-      machineId: session.machineId,
+      resumable: d.resume !== undefined,
+      machineId: d.machineId,
     }
   }
 

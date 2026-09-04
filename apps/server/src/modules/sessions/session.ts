@@ -159,6 +159,22 @@ export interface SessionInit {
 /** One agent's relay state: controller gating, geometry/epoch, and its attached clients. */
 export type SessionVolatileField = 'geometry' | 'status' | 'machineId' | 'handoffTarget'
 
+/**
+ * THE DURABLE HALF AS A VALUE [POD-3330].
+ *
+ * Every field {@link SessionDurableState} carries except the terminal grid, and
+ * the type a projection reads its durable answers from. A live {@link Session}
+ * satisfies it (that is the default), and so does a DRAFT — which is what lets
+ * `toRow`/`toMeta` describe a write that has not been installed on the live
+ * object yet, without cloning a second Session to project from.
+ *
+ * The assignability is load-bearing rather than incidental: it is why the
+ * broadcast path pays no clone, and it is what fails at typecheck if a durable
+ * field is ever added to the bag and not to the class (or given a different
+ * name on either side).
+ */
+export type SessionDurableFields = Omit<SessionDurableState, 'terminal'>
+
 export interface SessionDurableState {
   cwd: string
   issueId: IssueId | undefined
@@ -176,7 +192,7 @@ export interface SessionDurableState {
   archived: boolean
   stoppedAt: string | undefined
   stopReason: 'self' | 'parent' | 'forced' | 'exited' | 'oom' | undefined
-  oomKilledAt: string | undefined
+  lastOomKillAt: string | undefined
   workState: WorkState | undefined
   cmd: string
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited'
@@ -261,6 +277,20 @@ export class Session {
   }
   private resumeRef: ResumeRef | undefined
   /**
+   * ASSIGN THE RESUME REF ONTO A DURABLE SOURCE [POD-3330] — the draft-safe
+   * spelling of `session.resume = next`.
+   *
+   * A draft is a plain bag and has no setter, so assigning `resume` on one would
+   * silently skip the promotion above and leave a session that HAS a native
+   * conversation still claiming it never bound one — the exact fact
+   * {@link neverBound} exists to make un-loseable. Every write path assigns
+   * through here instead.
+   */
+  setResume(next: ResumeRef | undefined, d: SessionDurableFields = this): void {
+    d.resume = next
+    if (next) this.markConversationBound(d)
+  }
+  /**
    * DID THIS LAUNCH EVER HAVE A NATIVE CONVERSATION (POD-2392) — the fact that
    * lets a dead, ref-less agent be started again instead of only removed.
    *
@@ -303,7 +333,10 @@ export class Session {
    * table rebuild — so what survives a restart is the kill's TIME, and the
    * conclusion is re-derived from it on hydrate exactly as it was live.
    */
-  private lastOomKillAt: string | undefined
+  /** The kernel OOM stamp. PUBLIC rather than private since POD-3330, for the
+   *  reason {@link workingMsTotal} is: a durable projection answers it from a
+   *  DRAFT too. Written by {@link recordOomKill} and by a durable restore. */
+  lastOomKillAt: string | undefined
   workState: WorkState | undefined
   cmd = ''
   status: 'starting' | 'live' | 'reconnecting' | 'hibernated' | 'exited' = 'starting'
@@ -311,8 +344,13 @@ export class Session {
   /** Exact daemon diagnosis when a spawn never reached a running process. */
   spawnFailure: string | undefined
   agentState: AgentRuntimeState | undefined
-  private workingMsTotal: number | undefined
-  private incomingWorkingMsTotal: number | undefined
+  /** The cumulative compute base, and the last incoming total it was folded
+   *  against. PUBLIC rather than private since POD-3330 — a durable projection
+   *  has to answer them from a DRAFT as well as from the live object, and the
+   *  draft is a plain bag. Still folded in exactly two places, {@link
+   *  setAgentState} and {@link applyObservationCheckpoint}. */
+  workingMsTotal: number | undefined
+  incomingWorkingMsTotal: number | undefined
   /** The agent's `/color` identity accent (a named colour), learned from the
    *  transcript tail. Undefined = no colour (incl. Claude's 'default'/reset). */
   agentColor: string | undefined
@@ -496,8 +534,8 @@ export class Session {
    * `sessions` upsert restates the same rule in SQL, because the in-memory
    * object is not the only thing that can write the row.
    */
-  markConversationBound(): void {
-    this.conversationBinding = 'bound'
+  markConversationBound(d: SessionDurableFields = this): void {
+    d.conversationBinding = 'bound'
   }
 
   /**
@@ -510,7 +548,12 @@ export class Session {
    * conversation.
    */
   get neverBound(): boolean {
-    return this.conversationBinding === 'never' && this.resume === undefined
+    return Session.isNeverBound(this)
+  }
+
+  /** {@link neverBound} over any durable source, so a DRAFT answers it too. */
+  static isNeverBound(d: SessionDurableFields): boolean {
+    return d.conversationBinding === 'never' && d.resume === undefined
   }
 
   /**
@@ -518,10 +561,10 @@ export class Session {
    * timer (the eligibility check maxes this with lastActiveAt) WITHOUT touching
    * lastActiveAt, which is authoritative for recency ordering.
    */
-  markResumed(): void {
-    this.stoppedAt = undefined
-    this.stopReason = undefined
-    this.spawnFailure = undefined
+  markResumed(d: SessionDurableFields = this): void {
+    d.stoppedAt = undefined
+    d.stopReason = undefined
+    d.spawnFailure = undefined
     this.terminal.recordResumeActivity()
   }
 
@@ -541,40 +584,40 @@ export class Session {
    * be killed and take another second to die. So this upgrades an exit that has
    * already been stamped, and `onExit` consults what this recorded.
    */
-  recordOomKill(at: string): void {
+  recordOomKill(at: string, d: SessionDurableFields = this): void {
     const observed = Date.parse(at)
-    this.lastOomKillAt = Number.isFinite(observed) ? at : new Date().toISOString()
+    d.lastOomKillAt = Number.isFinite(observed) ? at : new Date().toISOString()
     if (this.status !== 'exited' || this.stopReason !== 'exited') return
     if (this.oomExplainsExit(Date.parse(this.stoppedAt ?? ''))) this.stopReason = 'oom'
   }
 
   /** Was a kernel OOM kill observed close enough to `exitedAtMs` to be its
    *  cause? Absorbing in both directions — see {@link recordOomKill}. */
-  private oomExplainsExit(exitedAtMs: number): boolean {
-    if (!this.lastOomKillAt) return false
-    const killed = Date.parse(this.lastOomKillAt)
+  private oomExplainsExit(exitedAtMs: number, d: SessionDurableFields = this): boolean {
+    if (!d.lastOomKillAt) return false
+    const killed = Date.parse(d.lastOomKillAt)
     if (!Number.isFinite(killed) || !Number.isFinite(exitedAtMs)) return false
     return Math.abs(exitedAtMs - killed) <= OOM_ATTRIBUTION_WINDOW_MS
   }
 
-  onExit(code: number): void {
+  onExit(code: number, d: SessionDurableFields = this): void {
     // The PTY is gone — no more output, so it can't be "busy".
     this.terminal.stopOutput()
     // A hibernated session's process exit is the *expected* result of the
     // hibernate kill — don't let it overwrite the hibernated state.
-    if (this.status === 'hibernated') return
-    this.status = 'exited'
-    this.exitCode = code
+    if (d.status === 'hibernated') return
+    d.status = 'exited'
+    d.exitCode = code
     // EVERY terminal transition stamps stop metadata and re-arms unread — a
     // daemon-observed death decays (and badges) exactly like an explicit stop.
     // The explicit-stop path may already have stamped a richer reason; keep it.
     // [spec:SP-6144]
-    this.stoppedAt ??= new Date().toISOString()
+    d.stoppedAt ??= new Date().toISOString()
     // 'oom' when the supervisor saw the kernel kill something here moments ago
     // (POD-2413) — a stated cause beats a bare "exited" for the one death an
     // operator can actually act on. `??=` still holds: an explicit stop already
     // stamped its own richer reason and keeps it.
-    this.stopReason ??= this.oomExplainsExit(Date.parse(this.stoppedAt)) ? 'oom' : 'exited'
+    d.stopReason ??= this.oomExplainsExit(Date.parse(d.stoppedAt), d) ? 'oom' : 'exited'
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
     // Preserve the final turn diagnosis; lifecycle status owns liveness while
@@ -583,9 +626,9 @@ export class Session {
   }
 
   /** A spawn that never started — surface as an exit so attached clients stop waiting. */
-  markSpawnError(message: string): void {
-    this.status = 'exited'
-    this.exitCode = -1
+  markSpawnError(message: string, d: SessionDurableFields = this): void {
+    d.status = 'exited'
+    d.exitCode = -1
     // A spawn error means no driver ever bound. Drop both the pre-launch
     // decision and any transient handle fact so persistence cannot describe an
     // exited row as a driver family that never ran.
@@ -595,11 +638,11 @@ export class Session {
     // must not describe what a driver that never ran could have changed.
     this.configureFields = undefined
     this.attachKinds = undefined
-    this.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
-    this.agentState = undefined
+    d.spawnFailure = message.trim().slice(0, 2000) || 'unknown spawn error'
+    d.agentState = undefined
     // Terminal transition — same stop metadata as onExit [spec:SP-6144].
-    this.stoppedAt ??= new Date().toISOString()
-    this.stopReason ??= 'exited'
+    d.stoppedAt ??= new Date().toISOString()
+    d.stopReason ??= 'exited'
     // Re-arm unread for every reader (POD-1076): the registry owns the rows.
     this.onUnreadRearm?.()
     log.warn('spawn failed', { sessionId: this.sessionId, reason: message })
@@ -611,25 +654,25 @@ export class Session {
   applyObservationCheckpoint(
     checkpoint: SessionObservationCheckpointV1,
     advanceRecency = true,
+    d: SessionDurableFields = this,
   ): void {
     const state = checkpoint.turnState
-    this.workingMsTotal = state.workingMsTotal
-    this.incomingWorkingMsTotal = undefined
-    this.agentState = state
+    d.workingMsTotal = state.workingMsTotal
+    d.incomingWorkingMsTotal = undefined
+    d.agentState = state
     const providerAt = checkpoint.providerAt
-    if (advanceRecency && providerAt && providerAt > this.lastActiveAt)
-      this.lastActiveAt = providerAt
+    if (advanceRecency && providerAt && providerAt > d.lastActiveAt) d.lastActiveAt = providerAt
     // An observer bound to a concrete provider thread is a conversation, even
     // if no `sessionResumeRef` ever reached us — this is the arm that closes the
     // gap for a harness whose id we learn only through the observation plane.
-    if (checkpoint.providerSessionId) this.markConversationBound()
+    if (checkpoint.providerSessionId) this.markConversationBound(d)
   }
 
   /** Advance the board/sidebar recency projection from one accepted coarse runtime event. */
-  recordRuntimeActivity(at: string): boolean {
+  recordRuntimeActivity(at: string, d: SessionDurableFields = this): boolean {
     const candidate = Date.parse(at)
-    if (!Number.isFinite(candidate) || candidate <= Date.parse(this.lastActiveAt)) return false
-    this.lastActiveAt = new Date(candidate).toISOString()
+    if (!Number.isFinite(candidate) || candidate <= Date.parse(d.lastActiveAt)) return false
+    d.lastActiveAt = new Date(candidate).toISOString()
     return true
   }
 
@@ -637,24 +680,28 @@ export class Session {
    * Legacy unfenced state path. Kept during mixed deployment only; causal v1
    * sessions bypass its daemon-counter reset heuristic.
    */
-  setAgentState(state: AgentRuntimeState, advanceRecency = true): void {
+  setAgentState(
+    state: AgentRuntimeState,
+    advanceRecency = true,
+    d: SessionDurableFields = this,
+  ): void {
     // The daemon reducer's total restarts at zero with each tracker. Persist only
     // positive deltas within one tracker epoch on top of our durable total; a
     // lower/reset incoming value becomes the next epoch's baseline.
     const incomingTotal = state.workingMsTotal
     if (incomingTotal !== undefined) {
-      if (this.workingMsTotal === undefined) {
-        this.workingMsTotal = incomingTotal
+      if (d.workingMsTotal === undefined) {
+        d.workingMsTotal = incomingTotal
       } else if (
-        this.incomingWorkingMsTotal !== undefined &&
-        incomingTotal >= this.incomingWorkingMsTotal
+        d.incomingWorkingMsTotal !== undefined &&
+        incomingTotal >= d.incomingWorkingMsTotal
       ) {
-        this.workingMsTotal += incomingTotal - this.incomingWorkingMsTotal
+        d.workingMsTotal += incomingTotal - d.incomingWorkingMsTotal
       }
-      this.incomingWorkingMsTotal = incomingTotal
+      d.incomingWorkingMsTotal = incomingTotal
     }
-    this.agentState =
-      this.workingMsTotal === undefined ? state : { ...state, workingMsTotal: this.workingMsTotal }
+    d.agentState =
+      d.workingMsTotal === undefined ? state : { ...state, workingMsTotal: d.workingMsTotal }
     // Recency = the phase event-time (state.since), which is the real source-record
     // time (transcript timestamp), never "now" — but MONOTONIC: a boot re-seed that
     // read the wrong transcript (a subagent jsonl registered under the parent's
@@ -662,40 +709,39 @@ export class Session {
     // sink the session below genuinely-older ones and every reattach re-asserted
     // it. The old stale-HIGH poisoning this could correct (mtime-derived stamps) is
     // gone since seeds stamp the last DATED record, so regression buys nothing.
-    if (advanceRecency && state.since > this.lastActiveAt) this.lastActiveAt = state.since
+    if (advanceRecency && state.since > d.lastActiveAt) d.lastActiveAt = state.since
   }
 
   /** Adopt a `/color` value from the transcript. Treats Claude's "no colour"
    *  spellings as cleared. Returns true when it actually changed (so the caller
    *  can skip a redundant broadcast). */
-  setAgentColor(color: string): boolean {
+  setAgentColor(color: string, d: SessionDurableFields = this): boolean {
     const lower = color.trim().toLowerCase()
     const next = Session.NO_COLOR.has(lower) ? undefined : lower
-    if (next === this.agentColor) return false
-    this.agentColor = next
+    if (next === d.agentColor) return false
+    d.agentColor = next
     return true
   }
 
   /** Clear the agent action offer [spec:SP-c7f1]. Returns true if it actually
    *  changed (lets the caller skip a redundant broadcast/persist). */
-  clearOffer(): boolean {
-    if (this.offer === undefined) return false
-    this.offer = undefined
+  clearOffer(d: SessionDurableFields = this): boolean {
+    if (d.offer === undefined) return false
+    d.offer = undefined
     return true
   }
 
   /** Adopt an observed-model sighting from the transcript tail. Returns true
    *  when it actually changed (so the caller can skip a redundant broadcast). */
-  setObservedModel(model: string, effort?: string): boolean {
+  setObservedModel(model: string, effort?: string, d: SessionDurableFields = this): boolean {
     const nextModel = model.trim()
     const nextEffort = effort?.trim() || undefined
     if (!nextModel) return false
     const changed =
-      nextModel !== this.observedModel ||
-      (nextEffort !== undefined && nextEffort !== this.observedEffort)
+      nextModel !== d.observedModel || (nextEffort !== undefined && nextEffort !== d.observedEffort)
     if (!changed) return false
-    this.observedModel = nextModel
-    if (nextEffort !== undefined) this.observedEffort = nextEffort
+    d.observedModel = nextModel
+    if (nextEffort !== undefined) d.observedEffort = nextEffort
     return true
   }
 
@@ -708,50 +754,53 @@ export class Session {
    * answering as something else — which is the requested-vs-observed split
    * lying in the one place it exists to tell the truth.
    */
-  setRequestedModel(input: { model?: string; effort?: string }): boolean {
+  setRequestedModel(
+    input: { model?: string; effort?: string },
+    d: SessionDurableFields = this,
+  ): boolean {
     const nextModel = input.model?.trim() || undefined
     const nextEffort = input.effort?.trim() || undefined
     // A PATCH, like the request that produced it: naming only the effort leaves
     // the requested model exactly where it was.
     const changed =
-      (nextModel !== undefined && nextModel !== this.requestedModel) ||
-      (nextEffort !== undefined && nextEffort !== this.requestedEffort)
+      (nextModel !== undefined && nextModel !== d.requestedModel) ||
+      (nextEffort !== undefined && nextEffort !== d.requestedEffort)
     if (!changed) return false
-    if (nextModel !== undefined) this.requestedModel = nextModel
-    if (nextEffort !== undefined) this.requestedEffort = nextEffort
+    if (nextModel !== undefined) d.requestedModel = nextModel
+    if (nextEffort !== undefined) d.requestedEffort = nextEffort
     return true
   }
 
-  setContextUsagePercent(percent: number): boolean {
+  setContextUsagePercent(percent: number, d: SessionDurableFields = this): boolean {
     if (!Number.isFinite(percent)) return false
     const next = Math.min(100, Math.max(0, percent))
-    if (next === this.contextUsagePercent) return false
-    this.contextUsagePercent = next
+    if (next === d.contextUsagePercent) return false
+    d.contextUsagePercent = next
     return true
   }
 
   private static readonly NO_COLOR = new Set(['default', 'none', 'reset', 'gray', 'grey'])
 
-  setTitle(title: string): void {
+  setTitle(title: string, d: SessionDurableFields = this): void {
     // A title change is not activity (spinner frames are filtered upstream, but even
     // a stable rename isn't the agent doing work) — it must not move recency. Agent
     // activity flows through setAgentState; shells through the busy path.
-    this.title = title
+    d.title = title
   }
 
-  markLive(cmd: string, geometry: Geometry | undefined): void {
+  markLive(cmd: string, geometry: Geometry | undefined, d: SessionDurableFields = this): void {
     // Reattaching to a surviving PTY is NOT activity — it must not restamp recency
     // (that reshuffled the whole ordering on every daemon redeploy). The persisted
     // lastActiveAt is authoritative; genuine activity (agentState/output) advances it.
-    this.cmd = cmd
+    d.cmd = cmd
     // 'exited' is included on purpose: a reattach only produces a bind when the
     // daemon found the durable master alive. That means the row was wrongly
     // marked exited — its attach client died on a daemon restart while the agent
     // survived in its scope. The live master is authoritative, so clear the stale
     // exit and bring the session back.
-    if (this.status === 'starting' || this.status === 'reconnecting' || this.status === 'exited') {
-      this.status = 'live'
-      this.exitCode = undefined
+    if (d.status === 'starting' || d.status === 'reconnecting' || d.status === 'exited') {
+      d.status = 'live'
+      d.exitCode = undefined
     }
     // BIND IS A REPORT, AND ONLY WHEN IT CARRIES ONE (POD-3239 B6 / MODEL rule 1,
     // refined by POD-3279). With a geometry the daemon is telling us the size it
@@ -782,9 +831,9 @@ export class Session {
    * 'reconnecting' so the next daemon to attach re-binds it (markLive brings it back
    * on the resulting bind). Returns true if the status changed.
    */
-  markReconnecting(): boolean {
-    if (this.status === 'live' || this.status === 'starting') {
-      this.status = 'reconnecting'
+  markReconnecting(d: SessionDurableFields = this): boolean {
+    if (d.status === 'live' || d.status === 'starting') {
+      d.status = 'reconnecting'
       // The daemon that was confirming W is gone, so W goes back to last-known
       // (MODEL rule 6). The grid still RENDERS — it can only have changed
       // through a daemon — but nothing stands behind it until the reattach binds.
@@ -805,8 +854,8 @@ export class Session {
    * `absent` is the panel's do-not-mount answer: a hibernated or exited session
    * has no process, and its transcript is what the operator should see.
    */
-  geometryState(): GeometryState {
-    if (this.status === 'hibernated' || this.status === 'exited') return 'absent'
+  geometryState(d: SessionDurableFields = this): GeometryState {
+    if (d.status === 'hibernated' || d.status === 'exited') return 'absent'
     return this.terminal.geometryKnown ? 'current' : 'unknown'
   }
 
@@ -830,7 +879,7 @@ export class Session {
       archived: this.archived,
       stoppedAt: this.stoppedAt,
       stopReason: this.stopReason,
-      oomKilledAt: this.lastOomKillAt,
+      lastOomKillAt: this.lastOomKillAt,
       workState: this.workState,
       cmd: this.cmd,
       status: this.status,
@@ -855,9 +904,40 @@ export class Session {
     }
   }
 
+  /**
+   * ADOPT A DURABLE STATE AS A ROLLBACK: the fields, and the grid the failed
+   * write's clients had cached. See {@link installDurableState} for the other
+   * direction.
+   */
   restoreDurableState(
     state: SessionDurableState,
     preserve: ReadonlySet<SessionVolatileField> = new Set(),
+  ): void {
+    this.adoptDurableFields(state, preserve)
+    this.terminal.restoreState(state.terminal, preserve.has('geometry'))
+  }
+
+  /**
+   * ADOPT A DURABLE STATE AS A COMMITTED WRITE [POD-3330] — the draft a persist
+   * has just made durable becomes what the live object says.
+   *
+   * The GRID IS NOT TOUCHED, and that is the difference from
+   * {@link restoreDurableState}. A rollback undoes what the server believed
+   * about geometry because clients cached that belief; an install is a durable
+   * metadata write landing, and the pty's size is not one of the things it
+   * wrote. Rewinding it here would re-announce a stale grid over a resize the
+   * daemon applied while the commit was in flight.
+   */
+  installDurableState(
+    state: SessionDurableState,
+    preserve: ReadonlySet<SessionVolatileField> = new Set(),
+  ): void {
+    this.adoptDurableFields(state, preserve)
+  }
+
+  private adoptDurableFields(
+    state: SessionDurableState,
+    preserve: ReadonlySet<SessionVolatileField>,
   ): void {
     this.cwd = state.cwd
     this.issueId = state.issueId
@@ -878,7 +958,7 @@ export class Session {
     this.archived = state.archived
     this.stoppedAt = state.stoppedAt
     this.stopReason = state.stopReason
-    this.lastOomKillAt = state.oomKilledAt
+    this.lastOomKillAt = state.lastOomKillAt
     this.workState = state.workState
     this.cmd = state.cmd
     if (!preserve.has('status')) this.status = state.status
@@ -900,10 +980,9 @@ export class Session {
     this.offer = state.offer ? structuredClone(state.offer) : undefined
     this.transcriptAvailable = state.transcriptAvailable
     this.terminal.setTranscriptAvailable(state.transcriptAvailable)
-    this.terminal.restoreState(state.terminal, preserve.has('geometry'))
   }
 
-  toRow(): SessionRow {
+  toRow(d: SessionDurableFields = this): SessionRow {
     return {
       id: this.sessionId,
       ownerUserId: this.ownerUserId,
@@ -915,35 +994,35 @@ export class Session {
       // harness stamps a REQUEST anywhere a reattach could re-learn it, which is
       // what separates this from the observed pair (no column, re-learned from
       // the transcript tail).
-      requestedModel: this.requestedModel ?? null,
-      requestedEffort: this.requestedEffort ?? null,
+      requestedModel: d.requestedModel ?? null,
+      requestedEffort: d.requestedEffort ?? null,
       accountId: this.accountId ?? null,
       loginHarness: this.loginHarness ?? null,
-      cwd: this.cwd,
-      title: this.title,
-      name: this.name || null,
-      nameSource: this.nameSource ?? null,
-      archived: this.archived,
-      workState: this.workState ?? null,
+      cwd: d.cwd,
+      title: d.title,
+      name: d.name || null,
+      nameSource: d.nameSource ?? null,
+      archived: d.archived,
+      workState: d.workState ?? null,
       originKind: this.origin.kind,
       conversationId: this.origin.kind === 'resume' ? this.origin.conversationId : null,
-      resumeKind: this.resume?.kind ?? null,
-      resumeValue: this.resume?.value ?? null,
+      resumeKind: d.resume?.kind ?? null,
+      resumeValue: d.resume?.value ?? null,
       // The daemon's DECISION survives the process that made it (POD-2290 round
       // 2). `driverId` deliberately does not appear here and must not: it names
       // a live handle, and a row that claimed one across a restart would send
       // W4's migrated callers down the receipt path for a driver that is gone.
       selectedDriverId: this.selectedDriverId ?? null,
       requestedDriverId: this.requestedDriverId ?? null,
-      conversationBinding: this.conversationBinding ?? null,
-      status: this.status,
-      exitCode: this.exitCode ?? null,
-      spawnFailure: this.spawnFailure ?? null,
+      conversationBinding: d.conversationBinding ?? null,
+      status: d.status,
+      exitCode: d.exitCode ?? null,
+      spawnFailure: d.spawnFailure ?? null,
       durableLabel: this.durableLabel,
       createdAt: this.createdAt,
-      lastActiveAt: this.lastActiveAt,
+      lastActiveAt: d.lastActiveAt,
       geometry: { ...this.terminal.geometry },
-      ...(this.workingMsTotal !== undefined ? { workingMsTotal: this.workingMsTotal } : {}),
+      ...(d.workingMsTotal !== undefined ? { workingMsTotal: d.workingMsTotal } : {}),
       inputCount: this.terminal.inputCount,
       outputCount: this.terminal.outputCount,
       activityCount: this.terminal.activityCount,
@@ -952,15 +1031,15 @@ export class Session {
       lastResumedAt: Session.msToIso(this.terminal.lastResumedAtMs),
       spawnedBy: this.spawnedBy ?? null,
       ...(this.createdBy ? { createdBy: this.createdBy } : {}),
-      machineId: this.machineId,
+      machineId: d.machineId,
       headless: this.headless,
-      issueId: this.issueId ?? null,
-      refIssueId: this.refIssueId,
-      refLetter: this.refLetter,
-      refDraft: this.refDraft,
-      stoppedAt: this.stoppedAt ?? null,
-      stopReason: this.stopReason ?? null,
-      oomKilledAt: this.lastOomKillAt ?? null,
+      issueId: d.issueId ?? null,
+      refIssueId: d.refIssueId,
+      refLetter: d.refLetter,
+      refDraft: d.refDraft,
+      stoppedAt: d.stoppedAt ?? null,
+      stopReason: d.stopReason ?? null,
+      oomKilledAt: d.lastOomKillAt ?? null,
       workflowRunId: this.workflowRunId ?? null,
       workflowStepId: this.workflowStepId ?? null,
       executionProfileId: this.executionProfileId ?? null,
@@ -995,7 +1074,7 @@ export class Session {
    * broadcast viewer's overlay. POD-1077 passes the request's principal; the
    * signature does not change.
    */
-  toMeta(overlay: SessionUserOverlay): SessionMeta {
+  toMeta(overlay: SessionUserOverlay, d: SessionDurableFields = this): SessionMeta {
     // BOUND WINS OVER SELECTED, and both beat nothing (POD-2290). The selection
     // is what the daemon decided before it started the harness; the binding is
     // what it ended up with. They agree on every path that works, and where
@@ -1008,17 +1087,17 @@ export class Session {
       ...(this.model ? { model: this.model } : {}),
       ...(this.effort ? { effort: this.effort } : {}),
       ...(this.accountId ? { accountId: this.accountId } : {}),
-      title: this.title,
-      ...(this.name ? { name: this.name } : {}),
-      ...(this.name && this.nameSource ? { nameSource: this.nameSource } : {}),
-      cwd: this.cwd,
-      status: this.status,
-      ...(this.exitCode !== undefined ? { exitCode: this.exitCode } : {}),
-      ...(this.spawnFailure ? { spawnFailure: this.spawnFailure } : {}),
-      ...(this.agentState ? { agentState: this.agentState } : {}),
+      title: d.title,
+      ...(d.name ? { name: d.name } : {}),
+      ...(d.name && d.nameSource ? { nameSource: d.nameSource } : {}),
+      cwd: d.cwd,
+      status: d.status,
+      ...(d.exitCode !== undefined ? { exitCode: d.exitCode } : {}),
+      ...(d.spawnFailure ? { spawnFailure: d.spawnFailure } : {}),
+      ...(d.agentState ? { agentState: d.agentState } : {}),
       controllerId: this.terminal.controllerId,
       geometry: { ...this.terminal.geometry },
-      geometryState: this.geometryState(),
+      geometryState: this.geometryState(d),
       // Only when there is something to report (POD-3239 B6).
       ...(this.terminal.requestsGated > 0 ? { requestsGated: this.terminal.requestsGated } : {}),
       ...(this.terminal.requestsDuplicate > 0
@@ -1027,52 +1106,52 @@ export class Session {
       epoch: this.terminal.epoch,
       clientCount: this.terminal.clientCount,
       createdAt: this.createdAt,
-      lastActiveAt: this.lastActiveAt,
+      lastActiveAt: d.lastActiveAt,
       // Last human (controller) input — the offer-artifact freshness fallback
       // [POD-120] compares issue-artifact addedAt against this on the client.
       ...(this.terminal.lastInputAtMs > 0
         ? { lastInputAt: new Date(this.terminal.lastInputAtMs).toISOString() }
         : {}),
       origin: this.origin,
-      archived: this.archived,
+      archived: d.archived,
       // Email-style read state (issue #124). unread = there is activity the operator
       // hasn't seen: never opened (readAt null), or lastActiveAt postdates readAt.
       // Both are ISO-8601, so the lexical compare is chronological.
       readAt: overlay.readAt,
-      ...(this.stoppedAt ? { stoppedAt: this.stoppedAt } : {}),
-      ...(this.stopReason ? { stopReason: this.stopReason } : {}),
-      unread: overlay.readAt == null || this.lastActiveAt > overlay.readAt,
+      ...(d.stoppedAt ? { stoppedAt: d.stoppedAt } : {}),
+      ...(d.stopReason ? { stopReason: d.stopReason } : {}),
+      unread: overlay.readAt == null || d.lastActiveAt > overlay.readAt,
       // The registry overwrites machineName in listSessions() from the machines
       // table; an empty default keeps toMeta() self-contained for callers that
       // read it directly (e.g. tests on a Session in isolation).
-      machineId: this.machineId,
+      machineId: d.machineId,
       machineName: '',
-      ...(this.workState ? { workState: this.workState } : {}),
-      ...(this.resume ? { resumable: true, resume: this.resume } : {}),
+      ...(d.workState ? { workState: d.workState } : {}),
+      ...(d.resume ? { resumable: true, resume: d.resume } : {}),
       // ONLY when proven. A recovery surface reads this to offer starting the
       // agent again instead of removing the row, so its absence has to stay the
       // safe answer for every session whose history we cannot vouch for.
-      ...(this.neverBound ? { neverBound: true as const } : {}),
-      ...(this.transcriptAvailable ? { transcriptAvailable: true } : {}),
+      ...(Session.isNeverBound(d) ? { neverBound: true as const } : {}),
+      ...(d.transcriptAvailable ? { transcriptAvailable: true } : {}),
       ...(this.terminal.busy ? { busy: true } : {}),
-      ...(this.agentColor ? { agentColor: this.agentColor } : {}),
-      ...(this.observedModel ? { observedModel: this.observedModel } : {}),
-      ...(this.observedEffort ? { observedEffort: this.observedEffort } : {}),
-      ...(this.requestedModel ? { requestedModel: this.requestedModel } : {}),
-      ...(this.requestedEffort ? { requestedEffort: this.requestedEffort } : {}),
+      ...(d.agentColor ? { agentColor: d.agentColor } : {}),
+      ...(d.observedModel ? { observedModel: d.observedModel } : {}),
+      ...(d.observedEffort ? { observedEffort: d.observedEffort } : {}),
+      ...(d.requestedModel ? { requestedModel: d.requestedModel } : {}),
+      ...(d.requestedEffort ? { requestedEffort: d.requestedEffort } : {}),
       // POD-3087. Published even when EMPTY, because empty is an answer — "this
       // driver changes nothing" — and a client that could not tell it from
       // "nobody told me" would hide the control on both.
       ...(this.configureFields ? { configureFields: [...this.configureFields] } : {}),
       ...(this.attachKinds ? { attachKinds: [...this.attachKinds] } : {}),
-      ...(this.contextUsagePercent !== undefined
-        ? { contextUsagePercent: this.contextUsagePercent }
+      ...(d.contextUsagePercent !== undefined
+        ? { contextUsagePercent: d.contextUsagePercent }
         : {}),
       ...(overlay.snoozedUntil !== undefined ? { snoozedUntil: overlay.snoozedUntil } : {}),
-      ...(this.draftUpdatedAt !== undefined ? { draftUpdatedAt: this.draftUpdatedAt } : {}),
+      ...(d.draftUpdatedAt !== undefined ? { draftUpdatedAt: d.draftUpdatedAt } : {}),
       ...(this.draftSyncEngine ? { draftSyncEngine: true } : {}),
-      ...(this.offer !== undefined ? { offer: this.offer } : {}), // [spec:SP-c7f1]
-      ...(this.handoffTarget ? { handoffTarget: this.handoffTarget } : {}),
+      ...(d.offer !== undefined ? { offer: d.offer } : {}), // [spec:SP-c7f1]
+      ...(d.handoffTarget ? { handoffTarget: d.handoffTarget } : {}),
       ...(this.driverId ? { driverId: this.driverId } : {}),
       ...(this.requestedDriverId ? { requestedDriverId: this.requestedDriverId } : {}),
       // The bound driver's FAMILY, so a client can pick a surface without
@@ -1089,8 +1168,8 @@ export class Session {
       // a fourth family added to the manifests fails HERE, at typecheck, rather
       // than being silently dropped from every client's view.
       ...(driverFamily ? { driverFamily } : {}),
-      ...(this.queuedMessageCount > 0 ? { queuedMessageCount: this.queuedMessageCount } : {}),
-      ...(this.conversationPodiumId ? { conversationPodiumId: this.conversationPodiumId } : {}),
+      ...(d.queuedMessageCount > 0 ? { queuedMessageCount: d.queuedMessageCount } : {}),
+      ...(d.conversationPodiumId ? { conversationPodiumId: d.conversationPodiumId } : {}),
       ...(this.spawnedBy ? { spawnedBy: this.spawnedBy } : {}),
       // THE ATTRIBUTION PAIR ON THE WIRE (POD-1516). Server-stamped and read-only:
       // it is projected from the durable pair, and nothing a client sends reaches
@@ -1098,10 +1177,10 @@ export class Session {
       // absence means, because the spawn path always stamps one.
       ...(this.createdBy ? { createdBy: this.createdBy } : {}),
       ...(this.headless ? { headless: true } : {}),
-      ...(this.issueId ? { issueId: this.issueId } : {}),
-      ...(this.refIssueId ? { refIssueId: this.refIssueId } : {}),
-      ...(this.refLetter ? { refLetter: this.refLetter } : {}),
-      ...(this.refDraft != null ? { refDraft: this.refDraft } : {}),
+      ...(d.issueId ? { issueId: d.issueId } : {}),
+      ...(d.refIssueId ? { refIssueId: d.refIssueId } : {}),
+      ...(d.refLetter ? { refLetter: d.refLetter } : {}),
+      ...(d.refDraft != null ? { refDraft: d.refDraft } : {}),
       ...(this.workflowRunId ? { workflowRunId: this.workflowRunId } : {}),
       ...(this.workflowStepId ? { workflowStepId: this.workflowStepId } : {}),
       ...(this.executionProfileId ? { executionProfileId: this.executionProfileId } : {}),

@@ -21,7 +21,7 @@ import type { MutationLedgerPort } from '@podium/sync'
 import { sessionsForIssue } from '../../issue-util'
 import type { SessionRow } from '../../store'
 import type { SessionDeletePlan, SessionRestorePlan } from './lifecycle'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 import type { SessionStateRegistry } from './session-state/registry'
 
 export interface SessionMetaOpsPorts {
@@ -79,9 +79,12 @@ export class SessionMetaOps {
       this.ports.store.sessions.setOffer(sessionId, offer)
       return
     }
-    session.offer = offer
-    this.ports.repository.persist(session, () =>
-      this.ports.store.sessions.setOffer(sessionId, offer),
+    this.ports.repository.write(
+      session,
+      (draft: SessionDurableState) => {
+        draft.offer = offer
+      },
+      () => this.ports.store.sessions.setOffer(sessionId, offer),
     )
     this.ports.broadcastSessions()
   }
@@ -90,7 +93,12 @@ export class SessionMetaOps {
    *  or auto-clear on the next user turn). Skips work when nothing changes. */
   clearOffer(sessionId: SessionId): void {
     const session = this.ports.sessions.get(sessionId)
-    const clearedInMemory = session?.clearOffer() ?? false
+    // ASKED, NOT DONE [POD-3330]. This used to CLEAR the live offer and read the
+    // answer out of the mutation, which put the clear on the shared object
+    // before — and, on a durable failure, without — the commit that makes it
+    // true. The question it was really asking is whether there is anything to
+    // clear, and that is a read.
+    const clearedInMemory = session?.offer !== undefined
     // The DURABLE row can outlive the in-memory offer, so memory alone cannot
     // answer "is there anything to clear". It happens for real: `listOffers`
     // DROPS a row whose `actions` JSON is corrupt (store/sessions.ts, "corrupt
@@ -119,7 +127,13 @@ export class SessionMetaOps {
     // than a bare DELETE plus a dirty mark also keeps the two from being able to
     // disagree: a rolled-back commit cannot leave the row deleted, and the
     // session's captured durable state is refreshed in the same breath.
-    this.ports.repository.persist(session, () => this.ports.store.sessions.clearOffer(sessionId))
+    this.ports.repository.write(
+      session,
+      (draft: SessionDurableState) => {
+        draft.offer = undefined
+      },
+      () => this.ports.store.sessions.clearOffer(sessionId),
+    )
     this.ports.broadcastSessions()
   }
 
@@ -224,12 +238,15 @@ export class SessionMetaOps {
 
   /** Set (or clear with null) a session's explicit issue attachment. */
   setSessionIssueId(sessionId: SessionId, issueId: IssueId | null): void {
-    this.mutateSessionMeta(sessionId, (session) => {
-      session.issueId = issueId ?? undefined
+    this.mutateSessionMeta(sessionId, (draft) => {
+      draft.issueId = issueId ?? undefined
       // Naming point (#474): the first attach on a still-unnamed session brands
       // it with that issue's letter. A detach (null) is NOT a naming point —
       // the session stays unnamed rather than getting a spurious DRAFT ordinal.
-      if (issueId) return this.ports.view.prepareRefAllocation(session)
+      //
+      // THE DRAFT, not the session: the attachment this decides on is the one
+      // assigned one line above, and it exists nowhere else until the commit.
+      if (issueId) return this.ports.view.prepareRefAllocation(draft)
     })
   }
 
@@ -241,8 +258,8 @@ export class SessionMetaOps {
   /** Restamp the session's cwd after a hopscotch start minted a new checkout. */
   setSessionCwd(sessionId: SessionId, cwd: string): void {
     if (!cwd) return
-    this.mutateSessionMeta(sessionId, (session) => {
-      session.cwd = cwd
+    this.mutateSessionMeta(sessionId, (draft) => {
+      draft.cwd = cwd
     })
   }
 
@@ -320,13 +337,21 @@ export class SessionMetaOps {
    * mutation (rename/archive/read/issue attachment/work state) goes through
    * here instead of hand-rolling persist+broadcast.
    */
-  mutateSessionMeta(sessionId: SessionId, write: (session: Session) => void | (() => void)): void {
+  mutateSessionMeta(
+    sessionId: SessionId,
+    write: (draft: SessionDurableState) => void | (() => void),
+  ): void {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return
+    // THE CALLBACK GETS A DRAFT [POD-3330], not the live session. Every field a
+    // caller assigns here lands on a copy that only this write can see, and the
+    // copy is installed on the live object after the commit returns — so a
+    // second writer committing inside this span can no longer capture these
+    // fields off the shared object and make somebody else's half-finished
+    // change durable.
     this.ports.funnel.run({
       write: () => {
-        const additionalWrite = write(session)
-        this.ports.repository.persist(session, additionalWrite ?? undefined)
+        this.ports.repository.write(session, write)
       },
     })
     this.ports.broadcastSessions()

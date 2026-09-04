@@ -203,6 +203,12 @@ function harness(
     nativeViewActive: () => nativeView,
     now: () => Date.now(),
     persist,
+    // The draft seam [POD-3330]: a real `write` applies the mutation to a draft
+    // and installs it on the session once the commit returns, so what a fixture
+    // has to reproduce is the mutation landing on the session. Deliberately NOT
+    // routed through `persist`: the assertions below distinguish the durable
+    // write this method makes from the ones its callees make.
+    write: (session, mutate) => mutate(session as never),
     broadcast,
     // THE REAL MANIFEST LOOKUPS, NOT STUBS — for these three as well now
     // (POD-2823). The comment below has always said a stubbed table lets the

@@ -71,7 +71,7 @@ export type HandoffTransferPorts = Pick<
   HandoffPorts,
   | 'rpc'
   | 'listSessions'
-  | 'persist'
+  | 'write'
   | 'broadcastSessions'
   | 'onSessionGone'
   | 'toMachine'
@@ -113,9 +113,10 @@ export class HandoffTransfer {
       session.status === 'starting' ||
       session.status === 'reconnecting'
     if (wasRunning) {
-      session.status = 'hibernated'
       this.ports.onSessionGone(session.sessionId)
-      this.ports.persist(session)
+      this.ports.write(session, (draft) => {
+        draft.status = 'hibernated'
+      })
       this.ports.toMachine(source.machineId, { type: 'kill', sessionId: session.sessionId })
       this.ports.broadcastSessions()
       await this.ports.sleep(SOURCE_RELEASE_MS)
@@ -257,11 +258,19 @@ export class HandoffTransfer {
         throw new Error(finalizedTarget.error ?? 'target binding finalize failed')
       }
 
-      session.handoffTarget = undefined
-      session.machineId = asMachineId(input.machineId)
-      session.cwd = imported.newCwd
-      session.status = 'hibernated'
-      this.ports.persist(session)
+      // THE RE-HOMING IS ONE DRAFTED WRITE [POD-3330]. Placement, path and
+      // status describe one session in one place, and until the row says so a
+      // reader that saw the new machine with the old cwd would be reading a
+      // session that exists on neither side of the move. The draft is cut HERE,
+      // after every await this method makes, rather than carried across them
+      // (spec rule 26).
+      const newCwd = imported.newCwd
+      this.ports.write(session, (draft) => {
+        draft.handoffTarget = undefined
+        draft.machineId = asMachineId(input.machineId)
+        draft.cwd = newCwd
+        draft.status = 'hibernated'
+      })
       // The import just ran `git worktree add` on the target, so `imported.newCwd`
       // names a worktree no client has ever scanned. Clients only re-fetch repos on
       // boot / a machine coming online / this invalidation, and the handoff gate
@@ -341,13 +350,14 @@ export class HandoffTransfer {
           source.machineId,
         )
       }
-      session.handoffTarget = undefined
-      session.machineId =
-        sourceCommitted || targetWins ? asMachineId(input.machineId) : source.machineId
-      session.cwd =
-        sourceCommitted || targetWins ? (importedLocation?.newCwd ?? session.cwd) : source.cwd
-      session.status = 'hibernated'
-      this.ports.persist(session)
+      this.ports.write(session, (draft) => {
+        draft.handoffTarget = undefined
+        draft.machineId =
+          sourceCommitted || targetWins ? asMachineId(input.machineId) : source.machineId
+        draft.cwd =
+          sourceCommitted || targetWins ? (importedLocation?.newCwd ?? draft.cwd) : source.cwd
+        draft.status = 'hibernated'
+      })
       if (!sourceCommitted && !targetWins) {
         const rollback = await this.ports.resurrectSession({
           sessionId: session.sessionId,

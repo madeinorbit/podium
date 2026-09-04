@@ -12,7 +12,7 @@ import {
   titleFromPrompt,
 } from '../../title-filter'
 import type { SessionBindingReceipts } from './session-binding'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 
 export type SessionProjectionDaemonFrame = Extract<
   SessionsDaemonFrame,
@@ -36,7 +36,14 @@ export interface SessionDaemonProjectionPorts {
     input: { commits?: string[]; touched?: string[] },
   ): void
   binding: SessionBindingReceipts
+  /** Persist a session whose durable half this pass did not change. */
   persist(session: Session): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(session: Session, mutate: (draft: SessionDurableState) => void): void
+  /** A draft for the sites that must ask "did this actually change?" before
+   *  deciding to write at all. */
+  draft(session: Session): SessionDurableState
+  persistDraft(session: Session, draft: SessionDurableState): void
   broadcastSessions(): void
   broadcastToClients(message: LiveServerMessage): void
   transcriptDelta(sessionId: SessionId, items: TranscriptItem[], reset?: boolean): void
@@ -72,26 +79,38 @@ export class SessionDaemonProjection {
 
   handle(machineId: MachineId, message: SessionProjectionDaemonFrame): void {
     switch (message.type) {
+      // The three sightings below all ASK before they write [POD-3330]: the
+      // setter answers whether the value actually moved, and only then is there
+      // anything to persist. The draft is where the answer is computed, so a
+      // sighting that changes nothing leaves the live session untouched exactly
+      // as it did before, and one that does is on the object only once its row
+      // says so.
       case 'agentColor': {
         const session = this.ports.sessions.get(message.sessionId)
-        if (session?.setAgentColor(message.color)) {
-          this.ports.persist(session)
+        if (!session) break
+        const draft = this.ports.draft(session)
+        if (session.setAgentColor(message.color, draft)) {
+          this.ports.persistDraft(session, draft)
           this.ports.broadcastSessions()
         }
         break
       }
       case 'agentModel': {
         const session = this.ports.sessions.get(message.sessionId)
-        if (session?.setObservedModel(message.model, message.effort)) {
-          this.ports.persist(session)
+        if (!session) break
+        const draft = this.ports.draft(session)
+        if (session.setObservedModel(message.model, message.effort, draft)) {
+          this.ports.persistDraft(session, draft)
           this.ports.broadcastSessions()
         }
         break
       }
       case 'agentContext': {
         const session = this.ports.sessions.get(message.sessionId)
-        if (session?.setContextUsagePercent(message.percent)) {
-          this.ports.persist(session)
+        if (!session) break
+        const draft = this.ports.draft(session)
+        if (session.setContextUsagePercent(message.percent, draft)) {
+          this.ports.persistDraft(session, draft)
           this.ports.broadcastSessions()
         }
         break
@@ -110,8 +129,9 @@ export class SessionDaemonProjection {
           // even when the durable title already matches.
           if (!isGenericClaudeTitle(title)) session.titleLocked = true
           if (session.title !== title) {
-            session.setTitle(title)
-            this.ports.persist(session)
+            this.ports.write(session, (draft) => {
+              session.setTitle(title, draft)
+            })
           }
         }
         this.publishTitle(message.sessionId, title)
@@ -124,8 +144,10 @@ export class SessionDaemonProjection {
         const session = this.ports.sessions.get(message.sessionId)
         if (!session || session.machineId !== machineId) break
         if (message.cwd && session.cwd !== message.cwd) {
-          session.cwd = message.cwd
-          this.ports.persist(session)
+          const cwd = message.cwd
+          this.ports.write(session, (draft) => {
+            draft.cwd = cwd
+          })
           this.ports.broadcastSessions()
         }
         if (message.cwd && session.issueId)
@@ -146,6 +168,12 @@ export class SessionDaemonProjection {
             ...(message.tail !== undefined ? { tail: message.tail } : {}),
           })
         ) {
+          // A PLAIN PERSIST, deliberately [POD-3330]: what moved is the LIVE
+          // half — the terminal adopted the delta and, through its own
+          // callback, promoted `transcriptAvailable` and the conversation
+          // binding on the session itself. Nothing in this span assigned a
+          // durable field, so the row restates what the live object already
+          // says rather than carrying a write of its own.
           this.ports.persist(session)
           this.ports.broadcastSessions()
         }
@@ -161,9 +189,10 @@ export class SessionDaemonProjection {
             )
           const title = firstUser ? titleFromPrompt(firstUser.text) : undefined
           if (title) {
-            session.setTitle(title)
             session.titleLocked = true
-            this.ports.persist(session)
+            this.ports.write(session, (draft) => {
+              session.setTitle(title, draft)
+            })
             this.publishTitle(message.sessionId, title)
           }
         }

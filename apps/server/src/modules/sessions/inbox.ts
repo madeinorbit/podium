@@ -42,7 +42,7 @@ import type { SessionInputGatewayPort } from '../../gateway/daemon-ports'
 import type { HarnessComposerReadiness, HarnessInterrupt } from '../../harness-manifest'
 import { injectionPayload } from './paste'
 import type { ConfigureOutcome } from './runtime-gateway'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 import type { ViewportRequest } from './terminal'
 
 /**
@@ -285,6 +285,12 @@ export interface SessionInboxDeps {
   attention: InboxAttentionPort
   now(): number
   persist(session: Session, options?: { cancelTerminalCandidate?: boolean }): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(
+    session: Session,
+    mutate: (draft: SessionDurableState) => void,
+    options?: { cancelTerminalCandidate?: boolean },
+  ): void
   broadcast(): void
   needsSubmitVerification(agentKind: AgentKind): boolean
   usesRawFirstTurn(agentKind: AgentKind): boolean
@@ -975,6 +981,14 @@ export class SessionInbox {
        * this pair is: a configure to the model the session is already on changes
        * nothing, and a write plus a fan-out per no-op is cost with no news in it.
        */
+      // NOT YET DRAFTED [POD-3330], and the reason is a test rather than an
+      // argument: `inbox.test.ts` pins this site's durable write by asserting
+      // on `persist` being called with the session (and on it NOT being called
+      // in the two refusal arms, which a rename would make pass vacuously).
+      // Spec rule 21 says a conversion commit does not rewrite an existing
+      // assertion, so this site waits on the coordinator's ruling. It is the
+      // ONLY session write path left assigning a durable field to the live
+      // object before its commit.
       const changed = session.setRequestedModel({
         ...(input.model !== undefined ? { model: input.model } : {}),
         ...(input.effort !== undefined ? { effort: input.effort } : {}),
@@ -1019,8 +1033,9 @@ export class SessionInbox {
       return verification
     }
     this.deps.queue.delete(head.id)
-    session.queuedMessageCount = Math.max(0, session.queuedMessageCount - 1)
-    this.deps.persist(session)
+    this.deps.write(session, (draft) => {
+      draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
+    })
     this.deps.broadcast()
     this.deps.authorization.interrupted?.({
       sourceMessageId: head.sourceMessageId,
@@ -1085,8 +1100,13 @@ export class SessionInbox {
     })
     if (inserted) {
       if (input.allowErrored) this.recoveryDrains.add(input.sessionId)
-      session.queuedMessageCount += 1
-      this.deps.persist(session, { cancelTerminalCandidate: true })
+      this.deps.write(
+        session,
+        (draft) => {
+          draft.queuedMessageCount += 1
+        },
+        { cancelTerminalCandidate: true },
+      )
       this.deps.prepareSend(
         input.sessionId,
         principal.attribution,
@@ -1134,9 +1154,12 @@ export class SessionInbox {
       .filter((row) => row.sourceMessageId === sourceMessageId)
     if (matches.length === 0) return false
     for (const row of matches) this.deps.queue.delete(row.id)
-    session.queuedMessageCount = Math.max(0, session.queuedMessageCount - matches.length)
-    if (session.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
-    this.deps.persist(session)
+    this.deps.write(session, (draft) => {
+      draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - matches.length)
+      // Read off the DRAFT [POD-3330]: this asks what the count will BE, and
+      // until the commit returns the live session still carries the old one.
+      if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(session.sessionId)
+    })
     this.deps.broadcast()
     return true
   }
@@ -1250,9 +1273,10 @@ export class SessionInbox {
     const removeHead = (current: Session, id: string): void => {
       if (!isCurrent()) return
       this.deps.queue.delete(asSessionId(id))
-      current.queuedMessageCount = Math.max(0, current.queuedMessageCount - 1)
-      if (current.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
-      this.deps.persist(current)
+      this.deps.write(current, (draft) => {
+        draft.queuedMessageCount = Math.max(0, draft.queuedMessageCount - 1)
+        if (draft.queuedMessageCount === 0) this.recoveryDrains.delete(current.sessionId)
+      })
       this.deps.broadcast()
     }
     /** The head is done with — settle its ledger receipt and move on. */

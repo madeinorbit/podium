@@ -244,7 +244,7 @@ export class SessionRevival {
       rehomeIssue: (issueId, where) => issues.rehome(issueId, where),
       ensureTargetRepo: (sourceRepo, targetMachineId) =>
         this.ports.workspace.ensureTargetRepo(sourceRepo, targetMachineId),
-      persist: (session) => this.ports.repository.persist(session),
+      write: (session, mutate) => this.ports.repository.write(session, mutate),
       mutateSessionView: (sessionId, mutate) => {
         this.ports.repository.mutateSessionView(sessionId, mutate)
       },
@@ -358,23 +358,28 @@ export class SessionRevival {
     // boundary after it resolves so an archive racing the ensure cannot spawn.
     if (session.archived) return { ok: false, reason: 'session is archived' }
     if (!ensured.ok) return { ok: false, reason: ensured.reason }
-    if (ensured.cwd && ensured.cwd !== session.cwd) {
-      session.cwd = ensured.cwd
-    }
+    // THE CWD IS A VALUE HERE AND A DRAFT FIELD AT THE WRITE [POD-3330]. It is
+    // read back twice before this method's own write — by the instruction
+    // preparation below and by the spawn frame after it — and the ensure that
+    // produced it may have been AWAITED, so hoisting it is what keeps the draft
+    // from having to span that suspension (spec rule 26).
+    const cwd = ensured.cwd || session.cwd
 
     const preparedInstructions = this.ports.instructionsForStart({
       sessionId,
-      cwd: session.cwd,
+      cwd,
       agentKind: session.agentKind,
       ...(session.issueId ? { issueId: session.issueId } : {}),
       existingOnly: true,
     })
-    session.status = 'starting'
-    session.exitCode = undefined
-    // Waking a session resets its hibernation idle timer — otherwise a stale
-    // lastActiveAt makes it immediately eligible to be parked again.
-    session.markResumed()
-    this.ports.repository.persist(session)
+    this.ports.repository.write(session, (draft) => {
+      draft.cwd = cwd
+      draft.status = 'starting'
+      draft.exitCode = undefined
+      // Waking a session resets its hibernation idle timer — otherwise a stale
+      // lastActiveAt makes it immediately eligible to be parked again.
+      session.markResumed(draft)
+    })
     const observationLease = this.ports.terminalProof.fence(session)
     this.ports.toMachine(session.machineId, {
       type: 'spawn',

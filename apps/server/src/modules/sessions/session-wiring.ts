@@ -51,7 +51,7 @@ import {
 import { type IssueMailNudgeEvent, nudgeIssueMail } from './issue-mail-nudge'
 import { SessionLaunchConfig } from './launch-config'
 import type { SessionLifecycle, SessionLifecycleDeps } from './lifecycle'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 
 type QueuedMessageRow = ReturnType<SyncRepository['listQueuedMessages']>[number]
 
@@ -139,7 +139,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     rebindHeadless: (session) => bag.rebindHeadless(session),
     markVolatileSessionDirty: (sessionId, fields) =>
       bag.repository.markVolatileSessionDirty(sessionId, fields),
-    persist: (session) => bag.repository.persist(session),
+    write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
   })
   // Emergency rollback for the bridge rollout; sampled once at composition.
@@ -174,7 +174,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     sessions: () => bag.sessions.values(),
     session: (sessionId) => bag.sessions.get(sessionId),
     sessionOwner: (sessionId) => bag.sessionOwner(sessionId),
-    persist: (session) => bag.repository.persist(session),
+    write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
   })
@@ -187,6 +187,9 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     },
     binding: bag.bindingReceipts,
     persist: (session) => bag.repository.persist(session),
+    write: (session, mutate) => bag.repository.write(session, mutate),
+    draft: (session) => bag.repository.draft(session),
+    persistDraft: (session, draft) => bag.repository.persistDraft(session, draft),
     broadcastSessions: () => bag.broadcastSessions(),
     broadcastToClients: (message) => bag.broadcastToClients(message),
     transcriptDelta: (sessionId, items, reset) =>
@@ -233,8 +236,12 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       const session = bag.sessions.get(sessionId)
       if (session) bag.repository.persist(session, additionalWrite)
     },
+    writeSession: (sessionId, mutate) => {
+      const session = bag.sessions.get(sessionId)
+      if (session) bag.repository.write(session, mutate)
+    },
     mutateSession: (sessionId, mutate) => {
-      bag.mutateSessionMeta(sessionId, (session: Session) => mutate(session))
+      bag.mutateSessionMeta(sessionId, (draft: SessionDurableState) => mutate(draft))
     },
     broadcastSessions: () => bag.broadcastSessions(),
     broadcastToClients: (message, options) => bag.broadcastToClients(message, options),
@@ -333,6 +340,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     nextRequestId: (prefix) => bag.rpc.nextRequestId(prefix),
     defaultGeometry: () => ({ ...DEFAULT_GEOMETRY }),
     persist: (session) => bag.persist(session),
+    write: (session, mutate) => bag.repository.write(session, mutate),
     broadcastSessions: () => bag.broadcastSessions(),
     clients: () => bag.clients.values(),
   })
@@ -435,6 +443,14 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persist: (session, options) =>
       bag.repository.persist(
         session,
+        options?.cancelTerminalCandidate
+          ? () => bag.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
+          : undefined,
+      ),
+    write: (session, mutate, options) =>
+      bag.repository.write(
+        session,
+        mutate,
         options?.cancelTerminalCandidate
           ? () => bag.store.observationCheckpoints.cancelTerminalCandidate(session.sessionId)
           : undefined,
@@ -661,6 +677,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       if (!session) throw new Error(`runtime event session disappeared: ${sessionId}`)
       bag.repository.persist(session, additionalWrite)
     },
+    write: (sessionId, mutate, additionalWrite) => {
+      const session = bag.sessions.get(sessionId)
+      if (!session) throw new Error(`runtime event session disappeared: ${sessionId}`)
+      // The transaction body runs against the SAME draft [POD-3330] — the state
+      // projection below writes the session from inside it, and the row is built
+      // from the draft, so a projection that assigned onto the live object would
+      // commit an event whose session write never reached the row.
+      bag.repository.write(session, (draft: SessionDurableState) => {
+        mutate(draft)
+        return () => additionalWrite(draft)
+      })
+    },
     board: (event) => bag.bus.emitDurable('issue.runtimeDerived', event),
     // DEFERRED READ, on the same terms as `runtimeInteractions.ask` below: the
     // interactions aggregate is built by the composition root after this
@@ -670,18 +698,18 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     // server is serving.
     turn: (input) => bag.interactionTurn?.(input),
     interaction: (input) => bag.interactionResolved?.(input),
-    state: ({ sessionId, change, at }) => {
+    state: ({ sessionId, change, at, draft }) => {
       const session = bag.sessions.get(sessionId)
       if (!session) return undefined
-      const prev = session.agentState
+      const prev = draft.agentState
       const base = prev ?? initialAgentState(at)
       const next = reduceAgentState(base, change as AgentStateEvent, at)
       if (next === base) return undefined
       // Keep the legacy accumulator rules for workingMsTotal, but do not let
       // this causal projection advance recency: recordRuntimeActivity already
       // owns that fact for the same event envelope.
-      session.setAgentState(next, false)
-      return { prev, next: session.agentState ?? next }
+      session.setAgentState(next, false, draft)
+      return { prev, next: draft.agentState ?? next }
     },
     stateChanged: ({ sessionId, prev, next }) => {
       const session = bag.sessions.get(sessionId)
@@ -808,6 +836,11 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     memory: bag.deps.memory,
     observationLeases: bag.observationLeases,
     persist: (session, additionalWrite) => bag.repository.persist(session, additionalWrite),
+    write: (session, mutate, additionalWrite) =>
+      bag.repository.write(session, mutate, additionalWrite),
+    draft: (session) => bag.repository.draft(session),
+    persistDraft: (session, draft, additionalWrite) =>
+      bag.repository.persistDraft(session, draft, additionalWrite),
     broadcastSessions: () => bag.broadcastSessions(),
     onSessionActivity: (sessionId) =>
       bag.bus.emit('issue.sessionDerived', { kind: 'activity', sessionId }),
@@ -819,8 +852,8 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       bag.emitSessionExited(sessionId, code, spawnedBy),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     now: () => bag.now(),
-    terminalCandidateFacts: (session, lease, checkpoint) =>
-      bag.terminalProof.facts(session, lease, checkpoint),
+    terminalCandidateFacts: (session, lease, checkpoint, draft) =>
+      bag.terminalProof.facts(session, lease, checkpoint, draft),
     broadcastToClients: (message) => bag.broadcastToClients(message),
     clearOffer: (sessionId) => bag.clearOffer(sessionId),
     // Liveness repair belongs to the reconciler (POD-1953) — the module whose

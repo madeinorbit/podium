@@ -27,7 +27,7 @@
 
 import type { SessionId } from '@podium/model'
 import { MAX_AGENT_TITLE_LENGTH } from '@podium/protocol'
-import type { Session } from './session'
+import type { Session, SessionDurableState } from './session'
 
 export type AgentNameResult = { ok: true; name: string } | { ok: false; reason: string }
 
@@ -56,8 +56,11 @@ export interface SessionNamingPorts {
    * Apply a metadata write inside the write funnel, persist it, and broadcast.
    * Both paths go through this one seam so a name change can never persist
    * without the broadcast that makes it visible.
+   *
+   * The write is handed a DRAFT of the durable half [POD-3330]; what it assigns
+   * becomes visible on the live session when the commit returns.
    */
-  mutate(sessionId: SessionId, write: (session: Session) => void | (() => void)): void
+  mutate(sessionId: SessionId, write: (draft: SessionDurableState) => void | (() => void)): void
 }
 
 export class SessionNaming {
@@ -69,10 +72,10 @@ export class SessionNaming {
    * {@link setAgentName} refuses against it forever after.
    */
   rename({ sessionId, name }: { sessionId: SessionId; name: string }): void {
-    this.ports.mutate(sessionId, (session) => {
+    this.ports.mutate(sessionId, (draft) => {
       const clean = name.trim()
-      session.name = clean
-      session.nameSource = clean ? 'user' : undefined
+      draft.name = clean
+      draft.nameSource = clean ? 'user' : undefined
     })
   }
 
@@ -101,9 +104,9 @@ export class SessionNaming {
         reason: `this session was named by the user ("${session.name}") — an agent cannot rename it`,
       }
     }
-    this.ports.mutate(sessionId, (s) => {
-      s.name = norm.name
-      s.nameSource = 'agent'
+    this.ports.mutate(sessionId, (draft) => {
+      draft.name = norm.name
+      draft.nameSource = 'agent'
     })
     return { ok: true, name: norm.name }
   }

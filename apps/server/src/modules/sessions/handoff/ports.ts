@@ -43,7 +43,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import type { CommandPrincipal } from '../../../command-principal'
 import type { Capability } from '../../../issue-authz'
 import type { HandoffStageToken } from '../handoff-transfer'
-import type { Session } from '../session'
+import type { Session, SessionDurableState } from '../session'
 
 /**
  * The harnesses a bundle can carry, DERIVED from the manifest rather than
@@ -216,7 +216,8 @@ export interface HandoffPorts {
   issueMeta(issueId: IssueId): HandoffIssue | undefined
   rehomeIssue(issueId: IssueId, where: IssueRehomeTarget): void
   ensureTargetRepo(sourceRepo: HandoffRepo, targetMachineId: MachineId): Promise<{ path: string }>
-  persist(session: Session): void
+  /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
+  write(session: Session, mutate: (draft: SessionDurableState) => void): void
   mutateSessionView(sessionId: SessionId, mutate: (session: Session) => void): void
   broadcastSessions(): void
   /** Cancel any armed auto-continue for a session that is about to stop. */
