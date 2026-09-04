@@ -1398,8 +1398,10 @@ root. That is narrow enough to lint for and the lint is owed before the flip.
 
 ### Rule 36 — a `sql` fragment in the SELECT LIST of a join-free query loses its table qualifier
 
-[Found by POD-3398 converting workflows.ts. Independently reproduced with a WRONG VALUE by POD-3397.
-Trigger isolated by POD-3396. Verified by the coordinator against drizzle's source and all six
+[Found by POD-3398 converting workflows.ts, where every workflow reported `latestVersion` 0. POD-3397
+reproduced it independently with a WRONG VALUE, identified the trigger as POSITION rather than
+correlation, and verified the `sql.identifier` fix. POD-3396 named the mechanism in drizzle's source,
+isolated the join-free condition, and found the composition subtlety below. Verified by the coordinator against drizzle's source and all six
 positions, after a first attempt that tested the WRONG position and found nothing. The most dangerous
 class in this epic: silent, valid SQL, plausible answer.]
 
