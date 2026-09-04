@@ -172,7 +172,7 @@ export interface AnalysisResult {
   readonly unclassified: ReadonlyMap<string, readonly SpanRoot[]>
   /** Openers the table declares that resolved to nothing in this program. */
   readonly deadOpeners: readonly string[]
-  /** `transact`/`transaction`-named declarations neither table names. */
+  /** Transaction-opener declarations that neither table names. */
   readonly uncoveredOpeners: readonly SourceSite[]
   /**
    * Span openers whose body argument is a VALUE, not a written-down function —
@@ -267,20 +267,20 @@ export const SPAN_OPENERS: readonly OpenerSpec[] = [
     // NOT_A_SPAN_OPENER because a package cannot name the server's binding, so
     // this declaration is the only place the call site can be recognised from.
     file: 'packages/sync/src/adapters/sqlite/store-queries.ts',
-    symbol: 'transact',
+    symbol: 'createOrJoinTransaction',
     body: 'arg0',
-    label: 'SyncQueries.transact',
+    label: 'StoreQueries.createOrJoinTransaction',
   },
   {
-    // The SERVER's own SyncQueries.transact — the structural twin of the entry
-    // above, and unnamed until now. POD-3416 found it while declaring its port:
+    // The SERVER's own StoreQueries.createOrJoinTransaction —
+    // the structural twin of the entry above, and unnamed until now. POD-3416 found it while declaring its port:
     // it is the same shape, on the same connection, and the only reason the sync
     // one was declared first is that a package cannot name the server's binding.
     // Mine had no such excuse.
     file: 'apps/server/src/store/executor/sync-drizzle.ts',
-    symbol: 'transact',
+    symbol: 'createOrJoinTransaction',
     body: 'arg0',
-    label: 'SyncQueries.transact (server)',
+    label: 'StoreQueries.createOrJoinTransaction (server)',
   },
   {
     file: 'packages/sync/src/authority/ports.ts',
@@ -507,11 +507,11 @@ export const PORT_CAPABILITIES: Readonly<Record<string, PortRule>> = {
   },
   /* --- the sync adapter's narrow port over the store's query capability
          [POD-3338 for the port, POD-3416 for what it carries] --------------- */
-  'packages/sync/src/adapters/sqlite/store-queries.ts#SyncQueries.transact': {
+  'packages/sync/src/adapters/sqlite/store-queries.ts#StoreQueries.createOrJoinTransaction': {
     kind: 'contained',
-    why: "the sync adapter's port over the store's transaction. The server's implementation is the nesting-safe runtime helper over the SAME connection the composition root's own spans run on, so this OPENS a unit of work or degrades to a savepoint inside one; it performs no effect of its own and nothing outside the process can tell it ran until the outermost commit. Declared separately from the server's `SyncQueries` only because a package may not import an app.",
+    why: "the sync adapter's port over the store's transaction. The server's implementation is the nesting-safe runtime helper over the SAME connection the composition root's own spans run on, so this OPENS a unit of work or degrades to a savepoint inside one; it performs no effect of its own and nothing outside the process can tell it ran until the outermost commit. Declared separately from the server's `StoreQueries` only because a package may not import an app.",
   },
-  'apps/server/src/store/executor/sync-drizzle.ts#SyncQueries.transact': {
+  'apps/server/src/store/executor/sync-drizzle.ts#StoreQueries.createOrJoinTransaction': {
     kind: 'contained',
     why: "the store's own synchronous span, and the twin of the sync adapter's port above. It runs the nesting-safe runtime helper over the executor's connection, so it OPENS a unit of work or degrades to a savepoint inside one; it performs no effect of its own and nothing outside the process can tell it ran until the outermost commit.",
   },
@@ -1222,7 +1222,9 @@ export function analyze(program: ts.Program, options: AnalyzeOptions): AnalysisR
           ts.isTypeAliasDeclaration(node)) &&
         node.name &&
         ts.isIdentifier(node.name) &&
-        (node.name.text === 'transact' || node.name.text === 'transaction')
+        (node.name.text === 'createOrJoinTransaction' ||
+          node.name.text === 'transact' ||
+          node.name.text === 'transaction')
       ) {
         const site = siteOf(node, repoRoot)
         const key = `${site.file}#${node.name.text}`

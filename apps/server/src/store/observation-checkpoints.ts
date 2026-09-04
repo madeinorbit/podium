@@ -7,7 +7,7 @@ import {
   sessionObservationRebinds,
   sessionTerminalCandidates,
 } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import type {
   ObservationLeaseRecord,
   TerminalCandidateFacts,
@@ -80,7 +80,13 @@ type LeaseSelect = Pick<
 
 /** Durable causal observer leases and checkpoints [spec:SP-cdb2]. */
 export class ObservationCheckpointsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -91,20 +97,8 @@ export class ObservationCheckpointsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /**
-   * The synchronous span this file used to get from the runtime helper directly,
-   * routed through the store's port so the executor knows the span exists.
-   *
-   * AN ARROW FIELD, not `this.transact = queries.transact` [spec rule 34a,
-   * POD-3396's finding]. Assigning it across works only while the implementation
-   * ignores its own `this` — which today's closure does and rule 35's adapter
-   * over drizzle's transaction will not. It would then break as a detached
-   * method, silently. One closure per instance is the price.
-   */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   private mapRow(r: LeaseSelect): ObservationLeaseRecord | null {
     const provider = ObservationProvider.safeParse(r.provider)
@@ -213,7 +207,7 @@ export class ObservationCheckpointsRepository {
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     providerSessionId: string | null,
   ): ObservationLeaseRecord {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const updatedAt = new Date().toISOString()
       this.db
         .insert(sessionObservationCheckpoints)
@@ -292,7 +286,7 @@ export class ObservationCheckpointsRepository {
     /** UNBRANDED BY DECISION: a provider/harness-native session id, not a Podium SessionId. */
     nextProviderSessionId: string
   }): ObservationRebindResult {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const current = this.read(input.sessionId)
       if (!current) throw new Error(`missing observation lease for ${input.sessionId}`)
       if (current.provider !== input.provider) {
@@ -522,7 +516,7 @@ export class ObservationCheckpointsRepository {
     livePollSequence: number,
     at: string,
   ): 'recorded' | 'confirmed' | 'unchanged' | 'rehabilitated' {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const current = this.getTerminalCandidate(facts.sessionId)
       if (current?.consumedAt) {
         if (facts.observerGeneration <= current.facts.observerGeneration) return 'unchanged'
@@ -575,7 +569,7 @@ export class ObservationCheckpointsRepository {
    * repaint counters may advance; every causal/work fact must remain identical.
    */
   renewTerminalCandidate(facts: TerminalCandidateFacts, at: string): boolean {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const current = this.getTerminalCandidate(facts.sessionId)
       if (
         !current?.confirmedAt ||

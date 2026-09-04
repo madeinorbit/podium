@@ -37,7 +37,7 @@ import type {
 } from '@podium/protocol'
 import { and, asc, desc, eq, lt, ne, sql } from 'drizzle-orm'
 import { pendingInteractions } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** One stored ask. The JSON columns are parsed on the way out, so callers get
  *  the wire shape and never a string. */
@@ -127,7 +127,13 @@ function toRow(r: InteractionSelect): InteractionRow {
 }
 
 export class InteractionsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -138,7 +144,7 @@ export class InteractionsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /**

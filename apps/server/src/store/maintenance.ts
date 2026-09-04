@@ -1,7 +1,7 @@
 import { MaintenanceCommandReply, type MaintenanceCommandReply as Reply } from '@podium/protocol'
 import { and, asc, eq, inArray, lt, sql } from 'drizzle-orm'
 import { maintenanceCommands, maintenanceLeases } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export interface MaintenanceLeaseRow {
   name: string
@@ -15,7 +15,13 @@ export interface MaintenanceLeaseRow {
 
 /** Server-owned durable fence and maintenance idempotency ledger [spec:SP-c29e]. */
 export class MaintenanceRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -26,7 +32,7 @@ export class MaintenanceRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   getLease(name: string): MaintenanceLeaseRow | undefined {

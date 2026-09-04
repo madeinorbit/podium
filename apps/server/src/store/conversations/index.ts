@@ -1,18 +1,23 @@
 import { asMachineId, type MachineId } from '@podium/model'
 import { eq, isNotNull, or, sql } from 'drizzle-orm'
 import { conversations } from '../../migrations/schema'
-import type { SyncQueries } from '../executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
   constructor(
-    private readonly queries: SyncQueries,
+    queries: StoreQueries,
     /** This host's minted machine id — the machine a row this repository has to
      *  CONJURE belongs to. See {@link setMeta}. */
     private readonly hostMachineId: MachineId,
-  ) {}
+  ) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query capability, INJECTED rather than reached for [spec rule 27b], and
@@ -21,18 +26,9 @@ export class ConversationIndexRepository {
    * every access, which a field assigned once in a constructor can never do — so
    * B1 changes the one line inside this getter and no call site below it.
    */
-  private get db(): SyncQueries['db'] {
-    return this.queries.db
+  private get db(): SyncDrizzle {
+    return this.rootDb
   }
-
-  /**
-   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
-   * The straight assignment works today only because `syncQueriesOver` returns a
-   * closure over the handle; it breaks the moment the implementation uses `this`
-   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
-   * detached method. One closure per instance is the price.
-   */
-  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Create the FTS5 index and the three triggers that keep it fed, then rebuild
@@ -102,7 +98,7 @@ export class ConversationIndexRepository {
    */
   upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): void {
     if (rows.length === 0) return
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const row of rows) {
         this.db
           .insert(conversations)
@@ -158,7 +154,7 @@ export class ConversationIndexRepository {
 
   delete(ids: string[]): void {
     if (ids.length === 0) return
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const id of ids) this.db.delete(conversations).where(eq(conversations.id, id)).run()
     })
   }

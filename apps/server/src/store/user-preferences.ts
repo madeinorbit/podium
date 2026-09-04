@@ -48,7 +48,7 @@
 import { settingsPathsInTier, type UserId } from '@podium/model'
 import { and, asc, eq } from 'drizzle-orm'
 import { userPreferences } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** The admissible keys, derived once. A `Set` for the membership test only — the
  *  ORDER and the CONTENT are the classification's, never this module's. */
@@ -63,12 +63,18 @@ const PERSONAL_PREFERENCE_KEYS: ReadonlySet<string> = new Set(
 export const isPersonalPreferenceKey = (key: string): boolean => PERSONAL_PREFERENCE_KEYS.has(key)
 
 export class UserPreferencesRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /**

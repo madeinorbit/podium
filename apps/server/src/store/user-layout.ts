@@ -25,10 +25,16 @@
 import { isLayoutKey, type LayoutSnapshot, type UserId } from '@podium/model'
 import { and, asc, eq } from 'drizzle-orm'
 import { userLayout } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export class UserLayoutRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * Rule 34a — `db` RESOLVES on every access rather than being frozen at
@@ -36,15 +42,8 @@ export class UserLayoutRepository {
    * change at B1 and no call site does.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /**
-   * Rule 34a — an arrow FIELD, not `this.transact = queries.transact`. The
-   * straight assignment works only while the implementation ignores `this`, and
-   * it stops working silently the moment it does not.
-   */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * One person's layout snapshot — every key they have set, as a plain map.
@@ -105,7 +104,7 @@ export class UserLayoutRepository {
         )
       }
     }
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const [key, value] of Object.entries(values)) {
         this.write(userId, key, value, updatedAt)
       }
@@ -140,7 +139,7 @@ export class UserLayoutRepository {
   }
 
   clearMany(userId: UserId, keys: readonly string[]): void {
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const key of keys) this.clear(userId, key)
     })
   }

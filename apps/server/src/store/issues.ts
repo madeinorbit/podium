@@ -44,7 +44,7 @@ import {
   issueUserState,
 } from '../migrations/schema'
 import { currentReadScope, readScopeSlot } from './executor/read-scope'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { parseStringArray, requireUserId } from './helpers'
 import { StaleIssueRevisionError } from './issue-revision'
 import type { IssueCommentRow, IssueMessageRow, IssueRow, StoredIssueUserState } from './types'
@@ -91,15 +91,20 @@ export class IssuesRepository {
     readonly rows: Map<string, IssueRow | null>
     disabled: boolean
   }>(() => ({ rows: new Map(), disabled: false }))
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
-    private readonly queries: SyncQueries,
+    queries: StoreQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
     private readonly resolveRepoIdForPath: (repoPath: string) => string,
-  ) {}
+  ) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
-   * The query layer. `SyncQueries` is wiring and is named here and nowhere else
+   * The query layer. `StoreQueries` is wiring and is named here and nowhere else
    * (spec rule 34), so a call site reads as a query.
    *
    * A GETTER, not a field (rule 34a): once transaction routing is ambient
@@ -107,19 +112,8 @@ export class IssuesRepository {
    * field frozen at construction could never do that. B1 changes this one line.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /**
-   * The store's transaction port — the two read-decide-write spans below.
-   *
-   * An ARROW FIELD rather than an assignment of `queries.transact`, which would
-   * work today only because `syncQueriesOver` returns an arrow closing over the
-   * handle. The moment the implementation uses `this` — which rule 35's adapter
-   * does — a detached method breaks SILENTLY. One closure per instance is the
-   * price.
-   */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** Every issue-row WRITE calls this BEFORE the write: the frame stops caching,
    *  and whatever it had already cached is dropped.
@@ -852,7 +846,7 @@ export class IssuesRepository {
     // The span covers the UPDATE loop only. The read and the planning above are
     // deliberately outside it, which is what keeps the write window short; a
     // conversion must not widen the span to cover them.
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (const u of updates) {
         this.db.update(issues).set({ seq: u.seq }).where(eq(issues.id, u.id)).run()
       }
@@ -925,7 +919,7 @@ export class IssuesRepository {
    * allocations can never mint the same `POD-13-A`.
    */
   allocateSessionLetter(issueId: IssueId): string {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const row = this.db
         .select({ nextIndex: issueRefLetters.nextIndex })
         .from(issueRefLetters)

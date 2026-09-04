@@ -18,7 +18,7 @@ import type {
 } from '@podium/model'
 import { and, asc, desc, eq, isNotNull, isNull, sql } from 'drizzle-orm'
 import { automationRuns, automations } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export type { AutomationRunOutcome } from '@podium/model'
 export type AutomationRow = AutomationWire & {
@@ -91,7 +91,13 @@ function rowToRun(r: AutomationRunSelect): AutomationRunRow {
 }
 
 export class AutomationsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * The query builder every method below reads through [spec rules 34, 34a].
@@ -102,7 +108,7 @@ export class AutomationsRepository {
    * line; no call site moves.
    */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   list(): AutomationRow[] {

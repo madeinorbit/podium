@@ -27,7 +27,7 @@
 import type { UserId } from '@podium/model'
 import { and, desc, eq, lte, sql } from 'drizzle-orm'
 import { clientSessions } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 export interface ClientSessionMetadata {
   sessionId?: string
@@ -51,7 +51,13 @@ export interface ClientSessionRow {
 }
 
 export class AuthRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * Rule 34a — `db` RESOLVES on every access rather than being frozen at
@@ -59,7 +65,7 @@ export class AuthRepository {
    * change at B1 and no call site does.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie

@@ -2,7 +2,7 @@ import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { ApprovalOp, ApprovalStatus } from '@podium/protocol'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { approvalRequests } from '../migrations/schema'
-import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** One approval-broker row [spec:SP-edbb] as stored (wire enrichment — machine
  *  name, issue seq/title — happens in the service layer). */
@@ -35,7 +35,13 @@ function toRow(r: ApprovalSelection): ApprovalRow {
 }
 
 export class ApprovalsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /**
    * Rule 34a — `db` RESOLVES on every access rather than being frozen at
@@ -43,7 +49,7 @@ export class ApprovalsRepository {
    * change at B1 and no call site does.
    */
   protected get db(): SyncDrizzle {
-    return this.queries.db
+    return this.rootDb
   }
 
   insert(row: {

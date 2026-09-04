@@ -33,7 +33,7 @@ import {
 } from '@podium/model'
 import { and, asc, desc, eq, gte, lt, sql } from 'drizzle-orm'
 import { quotaWindows } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** Quantisation behind the uniqueness constraint only — never an identity test. */
 const RESET_BUCKET_MS = 60_000
@@ -113,17 +113,19 @@ function toWire(row: Row, nowMs: number): QuotaWindowHistoryWire {
 }
 
 export class QuotaHistoryRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
-
-  /** An arrow field rather than an assignment, so the span helper keeps its `this`
-   *  when rule 35's adapter starts using one [POD-3221 spec rule 34a]. */
-  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Fold one sample into the ledger. Returns whether it opened a new window —
@@ -131,7 +133,7 @@ export class QuotaHistoryRepository {
    * that is worth a line in the log.
    */
   record(sample: QuotaSample, samplingIntervalMs: number): { openedWindow: boolean } {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       // The candidate is the newest window we hold for this series. A sample
       // older than it (backfill walking files out of order) is matched against it
       // anyway: `isSameInstance` compares reset times, not arrival order.

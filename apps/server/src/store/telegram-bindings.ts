@@ -33,7 +33,7 @@ import type { Attribution, TelegramChatBinding, UserId } from '@podium/model'
 import { asUserId } from '@podium/model'
 import { asc, eq } from 'drizzle-orm'
 import { telegramChatBindings } from '../migrations/schema'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 
 /** The stored row, as drizzle's own execution path maps it back. */
 type BindingRow = typeof telegramChatBindings.$inferSelect
@@ -93,12 +93,18 @@ function toBinding(r: BindingRow): TelegramChatBinding | undefined {
 }
 
 export class TelegramBindingsRepository {
-  constructor(private readonly queries: SyncQueries) {}
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
+
+  constructor(queries: StoreQueries) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
+  }
 
   /** The query builder, resolved on every access so B1 changes this line and nothing else
    *  [POD-3221 spec rule 34a]. */
   protected get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
   /** Every binding, for the resolver to answer over. Unreadable rows are omitted

@@ -12,7 +12,7 @@ import { derivePrefix, isValidPrefix } from '@podium/protocol'
 import { and, count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { repoDraftSeq, repoPrefixes, repos } from '../migrations/schema'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
-import type { SyncQueries } from './executor/sync-drizzle'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import type { TableWrites } from './table-writes'
 
 export function normalizeRepoPath(path: string): string {
@@ -80,9 +80,11 @@ export class ReposRepository {
     rows: RegistryRow[]
     prefixes: Map<string, string>
   } | null = null
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
 
   constructor(
-    private readonly queries: SyncQueries,
+    queries: StoreQueries,
     /** Issues-aggregate dual-write: stamp repoId onto issues under repoPath. */
     private readonly assignRepoIdToIssuesUnder: (repoId: RepoId, repoPath: string) => void,
     /** This host's minted machine id (`SessionStore.hostMachineId`) — the machine
@@ -93,6 +95,8 @@ export class ReposRepository {
      *  this class. */
     tableWrites: TableWrites,
   ) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
     for (const table of ['repos', 'repo_prefixes'])
       tableWrites.subscribe(table, () => this.invalidateRegistry())
   }
@@ -109,17 +113,9 @@ export class ReposRepository {
    * assigned once in a constructor cannot. B1 changes the line inside this getter
    * and nothing below it.
    */
-  private get db(): SyncQueries['db'] {
-    return this.queries.db
+  private get db(): SyncDrizzle {
+    return this.rootDb
   }
-
-  /**
-   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
-   * The straight assignment works today only because `syncQueriesOver` returns a
-   * closure over the handle; it breaks the moment the implementation uses `this`,
-   * and it breaks SILENTLY, as a detached method.
-   */
-  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Drop the held registry read.
@@ -308,7 +304,7 @@ export class ReposRepository {
    * ordinal.
    */
   nextDraftSeq(repoId: RepoId): number {
-    return this.transact(() => {
+    return this.createOrJoinTransaction(() => {
       const row = this.db
         .select({ nextSeq: repoDraftSeq.nextSeq })
         .from(repoDraftSeq)

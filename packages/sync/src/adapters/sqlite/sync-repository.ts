@@ -33,7 +33,7 @@ import type { ChangeLogReadRow, ChangeLogWriteRow } from '../../authority/change
 import type { ChangePrunePlan } from '../../change-log'
 import { appliedMutations, changeLatest, changes, feedIdentity } from './schema'
 import type { QueuedMessagesTable, SyncServerTables, UpstreamOutboxTable } from './server-tables'
-import type { SyncQueries } from './store-queries'
+import type { StoreQueries, SyncDrizzle, TransactionRunner } from './store-queries'
 
 /**
  * SQLite's OWN autoincrement bookkeeping table, declared so that
@@ -108,6 +108,8 @@ export class SyncRepository {
    */
   private readonly queuedMessages: QueuedMessagesTable
   private readonly upstreamOutbox: UpstreamOutboxTable
+  private readonly rootDb: SyncDrizzle
+  protected readonly createOrJoinTransaction: TransactionRunner
 
   /**
    * A GETTER, NOT AN ASSIGNED FIELD [spec rule 34a]. Ambient transaction routing
@@ -119,22 +121,12 @@ export class SyncRepository {
    * the wrong connection silently.
    */
   private get db() {
-    return this.queries.db
+    return this.rootDb
   }
 
-  /**
-   * AN ARROW FIELD RATHER THAN A STRAIGHT ASSIGNMENT [spec rule 34a]. The
-   * server's `transact` happens to be an arrow closing over the handle today, so
-   * `this.transact = queries.transact` would work — and would stop working, as a
-   * detached method, the moment the implementation uses `this`. Silent is the
-   * failure mode this epic keeps paying for, so it costs one closure.
-   */
-  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
-
-  constructor(
-    private readonly queries: SyncQueries,
-    tables: SyncServerTables,
-  ) {
+  constructor(queries: StoreQueries, tables: SyncServerTables) {
+    this.rootDb = queries.rootDb
+    this.createOrJoinTransaction = queries.createOrJoinTransaction
     this.queuedMessages = tables.queuedMessages
     this.upstreamOutbox = tables.upstreamOutbox
   }
@@ -162,7 +154,7 @@ export class SyncRepository {
     // for `seq` and for the three provenance columns rather than binding them,
     // so the chunk size still buys the same headroom it was chosen for.
     const chunkSize = 100
-    this.transact(() => {
+    this.createOrJoinTransaction(() => {
       for (let start = 0; start < rows.length; start += chunkSize) {
         const chunk = rows.slice(start, start + chunkSize)
         // AN EXPLICIT NULL WHERE THE ORIGINAL OMITTED [spec rule 43], and it is

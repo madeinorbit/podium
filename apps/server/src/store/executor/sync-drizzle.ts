@@ -75,29 +75,14 @@ export type SyncDrizzle = Omit<ReturnType<typeof buildSyncDrizzle>, 'transaction
  * read as an improvement and the gate cannot fail. Silent, and in the direction
  * that looks like success.
  *
- * Drizzle's bun session calls exactly three things on a client — `exec`, `query`
- * and `transaction` — so routing it through the wrapper costs one small adapter
- * and leaves both probes working untouched.
- *
- * `transaction` REFUSES on purpose. Drizzle's own transaction keeps its own
- * nesting state, while `SessionStore.transact` and this seam share the depth
- * counter in `@podium/runtime/sqlite`; two registries over one connection
- * corrupt each other, and drizzle would emit BEGIN inside an open span. Refusing
- * here makes the wrong call impossible rather than merely discouraged.
+ * The synchronous drizzle query path calls `exec` and `query`, so the adapter
+ * carries only those members. Repository transaction access is excluded by the
+ * `SyncDrizzle` type above, outside the execution path.
  */
 function clientOverWrapper(database: SqlDatabase): DrizzleBunClient {
   return {
     exec: (sql: string) => database.exec(sql),
     query: (sql: string) => database.prepare(sql),
-    transaction: () => {
-      throw new Error(
-        // Deliberately does NOT spell the banned call: the boundary lint matches that
-        // text and would report this message as a violation of the rule it explains.
-        "the drizzle instance's own transaction helper is not available on the store seam. It " +
-          'keeps its own nesting state and would issue BEGIN inside a span the store already ' +
-          'opened. Use the injected span instead (POD-3221 spec rule 7).',
-      )
-    },
   } as unknown as DrizzleBunClient
 }
 
@@ -142,7 +127,8 @@ export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle {
  * query can also open a span, and splitting them into two constructor parameters
  * made `store.ts` read as if it were handing over a bare handle.
  *
- * `transact` is NOT a method on the drizzle instance, and that is deliberate
+ * `createOrJoinTransaction` is NOT a method on the drizzle instance, and that
+ * is deliberate
  * twice over. Drizzle's own `db.transaction()` exists on this driver, but it opens
  * a span the EXECUTOR does not know about — lane selection and the post-commit
  * mechanisms would not see it, and the span lint's opener list is by name. And
@@ -152,14 +138,19 @@ export function syncDrizzleOver(database: SqlDatabase): SyncDrizzle {
  * THE ASYNC PAIR SATISFIES THIS SAME SHAPE, so the flip swaps what fills it and
  * leaves every construction site alone.
  */
-export interface SyncQueries {
-  /** The synchronous drizzle instance a repository queries through. */
-  readonly db: SyncDrizzle
-  /** A synchronous transaction, with the savepoint semantics of the runtime helper it replaces. */
-  transact<T>(fn: () => T): T
+export type TransactionRunner = <T>(fn: () => T) => T
+
+export interface StoreQueries {
+  /** The root synchronous drizzle instance a repository queries through. */
+  readonly rootDb: SyncDrizzle
+  /** Creates a root transaction or joins the enclosing transaction when nested. */
+  readonly createOrJoinTransaction: TransactionRunner
 }
 
 /** The synchronous query capability over `database`, or undefined when it is not bun-backed. */
-export function syncQueriesOver(database: SqlDatabase): SyncQueries {
-  return { db: syncDrizzleOver(database), transact: (fn) => transaction(database, fn) }
+export function syncQueriesOver(database: SqlDatabase): StoreQueries {
+  return {
+    rootDb: syncDrizzleOver(database),
+    createOrJoinTransaction: (fn) => transaction(database, fn),
+  }
 }
