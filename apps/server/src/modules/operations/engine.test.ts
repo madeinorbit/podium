@@ -1455,12 +1455,12 @@ describe('restating a deferred promise (POD-3040)', () => {
     expect(finished?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     h.clock.advance(5_000)
-    await h.engine.recordDeferred(id, [{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
-
-    const after = h.store.get(id)?.operation
-    expect(after?.deferred).toEqual([
+    await h.engine.recordDeferred(id, [
       { id: 'laptop', name: 'laptop', reason: 'target-superseded' },
     ])
+
+    const after = h.store.get(id)?.operation
+    expect(after?.deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'target-superseded' }])
     // The outcome is history and stays exactly as it was.
     expect(after?.state).toBe('done')
     expect(after?.finishedAt).toBe(finished?.finishedAt)
@@ -1497,22 +1497,37 @@ describe('observers', () => {
     const store = new OperationStore(db)
     const registry = new OperationKindRegistry()
     registry.register(testKind())
-    const seen: string[] = []
+    const seen: Array<[string, string | undefined]> = []
     const engine = new OperationEngine({
       store,
       registry,
       clock: fakeClock().clock,
       newId: () => 'op_1',
-      onChanged: (row) => {
+      onChanged: (row, previousState) => {
         // What an observer reads must already be what the database holds.
         expect(row.state).toBe(store.get(row.id)?.state)
-        seen.push(row.state)
+        seen.push([row.state, previousState])
       },
     })
 
     await run(engine, 'test')
-    expect(seen[0]).toBe('running')
-    expect(seen.at(-1)).toBe('done')
+    expect(seen[0]).toEqual(['running', undefined])
+    expect(seen.at(-1)).toEqual(['done', 'running'])
+    await engine.recordDeferred('op_1', [{ id: 'offline', reason: 'target-superseded' }])
+    expect(seen.at(-1)).toEqual(['done', 'done'])
+    store.insert({
+      id: 'running',
+      kind: 'test',
+      exclusionGroup: 'lifecycle',
+      state: 'running',
+      createdAt: 1,
+      updatedAt: 1,
+    })
+    engine.recordDetails('running', { note: 'same state' })
+    expect(seen.at(-1)).toEqual(['running', 'running'])
+    db.prepare('UPDATE operations SET payload = ? WHERE id = ?').run('unparseable', 'running')
+    await engine.adoptOnBoot(() => ({}))
+    expect(seen.at(-1)).toEqual(['failed', 'running'])
   })
 })
 

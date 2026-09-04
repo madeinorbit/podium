@@ -43,6 +43,7 @@ const WAVE_CONTINUATION_CAUSE: GrantCause = {
 }
 
 export interface UpdatesDeps {
+  approvedTarget?(channel: UpdateChannel): UpdateTarget | undefined
   machines(): readonly WaveMachine[]
   channelFor?(machineId: MachineId): UpdateChannel | undefined
   send(machineId: MachineId, message: UpdateGrantMessage): void
@@ -335,6 +336,10 @@ export class UpdatesService {
   private readonly waveHistory = new Map<UpdateChannel, WaveRound[]>()
 
   constructor(private readonly deps: UpdatesDeps) {}
+
+  approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
+    return this.deps.approvedTarget?.(channel)
+  }
 
   /**
    * The rounds this process has issued on this channel, oldest first. Callers

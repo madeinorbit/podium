@@ -83,8 +83,7 @@ function row(id: string, name: string, coordinator = false): WaveMachine {
  *        day of the incident: one that cannot tell the coordinator from a laptop.
  */
 function harness(options: { knowsItsOwnIdentity: boolean; fleet?: WaveMachine[] }) {
-  const fleet: WaveMachine[] =
-    options.fleet ?? [row(HOST, 'ludovico', options.knowsItsOwnIdentity)]
+  const fleet: WaveMachine[] = options.fleet ?? [row(HOST, 'ludovico', options.knowsItsOwnIdentity)]
   /** The in-process transport `attachUpdateParticipant` installs for the host. */
   let participantSend:
     | ((message: Extract<ControlMessage, { type: 'updateGrant' }>) => void)
@@ -94,6 +93,8 @@ function harness(options: { knowsItsOwnIdentity: boolean; fleet?: WaveMachine[] 
   const sentTo: string[] = []
 
   const updates = new UpdatesService({
+    // Isolate the coordinator guard with an already-approved fleet target.
+    approvedTarget: () => publishedTarget(),
     machines: () => fleet,
     send: (machineId: MachineId, message: UpdateGrantMessage) => {
       sentTo.push(String(machineId))
@@ -152,7 +153,7 @@ describe('the coordinator and the standing reconciliation (POD-2907)', () => {
   it('ARMED CONTROL: a reconciler blind to its own identity restarts this server', async () => {
     const h = harness({ knowsItsOwnIdentity: false })
 
-    // The only human act in the scenario, and its subject is a proposal.
+    // A previously approved fleet target is still never approval to restart the coordinator.
     h.updates.setTarget('dev', publishedTarget())
     // The local daemon's websocket reconnects under this host's own machine id.
     h.reconciler.onMachineConnected(HOST)

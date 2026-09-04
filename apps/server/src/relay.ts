@@ -33,7 +33,6 @@ import type {
 } from '@podium/protocol'
 import {
   formatIssueRef,
-  isTerminalOperationState,
   platformTargetFor,
   SubscriptionRegistry,
   wireSchemaDigest,
@@ -161,6 +160,7 @@ import {
   updateOperationKind,
 } from './modules/updates/operation'
 import { GRANT_EVENT_KIND } from './modules/updates/grant-cause'
+import { updateOperationObserver } from './modules/updates/operation-observer'
 import { UpdateReconciler } from './modules/updates/reconciler'
 import { type ChannelFeed, resolveReleaseTarget } from './modules/updates/release-target'
 import { UpdatesService } from './modules/updates/service'
@@ -655,6 +655,7 @@ export class SessionRegistry {
       // …and WHICH version that operation is delivering, so an operation adopted
       // across a restart can still be handed the package it resumed waiting for
       // (POD-2228). This process has no memory of having published it.
+      approvedTarget: (channel) => this.store.operations.approvedTarget(channel),
       exclusiveOperationVersion: (channel) =>
         exclusiveUpdateVersion(operations?.engine.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
@@ -2498,48 +2499,7 @@ export class SessionRegistry {
     let updatesReconciler: UpdateReconciler | undefined
     const operationsModule = createOperations({
       store: this.store.operations,
-      onChanged: (row) => {
-        if (!isTerminalOperationState(row.state)) {
-          // An operation is live, so whatever background convergence did before
-          // it started is that operation's story to tell now (§3.6).
-          updatesReconciler?.onOperationStarted()
-          return
-        }
-        // THE CONSENT DIES WITH THE OPERATION THAT HELD IT (POD-2169, §3.2).
-        //
-        // FIRST of everything here, and that ordering is the fix rather than a
-        // tidiness. It was written because `releaseInFlightGrants` read
-        // `fleet()`, which continues an authorized wave from inside the read, so
-        // withdrawing second let the cleanup itself grant the next machine —
-        // after a cancel, the very thing the cancel was for. POD-2180 took that
-        // capability off the cleanup path (it reads the projection now), which
-        // makes this ordering belt AND braces rather than the only brace: the
-        // sweep below and `publishNextTargets` both run while this consent is
-        // either alive or dead, and dead is the answer for all of them.
-        updatesService.withdrawAuthorization()
-        // A version that arrived mid-update waits for the group to be free, and
-        // this is the moment it becomes free — whatever the outcome was. It
-        // re-creates the OFFER, never an operation (§3.2).
-        updatesService.publishNextTargets()
-        // POD-2101: the deadline that used to end a silent grant aged inside a
-        // `fleet()` read. The operation owns that authority now, so the moment
-        // it stops waiting is the moment those grants stop being believed. A
-        // `done` operation has nothing in flight to end — and if a late machine
-        // is still converging, it is converging successfully.
-        if (row.state !== 'done') {
-          updatesService.releaseInFlightGrants(
-            row.state === 'canceled'
-              ? 'The update was canceled while this machine was updating.'
-              : undefined,
-          )
-        }
-        // …and the same moment is when background convergence may resume. It
-        // sweeps whoever is still behind, which is also how a FAILED operation
-        // cleans up after itself without a human pressing Try again (§3.6).
-        // AFTER the release above, so the sweep sees machines whose grants have
-        // just stopped being believed rather than refusing them as in-flight.
-        updatesReconciler?.onOperationSettled(row.state)
-      },
+      onChanged: updateOperationObserver(updatesService, () => updatesReconciler),
     })
     operationsModule.kinds.register(updateOperationKind())
     operations = operationsModule

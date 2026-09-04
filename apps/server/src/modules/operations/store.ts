@@ -1,3 +1,5 @@
+import { UpdateChannel } from '@podium/model'
+import type { UpdateTarget } from '@podium/protocol'
 import { isTerminalOperationState, type Operation, parseOperation } from '@podium/protocol'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
@@ -175,12 +177,35 @@ export class OperationStore {
   history(kind?: string, limit: number = DEFAULT_OPERATION_HISTORY_LIMIT): OperationRow[] {
     const rows = (
       kind === undefined
-        ? this.db.prepare('SELECT * FROM operations ORDER BY created_at DESC LIMIT ?').all(limit)
+        ? this.db
+            .prepare('SELECT * FROM operations ORDER BY created_at DESC, rowid DESC LIMIT ?')
+            .all(limit)
         : this.db
-            .prepare('SELECT * FROM operations WHERE kind = ? ORDER BY created_at DESC LIMIT ?')
+            .prepare(
+              'SELECT * FROM operations WHERE kind = ? ORDER BY created_at DESC, rowid DESC LIMIT ?',
+            )
             .all(kind, limit)
     ) as Record<string, unknown>[]
     return rows.map(toRow)
+  }
+
+  /** Durable consent comes only from a user-started, non-canceled update. */
+  approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
+    return this.approvalRows().find((row) => row.operation?.details?.channel === channel)?.operation
+      ?.details?.target as UpdateTarget | undefined
+  }
+
+  private approvalRows(): OperationRow[] {
+    return this.history('update', -1).filter((row) => {
+      const operation = row.operation
+      const target = operation?.details?.target as UpdateTarget | undefined
+      return (
+        row.state !== 'canceled' &&
+        operation?.createdBy === 'user' &&
+        UpdateChannel.safeParse(operation.details?.channel).success &&
+        typeof target?.version === 'string'
+      )
+    })
   }
 
   /**
@@ -195,7 +220,18 @@ export class OperationStore {
         .prepare('SELECT id, state FROM operations WHERE kind = ? ORDER BY created_at DESC')
         .all(kind) as Record<string, unknown>[]
     ).filter((r) => isTerminalOperationState(r.state as string))
-    const doomed = finished.slice(keep)
+    // Keep the newest settled approval per channel as the cancel fallback for
+    // any active update. These few durable rows are exempt from history retention.
+    const protectedIds = new Set<string>()
+    const channels = new Set<unknown>()
+    if (kind === 'update')
+      for (const row of this.approvalRows()) {
+        const channel = row.operation?.details?.channel
+        if (!isTerminalOperationState(row.state) || channels.has(channel)) continue
+        channels.add(channel)
+        protectedIds.add(row.id)
+      }
+    const doomed = finished.slice(keep).filter((row) => !protectedIds.has(row.id as string))
     for (const row of doomed) {
       this.db.prepare('DELETE FROM operations WHERE id = ?').run(row.id as string)
     }
