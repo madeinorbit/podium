@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, relative, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -13,11 +13,13 @@ import {
   checkDrizzleImportHome,
   checkDrizzleTransaction,
   checkFile,
+  checkFlipUndeleted,
   checkHarnessClassifierBoundary,
   checkHostEdgeSeparationAll,
   checkManifestFile,
   checkPlaneLeakAll,
   checkPrincipalFree,
+  checkRepositoryDbCapture,
   checkSessionBindingFieldAccess,
   checkSqlRawLiteral,
   checkStoreBoundaryLedger,
@@ -25,6 +27,8 @@ import {
   checkUiStorageOwnership,
   clauseIsTypeOnly,
   extractImports,
+  FLIP_UNDELETED,
+  type FlipUndeletedEntry,
   loadModelExportNames,
   STAGE_A_UNCONVERTED,
   type Violation,
@@ -58,6 +62,7 @@ function realRepoViolations(): Violation[] {
       const source = readFileSync(abs, 'utf8')
       out.push(
         ...checkStoreRawHandles(file, source),
+        ...checkRepositoryDbCapture(file, source),
         ...checkDrizzleTransaction(file, source),
         ...checkDrizzleImportHome(file, source),
         ...checkSqlRawLiteral(file, source),
@@ -1192,6 +1197,45 @@ describe('store-raw-handle (POD-3252 rule 13)', () => {
   })
 })
 
+describe('repository-db-capture (POD-3221 B1)', () => {
+  const REPO = 'apps/server/src/store/widgets.ts'
+
+  it('defeat: flags a real capture at the this.db line and is wired through checkFile', () => {
+    const source = [
+      'class WidgetsRepository {',
+      '  async insert(row: Row) {',
+      '    const db = this.db',
+      '    await something()',
+      '    db.insert(widgets).values(row).run()',
+      '  }',
+      '}',
+    ].join('\n')
+    const violations = checkRepositoryDbCapture(REPO, source)
+    expect(violations.map((violation) => violation.rule)).toEqual(['repository-db-capture'])
+    expect(violations[0]?.specifier).toBe('db')
+    expect(violations[0]?.message).toContain(`${REPO}:3`)
+    expect(
+      checkFile(REPO, source).some((violation) => violation.rule === 'repository-db-capture'),
+    ).toBe(true)
+  })
+
+  it('does not mistake a multi-line query result or a comment for a capture', () => {
+    const source = [
+      '// Never write: const db = this.db',
+      'const row = this.db',
+      '  .select()',
+      '  .from(widgets)',
+      '  .where(eq(widgets.id, id))',
+      '  .get()',
+    ].join('\n')
+    expect(checkRepositoryDbCapture(REPO, source)).toEqual([])
+  })
+
+  it('is quiet on the real repository', () => {
+    expect(realRepoViolations().filter((v) => v.rule === 'repository-db-capture')).toEqual([])
+  })
+})
+
 describe('store-transaction-port (POD-3252 rule 14)', () => {
   const DRIZZLE_IMPORT = `import { eq } from 'drizzle-orm'\n`
 
@@ -1416,6 +1460,70 @@ describe('store-boundary-ledger (POD-3252, Stage A’s completeness proof)', () 
     // ledger precisely because its `readonly legacy: SqlDatabase | undefined`
     // is that field, so the second clause cannot be met while the first is not.
     expect(STAGE_A_UNCONVERTED).toContain('apps/server/src/store/executor/executor.ts')
+  })
+})
+
+describe('flip-undeleted (POD-3221 B1 exit gate)', () => {
+  function plantFile(file: string, source: string): string {
+    const root = mkdtempSync(join(tmpdir(), 'flip-undeleted-'))
+    const abs = join(root, file)
+    mkdirSync(join(abs, '..'), { recursive: true })
+    writeFileSync(abs, source)
+    return root
+  }
+
+  it('finds every listed transitional construct on the real tree', () => {
+    expect(checkFlipUndeleted(REPO_ROOT)).toEqual([])
+    expect(FLIP_UNDELETED.map(({ file, construct, issue }) => [file, construct, issue])).toEqual([
+      ['packages/runtime/src/sqlite/transaction.ts', 'the `podium_sp_` savepoints', 'POD-3267'],
+      ['packages/runtime/src/sqlite/transaction.ts', 'the `depths` WeakMap', 'POD-3267'],
+      ['apps/server/src/store/executor/synchronous-span.ts', '`runSynchronousSpan`', 'POD-3327'],
+      [
+        'apps/server/src/store/executor/legacy-handle-probe.ts',
+        'the whole legacy-handle probe file',
+        'POD-3326',
+      ],
+      [
+        'apps/server/src/store/executor/executor.ts',
+        'the `StoreExecutor.legacy` readonly field',
+        'POD-3267',
+      ],
+    ])
+  })
+
+  it('defeat: fires naming a listed construct deleted from a scratch copy', () => {
+    const entry = FLIP_UNDELETED.find(({ construct }) => construct === 'the `depths` WeakMap')
+    expect(entry?.target.kind).toBe('code')
+    if (!entry || entry.target.kind !== 'code') throw new Error('missing depths ledger entry')
+    const source = readFileSync(join(REPO_ROOT, entry.file), 'utf8')
+    const deleted = source.replace(entry.target.pattern, 'const removedDepths = new Map<')
+    expect(deleted).not.toBe(source)
+    const root = plantFile(
+      entry.file,
+      `${deleted}\n// const depths = new WeakMap<SqlTransactionScope, number>()\n`,
+    )
+    try {
+      const violations = checkFlipUndeleted(root, [entry])
+      expect(violations.map((violation) => violation.rule)).toEqual(['flip-undeleted'])
+      expect(violations[0]?.file).toBe(entry.file)
+      expect(violations[0]?.message).toContain(entry.construct)
+      expect(violations[0]?.message).toContain(entry.issue)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
+
+  it('defeat: fires for a bogus entry naming a construct that never existed', () => {
+    const bogus: FlipUndeletedEntry = {
+      file: 'packages/runtime/src/sqlite/transaction.ts',
+      construct: '`neverExistedFlipBridge`',
+      issue: 'POD-3263',
+      target: { kind: 'code', pattern: /\bneverExistedFlipBridge\b/ },
+    }
+    const violations = checkFlipUndeleted(REPO_ROOT, [...FLIP_UNDELETED, bogus])
+    expect(violations).toHaveLength(1)
+    expect(violations[0]?.specifier).toBe(bogus.construct)
+    expect(violations[0]?.message).toContain(bogus.issue)
   })
 })
 

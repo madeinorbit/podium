@@ -93,6 +93,17 @@
  *     exemptions and what is deliberately NOT banned:
  *     docs/gates/pod-3252-store-boundary-lint.md.
  *
+ * 17. A repository may not capture `this.db` in a local. Today that getter
+ *     returns one fixed drizzle instance, so this rule guards NOTHING in the
+ *     current runtime. B1 makes it resolve `currentTx() ?? this.rootDb` on every
+ *     access; a local would resolve only once and could silently keep using the
+ *     wrong connection after an await crosses a transaction boundary.
+ * 18. `FLIP_UNDELETED` is B1's deletion ledger. It lists every transitional
+ *     construct the flip must remove and fails if an entry's construct is
+ *     already gone, so the list cannot retain optimistic slack. B1's exit gate
+ *     is the same mechanically visible condition as Stage A's: the ledger is
+ *     empty.
+ *
  * Alongside these (and rule 12, `sync-browser-reach`, documented at its own
  * definition) sits the ARCHITECTURE MANIFEST (POD-296,
  * scripts/architecture-manifest.ts): tags per workspace and a dependency matrix
@@ -119,6 +130,7 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import ts from 'typescript'
 import { isCompositionRoot, ROLE_RANK, serverRoleOf } from '../apps/server/src/roles'
 import {
   applyAllowlist,
@@ -1302,6 +1314,65 @@ export const STAGE_A_UNCONVERTED: readonly string[] = [
   'apps/server/src/store/executor/executor.ts',
 ]
 
+export type FlipUndeletedEntry = Readonly<{
+  file: string
+  construct: string
+  issue: `POD-${number}`
+  target: Readonly<{ kind: 'whole-file' }> | Readonly<{ kind: 'code'; pattern: RegExp }>
+}>
+
+/**
+ * B1's DELETION LEDGER — transitional constructs that must not survive the
+ * asynchronous flip, each tied to the issue that owns its removal.
+ *
+ * This is the same two-sided ratchet as {@link STAGE_A_UNCONVERTED}. A surviving
+ * construct is truthful unfinished work and stays quiet while B1 is underway;
+ * an entry whose construct (or whole file) is already gone FAILS, forcing the
+ * entry to leave in the same change. That prevents the list from quietly
+ * claiming work remains after it was done. B1 IS COMPLETE ONLY WHEN THIS ARRAY
+ * IS EMPTY: a non-empty ledger is the phase's exit-gate evidence that deletion
+ * work remains, not an allowlist and not documentation.
+ *
+ * Patterns run over comment-stripped source. A comment that remembers a deleted
+ * symbol is not the transitional machinery itself and must never keep an entry
+ * looking live.
+ */
+export const FLIP_UNDELETED: readonly FlipUndeletedEntry[] = [
+  {
+    file: 'packages/runtime/src/sqlite/transaction.ts',
+    construct: 'the `podium_sp_` savepoints',
+    issue: 'POD-3267',
+    target: { kind: 'code', pattern: /`podium_sp_\$\{depth\}`/ },
+  },
+  {
+    file: 'packages/runtime/src/sqlite/transaction.ts',
+    construct: 'the `depths` WeakMap',
+    issue: 'POD-3267',
+    target: { kind: 'code', pattern: /\bconst\s+depths\s*=\s*new\s+WeakMap\s*</ },
+  },
+  {
+    file: 'apps/server/src/store/executor/synchronous-span.ts',
+    construct: '`runSynchronousSpan`',
+    issue: 'POD-3327',
+    target: { kind: 'code', pattern: /\bexport\s+function\s+runSynchronousSpan\s*</ },
+  },
+  {
+    file: 'apps/server/src/store/executor/legacy-handle-probe.ts',
+    construct: 'the whole legacy-handle probe file',
+    issue: 'POD-3326',
+    target: { kind: 'whole-file' },
+  },
+  {
+    file: 'apps/server/src/store/executor/executor.ts',
+    construct: 'the `StoreExecutor.legacy` readonly field',
+    issue: 'POD-3267',
+    target: {
+      kind: 'code',
+      pattern: /\breadonly\s+legacy\s*:\s*SqlDatabase\s*\|\s*undefined\b/,
+    },
+  },
+]
+
 const inStoreBoundary = (file: string): boolean =>
   STORE_BOUNDARY_FILES.has(file) || STORE_BOUNDARY_ROOTS.some((root) => file.startsWith(root))
 
@@ -1316,6 +1387,81 @@ function decisionMarkedLines(source: string): ReadonlySet<number> {
     if (STORE_BOUNDARY_DECISION_MARKER.test(line)) marked.add(i + 1)
   })
   return marked
+}
+
+function unwrapTransparentExpression(expression: ts.Expression): ts.Expression {
+  let current = expression
+  while (
+    ts.isParenthesizedExpression(current) ||
+    ts.isAsExpression(current) ||
+    ts.isTypeAssertionExpression(current) ||
+    ts.isNonNullExpression(current) ||
+    ts.isSatisfiesExpression(current)
+  ) {
+    current = current.expression
+  }
+  return current
+}
+
+function isThisDb(expression: ts.Expression): boolean {
+  const current = unwrapTransparentExpression(expression)
+  return (
+    ts.isPropertyAccessExpression(current) &&
+    current.expression.kind === ts.SyntaxKind.ThisKeyword &&
+    current.name.text === 'db'
+  )
+}
+
+/**
+ * Rule 17 — a repository must resolve `this.db` at the statement, never capture
+ * it in a local.
+ *
+ * THIS GUARDS NOTHING TODAY. Repository `db` getters currently return one fixed
+ * instance, so `const db = this.db` and a later `this.db` are equivalent. B1
+ * changes the getter to `currentTx() ?? this.rootDb`, evaluated on EVERY access.
+ * A captured local then remembers an old answer across an await that opens or
+ * leaves a transaction span. The types stay identical and no exception is
+ * raised; the write simply reaches the wrong connection and can survive the
+ * rollback around it. The rule is armed now so the pattern cannot spread before
+ * the semantic flip makes it dangerous.
+ *
+ * This is syntax-aware rather than a grep. Comments are stripped, and only a
+ * variable whose WHOLE initializer is `this.db` (modulo parentheses/type
+ * wrappers) is a capture. `const row = this.db\n  .select()...` initializes the
+ * local with the query RESULT, so its initializer is a call expression and is
+ * deliberately allowed.
+ */
+export function checkRepositoryDbCapture(file: string, source: string): Violation[] {
+  if (!inStoreBoundary(file) || isTestFile(file) || !source.includes('this.db')) return []
+  const code = stripComments(source)
+  const sourceFile = ts.createSourceFile(
+    file,
+    code,
+    ts.ScriptTarget.Latest,
+    true,
+    file.endsWith('.tsx') ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
+  )
+  const violations: Violation[] = []
+  const visit = (node: ts.Node): void => {
+    if (
+      ts.isVariableDeclaration(node) &&
+      ts.isIdentifier(node.name) &&
+      node.initializer !== undefined &&
+      isThisDb(node.initializer)
+    ) {
+      const line =
+        sourceFile.getLineAndCharacterOfPosition(node.initializer.getStart(sourceFile)).line + 1
+      violations.push({
+        file,
+        specifier: node.name.text,
+        rule: 'repository-db-capture',
+        message: `${file}:${line}: local \`${node.name.text}\` captures \`this.db\` once. This is harmless only while the getter returns one fixed instance; at B1 it resolves the enclosing transaction on every access, so a captured copy can silently use a stale connection across an await and let a write survive the surrounding rollback. Chain the statement directly from \`this.db\` instead (POD-3221 B1).`,
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+  return violations
 }
 
 /**
@@ -1924,6 +2070,49 @@ export function checkStoreBoundaryLedger(repoRoot: string): Violation[] {
 }
 
 /**
+ * B1's deletion-ledger ratchet. Surviving entries are expected while the phase
+ * is underway; missing constructs are failures because they make the ledger
+ * overstate the work left and leave a slot nobody is forced to remove.
+ */
+export function checkFlipUndeleted(
+  repoRoot: string,
+  entries: readonly FlipUndeletedEntry[] = FLIP_UNDELETED,
+): Violation[] {
+  const violations: Violation[] = []
+  const codeByFile = new Map<string, string>()
+  for (const entry of entries) {
+    const abs = join(repoRoot, entry.file)
+    if (!existsSync(abs)) {
+      violations.push({
+        file: entry.file,
+        specifier: entry.construct,
+        rule: 'flip-undeleted',
+        message: `${entry.file}: FLIP_UNDELETED names ${entry.construct} (${entry.issue}), but the file no longer exists. The deletion ratchet has moved: remove this entry in the same change. B1 is complete only when FLIP_UNDELETED is empty.`,
+      })
+      continue
+    }
+    if (entry.target.kind === 'whole-file') continue
+    let code = codeByFile.get(entry.file)
+    if (code === undefined) {
+      code = stripComments(readFileSync(abs, 'utf8'))
+      codeByFile.set(entry.file, code)
+    }
+    const pattern = new RegExp(
+      entry.target.pattern.source,
+      entry.target.pattern.flags.replace(/[gy]/g, ''),
+    )
+    if (pattern.test(code)) continue
+    violations.push({
+      file: entry.file,
+      specifier: entry.construct,
+      rule: 'flip-undeleted',
+      message: `${entry.file}: FLIP_UNDELETED names ${entry.construct} (${entry.issue}), but comment-stripped source no longer contains it. The deletion ratchet has moved: remove this entry in the same change. B1 is complete only when FLIP_UNDELETED is empty.`,
+    })
+  }
+  return violations
+}
+
+/**
  * Check one file against the rules that are NOT the architecture manifest.
  *
  * POD-335 emptied most of this. What used to live here — app→app, agent-host
@@ -1941,6 +2130,7 @@ export function checkFile(file: string, source: string): Violation[] {
   return [
     ...checkReplicaDirection(file, source),
     ...checkStoreRawHandles(file, source),
+    ...checkRepositoryDbCapture(file, source),
     ...checkDrizzleTransaction(file, source),
     ...checkDrizzleImportHome(file, source),
     ...checkSqlRawLiteral(file, source),
@@ -2411,6 +2601,7 @@ export function runCheck(repoRoot: string): {
   }
   violations.push(...checkDeclaredDeps(repoRoot))
   violations.push(...checkStoreBoundaryLedger(repoRoot))
+  violations.push(...checkFlipUndeleted(repoRoot))
   violations.push(...checkHostEdgeSeparationAll(repoRoot))
   manifest.push(...checkManifestCoverage(workspaces))
   manifest.push(...checkBrowserGraphAll(repoRoot))
