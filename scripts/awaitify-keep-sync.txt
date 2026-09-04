@@ -11,19 +11,14 @@
 # compiler error that proved it>. The category is what the flip has to decide
 # about; the error is the evidence. Everything from `#` is commentary.
 #
-# Derived at a077d40fc8a45823b6013c723b0ff23029a065f2
-# 5 functions in 3 files
-#   2  compiler-refused
+# Derived at 2b4c7a607072660609e9f6f0222cde2b206fdd28
+# 3 functions in 2 files
 #   2  promise-reaches-a-member-read
 #   1  caller-type-cannot-absorb-a-promise
 
 # apps/server/src/modules/sessions/command-plane.test.ts (2)
 apps/server/src/modules/sessions/command-plane.test.ts|8349  # promise-reaches-a-member-read: TS2739 Type 'Oracle' is missing the following properties from type 'Promise<Oracle>': then, catch, [Symbol.toStringTag], finally
 apps/server/src/modules/sessions/command-plane.test.ts|13202  # promise-reaches-a-member-read: TS2739 Type 'Oracle' is missing the following properties from type 'Promise<Oracle>': then, catch, [Symbol.toStringTag], finally
-
-# apps/server/src/relay.draft-reap.test.ts (2)
-apps/server/src/relay.draft-reap.test.ts|7665  # compiler-refused: TS1109 Expression expected.
-apps/server/src/relay.draft-reap.test.ts|14609  # compiler-refused: TS1109 Expression expected.
 
 # apps/server/src/router.auth.test.ts (1)
 apps/server/src/router.auth.test.ts|1335  # caller-type-cannot-absorb-a-promise: TS2322 Type '() => Promise<boolean>' is not assignable to type '() => boolean'.

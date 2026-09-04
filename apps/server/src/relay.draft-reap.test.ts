@@ -189,14 +189,14 @@ describe('explicit rehome draft cleanup', () => {
 describe('boot-time draft retention', () => {
   const freshFile = () => join(mkdtempSync(join(tmpdir(), 'podium-reap-')), 'state.sqlite')
 
-  it('does not infer abandonment from a missing session', () => {
+  it('does not infer abandonment from a missing session', async () => {
     const file = freshFile()
-    const reg1 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg1 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     reg1.gateway.attachDaemon(reg1.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg1)
     // Leak: the session row vanishes without the reaper seeing it (pre-reaper kills).
-    openTestStore(file).sessions.purgeSession(sessionId)
-    const reg2 = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    ;await (await openTestStore(file)).sessions.purgeSession(sessionId)
+    const reg2 = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     expect(reg2.issues.get(draft.id)).not.toBeNull()
   })
 
@@ -313,16 +313,16 @@ describe('purge of an empty draft detaches tombstoned sessions (POD-1926)', () =
     expect(await healed.issues.pruneOrphanRefLetters()).toBe(0)
   })
 
-  it('a LIVE session keeps its pointers — explicit rehome owns those, not the SQL scrub', () => {
+  it('a LIVE session keeps its pointers — explicit rehome owns those, not the SQL scrub', async () => {
     const file = freshFile()
-    const reg = SessionRegistry.create(openTestStore(file), undefined, { instanceId: 'default' })
+    const reg = SessionRegistry.create(await openTestStore(file), undefined, { instanceId: 'default' })
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, () => {})
     const { draft, sessionId } = draftWithSession(reg)
 
     // Scrubbing a live row behind the in-memory `Session` map's back would
     // desync it, so `detachTombstonesFromIssue` must leave it strictly alone.
-    openTestStore(file).sessions.detachTombstonesFromIssue(draft.id)
-    expect(openTestStore(file).sessions.getSession(sessionId)?.issueId).toBe(draft.id)
+    ;await (await openTestStore(file)).sessions.detachTombstonesFromIssue(draft.id)
+    expect((await (await openTestStore(file)).sessions.getSession(sessionId))?.issueId).toBe(draft.id)
   })
 
   it('the deleted issue takes its ref-letter counter with it', async () => {
