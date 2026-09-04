@@ -1444,3 +1444,32 @@ THE RULE.
   error, no log, a plausible number, and every train reads as unclaimed. POD-3398's site was already
   wrong: every workflow reported `latestVersion` 0.
 - Neither typecheck nor the intent lint can see any of it. The SQL is valid and it reads correctly.
+
+### Rule 37 — a byte-for-byte custody check reads its column as TEXT, whatever mode the schema declares
+
+[POD-3396 asked; ruled 2026-09-04. Rule 4 permits `mode: 'json'` for a column; it does not oblige a
+READER to take it.]
+
+`trainManifestForAttempt` compares the STORED TEXT of two columns byte for byte against a re-serialised
+manifest, as a train custody check, and the member check does the same for a third. Read through
+`mode: 'json'` those comparisons are between an object and a string and are ALWAYS unequal, so every
+train fails its authority check — it reddened two of POD-3396's own golden tests. It also moves the
+throw point and the message for six corrupt-blob oracle cases, from the model's refusal to drizzle's
+raw parse error, BEFORE the method's own fences.
+
+RULED: read those columns as TEXT. POD-3396's choice stands and needs no marker.
+
+WHY, and it is not merely "no behaviour change". Comparing structurally instead would be a WEAKENING,
+not a fix: byte equality REJECTS a re-serialised blob and structural equality ACCEPTS it. A custody
+check exists precisely to notice that the bytes are not the ones that were stored. Converting it to a
+structural comparison would silently retire the property the check is named for, inside a commit whose
+stated purpose is a mechanical conversion — which is the exact shape §5.1 forbids.
+
+THE GENERAL FORM. The schema's declared mode describes how a column is USUALLY read, not how every
+reader must. Where a reader's contract is about the STORED REPRESENTATION — custody, digests, signature
+payloads, anything compared byte-for-byte or hashed — it reads text and says so at the site. Where the
+contract is about the VALUE, take the declared mode (rule 28). Decide by asking what the comparison
+means, never by what the column declaration says.
+
+This also leaves the corrupt-blob oracle's six throw cases exactly as POD-3245 classified them, which
+is the answer to whether that shared file needed rewriting: it did not.
