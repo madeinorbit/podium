@@ -12,8 +12,14 @@ import {
   type ThreadId,
   type UserId,
 } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, asc, desc, eq, sql } from 'drizzle-orm'
+import {
+  superagentMessages,
+  superagentPendingTurns,
+  superagentQueuedInputs,
+  superagentThreads,
+} from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 import { parseJsonColumn } from './helpers'
 import type {
   PendingSuperagentTurnRow,
@@ -24,42 +30,89 @@ import type {
 } from './types'
 
 export class SuperagentRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`
+   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
+   * detached method. One closure per instance is the price.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /** Per-boot heal: idempotent seed of the always-there 'global' thread. */
   seedGlobalThread(ownerUserId: UserId = FIRST_ADMIN_USER_ID): void {
     const saNow = new Date().toISOString()
+    // CONVERTED, and the enumeration is why [POD-3403 rule 31]. `INSERT OR IGNORE`
+    // suppresses UNIQUE, PRIMARY KEY, NOT NULL and CHECK; `onConflictDoNothing()`
+    // suppresses the uniqueness conflict alone. So the two agree exactly when no
+    // NOT NULL and no CHECK violation is reachable at this site, and here neither
+    // is. Enumerated against the live DDL rather than assumed:
+    //   NOT NULL columns: id, kind, created_at, updated_at (all supplied
+    //     non-null above), owner_user_id (supplied; its parameter defaults to
+    //     FIRST_ADMIN_USER_ID) and archived (not supplied, so its DEFAULT 0
+    //     applies). Nothing reaching this statement can be null.
+    //   CHECK constraints: none on this table anywhere in the migration chain.
+    //   Foreign keys: none — and they would not count anyway, because OR IGNORE
+    //     throws on a foreign key exactly as the plain form does (measured).
+    // What is left reachable is the `id` primary-key conflict, which is the whole
+    // point of the statement and which both forms swallow identically.
     this.db
-      .prepare(
-        `INSERT OR IGNORE INTO superagent_threads (id, owner_user_id, kind, created_at, updated_at)
-         VALUES ('global', ?, 'global', ?, ?)`,
-      )
-      .run(ownerUserId, saNow, saNow)
+      .insert(superagentThreads)
+      .values({
+        id: asThreadId('global'),
+        ownerUserId,
+        kind: 'global',
+        createdAt: saNow,
+        updatedAt: saNow,
+      })
+      .onConflictDoNothing()
+      .run()
   }
 
   loadSuperagentMessages(threadId = 'global', limit = 200): SuperagentMessageRow[] {
     const rows = this.db
-      .prepare(
-        `SELECT id, owner_user_id, role, content, tool_calls, tool_call_id, tool_name, created_at
-         FROM superagent_messages WHERE thread_id = ? ORDER BY id DESC LIMIT ?`,
-      )
-      .all(threadId, limit) as Record<string, unknown>[]
+      .select({
+        id: superagentMessages.id,
+        ownerUserId: superagentMessages.ownerUserId,
+        role: superagentMessages.role,
+        content: superagentMessages.content,
+        toolCalls: superagentMessages.toolCalls,
+        toolCallId: superagentMessages.toolCallId,
+        toolName: superagentMessages.toolName,
+        createdAt: superagentMessages.createdAt,
+      })
+      .from(superagentMessages)
+      .where(eq(superagentMessages.threadId, asThreadId(threadId)))
+      .orderBy(desc(superagentMessages.id))
+      .limit(limit)
+      .all()
     return rows.reverse().map((r) => ({
-      id: r.id as number,
-      ownerUserId: r.owner_user_id as UserId,
+      id: r.id,
+      ownerUserId: r.ownerUserId,
       role: r.role as SuperagentMessageRow['role'],
-      content: r.content as string,
+      content: r.content,
+      // A DECISION, not a driver artefact: a corrupt blob quarantines to
+      // undefined rather than taking the whole thread down (spec rule 4).
       toolCalls: parseJsonColumn<ToolCallRow[]>(
-        r.tool_calls,
+        r.toolCalls,
         `superagent msg ${String(r.id)} tool_calls`,
       ),
-      toolCallId: (r.tool_call_id as string | null) ?? undefined,
-      toolName: (r.tool_name as string | null) ?? undefined,
-      createdAt: r.created_at as string,
+      toolCallId: r.toolCallId ?? undefined,
+      toolName: r.toolName ?? undefined,
+      createdAt: r.createdAt,
     }))
   }
 
@@ -71,48 +124,58 @@ export class SuperagentRepository {
     const ownerUserId = m.ownerUserId ?? this.getSuperagentThread(threadId)?.ownerUserId
     if (!ownerUserId) throw new Error(`unknown superagent thread: ${threadId}`)
     const result = this.db
-      .prepare(
-        `INSERT INTO superagent_messages
-           (thread_id, owner_user_id, role, content, tool_calls, tool_call_id, tool_name, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
+      .insert(superagentMessages)
+      .values({
         threadId,
         ownerUserId,
-        m.role,
-        m.content,
-        m.toolCalls ? JSON.stringify(m.toolCalls) : null,
-        m.toolCallId ?? null,
-        m.toolName ?? null,
+        role: m.role,
+        content: m.content,
+        toolCalls: m.toolCalls ? JSON.stringify(m.toolCalls) : null,
+        toolCallId: m.toolCallId ?? null,
+        toolName: m.toolName ?? null,
         createdAt,
-      )
+      })
+      .run()
     this.db
-      .prepare('UPDATE superagent_threads SET updated_at = ? WHERE id = ?')
-      .run(createdAt, threadId)
+      .update(superagentThreads)
+      .set({ updatedAt: createdAt })
+      .where(eq(superagentThreads.id, threadId))
+      .run()
     return { ...m, ownerUserId, id: Number(result.lastInsertRowid), createdAt }
   }
 
   clearSuperagentMessages(threadId = 'global'): void {
-    this.db.prepare('DELETE FROM superagent_messages WHERE thread_id = ?').run(threadId)
+    this.db
+      .delete(superagentMessages)
+      .where(eq(superagentMessages.threadId, asThreadId(threadId)))
+      .run()
   }
 
   listSuperagentThreads(ownerUserId: UserId): SuperagentThreadRow[] {
-    const rows = this.db
-      .prepare(
-        `SELECT * FROM superagent_threads WHERE owner_user_id = ? AND archived = 0 ORDER BY updated_at DESC`,
+    return this.db
+      .select()
+      .from(superagentThreads)
+      .where(
+        and(eq(superagentThreads.ownerUserId, ownerUserId), eq(superagentThreads.archived, false)),
       )
-      .all(ownerUserId) as Record<string, unknown>[]
-    return rows.map((r) => this.mapSuperagentThread(r))
+      .orderBy(desc(superagentThreads.updatedAt))
+      .all()
+      .map((r) => this.mapSuperagentThread(r))
   }
 
   getSuperagentThread(id: string, ownerUserId?: UserId): SuperagentThreadRow | undefined {
     const r = this.db
-      .prepare(
+      .select()
+      .from(superagentThreads)
+      .where(
         ownerUserId
-          ? 'SELECT * FROM superagent_threads WHERE id = ? AND owner_user_id = ?'
-          : 'SELECT * FROM superagent_threads WHERE id = ?',
+          ? and(
+              eq(superagentThreads.id, asThreadId(id)),
+              eq(superagentThreads.ownerUserId, ownerUserId),
+            )
+          : eq(superagentThreads.id, asThreadId(id)),
       )
-      .get(...(ownerUserId ? [id, ownerUserId] : [id])) as Record<string, unknown> | undefined
+      .get()
     return r ? this.mapSuperagentThread(r) : undefined
   }
 
@@ -126,29 +189,36 @@ export class SuperagentRepository {
   }): void {
     const now = new Date().toISOString()
     this.db
-      .prepare(
-        `INSERT INTO superagent_threads (id, owner_user_id, kind, origin_session_id, repo_path, title, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT(id) DO UPDATE SET
-           title = COALESCE(excluded.title, title), archived = 0, updated_at = ?`,
-      )
-      .run(
-        t.id,
-        t.ownerUserId,
-        t.kind,
-        t.originSessionId ?? null,
-        t.repoPath ?? null,
-        t.title ?? null,
-        now,
-        now,
-        now,
-      )
+      .insert(superagentThreads)
+      .values({
+        id: asThreadId(t.id),
+        ownerUserId: t.ownerUserId,
+        kind: t.kind,
+        originSessionId: t.originSessionId ?? null,
+        repoPath: t.repoPath ?? null,
+        title: t.title ?? null,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: superagentThreads.id,
+        set: {
+          title: sql`COALESCE(excluded.title, ${superagentThreads.title})`,
+          // RE-OPENING IS A SIDE EFFECT OF WRITING. `archiveSuperagentThread`
+          // hides a thread; this line is the only thing that brings it back.
+          archived: false,
+          updatedAt: now,
+        },
+      })
+      .run()
   }
 
   setThreadWatermark(id: string, itemId: string, ts: string | undefined): void {
     this.db
-      .prepare('UPDATE superagent_threads SET watermark_item_id = ?, watermark_ts = ? WHERE id = ?')
-      .run(itemId, ts ?? null, id)
+      .update(superagentThreads)
+      .set({ watermarkItemId: itemId, watermarkTs: ts ?? null })
+      .where(eq(superagentThreads.id, asThreadId(id)))
+      .run()
   }
 
   /** Patch the headless-session binding columns on a thread. Only the fields
@@ -171,62 +241,51 @@ export class SuperagentRepository {
       effort?: string | null
     },
   ): void {
-    const sets: string[] = []
-    const args: (string | null)[] = []
-    if (patch.agentKind !== undefined) {
-      sets.push('agent_kind = ?')
-      args.push(patch.agentKind)
-    }
-    if (patch.model !== undefined) {
-      sets.push('model = ?')
-      args.push(patch.model)
-    }
-    if (patch.effort !== undefined) {
-      sets.push('effort = ?')
-      args.push(patch.effort)
-    }
-    if (patch.podiumSessionId !== undefined) {
-      sets.push('podium_session_id = ?')
-      args.push(patch.podiumSessionId)
-    }
-    if (patch.harnessSessionId !== undefined) {
-      sets.push('harness_session_id = ?')
-      args.push(patch.harnessSessionId)
-    }
+    // ONLY THE FIELDS PRESENT IN `patch` ARE WRITTEN, which is what the
+    // hand-built SET list did: an absent key leaves the column alone, and an
+    // explicit `null` CLEARS it. Building the object the same way keeps that
+    // distinction, which a spread of the whole patch would lose.
+    const set: Partial<typeof superagentThreads.$inferInsert> = {}
+    if (patch.agentKind !== undefined) set.agentKind = patch.agentKind
+    if (patch.podiumSessionId !== undefined) set.podiumSessionId = patch.podiumSessionId
+    if (patch.harnessSessionId !== undefined) set.harnessSessionId = patch.harnessSessionId
     if (patch.terminalSessionId !== undefined) {
-      sets.push('terminal_session_id = ?')
-      args.push(patch.terminalSessionId)
+      set.terminalSessionId = patch.terminalSessionId as SessionId | null
     }
-    if (sets.length === 0) return
-    sets.push('updated_at = ?')
-    args.push(new Date().toISOString())
+    if (patch.model !== undefined) set.model = patch.model
+    if (patch.effort !== undefined) set.effort = patch.effort
+    if (Object.keys(set).length === 0) return
+    set.updatedAt = new Date().toISOString()
     this.db
-      .prepare(`UPDATE superagent_threads SET ${sets.join(', ')} WHERE id = ?`)
-      .run(...args, id)
+      .update(superagentThreads)
+      .set(set)
+      .where(eq(superagentThreads.id, asThreadId(id)))
+      .run()
   }
 
   archiveSuperagentThread(id: string): void {
-    this.db.prepare('UPDATE superagent_threads SET archived = 1 WHERE id = ?').run(id)
+    this.db
+      .update(superagentThreads)
+      .set({ archived: true })
+      .where(eq(superagentThreads.id, asThreadId(id)))
+      .run()
   }
 
   putQueuedInput(row: Omit<QueuedSuperagentInputRow, 'createdAt'>): QueuedSuperagentInputRow {
     const createdAt = new Date().toISOString()
     this.db
-      .prepare(
-        `INSERT INTO superagent_queued_inputs
-           (input_id, owner_user_id, thread_id, text, focus_json, agent_kind, attach_session_id, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.inputId,
-        row.ownerUserId,
-        row.threadId,
-        row.text,
-        row.focus ? JSON.stringify(row.focus) : null,
-        row.agentKind ?? null,
-        row.attachSessionId ?? null,
+      .insert(superagentQueuedInputs)
+      .values({
+        inputId: row.inputId,
+        ownerUserId: row.ownerUserId,
+        threadId: row.threadId,
+        text: row.text,
+        focusJson: row.focus ? JSON.stringify(row.focus) : null,
+        agentKind: row.agentKind ?? null,
+        attachSessionId: row.attachSessionId ?? null,
         createdAt,
-      )
+      })
+      .run()
     return { ...row, createdAt }
   }
 
@@ -234,57 +293,47 @@ export class SuperagentRepository {
    *  the delivery order: the pump takes the head and only ever runs one turn per
    *  thread, so a burst of sends reaches the harness in the order it was typed. */
   listQueuedInputs(threadId?: ThreadId): QueuedSuperagentInputRow[] {
-    const rows = (
-      threadId
-        ? this.db
-            .prepare(
-              'SELECT * FROM superagent_queued_inputs WHERE thread_id = ? ORDER BY created_at ASC',
-            )
-            .all(threadId)
-        : this.db.prepare('SELECT * FROM superagent_queued_inputs ORDER BY created_at ASC').all()
-    ) as Record<string, unknown>[]
+    const rows = this.db
+      .select()
+      .from(superagentQueuedInputs)
+      .where(threadId ? eq(superagentQueuedInputs.threadId, threadId) : undefined)
+      .orderBy(asc(superagentQueuedInputs.createdAt))
+      .all()
     return rows.map((row) => ({
-      inputId: row.input_id as string,
-      ownerUserId: row.owner_user_id as UserId,
-      // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
-      threadId: asThreadId(row.thread_id as string),
-      text: row.text as string,
-      ...(typeof row.agent_kind === 'string' && row.agent_kind
-        ? { agentKind: row.agent_kind }
-        : {}),
-      // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
-      ...(typeof row.attach_session_id === 'string' && row.attach_session_id
-        ? { attachSessionId: asSessionId(row.attach_session_id) }
-        : {}),
+      inputId: row.inputId,
+      ownerUserId: row.ownerUserId,
+      threadId: row.threadId,
+      text: row.text,
+      ...(row.agentKind ? { agentKind: row.agentKind } : {}),
+      // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote,
+      // and one the schema leaves unbranded, so the re-entry stays named.
+      ...(row.attachSessionId ? { attachSessionId: asSessionId(row.attachSessionId) } : {}),
       focus: parseJsonColumn<QueuedSuperagentInputRow['focus']>(
-        row.focus_json,
-        `queued superagent input ${String(row.input_id)}`,
+        row.focusJson,
+        `queued superagent input ${String(row.inputId)}`,
       ),
-      createdAt: row.created_at as string,
+      createdAt: row.createdAt,
     }))
   }
 
   deleteQueuedInput(inputId: string): void {
-    this.db.prepare('DELETE FROM superagent_queued_inputs WHERE input_id = ?').run(inputId)
+    this.db.delete(superagentQueuedInputs).where(eq(superagentQueuedInputs.inputId, inputId)).run()
   }
 
   putPendingTurn(row: Omit<PendingSuperagentTurnRow, 'createdAt'>): PendingSuperagentTurnRow {
     const createdAt = new Date().toISOString()
     this.db
-      .prepare(
-        `INSERT INTO superagent_pending_turns
-           (turn_id, owner_user_id, thread_id, podium_session_id, payload_json, first_turn, created_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      )
-      .run(
-        row.turnId,
-        row.ownerUserId,
-        row.threadId,
-        row.podiumSessionId,
-        JSON.stringify(row.payload),
-        row.firstTurn ? 1 : 0,
+      .insert(superagentPendingTurns)
+      .values({
+        turnId: row.turnId,
+        ownerUserId: row.ownerUserId,
+        threadId: row.threadId,
+        podiumSessionId: row.podiumSessionId,
+        payloadJson: JSON.stringify(row.payload),
+        firstTurn: row.firstTurn,
         createdAt,
-      )
+      })
+      .run()
     return { ...row, createdAt }
   }
 
@@ -292,7 +341,7 @@ export class SuperagentRepository {
     inputId: string,
     row: Omit<PendingSuperagentTurnRow, 'createdAt'>,
   ): PendingSuperagentTurnRow {
-    return transaction(this.db, () => {
+    return this.transact(() => {
       const pending = this.putPendingTurn(row)
       this.deleteQueuedInput(inputId)
       return pending
@@ -301,51 +350,58 @@ export class SuperagentRepository {
 
   listPendingTurns(): PendingSuperagentTurnRow[] {
     const rows = this.db
-      .prepare('SELECT * FROM superagent_pending_turns ORDER BY created_at ASC')
-      .all() as Record<string, unknown>[]
+      .select()
+      .from(superagentPendingTurns)
+      .orderBy(asc(superagentPendingTurns.createdAt))
+      .all()
     return rows.map((row) => {
-      const turnId = row.turn_id as string
       const payload = parseJsonColumn<PendingSuperagentTurnRow['payload']>(
-        row.payload_json,
-        `pending superagent turn ${turnId}`,
+        row.payloadJson,
+        `pending superagent turn ${row.turnId}`,
       )
-      if (!payload) throw new Error(`invalid persisted superagent turn payload: ${turnId}`)
+      // A DECISION and not a quarantine: a turn with no readable payload cannot
+      // be replayed, so it refuses rather than resuming as an empty one.
+      if (!payload) throw new Error(`invalid persisted superagent turn payload: ${row.turnId}`)
       return {
-        turnId,
-        ownerUserId: row.owner_user_id as UserId,
-        // TRUE SERIALIZATION EDGE: a TEXT column this system minted and wrote.
-        threadId: asThreadId(row.thread_id as string),
-        podiumSessionId: row.podium_session_id as SessionId,
+        turnId: row.turnId,
+        ownerUserId: row.ownerUserId,
+        threadId: row.threadId,
+        podiumSessionId: row.podiumSessionId,
         payload,
-        firstTurn: Boolean(row.first_turn),
-        createdAt: row.created_at as string,
+        firstTurn: row.firstTurn,
+        createdAt: row.createdAt,
       }
     })
   }
 
   deletePendingTurn(turnId: string): void {
-    this.db.prepare('DELETE FROM superagent_pending_turns WHERE turn_id = ?').run(turnId)
+    this.db.delete(superagentPendingTurns).where(eq(superagentPendingTurns.turnId, turnId)).run()
   }
 
-  private mapSuperagentThread(r: Record<string, unknown>): SuperagentThreadRow {
+  /**
+   * The thread row as its readers want it: `null` becomes `undefined`, and
+   * nothing else. Every cast this used to carry is gone — the names and the
+   * brands come off the schema now.
+   */
+  private mapSuperagentThread(r: typeof superagentThreads.$inferSelect): SuperagentThreadRow {
     return {
-      id: r.id as string,
-      ownerUserId: r.owner_user_id as UserId,
+      id: r.id,
+      ownerUserId: r.ownerUserId,
       kind: r.kind as 'global' | 'btw' | 'concierge',
-      originSessionId: (r.origin_session_id as SessionId | null) ?? undefined,
-      repoPath: (r.repo_path as string | null) ?? undefined,
-      title: (r.title as string | null) ?? undefined,
-      watermarkItemId: (r.watermark_item_id as string | null) ?? undefined,
-      watermarkTs: (r.watermark_ts as string | null) ?? undefined,
-      agentKind: (r.agent_kind as string | null) ?? undefined,
-      podiumSessionId: (r.podium_session_id as SessionId | null) ?? undefined,
-      harnessSessionId: (r.harness_session_id as string | null) ?? undefined,
-      terminalSessionId: (r.terminal_session_id as string | null) ?? undefined,
-      model: (r.model as string | null) ?? undefined,
-      effort: (r.effort as string | null) ?? undefined,
-      createdAt: r.created_at as string,
-      updatedAt: r.updated_at as string,
-      archived: Boolean(r.archived),
+      originSessionId: r.originSessionId ?? undefined,
+      repoPath: r.repoPath ?? undefined,
+      title: r.title ?? undefined,
+      watermarkItemId: r.watermarkItemId ?? undefined,
+      watermarkTs: r.watermarkTs ?? undefined,
+      agentKind: r.agentKind ?? undefined,
+      podiumSessionId: r.podiumSessionId ?? undefined,
+      harnessSessionId: r.harnessSessionId ?? undefined,
+      terminalSessionId: r.terminalSessionId ?? undefined,
+      model: r.model ?? undefined,
+      effort: r.effort ?? undefined,
+      createdAt: r.createdAt,
+      updatedAt: r.updatedAt,
+      archived: r.archived,
     }
   }
 }

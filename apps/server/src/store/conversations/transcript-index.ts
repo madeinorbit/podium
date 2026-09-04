@@ -1,5 +1,7 @@
 import { asMachineId, type MachineId } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { and, eq, gt, sql } from 'drizzle-orm'
+import { conversationSegments } from '../../migrations/schema'
+import type { SyncQueries } from '../executor/sync-drizzle'
 
 export interface TranscriptSearchCandidate {
   machineId: MachineId
@@ -16,7 +18,27 @@ export interface TranscriptSearchCandidate {
 /** Mirror-fed transcript FTS rows and their durable byte cursors. */
 export class TranscriptIndexRepository {
   private available = false
-  constructor(private readonly db: SqlDatabase) {}
+  constructor(private readonly queries: SyncQueries) {}
+
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
+  }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`
+   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
+   * detached method. One closure per instance is the price.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Create the transcript FTS5 table. Called at boot only when the
@@ -25,7 +47,7 @@ export class TranscriptIndexRepository {
    */
   enableFts(): void {
     try {
-      this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
+      this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS transcript_fts USING fts5(
         content, machine_id UNINDEXED, native_id UNINDEXED, item_uuid UNINDEXED, ts UNINDEXED)`)
       this.available = true
     } catch {
@@ -52,22 +74,29 @@ export class TranscriptIndexRepository {
   segmentsToIndex(
     machineId: MachineId,
   ): { nativeId: string; mirroredBytes: number; indexedBytes: number }[] {
-    const rows = this.db
-      .prepare(`SELECT native_id,mirrored_bytes,indexed_bytes
-      FROM conversation_segments WHERE machine_id=? AND mirrored_bytes>indexed_bytes`)
-      .all(machineId) as Record<string, unknown>[]
-    return rows.map((row) => ({
-      nativeId: row.native_id as string,
-      mirroredBytes: row.mirrored_bytes as number,
-      indexedBytes: row.indexed_bytes as number,
-    }))
+    return this.db
+      .select({
+        nativeId: conversationSegments.nativeId,
+        mirroredBytes: conversationSegments.mirroredBytes,
+        indexedBytes: conversationSegments.indexedBytes,
+      })
+      .from(conversationSegments)
+      .where(
+        and(
+          eq(conversationSegments.machineId, machineId),
+          gt(conversationSegments.mirroredBytes, conversationSegments.indexedBytes),
+        ),
+      )
+      .all()
   }
 
   indexedCursor(machineId: MachineId, nativeId: string): number {
     const row = this.db
-      .prepare('SELECT indexed_bytes FROM conversation_segments WHERE machine_id=? AND native_id=?')
-      .get(machineId, nativeId) as { indexed_bytes: number } | undefined
-    return row?.indexed_bytes ?? 0
+      .select({ indexedBytes: conversationSegments.indexedBytes })
+      .from(conversationSegments)
+      .where(this.segment(machineId, nativeId))
+      .get()
+    return row?.indexedBytes ?? 0
   }
 
   append(
@@ -77,17 +106,20 @@ export class TranscriptIndexRepository {
     indexedBytes: number,
   ): void {
     if (!this.available) return
-    const insert = this.db.prepare(
-      'INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts) VALUES(?,?,?,?,?)',
-    )
-    transaction(this.db, () => {
-      for (const row of rows)
-        insert.run(row.content, machineId, nativeId, row.itemUuid ?? null, row.ts ?? null)
-      this.db
-        .prepare(
-          'UPDATE conversation_segments SET indexed_bytes=? WHERE machine_id=? AND native_id=?',
+    this.transact(() => {
+      for (const row of rows) {
+        // `transcript_fts` is the virtual table this port owns; there is no
+        // schema model to build against, so the statement stays whole.
+        this.db.run(
+          sql`INSERT INTO transcript_fts (content,machine_id,native_id,item_uuid,ts)
+              VALUES(${row.content},${machineId},${nativeId},${row.itemUuid ?? null},${row.ts ?? null})`,
         )
-        .run(indexedBytes, machineId, nativeId)
+      }
+      this.db
+        .update(conversationSegments)
+        .set({ indexedBytes })
+        .where(this.segment(machineId, nativeId))
+        .run()
     })
   }
 
@@ -105,20 +137,23 @@ export class TranscriptIndexRepository {
     expected: { mirroredBytes: number; indexedBytes: number },
   ): boolean {
     let reset = false
-    transaction(this.db, () => {
+    this.transact(() => {
       const result = this.db
-        .prepare(
-          `UPDATE conversation_segments
-           SET mirrored_bytes=0,mirrored_at=NULL,indexed_bytes=0
-           WHERE machine_id=? AND native_id=?
-             AND mirrored_bytes=? AND indexed_bytes=?`,
+        .update(conversationSegments)
+        .set({ mirroredBytes: 0, mirroredAt: null, indexedBytes: 0 })
+        .where(
+          and(
+            this.segment(machineId, nativeId),
+            eq(conversationSegments.mirroredBytes, expected.mirroredBytes),
+            eq(conversationSegments.indexedBytes, expected.indexedBytes),
+          ),
         )
-        .run(machineId, nativeId, expected.mirroredBytes, expected.indexedBytes)
+        .run()
       reset = Number(result.changes) === 1
       if (reset && this.available) {
-        this.db
-          .prepare('DELETE FROM transcript_fts WHERE machine_id=? AND native_id=?')
-          .run(machineId, nativeId)
+        this.db.run(
+          sql`DELETE FROM transcript_fts WHERE machine_id=${machineId} AND native_id=${nativeId}`,
+        )
       }
     })
     return reset
@@ -129,10 +164,10 @@ export class TranscriptIndexRepository {
     nativeId: string,
   ): { content: string; itemUuid?: string; ts?: string }[] {
     if (!this.available) return []
-    const rows = this.db
-      .prepare(`SELECT content,item_uuid,ts FROM transcript_fts
-      WHERE machine_id=? AND native_id=? ORDER BY rowid`)
-      .all(machineId, nativeId) as Record<string, unknown>[]
+    const rows: Record<string, unknown>[] = this.db.all(
+      sql`SELECT content,item_uuid,ts FROM transcript_fts
+      WHERE machine_id=${machineId} AND native_id=${nativeId} ORDER BY rowid`,
+    )
     return rows.map((row) => ({
       content: row.content as string,
       itemUuid: (row.item_uuid as string | null) ?? undefined,
@@ -149,15 +184,15 @@ export class TranscriptIndexRepository {
       .filter(Boolean)
       .map((token) => `"${token.replace(/"/g, '""')}"*`)
       .join(' ')
-    const rows = this.db
-      .prepare(`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
+    const rows: Record<string, unknown>[] = this.db.all(
+      sql`SELECT f.machine_id,f.native_id,f.item_uuid,f.ts,
       snippet(transcript_fts,0,'**','**','…',12) AS snip, bm25(transcript_fts) AS rank,
       s.podium_id,c.title,c.name,c.updated_at
       FROM transcript_fts f
       LEFT JOIN conversation_segments s ON s.machine_id=f.machine_id AND s.native_id=f.native_id
       LEFT JOIN conversations c ON c.id=f.native_id
-      WHERE transcript_fts MATCH ? ORDER BY rank`)
-      .all(fts) as Record<string, unknown>[]
+      WHERE transcript_fts MATCH ${fts} ORDER BY rank`,
+    )
     return rows.map((row) => ({
       machineId: asMachineId(row.machine_id as string),
       nativeId: row.native_id as string,
@@ -173,14 +208,21 @@ export class TranscriptIndexRepository {
 
   drop(machineId: MachineId, nativeId: string): void {
     if (this.available) {
-      this.db
-        .prepare('DELETE FROM transcript_fts WHERE machine_id=? AND native_id=?')
-        .run(machineId, nativeId)
+      this.db.run(
+        sql`DELETE FROM transcript_fts WHERE machine_id=${machineId} AND native_id=${nativeId}`,
+      )
     }
     this.db
-      .prepare(
-        'UPDATE conversation_segments SET indexed_bytes=0 WHERE machine_id=? AND native_id=?',
-      )
-      .run(machineId, nativeId)
+      .update(conversationSegments)
+      .set({ indexedBytes: 0 })
+      .where(this.segment(machineId, nativeId))
+      .run()
+  }
+
+  private segment(machineId: MachineId, nativeId: string) {
+    return and(
+      eq(conversationSegments.machineId, machineId),
+      eq(conversationSegments.nativeId, nativeId),
+    )
   }
 }

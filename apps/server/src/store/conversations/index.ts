@@ -1,16 +1,38 @@
 import { asMachineId, type MachineId } from '@podium/model'
-import { type SqlDatabase, transaction } from '@podium/runtime/sqlite'
+import { eq, isNotNull, or, sql } from 'drizzle-orm'
+import { conversations } from '../../migrations/schema'
+import type { SyncQueries } from '../executor/sync-drizzle'
 import type { ConversationIndexRow } from '../types'
 
 /** Durable discovered-conversation summaries and their searchable curation. */
 export class ConversationIndexRepository {
   private ftsAvailable = false
   constructor(
-    private readonly db: SqlDatabase,
+    private readonly queries: SyncQueries,
     /** This host's minted machine id — the machine a row this repository has to
      *  CONJURE belongs to. See {@link setMeta}. */
     private readonly hostMachineId: MachineId,
   ) {}
+
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
+  }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`
+   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
+   * detached method. One closure per instance is the price.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Create the FTS5 index and the three triggers that keep it fed, then rebuild
@@ -20,20 +42,24 @@ export class ConversationIndexRepository {
    */
   enableFts(): void {
     try {
-      this.db.exec(`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
+      // ONE STATEMENT PER CALL, where the raw handle took a whole script: the
+      // query layer prepares what it is given, so a multi-statement string would
+      // run its first statement and silently drop the rest. The order is the one
+      // the script had.
+      this.db.run(sql`CREATE VIRTUAL TABLE IF NOT EXISTS conversations_fts USING fts5(
         title, name, summary, project_path, content='conversations', content_rowid='rowid')`)
-      this.db.exec(`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
+      this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ai AFTER INSERT ON conversations BEGIN
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
-        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END;
-        CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
+        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`)
+      this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_ad AFTER DELETE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
-        VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path); END;
-        CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
+        VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path); END`)
+      this.db.run(sql`CREATE TRIGGER IF NOT EXISTS conversations_au AFTER UPDATE ON conversations BEGIN
         INSERT INTO conversations_fts(conversations_fts,rowid,title,name,summary,project_path)
         VALUES('delete',old.rowid,old.title,old.name,old.summary,old.project_path);
         INSERT INTO conversations_fts(rowid,title,name,summary,project_path)
-        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END;`)
-      this.db.exec("INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')")
+        VALUES(new.rowid,new.title,new.name,new.summary,new.project_path); END`)
+      this.db.run(sql`INSERT INTO conversations_fts(conversations_fts) VALUES('rebuild')`)
       this.ftsAvailable = true
     } catch {
       this.ftsAvailable = false
@@ -54,9 +80,9 @@ export class ConversationIndexRepository {
    * `conversations`.
    */
   disableFts(): void {
-    this.db.exec(`DROP TRIGGER IF EXISTS conversations_ai;
-      DROP TRIGGER IF EXISTS conversations_ad;
-      DROP TRIGGER IF EXISTS conversations_au;`)
+    this.db.run(sql`DROP TRIGGER IF EXISTS conversations_ai`)
+    this.db.run(sql`DROP TRIGGER IF EXISTS conversations_ad`)
+    this.db.run(sql`DROP TRIGGER IF EXISTS conversations_au`)
     this.ftsAvailable = false
   }
 
@@ -76,63 +102,73 @@ export class ConversationIndexRepository {
    */
   upsert(rows: (ConversationIndexRow & { machineId: MachineId })[]): void {
     if (rows.length === 0) return
-    const stmt = this.db.prepare(`INSERT INTO conversations
-      (id,agent_kind,title,project_path,provider_id,resume_kind,resume_value,created_at,
-       updated_at,message_count,machine_id,parent_conversation_id)
-      VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-      agent_kind=excluded.agent_kind, provider_id=excluded.provider_id,
-      machine_id=excluded.machine_id, title=COALESCE(excluded.title,conversations.title),
-      project_path=COALESCE(excluded.project_path,conversations.project_path),
-      resume_kind=COALESCE(excluded.resume_kind,conversations.resume_kind),
-      resume_value=COALESCE(excluded.resume_value,conversations.resume_value),
-      created_at=COALESCE(excluded.created_at,conversations.created_at),
-      updated_at=COALESCE(excluded.updated_at,conversations.updated_at),
-      message_count=COALESCE(excluded.message_count,conversations.message_count),
-      parent_conversation_id=COALESCE(excluded.parent_conversation_id,conversations.parent_conversation_id)
-      WHERE conversations.agent_kind IS NOT excluded.agent_kind
-         OR conversations.provider_id IS NOT excluded.provider_id
-         OR conversations.machine_id IS NOT excluded.machine_id
-         OR conversations.title IS NOT COALESCE(excluded.title,conversations.title)
-         OR conversations.project_path IS NOT COALESCE(excluded.project_path,conversations.project_path)
-         OR conversations.resume_kind IS NOT COALESCE(excluded.resume_kind,conversations.resume_kind)
-         OR conversations.resume_value IS NOT COALESCE(excluded.resume_value,conversations.resume_value)
-         OR conversations.created_at IS NOT COALESCE(excluded.created_at,conversations.created_at)
-         OR conversations.updated_at IS NOT COALESCE(excluded.updated_at,conversations.updated_at)
-         OR conversations.message_count IS NOT COALESCE(excluded.message_count,conversations.message_count)
-         OR conversations.parent_conversation_id IS NOT COALESCE(excluded.parent_conversation_id,conversations.parent_conversation_id)`)
-    transaction(this.db, () => {
-      for (const row of rows)
-        stmt.run(
-          row.id,
-          row.agentKind,
-          row.title ?? null,
-          row.projectPath ?? null,
-          row.providerId,
-          row.resumeKind ?? null,
-          row.resumeValue ?? null,
-          row.createdAt ?? null,
-          row.updatedAt ?? null,
-          row.messageCount ?? null,
-          row.machineId,
-          row.parentConversationId ?? null,
-        )
+    this.transact(() => {
+      for (const row of rows) {
+        this.db
+          .insert(conversations)
+          .values({
+            id: row.id,
+            agentKind: row.agentKind,
+            title: row.title ?? null,
+            projectPath: row.projectPath ?? null,
+            providerId: row.providerId,
+            resumeKind: row.resumeKind ?? null,
+            resumeValue: row.resumeValue ?? null,
+            createdAt: row.createdAt ?? null,
+            updatedAt: row.updatedAt ?? null,
+            messageCount: row.messageCount ?? null,
+            machineId: row.machineId,
+            parentConversationId: row.parentConversationId ?? null,
+          })
+          .onConflictDoUpdate({
+            target: conversations.id,
+            set: {
+              agentKind: sql`excluded.agent_kind`,
+              providerId: sql`excluded.provider_id`,
+              machineId: sql`excluded.machine_id`,
+              title: sql`COALESCE(excluded.title,${conversations.title})`,
+              projectPath: sql`COALESCE(excluded.project_path,${conversations.projectPath})`,
+              resumeKind: sql`COALESCE(excluded.resume_kind,${conversations.resumeKind})`,
+              resumeValue: sql`COALESCE(excluded.resume_value,${conversations.resumeValue})`,
+              createdAt: sql`COALESCE(excluded.created_at,${conversations.createdAt})`,
+              updatedAt: sql`COALESCE(excluded.updated_at,${conversations.updatedAt})`,
+              messageCount: sql`COALESCE(excluded.message_count,${conversations.messageCount})`,
+              parentConversationId: sql`COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
+            },
+            // THE GUARD IS THE EXACT NEGATION OF THE SET LIST — each column
+            // compared against the effective value the SET would assign, `IS NOT`
+            // so NULL compares like any other value. A row that would change
+            // still changes; only a write with nothing to say is skipped.
+            setWhere: sql`${conversations.agentKind} IS NOT excluded.agent_kind
+         OR ${conversations.providerId} IS NOT excluded.provider_id
+         OR ${conversations.machineId} IS NOT excluded.machine_id
+         OR ${conversations.title} IS NOT COALESCE(excluded.title,${conversations.title})
+         OR ${conversations.projectPath} IS NOT COALESCE(excluded.project_path,${conversations.projectPath})
+         OR ${conversations.resumeKind} IS NOT COALESCE(excluded.resume_kind,${conversations.resumeKind})
+         OR ${conversations.resumeValue} IS NOT COALESCE(excluded.resume_value,${conversations.resumeValue})
+         OR ${conversations.createdAt} IS NOT COALESCE(excluded.created_at,${conversations.createdAt})
+         OR ${conversations.updatedAt} IS NOT COALESCE(excluded.updated_at,${conversations.updatedAt})
+         OR ${conversations.messageCount} IS NOT COALESCE(excluded.message_count,${conversations.messageCount})
+         OR ${conversations.parentConversationId} IS NOT COALESCE(excluded.parent_conversation_id,${conversations.parentConversationId})`,
+          })
+          .run()
+      }
     })
   }
 
   delete(ids: string[]): void {
     if (ids.length === 0) return
-    const stmt = this.db.prepare('DELETE FROM conversations WHERE id = ?')
-    transaction(this.db, () => {
-      for (const id of ids) stmt.run(id)
+    this.transact(() => {
+      for (const id of ids) this.db.delete(conversations).where(eq(conversations.id, id)).run()
     })
   }
 
   curatedMeta(): Map<string, { name?: string; summary?: string }> {
     const rows = this.db
-      .prepare(
-        'SELECT id,name,summary FROM conversations WHERE name IS NOT NULL OR summary IS NOT NULL',
-      )
-      .all() as { id: string; name: string | null; summary: string | null }[]
+      .select({ id: conversations.id, name: conversations.name, summary: conversations.summary })
+      .from(conversations)
+      .where(or(isNotNull(conversations.name), isNotNull(conversations.summary)))
+      .all()
     return new Map(
       rows.map((row) => [
         row.id,
@@ -145,55 +181,79 @@ export class ConversationIndexRepository {
   }
 
   setMeta(id: string, meta: { name?: string; summary?: string }): void {
-    if (!this.db.prepare('SELECT 1 FROM conversations WHERE id = ?').get(id)) {
+    const present = this.db
+      .select({ one: sql<number>`1` })
+      .from(conversations)
+      .where(eq(conversations.id, id))
+      .get()
+    if (!present) {
       // Curating a conversation nobody has discovered yet CREATES the row, and
       // since POD-318 the machine column has no default to manufacture one — so
       // this names the host, which is where a local curation act happens. It used
       // to lean on the `'__local__'` default, silently.
       this.db
-        .prepare(
-          `INSERT INTO conversations (id,agent_kind,provider_id,machine_id)
-             VALUES (?,'claude-code','unknown',?)`,
-        )
-        .run(id, this.hostMachineId)
+        .insert(conversations)
+        .values({
+          id,
+          agentKind: 'claude-code',
+          providerId: 'unknown',
+          machineId: this.hostMachineId,
+        })
+        .run()
     }
     if (meta.name !== undefined)
-      this.db.prepare('UPDATE conversations SET name=? WHERE id=?').run(meta.name, id)
+      this.db.update(conversations).set({ name: meta.name }).where(eq(conversations.id, id)).run()
     if (meta.summary !== undefined)
-      this.db.prepare('UPDATE conversations SET summary=? WHERE id=?').run(meta.summary, id)
+      this.db
+        .update(conversations)
+        .set({ summary: meta.summary })
+        .where(eq(conversations.id, id))
+        .run()
   }
 
-  /** Complete candidates: memory filters before scoring and limiting. */
+  /**
+   * Complete candidates: memory filters before scoring and limiting.
+   *
+   * WHOLE RAW STATEMENTS, DELIBERATELY, and this file is one of the two the
+   * boundary lint names as the SearchIndex port for exactly this reason: `MATCH`
+   * is not a builder construct and `conversations_fts` is a virtual table the
+   * schema has no model for. What the conversion changed is the ISSUER — they go
+   * through the query layer now, and every value is still a bound parameter, so
+   * the projectPath filter is a fragment rather than string concatenation.
+   */
   searchCandidates(opts: { query?: string; projectPath?: string }): ConversationIndexRow[] {
-    const pathFilter = opts.projectPath ? ' AND (c.project_path=? OR c.project_path LIKE ?)' : ''
-    const pathArgs = opts.projectPath ? [opts.projectPath, `${opts.projectPath}/%`] : []
-    const topLevel = ' AND c.parent_conversation_id IS NULL'
+    const pathFilter = opts.projectPath
+      ? sql` AND (c.project_path=${opts.projectPath} OR c.project_path LIKE ${`${opts.projectPath}/%`})`
+      : sql``
+    const topLevel = sql` AND c.parent_conversation_id IS NULL`
+    const order = sql` ORDER BY c.updated_at DESC NULLS LAST`
     const query = opts.query?.trim() ?? ''
     let rows: Record<string, unknown>[]
     if (!query) {
-      rows = this.db
-        .prepare(`SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}
-        ORDER BY c.updated_at DESC NULLS LAST`)
-        .all(...pathArgs) as Record<string, unknown>[]
+      rows = this.db.all(
+        sql`SELECT c.* FROM conversations c WHERE 1=1${pathFilter}${topLevel}${order}`,
+      )
     } else if (this.ftsAvailable) {
       const fts = query
         .split(/\s+/)
         .filter(Boolean)
         .map((token) => `"${token.replace(/"/g, '""')}"*`)
         .join(' ')
-      rows = this.db
-        .prepare(`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
-        WHERE conversations_fts MATCH ?${pathFilter}${topLevel}
-        ORDER BY c.updated_at DESC NULLS LAST`)
-        .all(fts, ...pathArgs) as Record<string, unknown>[]
+      rows = this.db.all(
+        sql`SELECT c.* FROM conversations_fts f JOIN conversations c ON c.rowid=f.rowid
+        WHERE conversations_fts MATCH ${fts}${pathFilter}${topLevel}${order}`,
+      )
     } else {
       const like = `%${query}%`
-      rows = this.db
-        .prepare(`SELECT c.* FROM conversations c WHERE
-        (c.title LIKE ? OR c.name LIKE ? OR c.summary LIKE ? OR c.project_path LIKE ?)
-        ${pathFilter}${topLevel} ORDER BY c.updated_at DESC NULLS LAST`)
-        .all(like, like, like, like, ...pathArgs) as Record<string, unknown>[]
+      rows = this.db.all(
+        sql`SELECT c.* FROM conversations c WHERE
+        (c.title LIKE ${like} OR c.name LIKE ${like} OR c.summary LIKE ${like} OR c.project_path LIKE ${like})
+        ${pathFilter}${topLevel}${order}`,
+      )
     }
+    // A raw statement returns PHYSICAL column names, so this mapper stays where
+    // the builder-converted repositories lost theirs. That is the cost of the
+    // port exemption and it is paid here rather than spread over the file.
     return rows.map((row) => ({
       id: row.id as string,
       agentKind: row.agent_kind as string,

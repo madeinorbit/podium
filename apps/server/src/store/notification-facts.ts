@@ -1,6 +1,7 @@
 import type { IssueId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, eq, gte, isNotNull, isNull, like, lt, or, sql } from 'drizzle-orm'
+import { notificationFacts } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 const DEFAULT_TTL_MS = 24 * 60 * 60 * 1000
 
@@ -15,10 +16,17 @@ interface FactClaim {
 
 /** Durable atomic claims behind the steward's notification arbiter [spec:SP-ba61]. */
 export class NotificationFactsRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
 
   /**
@@ -26,57 +34,85 @@ export class NotificationFactsRepository {
    * the single write statement, so concurrent producers cannot both win.
    */
   claim(fact: FactClaim): boolean {
+    // A WRITE THAT RETURNS ROWS, and the exact statement POD-3318 was found on:
+    // drizzle emits `INSERT ... RETURNING` through the `all` decoder, so nothing
+    // may read write intent off the method. `.returning()` on an insert IS the
+    // declaration (spec rule 27a), and the terminal `.get()` only says how many
+    // rows come back.
     const row = this.db
-      .prepare(
-        `INSERT INTO notification_facts
-           (fact_key, target, source, issue_id, created_at, expires_at, consumed_at)
-         VALUES (?, ?, ?, ?, ?, ?, NULL)
-         ON CONFLICT(fact_key, target) DO UPDATE SET
-           source = excluded.source,
-           issue_id = excluded.issue_id,
-           created_at = excluded.created_at,
-           expires_at = excluded.expires_at,
-           consumed_at = NULL
-         WHERE notification_facts.consumed_at IS NOT NULL
-            OR (notification_facts.expires_at IS NOT NULL
-                AND notification_facts.expires_at < excluded.created_at)
-         RETURNING fact_key`,
-      )
-      .get(fact.factKey, fact.target, fact.source, fact.issueId, fact.createdAt, fact.expiresAt)
+      .insert(notificationFacts)
+      .values({
+        factKey: fact.factKey,
+        target: fact.target,
+        source: fact.source,
+        issueId: fact.issueId,
+        createdAt: fact.createdAt,
+        expiresAt: fact.expiresAt,
+        consumedAt: null,
+      })
+      .onConflictDoUpdate({
+        target: [notificationFacts.factKey, notificationFacts.target],
+        set: {
+          source: sql`excluded.source`,
+          issueId: sql`excluded.issue_id`,
+          createdAt: sql`excluded.created_at`,
+          expiresAt: sql`excluded.expires_at`,
+          consumedAt: null,
+        },
+        // The conflict guard is part of the single write statement, so
+        // concurrent producers cannot both win.
+        setWhere: or(
+          isNotNull(notificationFacts.consumedAt),
+          and(
+            isNotNull(notificationFacts.expiresAt),
+            sql`${notificationFacts.expiresAt} < excluded.created_at`,
+          ),
+        ),
+      })
+      .returning({ factKey: notificationFacts.factKey })
+      .get()
     return row !== undefined
   }
 
   hasActive(factKey: string, target: string, now: string): boolean {
     const row = this.db
-      .prepare(
-        `SELECT 1 FROM notification_facts
-         WHERE fact_key = ? AND target = ?
-           AND consumed_at IS NULL
-           AND (expires_at IS NULL OR expires_at >= ?)`,
+      .select({ one: sql<number>`1` })
+      .from(notificationFacts)
+      .where(
+        and(
+          eq(notificationFacts.factKey, factKey),
+          eq(notificationFacts.target, target),
+          isNull(notificationFacts.consumedAt),
+          or(isNull(notificationFacts.expiresAt), gte(notificationFacts.expiresAt, now)),
+        ),
       )
-      .get(factKey, target, now)
+      .get()
     return row !== undefined
   }
 
   retire(factKey: string, target: string, consumedAt: string): boolean {
-    const row = this.db
-      .prepare(
-        `UPDATE notification_facts SET consumed_at = ?
-         WHERE fact_key = ? AND target = ? AND consumed_at IS NULL`,
+    const result = this.db
+      .update(notificationFacts)
+      .set({ consumedAt })
+      .where(
+        and(
+          eq(notificationFacts.factKey, factKey),
+          eq(notificationFacts.target, target),
+          isNull(notificationFacts.consumedAt),
+        ),
       )
-      .run(consumedAt, factKey, target)
-    return row.changes === 1
+      .run()
+    return result.changes === 1
   }
 
   /** Retire every live claim for an exact fact_key (all targets). */
   retireFactKey(factKey: string, consumedAt: string): number {
-    const row = this.db
-      .prepare(
-        `UPDATE notification_facts SET consumed_at = ?
-         WHERE fact_key = ? AND consumed_at IS NULL`,
-      )
-      .run(consumedAt, factKey)
-    return Number(row.changes)
+    const result = this.db
+      .update(notificationFacts)
+      .set({ consumedAt })
+      .where(and(eq(notificationFacts.factKey, factKey), isNull(notificationFacts.consumedAt)))
+      .run()
+    return Number(result.changes)
   }
 
   /**
@@ -84,23 +120,25 @@ export class NotificationFactsRepository {
    * Fact keys use only alphanumerics and `:` / `-` — no LIKE wildcards.
    */
   retireFactKeyPrefix(prefix: string, consumedAt: string): number {
-    const row = this.db
-      .prepare(
-        `UPDATE notification_facts SET consumed_at = ?
-         WHERE fact_key LIKE ? AND consumed_at IS NULL`,
+    const result = this.db
+      .update(notificationFacts)
+      .set({ consumedAt })
+      .where(
+        and(like(notificationFacts.factKey, `${prefix}%`), isNull(notificationFacts.consumedAt)),
       )
-      .run(consumedAt, `${prefix}%`)
-    return Number(row.changes)
+      .run()
+    return Number(result.changes)
   }
 
   retireByIssue(issueId: IssueId): void {
-    this.db.prepare('DELETE FROM notification_facts WHERE issue_id = ?').run(issueId)
+    this.db.delete(notificationFacts).where(eq(notificationFacts.issueId, issueId)).run()
   }
 
   retireExpired(now: string): void {
     this.db
-      .prepare('DELETE FROM notification_facts WHERE expires_at IS NOT NULL AND expires_at < ?')
-      .run(now)
+      .delete(notificationFacts)
+      .where(and(isNotNull(notificationFacts.expiresAt), lt(notificationFacts.expiresAt, now)))
+      .run()
   }
 }
 

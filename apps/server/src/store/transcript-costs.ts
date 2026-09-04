@@ -17,9 +17,9 @@
  */
 
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
-import type { SqlDatabase } from '@podium/runtime/sqlite'
-import { transaction } from '@podium/runtime/sqlite'
-import { legacyHandle, type QueryClient, type StoreExecutor } from './executor'
+import { and, count, gt, inArray, isNotNull, max, sql } from 'drizzle-orm'
+import { transcriptCosts } from '../migrations/schema'
+import type { SyncQueries } from './executor/sync-drizzle'
 
 /** One transcript's fold, as the ingest hands it over. */
 export interface TranscriptCostRecord {
@@ -47,22 +47,9 @@ export interface TranscriptCost extends TranscriptCostRecord {
   updatedAt: string
 }
 
-interface Row {
-  machine_id: string
-  native_id: string
-  path: string
-  harness: string
-  session_id: string | null
-  issue_id: string | null
-  scanned_bytes: number
-  first_ts_ms: number
-  last_ts_ms: number
-  messages: number
-  models_json: string
-  window_models_json: string
-  window_since_ms: number
-  updated_at: string
-}
+/** One stored row, as drizzle hands it back: the schema's TypeScript names and
+ *  its `$type` brands, so nothing here re-enters an id space by hand. */
+type Row = typeof transcriptCosts.$inferSelect
 
 /**
  * A stored fold that will not parse is worth exactly one transcript's figure, so
@@ -83,29 +70,50 @@ function parseModels(json: string): CostModelTotalWire[] {
   }
 }
 
+/**
+ * The two folds are the only mapping left. Every other column arrives already
+ * named and already branded, so the lines that used to re-enter the id spaces
+ * by cast are gone; these two are a DECISION — the quarantine above — and stay.
+ */
 const toCost = (row: Row): TranscriptCost => ({
-  machineId: row.machine_id as MachineId,
-  nativeId: row.native_id,
+  machineId: row.machineId,
+  nativeId: row.nativeId,
   path: row.path,
   harness: row.harness as CostHarness,
-  sessionId: (row.session_id as SessionId | null) ?? null,
-  issueId: (row.issue_id as IssueId | null) ?? null,
-  scannedBytes: row.scanned_bytes,
-  firstTsMs: row.first_ts_ms,
-  lastTsMs: row.last_ts_ms,
+  sessionId: row.sessionId,
+  issueId: row.issueId,
+  scannedBytes: row.scannedBytes,
+  firstTsMs: row.firstTsMs,
+  lastTsMs: row.lastTsMs,
   messages: row.messages,
-  models: parseModels(row.models_json),
-  windowModels: parseModels(row.window_models_json),
-  windowSinceMs: row.window_since_ms,
-  updatedAt: row.updated_at,
+  models: parseModels(row.modelsJson),
+  windowModels: parseModels(row.windowModelsJson),
+  windowSinceMs: row.windowSinceMs,
+  updatedAt: row.updatedAt,
 })
 
 export class TranscriptCostsRepository {
-  private readonly db: SqlDatabase
+  constructor(private readonly queries: SyncQueries) {}
 
-  constructor(executor: StoreExecutor<QueryClient>) {
-    this.db = legacyHandle(executor)
+  /**
+   * The query capability, INJECTED rather than reached for [spec rule 27b], and
+   * read through a getter rather than frozen into a field [rule 34a]. Ambient
+   * transaction routing (rule 35) has to resolve the ENCLOSING transaction on
+   * every access, which a field assigned once in a constructor can never do — so
+   * B1 changes the one line inside this getter and no call site below it.
+   */
+  private get db(): SyncQueries['db'] {
+    return this.queries.db
   }
+
+  /**
+   * AN ARROW FIELD, not `this.transact = queries.transact` [rule 34a, POD-3396].
+   * The straight assignment works today only because `syncQueriesOver` returns a
+   * closure over the handle; it breaks the moment the implementation uses `this`
+   * — which is exactly what rule 35's adapter does — and it breaks SILENTLY, as a
+   * detached method. One closure per instance is the price.
+   */
+  private transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * Bank one harvest. Transactional over the whole batch: a walk is one
@@ -114,57 +122,57 @@ export class TranscriptCostsRepository {
    */
   record(records: TranscriptCostRecord[], nowIso: string): void {
     if (records.length === 0) return
-    const stmt = this.db.prepare(
-      `INSERT INTO transcript_costs
-         (machine_id, native_id, path, harness, session_id, issue_id, scanned_bytes,
-          first_ts_ms, last_ts_ms, messages, models_json, window_models_json,
-          window_since_ms, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-       ON CONFLICT(machine_id, native_id) DO UPDATE SET
-         path = excluded.path,
-         harness = excluded.harness,
-         -- COALESCE, NEVER A PLAIN OVERWRITE. A later harvest re-resolves the
-         -- owner from live rows, and that lookup skips tombstones -- so a
-         -- session soft-deleted while its transcript is still inside the mtime
-         -- window resolves to nothing, and a plain assignment would write NULL
-         -- over an attribution this table exists to keep. Every other column is
-         -- a re-measurement and may be overwritten; these two are history.
-         --
-         -- COALESCE PROTECTS, IT CANNOT REPAIR. Any attribution a pre-fix build
-         -- already nulled stays nulled forever, and invisibly: the owner lookup
-         -- skips tombstones, so it will never resolve that session again and no
-         -- later harvest can put the id back. A task missing spend it once had
-         -- is the shape to look for; the row is still there, with session_id and
-         -- issue_id NULL and its token totals intact.
-         session_id = COALESCE(excluded.session_id, transcript_costs.session_id),
-         issue_id = COALESCE(excluded.issue_id, transcript_costs.issue_id),
-         scanned_bytes = MAX(transcript_costs.scanned_bytes, excluded.scanned_bytes),
-         first_ts_ms = excluded.first_ts_ms,
-         last_ts_ms = excluded.last_ts_ms,
-         messages = excluded.messages,
-         models_json = excluded.models_json,
-         window_models_json = excluded.window_models_json,
-         window_since_ms = excluded.window_since_ms,
-         updated_at = excluded.updated_at`,
-    )
-    transaction(this.db, () => {
+    this.transact(() => {
       for (const r of records) {
-        stmt.run(
-          r.machineId,
-          r.nativeId,
-          r.path,
-          r.harness,
-          r.sessionId,
-          r.issueId,
-          r.scannedBytes,
-          r.firstTsMs,
-          r.lastTsMs,
-          r.models.reduce((n, m) => n + m.messages, 0),
-          JSON.stringify(r.models),
-          JSON.stringify(r.windowModels),
-          r.windowSinceMs,
-          nowIso,
-        )
+        this.db
+          .insert(transcriptCosts)
+          .values({
+            machineId: r.machineId,
+            nativeId: r.nativeId,
+            path: r.path,
+            harness: r.harness,
+            sessionId: r.sessionId,
+            issueId: r.issueId,
+            scannedBytes: r.scannedBytes,
+            firstTsMs: r.firstTsMs,
+            lastTsMs: r.lastTsMs,
+            messages: r.models.reduce((n, m) => n + m.messages, 0),
+            modelsJson: JSON.stringify(r.models),
+            windowModelsJson: JSON.stringify(r.windowModels),
+            windowSinceMs: r.windowSinceMs,
+            updatedAt: nowIso,
+          })
+          .onConflictDoUpdate({
+            target: [transcriptCosts.machineId, transcriptCosts.nativeId],
+            set: {
+              path: sql`excluded.path`,
+              harness: sql`excluded.harness`,
+              // COALESCE, NEVER A PLAIN OVERWRITE. A later harvest re-resolves the
+              // owner from live rows, and that lookup skips tombstones -- so a
+              // session soft-deleted while its transcript is still inside the mtime
+              // window resolves to nothing, and a plain assignment would write NULL
+              // over an attribution this table exists to keep. Every other column is
+              // a re-measurement and may be overwritten; these two are history.
+              //
+              // COALESCE PROTECTS, IT CANNOT REPAIR. Any attribution a pre-fix build
+              // already nulled stays nulled forever, and invisibly: the owner lookup
+              // skips tombstones, so it will never resolve that session again and no
+              // later harvest can put the id back. A task missing spend it once had
+              // is the shape to look for; the row is still there, with session_id and
+              // issue_id NULL and its token totals intact.
+              sessionId: sql`COALESCE(excluded.session_id, ${transcriptCosts.sessionId})`,
+              issueId: sql`COALESCE(excluded.issue_id, ${transcriptCosts.issueId})`,
+              scannedBytes: sql`MAX(${transcriptCosts.scannedBytes}, excluded.scanned_bytes)`,
+              firstTsMs: sql`excluded.first_ts_ms`,
+              lastTsMs: sql`excluded.last_ts_ms`,
+              messages: sql`excluded.messages`,
+              modelsJson: sql`excluded.models_json`,
+              windowModelsJson: sql`excluded.window_models_json`,
+              windowSinceMs: sql`excluded.window_since_ms`,
+              updatedAt: sql`excluded.updated_at`,
+            },
+          })
+          .run()
       }
     })
   }
@@ -172,30 +180,32 @@ export class TranscriptCostsRepository {
   /** Every transcript attributed to one of these issues. */
   forIssues(issueIds: readonly IssueId[]): TranscriptCost[] {
     if (issueIds.length === 0) return []
-    const placeholders = issueIds.map(() => '?').join(',')
-    const rows = this.db
-      .prepare(`SELECT * FROM transcript_costs WHERE issue_id IN (${placeholders})`)
-      .all(...issueIds) as Row[]
-    return rows.map(toCost)
+    return this.db
+      .select()
+      .from(transcriptCosts)
+      .where(inArray(transcriptCosts.issueId, issueIds))
+      .all()
+      .map(toCost)
   }
 
   /** Every transcript that resolved to a task, for the sheet's ranked table. */
   allAttributed(): TranscriptCost[] {
-    const rows = this.db
-      .prepare(`SELECT * FROM transcript_costs WHERE issue_id IS NOT NULL`)
-      .all() as Row[]
-    return rows.map(toCost)
+    return this.db
+      .select()
+      .from(transcriptCosts)
+      .where(isNotNull(transcriptCosts.issueId))
+      .all()
+      .map(toCost)
   }
 
   /** Which sessions already have a fold — the `pending` state's other half. */
   costedSessionIds(): Set<string> {
     const rows = this.db
-      .prepare(
-        `SELECT DISTINCT session_id FROM transcript_costs
-         WHERE session_id IS NOT NULL AND messages > 0`,
-      )
-      .all() as { session_id: string }[]
-    return new Set(rows.map((r) => r.session_id))
+      .selectDistinct({ sessionId: transcriptCosts.sessionId })
+      .from(transcriptCosts)
+      .where(and(isNotNull(transcriptCosts.sessionId), gt(transcriptCosts.messages, 0)))
+      .all()
+    return new Set(rows.flatMap((r) => (r.sessionId === null ? [] : [r.sessionId])))
   }
 
   /**
@@ -207,14 +217,15 @@ export class TranscriptCostsRepository {
    * against this is how a reader tells the two apart without a second write.
    */
   latestWindowSinceMs(): number {
-    const row = this.db.prepare(`SELECT MAX(window_since_ms) AS m FROM transcript_costs`).get() as {
-      m: number | null
-    }
-    return row.m ?? 0
+    const row = this.db
+      .select({ m: max(transcriptCosts.windowSinceMs) })
+      .from(transcriptCosts)
+      .get()
+    return row?.m ?? 0
   }
 
   countAll(): number {
-    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM transcript_costs`).get() as { n: number }
-    return row.n
+    const row = this.db.select({ n: count() }).from(transcriptCosts).get()
+    return row?.n ?? 0
   }
 }
