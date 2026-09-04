@@ -23,7 +23,7 @@ function harness(executeServerOp?: (op: ApprovalOp, sessionId: SessionId) => str
     const stage = createBunStoreExecutor({ database: db }).syncQueries
     if (!stage) throw new Error('the test database is not bun-backed')
     return new ApprovalService({
-      store: new ApprovalsRepository(stage.db),
+      store: new ApprovalsRepository(stage),
       now: () => '2026-07-13T00:00:00.000Z',
       toMachine: (machineId, msg) => sent.push({ machineId, msg }),
       hasDaemon: () => daemon.attached,

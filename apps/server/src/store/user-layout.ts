@@ -28,10 +28,23 @@ import { userLayout } from '../migrations/schema'
 import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export class UserLayoutRepository {
-  constructor(
-    private readonly db: SyncDrizzle,
-    private readonly transact: SyncQueries['transact'],
-  ) {}
+  constructor(private readonly queries: SyncQueries) {}
+
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
+  }
+
+  /**
+   * Rule 34a — an arrow FIELD, not `this.transact = queries.transact`. The
+   * straight assignment works only while the implementation ignores `this`, and
+   * it stops working silently the moment it does not.
+   */
+  protected transact = <T>(fn: () => T): T => this.queries.transact(fn)
 
   /**
    * One person's layout snapshot — every key they have set, as a plain map.

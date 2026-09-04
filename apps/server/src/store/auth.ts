@@ -27,7 +27,7 @@
 import type { UserId } from '@podium/model'
 import { and, desc, eq, lte, sql } from 'drizzle-orm'
 import { clientSessions } from '../migrations/schema'
-import type { SyncDrizzle } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 export interface ClientSessionMetadata {
   sessionId?: string
@@ -51,7 +51,16 @@ export interface ClientSessionRow {
 }
 
 export class AuthRepository {
-  constructor(private readonly db: SyncDrizzle) {}
+  constructor(private readonly queries: SyncQueries) {}
+
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
+  }
 
   /** Record a login session for `userId`, keyed by the SHA-256 of its cookie
    *  token. `userId` is the person the device resolves to — today always the

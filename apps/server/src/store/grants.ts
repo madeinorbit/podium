@@ -31,7 +31,7 @@ import type { GrantVerb } from '@podium/model'
 import { GRANT_VERBS } from '@podium/model'
 import { and, asc, count, eq, inArray } from 'drizzle-orm'
 import { grants } from '../migrations/schema'
-import type { SyncDrizzle } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 /** The entity kind a machine grant hangs on — `ENTITY_KINDS`' `machine` member. */
 export const MACHINE_RESOURCE_KIND = 'machine'
@@ -133,7 +133,16 @@ export class GrantsRepository {
     audience.add(grantee)
     this.visibilityAudiences.set(key, audience)
   }
-  constructor(private readonly db: SyncDrizzle) {}
+  constructor(private readonly queries: SyncQueries) {}
+
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
+  }
 
   /** Every edge on one resource, read LIVE (D16.1). Unparseable rows are omitted. */
   listForResource(resourceKind: string, resourceId: string): GrantRow[] {

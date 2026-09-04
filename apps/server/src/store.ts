@@ -320,7 +320,7 @@ export class SessionStore {
       this.hostMachineId,
       this.tableWrites,
     )
-    this.approvals = new ApprovalsRepository(this.syncQueries.db)
+    this.approvals = new ApprovalsRepository(this.queries)
     this.interactions = new InteractionsRepository(this.executor)
     this.conversations = new ConversationsRepository(this.executor, this.hostMachineId)
     // `SyncRepository` lives in `@podium/sync` and cannot import this executor,
@@ -330,20 +330,20 @@ export class SessionStore {
     // still an UNCONVERTED repository: it reads `legacy` through the port and
     // stays on `STAGE_A_UNCONVERTED` until its own conversion wave.
     this.sync = new SyncRepository(this.executor, syncServerTables)
-    this.auth = new AuthRepository(this.syncQueries.db)
+    this.auth = new AuthRepository(this.queries)
     this.superagent = new SuperagentRepository(this.executor)
     // `legacy` is passed for ONE thing: settings.ts composes wave 1's
     // `UserPreferencesRepository`, which still takes the raw handle. The
     // coordinator re-points that construction when wave 1 lands [POD-3393].
-    this.settings = new SettingsRepository(this.syncQueries.db, this.db)
-    this.layout = new UserLayoutRepository(this.syncQueries.db, this.syncQueries.transact)
+    this.settings = new SettingsRepository(this.queries, this.db)
+    this.layout = new UserLayoutRepository(this.queries)
     this.readPositions = new UserReadPositionRepository(this.executor)
     this.secrets = new ServerSecretsRepository(this.executor)
     this.settingsAudit = new SettingsAuditRepository(this.executor)
     this.accounts = new AccountsRepository(this.executor)
     this.machines = new MachinesRepository(this.executor)
-    this.grants = new GrantsRepository(this.syncQueries.db)
-    this.users = new UsersRepository(this.syncQueries.db, this.syncQueries.transact)
+    this.grants = new GrantsRepository(this.queries)
+    this.users = new UsersRepository(this.queries)
     this.telegramBindings = new TelegramBindingsRepository(this.executor)
     this.events = new EventsRepository(this.queries)
     this.notificationFacts = new NotificationFactsRepository(this.executor)

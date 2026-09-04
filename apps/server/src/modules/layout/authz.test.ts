@@ -43,7 +43,7 @@ describe('a refused principal does not write', () => {
     const db = openMigratedTestDatabase()
     const stage = createBunStoreExecutor({ database: db }).syncQueries
     if (!stage) throw new Error('the test database is not bun-backed')
-    const repo = new UserLayoutRepository(stage.db, stage.transact)
+    const repo = new UserLayoutRepository(stage)
     const service = new LayoutService({ layout: repo })
 
     const refusal = layoutAuthzFailure('layout.set', deps(undefined))

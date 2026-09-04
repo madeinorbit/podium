@@ -36,7 +36,7 @@ import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { eq } from 'drizzle-orm'
 import { meta } from '../migrations/schema'
-import type { SyncDrizzle } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
 
 export class SettingsRepository {
@@ -61,10 +61,19 @@ export class SettingsRepository {
    * converted; the handle is a construction argument and nothing else reads it.
    */
   constructor(
-    private readonly db: SyncDrizzle,
+    private readonly queries: SyncQueries,
     legacy: SqlDatabase,
   ) {
     this.userPreferences = new UserPreferencesRepository(legacy)
+  }
+
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
   }
 
   /**

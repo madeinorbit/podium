@@ -21,7 +21,7 @@ describe('ApprovalService.sweepStalledExecutions single-flight (POD-3258)', () =
     const db = openMigratedTestDatabase()
     const stage = createBunStoreExecutor({ database: db }).syncQueries
     if (!stage) throw new Error('the test database is not bun-backed')
-    const store = new ApprovalsRepository(stage.db)
+    const store = new ApprovalsRepository(stage)
     let listExecutingCalls = 0
     const clock = { ms: 1_000_000 }
     /** Swapped by the test once a row is executing, so only the sweep re-enters. */

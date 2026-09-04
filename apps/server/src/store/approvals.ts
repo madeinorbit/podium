@@ -2,7 +2,7 @@ import type { IssueId, MachineId, SessionId } from '@podium/model'
 import type { ApprovalOp, ApprovalStatus } from '@podium/protocol'
 import { and, asc, eq, sql } from 'drizzle-orm'
 import { approvalRequests } from '../migrations/schema'
-import type { SyncDrizzle } from './executor/sync-drizzle'
+import type { SyncDrizzle, SyncQueries } from './executor/sync-drizzle'
 
 /** One approval-broker row [spec:SP-edbb] as stored (wire enrichment — machine
  *  name, issue seq/title — happens in the service layer). */
@@ -35,7 +35,16 @@ function toRow(r: ApprovalSelection): ApprovalRow {
 }
 
 export class ApprovalsRepository {
-  constructor(private readonly db: SyncDrizzle) {}
+  constructor(private readonly queries: SyncQueries) {}
+
+  /**
+   * Rule 34a — `db` RESOLVES on every access rather than being frozen at
+   * construction, so rule 35's ambient transaction routing has one line to
+   * change at B1 and no call site does.
+   */
+  protected get db(): SyncDrizzle {
+    return this.queries.db
+  }
 
   insert(row: {
     id: string
