@@ -909,6 +909,7 @@
         "src/modules/machines/version-state.test.ts",
         "src/modules/maintenance/service.test.ts",
         "src/modules/maintenance/service.ts",
+        "src/modules/memory/conversation-list-fold.test.ts",
         "src/modules/memory/lake.test.ts",
         "src/modules/memory/lake.ts",
         "src/modules/memory/search.ts",
