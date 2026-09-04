@@ -400,7 +400,7 @@ export class IssueAttentionModule {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return
     if ([...this.store.rows.values()].some((r) => r.parentId === id)) return
-    if (this.store.deps.listSessions().some((s) => s.issueId === id)) return
+    if (this.store.sessionsFor(row).some((session) => session.issueId === id)) return
     this.crud().purgeEmptyDraft(id)
   }
 
@@ -412,7 +412,7 @@ export class IssueAttentionModule {
     const row = this.store.rows.get(id)
     if (!row || row.deletedAt || !row.draft || row.worktreePath) return false
     if ([...this.store.rows.values()].some((candidate) => candidate.parentId === id)) return false
-    if (this.store.deps.listSessions().some((session) => session.issueId === id)) return false
+    if (this.store.sessionsFor(row).some((session) => session.issueId === id)) return false
     this.crud().purgeEmptyDraft(id)
     return true
   }
