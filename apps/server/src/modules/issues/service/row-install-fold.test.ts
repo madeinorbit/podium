@@ -107,6 +107,37 @@ describe('the issue row map waits for the outermost commit (POD-3366)', () => {
     expect(issues.get(created.id)?.title).toBe('to be deleted')
   })
 
+  it('does not serve an orphaned row to a LATER write that opens its own span', async () => {
+    // THE HAZARD A BOOLEAN CANNOT SEE [POD-3366]. `spanOpen()` answers "is ANY
+    // write span open", so a staged row orphaned by a rollback and then read
+    // from inside a LATER commit's own transaction sees `true` and survives.
+    // This map has no entry point where a holder could ask on the way in — it is
+    // read from `toWire`'s scans inside `ledger.commit`'s own `write()` — so the
+    // unit IDENTITY on the fold port is the only thing that closes it.
+    const { store, issues } = await build()
+    const survivor = seed(issues, 'the survivor')
+
+    expect(() =>
+      store.transact(() => {
+        issues.create({ repoPath: '/repo', title: 'orphaned by the rollback', startNow: false })
+        throw new Error('enclosing span failed')
+      }),
+    ).toThrow('enclosing span failed')
+
+    // A later, unrelated top-level write. Its own span is open while the issue
+    // service reads the row map to build the wire.
+    issues.update(survivor.id, { title: 'a later unrelated write' })
+
+    const titles = issues.list().map((issue) => issue.title)
+    expect(titles).not.toContain('orphaned by the rollback')
+    expect(titles.sort()).toEqual(
+      store.issues
+        .listIssueRows()
+        .map((row) => row.title)
+        .sort(),
+    )
+  })
+
   it('a rolled-back span leaves the list agreeing with the database (the reconcile trap)', async () => {
     // The consequence the audit names for this site: a phantom row in the map is
     // not merely stale, it makes the next FULL-LIST reconcile declare an upsert

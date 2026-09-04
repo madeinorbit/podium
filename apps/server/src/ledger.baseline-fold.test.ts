@@ -151,6 +151,50 @@ describe('the baseline fold waits for the outermost commit (POD-3328)', () => {
     expect(changes).toEqual([])
   })
 
+  it('does not serve an orphaned stage to a LATER commit that opens its own span', async () => {
+    // THE HAZARD `spanOpen()` ALONE CANNOT SEE [POD-3366]. It answers "is ANY
+    // write span open", so a layer orphaned by a rollback and then read from
+    // inside a later commit's OWN transaction sees `true` and survives. The
+    // read here happens inside `ledger.commit`'s span, in `changes()`, which is
+    // where the issue row map and the session baselines are read for real.
+    const store = await openTestStore(':memory:')
+    const ledger = makeLedger(store)
+
+    expect(() =>
+      store.transact(() => {
+        ledger.commit({
+          write: () => {},
+          changes: () => [
+            {
+              entity: 'conversation',
+              id: 'c-orphan',
+              op: 'upsert',
+              value: conversationRow('c-orphan'),
+            },
+          ],
+        })
+        throw new Error('enclosing span failed')
+      }),
+    ).toThrow('enclosing span failed')
+
+    // A later, unrelated top-level commit. Its own `transact` is open while
+    // `changes()` runs, so the orphan is only dropped if the layer knows which
+    // UNIT staged it rather than merely that something is open.
+    let seenInsideTheSpan: string[] = []
+    ledger.commit({
+      write: () => {},
+      changes: () => {
+        seenInsideTheSpan = baselineIds(ledger)
+        return [
+          { entity: 'conversation', id: 'c-other', op: 'upsert', value: conversationRow('c-other') },
+        ]
+      },
+    })
+
+    expect(seenInsideTheSpan).not.toContain('c-orphan')
+    expect(baselineIds(ledger)).not.toContain('c-orphan')
+  })
+
   it('a second nested write in the same span still sees the first one (the in-window reader)', async () => {
     // WHY THIS TEST EXISTS. Deferring the fold is only free if nothing reads the
     // baseline between the savepoint release and the outermost commit. Something

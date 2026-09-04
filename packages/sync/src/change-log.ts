@@ -1,6 +1,8 @@
 import type { MetadataChange, MetadataEntityKind } from '@podium/protocol'
 import { runTimeBudgetedJob, type TimeBudgetedJobMetrics } from '@podium/runtime/time-budget'
 import type { ChangeLogReadRow, ChangeLogWriteRow } from './authority/change-lifecycle'
+import type { BaselineFoldPort } from './authority/ports'
+import { StagedOverlay } from './authority/staged-projection'
 
 /**
  * Internals of the durable metadata change log [spec:SP-3fe2] (#253): the
@@ -174,12 +176,6 @@ export type BaselineFold =
     }
   | { readonly entity: MetadataEntityKind; readonly id: string; readonly op: 'remove' }
 
-/** One staged batch, awaiting the outermost commit that makes it durable. */
-interface PendingBatch {
-  readonly token: number
-  readonly rows: readonly BaselineFold[]
-}
-
 /**
  * The in-memory dedup baseline: per (entity, id), the serialized wire JSON of
  * the last recorded state — plus, for conversations, the stable-field
@@ -205,7 +201,20 @@ interface PendingBatch {
  * hold; a baseline that could not see the span's own earlier writes would drop
  * the remove half of a create-then-delete inside one span, leaving the log
  * claiming a row the transaction deleted. Deferring the fold without the overlay
- * would trade one divergence for another.
+ * would trade one divergence for another. This was the FIRST of four distinct
+ * in-window readers the programme found, and the count is the argument: a
+ * read-through layer is what deferring an install COSTS, every time, rather
+ * than a trick that happened to work here.
+ *
+ * THE LAYER IS NO LONGER HAND-ROLLED HERE [POD-3366]. A shared
+ * {@link StagedOverlay} owns the staging, the promotion and the drop-on-the-way
+ * -in; this class keeps only what is its own, which is what a fold MEANS for
+ * its two committed maps. Two things came with that. The overlay asks the fold
+ * port itself, so "is a span open?" is decided in ONE place instead of here and
+ * in `Authority` both; and its promotion closes over the rows it staged instead
+ * of looking the batch up again at drain time, which is the silent lost write
+ * the copy this replaced would have had the first time a co-batched commit
+ * application read the baseline before it.
  */
 export class ChangeBaseline {
   /** entity -> id -> DETECTION KEY of the last recorded state (see
@@ -213,9 +222,44 @@ export class ChangeBaseline {
    *  else the serialized wire JSON). */
   private readonly last = new Map<MetadataEntityKind, Map<string, string>>()
   private readonly current = new Map<MetadataEntityKind, Map<string, unknown>>()
-  /** Staged batches, in stage order. Empty whenever no span is open. */
-  private readonly pending: PendingBatch[] = []
-  private nextToken = 1
+  /**
+   * Rows staged against the open span: ONE overlay per entity kind, keyed by
+   * plain id. Empty whenever no span is open, which is every top-level commit.
+   *
+   * PER-ENTITY RATHER THAN ONE OVERLAY UNDER A COMPOSITE KEY, and the reason is
+   * not style. A composite key means a second `entityOverlayKey`, and this
+   * module cannot import the Authority's — `authority.ts` imports THIS file, so
+   * the import would be a cycle — which leaves declaring a second one. Its own
+   * doc says why that is the wrong trade: two spellings are one edit away from
+   * two separators and the failure mode is a silent key collision. The
+   * committed maps here are already nested per entity, so the overlay simply
+   * matches them and the question does not arise [POD-3366].
+   */
+  private readonly pending = new Map<MetadataEntityKind, StagedOverlay<string, BaselineFold>>()
+
+  /**
+   * @param applyCommit where a staged fold waits for the OUTERMOST commit.
+   *   Unset means every fold applies as soon as it is staged — which is what a
+   *   unit test with a pass-through `transact` wants, and what an adapter with
+   *   no notion of a commit boundary gets.
+   */
+  constructor(private readonly applyCommit?: BaselineFoldPort) {}
+
+  /** The staged overlay for one entity kind, created on first use. */
+  private pendingFor(entity: MetadataEntityKind): StagedOverlay<string, BaselineFold> {
+    let overlay = this.pending.get(entity)
+    if (!overlay) {
+      overlay = new StagedOverlay<string, BaselineFold>(
+        this.applyCommit,
+        (_id, row) => {
+          if (row) this.apply(row)
+        },
+        `change-baseline-fold:${entity}`,
+      )
+      this.pending.set(entity, overlay)
+    }
+    return overlay
+  }
 
   private byEntity(entity: MetadataEntityKind): Map<string, string> {
     let m = this.last.get(entity)
@@ -269,12 +313,10 @@ export class ChangeBaseline {
   /** Ids currently present in the baseline for one entity kind (remove-diff input). */
   ids(entity: MetadataEntityKind): string[] {
     const ids = new Set(this.byEntity(entity).keys())
-    for (const batch of this.pending) {
-      for (const row of batch.rows) {
-        if (row.entity !== entity) continue
-        if (row.op === 'upsert') ids.add(row.id)
-        else ids.delete(row.id)
-      }
+    for (const [, row] of this.pendingFor(entity).entries()) {
+      if (!row) continue
+      if (row.op === 'upsert') ids.add(row.id)
+      else ids.delete(row.id)
     }
     return [...ids]
   }
@@ -292,46 +334,44 @@ export class ChangeBaseline {
   /** Current durable projection for global snapshot assembly. */
   values(entity: MetadataEntityKind): readonly unknown[] {
     const rows = new Map(this.currentEntity(entity))
-    for (const batch of this.pending) {
-      for (const row of batch.rows) {
-        if (row.entity !== entity) continue
-        if (row.op === 'upsert') rows.set(row.id, row.value)
-        else rows.delete(row.id)
-      }
+    for (const [, row] of this.pendingFor(entity).entries()) {
+      if (!row) continue
+      if (row.op === 'upsert') rows.set(row.id, row.value)
+      else rows.delete(row.id)
     }
     return [...rows.values()].map((value) => structuredClone(value))
   }
 
   // -------------------------------------------------------------------------
-  // The pending layer (POD-3328)
+  // The pending layer (POD-3328, shared since POD-3366)
   // -------------------------------------------------------------------------
 
-  /** Stage a batch against the OPEN span. Returns the token that promotes it. */
-  stagePending(rows: readonly BaselineFold[]): number {
-    const token = this.nextToken++
-    this.pending.push({ token, rows })
-    return token
+  /**
+   * Fold a batch of rows, waiting for the OUTERMOST commit if a span is open.
+   *
+   * ONE CALL WHERE THERE WERE THREE. The writer used to ask whether a span was
+   * open, then stage, then register a promotion, then separately discard what a
+   * rollback left — four decisions it had to get right in the right order. The
+   * overlay makes all four here, so `Authority.finalize` says what it means
+   * ("fold these rows") and nothing about when.
+   */
+  /**
+   * Drop what a rolled-back span left staged, asked BEFORE the caller opens its
+   * own span. See {@link StagedOverlay.freshen} for why the lazy check inside
+   * the overlay is not enough and which test proves it.
+   */
+  freshen(): void {
+    for (const overlay of this.pending.values()) overlay.freshen()
   }
 
-  /**
-   * Fold one staged batch into the committed maps. Called from the commit
-   * application of the span that staged it, so a batch whose span never
-   * committed is simply never promoted.
-   */
-  promotePending(token: number): void {
-    const index = this.pending.findIndex((batch) => batch.token === token)
-    if (index === -1) return
-    const [batch] = this.pending.splice(index, 1) as [PendingBatch]
-    for (const row of batch.rows) this.apply(row)
-  }
-
-  /**
-   * Drop everything staged. The writer calls this when it is about to stage or
-   * read with NO span open: anything still here belongs to a span that ended
-   * without promoting, which is a span that rolled back.
-   */
-  discardPending(): void {
-    this.pending.length = 0
+  fold(rows: readonly BaselineFold[]): void {
+    const byEntity = new Map<MetadataEntityKind, (readonly [string, BaselineFold])[]>()
+    for (const row of rows) {
+      const batch = byEntity.get(row.entity) ?? []
+      batch.push([row.id, row] as const)
+      byEntity.set(row.entity, batch)
+    }
+    for (const [entity, batch] of byEntity) this.pendingFor(entity).stage(batch)
   }
 
   /** Fold a row that is already durable. */
@@ -347,14 +387,7 @@ export class ChangeBaseline {
 
   /** The last staged state for (entity, id), or undefined if none is staged. */
   private staged(entity: MetadataEntityKind, id: string): BaselineFold | undefined {
-    for (let i = this.pending.length - 1; i >= 0; i--) {
-      const rows = (this.pending[i] as PendingBatch).rows
-      for (let j = rows.length - 1; j >= 0; j--) {
-        const row = rows[j] as BaselineFold
-        if (row.entity === entity && row.id === id) return row
-      }
-    }
-    return undefined
+    return this.pendingFor(entity).peek(id)?.value
   }
 }
 

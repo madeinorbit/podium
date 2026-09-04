@@ -25,7 +25,7 @@ import {
   type UserId,
 } from '@podium/model'
 import { formatIssueRef, parseIssueRef } from '@podium/protocol'
-import type { EntityChangeSpec } from '@podium/sync'
+import { type EntityChangeSpec, StagedOverlay } from '@podium/sync'
 import { sessionsForIssue, slugifyBranch } from '../../../issue-util'
 import type { IssueRow, StoredIssueUserState } from '../../../store'
 import { afterCommit } from '../../../store/executor/synchronous-span'
@@ -97,17 +97,24 @@ export class IssueStore {
    * already holds the new one. So the install is staged where those readers see
    * it and reaches {@link hydrated} only through a commit application.
    */
-  private stagedRows: Map<string, IssueRow | null> | undefined
+  private readonly stagedRows: StagedOverlay<string, IssueRow>
   /**
    * The composed view, rebuilt lazily and only while something is staged.
    *
    * Composing costs one map copy, and it is paid on the first `rows` read after
    * a staged write rather than on every read: outside a span this field is never
-   * populated and the getter returns the committed map itself.
+   * populated and the getter returns the committed map itself. Rebuilt when the
+   * overlay's version moves, which is the overlay's answer to "has anything
+   * been staged, promoted or dropped since you last looked".
    */
-  private composedRows: Map<string, IssueRow> | undefined
-  private nextRowToken = 0
-  constructor(readonly deps: IssueDeps) {}
+  private composedRows: { version: number; rows: Map<string, IssueRow> } | undefined
+  constructor(readonly deps: IssueDeps) {
+    this.stagedRows = new StagedOverlay<string, IssueRow>(
+      deps.applyCommit,
+      (id, row) => this.applyRow(id, row ?? null),
+      'issue-row-install',
+    )
+  }
 
   /**
    * Freeze the machine choice an implicit operation would otherwise make inside
@@ -225,18 +232,17 @@ export class IssueStore {
    *  the factory runs, and this getter only serves what that step loaded. */
   get rows(): ReadonlyMap<string, IssueRow> {
     const committed = this.requireHydrated().rows
-    this.freshenStagedRows()
-    const staged = this.stagedRows
-    if (!staged) return committed
-    if (!this.composedRows) {
+    if (this.stagedRows.empty) return committed
+    const version = this.stagedRows.version
+    if (this.composedRows?.version !== version) {
       const composed = new Map(committed)
-      for (const [id, row] of staged) {
-        if (row === null) composed.delete(id)
+      for (const [id, row] of this.stagedRows.entries()) {
+        if (row === undefined) composed.delete(id)
         else composed.set(id, row)
       }
-      this.composedRows = composed
+      this.composedRows = { version, rows: composed }
     }
-    return this.composedRows
+    return this.composedRows.rows
   }
 
   /**
@@ -257,35 +263,15 @@ export class IssueStore {
    * IN, so a crash cannot leave the map claiming a row the database threw away.
    */
   installRow(id: string, row: IssueRow | null): void {
-    this.freshenStagedRows()
-    const fold = this.deps.applyCommit
-    if (!fold?.spanOpen()) {
-      this.applyRow(id, row)
-      // The map moved, so every cached wire built from it is stale [POD-723].
-      this.bumpIssueInputs()
-      return
-    }
-    const token = ++this.nextRowToken
-    const staged = (this.stagedRows ??= new Map())
-    staged.set(id, row)
-    this.composedRows = undefined
-    // In-window readers see the write NOW, so their memo must be stale now too.
+    // One call: the overlay decides whether a span is open, stages or installs
+    // accordingly, registers the promotion, and drops what a rollback left. This
+    // was the THIRD hand-rolled copy of that decision and it is gone with the
+    // other two [POD-3366].
+    this.stagedRows.set(id, row ?? undefined)
+    // Whichever way it went, the map a reader sees has moved, so every cached
+    // wire built from it is stale [POD-723].
     this.bumpIssueInputs()
-    fold.onCommit(() => {
-      this.applyRow(id, row)
-      if (this.stagedRows?.get(id) === row && this.rowToken.get(id) === token) {
-        this.stagedRows.delete(id)
-        if (this.stagedRows.size === 0) this.stagedRows = undefined
-        this.composedRows = undefined
-      }
-      this.bumpIssueInputs()
-    }, 'issue-row-install')
-    this.rowToken.set(id, token)
   }
-
-  /** Which staged write is the latest for an id, so a promotion knows whether a
-   *  later one in the same span superseded it. */
-  private readonly rowToken = new Map<string, number>()
 
   /** Write straight through to the committed map. */
   private applyRow(id: string, row: IssueRow | null): void {
@@ -299,19 +285,7 @@ export class IssueStore {
     } else committed.set(id, row)
   }
 
-  /**
-   * Drop what a rolled-back span left staged, checked on the way IN rather than
-   * reported on the way out — the asymmetry POD-3328 established and POD-3361
-   * kept. Nothing has to remember to report a rollback.
-   */
-  private freshenStagedRows(): void {
-    if (!this.stagedRows) return
-    if (this.deps.applyCommit?.spanOpen()) return
-    this.stagedRows = undefined
-    this.composedRows = undefined
-    this.rowToken.clear()
-    this.bumpIssueInputs()
-  }
+
 
   /**
    * DRAFT-THEN-INSTALL, THE ISSUE REGISTRY'S MODEL [POD-3259, spec §3.6 (b)].
@@ -466,11 +440,10 @@ export class IssueStore {
   }
 
   private hydrate(): void {
-    // A wholesale reload replaces the committed truth, so anything staged
-    // against the map it replaces is meaningless.
-    this.stagedRows = undefined
+    // A wholesale reload replaces the committed truth, so the composed view
+    // built over it is meaningless. Anything STAGED is dropped by the overlay
+    // itself the next time it is read with no span open.
     this.composedRows = undefined
-    this.rowToken.clear()
     const map = new Map<string, IssueRow>()
     for (const r of this.deps.store.issues.listIssueRows()) map.set(r.id, r)
     this.hydrated = map
