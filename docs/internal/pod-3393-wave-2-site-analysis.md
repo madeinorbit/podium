@@ -715,3 +715,33 @@ Three removals, three different and correct codes:
 The third row is the one that matters for rule 32: it is the same red the lane shows today, and it
 proves the widening is load-bearing rather than cosmetic. Every mutation was reverted by copying the
 file back and verifying with `diff` against a `git show HEAD:` copy, never by re-applying a pattern.
+
+### 11.3 Rule 42 — the control arm was really applied, checked three ways
+
+Rule 42 landed after this comparison ran: `git checkout <base> -- <paths>` aborts the whole checkout
+when any ONE path is absent from the base, so an arm can silently never be applied and the A/B then
+compares a tree with itself. Re-verified rather than assumed:
+
+1. **The abort case had nothing to fire on.** All 16 arm paths exist in `d1e86d0e8`, checked with
+   `git cat-file -e` per path. The only file this branch ADDS that the base lacks is this document,
+   and the arm excludes `docs/` by construction.
+2. **The diff check was run at the moment rule 42 names** — `git diff --stat d1e86d0e8` over the arm
+   paths, printed EMPTY, before the first control lane started. (`git restore --source` was used
+   rather than `git checkout`, but that is not the reason it worked: every path existed.)
+3. **The arms did not agree, which is the functional proof.** The boundary lane went 51 → 53, and the
+   two extra failures are the frame-cache tests, which fail precisely BECAUSE `users.ts` is converted.
+   A control that was secretly the treatment could not have passed them. The base content is the
+   unconverted code — `constructor(executor: StoreExecutor<QueryClient>)`,
+   `this.db.prepare('SELECT * FROM users WHERE id = ?')`, and `store.ts` building all six
+   repositories from `this.executor`. The store and services lanes' agreement rides on the SAME single
+   restore, so it is a real negative and not a tree compared with itself.
+
+`git status --porcelain` is empty, not merely the diff, so rule 42's second half — files the base has
+and this branch does not, stranded as untracked leftovers for a later `git add -A` to sweep in — did
+not arise either.
+
+**One addition worth making to the rule.** The diff check proves the arm equals the BASE, and it stays
+empty in the case where nothing was restored AND the paths happened to be unmodified. The cheap
+complement is a POSITIVE marker: grep the built arm for one token that exists only in the treatment
+and require it ABSENT. Here that token is `SyncQueries` in `users.ts`. Same cost, and it fails loudly
+in the case where the arm was never applied at all.
