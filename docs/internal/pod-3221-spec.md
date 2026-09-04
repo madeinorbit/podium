@@ -1336,3 +1336,62 @@ WHAT THIS CHANGES. An `INSERT OR IGNORE` site needs the rule 31 enumeration and 
 check for inbound foreign keys, exactly as POD-3392 performed it with `pragma_index_list` against the
 migrated database.
 
+
+### Rule 34 — the capability object is a CONSTRUCTOR detail; call sites read `this.db` and `this.transact`
+
+[Operator decision, 2026-09-04, on seeing `this.queries.db.insert(...)` at call sites. My error in
+rule 27b, not the waves' — they implemented what I wrote.]
+
+`this.queries.db.insert(...)` has two levels of nesting where one carries meaning. `SyncQueries` is
+WIRING; it must be named in the constructor and nowhere else. Destructure it:
+
+    constructor(queries: SyncQueries) {
+      this.db = queries.db
+      this.transact = queries.transact
+    }
+
+Call sites then read `this.transact(() => ...)` and `this.db.insert(...)`: a span and a query, each
+self-explanatory, no nesting, and IDENTICAL before and after the flip except for async/await. The
+construction lines in `store.ts` do NOT change — they still pass the one capability object.
+
+### Rule 35 — transaction routing is AMBIENT, and drizzle's transaction is the mechanism
+
+[Operator decision on record, 2026-09-04. Supersedes the framing in rule 30, which described ambient
+routing as a choice with two rejected alternatives without picking one.]
+
+DECIDED: option 2, ambient. Threading a transaction object through the write paths was rejected as
+"just ugly" and because its cost is not the 57 write spans but every read reachable from them.
+
+THE SHAPE. A repository's `db` is a GETTER, so the Turso problem is confined to one place and no call
+site changes:
+
+    private get db() {
+      return currentTransaction() ?? this.root   // inside a span → the span; otherwise → the root
+    }
+
+AND OUR OWN TRANSACTION MACHINERY GOES. `transact` becomes a thin adapter over DRIZZLE's transaction
+rather than a reimplementation of it:
+
+    transact(fn) {
+      const tx = currentTransaction()
+      return tx
+        ? tx.transaction((inner) => scope.run(inner, fn))   // drizzle's savepoint
+        : this.root.transaction((t) => scope.run(t, fn), { behavior: 'immediate' })
+    }
+
+DELETED by this: the `podium_sp_${depth}` savepoint construction and the `depths` WeakMap in
+`packages/runtime/src/sqlite/transaction.ts`. Drizzle nests via its own savepoints and we stop having
+a second tally. That is POD-3327 / POD-3267 and it is now a deletion with a named replacement rather
+than a deletion with a gap.
+
+WHAT LEGITIMATELY REMAINS IN THE ADAPTER, four things, each with a reason:
+1. `scope.run` — putting the transaction where repositories find it. This IS option 2.
+2. `behavior: 'immediate'` — drizzle defaults to `deferred`, which takes a read lock and cannot always
+   upgrade it. One wrapper applies it once; 57 call sites would each have to remember a config object.
+3. Choosing nested vs root — four lines, using drizzle's own two entry points.
+4. Post-commit registration. Drizzle's transaction has no after-commit hook, and publication must be
+   registered DURING the span and run AFTER it. This is the only genuine addition.
+
+THE COST, stated plainly because it is real: the compiler cannot see which connection a statement goes
+to. A `this.db` captured into a variable and used after an `await` that left the span silently gets the
+root. That is narrow enough to lint for and the lint is owed before the flip.
