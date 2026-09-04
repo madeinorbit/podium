@@ -1,4 +1,4 @@
-import { closeSync, existsSync, fsyncSync, openSync } from 'node:fs'
+import { closeSync, existsSync, fsyncSync, openSync, readFileSync } from 'node:fs'
 import { mkdir, open, readFile, rm } from 'node:fs/promises'
 import { dirname } from 'node:path'
 
@@ -17,6 +17,16 @@ function fsyncDirectory(path: string): void {
     fsyncSync(handle)
   } finally {
     closeSync(handle)
+  }
+}
+
+export function transferLockHeld(path: string): boolean {
+  if (!existsSync(path)) return false
+  try {
+    const owner = JSON.parse(readFileSync(path, 'utf8')) as { pid?: unknown }
+    return typeof owner.pid !== 'number' || processIsAlive(owner.pid)
+  } catch {
+    return true
   }
 }
 

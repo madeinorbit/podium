@@ -47,7 +47,9 @@ export function autoLaunchMachineOption(
   }
 }
 
-export function launchPlanCanSubmit(plan: LaunchPlan | null): plan is LaunchPlan {
+export function launchPlanCanSubmit(
+  plan: LaunchPlan | null,
+): plan is LaunchPlan & { refusal?: undefined } {
   return plan !== null && plan.refusal === undefined
 }
 

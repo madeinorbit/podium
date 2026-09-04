@@ -154,6 +154,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<DaemonHandle> {
       if (connection) connection.acknowledgeRuntimeEvent(deliveryId)
       else runtimeEventOutbox.acknowledge(deliveryId)
     },
+    endpointHandoff: {
+      probeServerTransferCandidate: async (input) => {
+        const endpoint = new URL(`/server-transfer/candidate/${input.transferId}`, input.publicUrl)
+        const response = await fetch(endpoint, {
+          headers: { authorization: `Bearer ${input.reachabilityToken}` },
+          signal: AbortSignal.timeout(10_000),
+        })
+        if (!response.ok) throw new Error(`target candidate returned HTTP ${response.status}`)
+        const proof = (await response.json()) as Record<string, unknown>
+        if (
+          proof.transferId !== input.transferId ||
+          proof.manifestDigest !== input.manifestDigest ||
+          proof.targetMachineId !== input.targetMachineId
+        )
+          throw new Error('target candidate reachability proof does not match the move')
+      },
+      quiesceServerEndpoint: (transferId) => connection?.quiesceEndpoint(transferId),
+      resumeServerEndpoint: (transferId) => connection?.resumeEndpoint(transferId),
+      prepareServerEndpointCommit: (transferId, publicUrl) => {
+        if (!connection) throw new Error('daemon connection is unavailable')
+        return connection.prepareEndpointCommit(transferId, publicUrl)
+      },
+      activateServerEndpoint: (transferId) => connection?.activateEndpoint(transferId),
+    },
   }).catch((error) => {
     instance.releaseGuards()
     throw error

@@ -195,6 +195,8 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   isOnline?: () => boolean
   /** Liveness ping cadence. Default: the hub's own (2.5 s). Native passes 10 s. */
   heartbeatIntervalMs?: number
+  /** Platform-owned persistence/navigation for a promoted server endpoint. */
+  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** Open the local runtime without contacting the configured authority. */
   networkEnabled?: boolean
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
@@ -343,6 +345,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       onFatalError: (m) => this.onFatalError(m),
       createHub: init.createHub,
       feed: init.feed,
+      ...(init.onServerRelocation ? { onServerRelocation: init.onServerRelocation } : {}),
       ...(init.heartbeatIntervalMs !== undefined
         ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
         : {}),

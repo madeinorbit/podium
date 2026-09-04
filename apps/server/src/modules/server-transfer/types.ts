@@ -2,6 +2,7 @@ import type { MachineId } from '@podium/model'
 import type {
   ServerTransferManifest as ProtocolServerTransferManifest,
   ServerTransferManifestEntry as ProtocolServerTransferManifestEntry,
+  ServerBindHost,
   ServerTransferProof,
   ServerTransferServingProof,
 } from '@podium/protocol'
@@ -14,6 +15,7 @@ export type TransferJournalState =
   | 'preparing'
   | 'staged'
   | 'validated'
+  | 'fence-pending'
   | 'source-fenced'
   | 'committing'
   | 'committed'
@@ -42,7 +44,8 @@ export interface TransferRecord {
   transferId: string
   targetMachineId: MachineId
   publicUrl: string
-  port?: number
+  bindHost: ServerBindHost
+  port: number
   sourceMachineId: MachineId
   sourceInstanceId: string
   packageDir: string
@@ -50,6 +53,10 @@ export interface TransferRecord {
   idempotencyKey: string
   targetProof: boolean
   sourceConnected: boolean
+  reachabilityToken?: string
+  quiescedMachineIds?: MachineId[]
+  endpointCommittedMachineIds?: MachineId[]
+  offlineMachineIds?: MachineId[]
   probe?: { transferId: string; manifestDigest: string }
 }
 
@@ -66,6 +73,7 @@ export interface TransferJournalEntry {
 export interface ServerTransferInput {
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   port?: number
   confirmation: typeof SERVER_TRANSFER_CONFIRMATION
 }
@@ -91,13 +99,30 @@ export type TargetHealthProof = ServerTransferServingProof
 
 /** Safe projection of target-owned durable promotion metadata. */
 export interface PromotedTargetMetadata {
+  operationId: string
   transferId: string
   sourceMachineId: MachineId
   targetMachineId: MachineId
   publicUrl: string
+  bindHost: ServerBindHost
   manifestDigest: string
+  port: number
   state: 'promoted'
   proof: TargetHealthProof
+}
+
+/** Strict target-owned marker for the health-only boot window. */
+export interface PromotingTargetMetadata {
+  operationId: string
+  transferId: string
+  sourceMachineId: MachineId
+  targetMachineId: MachineId
+  publicUrl: string
+  bindHost: ServerBindHost
+  manifestDigest: string
+  port: number
+  state: 'promoting'
+  proof: TransferProof
 }
 
 export interface ServerTransferFailure {
@@ -116,6 +141,10 @@ export interface ServerTransferRpc {
       transferId: string
       sourceMachineId: MachineId
       manifest: ServerTransferManifest
+      publicUrl: string
+      bindHost: ServerBindHost
+      port: number
+      reachabilityToken: string
       packageLimits: { totalBytes: number; maxChunkBytes: number }
     },
     targetMachineId: MachineId,
@@ -127,6 +156,7 @@ export interface ServerTransferRpc {
       targetCapability: 'server-only'
       buildVersion: string
       wireSchemaDigest: string
+      receivedBytes: number
       space: { availableBytes: number; requiredBytes: number; sufficient: boolean }
     }>
   >
@@ -158,7 +188,8 @@ export interface ServerTransferRpc {
       transferId: string
       manifestDigest: string
       publicUrl: string
-      port?: number
+      bindHost: ServerBindHost
+      port: number
       targetMode: 'server'
       idempotencyKey: string
     },
@@ -191,7 +222,7 @@ export interface ServerTransferRpc {
       cleanup: 'cleaned' | 'pending'
     }>
   >
-  serverTransferStatus(
+  inspectServerTransfer(
     input: { transferId: string; manifestDigest: string },
     targetMachineId: MachineId,
   ): Promise<
@@ -200,9 +231,46 @@ export interface ServerTransferRpc {
       transferId?: string
       manifestDigest?: string
       proof?: TargetHealthProof
+      publicUrl?: string
+      port?: number
       sourceConnected: boolean
     }>
   >
+}
+
+export interface ServerEndpointHandoff {
+  registeredMachineIds(): MachineId[]
+  onlineMachineIds(): MachineId[]
+  probeCandidate(input: {
+    transferId: string
+    manifestDigest: string
+    publicUrl: string
+    reachabilityToken: string
+    targetMachineId: MachineId
+  }): Promise<void>
+  probeMachine(
+    input: {
+      transferId: string
+      manifestDigest: string
+      publicUrl: string
+      reachabilityToken: string
+      targetMachineId: MachineId
+    },
+    machineId: MachineId,
+  ): Promise<{ ok: boolean; error?: string }>
+  commitMachine(
+    input: {
+      transferId: string
+      publicUrl: string
+      targetMachineId: MachineId
+    },
+    machineId: MachineId,
+  ): Promise<{ ok: boolean; error?: string }>
+  resumeMachine(transferId: string, machineId: MachineId): Promise<{ ok: boolean; error?: string }>
+  /** Mint short-lived browser claims while their hashes can still enter the final snapshot. */
+  prepareClientRelocations(operationId: string): void
+  cancelClientRelocations(operationId: string): void
+  relocateClients(input: { transferId: string; publicUrl: string; operationId: string }): void
 }
 
 export const TRANSFER_FAILURE_CODES = {
@@ -220,11 +288,18 @@ export const TRANSFER_FAILURE_CODES = {
   DISK_FULL: 'disk-full',
   SNAPSHOT_FAILED: 'snapshot-failed',
   SOURCE_CHANGED: 'source-changed',
-  REAUTHORIZED_DENIED: 'reauthorization-denied',
+  REAUTHORIZATION_DENIED: 'reauthorization-denied',
   TARGET_REJECTED: 'target-rejected',
   TARGET_PROOF_MISSING: 'target-proof-missing',
+  TARGET_UNREACHABLE: 'target-unreachable',
+  FLEET_HANDOFF_FAILED: 'fleet-handoff-failed',
   SOURCE_CONFIG_FAILED: 'source-config-failed',
   COMMIT_UNCERTAIN: 'commit-uncertain',
+  HANDOFF_ORPHANED: 'handoff-orphaned',
+  HANDOFF_UNSEALED: 'handoff-unsealed',
+  BOOT_RECOVERY: 'boot-recovery',
+  RECOVERY_REFUSED: 'recovery-refused',
+  LEGACY_TRANSFER_IN_PROGRESS: 'legacy-transfer-in-progress',
   INTERNAL: 'internal',
 } as const
 

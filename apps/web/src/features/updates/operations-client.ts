@@ -100,8 +100,11 @@ export async function readActiveOperation(trpc: Trpc): Promise<Operation | null>
  * caller decides whether a given terminal operation is still worth showing
  * (`use-update-state.ts`); this function only fetches it.
  */
-export async function readLatestOperation(trpc: Trpc): Promise<Operation | null> {
-  const rows = await trpc.operations.history.query({ kind: 'update', limit: 1 })
+export async function readLatestOperation(
+  trpc: Trpc,
+  kind: string,
+): Promise<Operation | null> {
+  const rows = await trpc.operations.history.query({ kind, limit: 1 })
   return parseOperation(rows[0])
 }
 

@@ -6,7 +6,6 @@ import { StyleSheet, Text, View } from 'react-native'
 import { useMobileStore } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
-  autoLaunchMachineOption,
   AUTO,
   allConnectorModelLabel,
   allConnectorModelOptions,
@@ -19,6 +18,7 @@ import {
 import {
   type LaunchConfiguration,
   type LaunchMachineOption,
+  autoLaunchMachineOption,
   type LaunchPlan,
   hasAuthoritativeLaunchCatalog,
   normalizeLaunchConfiguration,

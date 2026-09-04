@@ -20,13 +20,16 @@
  * its control layer resolves.
  */
 import { randomUUID } from 'node:crypto'
+import { asMachineId, type MachineId } from '@podium/model'
 import {
   closeSync,
   copyFileSync,
   existsSync,
   fsyncSync,
   linkSync,
+  mkdirSync,
   openSync,
+  readFileSync,
   renameSync,
   unlinkSync,
   writeFileSync,
@@ -42,7 +45,13 @@ import {
 } from './config'
 import { readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
 import type { RunRole } from './run-registry'
-import { assertConfigWritable, ephemeralTunnelWarning, validatePublicUrl, wssFrom } from './setup'
+import {
+  assertConfigWritable,
+  ephemeralTunnelWarning,
+  type ServerBindHost,
+  validatePublicUrl,
+  wssFrom,
+} from './setup'
 
 /** The roles that must be running for a given deployment mode. `client` and unset host
  *  nothing; `all-in-one` is the desktop sidecar (server + janitor + daemon in one PID).
@@ -103,6 +112,53 @@ function removeTemp(path: string): void {
     unlinkSync(path)
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+  }
+}
+
+export class MachineIdentityConflictError extends Error {
+  constructor(
+    readonly expected: MachineId,
+    readonly observed: string,
+  ) {
+    super(
+      `machine.id contains ${observed || 'an empty identity'}; refusing to replace it with transfer target ${expected}`,
+    )
+    this.name = 'MachineIdentityConflictError'
+  }
+}
+
+/**
+ * Atomically establish the promoted server's local identity as the daemon identity that
+ * accepted the transfer. An existing equal value is an idempotent success; any other value
+ * is preserved and refused so promotion can never silently make the target wear a new ID.
+ */
+export function establishTargetMachineId(
+  expected: MachineId,
+  dir: string = stateDir(),
+): MachineId {
+  const path = join(dir, 'machine.id')
+  const verifyExisting = (): MachineId => {
+    const observed = readFileSync(path, 'utf8').trim()
+    if (observed !== expected) throw new MachineIdentityConflictError(expected, observed)
+    return asMachineId(observed)
+  }
+
+  mkdirSync(dir, { recursive: true })
+  const tempPath = join(dir, `.machine-id-transfer-${process.pid}-${randomUUID()}.tmp`)
+  try {
+    writeFileSync(tempPath, expected, { mode: 0o600, flag: 'wx' })
+    syncPath(tempPath)
+    try {
+      // A hard link publishes the already-fsynced bytes atomically without replacing a winner.
+      linkSync(tempPath, path)
+      syncParent(path)
+      return expected
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error
+      return verifyExisting()
+    }
+  } finally {
+    removeTemp(tempPath)
   }
 }
 
@@ -235,6 +291,7 @@ export function applySourceDemotion(input: SourceDemotionInput): SourceDemotionR
   }
   const {
     publicUrl: _hostOnly,
+    bindHost: _hostBind,
     pairCode: _consumedPairCode,
     mode: _oldMode,
     serverUrl: _oldServerUrl,
@@ -280,6 +337,8 @@ export interface TargetPromotionInput {
   transferId: string
   /** The new externally reachable HTTP(S) URL the imported server will serve. */
   publicUrl: string
+  /** Explicit interface contract selected by the source reachability plan. */
+  bindHost: ServerBindHost
   /** Optional explicit server port for the target (its config keeps its own default). */
   port?: number
 }
@@ -321,12 +380,18 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
   // Current target staging writes mode=server/publicUrl before invoking restartAfterTransfer.
   // Recover the paired-daemon shape from fields applySetup retains and persist it before save.
   if (!backupExists && prev.mode === 'server' && prev.serverUrl) {
-    const { mode: _promotedMode, publicUrl: _promotedUrl, ...daemonConfig } = prev
+    const {
+      mode: _promotedMode,
+      publicUrl: _promotedUrl,
+      bindHost: _promotedBind,
+      ...daemonConfig
+    } = prev
     previousConfig = { ...daemonConfig, mode: 'daemon' }
   }
   if (
     prev.mode === 'server' &&
     prev.publicUrl === v.normalized &&
+    prev.bindHost === input.bindHost &&
     (port === undefined || prev.port === port) &&
     prev.pairCode === undefined
   ) {
@@ -337,11 +402,18 @@ export function applyTargetServerPromotion(input: TargetPromotionInput): TargetP
       ...(backupExists ? { backupPath } : {}),
     }
   }
-  const { pairCode: _consumedPairCode, mode: _oldMode, publicUrl: _oldPublicUrl, ...rest } = prev
+  const {
+    pairCode: _consumedPairCode,
+    mode: _oldMode,
+    publicUrl: _oldPublicUrl,
+    bindHost: _oldBindHost,
+    ...rest
+  } = prev
   const cfg: PodiumConfig = {
     ...rest,
     mode: 'server',
     publicUrl: v.normalized,
+    bindHost: input.bindHost,
     ...(port !== undefined ? { port } : {}),
   }
   // The rollback state must be durable before config.json becomes server authority.
@@ -430,9 +502,12 @@ export interface RoleSupervisor {
   /** Prevent a managed role from being resurrected without stopping its current process. */
   disarmRole?(role: RunRole): Promise<void>
   /** Start one role from scratch (spawn detached, or install+enable+start its unit). */
-  startRole(role: RunRole, ctx: { port: number; serverUrl?: string }): Promise<void>
+  startRole(
+    role: RunRole,
+    ctx: { port: number; serverUrl?: string; bindHost?: ServerBindHost },
+  ): Promise<void>
   /** Probe whether the local server instance is answering health on `port`. */
-  serverUp(port: number): Promise<boolean>
+  serverUp(port: number, bindHost?: ServerBindHost): Promise<boolean>
 }
 
 export interface RoleTransitionResult {
@@ -452,13 +527,14 @@ export async function runRoleTransition(
   opts: {
     mode: PodiumConfig['mode']
     port: number
+    bindHost?: ServerBindHost
     keep?: RunRole[]
     disarmKept?: boolean
     supervisor: RoleSupervisor
   },
   serverUrl?: string,
 ): Promise<RoleTransitionResult> {
-  const { mode, port, keep, disarmKept, supervisor } = opts
+  const { mode, port, bindHost, keep, disarmKept, supervisor } = opts
   const live = MACHINE_ROLES.filter((role) => supervisor.roleLive(role))
   const managed = MACHINE_ROLES.filter((role) =>
     supervisor.roleManaged ? supervisor.roleManaged(role) : supervisor.roleLive(role),
@@ -476,12 +552,14 @@ export async function runRoleTransition(
     disarmed.push(role)
   }
   const started: RunRole[] = []
-  const ctx = { port, ...(serverUrl ? { serverUrl } : {}) }
+  const ctx = { port, ...(serverUrl ? { serverUrl } : {}), ...(bindHost ? { bindHost } : {}) }
   for (const role of plan.toStart) {
     await supervisor.startRole(role, ctx)
     started.push(role)
   }
-  const serverUp = plan.desired.includes('server') ? await supervisor.serverUp(port) : false
+  const serverUp = plan.desired.includes('server')
+    ? await supervisor.serverUp(port, bindHost)
+    : false
   return { stopped, started, disarmed, serverUp }
 }
 
@@ -508,6 +586,7 @@ export async function promoteTargetServer(
   const roleTransition = await runRoleTransition({
     mode: 'server',
     port,
+    bindHost: input.bindHost,
     keep: ['daemon'],
     disarmKept: false,
     supervisor,

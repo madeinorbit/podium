@@ -470,8 +470,9 @@ export class SessionStart {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then
         // rebroadcast.
-        this.ports.repository.persist(session)
-        this.ports.broadcastSessions()
+        if (this.ports.repository.persistActivityIfWritable(session)) {
+          this.ports.broadcastSessions()
+        }
       },
       ...(input.resume ? { resume: input.resume } : {}),
       // THE MINT SITE STATES THE CLAIM (POD-2392). This is the one moment the

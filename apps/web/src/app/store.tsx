@@ -15,14 +15,14 @@ import {
   StoreProvider as CoreStoreProvider,
   type IssueViewModel,
   type StoreNotices,
-  useStore as useCoreStore,
-  useSlice as useCoreSlice,
-  useStoreSelector as useCoreStoreSelector,
   useAllIssueViewModels,
+  useSlice as useCoreSlice,
+  useStore as useCoreStore,
+  useStoreSelector as useCoreStoreSelector,
 } from '@podium/client-core/react'
 import type { Replica } from '@podium/client-core/replica'
-import type { SessionId, SessionMeta } from '@podium/model'
 import type { FeedSinkPort } from '@podium/client-core/socket-transport'
+import type { SessionId, SessionMeta } from '@podium/model'
 import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
@@ -36,6 +36,7 @@ export type Store = CoreStore<Trpc>
 export type { IssueViewModel, UserFocus } from '@podium/client-core/react'
 export type { MainView } from '@podium/client-core/router'
 export type { FileTab } from '@podium/client-core/viewmodels'
+
 import type { SliceDefinition } from '@podium/client-core/viewmodels'
 
 const NOTICES: StoreNotices = {
@@ -68,6 +69,7 @@ export function StoreProvider({
   createReplicaFn,
   feed,
   createOutboxFn,
+  onServerRelocation,
   children,
 }: {
   /** The authenticated principal (from `/auth/status` via the boot gate).
@@ -84,6 +86,7 @@ export function StoreProvider({
   feed?: FeedSinkPort
   /** Kernel Outbox factory paired with the kernel replica assembly. */
   createOutboxFn?: CreateEngineOutbox
+  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   children: ReactNode
 }): JSX.Element {
   const trpc = useMemo(() => makeTrpc(config.httpOrigin), [config.httpOrigin])
@@ -107,6 +110,7 @@ export function StoreProvider({
       createReplicaFn={createReplicaFn}
       feed={feed}
       createOutboxFn={createOutboxFn}
+      onServerRelocation={onServerRelocation}
     >
       {children}
     </CoreStoreProvider>

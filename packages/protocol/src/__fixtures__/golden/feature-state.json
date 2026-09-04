@@ -2174,7 +2174,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2194,7 +2194,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2214,7 +2214,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2234,7 +2234,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2254,7 +2254,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2274,7 +2274,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2294,7 +2294,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2314,7 +2314,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2334,7 +2334,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2354,7 +2354,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2374,7 +2374,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2394,7 +2394,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2414,7 +2414,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -2434,7 +2434,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2454,7 +2454,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2474,7 +2474,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2494,7 +2494,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -2514,7 +2514,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2534,7 +2534,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2554,7 +2554,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2574,7 +2574,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": true,
@@ -2594,7 +2594,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2614,7 +2614,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2634,7 +2634,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": true,
@@ -2654,7 +2654,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2674,7 +2674,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2694,7 +2694,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2714,7 +2714,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2734,7 +2734,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2754,7 +2754,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2774,7 +2774,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2794,7 +2794,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2814,7 +2814,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": false,
         "enabled": false,
@@ -2834,7 +2834,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2854,7 +2854,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,
@@ -2874,7 +2874,7 @@
       "wire": {
         "id": "command-palette",
         "name": "Cmd+K search",
-        "description": "Search and navigate Podium from the Cmd+K command palette.",
+        "description": "Search and navigate Podium from the Cmd+K command palette. Also keeps the full-text index of conversation summaries and mirrored transcripts that search and the assistant’s search tools use. Takes effect at the next server start.",
         "visibility": "edge",
         "listed": true,
         "enabled": false,

@@ -2,7 +2,60 @@ import { asUserId, asMachineId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { SessionRegistry } from '../../relay'
 import { SessionStore } from '../../store'
-import { deriveVersionState, MachinesService } from './service'
+import { wireSchemaDigest } from '@podium/protocol'
+import { deriveServerMoveEligibility, deriveVersionState, MachinesService } from './service'
+
+describe('deriveServerMoveEligibility', () => {
+  it.each([
+    [
+      {
+        currentServer: true,
+        online: true,
+        reportedWireSchemaDigest: wireSchemaDigest(),
+        deliveryCaps: ['server-move.v1'],
+      },
+      { eligible: false, reason: 'current-server' },
+    ],
+    [
+      {
+        currentServer: false,
+        online: false,
+        reportedWireSchemaDigest: wireSchemaDigest(),
+        deliveryCaps: ['server-move.v1'],
+      },
+      { eligible: false, reason: 'offline' },
+    ],
+    [
+      {
+        currentServer: false,
+        online: true,
+        reportedWireSchemaDigest: wireSchemaDigest(),
+        deliveryCaps: [],
+      },
+      { eligible: false, reason: 'unsupported' },
+    ],
+    [
+      {
+        currentServer: false,
+        online: true,
+        reportedWireSchemaDigest: 'other',
+        deliveryCaps: ['server-move.v1'],
+      },
+      { eligible: false, reason: 'unsupported' },
+    ],
+    [
+      {
+        currentServer: false,
+        online: true,
+        reportedWireSchemaDigest: wireSchemaDigest(),
+        deliveryCaps: ['server-move.v1'],
+      },
+      { eligible: true },
+    ],
+  ] as const)('projects eligibility from server-owned facts', (input, expected) => {
+    expect(deriveServerMoveEligibility(input)).toEqual(expected)
+  })
+})
 
 describe('deriveVersionState', () => {
   it('is unreported when the machine has not said', () => {

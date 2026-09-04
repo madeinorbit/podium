@@ -68,6 +68,12 @@ function renderConnectivity(c: ConnectivityStatus, nowMs: number): string[] {
       : ''
     return [`  ! server link${target}: disconnected${err}${retry}${lastSeen}`]
   }
+  if (c.state === 'connecting') {
+    return [`  … server link${target}: connecting${lastSeen}`]
+  }
+  if (c.state === 'awaiting-ack') {
+    return [`  … server link${target}: awaiting handshake acknowledgement${lastSeen}`]
+  }
   return [`  ✓ server link${target}: connected${lastSeen}`]
 }
 

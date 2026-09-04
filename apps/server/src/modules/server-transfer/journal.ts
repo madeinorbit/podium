@@ -10,9 +10,12 @@ import {
   writeSync,
 } from 'node:fs'
 import { join } from 'node:path'
+import type { Operation } from '@podium/protocol'
 import { z } from 'zod'
+import { transferLockHeld } from './lock'
 import {
   SERVER_TRANSFER_FORMAT_VERSION,
+  TRANSFER_FAILURE_CODES,
   type TransferJournalEntry,
   type TransferJournalState,
   type TransferRecord,
@@ -21,7 +24,8 @@ import {
 export const LEGAL_TRANSITIONS = [
   ['preparing', 'staged'],
   ['staged', 'validated'],
-  ['validated', 'source-fenced'],
+  ['validated', 'fence-pending'],
+  ['fence-pending', 'source-fenced'],
   ['source-fenced', 'committing'],
   ['committing', 'committed'],
   ['committing', 'commit-uncertain'],
@@ -29,6 +33,7 @@ export const LEGAL_TRANSITIONS = [
   ['preparing', 'aborted'],
   ['staged', 'aborted'],
   ['validated', 'aborted'],
+  ['fence-pending', 'aborted'],
   ['source-fenced', 'aborted'],
 ] as const satisfies ReadonlyArray<readonly [TransferJournalState, TransferJournalState]>
 
@@ -39,6 +44,7 @@ export const isActiveTransfer = (state: TransferJournalState): boolean =>
   state === 'preparing' ||
   state === 'staged' ||
   state === 'validated' ||
+  state === 'fence-pending' ||
   state === 'source-fenced' ||
   state === 'committing'
 
@@ -49,7 +55,7 @@ export const blocksWritableServer = (state: TransferJournalState): boolean =>
   state === 'committed'
 
 export const safelyRecoverableBeforeFence = (state: TransferJournalState): boolean =>
-  state === 'preparing' || state === 'staged' || state === 'validated'
+  state === 'preparing' || state === 'staged' || state === 'validated' || state === 'fence-pending'
 
 function fsyncDirectory(dir: string): void {
   const handle = openSync(dir, 'r')
@@ -93,6 +99,8 @@ function parsedEntry(raw: string): TransferJournalEntry {
     typeof candidate.record !== 'object' ||
     candidate.record === null ||
     typeof candidate.record.transferId !== 'string' ||
+    (candidate.record.bindHost !== '127.0.0.1' &&
+      candidate.record.bindHost !== '0.0.0.0') ||
     typeof candidate.createdAt !== 'string' ||
     typeof candidate.updatedAt !== 'string'
   ) {
@@ -277,13 +285,46 @@ export class TransferJournal {
  */
 export function reconcileSafeServerTransferBoot(
   stateRoot: string,
+  activeOperation?: Operation | null,
 ): TransferJournalEntry | undefined {
   const journal = new TransferJournal(join(stateRoot, '.server-transfer'))
   const entry = journal.read()
+  if (entry?.state === 'committing') {
+    return journal.commitUncertain({
+      code: TRANSFER_FAILURE_CODES.COMMIT_UNCERTAIN,
+      message: 'the source restarted after promotion may have been sent',
+    })
+  }
   if (!entry || !safelyRecoverableBeforeFence(entry.state)) return entry
+  const details = activeOperation?.kind === 'server-move' ? activeOperation.details : undefined
+  const manifestDigest = entry.record.manifest?.digest
+  if (
+    activeOperation &&
+    details &&
+    activeOperation.state !== 'done' &&
+    activeOperation.state !== 'failed' &&
+    activeOperation.state !== 'canceled' &&
+    activeOperation.id === entry.record.operationId &&
+    details.transferId === entry.record.transferId &&
+    details.targetMachineId === entry.record.targetMachineId &&
+    details.publicUrl === entry.record.publicUrl &&
+    details.port === entry.record.port &&
+    details.manifestDigest === manifestDigest
+  ) {
+    return entry
+  }
   return journal.abort(
     { code: 'boot-recovery', message: 'aborted stale pre-fence transfer in ' + entry.state },
     { result: 'pending', detail: 'target staging cleanup must be reconciled online' },
+  )
+}
+
+export function legacyTransferInProgress(stateRoot: string): boolean {
+  const root = join(stateRoot, '.server-transfer')
+  const entry = new TransferJournal(root).read()
+  return (
+    (entry !== undefined && entry.state !== 'aborted' && entry.state !== 'committed') ||
+    transferLockHeld(join(root, 'source.lock'))
   )
 }
 

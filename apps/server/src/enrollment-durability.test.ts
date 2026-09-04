@@ -15,7 +15,7 @@
  *      restart → NEW owner holds use/manage, OLD holds neither, no manual repair.
  */
 
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { asMachineId, asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
@@ -35,6 +35,8 @@ import { SessionStore } from './store'
 
 const OWNER = FIRST_ADMIN_USER_ID
 const OTHER = asUserId('user:colleague')
+const ORIGINAL_HOST = asMachineId('00000000-0000-4000-8000-000000000101')
+const PROMOTED_HOST = asMachineId('00000000-0000-4000-8000-000000000202')
 
 function tempState(): string {
   return mkdtempSync(join(tmpdir(), 'podium-enroll-'))
@@ -103,6 +105,141 @@ function hello(
     hostname,
   })
 }
+
+function hostWorld(stateDir: string, store: SessionStore, hostMachineId = store.hostMachineId) {
+  const enrollment = openEnrollmentLedger(stateDir)
+  const machines = new MachinesService({
+    instanceId: 'default',
+    store,
+    hostMachineId,
+    enrollment,
+    userExists: (id) => store.users.get(id) !== undefined,
+    sessionsChangedForMachine: () => {},
+    clients: () => [],
+    machinesForPrincipal: () => [],
+  })
+  return { enrollment, machines, store }
+}
+
+describe('server host enrollment provenance (POD-2467)', () => {
+  let dir: string
+
+  beforeEach(() => {
+    dir = tempState()
+  })
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  it('enrolls the original host without treating an arbitrary machine row as proof', () => {
+    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+    store.machines.upsertMachine({
+      id: asMachineId('forged-row'),
+      name: 'Forged',
+      hostname: 'forged.local',
+      tokenHash: sha256('forged'),
+      ownerUserId: OWNER,
+    })
+    const host = hostWorld(dir, store, ORIGINAL_HOST)
+
+    host.machines.ensureHostMachine('original.local', 'original-secret')
+
+    expect(host.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
+    expect(host.enrollment.recordedOwner(ORIGINAL_HOST)).toBe(OWNER)
+    expect(host.enrollment.isActivelyEnrolled(asMachineId('forged-row'))).toBe(false)
+    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'original-secret')).toBe(true)
+  })
+
+  it('keeps a promoted paired host on its existing enrollment, owner, and new local credential', () => {
+    const source = makeWorld(dir)
+    const paired = pairRemote(source.machines, {
+      machineId: PROMOTED_HOST,
+      ownerUserId: OTHER,
+    })
+    const serialBeforePromotion = source.enrollment.nextSerial(PROMOTED_HOST)
+    const promoted = hostWorld(dir, source.store, PROMOTED_HOST)
+
+    promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
+
+    expect(promoted.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
+    expect(promoted.enrollment.nextSerial(PROMOTED_HOST)).toBe(serialBeforePromotion)
+    expect(promoted.enrollment.recordedOwner(PROMOTED_HOST)).toBe(OTHER)
+    expect(source.store.machines.getMachine(PROMOTED_HOST)?.ownerUserId).toBe(OTHER)
+    expect(source.store.machines.getMachineByToken(PROMOTED_HOST, 'promoted-secret')).toBe(true)
+    expect(source.store.machines.getMachineByToken(PROMOTED_HOST, paired.token)).toBe(false)
+  })
+
+  it('keeps the former host eligible when the server moves away and then returns', () => {
+    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+    const original = hostWorld(dir, store, ORIGINAL_HOST)
+    original.machines.ensureHostMachine('original.local', 'original-secret')
+    const sourceSerial = original.enrollment.nextSerial(ORIGINAL_HOST)
+    const pairing = new PairingManager({ randomCode: () => 'PROMOTE1' })
+    const source = new MachinesService({
+      instanceId: 'default',
+      store,
+      hostMachineId: ORIGINAL_HOST,
+      pairing,
+      enrollment: openEnrollmentLedger(dir),
+      userExists: (id) => store.users.get(id) !== undefined,
+      sessionsChangedForMachine: () => {},
+      clients: () => [],
+      machinesForPrincipal: () => [],
+    })
+    pairRemote(source, { machineId: PROMOTED_HOST })
+    const promoted = hostWorld(dir, store, PROMOTED_HOST)
+    promoted.machines.ensureHostMachine('promoted.local', 'promoted-secret')
+
+    const returned = hostWorld(dir, store, ORIGINAL_HOST)
+    returned.machines.ensureHostMachine('original.local', 'return-secret')
+
+    expect(returned.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
+    expect(returned.enrollment.isActivelyEnrolled(PROMOTED_HOST)).toBe(true)
+    expect(returned.enrollment.nextSerial(ORIGINAL_HOST)).toBe(sourceSerial)
+    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'return-secret')).toBe(true)
+  })
+
+  it('does not let a forged host row override durable revocation', () => {
+    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+    const ledger = openEnrollmentLedger(dir)
+    ledger.appendRevoke({
+      id: 'revoke-forged-host',
+      machineId: ORIGINAL_HOST,
+      serial: 1,
+      by: OWNER,
+      at: new Date().toISOString(),
+    })
+    store.machines.upsertMachine({
+      id: ORIGINAL_HOST,
+      name: 'Forged host',
+      hostname: 'forged.local',
+      tokenHash: sha256('forged-secret'),
+      ownerUserId: OTHER,
+    })
+    const host = hostWorld(dir, store, ORIGINAL_HOST)
+
+    expect(() => host.machines.ensureHostMachine('trusted.local', 'trusted-secret')).toThrow(
+      'enrollment is revoked',
+    )
+    expect(host.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(false)
+    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'forged-secret')).toBe(true)
+    expect(store.machines.getMachineByToken(ORIGINAL_HOST, 'trusted-secret')).toBe(false)
+  })
+
+  it('reboots idempotently without appending another enrollment', () => {
+    const store = new SessionStore(':memory:', ORIGINAL_HOST)
+    hostWorld(dir, store, ORIGINAL_HOST).machines.ensureHostMachine('original.local', 'secret')
+    const before = readFileSync(join(dir, 'enrollment.ledger'), 'utf8')
+
+    const rebooted = hostWorld(dir, store, ORIGINAL_HOST)
+    rebooted.machines.ensureHostMachine('original.local', 'secret')
+    const after = readFileSync(join(dir, 'enrollment.ledger'), 'utf8')
+
+    expect(after).toBe(before)
+    expect(rebooted.enrollment.nextSerial(ORIGINAL_HOST)).toBe(2)
+    expect(rebooted.enrollment.isActivelyEnrolled(ORIGINAL_HOST)).toBe(true)
+  })
+})
 
 describe('enrollment ledger unit', () => {
   let dir: string

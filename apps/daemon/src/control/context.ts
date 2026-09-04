@@ -216,6 +216,19 @@ export interface DaemonContext {
    */
   logForwarding: import('@podium/runtime/log-forward').DaemonLogForwarding
 
+  /** Server-move endpoint handoff is owned by the reconnecting transport. */
+  probeServerTransferCandidate(input: {
+    transferId: string
+    manifestDigest: string
+    publicUrl: string
+    reachabilityToken: string
+    targetMachineId: MachineId
+  }): Promise<void>
+  quiesceServerEndpoint(transferId: string): void
+  resumeServerEndpoint(transferId: string): void
+  prepareServerEndpointCommit(transferId: string, publicUrl: string): Promise<string>
+  activateServerEndpoint(transferId: string): void
+
   /** Server-granted convergence is wired by the production composition root. */
   applyUpdateGrant: (
     grant: Extract<ControlMessage, { type: 'updateGrant' }>,

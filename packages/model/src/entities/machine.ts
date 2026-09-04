@@ -471,8 +471,15 @@ export const MachineWire = z.object({
   wireSchemaDigest: z.string().nullable().optional(),
   /** Whether the daemon runs an installed bundle or a source checkout. */
   installKind: z.string().nullable().optional(),
-  /** Delivery methods the daemon offered in its last authenticated hello. */
+  /** Delivery and feature capabilities offered in the daemon's last authenticated hello. */
   deliveryCaps: z.array(z.string()).optional(),
+  /** Whether this row can receive the current server under the server-move wire contract. */
+  serverMoveEligibility: z
+    .object({
+      eligible: z.boolean(),
+      reason: z.enum(['current-server', 'offline', 'unsupported']).optional(),
+    })
+    .optional(),
   /**
    * This daemon runs inside Podium Desktop, which owns its bytes (POD-2099).
    * Fleet waves never deliver to it; the shell update does. Absent means an

@@ -20,7 +20,7 @@ import {
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { stateDir } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
-import { consumePairCode } from '@podium/runtime/setup'
+import { applyServerUrl, consumePairCode, wssFrom } from '@podium/runtime/setup'
 import {
   acceptsUpdateKeyRotation,
   type UpdateKeyRotation,
@@ -38,6 +38,8 @@ const log = createLogger('daemon:connection')
 
 const RECONNECT_MIN_MS = 500
 const RECONNECT_MAX_MS = 5_000
+const SOCKET_OPEN_DEADLINE_MS = 10_000
+const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 const QUEUE_DRAIN_RETRY_MS = 500
 
 /**
@@ -73,6 +75,7 @@ interface SocketLike {
   readonly readyState: number
   send(data: string | Uint8Array): void
   close(): void
+  terminate(): void
   once(event: 'open' | 'close', listener: () => void): this
   on(event: 'message', listener: (raw: RawData, isBinary?: boolean) => void): this
   on(event: 'close', listener: () => void): this
@@ -106,6 +109,10 @@ export interface DaemonConnection {
   start(): Promise<void>
   sendOutput(batch: DaemonPtyOutputBatch): void
   send(msg: DaemonMessage): void
+  quiesceEndpoint(transferId: string): void
+  resumeEndpoint(transferId: string): void
+  prepareEndpointCommit(transferId: string, publicUrl: string): Promise<string>
+  activateEndpoint(transferId: string): void
   acknowledgeQueueDrainReport(reportId: string): void
   acknowledgeRuntimeEvent(deliveryId: string): void
   close(): Promise<void>
@@ -166,6 +173,9 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let socket: SocketLike | undefined
   let localAttachment: Extract<LocalDaemonAttachment, { established: true }> | undefined
   let reconnectTimer: unknown | undefined
+  let socketGeneration = 0
+  let openDeadline: { generation: number; handle: unknown } | undefined
+  let acknowledgementDeadline: { generation: number; handle: unknown } | undefined
   let queueDrainRetryTimer: unknown | undefined
   let runtimeEventRetryTimer: unknown | undefined
   let reconnectBackoffMs = RECONNECT_MIN_MS
@@ -174,6 +184,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let pairFallbackTried = false
   let lastSocketError: string | undefined
   let convergedVersion: string | undefined
+  let activeServerUrl = options.serverUrl
+  let quiescedTransferId: string | undefined
+  let endpointActivationPending = false
+  let endpointTargetUrl: string | undefined
+  const quiescedFrames: DaemonMessage[] = []
   let acceptedCaps = new Set<string>()
   const invalidSockets = new WeakSet<SocketLike>()
   // Host diagnostics are durable attention, not telemetry. Keep the latest one
@@ -197,7 +212,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     try {
       writeConnectivity(
         {
-          serverUrl: options.serverUrl,
+          serverUrl: activeServerUrl,
           processId: process.pid,
           appVersion: deps.build.appVersion ?? 'dev',
           ...(convergedVersion ? { convergedVersion } : {}),
@@ -216,6 +231,28 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return { kind: 'machineToken', token: identity.token, machineHint: deps.machineId }
     if (options.pairCode) return { kind: 'pairCode', code: options.pairCode }
     return null
+  }
+
+  const clearOpenDeadline = (generation?: number): void => {
+    if (!openDeadline || (generation !== undefined && openDeadline.generation !== generation))
+      return
+    timers.clearTimeout(openDeadline.handle)
+    openDeadline = undefined
+  }
+
+  const clearAcknowledgementDeadline = (generation?: number): void => {
+    if (
+      !acknowledgementDeadline ||
+      (generation !== undefined && acknowledgementDeadline.generation !== generation)
+    )
+      return
+    timers.clearTimeout(acknowledgementDeadline.handle)
+    acknowledgementDeadline = undefined
+  }
+
+  const clearHandshakeDeadlines = (generation?: number): void => {
+    clearOpenDeadline(generation)
+    clearAcknowledgementDeadline(generation)
   }
 
   const stopQueueDrainRetry = (): void => {
@@ -431,6 +468,11 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       state: 'connected',
       lastHelloOkAt: new Date().toISOString(),
     })
+    if (quiescedTransferId && endpointTargetUrl === activeServerUrl) {
+      quiescedTransferId = undefined
+      endpointTargetUrl = undefined
+      for (const frame of quiescedFrames.splice(0)) sendConnected(frame)
+    }
     for (const diagnostic of pendingDiagnostics.values()) {
       if (localAttachment) localAttachment.deliver(diagnostic)
       else deps.sendApplicationFrame(socket, diagnostic)
@@ -624,6 +666,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   const connectLocal = (): void => {
     acceptedCaps.clear()
     state = 'connecting'
+    report({ state: 'connecting' })
     const localLink = options.localLink
     if (!localLink) {
       terminal('blocked', 'configuration', 'local connection requested without a local link')
@@ -637,6 +680,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       return
     }
     state = 'awaiting-ack'
+    report({ state: 'awaiting-ack' })
     const attachment = localLink.attach({
       hello: dialer.hello(),
       deliver: (msg) => deps.receiveApplicationFrame(Buffer.from(JSON.stringify(msg))),
@@ -669,21 +713,49 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     if (closing) return
     acceptedCaps.clear()
     state = 'connecting'
-    const active = openSocket(`${options.serverUrl}/daemon`)
+    report({ state: 'connecting' })
+    const active = openSocket(`${activeServerUrl}/daemon`)
+    const generation = ++socketGeneration
     socket = active
+    const isCurrent = (): boolean =>
+      !closing && socket === active && socketGeneration === generation
     let dialer: ReturnType<typeof createHandshakeDialer> | undefined
+    openDeadline = {
+      generation,
+      handle: timers.setTimeout(() => {
+        if (openDeadline?.generation !== generation) return
+        openDeadline = undefined
+        if (!isCurrent() || state !== 'connecting') return
+        lastSocketError = `WebSocket open timed out after ${SOCKET_OPEN_DEADLINE_MS}ms`
+        active.terminate()
+      }, SOCKET_OPEN_DEADLINE_MS),
+    }
     active.once('open', () => {
+      if (!isCurrent()) return
+      clearOpenDeadline(generation)
       if (invalidSockets.has(active)) return
       try {
         dialer = makeDialer()
         state = 'awaiting-ack'
+        report({ state: 'awaiting-ack' })
+        acknowledgementDeadline = {
+          generation,
+          handle: timers.setTimeout(() => {
+            if (acknowledgementDeadline?.generation !== generation) return
+            acknowledgementDeadline = undefined
+            if (!isCurrent() || state !== 'awaiting-ack') return
+            lastSocketError = `peerHello acknowledgement timed out after ${PEER_HELLO_ACK_DEADLINE_MS}ms`
+            active.terminate()
+          }, PEER_HELLO_ACK_DEADLINE_MS),
+        }
         active.send(JSON.stringify(dialer.hello()))
       } catch (error) {
+        clearAcknowledgementDeadline(generation)
         terminal('blocked', 'configuration', String(error), active)
       }
     })
     active.on('message', (raw, isBinary) => {
-      if (invalidSockets.has(active)) return
+      if (!isCurrent() || invalidSockets.has(active)) return
       if (!dialer && isBinary) {
         closeForInvalidBinary(
           active,
@@ -697,25 +769,107 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         return
       }
       receiveReply(dialer, raw, active, isBinary === true)
+      if (state !== 'awaiting-ack') clearAcknowledgementDeadline(generation)
     })
     if (!process.versions.bun) {
       active.on('unexpected-response', (_req, response) => {
+        if (!isCurrent()) return
         if (invalidSockets.has(active)) return
         if (response.statusCode === 426) handleProtocolMismatch(active, 'http-426')
       })
     }
     active.on('error', (error) => {
+      if (!isCurrent()) return
       lastSocketError = error instanceof Error ? error.message : String(error)
     })
     active.on('close', () => {
-      if (socket === active) {
-        socket = undefined
-        acceptedCaps.clear()
-      }
+      if (socket !== active || socketGeneration !== generation) return
+      socket = undefined
+      acceptedCaps.clear()
+      clearHandshakeDeadlines(generation)
       stopQueueDrainRetry()
       stopRuntimeEventRetry()
-      scheduleReconnect()
+      if (closing) return
+      if (endpointActivationPending) {
+        endpointActivationPending = false
+        reconnectBackoffMs = RECONNECT_MIN_MS
+        connectSocket()
+      } else {
+        scheduleReconnect()
+      }
     })
+  }
+
+  const probeAuthenticatedEndpointOnce = (publicUrl: string): Promise<void> =>
+    new Promise((resolve, reject) => {
+      const candidate = openSocket(`${wssFrom(publicUrl)}/daemon`)
+      let settled = false
+      let dialer: ReturnType<typeof createHandshakeDialer> | undefined
+      const timer = setTimeout(
+        () => finish(new Error('promoted server authentication timed out')),
+        3_000,
+      )
+      timer.unref?.()
+      const finish = (error?: Error): void => {
+        if (settled) return
+        settled = true
+        clearTimeout(timer)
+        try {
+          candidate.close()
+        } catch {}
+        if (error) reject(error)
+        else resolve()
+      }
+      const socketError = (error: unknown): Error => {
+        if (error instanceof Error) return error
+        if (typeof error === 'object' && error !== null && 'message' in error)
+          return new Error(String((error as { message?: unknown }).message))
+        return new Error(String(error))
+      }
+      candidate.once('open', () => {
+        try {
+          dialer = makeDialer()
+          candidate.send(JSON.stringify(dialer.hello()))
+        } catch (error) {
+          finish(socketError(error))
+        }
+      })
+      candidate.on('message', (raw) => {
+        if (!dialer || settled) return
+        const step = dialer.receive(raw.toString())
+        if (step.action === 'established') finish()
+        else if (step.action === 'protocol-error') finish(new Error(step.error))
+        else if (step.action === 'rejected')
+          finish(new Error(step.reply.message ?? step.reply.reason))
+      })
+      candidate.on('unexpected-response', (_request, response) =>
+        finish(
+          new Error(
+            `promoted server rejected the daemon upgrade with HTTP ${
+              response.statusCode ?? 'unknown'
+            }`,
+          ),
+        ),
+      )
+      candidate.on('error', (error) => finish(socketError(error)))
+      candidate.on('close', () => {
+        if (!settled) finish(new Error('promoted server closed the authentication probe'))
+      })
+    })
+
+  const probeAuthenticatedEndpoint = async (publicUrl: string): Promise<void> => {
+    const deadline = Date.now() + 15_000
+    let lastError = new Error('promoted server was not ready')
+    while (Date.now() < deadline) {
+      try {
+        await probeAuthenticatedEndpointOnce(publicUrl)
+        return
+      } catch (error) {
+        lastError = error instanceof Error ? error : new Error(String(error))
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 250))
+    }
+    throw lastError
   }
 
   return {
@@ -766,26 +920,64 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       deps.sendApplicationFrame(socket, message)
     },
     send(msg) {
-      if (msg.type === 'runtimeQueueDrainAbandoned') {
+      const isQueueDrainReport = msg.type === 'runtimeQueueDrainAbandoned'
+      const isRuntimeEvent = msg.type === 'runtimeEvent'
+      if (isQueueDrainReport) {
         if (!msg.reportId) {
           throw new Error('runtimeQueueDrainAbandoned requires reportId before daemon send')
         }
         deps.queueDrainOutbox.enqueue({ ...msg, reportId: msg.reportId })
       }
-      if (msg.type === 'runtimeEvent') {
+      if (isRuntimeEvent) {
         if (!msg.deliveryId) throw new Error('runtimeEvent requires deliveryId before daemon send')
         deps.runtimeEventOutbox.enqueue({ ...msg, deliveryId: msg.deliveryId })
+      }
+      if (quiescedTransferId && msg.type !== 'serverEndpointResult') {
+        if (!isQueueDrainReport && !isRuntimeEvent) quiescedFrames.push(msg)
+        return
       }
       if (socket && invalidSockets.has(socket)) return
       if (state !== 'connected') {
         if (msg.type === 'machineDiagnostic') {
-          pendingDiagnostics.set(`${msg.code}\0${msg.observedVersion ?? ''}`, msg)
+          pendingDiagnostics.set(msg.code + '\0' + (msg.observedVersion ?? ''), msg)
         }
         return
       }
       sendConnected(msg)
-      if (msg.type === 'runtimeQueueDrainAbandoned') scheduleQueueDrainRetry()
-      if (msg.type === 'runtimeEvent') scheduleRuntimeEventRetry()
+      if (isQueueDrainReport) scheduleQueueDrainRetry()
+      if (isRuntimeEvent) scheduleRuntimeEventRetry()
+    },
+    quiesceEndpoint(transferId) {
+      // A final snapshot may replace the target stage (and therefore transfer id)
+      // while this same move remains quiesced. Re-key the hold without flushing it.
+      quiescedTransferId = transferId
+    },
+    resumeEndpoint(_transferId) {
+      // A failed final restage can leave this daemon holding the preceding stage id.
+      // The command arrives on the authenticated old-authority socket, so resuming
+      // that authority must release whichever stage of this move currently owns it.
+      if (!quiescedTransferId) return
+      quiescedTransferId = undefined
+      if (state === 'connected') for (const frame of quiescedFrames.splice(0)) sendConnected(frame)
+    },
+    async prepareEndpointCommit(transferId, publicUrl) {
+      if (quiescedTransferId !== transferId)
+        throw new Error('endpoint commit does not own this daemon quiesce')
+      await probeAuthenticatedEndpoint(publicUrl)
+      const applied = applyServerUrl(publicUrl)
+      activeServerUrl = applied.serverUrl
+      endpointTargetUrl = applied.serverUrl
+      return applied.serverUrl
+    },
+    activateEndpoint(transferId) {
+      if (quiescedTransferId !== transferId) return
+      endpointActivationPending = true
+      const active = socket
+      if (active) active.close()
+      else {
+        endpointActivationPending = false
+        connectSocket()
+      }
     },
     acknowledgeQueueDrainReport(reportId) {
       deps.queueDrainOutbox.acknowledge(reportId)
@@ -804,6 +996,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         timers.clearTimeout(reconnectTimer)
         reconnectTimer = undefined
       }
+      clearHandshakeDeadlines()
       localAttachment?.close()
       localAttachment = undefined
       const active = socket

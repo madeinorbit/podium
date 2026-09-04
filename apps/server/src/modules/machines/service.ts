@@ -1,3 +1,4 @@
+import { SERVER_MOVE_CAPABILITY, wireSchemaDigest } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import {
   type AccountId,
@@ -101,6 +102,23 @@ export type MachineListing = MachineWire
 
 /** The machine's position relative to the version this server says it should run. */
 export type MachineVersionState = 'unreported' | 'current' | 'behind' | 'ahead'
+
+export function deriveServerMoveEligibility(input: {
+  currentServer: boolean
+  online: boolean
+  reportedWireSchemaDigest: string | null
+  deliveryCaps: readonly string[]
+}): NonNullable<MachineWire['serverMoveEligibility']> {
+  if (input.currentServer) return { eligible: false, reason: 'current-server' }
+  if (!input.online) return { eligible: false, reason: 'offline' }
+  if (
+    input.reportedWireSchemaDigest !== wireSchemaDigest() ||
+    !input.deliveryCaps.includes(SERVER_MOVE_CAPABILITY)
+  ) {
+    return { eligible: false, reason: 'unsupported' }
+  }
+  return { eligible: true }
+}
 
 /**
  * DERIVED, NEVER STORED. The server target may move independently of the last
@@ -240,6 +258,14 @@ export class MachinesService {
   // forget spawn — and it is the layer BELOW the broker, which sends through
   // `toMachine` and never learns whether a message went out or was parked.
   private readonly pendingByMachine = new Map<string, PendingDaemonDelivery[]>()
+  /**
+   * Latest durable inventory report received while the server-transfer fence owns
+   * SQLite. Inventory is a replaceable machine fact, so one entry per machine is
+   * sufficient: an abort flushes the newest report after writability returns; a
+   * committed handoff leaves the sealed source untouched and the daemon reports
+   * again when it reconnects to the promoted target.
+   */
+  private readonly deferredInventoryByMachine = new Map<MachineId, string>()
   /**
    * In-memory mirror of the machines table. listSessions() resolves machineName
    * PER SESSION (and allWire() transitively per issue), so an uncached lookup is
@@ -488,10 +514,11 @@ export class MachinesService {
    */
   authenticateDaemon(
     frame: DaemonHandshake,
+    options: credentials.DaemonAuthenticationOptions = {},
   ):
     | { ok: true; machineId: MachineId; name: string; token?: string; pairingGrant?: PairingGrant }
     | { ok: false; reason: string } {
-    return credentials.authenticateDaemon(this.enrollmentHost, frame)
+    return credentials.authenticateDaemon(this.enrollmentHost, frame, options)
   }
 
   /** Project ledger owners and revocations onto the machines table (D19.4d).
@@ -884,6 +911,13 @@ export class MachinesService {
       } catch {
         target = undefined
       }
+      const online = this.daemons.has(m.id)
+      const serverMoveEligibility = deriveServerMoveEligibility({
+        currentServer: m.id === this.deps.hostMachineId,
+        online,
+        reportedWireSchemaDigest: m.wireSchemaDigest,
+        deliveryCaps: m.deliveryCaps,
+      })
       return {
         ...(use ? { use: use(m.id) } : {}),
         // POD-1495: same contract as `use` one line up — supplied means evaluated,
@@ -902,6 +936,7 @@ export class MachinesService {
         wireSchemaDigest: m.wireSchemaDigest,
         installKind: m.installKind,
         deliveryCaps: m.deliveryCaps,
+        serverMoveEligibility,
         // Present only when true, so the wire stays quiet for the fleet's
         // ordinary machines and a supervised one is unmistakable (POD-2099).
         ...(m.supervised ? { supervised: true } : {}),
@@ -960,7 +995,29 @@ export class MachinesService {
 
   /** Persist a daemon's inventoryReport (#222) on its machine row. */
   recordInventory(machineId: MachineId, inventory: Inventory): void {
-    this.deps.store.machines.setMachineInventory(machineId, JSON.stringify(inventory))
+    const inventoryJson = JSON.stringify(inventory)
+    if (this.deps.store.transferFenceActive) {
+      this.deferredInventoryByMachine.set(machineId, inventoryJson)
+      return
+    }
+    this.persistInventory(machineId, inventoryJson)
+  }
+
+  /** Reconcile daemon inventory after a recoverable transfer abort releases SQLite. */
+  resumeAfterTransferFence(): void {
+    if (this.deps.store.transferFenceActive) return
+    for (const [machineId, inventoryJson] of this.deferredInventoryByMachine) {
+      this.persistInventory(machineId, inventoryJson)
+      // A synchronous projection callback could have received a newer report.
+      // Only remove the exact value just persisted so newest-wins remains true.
+      if (this.deferredInventoryByMachine.get(machineId) === inventoryJson) {
+        this.deferredInventoryByMachine.delete(machineId)
+      }
+    }
+  }
+
+  private persistInventory(machineId: MachineId, inventoryJson: string): void {
+    this.deps.store.machines.setMachineInventory(machineId, inventoryJson)
     this.invalidateMachineCache()
     this.inventoryPending.delete(machineId)
     this.settleInventoryWaiters(machineId)
@@ -1122,6 +1179,17 @@ export class MachinesService {
    */
   ensureHostMachine(hostname: string, secret: string = randomUUID()): string {
     const id = this.deps.hostMachineId
+    const existing = this.deps.store.machines.getMachine(id)
+    const enrollmentOwner = this.deps.enrollment
+      ? (existing?.ownerUserId ?? deviceGradeSoleOwner())
+      : deviceGradeSoleOwner()
+    // Ledger first: this is the durable commit point shared with pairing. A
+    // revoked host throws before its row or credential can be recreated.
+    const ownerUserId = credentials.ensureHostEnrollment(
+      this.enrollmentHost,
+      id,
+      enrollmentOwner,
+    )
     this.deps.store.machines.upsertMachine({
       id,
       name: hostname,
@@ -1132,8 +1200,11 @@ export class MachinesService {
       // honestly-named placeholder — see `device-grade-owner.ts`. The COALESCE in
       // `upsertMachine` means a later real owner is never overwritten by this
       // boot-time write.
-      ownerUserId: deviceGradeSoleOwner(),
+      ownerUserId,
     })
+    // The ledger owner wins over a stale or restored row. `upsertMachine`
+    // deliberately preserves an existing owner, so project explicitly here.
+    if (this.deps.enrollment) this.deps.store.machines.setMachineOwner(id, ownerUserId)
     this.invalidateMachineCache()
     // THE COORDINATOR RUNS HERE (POD-2700). The server is the only honest source
     // for this — no machine self-reports being the server — and stamping it at

@@ -74,6 +74,7 @@ const running: RunningInstance[] = []
 let packagedCli: string | undefined
 const packagedSpecs: Array<{ executable: string; spec: InstanceSpec }> = []
 let packagedSource: RunningInstance | undefined
+const NAMED_MEMBER_TOKEN = 'named-instance-member'
 
 const allocatedPorts = new Set<number>()
 const freePort = (): number => {
@@ -122,6 +123,14 @@ function seedLegacyNamedState(spec: InstanceSpec): void {
       (id, name, hostname, token_hash, created_at, last_seen_at, owner_user_id)
       VALUES ('local', 'legacy-host', 'legacy-host', 'legacy-token', 't', 't', NULL)`,
   ).run()
+  db.prepare(
+    `INSERT INTO users (id, display_name, role, created_at, disabled_at)
+     VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
+  ).run()
+  db.prepare(
+    `INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at)
+     VALUES (?, 'user:member', '2026-08-02T00:00:00.000Z', '2099-01-01T00:00:00.000Z')`,
+  ).run(createHash('sha256').update(NAMED_MEMBER_TOKEN).digest('hex'))
   db.close()
 }
 
@@ -210,11 +219,11 @@ function startInstance(
   // the operator data plane.
   mkdirSync(spec.stateDir, { recursive: true })
   const configFile = join(spec.stateDir, 'config.json')
-  const config = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
-  writeFileSync(configFile, JSON.stringify({ ...config, mode: 'all-in-one' }))
+  const existingConfig = existsSync(configFile) ? JSON.parse(readFileSync(configFile, 'utf8')) : {}
+  writeFileSync(configFile, JSON.stringify({ ...existingConfig, mode: 'all-in-one' }))
   const child = spawn(
     process.execPath,
-    ['--conditions=@podium/source', CLI, '--instance', spec.id, 'all'],
+    ['--conditions=@podium/source', CLI, '--instance', spec.id, 'parent', '--takeover'],
     { cwd: ROOT, env: instanceEnv(spec, overrides), stdio: ['ignore', 'pipe', 'pipe'] },
   )
   let output = ''
@@ -545,7 +554,7 @@ describe('multi-instance runtime isolation', () => {
     expect(mutation.stderr).toContain("for instance 'blue'")
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
     expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
-  })
+  }, 30_000)
   it('accepts a legitimate daemon from the compiled packaged join path', async () => {
     const source = await packagedCoordinator()
     const sourceApi = trpc(source)
@@ -789,6 +798,14 @@ describe('multi-instance runtime isolation', () => {
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
+    await waitUntil(
+      async () => (await trpc(compat).machines.list.query()).some((machine) => machine.online),
+      'compat daemon',
+    )
+    await waitUntil(
+      async () => (await trpc(named).machines.list.query()).some((machine) => machine.online),
+      'named daemon',
+    )
     for (const [port, label] of [
       [compat.hookPort, 'compat hook'],
       [named.hookPort, 'named hook'],
@@ -856,21 +873,7 @@ describe('multi-instance runtime isolation', () => {
 
     // A second authenticated member is still inside the SAME named deployment,
     // but the instance label grants no execute authority over its host machine.
-    const memberToken = 'named-instance-member'
-    const memberDb = openDatabase(join(named.stateDir, 'podium.db'))
-    memberDb
-      .prepare(
-        `INSERT INTO users (id, display_name, role, created_at, disabled_at)
-         VALUES ('user:member', 'Member', 'member', '2026-08-02T00:00:00.000Z', NULL)`,
-      )
-      .run()
-    memberDb
-      .prepare(
-        `INSERT INTO client_sessions (token_hash, user_id, created_at, expires_at)
-         VALUES (?, 'user:member', '2026-08-02T00:00:00.000Z', '2099-01-01T00:00:00.000Z')`,
-      )
-      .run(createHash('sha256').update(memberToken).digest('hex'))
-    memberDb.close()
+    const memberToken = NAMED_MEMBER_TOKEN
     const memberApi = trpc(named, SESSION_COOKIE + '=' + memberToken)
     await expect(
       memberApi.sessions.create.mutate({

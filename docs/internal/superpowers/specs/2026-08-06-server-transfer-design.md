@@ -83,6 +83,9 @@ The source creates a versioned transfer package from a consistent snapshot of:
 * `enrollment.ledger`, including the pairing root and append-only enrollment,
   revocation, and owner events. The ledger is outside SQLite and must travel
   with the database; it is never reconstructed from machine rows.
+* `update-signing-key.json`, the instance's server-only update signing identity.
+  This is an explicit secret in the authenticated transfer stream, not a generic
+  file-RPC path; preserving it keeps already-paired daemons' trust pins valid.
 * Durable server-owned directories when present: `transcripts/`, `artifacts/`,
   and `uploads/`. Include only regular files under these named roots, preserve
   relative paths and modes needed by the server, and reject symlinks, path

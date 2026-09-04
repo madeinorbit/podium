@@ -589,7 +589,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
         // out by design, so "done" and "failed" would blink out of existence at
         // the moment they became true. Only asked when nothing is running.
         live === null
-          ? safelyReadOperation(() => readLatestOperation(trpc))
+          ? safelyReadOperation(() => readLatestOperation(trpc, 'update'))
           : Promise.resolve(undefined),
         // The fleet snapshot only feeds the OFFER's place rows. While an
         // operation exists the operation's own steps say where it is, so this

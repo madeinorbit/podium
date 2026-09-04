@@ -153,6 +153,12 @@ export interface EnrollmentLedger {
   revokeSerial(machineId: MachineId): number | undefined
   /** Latest recorded owner from enroll/owner events, or `undefined` if none. */
   recordedOwner(machineId: MachineId): UserId | null | undefined
+  /**
+   * Whether the latest enrollment survives the highest recorded revoke.
+   * This is the canonical durable provenance proof: a database row alone is
+   * never enrollment, and an old enroll event does not outlive its revoke.
+   */
+  isActivelyEnrolled(machineId: MachineId): boolean
   /** Every machine id that has ever been enrolled (for boot reconcile). */
   enrolledMachineIds(): MachineId[]
   /**
@@ -316,6 +322,12 @@ export function openEnrollmentLedger(
     recordedOwner(machineId: MachineId): UserId | null | undefined {
       if (!owners.has(machineId)) return undefined
       return owners.get(machineId) ?? null
+    },
+    isActivelyEnrolled(machineId: MachineId): boolean {
+      const enrolledAt = serials.get(machineId) ?? 0
+      if (enrolledAt === 0) return false
+      const revokedAt = revokes.get(machineId)
+      return revokedAt === undefined || revokedAt < enrolledAt
     },
     enrolledMachineIds(): MachineId[] {
       return [...owners.keys()]
