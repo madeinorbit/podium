@@ -1120,6 +1120,7 @@
         "src/modules/settings/trpc.ts",
         "src/modules/settings/wiring.test.ts",
         "src/modules/shipping/index.ts",
+        "src/modules/shipping/lease-projection-fold.test.ts",
         "src/modules/shipping/lease-projection.ts",
         "src/modules/shipping/policy.ts",
         "src/modules/shipping/projection.ts",

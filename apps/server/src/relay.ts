@@ -2305,6 +2305,11 @@ export class SessionRegistry {
     })
     const shipping = new ShippingService({
       repository: this.store.shipping,
+      // The lease projection is process-owned memory installed behind a
+      // `ledger.commit` that may be a savepoint inside a wider span, so it waits
+      // for the OUTERMOST commit through the same port the baseline fold does
+      // [POD-3366, spec §3.3 mechanism 1].
+      applyCommit: { spanOpen, onCommit: applyAfterCommit },
       issues: {
         get: (id) => {
           const issue = issues.get(id)
