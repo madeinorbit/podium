@@ -59,7 +59,9 @@ export class IssueAssistantDigestModule {
   }
 
   async refreshAssistant(id: string): Promise<IssueWire> {
-    const row = this.store.draftOrThrow(id)
+    // `let`, because this draft does NOT survive the awaits below — the status/log
+    // probes and the LLM completion — and is re-cut after them (POD-3375).
+    let row = this.store.draftOrThrow(id)
     if (!row.worktreePath) return this.store.toWire(row)
     const settings = this.store.d.getSettings()
     const members = this.store.sessionsFor(row).map((s) => ({
@@ -106,6 +108,27 @@ export class IssueAssistantDigestModule {
     } catch {
       result = null
     }
+    /**
+     * RE-DRAFT: THE DIGEST'S AWAITS ARE THE LONGEST IN THE MODULE [POD-3375].
+     *
+     * A draft is a copy pinned to the revision it was cut from and may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). Everything above this
+     * line is evidence-gathering — two `repoOp` round trips and one LLM completion,
+     * neither of which touches the issue row — but both suspend, and once the store
+     * is async that suspension is a point where another request commits this row.
+     * The draft cut at the top would then persist a copy that predates that write:
+     * every field this method does not set reverts, and the stale pin makes
+     * `upsertIssue`'s expectedRevision precondition refuse the write outright.
+     *
+     * So the digest fields are applied to a draft cut AFTER the last await. The
+     * reads above (`row.title`, `row.stage`, …) stay on the older copy deliberately:
+     * they are the prompt's snapshot of the issue as it was when the probes ran, and
+     * re-reading them here would describe an issue the model never saw.
+     *
+     * Placed before the `!result` return so the early exit also reports the current
+     * row rather than a wire built from a spent draft.
+     */
+    row = this.store.draftOrThrow(id)
     if (!result) return this.store.toWire(row) // leave prior state intact on any LLM/parse failure
     row.activityNotes = result.activityNotes || row.activityNotes
     row.notesUpdatedAt = this.store.now()

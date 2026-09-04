@@ -308,8 +308,10 @@ export class IssueAttentionModule {
    * release later.
    */
   private async maybeTakeOriginWorktree(originId: string, targetId: string): Promise<void> {
-    const origin = this.store.draft(originId)
-    const target = this.store.draft(targetId)
+    // `let`, because neither draft survives the pending probe below — see the
+    // re-draft after it (POD-3375).
+    let origin = this.store.draft(originId)
+    let target = this.store.draft(targetId)
     if (!origin || !target || !origin.worktreePath || target.worktreePath) return
     const remaining = this.store
       .sessionsFor(origin)
@@ -321,6 +323,28 @@ export class IssueAttentionModule {
     )
     const pending = await this.originWorktreeIsPending(origin, worktreeMachineId)
     if (!pending) return
+    /**
+     * RE-DRAFT: TWO DRAFTS, BOTH SPENT BY THE PROBE [POD-3375].
+     *
+     * A draft is a copy pinned to the revision it was cut from and may not span a
+     * write to its own row (`IssueRegistry`, spec §3.6 (b)). This method holds two of
+     * them and persists both, and `originWorktreeIsPending` suspends — today only on
+     * `repoOp` round trips, which touch no issue row, but once the store is async a
+     * suspension is a point where another request commits either row. Persisting the
+     * copies cut above would then revert every field this move does not set, and
+     * their stale pins would make `upsertIssue`'s expectedRevision precondition
+     * refuse the write.
+     *
+     * The precondition is re-applied rather than assumed, and that is not defensive
+     * padding: `worktreePath` is the exact field the probe took time over and the
+     * exact field this move writes. If a start() or a free() landed in the gap, the
+     * origin may no longer have a checkout to give or the target may already have
+     * one, and copying a now-null path onto the target would strand it. The guard is
+     * the same one, evaluated against what is committed now.
+     */
+    origin = this.store.draft(originId)
+    target = this.store.draft(targetId)
+    if (!origin || !target || !origin.worktreePath || target.worktreePath) return
     target.worktreePath = origin.worktreePath
     target.branch = origin.branch
     target.parentBranch = origin.parentBranch
