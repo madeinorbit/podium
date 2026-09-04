@@ -88,6 +88,8 @@
     "lint": "bun run lint:shadowing && biome check . && bun run lint:boundaries && bun run systemd:diff",
     "lint:boundaries": "bun scripts/check-boundaries.ts",
     "lint:span-effects": "bun scripts/check-span-effects.ts",
+    "lint:await-idempotence": "bun scripts/check-await-idempotence.ts",
+    "awaitify:derive": "bun scripts/awaitify-derive-keep-sync.ts",
     "audit:composition": "bun scripts/server-composition-graph.ts && bun scripts/server-construction-order.ts && bun scripts/reactions-ledger.ts",
     "lint:shadowing": "bun scripts/check-merge-shadowing.ts",
     "audit:rearch": "bun scripts/rearch-audit.ts",
