@@ -173,6 +173,28 @@ when a generated pass does conflict, the loser REGENERATES against the new tip r
 compiler rather than reusing the previous one as a list, because the other pass moved code and a
 site that had to stay synchronous may not exist any more.
 
+THE STASH IS SHARED, AND THE DANGER IS THE WINDOW RATHER THAN THE ADDRESSING (POD-3386, 2026-09-04).
+Every worktree of this repo shares one stash stack, typically fifteen to twenty entries deep and
+mostly other sessions'. POD-3386's control arm ran a bare `git stash pop` and took POD-3387's
+`pod3387-after`, pushed twelve seconds earlier; it recovered the dropped commit with `git fsck
+--unreachable` and `git stash store`, and only because it thought to check.
+
+MY FIRST RULE WAS TOO WEAK AND THE WORKER CORRECTED IT. I wrote: name your stashes and resolve the
+index at the moment of use. That still loses, because a neighbour can push between your push and your
+pop and `pop` with no argument is the reflex at the end of a long command. I also told it to "check
+whether stash@{1} was yours", which is unsafe for the same reason — the list shifted from 19 entries
+to 18 between my message and its reply.
+
+RULE: do not use the stash for a control arm at all. Copy the changed files to the session
+scratchpad, `git restore --source=HEAD --worktree <files>`, run the arm, copy them back. No shared
+state and no window. If you must identify a stash entry, do it by SHA (`git stash list --format='%gd
+%H %gs'`), never by index.
+
+AND THE SESSION SCRATCHPAD IS NOT PER-SESSION. /tmp/claude-1001 is shared. POD-3386's gate output
+collided with POD-3387's there and it nearly reported the other session's run as its own; it caught
+it only because the failure stacks named the wrong worktree. Any comparison differenced out of that
+directory needs a per-session subdirectory and a re-check.
+
 A STANDING FAILURE COUNT HIDES NEW FAILURES (POD-3368, 2026-09-04). The boundary lane has failed 67
 tests for the life of this epic. Four independent workers measured it, all agreed, and every delta
 gate subtracted it by hand. Within an hour of someone finally grouping those failures BY CAUSE, two
