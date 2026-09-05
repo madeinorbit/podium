@@ -261,6 +261,7 @@ export async function runMachine(version: string, buildIdentity: string): Promis
               machine,
               target: policy.published,
               approvedTargetVersion: policy.approved?.version,
+              approvedTarget: policy.approved,
               operationActive: false,
               attempts: 0,
             })

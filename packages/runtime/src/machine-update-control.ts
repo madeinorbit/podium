@@ -33,7 +33,7 @@ export async function startMachineUpdateControl(
   const endpoint: Endpoint = {
     socketPath:
       process.platform === 'win32'
-        ? `\\\\.\\pipe\\podium-update-${key}-${process.pid}`
+        ? String.raw`\\.\pipe\podium-update-${key}-${process.pid}`
         : join(root, `${process.pid}.sock`),
     token: randomBytes(32).toString('hex'),
     pid: process.pid,

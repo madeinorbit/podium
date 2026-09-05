@@ -326,6 +326,24 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     expect(group.journal('desktop')).toBeUndefined()
     writeFileSync(join(group.state('desktop'), 'offline'), '1')
     await delay(1700)
+    const decisions = () =>
+      group
+        .events('coordinator')
+        .filter(
+          (event) => event.type === 'reconnect-decision' && event.detail.machineId === 'desktop',
+        )
+    const before = decisions().length
+    await socketRequest(
+      group.socket,
+      '/publish',
+      group.artifact('2.0.0', { identity: 'unapproved-replacement' }),
+    )
+    rmSync(join(group.state('desktop'), 'offline'))
+    await until(decisions, (events) => events.length > before, 'same-version replacement reconnect')
+    expect(decisions().at(-1)?.detail.verdict.because).toBe('not-approved')
+    expect(group.journal('desktop')).toBeUndefined()
+    writeFileSync(join(group.state('desktop'), 'offline'), '1')
+    await delay(1700)
     await socketRequest(group.socket, '/publish', approved)
     rmSync(join(group.state('desktop'), 'offline'))
     const journal = await group.phase('desktop', 'current')
@@ -413,8 +431,14 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     const grant = await group.grant('desktop', target)
     const failed = await group.phase('desktop', 'stuck')
     expect(failed?.detail).toContain('activation failure')
-    await requestMachineUpdate(group.runtime('desktop'), '/grant', grant)
-    expect(group.events('desktop').filter((event) => event.type === 'prepared')).toHaveLength(1)
+    const lifecycle = () => group.events('desktop').filter((event) => event.type !== 'progress')
+    const beforeReplay = lifecycle()
+    await Promise.all(
+      Array.from({ length: 8 }, () =>
+        requestMachineUpdate(group.runtime('desktop'), '/grant', grant),
+      ),
+    )
+    expect(lifecycle()).toEqual(beforeReplay)
     await expect(
       requestMachineUpdate(group.runtime('desktop'), '/grant', {
         ...grant,
@@ -446,6 +470,39 @@ describe('supervisor-owned machine updates over isolated Ubuntu sockets', () => 
     await group.phase('desktop', 'current')
     await requestMachineUpdate(group.runtime('desktop'), '/grant', retry)
     expect(group.events('desktop').filter((event) => event.type === 'activated')).toHaveLength(1)
+  }, 45000)
+
+  it('serializes concurrent cancellation and activation at the durable prepared boundary', async () => {
+    const group = new Group()
+    await group.bootFour()
+    const target = group.artifact('2.0.0')
+    for (const id of ['desktop', 'daemon']) {
+      const grant = {
+        type: 'updateGrant',
+        grantId: crypto.randomUUID(),
+        issuedAt: ++group.authority,
+        target,
+      }
+      await requestMachineUpdate(group.runtime(id), '/prepare', grant)
+      await group.phase(id, 'prepared')
+      const paths: Array<'/cancel' | '/activate'> =
+        id === 'desktop' ? ['/cancel', '/activate'] : ['/activate', '/cancel']
+      const results = await Promise.allSettled(
+        paths.map((path) =>
+          requestMachineUpdate(group.runtime(id), path, { grantId: grant.grantId }),
+        ),
+      )
+      const cancel = results[paths.indexOf('/cancel')]!
+      expect(cancel.status).toBe('fulfilled')
+      if (cancel.status === 'fulfilled' && (cancel.value as { canceled: boolean }).canceled) {
+        expect(group.journal(id)?.phase).toBe('canceled')
+        expect(group.events(id).filter((event) => event.type === 'activated')).toHaveLength(0)
+        expect(readFileSync(join(group.install(id), 'VERSION'), 'utf8').trim()).toBe('1.0.0')
+      } else {
+        await group.phase(id, 'current')
+        expect(group.events(id).filter((event) => event.type === 'activated')).toHaveLength(1)
+      }
+    }
   }, 45000)
 
   it('cancels preparation but refuses cancellation once activation owns the machine', async () => {

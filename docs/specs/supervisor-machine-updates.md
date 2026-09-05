@@ -6,7 +6,9 @@ Status: implementation authorized by the user, 2026-09-05. Extends
 ## Ownership and audit
 
 The server owns publication, explicit approval of an exact target, canary/widen policy,
-reconnect eligibility, and operation aggregation. Publication is not approval. The
+reconnect eligibility, and operation aggregation. Reconnect compares the full frozen descriptor
+as well as the version, so replacement bytes under the same version require new approval.
+Publication is not approval. The
 POD-3273 reconciliation rules remain authoritative; a reconnect must not substitute the
 latest published target for the approved target.
 
@@ -98,13 +100,19 @@ Desktop native installation uses a platform adapter for its signed bundle and sh
 restart. The shell services private `/native/work` commands and acknowledges bounded prepare and
 activate effects; the supervisor owns their durable phases. Tauri verifies its configured
 minisign signature during prepare. Restart is confirmed by the new shell version plus the
-supervisor artifact receipt, never by an acknowledgement from the outgoing shell. Recovery
+supervisor artifact receipt, never by an acknowledgement from the outgoing shell. The receipt is
+fsynced before installation because platform installers can exit the shell inside that call;
+it is authority evidence, and never proves success without the successor version. Recovery
 uses the persisted URL/signature/version; obtaining the plugin verifier after a shell crash
 currently requires its configured feed to be reachable. Payload and
 native-shell identities remain distinct; they cannot be inferred from each other. The
 Linux socket stand-in proves the shared executor and lifecycle protocol, not macOS bundle
 replacement, Windows installer behavior, or a Tauri webview. Any unexercised native
 boundary is reported precisely in the acceptance evidence.
+
+The parent arms the existing desktop-death/shutdown-marker watcher before enrollment or
+recovery can block. This includes zero-child parents: a shell crash drains the local
+parent, and the next shell resumes the durable exact grant.
 
 ## Acceptance
 
@@ -125,3 +133,11 @@ invalid signature/digest, failed download, failed activation and rollback refusa
 pre-activation cancellation; progress and role availability; duplicate/idempotent requests;
 stale authority and conflicting target reuse. Do not substitute mocked swap callbacks for
 real signed archives, real process replacement, or socket-boundary assertions.
+
+`test:native-machine-updates` then exercises a real Linux Tauri/WebKitGTK shell with
+neither child role, using private signed debug ELF builds and a private HTTPS CA/feed.
+It verifies native signature refusal without changing bytes, exact-grant recovery after
+shell interruption, native installation, app restart, and the successor version plus
+artifact digest. The display and D-Bus session outlive the old shell. This lane needs the
+headless staging from `test:multi-instance`, Rust, OpenSSL, and Xvfb; it does not establish
+AppImage packaging/FUSE, macOS bundle replacement, or Windows installer behavior.

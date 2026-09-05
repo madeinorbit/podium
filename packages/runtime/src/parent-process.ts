@@ -62,6 +62,7 @@ import {
 import { type ParentUpdateSwapResult, parseUpdateTarget } from './parent-update-swap'
 import { liveRecord, logDir } from './run-registry'
 import { sdNotify, watchdogPetIntervalMs } from './sd-notify'
+import { watchSupervisor } from './supervisor'
 import { oldBundlePresent, pruneOldBundle, restoreOldBundle } from './update-install'
 
 const log = createLogger('runtime:parent')
@@ -334,6 +335,7 @@ export class ParentProcess {
   private tickTimer: ReturnType<typeof setInterval> | undefined
   private handoverInFlight: Promise<void> | undefined
   private successor: ChildProcess | undefined
+  private stopShellWatch: (() => void) | undefined
   private signalsInstalled = false
   private readonly installedHandlers: Array<[NodeJS.Signals, () => void]> = []
   private mainPidDeclared = false
@@ -455,10 +457,20 @@ export class ParentProcess {
     }
     this.installedHandlers.push([PARENT_HANDOVER_SIGNAL, handover])
     process.on(PARENT_HANDOVER_SIGNAL, handover)
+    // The desktop can die during enrollment or native update recovery, including
+    // when there are no child roles to notice its death. Arm before any boot await.
+    this.stopShellWatch = watchSupervisor(
+      () => {
+        void this.onTerminationSignal('SIGTERM')
+      },
+      { env: this.env },
+    )
   }
 
   /** Detach the handlers again. For tests, which share one process across cases. */
   removeSignalHandlers(): void {
+    this.stopShellWatch?.()
+    this.stopShellWatch = undefined
     for (const [sig, handler] of this.installedHandlers.splice(0)) {
       process.removeListener(sig, handler)
     }

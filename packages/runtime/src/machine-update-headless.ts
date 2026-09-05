@@ -112,6 +112,8 @@ export function createHeadlessMachineUpdateAdapter(deps: {
           killSignal: 'SIGKILL',
           signal,
         })
+        if (!existsSync(replacement))
+          throw new Error('artifact has no headless/ bundle; live bundle untouched')
         if (installedPayloadVersion(replacement) !== grant.target.version)
           throw new Error(
             'prepared VERSION does not match the authorized target; live bundle untouched',

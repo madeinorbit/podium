@@ -48,6 +48,7 @@ import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
+import { buildVendoredHost } from '../packages/pty/src/host-bin'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -181,15 +182,17 @@ function buildPackagedCli(): string {
   const distDir = join(buildRoot, 'dist-bun')
   mkdirSync(scriptsDir, { recursive: true })
   mkdirSync(distDir, { recursive: true })
-  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts']) {
+  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts', 'embedded-host.ts']) {
     cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
   }
-  for (const dir of ['apps', 'packages', 'node_modules']) {
+  for (const dir of ['apps', 'packages']) {
     symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
   }
 
   const embeddedAbduco = join(distDir, 'abduco.bin')
   expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
+  const embeddedHost = join(distDir, 'podium-host.bin')
+  expect(buildVendoredHost(embeddedHost)).toBe(embeddedHost)
   const executable = join(buildRoot, 'podium-cli')
   execFileSync(
     process.execPath,
@@ -760,13 +763,16 @@ describe('multi-instance runtime isolation', () => {
       'detached',
     ])
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
       machineId: string
     }
     await waitUntil(
       async () =>
         (await sourceApi.machines.list.query()).some(
-          (machine) => machine.id === identity.machineId && machine.online,
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.services?.agentExecution.state === 'available',
         ),
       'remote daemon enrollment for log capture',
     )

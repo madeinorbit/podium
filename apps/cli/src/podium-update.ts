@@ -1,22 +1,8 @@
 /**
- * `podium update`: compare the installed headless bundle's VERSION to the feed manifest;
- * if newer, download the headless tarball, atomically swap the install dir, and message
- * the user to restart. The install dir is resolved from PODIUM_HOME (set by the launcher
- * shim) else dirname(process.execPath).
- *
- * Crash-safety: staging happens in a temp dir SIBLING to the install dir (same filesystem),
- * so the final swap rename is an atomic same-device operation (never EXDEV, even when /tmp is
- * tmpfs). The swap moves the old install to `<dir>.old` first; if the second rename fails, the
- * backup is rolled back into place so the install dir is never left missing.
- *
- * The manifest shape mirrors Tauri's updater "dynamic" endpoint response
- * ({ version, notes, pub_date, platforms: { '<os>-<arch>': { url, signature } } }), so a
- * single feed can serve both the desktop and headless channels.
- *
- * SECURITY: the headless path does its own version check AND verifies the manifest's
- * Ed25519 `signature` over the downloaded tarball bytes (against PODIUM_UPDATE_PUBKEY)
- * BEFORE extracting/swapping. A tampered or unsigned tarball is rejected and the install
- * is left untouched. (The desktop AppImage path uses a separate Tauri minisign keypair.)
+ * Explicit CLI consent resolves one exact signed target and submits it to the
+ * machine supervisor. Legacy installations without a parent use the same executor
+ * as a one-shot supervisor and retain their manual-restart exit-code contract.
+ * Download, verification, staging, activation and recovery live in runtime.
  */
 import { execFileSync } from 'node:child_process'
 import { existsSync, readFileSync } from 'node:fs'
@@ -198,6 +184,11 @@ export async function runUpdate(
   const { version, url, signature } = parseManifest(await res.text(), target)
   if (!isNewer(version, cur)) {
     console.log(`[podium update] already up to date (${cur})`)
+    return
+  }
+  if (!signature) {
+    console.error('[podium update] artifact signature is missing; install unchanged')
+    process.exitCode = 1
     return
   }
   console.log(`[podium update] updating ${cur} → ${version}`)

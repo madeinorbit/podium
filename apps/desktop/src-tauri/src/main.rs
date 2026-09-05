@@ -265,18 +265,21 @@ fn local_host_sidecar_command(
             mobile_web_dir.to_string_lossy().to_string(),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env("PODIUM_DESKTOP_VERSION", std::env::var("PODIUM_DESKTOP_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()))
-        .env("PODIUM_DESKTOP_ARTIFACT_DIGEST", crate::updater::native_installed_digest().unwrap_or_default())
+        .env(
+            "PODIUM_DESKTOP_VERSION",
+            std::env::var("PODIUM_DESKTOP_VERSION")
+                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
+        )
+        .env(
+            "PODIUM_DESKTOP_ARTIFACT_DIGEST",
+            crate::updater::native_installed_digest().unwrap_or_default(),
+        )
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
 }
 
-fn remote_parent_command(
-    runnable: &Path,
-    server_url: &str,
-    shutdown_file: &Path,
-) -> Command {
+fn remote_parent_command(runnable: &Path, _server_url: &str, shutdown_file: &Path) -> Command {
     let _ = std::fs::remove_file(shutdown_file);
     let mut command = Command::new(runnable);
     command
@@ -290,8 +293,15 @@ fn remote_parent_command(
                 .join(".desktop-successor-pid"),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env("PODIUM_DESKTOP_VERSION", std::env::var("PODIUM_DESKTOP_VERSION").unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()))
-        .env("PODIUM_DESKTOP_ARTIFACT_DIGEST", crate::updater::native_installed_digest().unwrap_or_default())
+        .env(
+            "PODIUM_DESKTOP_VERSION",
+            std::env::var("PODIUM_DESKTOP_VERSION")
+                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
+        )
+        .env(
+            "PODIUM_DESKTOP_ARTIFACT_DIGEST",
+            crate::updater::native_installed_digest().unwrap_or_default(),
+        )
         .env(SUPERVISOR_PID_ENV, std::process::id().to_string())
         .env(SUPERVISOR_SHUTDOWN_FILE_ENV, shutdown_file);
     command
@@ -558,10 +568,13 @@ fn process_executable(pid: u32) -> Option<std::path::PathBuf> {
     if length <= 0 {
         return None;
     }
-    let end = buffer.iter().position(|byte| *byte == 0).unwrap_or(length as usize);
-    Some(std::path::PathBuf::from(
-        std::ffi::OsStr::from_bytes(&buffer[..end]),
-    ))
+    let end = buffer
+        .iter()
+        .position(|byte| *byte == 0)
+        .unwrap_or(length as usize);
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(
+        &buffer[..end],
+    )))
 }
 
 #[cfg(target_os = "macos")]
@@ -817,8 +830,7 @@ fn spawn_respawn_monitor<F, S, D>(
                 SUPERVISION_POLL,
                 Some(&successor),
                 local_restart.as_ref(),
-            )
-            else {
+            ) else {
                 log::info!("native backend monitor stopped: child slot is empty; label={label}");
                 break;
             };
@@ -951,7 +963,9 @@ fn spawn_respawn_monitor<F, S, D>(
             match spawned {
                 Ok(mut new_child) => {
                     let spawned_details = child_details(&new_child);
-                    log::info!("native backend respawn spawn succeeded; label={label} {spawned_details}");
+                    log::info!(
+                        "native backend respawn spawn succeeded; label={label} {spawned_details}"
+                    );
                     // Shutdown can begin between the check above and this store. By then the
                     // exit handlers have already emptied the slot, so a child parked here now
                     // would outlive the app and keep holding its port. Re-check under the lock
@@ -965,7 +979,9 @@ fn spawn_respawn_monitor<F, S, D>(
                     log::info!("native backend child slot stored; label={label} {spawned_details}");
                     backoff_ms = 500;
                 }
-                Err(error) => log::error!("native backend respawn failed; label={label} kind={spawn_kind} error={error}"),
+                Err(error) => log::error!(
+                    "native backend respawn failed; label={label} kind={spawn_kind} error={error}"
+                ),
             }
         }
     });
@@ -2623,11 +2639,17 @@ mod tests {
         assert!(pause.should_stand_down_at(false, started + std::time::Duration::from_secs(8)));
         assert!(pause.is_active());
         assert!(!pause.should_stand_down_at(true, started + std::time::Duration::from_secs(9)));
-        assert!(!pause.is_active(), "an identity-checked ready server resumes watching");
+        assert!(
+            !pause.is_active(),
+            "an identity-checked ready server resumes watching"
+        );
 
         *pause.started.lock().unwrap() = Some(started);
         assert!(!pause.should_stand_down_at(false, started + LocalRestartPause::BUDGET));
-        assert!(!pause.is_active(), "a wedged restart cannot suppress fallback forever");
+        assert!(
+            !pause.is_active(),
+            "a wedged restart cannot suppress fallback forever"
+        );
     }
 
     #[test]
@@ -2640,16 +2662,13 @@ mod tests {
             Path::new("mobile"),
             Path::new("desktop.shutdown"),
         );
-        let daemon = remote_parent_command(
+        let remote = remote_parent_command(
             Path::new("podium"),
             "wss://new.example",
             Path::new("desktop.shutdown"),
         );
 
-        for (label, command) in [
-            ("local host sidecar", &host),
-            ("remote parent", &daemon),
-        ] {
+        for (label, command) in [("local host sidecar", &host), ("remote parent", &remote)] {
             assert_eq!(
                 command_env(command, DESKTOP_SUPERVISED_ENV).as_deref(),
                 Some("1"),
@@ -2683,7 +2702,9 @@ mod tests {
             "the remote parent must report each handover successor"
         );
         assert_eq!(
-            host.get_args().map(|arg| arg.to_string_lossy().into_owned()).collect::<Vec<_>>(),
+            host.get_args()
+                .map(|arg| arg.to_string_lossy().into_owned())
+                .collect::<Vec<_>>(),
             ["parent", "--takeover"],
         );
         assert_eq!(

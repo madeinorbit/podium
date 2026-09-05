@@ -1,3 +1,4 @@
+import { updateFingerprint } from '@podium/runtime/machine-update'
 import { createLogger } from '@podium/logger'
 import { asMachineId, type UpdateChannel } from '@podium/model'
 import { targetPlatforms, type UpdateTarget } from '@podium/protocol'
@@ -140,6 +141,8 @@ export interface ReconcileFacts {
   target: UpdateTarget | undefined
   /** Is an exclusive lifecycle operation running right now? Read per call. */
   approvedTargetVersion?: string
+  /** Frozen descriptor from durable consent; production always supplies it. */
+  approvedTarget?: UpdateTarget
   operationActive: boolean
   /** How many grants this reconciler has already issued for this exact target. */
   attempts: number
@@ -214,6 +217,11 @@ export function decideReconciliation(facts: ReconcileFacts): ReconcileDecision {
   }
   if (!facts.target) return { converge: false, because: 'no-target' }
   if (facts.target.version !== facts.approvedTargetVersion)
+    return { converge: false, because: 'not-approved' }
+  if (
+    facts.approvedTarget &&
+    updateFingerprint(facts.target) !== updateFingerprint(facts.approvedTarget)
+  )
     return { converge: false, because: 'not-approved' }
   if (!isPackagedRolloutTarget(machine)) {
     return { converge: false, because: 'not-packaged-rollout-target' }
@@ -504,6 +512,9 @@ export class UpdateReconciler {
       target,
       approvedTargetVersion: machine
         ? this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))?.version
+        : undefined,
+      approvedTarget: machine
+        ? this.deps.updates.approvedTarget(this.deps.updates.channelOf(machine))
         : undefined,
       operationActive: this.deps.operationActive(),
       attempts,

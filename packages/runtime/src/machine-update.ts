@@ -90,6 +90,8 @@ function persist(runtimeDir: string, value: MachineUpdateJournal): void {
     closeSync(fd)
   }
   renameSync(temporary, path)
+  // Windows does not expose directory handles through Node's openSync.
+  if (process.platform === 'win32') return
   const directory = openSync(runtimeDir, 'r')
   try {
     fsyncSync(directory)
@@ -185,17 +187,21 @@ export class MachineUpdateExecutor {
     })
     this.replay()
   }
+  private async acquireAdmission(): Promise<() => void> {
+    const previous = this.admission
+    let release!: () => void
+    this.admission = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    await previous
+    return release
+  }
   async accept(
     raw: UpdateGrantMessage,
     waitForCompletion = true,
     holdActivation = false,
   ): Promise<void> {
-    const previousAdmission = this.admission
-    let release!: () => void
-    this.admission = new Promise<void>((resolve) => {
-      release = resolve
-    })
-    await previousAdmission
+    const release = await this.acquireAdmission()
     try {
       const grant = UpdateGrantMessage.parse(raw)
       const fingerprint = updateFingerprint({ target: grant.target, repair: grant.repair === true })
@@ -232,8 +238,8 @@ export class MachineUpdateExecutor {
         throw new Error('stale-authorization: target predates accepted authority')
       if (prior && committed(prior.phase))
         throw new Error('update-committed: activation must settle before another grant')
-      if (this.active) {
-        await this.cancel(prior!.grant.grantId)
+      if (prior && !terminal(prior.phase)) {
+        await this.cancelAccepted(prior.grant.grantId)
         await this.active
       }
       this.deps.adapter.select?.(grant)
@@ -257,18 +263,31 @@ export class MachineUpdateExecutor {
     }
   }
   async activate(grantId: string): Promise<void> {
-    if (!this.journal || this.journal.grant.grantId !== grantId)
-      throw new Error('activation grant does not match accepted authority')
-    if (committed(this.journal.phase) || this.journal.phase === 'current') {
-      this.replay()
-      return
+    const release = await this.acquireAdmission()
+    try {
+      if (!this.journal || this.journal.grant.grantId !== grantId)
+        throw new Error('activation grant does not match accepted authority')
+      if (committed(this.journal.phase) || this.journal.phase === 'current') {
+        this.replay()
+        return
+      }
+      if (this.journal.phase !== 'prepared')
+        throw new Error('activation requires a prepared exact target')
+      this.transition('prepared', { activationHeld: false })
+      void this.run()
+    } finally {
+      release()
     }
-    if (this.journal.phase !== 'prepared')
-      throw new Error('activation requires a prepared exact target')
-    this.transition('prepared', { activationHeld: false })
-    void this.run()
   }
   async cancel(grantId: string): Promise<boolean> {
+    const release = await this.acquireAdmission()
+    try {
+      return await this.cancelAccepted(grantId)
+    } finally {
+      release()
+    }
+  }
+  private async cancelAccepted(grantId: string): Promise<boolean> {
     if (!this.journal || this.journal.grant.grantId !== grantId) return false
     if (committed(this.journal.phase)) return false
     if (terminal(this.journal.phase)) return this.journal.phase === 'canceled'

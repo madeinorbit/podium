@@ -1244,6 +1244,7 @@
       "inputs": [
         "$TURBO_ROOT$/apps/cli/src/**",
         "$TURBO_ROOT$/apps/daemon/src/**",
+        "$TURBO_ROOT$/apps/desktop/src/**",
         "$TURBO_ROOT$/apps/web/src/**",
         "$TURBO_ROOT$/packages/agent-runtime/src/**",
         "$TURBO_ROOT$/packages/client-core/src/**",
