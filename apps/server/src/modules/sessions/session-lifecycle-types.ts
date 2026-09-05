@@ -152,7 +152,7 @@ export interface SessionLifecycleDeps {
   /** Live repository-backed issue access; re-read on every apply and replay. */
   issueAccess: DurableIssueAccessIndex
   /** Cross-feature snapshot material read from the already-constructed durable authority. */
-  snapshotTail(): SnapshotTail
+  snapshotTail(): SnapshotTail | Promise<SnapshotTail>
   /** POD-665: a worktree appeared/vanished out from under connected clients —
    *  nudge them to re-fetch repos. Raw invalidation, no payload. */
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void

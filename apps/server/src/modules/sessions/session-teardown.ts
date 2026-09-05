@@ -80,7 +80,9 @@ export interface SessionTeardownPorts {
   /** Issue meta / cwd ownership for stop/stopIssue. */
   issueAccess: DurableIssueAccessIndex
   /** Snapshot tail for auto-archive parent-issue check. */
-  snapshotTail(): { issues: { id: string; parentId?: string | null }[] }
+  snapshotTail():
+    | { issues: { id: string; parentId?: string | null }[] }
+    | Promise<{ issues: { id: string; parentId?: string | null }[] }>
 }
 
 export class SessionTeardown {
@@ -233,9 +235,9 @@ export class SessionTeardown {
     }
     if (Math.max(stoppedMs, readMs) > nowMs - AUTO_ARCHIVE_READ_WINDOW_MS) return 'not-due'
     if (session.issueId) {
-      const issue = this.ports
-        .snapshotTail()
-        .issues.find((candidate) => candidate.id === session.issueId)
+      const issue = (await this.ports.snapshotTail()).issues.find(
+        (candidate) => candidate.id === session.issueId,
+      )
       if (!issue || issue.parentId) return 'precondition'
     }
     this.ports.setArchived({ sessionId: session.sessionId, archived: true })

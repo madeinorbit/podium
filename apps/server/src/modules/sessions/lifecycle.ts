@@ -831,7 +831,10 @@ export class SessionLifecycle {
       conversations: values('conversation'),
       automations: values('automation'),
       automationRuns: values('automationRun'),
-      diagnostics: principal === DEVICE_GRADE_PRINCIPAL ? this.deps.snapshotTail().diagnostics : [],
+      diagnostics:
+        principal === DEVICE_GRADE_PRINCIPAL
+          ? (await this.deps.snapshotTail()).diagnostics
+          : [],
       cursor: sourceCursor,
       ...identity,
     }
