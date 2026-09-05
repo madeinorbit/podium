@@ -4,6 +4,7 @@
  *
  * Run: bun test --conditions=@podium/source ./scripts/multi-instance-runtime.integration.bun.test.ts
  */
+import './legacy-cli-update.integration.bun.test'
 import { afterAll, describe, expect, it } from 'bun:test'
 import { createHash, randomUUID } from 'node:crypto'
 import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process'
