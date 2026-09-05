@@ -902,10 +902,10 @@ describe('issue spawn provenance', () => {
       expect(start).toHaveBeenCalledWith(issue.id, undefined, {
         spawnedBy: 'session:parent-session',
       })
-      const add = vi.spyOn(registry.issues, 'addSession').mockReturnValue(issue)
+      const add = vi.spyOn(registry.issues, 'addSession').mockResolvedValue(issue)
       await registry.issueCommands.dispatch(caller, 'issues', 'addSession', { id: issue.id })
       expect(add).toHaveBeenCalledWith(issue.id, undefined, { spawnedBy: 'session:parent-session' })
-      const shell = vi.spyOn(registry.issues, 'addShell').mockReturnValue(issue)
+      const shell = vi.spyOn(registry.issues, 'addShell').mockResolvedValue(issue)
       await registry.issueCommands.dispatch({ capability: OPERATOR }, 'issues', 'addShell', {
         id: issue.id,
       })

@@ -87,7 +87,7 @@ describe('login propagation coordinator', () => {
       store,
       machines: {
         hasDaemon: (machineId) => machineId === 'donor' || machineId === 'target',
-        capabilityRejection: () => undefined,
+        capabilityRejection: async () => undefined,
       },
       rpc: { credentialExport, credentialInstall },
       now: () => 1_000,
@@ -140,7 +140,7 @@ describe('login propagation coordinator', () => {
     }))
     const service = new LoginPropagationService({
       store,
-      machines: { hasDaemon: () => true, capabilityRejection: () => undefined },
+      machines: { hasDaemon: () => true, capabilityRejection: async () => undefined },
       rpc: {
         credentialExport,
         credentialInstall: async () => ({ installed: ['codex' as const], failed: [] }),

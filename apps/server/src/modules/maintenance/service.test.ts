@@ -264,7 +264,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
   })
 
   it('[POD-925] issue auto-archive revalidates via issues seam at apply', async () => {
-    const tryAutoArchiveObserved = vi.fn((): 'applied' | 'precondition' | 'not-due' => 'applied')
+    const tryAutoArchiveObserved = vi.fn(async (): Promise<'applied' | 'precondition' | 'not-due'> => 'applied')
     service = new MaintenanceService(
       store,
       {
@@ -548,7 +548,7 @@ describe('worktree-gc is the janitor asking, never deciding [POD-564]', () => {
         now: () => nowMs,
         leaseTtlMs: 90_000,
         issues: {
-          tryAutoArchiveObserved: vi.fn(() => 'applied' as const),
+          tryAutoArchiveObserved: vi.fn(async () => 'applied' as const),
           tryWorktreeGcObserved: tryWorktreeGcObserved as never,
         },
         worktreeGcPolicy: () => policy,
