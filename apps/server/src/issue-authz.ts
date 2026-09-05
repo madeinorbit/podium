@@ -11,7 +11,6 @@ import {
   asUserId,
   authorize,
   type Capability,
-  type IssueAccessIndex,
   type IssueAction,
   type UserId,
 } from '@podium/model'
@@ -21,7 +20,6 @@ export {
   type AuthDecision,
   authorize,
   type Capability,
-  type IssueAccessIndex,
   type IssueAction,
   type IssueRole,
   type IssueScope,
@@ -51,6 +49,9 @@ export interface IssueAccessReader {
     action: IssueAction,
   ): Extract<Parameters<typeof authorize>[2], { kind: 'owned' }> | undefined | Promise<Extract<Parameters<typeof authorize>[2], { kind: 'owned' }> | undefined>
 }
+
+/** Server issue-access ports may read durable state and therefore may yield. */
+export type IssueAccessIndex = IssueAccessReader
 
 export async function checkIssueAccess(
   caller: { capability: Capability; overrideScope?: boolean },
