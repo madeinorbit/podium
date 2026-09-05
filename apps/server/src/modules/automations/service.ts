@@ -463,7 +463,7 @@ export class AutomationsService {
             entity: 'automationRun',
             id: result.runId,
             op: 'upsert',
-            value: await this.deps.store.getRun(result.runId)!,
+            value: await (await this.deps.store.getRun(result.runId))!,
           },
           {
             entity: 'automation',

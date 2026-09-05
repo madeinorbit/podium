@@ -294,9 +294,9 @@ export class IssuesRepository {
       coordinatorSessionId: row.coordinatorSessionId ?? null,
       startedBySession: row.startedBySession ?? null,
     }
-    ;await (this.db
+    await this.db
       .insert(issues)
-      .values(values))
+      .values(values)
       .onConflictDoUpdate({
         target: issues.id,
         set: {
@@ -520,13 +520,15 @@ export class IssuesRepository {
    * durable state without a snapshot (see its header); making it cheaper is not
    * a licence to make it stale.
    */
-  async listIssueCwdRows(): Promise<{
-    id: IssueId
-    repoPath: string
-    worktreePath: string | null
-    deletedAt: string | null
-    archived: boolean
-  }[]> {
+  async listIssueCwdRows(): Promise<
+    {
+      id: IssueId
+      repoPath: string
+      worktreePath: string | null
+      deletedAt: string | null
+      archived: boolean
+    }[]
+  > {
     const rows = await this.db
       .select({
         id: issues.id,
@@ -919,9 +921,9 @@ export class IssuesRepository {
         .where(eq(issueRefLetters.issueId, issueId))
         .get()
       const index = row?.nextIndex ?? 0
-      ;await (this.db
+      await this.db
         .insert(issueRefLetters)
-        .values({ issueId, nextIndex: index + 1 }))
+        .values({ issueId, nextIndex: index + 1 })
         .onConflictDoUpdate({
           target: issueRefLetters.issueId,
           set: { nextIndex: index + 1 },
@@ -953,18 +955,19 @@ export class IssuesRepository {
       // key is suppressed by neither, measured on the shipped table. This one
       // has no CHECK, and both NOT NULL columns come from non-nullable sources:
       // `issueId` is required, and `clean` above admits only non-empty strings.
-      ;await (this.db.insert(issueLabels).values({ issueId, label: l })).onConflictDoNothing().run()
+      await this.db.insert(issueLabels).values({ issueId, label: l }).onConflictDoNothing().run()
     }
   }
 
   async getIssueLabels(issueId: IssueId): Promise<string[]> {
-    return (await this.db
-      .select({ label: issueLabels.label })
-      .from(issueLabels)
-      .where(eq(issueLabels.issueId, issueId))
-      .orderBy(asc(issueLabels.label))
-      .all())
-      .map((r) => r.label)
+    return (
+      await this.db
+        .select({ label: issueLabels.label })
+        .from(issueLabels)
+        .where(eq(issueLabels.issueId, issueId))
+        .orderBy(asc(issueLabels.label))
+        .all()
+    ).map((r) => r.label)
   }
 
   /** Labels for every issue in one ordered read — list serializers use this to
@@ -985,12 +988,13 @@ export class IssuesRepository {
   }
 
   async listAllLabels(): Promise<string[]> {
-    return (await this.db
-      .selectDistinct({ label: issueLabels.label })
-      .from(issueLabels)
-      .orderBy(asc(issueLabels.label))
-      .all())
-      .map((r) => r.label)
+    return (
+      await this.db
+        .selectDistinct({ label: issueLabels.label })
+        .from(issueLabels)
+        .orderBy(asc(issueLabels.label))
+        .all()
+    ).map((r) => r.label)
   }
 
   // ---- deps ----
@@ -1001,7 +1005,7 @@ export class IssuesRepository {
     // all three NOT NULL columns are non-nullable at every caller: `fromId` and
     // `toId` are required, and `type` has both a parameter default and a column
     // default of 'blocks', so an omitted value takes the same value either way.
-    ;await (this.db.insert(issueDeps).values({ fromId, toId, type })).onConflictDoNothing().run()
+    await this.db.insert(issueDeps).values({ fromId, toId, type }).onConflictDoNothing().run()
   }
 
   async removeIssueDep(fromId: IssueId, toId: IssueId, type?: string): Promise<void> {
@@ -1056,7 +1060,7 @@ export class IssuesRepository {
   // ---- comments ----
 
   async addIssueComment(c: IssueCommentRow): Promise<void> {
-    ;await (this.db
+    await this.db
       .insert(issueComments)
       .values({
         id: c.id,
@@ -1066,7 +1070,7 @@ export class IssuesRepository {
         createdAt: c.createdAt,
         actor: c.actor ?? null,
         onBehalfOf: c.onBehalfOf ?? null,
-      }))
+      })
       .run()
   }
 
@@ -1123,7 +1127,9 @@ export class IssuesRepository {
       .from(issueComments)
       .where(sql`${issueComments.body} LIKE ${escaped} ESCAPE '\\'`)
       .orderBy(desc(issueComments.createdAt))
-    return limit === null ? await base.all() : await base.limit(Math.min(200, Math.max(1, limit))).all()
+    return limit === null
+      ? await base.all()
+      : await base.limit(Math.min(200, Math.max(1, limit))).all()
   }
 
   // ---- issue mail (issue #103) ----
@@ -1132,7 +1138,7 @@ export class IssuesRepository {
    *  free TEXT column narrowed to the domain's union — a decision, not a driver
    *  artefact — and the projection drops `actor`/`on_behalf_of`, which the row
    *  type does not carry. */
-  private mapIssueMessage(r: {
+  private async mapIssueMessage(r: {
     id: string
     issueId: IssueId
     fromAuthor: string
@@ -1141,7 +1147,7 @@ export class IssuesRepository {
     status: string
     claimedBy: string | null
     claimedAt: string | null
-  }): IssueMessageRow {
+  }): Promise<IssueMessageRow> {
     return {
       id: r.id,
       issueId: r.issueId,
@@ -1155,7 +1161,7 @@ export class IssuesRepository {
   }
 
   async addIssueMessage(m: IssueMessageRow): Promise<void> {
-    ;await (this.db
+    await this.db
       .insert(issueMessages)
       .values({
         id: m.id,
@@ -1166,13 +1172,13 @@ export class IssuesRepository {
         status: m.status,
         claimedBy: m.claimedBy,
         claimedAt: m.claimedAt,
-      }))
+      })
       .run()
   }
 
   async getIssueMessage(id: string): Promise<IssueMessageRow | null> {
     const r = await this.db.select().from(issueMessages).where(eq(issueMessages.id, id)).get()
-    return r ? this.mapIssueMessage(r) : null
+    return r ? await this.mapIssueMessage(r) : null
   }
 
   async listIssueMessages(
@@ -1189,7 +1195,7 @@ export class IssuesRepository {
       )
       .orderBy(asc(issueMessages.createdAt), asc(issueMessages.id))
       .all()
-    return rows.map((r) => this.mapIssueMessage(r))
+    return await Promise.all(rows.map((r) => this.mapIssueMessage(r)))
   }
 
   async countUnreadIssueMessages(issueId: IssueId): Promise<number> {
@@ -1212,7 +1218,12 @@ export class IssuesRepository {
    * it is written for EVERY named message rather than only the unread ones: my
    * having read a message somebody else already claimed is still true.
    */
-  async markIssueMessagesRead(userId: UserId, issueId: IssueId, ids: string[], readAt: string): Promise<void> {
+  async markIssueMessagesRead(
+    userId: UserId,
+    issueId: IssueId,
+    ids: string[],
+    readAt: string,
+  ): Promise<void> {
     requireUserId(userId)
     for (const id of ids) {
       // Only `unread` flips, so a `claimed` message never regresses to `read`.
@@ -1228,9 +1239,9 @@ export class IssuesRepository {
         )
         .run()
       // Written for EVERY named message, not only the unread ones.
-      ;await (this.db
+      await this.db
         .insert(issueMessageUserState)
-        .values({ userId, issueMessageId: id, readAt }))
+        .values({ userId, issueMessageId: id, readAt })
         .onConflictDoUpdate({
           target: [issueMessageUserState.userId, issueMessageUserState.issueMessageId],
           set: { readAt },
@@ -1284,7 +1295,10 @@ export class IssuesRepository {
     return out
   }
 
-  async getIssueUserState(userId: UserId, issueId: IssueId): Promise<StoredIssueUserState | undefined> {
+  async getIssueUserState(
+    userId: UserId,
+    issueId: IssueId,
+  ): Promise<StoredIssueUserState | undefined> {
     requireUserId(userId)
     const r = await this.db
       .select({
@@ -1306,10 +1320,14 @@ export class IssuesRepository {
    * A row whose three markers all end up null is DELETED, so the table holds only
    * issues a person has actually touched and "absent" keeps its single meaning.
    */
-  async setIssueUserState(userId: UserId, issueId: IssueId, patch: Partial<StoredIssueUserState>): Promise<void> {
+  async setIssueUserState(
+    userId: UserId,
+    issueId: IssueId,
+    patch: Partial<StoredIssueUserState>,
+  ): Promise<void> {
     requireUserId(userId)
     if (!issueId) throw new Error('issue user-state issue id is empty')
-    const current = await this.getIssueUserState(userId, issueId) ?? {
+    const current = (await this.getIssueUserState(userId, issueId)) ?? {
       readAt: null,
       tuckedAt: null,
       pinnedAt: null,
@@ -1326,7 +1344,7 @@ export class IssuesRepository {
         .run()
       return
     }
-    ;await (this.db
+    await this.db
       .insert(issueUserState)
       .values({
         userId,
@@ -1334,7 +1352,7 @@ export class IssuesRepository {
         readAt: next.readAt,
         tuckedAt: next.tuckedAt,
         pinnedAt: next.pinnedAt,
-      }))
+      })
       .onConflictDoUpdate({
         target: [issueUserState.userId, issueUserState.issueId],
         set: { readAt: next.readAt, tuckedAt: next.tuckedAt, pinnedAt: next.pinnedAt },

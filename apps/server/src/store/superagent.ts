@@ -69,7 +69,7 @@ export class SuperagentRepository {
     //     throws on a foreign key exactly as the plain form does (measured).
     // What is left reachable is the `id` primary-key conflict, which is the whole
     // point of the statement and which both forms swallow identically.
-    ;await (this.db
+    await this.db
       .insert(superagentThreads)
       .values({
         id: asThreadId('global'),
@@ -77,7 +77,7 @@ export class SuperagentRepository {
         kind: 'global',
         createdAt: saNow,
         updatedAt: saNow,
-      }))
+      })
       .onConflictDoNothing()
       .run()
   }
@@ -123,7 +123,7 @@ export class SuperagentRepository {
     const createdAt = new Date().toISOString()
     const ownerUserId = m.ownerUserId ?? (await this.getSuperagentThread(threadId))?.ownerUserId
     if (!ownerUserId) throw new Error(`unknown superagent thread: ${threadId}`)
-    const result = await (this.db
+    const result = await this.db
       .insert(superagentMessages)
       .values({
         threadId,
@@ -134,7 +134,7 @@ export class SuperagentRepository {
         toolCallId: m.toolCallId ?? null,
         toolName: m.toolName ?? null,
         createdAt,
-      }))
+      })
       .run()
     await this.db
       .update(superagentThreads)
@@ -152,18 +152,21 @@ export class SuperagentRepository {
   }
 
   async listSuperagentThreads(ownerUserId: UserId): Promise<SuperagentThreadRow[]> {
-    return (await this.db
+    const rows = await this.db
       .select()
       .from(superagentThreads)
       .where(
         and(eq(superagentThreads.ownerUserId, ownerUserId), eq(superagentThreads.archived, false)),
       )
       .orderBy(desc(superagentThreads.updatedAt))
-      .all())
-      .map((r) => this.mapSuperagentThread(r))
+      .all()
+    return await Promise.all(rows.map((r) => this.mapSuperagentThread(r)))
   }
 
-  async getSuperagentThread(id: string, ownerUserId?: UserId): Promise<SuperagentThreadRow | undefined> {
+  async getSuperagentThread(
+    id: string,
+    ownerUserId?: UserId,
+  ): Promise<SuperagentThreadRow | undefined> {
     const r = await this.db
       .select()
       .from(superagentThreads)
@@ -176,7 +179,7 @@ export class SuperagentRepository {
           : eq(superagentThreads.id, asThreadId(id)),
       )
       .get()
-    return r ? this.mapSuperagentThread(r) : undefined
+    return r ? await this.mapSuperagentThread(r) : undefined
   }
 
   async upsertSuperagentThread(t: {
@@ -188,7 +191,7 @@ export class SuperagentRepository {
     title?: string
   }): Promise<void> {
     const now = new Date().toISOString()
-    ;await (this.db
+    await this.db
       .insert(superagentThreads)
       .values({
         // EXTERNAL INPUT BRAND DECODE: this legacy writer accepts the
@@ -201,7 +204,7 @@ export class SuperagentRepository {
         title: t.title ?? null,
         createdAt: now,
         updatedAt: now,
-      }))
+      })
       .onConflictDoUpdate({
         target: superagentThreads.id,
         set: {
@@ -271,9 +274,11 @@ export class SuperagentRepository {
       .run()
   }
 
-  async putQueuedInput(row: Omit<QueuedSuperagentInputRow, 'createdAt'>): Promise<QueuedSuperagentInputRow> {
+  async putQueuedInput(
+    row: Omit<QueuedSuperagentInputRow, 'createdAt'>,
+  ): Promise<QueuedSuperagentInputRow> {
     const createdAt = new Date().toISOString()
-    ;await (this.db
+    await this.db
       .insert(superagentQueuedInputs)
       .values({
         inputId: row.inputId,
@@ -284,7 +289,7 @@ export class SuperagentRepository {
         agentKind: row.agentKind ?? null,
         attachSessionId: row.attachSessionId ?? null,
         createdAt,
-      }))
+      })
       .run()
     return { ...row, createdAt }
   }
@@ -315,12 +320,17 @@ export class SuperagentRepository {
   }
 
   async deleteQueuedInput(inputId: string): Promise<void> {
-    await this.db.delete(superagentQueuedInputs).where(eq(superagentQueuedInputs.inputId, inputId)).run()
+    await this.db
+      .delete(superagentQueuedInputs)
+      .where(eq(superagentQueuedInputs.inputId, inputId))
+      .run()
   }
 
-  async putPendingTurn(row: Omit<PendingSuperagentTurnRow, 'createdAt'>): Promise<PendingSuperagentTurnRow> {
+  async putPendingTurn(
+    row: Omit<PendingSuperagentTurnRow, 'createdAt'>,
+  ): Promise<PendingSuperagentTurnRow> {
     const createdAt = new Date().toISOString()
-    ;await (this.db
+    await this.db
       .insert(superagentPendingTurns)
       .values({
         turnId: row.turnId,
@@ -330,7 +340,7 @@ export class SuperagentRepository {
         payloadJson: JSON.stringify(row.payload),
         firstTurn: row.firstTurn,
         createdAt,
-      }))
+      })
       .run()
     return { ...row, createdAt }
   }
@@ -373,7 +383,10 @@ export class SuperagentRepository {
   }
 
   async deletePendingTurn(turnId: string): Promise<void> {
-    await this.db.delete(superagentPendingTurns).where(eq(superagentPendingTurns.turnId, turnId)).run()
+    await this.db
+      .delete(superagentPendingTurns)
+      .where(eq(superagentPendingTurns.turnId, turnId))
+      .run()
   }
 
   /**
@@ -381,7 +394,9 @@ export class SuperagentRepository {
    * nothing else. Every cast this used to carry is gone — the names and the
    * brands come off the schema now.
    */
-  private mapSuperagentThread(r: typeof superagentThreads.$inferSelect): SuperagentThreadRow {
+  private async mapSuperagentThread(
+    r: typeof superagentThreads.$inferSelect,
+  ): Promise<SuperagentThreadRow> {
     return {
       id: r.id,
       ownerUserId: r.ownerUserId,
