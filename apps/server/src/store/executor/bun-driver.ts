@@ -30,6 +30,11 @@ import type {
 } from './driver'
 import { NO_BUSY_RETRY, queryClientOver, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
 import { createStoreExecutor, type RootStoreExecutor, type StoreExecutorOptions } from './executor'
+import {
+  installQueryAttributionProbe,
+  instrumentDriver,
+  statementProbeHubFor,
+} from './statement-probe'
 
 export interface BunDriverOptions {
   /** The shared connection. The scheduler's queue owns it. */
@@ -295,12 +300,17 @@ export function createBunStoreExecutor(
   options: BunStoreExecutorOptions,
 ): RootStoreExecutor<QueryClient> {
   const { database, openReader, onClose, ...executor } = options
+  const probes = statementProbeHubFor(database)
+  installQueryAttributionProbe(probes)
   return createStoreExecutor<QueryClient>({
-    driver: createBunSqliteDriver({
-      database,
-      ...(openReader ? { openReader } : {}),
-      ...(onClose ? { onClose } : {}),
-    }),
+    driver: instrumentDriver(
+      createBunSqliteDriver({
+        database,
+        ...(openReader ? { openReader } : {}),
+        ...(onClose ? { onClose } : {}),
+      }),
+      probes,
+    ),
     ...executor,
   })
 }

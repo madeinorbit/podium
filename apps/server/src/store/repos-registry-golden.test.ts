@@ -31,7 +31,7 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { deriveRepoId } from '../repo-id'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
-import { probeLegacyStatements } from './executor'
+import { probeStatements } from './executor'
 import { syncQueriesOver } from './executor/sync-drizzle'
 import { ReposRepository } from './repos'
 import { TableWrites } from './table-writes'
@@ -58,7 +58,7 @@ const registryReads = (): number =>
 beforeEach(() => {
   rawDb = openMigratedTestDatabase()
   counts = new Map()
-  probeLegacyStatements({ db: rawDb }, (observation) => {
+  probeStatements({ db: rawDb }, (observation) => {
     counts.set(observation.sql, (counts.get(observation.sql) ?? 0) + 1)
   })
   repos = new ReposRepository(syncQueriesOver(rawDb), () => {}, HOST, new TableWrites())

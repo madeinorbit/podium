@@ -1,7 +1,7 @@
 import { asUserId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
-import { type LegacyHandleHolder, probeLegacyStatements } from './store/executor'
+import { type StatementProbeHolder, probeStatements } from './store/executor'
 import { openTestStore } from './test-support/open-test-store'
 
 /**
@@ -28,7 +28,7 @@ import { openTestStore } from './test-support/open-test-store'
  */
 const readProbe = (store: SessionStore): (() => number) => {
   let reads = 0
-  probeLegacyStatements(store as unknown as LegacyHandleHolder, (observation) => {
+  probeStatements(store as unknown as StatementProbeHolder, (observation) => {
     // BOTH SPELLINGS [POD-3221 rule 32]. Drizzle emits lowercase keywords and
     // quoted identifiers, so the hand-written `FROM users WHERE id` no longer
     // occurs. Widened rather than replaced: an unconverted caller still emits the

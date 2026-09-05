@@ -95,8 +95,8 @@ export interface StatementObservation {
   readonly batchSize: number
   /** 0 for a lone statement; the position within the batch otherwise. */
   readonly batchIndex: number
-  /** Which seam saw it. `legacy-handle` disappears with the executor's `legacy` field. */
-  readonly seam: 'driver' | 'legacy-handle'
+  /** Which execution seam saw it. */
+  readonly seam: 'driver'
   /**
    * The RAW stack captured where the statement entered the driver, present only
    * while a probe asked for it ({@link StatementProbeHub.captureIssueSites}).
@@ -195,6 +195,42 @@ export class StatementProbeHub {
       }
     }
   }
+}
+
+/** Anything that identifies the bun connection an executor was composed over. */
+export interface StatementProbeHolder {
+  readonly db: object
+}
+
+/**
+ * One hub per bun connection, retained only as long as that connection is.
+ *
+ * A probe may attach before or after executor composition: the bare-repository
+ * budget tests attach first, while store-level measurements attach after boot.
+ * Observation still happens only at the driver session; the connection is a
+ * stable lookup key, never an execution seam.
+ */
+const hubsByConnection = new WeakMap<object, StatementProbeHub>()
+const attributionInstalled = new WeakSet<StatementProbeHub>()
+
+export function statementProbeHubFor(connection: object): StatementProbeHub {
+  const held = hubsByConnection.get(connection)
+  if (held) return held
+  const hub = new StatementProbeHub()
+  hubsByConnection.set(connection, hub)
+  return hub
+}
+
+/** Attach a late probe to the driver hub for a bun-backed holder. */
+export function probeStatements(holder: StatementProbeHolder, probe: StatementProbe): () => void {
+  return statementProbeHubFor(holder.db).attach(probe)
+}
+
+/** Install the process profiler exactly once on a connection's hub. */
+export function installQueryAttributionProbe(hub: StatementProbeHub): void {
+  if (attributionInstalled.has(hub)) return
+  attributionInstalled.add(hub)
+  hub.attach(queryAttributionProbe)
 }
 
 /**

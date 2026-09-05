@@ -1,7 +1,7 @@
 import { asIssueId, FIRST_ADMIN_USER_ID } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { SessionStore } from './store'
-import { type LegacyHandleHolder, probeLegacyStatements } from './store/executor'
+import { type StatementProbeHolder, probeStatements } from './store/executor'
 import type { IssueRow } from './store/types'
 import { openTestStore } from './test-support/open-test-store'
 
@@ -42,7 +42,7 @@ import { openTestStore } from './test-support/open-test-store'
  */
 const readProbe = (store: SessionStore): (() => number) => {
   let reads = 0
-  probeLegacyStatements(store as unknown as LegacyHandleHolder, (observation) => {
+  probeStatements(store as unknown as StatementProbeHolder, (observation) => {
     const sql = observation.sql
     const rawById = sql.includes('FROM issues WHERE id')
     const builderById = sql.includes('from "issues" where "issues"."id"')

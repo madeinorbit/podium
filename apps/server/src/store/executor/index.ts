@@ -114,11 +114,15 @@ export {
   VersionedMutex,
 } from './state-models'
 export {
+  installQueryAttributionProbe,
   instrumentDriver,
+  probeStatements,
   queryAttributionProbe,
   type StatementObservation,
   type StatementProbe,
+  type StatementProbeHolder,
   StatementProbeHub,
+  statementProbeHubFor,
 } from './statement-probe'
 export {
   afterCommit,
