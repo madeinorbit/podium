@@ -248,7 +248,7 @@ describe('ShippingService enqueue transaction', () => {
       ),
     ).toBe(true)
 
-    await expect(await service.enqueue({ issueId: issue.id, ...approval })).resolves.toMatchObject({
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).resolves.toMatchObject({
       created: false,
       order: { id: receipt.order.id },
     })
@@ -333,7 +333,7 @@ describe('ShippingService enqueue transaction', () => {
     await service.enqueue({ issueId: issue.id, ...approval })
 
     liveHead = 'advanced-head-sha'
-    await expect(await service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
       code: 'source-stale',
     })
     service.dispose()
@@ -351,7 +351,7 @@ describe('ShippingService enqueue transaction', () => {
     })
     await issues.update(issue.id, { stage: 'review' })
 
-    await expect(await service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toMatchObject({
       code: 'source-stale',
     })
     expect(await store.shipping.activeOrderForIssue(issue.id)).toBeNull()
@@ -371,7 +371,7 @@ describe('ShippingService enqueue transaction', () => {
       throw new Error('append failed')
     })
 
-    await expect(await service.enqueue({ issueId: issue.id, ...approval })).rejects.toThrow(
+    await expect(service.enqueue({ issueId: issue.id, ...approval })).rejects.toThrow(
       'append failed',
     )
     append.mockRestore()
@@ -422,7 +422,7 @@ describe('ShippingService enqueue transaction', () => {
     const rootRef = (await issues.get(root.id))?.displayRef ?? root.id
     const leafRef = (await issues.get(leaf.id))?.displayRef ?? leaf.id
 
-    await expect(await service.enqueue({ issueId: leaf.id, ...approval })).rejects.toMatchObject({
+    await expect(service.enqueue({ issueId: leaf.id, ...approval })).rejects.toMatchObject({
       code: 'nested-root',
       rootIssueId: root.id,
       message:
@@ -450,7 +450,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(child.id, { stage: 'done' })
     await issues.update(root.id, { stage: 'review' })
 
-    await expect(await service.enqueue({ issueId: root.id, ...approval })).rejects.toMatchObject({
+    await expect(service.enqueue({ issueId: root.id, ...approval })).rejects.toMatchObject({
       code: 'evidence',
     })
     const immutableReceipt = await store.shipping.recordRootIntegrationReceipt({
@@ -824,7 +824,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    await expect(await service.runOrder(order.id)).rejects.toThrow(
+    await expect(service.runOrder(order.id)).rejects.toThrow(
       `shipping daemon result fence failed for attempt:${order.id}:1:preflight`,
     )
 
@@ -1237,7 +1237,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    await expect(await service.runOrder(order.id)).rejects.toThrow(/simulated server crash/)
+    await expect(service.runOrder(order.id)).rejects.toThrow(/simulated server crash/)
     expect((await store.shipping.getOrder(order.id))?.state).toBe('verifying')
     expect((await store.shipping.latestAttemptForOrder(order.id))?.finishedAt).toBeUndefined()
     expect(await store.shipping.receiptForOrder(order.id)).toBeNull()
@@ -1785,7 +1785,7 @@ describe('ShippingService enqueue transaction', () => {
     await issues.update(issue.id, { stage: 'review' })
     const { order } = await service.enqueue({ issueId: issue.id, ...approval })
 
-    await expect(await service.runOrder(order.id)).rejects.toThrow(/crash before repair ack/)
+    await expect(service.runOrder(order.id)).rejects.toThrow(/crash before repair ack/)
     expect(await store.shipping.getOrder(order.id)).toMatchObject({
       state: 'held',
       holdCode: 'policy:behavior-change',
@@ -2108,7 +2108,7 @@ describe('ShippingService enqueue transaction', () => {
     }
     deps.machineCapabilities = () => []
     const restarted = new ShippingService(deps)
-    await expect(await restarted.reconcile()).rejects.toThrow(/daemon unavailable during boot/)
+    await expect(restarted.reconcile()).rejects.toThrow(/daemon unavailable during boot/)
     expect((await store.shipping.getOrder(descendant.order.id))?.state).toBe('queued')
     expect(await store.shipping.openHoldForOrder(descendant.order.id)).toBeNull()
     expect((await store.issues.getIssue(descendantIssue.id))?.needsHuman).toBe(false)

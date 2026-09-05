@@ -62,8 +62,8 @@ describe('resolveCodexAuth — read-only, self-healing', () => {
     writeAuth(home, jwt(nowSec() - 60))
     const before = readFileSync(join(home, 'auth.json'), 'utf8')
 
-    await expect(await resolveCodexAuth(FETCH_FORBIDDEN)).rejects.toBeInstanceOf(LlmConfigError)
-    await expect(await resolveCodexAuth(FETCH_FORBIDDEN)).rejects.toThrow(/codex login/)
+    await expect(resolveCodexAuth(FETCH_FORBIDDEN)).rejects.toBeInstanceOf(LlmConfigError)
+    await expect(resolveCodexAuth(FETCH_FORBIDDEN)).rejects.toThrow(/codex login/)
     // Never rewrites the shared single-use credential.
     expect(readFileSync(join(home, 'auth.json'), 'utf8')).toBe(before)
   })

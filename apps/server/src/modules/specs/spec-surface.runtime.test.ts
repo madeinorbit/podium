@@ -236,12 +236,12 @@ describe('the contract schemas are THE schemas the surface validates with', () =
     const repo = tmpRepo()
     const svc = new SpecsService({ repoRoots: () => [repo] })
     // The refusals the shipped schemas made, still made, through the relay path.
-    await expect(await svc.invoke('create', { repoPath: repo, parent: 'SP-root' })).rejects.toThrow()
+    await expect(svc.invoke('create', { repoPath: repo, parent: 'SP-root' })).rejects.toThrow()
     await expect(
       await svc.invoke('create', { repoPath: repo, title: '', parent: 'SP-root' }),
     ).rejects.toThrow()
-    await expect(await svc.invoke('save', { repoPath: repo, id: '' })).rejects.toThrow()
-    await expect(await svc.invoke('remove', { repoPath: '', id: 'SP-abcd' })).rejects.toThrow()
+    await expect(svc.invoke('save', { repoPath: repo, id: '' })).rejects.toThrow()
+    await expect(svc.invoke('remove', { repoPath: '', id: 'SP-abcd' })).rejects.toThrow()
     // …and the acceptances, so the refusals are not a schema that rejects everything.
     const made = (await svc.invoke('create', {
       repoPath: repo,

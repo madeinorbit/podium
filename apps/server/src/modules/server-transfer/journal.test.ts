@@ -135,20 +135,20 @@ describe('PortableStateFence', () => {
   it('drains active writers, rejects new writers while held, and reopens on safe abort', async () => {
     const fence = new PortableStateFence()
     let finishWriter: (() => void) | undefined
-    const writer = await fence.runWriter(
+    const writer = fence.runWriter(
       () =>
         new Promise<void>((resolve) => {
           finishWriter = resolve
         }),
     )
     let acquired = false
-    const acquire = (await fence.acquire()).then(() => {
+    const acquire = fence.acquire().then(() => {
       acquired = true
     })
 
     await Promise.resolve()
     expect(acquired).toBe(false)
-    await expect(await fence.runWriter(async () => {})).rejects.toThrow(/portable state is fenced/)
+    await expect(fence.runWriter(async () => {})).rejects.toThrow(/portable state is fenced/)
 
     finishWriter?.()
     await writer
@@ -156,6 +156,6 @@ describe('PortableStateFence', () => {
     expect(acquired).toBe(true)
 
     fence.release()
-    await expect(await fence.runWriter(async () => 'open')).resolves.toBe('open')
+    await expect(fence.runWriter(async () => 'open')).resolves.toBe('open')
   })
 })

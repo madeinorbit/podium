@@ -1546,7 +1546,7 @@ describe('IssueService.start', () => {
     const { svc, deps, onWorktreesChanged } = await harness()
     deps.repoOp = vi.fn(async () => ({ ok: false, output: 'boom' }))
     const created = await svc.create({ repoPath: '/r', title: 'Fix login', startNow: false })
-    await expect(await svc.start(created.id)).rejects.toThrow(/worktree add failed/)
+    await expect(svc.start(created.id)).rejects.toThrow(/worktree add failed/)
     expect(onWorktreesChanged).not.toHaveBeenCalled()
   })
 
@@ -1564,7 +1564,7 @@ describe('IssueService.start', () => {
       startNow: false,
       defaultModel: 'claude-opus-4.8', // dot, not dash
     })
-    await expect(await svc.start(created.id)).rejects.toThrow(/Did you mean "claude-opus-4-8"/)
+    await expect(svc.start(created.id)).rejects.toThrow(/Did you mean "claude-opus-4-8"/)
     // No worktree add, no spawn, and the issue stays in backlog (start state untouched).
     expect(deps.repoOp).not.toHaveBeenCalled()
     expect(deps.spawnSession).not.toHaveBeenCalled()
@@ -1753,7 +1753,7 @@ describe('IssueService.start', () => {
       machineId: asMachineId('mach-b'),
       parentBranch: 'main',
     })
-    await expect(await svc.start(created.id)).rejects.toThrow(/not the same repository/)
+    await expect(svc.start(created.id)).rejects.toThrow(/not the same repository/)
     // Nothing may be built before the refusal.
     expect(deps.repoOp).not.toHaveBeenCalled()
   })
@@ -1780,7 +1780,7 @@ describe('IssueService.start', () => {
       startNow: false,
       machineId: asMachineId('mach-b'),
     })
-    await expect(await svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
+    await expect(svc.start(created.id)).rejects.toThrow(/machine 'laptop' is offline/)
     expect(deps.requireMachineForRepo).toHaveBeenCalledWith('mach-b', '/r')
     expect(deps.repoOp).not.toHaveBeenCalled()
     expect(deps.spawnSession).not.toHaveBeenCalled()
@@ -2079,7 +2079,7 @@ describe('IssueService.start', () => {
       output: 'fatal: branch exists',
     })
     const created = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
-    await expect(await svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
+    await expect(svc.start(created.id)).rejects.toThrow(/fatal: branch exists/)
   })
 
   it('start auto-claims the issue (assignee = agent, stage = in_progress)', async () => {
@@ -2309,7 +2309,7 @@ describe('IssueService.start', () => {
         },
       })
       const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
-      await expect(await svc.start(a.id, undefined, { effort: 'banana' })).rejects.toThrow(
+      await expect(svc.start(a.id, undefined, { effort: 'banana' })).rejects.toThrow(
         /unknown effort "banana".*"low", "medium", "high"/s,
       )
       expect(deps.repoOp).not.toHaveBeenCalled()
@@ -2333,7 +2333,7 @@ describe('IssueService.start', () => {
         startNow: false,
         defaultModel: 'claude-opus-5',
       })
-      await expect(await svc.start(a.id, undefined, { model: 'claude-opus-9' })).rejects.toThrow(
+      await expect(svc.start(a.id, undefined, { model: 'claude-opus-9' })).rejects.toThrow(
         /unknown model "claude-opus-9"/,
       )
       expect((await svc.get(a.id))?.defaultModel).toBe('claude-opus-5')
@@ -2347,10 +2347,10 @@ describe('IssueService.start', () => {
       const a = await svc.create({ repoPath: '/r', title: 'A', startNow: false })
       await svc.start(a.id)
       ;(deps.spawnSession as ReturnType<typeof vi.fn>).mockClear()
-      await expect(await svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
+      await expect(svc.start(a.id, undefined, { model: 'opus' })).rejects.toThrow(
         /already started.*add-session/s,
       )
-      await expect(await svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(
+      await expect(svc.start(a.id, undefined, { effort: 'high' })).rejects.toThrow(
         /already started/,
       )
       expect(deps.spawnSession).not.toHaveBeenCalled()
@@ -5035,7 +5035,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     snapshot.mockRejectedValueOnce(new Error('cannot read /wt/gone.png: not found'))
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await expect(await svc.panelArtifactAdd(w.id, { path: 'gone.png' })).rejects.toThrow(/gone\.png/)
+    await expect(svc.panelArtifactAdd(w.id, { path: 'gone.png' })).rejects.toThrow(/gone\.png/)
     expect((await svc.get(w.id))?.panel?.artifacts ?? []).toEqual([])
   })
 
@@ -5052,10 +5052,10 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, snapshot } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.update(w.id, { worktreePath: '/wt/issue-1' })
-    await expect(await svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
+    await expect(svc.panelArtifactAdd(w.id, { path: '/wt/elsewhere/a.png' })).rejects.toThrow(
       /outside the owning issue worktree.*--terminal-evidence/,
     )
-    await expect(await svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
+    await expect(svc.panelArtifactAdd(w.id, { path: '../a.png' })).rejects.toThrow(
       /outside the owning issue worktree.*--terminal-evidence/,
     )
     expect(snapshot).not.toHaveBeenCalled()
@@ -5280,7 +5280,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     const got = await svc.panelArtifactRead(issue.id, { index: 1, file: 'app.css' })
     expect(got.file).toBe('app.css')
     expect(got.entry).toBe('index.html')
-    await expect(await svc.panelArtifactRead(issue.id, { index: 1, file: 'nope.css' })).rejects.toThrow(
+    await expect(svc.panelArtifactRead(issue.id, { index: 1, file: 'nope.css' })).rejects.toThrow(
       /bundle holds: index\.html, app\.css/,
     )
   })
@@ -5288,7 +5288,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
   it('a legacy path-only entry says to re-add it rather than reporting a missing file', async () => {
     const { svc, issue } = await readHarness()
     await svc.panelApply(issue.id, { op: 'artifact-add', path: 'old.png' })
-    await expect(await svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
+    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
       /has no stored snapshot/,
     )
   })
@@ -5297,18 +5297,18 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
     const { svc, issue, stored } = await readHarness()
     await svc.panelArtifactAdd(issue.id, { path: 'a.md' })
     stored.set('art1/a.md', text('a'))
-    await expect(await svc.panelArtifactRead(issue.id, { index: 2 })).rejects.toThrow(
+    await expect(svc.panelArtifactRead(issue.id, { index: 2 })).rejects.toThrow(
       /no artifact 2 \(issue has 1\)/,
     )
-    await expect(await svc.panelArtifactRead(issue.id, { path: 'nope.md' })).rejects.toThrow(
+    await expect(svc.panelArtifactRead(issue.id, { path: 'nope.md' })).rejects.toThrow(
       /no artifact with path nope\.md/,
     )
-    await expect(await svc.panelArtifactRead(issue.id, {})).rejects.toThrow(/an index or a path/)
+    await expect(svc.panelArtifactRead(issue.id, {})).rejects.toThrow(/an index or a path/)
   })
 
   it('an issue with no artifacts says so', async () => {
     const { svc, issue } = await readHarness()
-    await expect(await svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(/no artifacts/)
+    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(/no artifacts/)
   })
 
   /**
@@ -5356,7 +5356,7 @@ describe('IssueService panelArtifactRead (reading a snapshot back — POD-1999)'
       bytes: Buffer.alloc(ARTIFACT_READ_CAP_BYTES + 1),
       contentType: 'video/mp4',
     })
-    await expect(await svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
+    await expect(svc.panelArtifactRead(issue.id, { index: 1 })).rejects.toThrow(
       new RegExp(`/files/artifact/${issue.id}/art1/big\\.mp4`),
     )
   })

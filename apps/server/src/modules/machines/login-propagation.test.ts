@@ -158,16 +158,16 @@ describe('login propagation coordinator', () => {
     expect(credentialExport).not.toHaveBeenCalled()
 
     const input = { targetMachineId: asMachineId('target'), agentKind: 'codex' as const }
-    await expect(await service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
+    await expect(service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
     expect(await service.propagate(input)).toEqual({
       status: 'skipped',
       reason: 'propagation backoff active',
     })
     now = 1_000
-    await expect(await service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
+    await expect(service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
     now = 3_001
-    await expect(await service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
-    await expect(await service.propagate(input)).resolves.toEqual({
+    await expect(service.propagate(input)).resolves.toMatchObject({ status: 'failed' })
+    await expect(service.propagate(input)).resolves.toEqual({
       status: 'skipped',
       reason: 'propagation attempt cap reached',
     })

@@ -227,7 +227,7 @@ describe('versioned mutex', () => {
     const mutex = new VersionedMutex()
     const pinned = mutex.version
     await mutex.run(async () => undefined)
-    await expect(await mutex.runIfUnchanged(pinned, async () => 'applied')).rejects.toBeInstanceOf(
+    await expect(mutex.runIfUnchanged(pinned, async () => 'applied')).rejects.toBeInstanceOf(
       StaleVersionError,
     )
     expect(await mutex.runIfUnchanged(mutex.version, async () => 'applied')).toBe('applied')

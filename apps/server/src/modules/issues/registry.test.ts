@@ -550,7 +550,7 @@ describe('Shipping command boundary', () => {
         capability: OPERATOR,
       },
     }
-    await expect(await dispatcher.dispatch(operator, 'issues', 'ship', {})).rejects.toThrow(
+    await expect(dispatcher.dispatch(operator, 'issues', 'ship', {})).rejects.toThrow(
       /pass an issue id/,
     )
     await expect(

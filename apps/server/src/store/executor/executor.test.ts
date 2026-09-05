@@ -318,10 +318,10 @@ describe('re-entrancy', () => {
       const branch = await tx.transact(async () => {
         await parked.wait()
       })
-      await expect(await tx.transact(async () => undefined)).rejects.toBeInstanceOf(
+      await expect(tx.transact(async () => undefined)).rejects.toBeInstanceOf(
         ParallelNestedTransactionError,
       )
-      await expect(await tx.drizzle.all(bodies)).rejects.toBeInstanceOf(
+      await expect(tx.drizzle.all(bodies)).rejects.toBeInstanceOf(
         ParallelNestedTransactionError,
       )
       parked.release()
@@ -350,7 +350,7 @@ describe('asynchronous savepoint boundary failures', () => {
     const executor = createStoreExecutor<QueryClient>({ driver })
 
     await executor.transact(async (tx) => {
-      await expect(await tx.transact(async () => undefined)).rejects.toThrow('SAVEPOINT failed')
+      await expect(tx.transact(async () => undefined)).rejects.toThrow('SAVEPOINT failed')
       // WOULD CATCH `parent.child` left set by the failed entry: every later
       // statement on the parent would be refused as a parallel nested scope.
       await tx.drizzle.run(insert, 'after')
@@ -375,8 +375,8 @@ describe('asynchronous savepoint boundary failures', () => {
         await tx.drizzle.run(insert, 'outer')
         // The body catches the boundary failure and carries on, which is the
         // dangerous case: it must not be able to commit from here.
-        await expect(await tx.transact(async () => undefined)).rejects.toThrow('RELEASE failed')
-        await expect(await tx.drizzle.run(insert, 'after')).rejects.toBeInstanceOf(
+        await expect(tx.transact(async () => undefined)).rejects.toThrow('RELEASE failed')
+        await expect(tx.drizzle.run(insert, 'after')).rejects.toBeInstanceOf(
           TransactionPoisonedError,
         )
       })
@@ -436,11 +436,11 @@ describe('the active transaction token', () => {
     })
 
     const stale = escaped as StoreExecutor<QueryClient>
-    await expect(await stale.drizzle.all(bodies)).rejects.toBeInstanceOf(StaleTransactionError)
-    await expect(await stale.transact(async () => undefined)).rejects.toBeInstanceOf(
+    await expect(stale.drizzle.all(bodies)).rejects.toBeInstanceOf(StaleTransactionError)
+    await expect(stale.transact(async () => undefined)).rejects.toBeInstanceOf(
       StaleTransactionError,
     )
-    await expect(await stale.read(async () => undefined)).rejects.toBeInstanceOf(
+    await expect(stale.read(async () => undefined)).rejects.toBeInstanceOf(
       StaleTransactionError,
     )
     expect(await noteBodies(h.db)).toEqual(['committed'])
@@ -610,7 +610,7 @@ describe('scheduler liveness under driver failure', () => {
     })
     const scheduler = createScheduler({ driver })
 
-    await expect(await scheduler.run('write', async () => 'first')).rejects.toThrow('open failed')
+    await expect(scheduler.run('write', async () => 'first')).rejects.toThrow('open failed')
 
     expect(await within(await scheduler.run('write', async () => 'second'))).toBe('second')
     expect(scheduler.state).toBe('accepting')
@@ -629,7 +629,7 @@ describe('scheduler liveness under driver failure', () => {
     })
     const scheduler = createScheduler({ driver })
 
-    await expect(await scheduler.run('write', async () => 'first')).rejects.toThrow('close failed')
+    await expect(scheduler.run('write', async () => 'first')).rejects.toThrow('close failed')
 
     expect(await within(await scheduler.run('write', async () => 'second'))).toBe('second')
     expect(scheduler.state).toBe('accepting')
@@ -892,7 +892,7 @@ describe('the declared write budget and busy retry', () => {
     const slept: number[] = []
     const scheduler = createScheduler({ driver, sleep: async (ms) => void slept.push(ms) })
 
-    await expect(await scheduler.run('write', async () => 'never')).rejects.toThrow(
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow(
       'TRANSACTION_CLOSED',
     )
     expect(attempts).toBe(1)
@@ -1008,7 +1008,7 @@ describe('the declared write budget and busy retry', () => {
     })
     const executor = createStoreExecutor<QueryClient>({ driver })
 
-    await expect(await executor.drizzle.batch([write('a')])).rejects.toThrow('TRANSACTION_CLOSED')
+    await expect(executor.drizzle.batch([write('a')])).rejects.toThrow('TRANSACTION_CLOSED')
     expect(attempts).toBe(1)
     expect(driver.calls).toEqual(['open:write', 's1:batch[1]', 's1:close'])
     await executor.close()
@@ -1042,7 +1042,7 @@ describe('the declared write budget and busy retry', () => {
       },
     })
 
-    await expect(await scheduler.run('write', async () => 'never')).rejects.toThrow(busy.message)
+    await expect(scheduler.run('write', async () => 'never')).rejects.toThrow(busy.message)
     // Waiting longer than the transaction could have lived buys nothing.
     expect(attempts).toBe(2)
     expect(slept).toEqual([80])
@@ -1110,7 +1110,7 @@ describe('post-commit', () => {
     // as one.
     expect(h.raw.prepare(bodies).all()).toEqual([{ body: 'committed' }])
     expect(h.executor.health.healthy).toBe(false)
-    await expect(await h.executor.read(async () => undefined)).rejects.toBeInstanceOf(
+    await expect(h.executor.read(async () => undefined)).rejects.toBeInstanceOf(
       StoreUnhealthyError,
     )
   })
@@ -1963,7 +1963,7 @@ describe('shutdown', () => {
     parked.release()
     await Promise.all([first, queued, closing])
 
-    await expect(await h.executor.transact(async () => undefined)).rejects.toBeInstanceOf(
+    await expect(h.executor.transact(async () => undefined)).rejects.toBeInstanceOf(
       SchedulerClosedError,
     )
     harness = undefined

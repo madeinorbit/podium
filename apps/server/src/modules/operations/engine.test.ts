@@ -1090,7 +1090,7 @@ describe('adoption contains what the kind throws (POD-2147)', () => {
 
     // The sweep is inside the guarantee too: `startServer` awaits this before
     // it binds, so the one thing that must not happen is a rejection.
-    await expect(await boot(store, registry).adoptOnBoot(() => ({}))).resolves.toEqual([])
+    await expect(boot(store, registry).adoptOnBoot(() => ({}))).resolves.toEqual([])
   })
 
   it('does not throw when retention sweeps the adopted row away', async () => {
@@ -1489,7 +1489,7 @@ describe('restating a deferred promise (POD-3040)', () => {
 
   it('is silent about an operation that is not there', async () => {
     const h = harness()
-    await expect(await h.engine.recordDeferred('op_missing', [])).resolves.toBeUndefined()
+    await expect(h.engine.recordDeferred('op_missing', [])).resolves.toBeUndefined()
   })
 })
 

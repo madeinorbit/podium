@@ -64,7 +64,7 @@ describe('TranscriptLake mirror fence', () => {
     if (!first || first.type !== 'transcriptMirrorRead') throw new Error('mirror read not sent')
 
     let pauseResolved = false
-    const paused = (await lake.pauseMirroring()).then(() => {
+    const paused = lake.pauseMirroring().then(() => {
       pauseResolved = true
     })
     await Promise.resolve()

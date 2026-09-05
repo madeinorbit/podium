@@ -228,7 +228,7 @@ describe('queued ingestion writer', () => {
     // Discarded by the drain rather than held forever, and nothing thrown at a
     // caller who is long gone.
     expect(w.pendingWrites()).toBe(0)
-    await expect(await w.close()).resolves.toBeUndefined()
+    await expect(w.close()).resolves.toBeUndefined()
   })
 })
 

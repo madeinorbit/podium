@@ -1610,7 +1610,7 @@ describe('buildDevBundle', () => {
     await publisher.requestBuild(true)
     expect((await publisher.target())?.version).toBe('0.1.0-dev.1+aaaaaaa')
     head = 'bbbbbbb'
-    await expect(await publisher.requestBuild(true)).rejects.toThrow('second compile failed')
+    await expect(publisher.requestBuild(true)).rejects.toThrow('second compile failed')
     // The signed bytes for the old commit survive — a later request at that sha
     // can still restore them — but they are no longer offered as the target,
     // because they are not what this server is running.
@@ -1658,7 +1658,7 @@ describe('buildDevBundle', () => {
       },
     })
 
-    await expect(await publisher.requestBuild(true)).rejects.toThrow(
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
       /does not match HEAD \(aaaaaaa\).*apps\/server\/src\/server\.ts/s,
     )
     // Neither compiled, nor republished an artifact left over from that sha.
@@ -1688,7 +1688,7 @@ describe('buildDevBundle', () => {
       },
     })
 
-    await expect(await publisher.requestBuild(true)).rejects.toThrow(
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
       /could not verify the source checkout.*not a git repository/s,
     )
   })
@@ -1708,7 +1708,7 @@ describe('buildDevBundle', () => {
         artifacts.map(({ platform }) => ({ platform, path: '/stage/' + version, signature })),
     })
 
-    await expect(await publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
+    await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
     porcelain = ''
     await publisher.requestBuild(true)
 
@@ -1847,7 +1847,7 @@ describe('development bundle readiness', () => {
     await publisher.requestBuild(true)
     moveHead('bbbbbbb')
     failNextBuild('compile blew up')
-    await expect(await publisher.requestBuild(true)).rejects.toThrow('compile blew up')
+    await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
 
     const readiness = await publisher.readiness()
     expect(readiness.state).toBe('failed')
@@ -1867,7 +1867,7 @@ describe('development bundle readiness', () => {
     const { publisher } = readinessFixture({
       porcelain: () => nul(' M apps/server/src/server.ts', '?? apps/web/scratch.ts'),
     })
-    await expect(await publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
+    await expect(publisher.requestBuild(true)).rejects.toThrow(/does not match HEAD/)
 
     const readiness = await publisher.readiness()
     expect(readiness).toMatchObject({
@@ -1906,7 +1906,7 @@ describe('development bundle readiness', () => {
   it('does not carry an old HEAD failure into a new one', async () => {
     const { publisher, moveHead, failNextBuild } = readinessFixture()
     failNextBuild('compile blew up')
-    await expect(await publisher.requestBuild(true)).rejects.toThrow('compile blew up')
+    await expect(publisher.requestBuild(true)).rejects.toThrow('compile blew up')
     expect((await publisher.readiness()).state).toBe('failed')
 
     moveHead('bbbbbbb')
@@ -1982,7 +1982,7 @@ describe('ignored source inputs gate the build', () => {
       },
     })
 
-    await expect(await publisher.requestBuild(true)).rejects.toThrow(
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
       /ignored source files.*apps\/server\/src\/local-override\.ts/s,
     )
     expect(builds).toBe(0)
@@ -2029,7 +2029,7 @@ describe('ignored source inputs gate the build', () => {
       },
     })
 
-    await expect(await publisher.requestBuild(true)).rejects.toThrow(
+    await expect(publisher.requestBuild(true)).rejects.toThrow(
       /could not enumerate ignored source inputs.*git exploded/s,
     )
   })
@@ -2448,7 +2448,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const approved = await publisher.proposal()
     expect(approved).toBeDefined()
 
-    await expect(await publisher.requestBuild(true, approved)).rejects.toThrow(
+    await expect(publisher.requestBuild(true, approved)).rejects.toThrow(
       /snapshot .* changed while building; refusing to publish/i,
     )
     expect(await publisher.publishFeed()).toBe(false)

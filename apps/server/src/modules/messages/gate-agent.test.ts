@@ -439,7 +439,7 @@ describe('agent spawn (gate)', () => {
         prompt: 'x',
       }),
     ).rejects.toThrow(/not both/)
-    await expect(await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { prompt: 'x' })).rejects.toThrow(
+    await expect(gate.dispatch(OPERATOR, undefined, 'spawnAgent', { prompt: 'x' })).rejects.toThrow(
       /--issue|--new/,
     )
   })
@@ -1257,7 +1257,7 @@ describe('mail status — sender-queryable lifecycle (#834 [POD-834 §04d])', ()
     const { gate, svc } = await harness()
     // A message between two OTHER principals (operator → a foreign issue box).
     const r = await svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: ISSUE.id }, body: 'x' })
-    await expect(await gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
+    await expect(gate.dispatch(PARENT, undefined, 'status', { id: r.message.id })).rejects.toThrow(
       /neither sent nor received/,
     )
   })

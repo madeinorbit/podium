@@ -159,7 +159,7 @@ describe('RepoRegistry.scanReposAll()', () => {
     // A page reload during the daemon restart asks for a brand-new snapshot.
     // The durable repository identity must survive even though metadata cannot
     // be enriched until the daemon comes back.
-    await expect(await repos.scanReposAll()).resolves.toMatchObject({
+    await expect(repos.scanReposAll()).resolves.toMatchObject({
       repositories: [
         {
           path: '/dummy-repo',

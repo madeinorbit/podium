@@ -160,7 +160,7 @@ describe('development web build', () => {
       stamps: [{ sourceSha: 'aaaaaaa' }],
       phones: [{ present: true, digest: 'bbbbbbb' }],
     })
-    await expect(await web.ensure('aaaaaaa')).rejects.toThrow(
+    await expect(web.ensure('aaaaaaa')).rejects.toThrow(
       /apps\/mobile\/dist is not stamped at aaaaaaa/,
     )
     expect(web.state()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
@@ -203,7 +203,7 @@ describe('development web build', () => {
           : Promise.resolve(),
     })
 
-    await expect(await web.ensure('aaaaaaa')).rejects.toThrow(
+    await expect(web.ensure('aaaaaaa')).rejects.toThrow(
       /apps\/web\/dist is not stamped at aaaaaaa.*Steps that failed.*vite blew up/s,
     )
   })
@@ -278,7 +278,7 @@ describe('development web build', () => {
     // HEAD moving mid-build would otherwise pass here and be refused later,
     // deep inside the compile, having already paid for it.
     const { web } = builder({ stamps: [{ sourceSha: 'old' }, { sourceSha: 'moved!!' }] })
-    await expect(await web.ensure('aaaaaaa')).rejects.toThrow(/not stamped at aaaaaaa/)
+    await expect(web.ensure('aaaaaaa')).rejects.toThrow(/not stamped at aaaaaaa/)
     expect(web.state()).toMatchObject({ state: 'failed', headSha: 'aaaaaaa' })
   })
 
@@ -291,7 +291,7 @@ describe('development web build', () => {
         return attempt === 1 ? Promise.reject(new Error('vite blew up')) : Promise.resolve()
       },
     })
-    await expect(await web.ensure('aaaaaaa')).rejects.toThrow('vite blew up')
+    await expect(web.ensure('aaaaaaa')).rejects.toThrow('vite blew up')
     // The reason names BOTH what came out wrong and which step failed — the
     // second without the first would send an operator to the vite log for a
     // build whose real problem might be that HEAD moved underneath it.

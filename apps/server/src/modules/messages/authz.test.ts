@@ -470,7 +470,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
       actorUser: FIRST_ADMIN_USER_ID,
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }
-    await expect(await h.gate.dispatch(noMailbox, undefined, 'inbox', {})).rejects.toThrow(
+    await expect(h.gate.dispatch(noMailbox, undefined, 'inbox', {})).rejects.toThrow(
       'no mailbox bound to this caller',
     )
   })
@@ -557,7 +557,7 @@ describe('read-surface and reply authz (A5)', () => {
         id: oid,
       }),
     ).rejects.toThrow('only the recipient of a message may dismiss it')
-    await expect(await h.gate.dispatch(OPERATOR, undefined, 'show', { id: 'msg_nope' })).rejects.toThrow(
+    await expect(h.gate.dispatch(OPERATOR, undefined, 'show', { id: 'msg_nope' })).rejects.toThrow(
       'unknown message msg_nope',
     )
 

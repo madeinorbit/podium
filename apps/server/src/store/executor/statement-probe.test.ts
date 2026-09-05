@@ -147,7 +147,7 @@ describe('parity between the SqlDatabase wrapper and the driver seam', () => {
     const wrapper = costOf(failing.sql)
 
     resetQueryAttribution()
-    await expect(await throughDriver(fresh(), failing)).rejects.toThrow()
+    await expect(throughDriver(fresh(), failing)).rejects.toThrow()
     const seam = costOf(failing.sql)
 
     expect(wrapper).toEqual({ count: 1, rows: 0 })

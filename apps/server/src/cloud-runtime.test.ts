@@ -55,7 +55,7 @@ describe('hosted cloud runtime provider', () => {
       fetch: async () => new Response('missing', { status: 404 }),
     })
 
-    await expect(await provider.getRuntime('runtime_missing')).resolves.toBeNull()
+    await expect(provider.getRuntime('runtime_missing')).resolves.toBeNull()
   })
 })
 
@@ -63,7 +63,7 @@ describe('cloud runtime provider env wiring', () => {
   it('uses the disabled provider unless hosted cloud is explicitly configured', async () => {
     const provider = createCloudRuntimeProviderFromEnv({})
 
-    await expect(await provider.capabilities()).resolves.toMatchObject({ provider: 'disabled' })
+    await expect(provider.capabilities()).resolves.toMatchObject({ provider: 'disabled' })
   })
 
   it('builds a hosted provider from PODIUM_CLOUD_PROVIDER=hosted', async () => {
@@ -76,6 +76,6 @@ describe('cloud runtime provider env wiring', () => {
       async () => Response.json({ provider: 'stub' }),
     )
 
-    await expect(await provider.capabilities()).resolves.toEqual({ provider: 'stub' })
+    await expect(provider.capabilities()).resolves.toEqual({ provider: 'stub' })
   })
 })

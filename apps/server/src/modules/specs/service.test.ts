@@ -82,9 +82,9 @@ describe('SpecsService (modules/specs, pspec #135)', () => {
   it('invoke (the relay path) zod-parses with the router-equal schema and still gates roots', async () => {
     const repo = tmpRepo()
     const svc = new SpecsService({ repoRoots: () => [repo] })
-    await expect(await svc.invoke('list', { repoPath: repo })).resolves.toBeTruthy()
-    await expect(await svc.invoke('list', {})).rejects.toThrow() // zod: repoPath required
-    await expect(await svc.invoke('list', { repoPath: '/elsewhere' })).rejects.toThrow(
+    await expect(svc.invoke('list', { repoPath: repo })).resolves.toBeTruthy()
+    await expect(svc.invoke('list', {})).rejects.toThrow() // zod: repoPath required
+    await expect(svc.invoke('list', { repoPath: '/elsewhere' })).rejects.toThrow(
       /known repository/,
     )
     expect(await svc.invoke('nope', {})).toBeUndefined() // unknown proc → gate shapes the reply

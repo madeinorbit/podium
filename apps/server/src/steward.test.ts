@@ -422,7 +422,7 @@ describe('StewardService cursor', () => {
     await store.events.setStewardState('cursor', 'garbage')
     const a = await issues.create({ repoPath: '/r', title: 'A', startNow: false })
     const logs = captureLogs()
-    await expect(await steward.tick()).resolves.toBeUndefined()
+    await expect(steward.tick()).resolves.toBeUndefined()
     expect(logs.at('warn')).toContainEqual(
       expect.objectContaining({
         ns: 'server:steward',
@@ -988,7 +988,7 @@ describe('StewardService gating and resilience', () => {
       throw new Error('boom')
     })
     const logs = captureLogs()
-    await expect(await steward.tick()).resolves.toBeUndefined()
+    await expect(steward.tick()).resolves.toBeUndefined()
     expect(await store.events.getStewardState('cursor')).toBe('0')
     expect(logs.at('warn')).toContainEqual(
       expect.objectContaining({
@@ -1296,7 +1296,7 @@ describe('StewardService stored subscriptions (Phase B)', () => {
       }),
     )
     await issues.close(x.id)
-    await expect(await steward.tick()).resolves.toBeUndefined()
+    await expect(steward.tick()).resolves.toBeUndefined()
     expect(await store.events.listEventsSince(0, { kinds: ['steward.notify'] })).toHaveLength(1)
   })
 })
@@ -1439,7 +1439,7 @@ describe('StewardService ack fallback (#237) [spec:SP-34d7 acks]', () => {
       subject: 's9',
       payload: { phase: 'errored' },
     })
-    await expect(await h.steward.tick()).resolves.toBeUndefined()
+    await expect(h.steward.tick()).resolves.toBeUndefined()
   })
 })
 

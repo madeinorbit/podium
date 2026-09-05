@@ -237,7 +237,7 @@ describe('the cache', () => {
       },
       stamp: async () => 'stamp-1',
     })
-    await expect(await cache.read()).rejects.toThrow('git exploded')
+    await expect(cache.read()).rejects.toThrow('git exploded')
     fail = false
     expect(await cache.read()).toBe('aaaaaaa')
     expect(reads).toBe(2)

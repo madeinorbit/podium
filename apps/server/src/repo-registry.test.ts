@@ -29,8 +29,8 @@ describe('RepoRegistry', () => {
 
   it('rejects non-absolute and empty paths', async () => {
     const reg = await singleMachineRepos(await openTestStore(':memory:'))
-    await expect(await reg.add('')).rejects.toThrow()
-    await expect(await reg.add('relative/path')).rejects.toThrow()
+    await expect(reg.add('')).rejects.toThrow()
+    await expect(reg.add('relative/path')).rejects.toThrow()
   })
 
   it('persists across instances on the same db file', async () => {
