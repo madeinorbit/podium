@@ -187,7 +187,7 @@ export interface FeedServingDeps {
   /** Monotonic authority signal for visibility changes that need not append a
    * change row. A scoped cache is reusable only when both this and the feed head
    * still match. */
-  readonly authorizationRevision?: () => number
+  readonly authorizationRevision?: () => number | Promise<number>
   /** Persisted `(feedId, epoch)` — ADR 2 D1. */
   readonly identity: FeedIdentityRegistry
   /** ADR 2 D5's floor, read live per frame. */
@@ -341,7 +341,7 @@ export class FeedServing {
     // (`cursor < minAvailableSeq`) is the same rule off by one and costs a
     // needless world at exactly `cursor === min - 1`; both are safe, and the
     // exact form is free.
-    return cursor.seq + 1 >= (this.deps.retention.minAvailableSeq() ?? 0)
+    return cursor.seq + 1 >= ((await this.deps.retention.minAvailableSeq()) ?? 0)
   }
 
   /**
@@ -438,6 +438,7 @@ export class FeedServing {
     for (const change of world.changes) {
       countsByEntity[change.entity] = (countsByEntity[change.entity] ?? 0) + 1
     }
+    const minAvailableSeq = (await this.deps.retention.minAvailableSeq()) ?? 0
     for (let chunkIndex = 0; chunkIndex < chunkCount; chunkIndex += 1) {
       const start = chunkIndex * chunkRows
       const bootstrap: FeedBootstrapMessage = {
@@ -449,7 +450,7 @@ export class FeedServing {
         // acceptance rule instead of two.
         fromSeq: 0,
         seq: world.throughSeq,
-        minAvailableSeq: this.deps.retention.minAvailableSeq() ?? 0,
+        minAvailableSeq,
         changes: world.changes.slice(start, start + chunkRows).map(toFeedChange),
         last: chunkIndex === chunkCount - 1,
         totalRows: world.changes.length,
@@ -499,7 +500,7 @@ export class FeedServing {
   }> {
     const key = principalRoutingId(principal)
     const cached = this.latestWorldByPrincipal.get(key)
-    const authorizationRevision = this.deps.authorizationRevision?.() ?? 0
+    const authorizationRevision = (await this.deps.authorizationRevision?.()) ?? 0
     const startedAt = performance.now()
     if (
       cached !== undefined &&
@@ -563,7 +564,9 @@ export class FeedServing {
     // This delivery was scoped under the authority state that exists now. If a
     // visibility-only mutation produced no delivery, this assignment never runs
     // and worldFor rejects the stale revision on the next connection.
-    cached.authorizationRevision = this.deps.authorizationRevision?.() ?? 0
+    // The delivery callback cannot yield. Force the next serving pass to re-read
+    // the revision rather than blessing this cache with an unresolved value.
+    cached.authorizationRevision = Number.NaN
     if (changed) cached.materialized = undefined
   }
 
@@ -801,8 +804,8 @@ export class FeedServing {
   /** ADR 2 D5's retention floor, read live. 0 means nothing has been pruned —
    *  the same value and the same source every published frame carries, so a
    *  catch-up reply cannot advertise a different floor than a delta. */
-  retentionFloor(): number {
-    return this.deps.retention.minAvailableSeq() ?? 0
+  async retentionFloor(): Promise<number> {
+    return (await this.deps.retention.minAvailableSeq()) ?? 0
   }
 
   /** Connections the publisher is framing for. Telemetry and tests. */

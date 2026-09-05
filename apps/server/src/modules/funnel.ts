@@ -52,9 +52,9 @@ export interface FeedServingPort {
   flushPending(): void
   /** ADR 2 D1's `(feedId, epoch)`. Needed by the wire-v2 catch-up read, which is
    *  an HTTP query and therefore has no frame to read identity off. */
-  identity(): { readonly feedId: string; readonly epoch: string }
+  identity(): Promise<{ readonly feedId: string; readonly epoch: string }>
   /** ADR 2 D5's floor, from the SAME source every published frame reads it from. */
-  retentionFloor(): number
+  retentionFloor(): Promise<number>
 }
 
 /**
@@ -196,13 +196,13 @@ export class WriteFunnel {
    *  and catch-up reply so a replica can compare the identity of the stream it
    *  is reading, not just its position in it. Read from the serving edge, which
    *  is the same source every published frame reads it from. */
-  feedIdentity(): { readonly feedId: string; readonly epoch: string } {
-    return this.deps.serving.identity()
+  async feedIdentity(): Promise<{ readonly feedId: string; readonly epoch: string }> {
+    return await this.deps.serving.identity()
   }
 
   /** The published retention horizon (ADR 2 D5), from that same source. */
-  minAvailableSeq(): number {
-    return this.deps.serving.retentionFloor()
+  async minAvailableSeq(): Promise<number> {
+    return await this.deps.serving.retentionFloor()
   }
 
   /**
@@ -248,7 +248,7 @@ export class WriteFunnel {
       epoch: identity.epoch,
       fromSeq: from ?? 0,
       seq: delivery.throughSeq,
-      minAvailableSeq: this.deps.serving.retentionFloor(),
+      minAvailableSeq: await this.deps.serving.retentionFloor(),
       // NOT `toBusChange`, and this cost a live-server debugging session: that
       // helper produces the v1 `MetadataChange`, whose target field is `id`. The
       // v2 row's is `entityId`, so every healed row reached the replica with

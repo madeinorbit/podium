@@ -810,8 +810,8 @@ export class SessionLifecycle {
     principal: Principal = DEVICE_GRADE_PRINCIPAL,
   ): Promise<SyncChangesSinceResult> {
     const sourceCursor = await this.funnel.cursor()
-    const { feedId, epoch } = this.funnel.feedIdentity()
-    const identity = { feedId, epoch, minAvailableSeq: this.funnel.minAvailableSeq() }
+    const { feedId, epoch } = await this.funnel.feedIdentity()
+    const identity = { feedId, epoch, minAvailableSeq: await this.funnel.minAvailableSeq() }
     const changes = await this.funnel.changesSince(cursor, principal)
     if (changes) return { kind: 'delta', changes, cursor: sourceCursor, ...identity }
 

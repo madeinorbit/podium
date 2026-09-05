@@ -90,7 +90,7 @@ import { type Principal, principalRoutingId } from '@podium/protocol'
  */
 export interface FeedRetentionPort {
   /** Lowest RETAINED seq, or `null` when the log is empty. */
-  minAvailableSeq(): number | null
+  minAvailableSeq(): number | null | Promise<number | null>
 }
 
 export interface FeedPublisherDeps {
@@ -321,7 +321,7 @@ export class FeedPublisher {
       return
     }
 
-    const frame = this.frame(state.fromSeq, throughSeq, rows)
+    const frame = this.frame(state.fromSeq, throughSeq, rows, await this.retentionFloor())
     const admission = state.queue.offer(frame)
     if (admission.kind === 'demoted') {
       // The connection's position is now MEANINGLESS, and leaving it advanced
@@ -348,14 +348,19 @@ export class FeedPublisher {
   private async takeWatermark(state: ConnectionState): Promise<readonly ServerFrame[]> {
     const through = state.watermarkThrough
     if (through === null || state.queue.isDemoted() || through <= state.fromSeq) return []
-    const frame = this.frame(state.fromSeq, through, [])
+    const frame = this.frame(state.fromSeq, through, [], await this.retentionFloor())
     state.watermarkThrough = null
     state.fromSeq = through
     return [frame]
   }
 
   /** THE one frame constructor. A second one would be invisible to every golden fixture. */
-  private frame(fromSeq: number, seq: number, changes: readonly ChangeEnvelope[]): DeltaFrame {
+  private frame(
+    fromSeq: number,
+    seq: number,
+    changes: readonly ChangeEnvelope[],
+    minAvailableSeq: number,
+  ): DeltaFrame {
     const identity = this.identity()
     return {
       kind: 'delta',
@@ -363,7 +368,7 @@ export class FeedPublisher {
       epoch: identity.epoch,
       fromSeq,
       seq,
-      minAvailableSeq: this.retentionFloor(),
+      minAvailableSeq,
       changes,
     }
   }
@@ -377,8 +382,8 @@ export class FeedPublisher {
    * (see `DeltaFrame.minAvailableSeq`): the value 0 must mean "nothing pruned"
    * and never "nobody published it".
    */
-  private retentionFloor(): number {
-    return this.deps.retention.minAvailableSeq() ?? 0
+  private async retentionFloor(): Promise<number> {
+    return (await this.deps.retention.minAvailableSeq()) ?? 0
   }
 
   private identity(): ReturnType<FeedIdentityRegistry['current']> {
