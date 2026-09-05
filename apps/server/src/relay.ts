@@ -199,7 +199,7 @@ export type { MemoryBreakdown }
  * when the closure is made.
  */
 interface SessionRegistryBoot {
-  readonly settings: ReturnType<SessionStore['settings']['getSettings']>
+  readonly settings: Awaited<ReturnType<SessionStore['settings']['getSettings']>>
 }
 
 interface SessionRegistryOptions {
