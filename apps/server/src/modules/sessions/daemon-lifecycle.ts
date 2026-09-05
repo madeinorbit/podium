@@ -39,18 +39,22 @@ export interface SessionDaemonLifecyclePorts {
   store: SessionStore
   memory: Pick<MemoryService, 'ensureConversationIdentity' | 'linkConversationSegment'>
   observationLeases: SessionObservationLeases
-  persist(session: Session, additionalWrite?: () => void): void
+  persist(session: Session, additionalWrite?: () => void | Promise<void>): Promise<void>
   /** Mutate the durable half as a DRAFT and persist it [POD-3330]. */
   write(
     session: Session,
     mutate: (draft: SessionDurableState) => void,
-    additionalWrite?: () => void,
-  ): void
+    additionalWrite?: () => Promise<void>,
+  ): Promise<void>
   /** A draft, for a write whose own mutation has to happen inside the
    *  transaction (an outcome the store decides) or whose derived values must
    *  describe the row being written. */
   draft(session: Session): SessionDurableState
-  persistDraft(session: Session, draft: SessionDurableState, additionalWrite?: () => void): void
+  persistDraft(
+    session: Session,
+    draft: SessionDurableState,
+    additionalWrite?: () => Promise<void>,
+  ): Promise<void>
   broadcastSessions(): void
   onSessionActivity(sessionId: SessionId): void
   onSessionAttention(sessionId: SessionId): void
@@ -178,20 +182,21 @@ export class SessionDaemonLifecycle {
   private get observationLeases(): SessionObservationLeases {
     return this.ports.observationLeases
   }
-  private readonly persist = (session: Session, additionalWrite?: () => void): void =>
-    this.ports.persist(session, additionalWrite)
-  private readonly write = (
+  private readonly persist = async (
+    session: Session,
+    additionalWrite?: () => Promise<void>,
+  ): Promise<void> => await this.ports.persist(session, additionalWrite)
+  private readonly write = async (
     session: Session,
     mutate: (draft: SessionDurableState) => void,
-    additionalWrite?: () => void,
-  ): void => this.ports.write(session, mutate, additionalWrite)
-  private readonly draft = (session: Session): SessionDurableState =>
-    this.ports.draft(session)
-  private readonly persistDraft = (
+    additionalWrite?: () => Promise<void>,
+  ): Promise<void> => await this.ports.write(session, mutate, additionalWrite)
+  private readonly draft = (session: Session): SessionDurableState => this.ports.draft(session)
+  private readonly persistDraft = async (
     session: Session,
     draft: SessionDurableState,
-    additionalWrite?: () => void,
-  ): void => this.ports.persistDraft(session, draft, additionalWrite)
+    additionalWrite?: () => Promise<void>,
+  ): Promise<void> => await this.ports.persistDraft(session, draft, additionalWrite)
   private readonly broadcastSessions = (): void => this.ports.broadcastSessions()
   private readonly emitSessionExited = (
     sessionId: SessionId,
@@ -217,11 +222,13 @@ export class SessionDaemonLifecycle {
    * stream. The latter is the lossless copy: `agentExit` is an ordinary daemon
    * frame and may be dropped while the daemon/server link is reconnecting.
    */
-  private async handleAgentExit(msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>): Promise<void> {
+  private async handleAgentExit(
+    msg: Extract<SessionsDaemonFrame, { type: 'agentExit' }>,
+  ): Promise<void> {
     const before = this.sessions.get(msg.sessionId)
     const lease =
       this.observationLeases.get(msg.sessionId) ??
-      await this.store.observationCheckpoints.get(msg.sessionId)
+      (await this.store.observationCheckpoints.get(msg.sessionId))
     // A replacement reuses the Podium session id but owns a newer runtime
     // generation. Reject any exit not authored by the currently fenced
     // process, including one repeated after the replacement has bound live.
@@ -236,8 +243,7 @@ export class SessionDaemonLifecycle {
     // Older terminal/daemon frames have no generation. Preserve their
     // pre-bind duplicate guard; an already-exited row is inert either way.
     if (
-      (msg.observerGeneration === undefined &&
-        this.unfencedExitsAwaitingBind.has(msg.sessionId)) ||
+      (msg.observerGeneration === undefined && this.unfencedExitsAwaitingBind.has(msg.sessionId)) ||
       before?.status === 'exited'
     ) {
       return
@@ -257,7 +263,7 @@ export class SessionDaemonLifecycle {
     // LIVE effects — stopping output, the `agentExit` frame, the unread re-arm —
     // still happen where the durable write happens, which is the point at which
     // the death is a fact.
-    if (s) this.write(s, (draft) => s.onExit(msg.code, draft))
+    if (s) await this.write(s, (draft) => s.onExit(msg.code, draft))
     this.broadcastSessions()
     // The assistant digest remains a legacy consumer in this vertical slice.
     this.ports.onSessionActivity(msg.sessionId)
@@ -356,7 +362,7 @@ export class SessionDaemonLifecycle {
           // live rows as `reconnecting`, and an in-memory-only selection is gone
           // by then, so a headless session came back looking like it had a
           // terminal. This write is what survives the restart.
-          this.persist(s)
+          await this.persist(s)
           this.broadcastSessions()
         }
         break
@@ -375,7 +381,7 @@ export class SessionDaemonLifecycle {
           // persisted for the same reason: a server restart rehydrates from the
           // row, and `geometryState` is `unknown` precisely because the row is
           // last-known rather than confirmed.
-          this.persist(session)
+          await this.persist(session)
           this.broadcastSessions()
         }
         break
@@ -429,7 +435,7 @@ export class SessionDaemonLifecycle {
           // the top of the case so the flip to `live` and the row that says so
           // land together; the drain below still sees `live`, because the draft
           // is installed the moment the commit returns.
-          this.write(s, (draft) => s.markLive(msg.cmd, msg.geometry, draft))
+          await this.write(s, (draft) => s.markLive(msg.cmd, msg.geometry, draft))
           this.autoContinue.onSessionLive(s.sessionId)
         }
         this.broadcastSessions()
@@ -484,7 +490,7 @@ export class SessionDaemonLifecycle {
         // by their observer generation across both attempts.
         this.unfencedExitsAwaitingBind.delete(msg.sessionId)
         const s = this.sessions.get(msg.sessionId)
-        if (s) this.write(s, (draft) => s.markSpawnError(msg.message, draft))
+        if (s) await this.write(s, (draft) => s.markSpawnError(msg.message, draft))
         this.broadcastSessions()
         // markSpawnError sets status 'exited' — notify lock auto-release etc.
         // [spec:SP-85d1] like any other real death.
@@ -515,7 +521,7 @@ export class SessionDaemonLifecycle {
         if (s && s.status !== 'exited') {
           this.autoContinue.onSessionGone(s.sessionId) // cancel any armed retry promptly, not at the next backoff tick
           // the durable host is gone; the agent died with it
-          this.write(s, (draft) => s.onExit(-1, draft))
+          await this.write(s, (draft) => s.onExit(-1, draft))
           // Real death (not a boot-time probe of an already-exited row) —
           // notify lock auto-release etc. [spec:SP-85d1]. onExit keeps a
           // hibernated row 'hibernated'; only a genuine exit fires. (Fresh
@@ -537,7 +543,7 @@ export class SessionDaemonLifecycle {
         if (!['starting', 'live', 'reconnecting'].includes(session.status)) break
         const lease =
           this.observationLeases.get(msg.sessionId) ??
-          await this.store.observationCheckpoints.get(msg.sessionId)
+          (await this.store.observationCheckpoints.get(msg.sessionId))
         const expectedProvider = harnessObservationProvider(session.agentKind)
         const sessionBindingCompatible =
           session.resume === undefined ||
@@ -585,7 +591,9 @@ export class SessionDaemonLifecycle {
           break
         }
 
-        let outcome: ReturnType<typeof this.store.observationCheckpoints.rebindExact> | undefined
+        let outcome:
+          | Awaited<ReturnType<typeof this.store.observationCheckpoints.rebindExact>>
+          | undefined
         try {
           // THE DRAFT IS CUT HERE AND MUTATED INSIDE THE TRANSACTION [POD-3330],
           // because what this write assigns is decided BY the transaction: the
@@ -594,7 +602,7 @@ export class SessionDaemonLifecycle {
           // the live session (which is what this did) both published the new ref
           // before the commit and left it standing when the commit threw.
           const draft = this.draft(session)
-          this.persistDraft(session, draft, async () => {
+          await this.persistDraft(session, draft, async () => {
             outcome = await this.store.observationCheckpoints.rebindExact({
               sessionId: session.sessionId,
               provider: msg.provider,
@@ -750,7 +758,7 @@ export class SessionDaemonLifecycle {
           outcome.checkpoint,
           draft,
         )
-        this.persistDraft(session, draft, async () => {
+        await this.persistDraft(session, draft, async () => {
           await this.store.observationCheckpoints.save(outcome.checkpoint)
           if (acceptedLive) {
             if (candidateFacts) {
@@ -879,13 +887,9 @@ export class SessionDaemonLifecycle {
         // top of the previous one, so it is exactly the write a second writer
         // must not be able to capture half-finished.
         const draft = this.draft(session)
-        session.setAgentState(
-          msg.state,
-          !this.ports.runtimeEvents?.ready(session.sessionId),
-          draft,
-        )
+        session.setAgentState(msg.state, !this.ports.runtimeEvents?.ready(session.sessionId), draft)
         const next = draft.agentState ?? msg.state
-        this.persistDraft(session, draft)
+        await this.persistDraft(session, draft)
         this.autoContinue.onStateChange(msg.sessionId, next)
         // A dedicated per-session message — not broadcastSessions(). Hook events
         // fire often (TodoWrite mutations, turn boundaries, across all sessions);

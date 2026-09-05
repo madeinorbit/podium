@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import { CAP_DAEMON_GEOMETRY_APPLIED } from '@podium/protocol'
 /**
  * STARTING A SESSION (POD-1396, from POD-1385's god-object audit).
@@ -95,6 +96,8 @@ import type { SessionView } from './view'
  * actually chose them, which the request may have left to defaults — and it
  * carries both `machine` and `machineId`, a duality the aggregate does not have.
  */
+const log = createLogger('server:sessions:start')
+
 export interface SessionSpawnResult {
   sessionId: SessionId
   agentId: string
@@ -222,8 +225,10 @@ export class SessionStart {
     const requested = AgentKind.safeParse(input.agentKind)
     const agentKind = requested.success
       ? requested.data
-      : resolveRole(await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()), 'coding')
-          .harness
+      : resolveRole(
+          await this.ports.store.settings.getSettingsFor(this.ports.settingsViewer()),
+          'coding',
+        ).harness
     // Resolve the target machine before model validation — the catalog is
     // machine-keyed (POD-1123), so we validate against THIS spawn's host.
     if (input.loginHarness && agentKind !== 'shell') {
@@ -270,7 +275,9 @@ export class SessionStart {
     // Session ownership is declared per class: an issue-owned child inherits the
     // issue owner; otherwise a binding resolves to its on-behalf-of human. The
     // final fallback exists only for legacy in-process callers with no binding.
-    const parentOwner = issueId ? (await this.ports.store.issues.getIssue(issueId))?.ownerUserId : undefined
+    const parentOwner = issueId
+      ? (await this.ports.store.issues.getIssue(issueId))?.ownerUserId
+      : undefined
     const bindingOwner =
       input.binding?.principal.kind === 'user'
         ? input.binding.principal.userId
@@ -324,7 +331,10 @@ export class SessionStart {
     preparedInstructions.commit()
     if (taskPrompt !== undefined && !useArgv) {
       this.ports.setSessionDraft?.({ sessionId: spawned.sessionId, text: taskPrompt })
-      const queued = this.ports.queueInitialPrompt({ sessionId: spawned.sessionId, text: taskPrompt })
+      const queued = this.ports.queueInitialPrompt({
+        sessionId: spawned.sessionId,
+        text: taskPrompt,
+      })
       if (!queued.ok) {
         throw new Error(queued.reason ?? 'initial prompt could not be queued')
       }
@@ -470,7 +480,9 @@ export class SessionStart {
         // Shell busy transitions advance lastActiveAt (their only activity
         // signal); persist so recency is durable across a restart, then
         // rebroadcast.
-        this.ports.repository.persist(session)
+        void this.ports.repository.persist(session).catch((error) => {
+          log.error('failed to persist session activity', { error })
+        })
         this.ports.broadcastSessions()
       },
       ...(input.resume ? { resume: input.resume } : {}),
@@ -505,7 +517,7 @@ export class SessionStart {
     // is built from rather than onto the live object beside it.
     const draft = this.ports.repository.draft(session)
     const additionalWrite = await this.ports.view.prepareRefAllocation(draft)
-    this.ports.repository.persistDraft(session, draft, additionalWrite)
+    await this.ports.repository.persistDraft(session, draft, additionalWrite)
     // FENCE BEFORE SEND. The frame below carries the generation this allocates;
     // sending first would tell the daemon to observe under one that does not
     // exist yet.
@@ -543,7 +555,7 @@ export class SessionStart {
       geometry: { ...DEFAULT_GEOMETRY },
       ...launch,
       // The suffix is durable session attribution only; launch with the selected account unchanged.
-      ...await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId),
+      ...(await this.ports.launchConfig.accountEnv(input.agentKind, selectedAccountId)),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
       ...(input.runtimeContract !== undefined ? { runtimeContract: input.runtimeContract } : {}),
     })

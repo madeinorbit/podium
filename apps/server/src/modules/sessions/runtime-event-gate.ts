@@ -63,7 +63,7 @@ export interface RuntimeEventGatePorts {
     | 'saveRuntimeEventProjectionCursor'
   >
   session(sessionId: SessionId): RuntimeEventSessionProjection | undefined
-  persist(sessionId: SessionId, additionalWrite: () => void): void
+  persist(sessionId: SessionId, additionalWrite: () => void | Promise<void>): Promise<void>
   /** {@link persist} with the session's own durable write applied to the draft
    *  the commit persists [POD-3330]. The transaction body is handed that same
    *  draft, because the state projection inside it writes the session too — and
@@ -71,8 +71,8 @@ export interface RuntimeEventGatePorts {
   write(
     sessionId: SessionId,
     mutate: (draft: SessionDurableState) => void,
-    additionalWrite: (draft: SessionDurableState) => void,
-  ): void
+    additionalWrite: (draft: SessionDurableState) => void | Promise<void>,
+  ): Promise<void>
   /** Apply the normalized state event atomically with its runtime-event row. */
   state?(input: {
     sessionId: SessionId
@@ -178,7 +178,7 @@ export class RuntimeEventGate {
       if (decision.kind === 'rejected') return decision
       if (decision.kind === 'duplicate') {
         if (decision.rebaseGeneration) {
-          this.ports.persist(sessionId, async () => {
+          await this.ports.persist(sessionId, async () => {
             await this.ports.events.saveRuntimeEventCheckpoint({
               ...current,
               observerGeneration: event.observerGeneration,
@@ -205,7 +205,7 @@ export class RuntimeEventGate {
     // They used to be assigned onto the live session in the two statements
     // above this one, where a durable failure left them standing and a
     // concurrent writer could pick them up and commit them.
-    this.ports.write(
+    await this.ports.write(
       sessionId,
       (draft) => {
         session.recordRuntimeActivity(event.at, draft)
@@ -251,7 +251,7 @@ export class RuntimeEventGate {
   }
 
   async ready(sessionId: SessionId): Promise<boolean> {
-    return await this.ports.events.runtimeEventCheckpoint(sessionId) !== null
+    return (await this.ports.events.runtimeEventCheckpoint(sessionId)) !== null
   }
 
   async recent(sessionId: SessionId): Promise<readonly RuntimeEvent[]> {
@@ -283,7 +283,7 @@ export class RuntimeEventGate {
   }
 
   private async scheduleBoardProjection(): Promise<void> {
-    void (await this.replayBoardProjection()).catch((err) => {
+    void this.replayBoardProjection().catch((err) => {
       log.warn('runtime board projection paused before cursor advance', { err })
     })
   }

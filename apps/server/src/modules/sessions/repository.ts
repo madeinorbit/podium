@@ -388,7 +388,9 @@ export class SessionRepository {
   /** The durable baseline this session would be rolled back to: the staged
    *  state if this span installed one, else the committed one. */
   private durableBaselineFor(sessionId: SessionId): SessionDurableState | undefined {
-    return this.stagedSessionStates.peek(sessionId)?.value ?? this.capturedSessionStates.get(sessionId)
+    return (
+      this.stagedSessionStates.peek(sessionId)?.value ?? this.capturedSessionStates.get(sessionId)
+    )
   }
 
   /** The committed durable baseline for a session, for tests and diagnostics.
@@ -450,7 +452,10 @@ export class SessionRepository {
    * on semantic activity (agentState transitions, shell busy flips) and is the
    * authoritative recency delta clients order the sidebar by.
    */
-  persist(session: Session, additionalWrite: () => void = () => {}): void {
+  async persist(
+    session: Session,
+    additionalWrite: () => void | Promise<void> = async () => {},
+  ): Promise<void> {
     // NOTHING DURABLE CHANGED, so the draft is the live state [POD-3330]. This
     // is the write the activity flush, the volatile sweep and the boot install
     // make: they advance the live half (or nothing at all) and want the row
@@ -458,7 +463,7 @@ export class SessionRepository {
     // instead, so that its change is never on the shared object before it is
     // committed. Same body, same commit tail — the difference is only where the
     // fields being written came from.
-    this.persistDraft(session, session.captureDurableState(), additionalWrite)
+    await this.persistDraft(session, session.captureDurableState(), additionalWrite)
   }
 
   /**
@@ -484,22 +489,22 @@ export class SessionRepository {
    * returns, so a reader in the window sees only committed state and a failed
    * commit has nothing to undo.
    */
-  write(
+  async write(
     session: Session,
-    mutate: (draft: SessionDurableState) => void | (() => void),
-    additionalWrite: () => void = () => {},
-  ): void {
+    mutate: (draft: SessionDurableState) => void | (() => void | Promise<void>),
+    additionalWrite: () => void | Promise<void> = async () => {},
+  ): Promise<void> {
     const draft = this.draft(session)
     const extra = mutate(draft)
-    this.persistDraft(session, draft, extra ?? additionalWrite)
+    await this.persistDraft(session, draft, extra ?? additionalWrite)
   }
 
   /** {@link write} for a draft the caller already holds. */
-  persistDraft(
+  async persistDraft(
     session: Session,
     draft: SessionDurableState,
-    additionalWrite: () => void = () => {},
-  ): void {
+    additionalWrite: () => void | Promise<void> = async () => {},
+  ): Promise<void> {
     const pending = this.pendingVolatileSessions.get(session.sessionId)
     // THE DRAFT IS WHAT THIS WRITE PERSISTS [POD-3259, POD-3330]. The row and
     // the declared change are projected from it rather than from the live
@@ -511,9 +516,9 @@ export class SessionRepository {
     const installedVersion = this.volatileSessionMutationVersion
     let changes: MetadataChange[]
     try {
-      const committed = this.ports.ledger.commit({
+      const committed = await this.ports.ledger.commit({
         write: async () => {
-          additionalWrite()
+          await additionalWrite()
           await this.store.sessions.upsertSession(session.toRow(draft))
         },
         changes: async () => [
@@ -568,7 +573,7 @@ export class SessionRepository {
   /** Persist every session whose activity counters advanced since the last flush.
    *  Keeps the per-frame / per-keystroke path off the DB — the timer above calls
    *  this on a coarse interval, so a busy session writes at most once per tick. */
-  flushActivity(): void {
+  async flushActivity(): Promise<void> {
     // SINGLE-FLIGHT (POD-3258). The dirty flag is cleared AFTER the persist, so
     // it is only a fence while the pair is one uninterrupted turn. Once the
     // persist awaits, an overlapping flush walks the same map, finds the same
@@ -582,7 +587,7 @@ export class SessionRepository {
     try {
       for (const s of this.sessions.values()) {
         if (s.terminal.activityDirty) {
-          this.persist(s)
+          await this.persist(s)
           s.terminal.clearActivityDirty()
         }
       }
@@ -639,7 +644,12 @@ export class SessionRepository {
       sendInput: (input) =>
         this.ports.toPtyInput(this.sessions.get(r.id)?.machineId ?? machineId, input),
       onActivity: () => {
-        this.persist(session)
+        void this.persist(session).catch((error) =>
+          log.error('failed to persist restored session activity', {
+            sessionId: session.sessionId,
+            error,
+          }),
+        )
         this.broadcastSessions()
       },
       durableLabel: r.durableLabel,
@@ -705,7 +715,7 @@ export class SessionRepository {
        * the reviewer with the daemon held down. `driverId` is deliberately NOT
        * restored beside it: that one names a live handle, and this row has none
        * until a daemon rebinds.
-      */
+       */
       ...(r.selectedDriverId ? { selectedDriverId: r.selectedDriverId } : {}),
       ...(r.requestedDriverId ? { requestedDriverId: r.requestedDriverId } : {}),
       // Passed through, never defaulted: a row from before this column exists
@@ -717,12 +727,12 @@ export class SessionRepository {
     // Terminal drivers use this durable bridge when the legacy observation path
     // is fenced; provider-file deltas can still overlap and upsert by cursor/id.
     const runtimeItems =
-      (await this.ports.store?.events
-        .listRuntimeTranscriptEvents(session.sessionId))
-        .flatMap((event) => {
+      (await this.ports.store?.events.listRuntimeTranscriptEvents(session.sessionId)).flatMap(
+        (event) => {
           const item = runtimeTranscriptItemFromEvent(event)
           return item ? [item] : []
-        }) ?? []
+        },
+      ) ?? []
     if (runtimeItems.length > 0) session.terminal.applyRuntimeDelta(runtimeItems)
     return session
   }
@@ -788,7 +798,7 @@ export class SessionRepository {
           this.autoContinue.onSessionRestored(session.sessionId, checkpoint.turnState)
         }
       }
-      if (r.status !== session.status) this.persist(session)
+      if (r.status !== session.status) await this.persist(session)
     }
     // One-shot boot backfill (#474): name pre-upgrade historical sessions at a
     // deliberate point instead of burst-allocating inside the first listSessions.
@@ -799,7 +809,7 @@ export class SessionRepository {
       // transaction, so it has to assign into the state `toRow` reads.
       const draft = this.draft(session)
       const additionalWrite = await this.view.prepareRefAllocation(draft)
-      if (additionalWrite) this.persistDraft(session, draft, additionalWrite)
+      if (additionalWrite) await this.persistDraft(session, draft, additionalWrite)
     }
     // Re-seed the transient queued-send counts from the durable queue — the rows
     // survived the restart (that's their point); delivery re-arms when the daemon

@@ -677,7 +677,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     persist: (sessionId, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
       if (!session) throw new Error(`runtime event session disappeared: ${sessionId}`)
-      bag.repository.persist(session, additionalWrite)
+      return bag.repository.persist(session, additionalWrite)
     },
     write: (sessionId, mutate, additionalWrite) => {
       const session = bag.sessions.get(sessionId)
@@ -686,7 +686,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
       // projection below writes the session from inside it, and the row is built
       // from the draft, so a projection that assigned onto the live object would
       // commit an event whose session write never reached the row.
-      bag.repository.write(session, (draft: SessionDurableState) => {
+      return bag.repository.write(session, (draft: SessionDurableState) => {
         mutate(draft)
         return () => additionalWrite(draft)
       })

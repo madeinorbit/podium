@@ -1,3 +1,4 @@
+import { createLogger } from '@podium/logger'
 import type {
   AccountId,
   Attribution,
@@ -36,6 +37,8 @@ import {
 export type SessionWirePrincipal = SessionStatePrincipal
 
 /** Trusted server-only fields used to route queued work without a wire projection. */
+const log = createLogger('server:sessions')
+
 export interface SessionRoutingFacts {
   sessionId: SessionId
   issueId?: IssueId
@@ -297,7 +300,11 @@ export class SessionLifecycle {
     input: ReceiptSendInput,
     onReceipt?: (receipt: TurnReceipt) => void,
   ): Promise<{ ok: boolean; queued?: boolean; position?: number; reason?: string }> =>
-    await this.receiptSender.send(via, input, onReceipt ? (receipt) => onReceipt(receipt) : undefined)
+    await this.receiptSender.send(
+      via,
+      input,
+      onReceipt ? (receipt) => onReceipt(receipt) : undefined,
+    )
   /**
    * THE PROTOCOL ASK SINK (POD-2023), assigned by the composition root once the
    * interactions aggregate exists.
@@ -312,10 +319,7 @@ export class SessionLifecycle {
    * than queued — a server-family session cannot exist before the aggregate
    * does, because nothing can spawn one until the server is serving.
    */
-  interactionAsk?: (msg: {
-    sessionId: SessionId
-    interaction: PendingInteraction
-  }) => void
+  interactionAsk?: (msg: { sessionId: SessionId; interaction: PendingInteraction }) => void
   /**
    * THE FAILURE SINK (POD-2414), late-bound for the same reason and on the same
    * terms as {@link interactionAsk} above.
@@ -358,7 +362,11 @@ export class SessionLifecycle {
   private readonly activityHistory!: SessionActivityHistory
   // Single timer that persists only sessions whose activity counters advanced
   // since the last tick — keeps the per-frame / per-keystroke path off the DB.
-  private readonly activityFlushTimer = setInterval(() => this.repository.flushActivity(), 12_000)
+  private readonly activityFlushTimer = setInterval(() => {
+    void this.repository.flushActivity().catch((error) => {
+      log.error('failed to flush session activity', { error })
+    })
+  }, 12_000)
   constructor(private readonly deps: SessionLifecycleDeps) {
     // ORDER UNCHANGED — body lives in session-wiring.ts as a verbatim move.
     // scripts/server-construction-order.ts walks that interior (POD-1411).
@@ -370,7 +378,7 @@ export class SessionLifecycle {
   authorizeQueuedInputAtApply(...args: any[]): any {
     return (this.sessionAuthz as any).authorizeQueuedInputAtApply(...args)
   }
-  dispose(): void {
+  async dispose(): Promise<void> {
     // Ahead of everything else: it owns coalescing timers, and a timer that
     // fires into a half-disposed registry publishes into sessions that are gone.
     this.turnPreviews?.dispose()
@@ -387,7 +395,7 @@ export class SessionLifecycle {
     this.browserOpen.dispose()
     // Graceful server restarts must not lose a resize that landed inside the
     // coalescing window; persist dirty geometry/activity before closing [spec:SP-1a0b].
-    this.repository.flushActivity()
+    await this.repository.flushActivity()
     // Run any coalesced session broadcast + pending delta batch. The durable
     // change log is already complete (commits happen at persist time, #256);
     // this just drains the in-flight fan-out tail deterministically.
@@ -399,11 +407,14 @@ export class SessionLifecycle {
   onSessionProjection(listener: (event: SessionProjectionEvent) => void): () => void {
     return this.repository.onSessionProjection(listener)
   }
-  persist(session: Session, additionalWrite: () => void = () => {}): void {
-    this.repository.persist(session, additionalWrite)
+  async persist(
+    session: Session,
+    additionalWrite: () => void | Promise<void> = () => {},
+  ): Promise<void> {
+    await this.repository.persist(session, additionalWrite)
   }
-  flushActivity(): void {
-    this.repository.flushActivity()
+  async flushActivity(): Promise<void> {
+    await this.repository.flushActivity()
   }
   async loadFromStore(): Promise<void> {
     await this.repository.loadFromStore()
@@ -435,7 +446,9 @@ export class SessionLifecycle {
   async agentConcurrencyHistory(): Promise<AgentConcurrencyHistoryResult> {
     return await this.concurrencyHistory.history()
   }
-  async sessionActivityHistory(sessionIds: readonly SessionId[]): Promise<SessionActivityHistoryResult> {
+  async sessionActivityHistory(
+    sessionIds: readonly SessionId[],
+  ): Promise<SessionActivityHistoryResult> {
     return await this.activityHistory.history(sessionIds)
   }
   /** The member sessions of ONE issue, without wiring the rest [POD-1639].
@@ -451,7 +464,10 @@ export class SessionLifecycle {
   /** ONE session by id, without wiring the rest [POD-1646]. Same value as
    *  `listSessions(p).find((s) => s.sessionId === id)`; see
    *  {@link SessionView.byId}. */
-  async sessionById(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): Promise<SessionMeta | undefined> {
+  async sessionById(
+    sessionId: SessionId,
+    forPrincipal?: SessionWirePrincipal,
+  ): Promise<SessionMeta | undefined> {
     return await this.view.byId(sessionId, forPrincipal)
   }
   /** A known set of sessions, without wiring the rest [POD-2322]. Same rows
@@ -465,7 +481,10 @@ export class SessionLifecycle {
   }
   /** One session's `spawnedBy`, skipping the wire entirely [POD-1646];
    *  see {@link SessionView.spawnedByOf}. */
-  async sessionSpawnedBy(sessionId: SessionId, forPrincipal?: SessionWirePrincipal): Promise<string | undefined> {
+  async sessionSpawnedBy(
+    sessionId: SessionId,
+    forPrincipal?: SessionWirePrincipal,
+  ): Promise<string | undefined> {
     return await this.view.spawnedByOf(sessionId, forPrincipal)
   }
   /**
