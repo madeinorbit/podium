@@ -11,13 +11,34 @@
  * production entry point rather than a locally wrapped copy of it.
  */
 
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { postCommit } from './executor'
-import { afterCommit } from './synchronous-span'
+import {
+  afterCommit,
+  restoreSpanEffectSinks,
+  type SpanEffectSinks,
+  setSpanEffectSinks,
+} from './synchronous-span'
+
+let installed: SpanEffectSinks | undefined
+const reported: string[] = []
+
+function collectSinks(): void {
+  installed = setSpanEffectSinks({
+    onReportFailure: (_error, label) => reported.push(`report:${label}`),
+  })
+}
+
+afterEach(() => {
+  if (installed) restoreSpanEffectSinks(installed)
+  installed = undefined
+  reported.length = 0
+})
 
 describe('afterCommit outside a span', () => {
   it('runs the step now, and unguarded', () => {
+    collectSinks()
     const ran: string[] = []
     afterCommit(() => void ran.push('now'), 'x')
     expect(ran).toEqual(['now'])
