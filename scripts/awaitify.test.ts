@@ -17,7 +17,7 @@
  */
 import ts from 'typescript'
 import { describe, expect, it } from 'vitest'
-import { type AwaitSite, applyEdits, awaitEdits } from './awaitify'
+import { type AwaitSite, applyEdits, awaitEdits, isPromiseMatcherSubject } from './awaitify'
 
 /** The pass emits text, not an AST. Whether that text parses is the property. */
 function syntaxErrors(body: string): string[] {
@@ -99,5 +99,37 @@ describe('awaitEdits', () => {
     expect(out).toContain('const v = (await openTestStore(f)).sessions.get(id)')
     expect(out).not.toContain(';')
     expect(syntaxErrors(out)).toEqual([])
+  })
+})
+
+
+describe('promise matcher subjects', () => {
+  function callNamed(source: string, name: string): ts.CallExpression {
+    const file = ts.createSourceFile('fixture.ts', source, ts.ScriptTarget.Latest, true)
+    let found: ts.CallExpression | undefined
+    const visit = (node: ts.Node): void => {
+      if (
+        found === undefined &&
+        ts.isCallExpression(node) &&
+        ts.isIdentifier(node.expression) &&
+        node.expression.text === name
+      ) {
+        found = node
+      }
+      ts.forEachChild(node, visit)
+    }
+    visit(file)
+    if (found === undefined) throw new Error(`${name} call not found`)
+    return found
+  }
+
+  it('preserves the promise passed to an existing rejects matcher', () => {
+    const call = callNamed("await expect(store.transact(fn)).rejects.toThrow('rolled back')", 'transact')
+    expect(isPromiseMatcherSubject(call)).toBe(true)
+  })
+
+  it('still identifies an ordinary call as needing an await', () => {
+    const call = callNamed('const value = store.transact(fn)', 'transact')
+    expect(isPromiseMatcherSubject(call)).toBe(false)
   })
 })

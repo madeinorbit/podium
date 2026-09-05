@@ -359,11 +359,44 @@ function acceptsPromise(t: ts.Type): boolean {
   return t.getProperty('then') !== undefined
 }
 
-/** Is this call already inside an `await`, directly or through parentheses? */
+/** Is this call the promise handed to an existing `.rejects`/`.resolves` matcher? */
+export function isPromiseMatcherSubject(call: ts.Node): boolean {
+  let argument = call
+  while (argument.parent !== undefined && ts.isParenthesizedExpression(argument.parent)) {
+    argument = argument.parent
+  }
+  const expectCall = argument.parent
+  if (
+    expectCall === undefined ||
+    !ts.isCallExpression(expectCall) ||
+    !ts.isIdentifier(expectCall.expression) ||
+    expectCall.expression.text !== 'expect' ||
+    !expectCall.arguments.includes(argument as ts.Expression)
+  ) {
+    return false
+  }
+  let chain: ts.Node = expectCall
+  while (chain.parent !== undefined) {
+    const parent = chain.parent
+    if (ts.isPropertyAccessExpression(parent) && parent.expression === chain) {
+      if (parent.name.text === 'rejects' || parent.name.text === 'resolves') return true
+      chain = parent
+      continue
+    }
+    if (ts.isCallExpression(parent) && parent.expression === chain) {
+      chain = parent
+      continue
+    }
+    break
+  }
+  return false
+}
+
+/** Is this call already awaited, or intentionally handed to a promise matcher? */
 function alreadyAwaited(call: ts.Node): boolean {
   let n: ts.Node = call
   while (n.parent !== undefined && ts.isParenthesizedExpression(n.parent)) n = n.parent
-  return ts.isAwaitExpression(n.parent)
+  return ts.isAwaitExpression(n.parent) || isPromiseMatcherSubject(call)
 }
 
 /** Does this expression sit at the very start of its statement? */
