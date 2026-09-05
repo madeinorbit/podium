@@ -1435,6 +1435,25 @@ so nesting produces `sp1`, `sp2`, … Callback code inside a transaction that ru
 sp1` would release DRIZZLE's savepoint at that depth and collapse the boundary the outer arm depends
 on. Rule 35a hands the nested arm to drizzle, so it hands away this defence with it.
 
+**MEASURED 2026-09-05, AND I WAS WRONG. THE DEFENCE HOLDS.** POD-3263 ported the test to
+`executor.test.ts` and it PASSES, with the callback running `SAVEPOINT sp1` inside the span. I ran it
+myself, varied the colliding name across `sp0`/`sp1`/`sp2`/`sp3` — all pass — and confirmed the
+assertion is live rather than vacuous by flipping its expectation, which reds it with
+`expected [ 'outer' ] to deeply equal [ 'outer', 'inner' ]`.
+
+WHY I WAS WRONG, and it is a premise error worth keeping. Drizzle emits `sp${nestedIndex}` in ITS OWN
+session implementations (`d1`, `tursodatabase-sync`). The bun executor does not take that path: it
+names its own boundaries in `bun-driver.ts` as ``const boundary = `podium_batch_${nextBatchBoundary++}` ``
+— monotonic, per session, and namespaced. So the namespacing defence was never drizzle's to lose; it
+moved from `podium_sp_<depth>` to `podium_batch_<n>` and still holds. I reasoned from a grep of
+node_modules instead of from the path that actually issues the savepoint.
+
+The rule below stands as a WARNING for the driver paths that DO use drizzle's own transaction
+implementation — Turso in E.5 — where `sp<n>` is what gets emitted and the collision is real. Re-run
+that ported test against the libsql/Turso driver before enabling it.
+
+ORIGINAL TEXT, kept for the record:
+
 THIS IS A MEASUREMENT, NOT YET A DECISION. Port that exact test to the executor's transaction path and
 RUN it. I expect it to fail. Report the result before deleting anything:
 
