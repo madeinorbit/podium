@@ -224,10 +224,11 @@ export function createStoreExecutor<TClient>(
    * blind to exactly the work it exists to wait for.
    */
   async function retire(runner: PostCommitRunner): Promise<void> {
-    void (await runner.effectsSettled()).then(
-      () => runners.delete(runner),
-      () => runners.delete(runner),
-    )
+    try {
+      await runner.effectsSettled()
+    } finally {
+      runners.delete(runner)
+    }
   }
 
   function newRunner(): PostCommitRunner {
@@ -710,7 +711,10 @@ export function createStoreExecutor<TClient>(
 
   const rootClient = driver.client(ambientRouter, ambientBatchRouter)
   const rootQueries = isQueryClient(rootClient)
-    ? storeQueriesOver(rootClient, async (fn) => await transact(async (tx) => fn(tx.drizzle)))
+    ? storeQueriesOver(
+        rootClient,
+        async (fn) => await transact(async (tx) => fn(tx.drizzle as unknown as QueryClient)),
+      )
     : undefined
   const root: RootStoreExecutor<TClient> = {
     drizzle: rootClient,

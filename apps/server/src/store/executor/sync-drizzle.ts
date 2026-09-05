@@ -161,7 +161,7 @@ function buildStoreDrizzle(client: QueryClient) {
       }
       if (statementMethod === 'get') {
         const row = await client.writeGet(sql, ...params)
-        return { rows: row }
+        return { rows: row === undefined ? [] : [row] }
       }
       return { rows: await client.writeAll(sql, ...params) }
     },
@@ -208,7 +208,11 @@ export function storeQueriesOver(
     },
     createOrJoinTransaction: async (fn) => {
       const tx = transactionScope.getStore()
-      if (tx) return tx.transaction((inner) => transactionScope.run(inner, fn))
+      if (tx) {
+        return await tx.transaction(async (inner) =>
+          await transactionScope.run(inner as unknown as FullStoreDrizzle, fn),
+        )
+      }
       return transact(async (txClient) => transactionScope.run(buildStoreDrizzle(txClient), fn))
     },
   }
