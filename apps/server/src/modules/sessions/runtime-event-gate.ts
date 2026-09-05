@@ -264,7 +264,7 @@ export class RuntimeEventGate {
   async replayBoardProjection(): Promise<void> {
     this.projectionRequested = true
     if (this.projectionDrain) return this.projectionDrain
-    const drain = await this.runBoardProjection()
+    const drain = this.runBoardProjection()
     this.projectionDrain = drain
     return drain
   }

@@ -584,12 +584,12 @@ export class MessagingService implements TelegramNoticePort {
     this.dispatching.add(key)
     const turnOwner = turnTypingOwner(key)
     this.acquireTyping(turnOwner, next.source)
-    void (await this.deps.superagent
+    void this.deps.superagent
       .sendTurn({
         ownerUserId: next.ownerUserId,
         threadId: asThreadId(threadId),
         text: this.turnText(next),
-      }))
+      })
       .then(() => {
         this.dispatching.delete(key)
         queue?.shift()
