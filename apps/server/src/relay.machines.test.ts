@@ -13,6 +13,7 @@ import type { ControlMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { userCommandPrincipal } from './command-principal'
 import { SessionRegistry } from './relay'
+import { withReadScope } from './store/executor/read-scope'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
@@ -52,6 +53,135 @@ async function regWithTwoDaemons() {
   reg.gateway.attachDaemon('m2', (msg) => m2.push(msg))
   return { reg, m1, m2 }
 }
+
+const SHARED_MACHINE = asMachineId('shared-auth-machine')
+const COLLEAGUE = asUserId('user:colleague')
+
+async function regWithRevocableMachineGrant() {
+  const store = await openTestStore(':memory:')
+  await store.machines.upsertMachine({
+    id: SHARED_MACHINE,
+    name: 'shared',
+    hostname: 'shared',
+    tokenHash: 'shared-token',
+    ownerUserId: COLLEAGUE,
+  })
+  await store.machines.setMachineInventory(
+    SHARED_MACHINE,
+    JSON.stringify({
+      os: 'linux',
+      arch: 'x64',
+      agents: [
+        { kind: 'codex', installed: true, login: { state: 'out' } },
+        { kind: 'claude-code', installed: true, login: { state: 'out' } },
+      ],
+      tools: [],
+    }),
+  )
+  await store.grants.upsert({
+    resourceKind: 'machine',
+    resourceId: SHARED_MACHINE,
+    grantee: FIRST_ADMIN_USER_ID,
+    verb: 'use',
+    owner: COLLEAGUE,
+    visibility: 'owned-compute',
+    createdAt: '2026-09-05T00:00:00.000Z',
+    actorKind: 'user',
+    actorId: COLLEAGUE,
+    onBehalfOf: COLLEAGUE,
+  })
+  await store.grants.upsert({
+    resourceKind: 'machine',
+    resourceId: SHARED_MACHINE,
+    grantee: FIRST_ADMIN_USER_ID,
+    verb: 'see',
+    owner: COLLEAGUE,
+    visibility: 'owned-compute',
+    createdAt: '2026-09-05T00:00:00.001Z',
+    actorKind: 'user',
+    actorId: COLLEAGUE,
+    onBehalfOf: COLLEAGUE,
+  })
+  const reg = SessionRegistry.create(store, undefined, { instanceId: 'default' })
+  reg.gateway.attachDaemon(SHARED_MACHINE, () => {})
+  reg.gateway.routeDaemonFrame(SHARED_MACHINE, {
+    type: 'inventoryReport',
+    machineId: SHARED_MACHINE,
+    inventory: {
+      os: 'linux',
+      arch: 'x64',
+      agents: [
+        { kind: 'codex', installed: true, login: { state: 'out' } },
+        { kind: 'claude-code', installed: true, login: { state: 'out' } },
+      ],
+      tools: [],
+    },
+  })
+
+  let grantReads = 0
+  const liveGrants = reg.modules.machines.grantsForMachine.bind(reg.modules.machines)
+  const revokeAfterFirstGrantRead = () => {
+    vi.spyOn(reg.modules.machines, 'grantsForMachine').mockImplementation((machineId) => {
+      const snapshot = liveGrants(machineId)
+      grantReads += 1
+      if (grantReads === 1) {
+        store.grants.remove('machine', SHARED_MACHINE, FIRST_ADMIN_USER_ID, 'use')
+      }
+      return snapshot
+    })
+  }
+
+  return { reg, store, grantReads: () => grantReads, revokeAfterFirstGrantRead }
+}
+
+describe('rule 46 grant snapshots at relay composition', () => {
+  it('holds the mail machine grant for one pass and re-reads it for the next pass', async () => {
+    const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
+    revokeAfterFirstGrantRead()
+    const gate = reg.modules.messageGate as unknown as {
+      policyFor?: (principal: typeof TEST_PRINCIPAL) => {
+        machines: { mayUse(machineId: typeof SHARED_MACHINE): boolean }
+      }
+    }
+    const policyFor = gate.policyFor
+    expect(policyFor).toBeTypeOf('function')
+    if (!policyFor) throw new Error('dynamic relay policy is not wired')
+
+    withReadScope(() => {
+      const access = policyFor(TEST_PRINCIPAL).machines
+      expect(access.mayUse(SHARED_MACHINE)).toBe(true)
+      expect(access.mayUse(SHARED_MACHINE)).toBe(true)
+    })
+    expect(grantReads()).toBe(1)
+
+    withReadScope(() => {
+      expect(policyFor(TEST_PRINCIPAL).machines.mayUse(SHARED_MACHINE)).toBe(false)
+    })
+    expect(grantReads()).toBe(2)
+  })
+
+  it('holds the native-login grant through selection and re-reads it for the next login', async () => {
+    const { reg, grantReads, revokeAfterFirstGrantRead } = await regWithRevocableMachineGrant()
+    revokeAfterFirstGrantRead()
+
+    expect(() =>
+      reg.modules.nativeLogin.start({
+        harness: 'codex',
+        ownerUserId: FIRST_ADMIN_USER_ID,
+      }),
+    ).not.toThrow()
+    expect(grantReads()).toBe(1)
+
+    expect(() =>
+      reg.modules.nativeLogin.start({
+        harness: 'claude-code',
+        machineId: SHARED_MACHINE,
+        ownerUserId: FIRST_ADMIN_USER_ID,
+      }),
+    ).toThrow('you do not have access to start login on this machine')
+    expect(grantReads()).toBe(2)
+  })
+})
 
 describe('multi-daemon routing', () => {
   it('routes a spawn to the chosen machine only', async () => {

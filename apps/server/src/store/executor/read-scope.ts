@@ -38,24 +38,14 @@
  * one connection, one SQLite snapshot, held for the scope. The contract does
  * not change across the flip; only what enforces it does.
  *
- * WHETHER AN AUTHORIZATION DECISION MAY BE ANSWERED FROM A SLOT IS PER SITE,
- * and deliberately so. Spec rule 18 leaves open whether ADR 9 D2 rule 4's live
- * obligation is per DECISION or per PASS, and escalates it to the pre-flip
- * checkpoint. This mechanism does not decide it — it is built so that either
- * answer is expressible without changing the mechanism:
+ * AUTHORIZATION READS OPT IN EXPLICITLY. Rule 46 settled the open rule-18
+ * question at per pass: every grant-dependent check in one externally observed
+ * answer uses the lease snapshot, and the next apply opens a fresh scope.
  *
- *   per pass      → the site reads through a slot; every decision in the pass
- *                   is judged against one state.
- *   per decision  → the site does not use a slot; the read goes to the store
- *                   each time, exactly as it does today.
- *
- * Going through a slot is therefore an opt-in a site takes deliberately, never
- * something a scope does to a read on its behalf. `ownershipFromMachines`
- * (`machine-access.ts`) and `grants.listForResource` for machines take no slot
- * and are untouched by this file: they remain per-decision live reads until the
- * rule says otherwise. The feed's own grant reads DO take the per-pass form,
- * which spec §3.5 already rules on ("live means read under the lease that
- * applies or publishes the decision").
+ * `ownershipFromMachinesPerPass` is the machine-grant opt-in. Its row reads go
+ * through a slot in an explicit scope; direct `ownershipFromMachines` remains
+ * live for one-off callers that do not hold a snapshot. The feed's grant reads
+ * also take the per-pass form under the lease that publishes their answer.
  *
  * ---------------------------------------------------------------------------
  * TWO WAYS TO OPEN A SCOPE, ONE CACHE — and one of them is transitional

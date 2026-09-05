@@ -405,7 +405,7 @@ export class MessagingService implements TelegramNoticePort {
    *
    * Reads the binding table LIVE on every message. No cache: unbinding a chat
    * has to take effect on the next message with no invalidation step to forget,
-   * which is the same reason grants are read per-decision rather than snapshot.
+   * the same next-pass freshness rule used by grant snapshots.
    *
    * There is no fallback branch. Not "fall back to the configured chat", not
    * "fall back to the first admin" — D22.2 forbids both by name, and the reason

@@ -16,6 +16,11 @@ import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import type { TRPCError } from '@trpc/server'
 import { describe, expect, it } from 'vitest'
 import type { Capability } from '../../issue-authz'
+import {
+  currentReadScope,
+  inExplicitReadScope,
+  readScopeSlot,
+} from '../../store/executor/read-scope'
 import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from './characterization-support'
 import { applyAuthFromCeiling } from './handlers/context'
@@ -568,6 +573,58 @@ describe('a wake refuses to start a process without `use` on the target machine 
       reason: 'dead-lettered: target is not available',
     })
     expect(h.wakeSpawns).toEqual([])
+  })
+  it('holds one machine-grant snapshot through a wake apply and re-reads on the next apply', async () => {
+    const alice = asMachineId('mac_alices_laptop')
+    const bob = asMachineId('mac_bobs_workstation')
+    const live = new Set([alice, bob])
+    const grantSnapshot = readScopeSlot(() => new Set(live))
+    const h = await mailHarness({
+      placementAtWake: (_message, machineId) => {
+        const usable = inExplicitReadScope() ? currentReadScope().slot(grantSnapshot) : live
+        if (machineId === alice) live.delete(bob)
+        return usable.has(machineId) ? 'allowed' : 'unauthorized'
+      },
+    })
+    const first = h.createIssue({ title: 'same-pass fallback' })
+    h.issues.update(first.id, { machineId: bob })
+    h.put({
+      sessionId: asSessionId('sUnresumable'),
+      issueId: first.id,
+      status: 'hibernated',
+      machineId: alice,
+    })
+    h.transport.ok = false
+    h.transport.reason = 'no resume ref'
+    h.transport.failSessions = ['sUnresumable']
+
+    const applied = h.svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'session', id: 'sUnresumable' },
+        body: 'resurrect elsewhere',
+        lifecycle: 'wake',
+      },
+    )
+    expect(applied.disposition).not.toBe('dead_letter')
+    expect(h.wakeSpawns).toHaveLength(1)
+
+    const next = h.createIssue({ title: 'next apply' })
+    h.issues.update(next.id, { machineId: bob })
+    const denied = h.svc.send(
+      { kind: 'operator' },
+      {
+        to: { kind: 'issue', id: next.id },
+        body: 'try again',
+        lifecycle: 'wake',
+      },
+    )
+    expect(denied).toMatchObject({
+      ok: false,
+      disposition: 'dead_letter',
+      reason: 'dead-lettered: target is not available',
+    })
+    expect(h.wakeSpawns).toHaveLength(1)
   })
 })
 

@@ -66,6 +66,7 @@ import type {
 } from '../../store'
 import type { EventsRepository } from '../../store/events'
 import type { MessagePageCursor, MessagesRepository } from '../../store/messages'
+import { withReadScope } from '../../store/executor/read-scope'
 import type { NotificationFactsRepository } from '../../store/notification-facts'
 import { NotificationArbiter } from '../../store/notification-facts'
 import type { IssueService } from '../issues/service'
@@ -918,11 +919,7 @@ export class MessageDeliveryService {
    * Clamps/brakes downgrade the axes BEFORE the row is written, so the row
    * always holds the effective values and `clamped_from` the requested ones.
    */
-  send(
-    from: MessageSender,
-    input: MessageSendInput,
-    opts?: MessageSendOptions,
-  ): MessageSendResult {
+  send(from: MessageSender, input: MessageSendInput, opts?: MessageSendOptions): MessageSendResult {
     const issues = this.deps.issues
     // Resolve an issue recipient ref (#N / seq / id) to the canonical id up
     // front so the stored to_id is stable.
@@ -1138,8 +1135,7 @@ export class MessageDeliveryService {
     // boundary from a live read in either case; never freeze the enqueue ordinal
     // into the message row.
     const position =
-      outcome.position ??
-      (outcome.queued ? this.queuePositionForMessage(message) : undefined)
+      outcome.position ?? (outcome.queued ? this.queuePositionForMessage(message) : undefined)
     this.scheduleQueuedWakeRetry(message)
     return {
       message: this.deps.messages.getMessage(id) ?? message,
@@ -1173,6 +1169,13 @@ export class MessageDeliveryService {
    * pass one.
    */
   private attemptDelivery(
+    message: MessageRow,
+    opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
+  ): DeliveryOutcome {
+    return withReadScope(() => this.attemptDeliveryInScope(message, opts))
+  }
+
+  private attemptDeliveryInScope(
     message: MessageRow,
     opts?: { viaSweep?: boolean; awaitReceipt?: boolean },
   ): DeliveryOutcome {
