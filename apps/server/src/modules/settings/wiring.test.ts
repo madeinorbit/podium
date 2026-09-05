@@ -59,8 +59,8 @@ async function harness(role: UserRole | undefined) {
   // Override only after boot has loaded the real migration account. The command
   // gate must see the requested role (including unreadable), while unrelated
   // session-state bootstrap remains a production-valid account read.
-  const users = store.users as { roleOf: (id: UserId) => UserRole | undefined }
-  users.roleOf = (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
+  const users = store.users as { roleOf: (id: UserId) => Promise<UserRole | undefined> }
+  users.roleOf = async (id: string) => (id === FIRST_ADMIN_USER_ID ? role : undefined)
   const repos = new RepoRegistry(registry, registry.sessionStore)
   const superagent = await SuperagentService.create(registry.modules, repos, registry.sessionStore)
   return {
