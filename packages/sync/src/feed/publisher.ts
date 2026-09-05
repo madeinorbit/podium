@@ -282,6 +282,7 @@ export class FeedPublisher {
   ): Promise<void> {
     await this.deps.identity.resolve()
     const audience = principalRoutingId(principal)
+    const minAvailableSeq = await this.retentionFloor()
     this.published = Math.max(this.published, delivery.throughSeq)
     for (const id of connectionIds) {
       const state = this.connections.get(id)
@@ -291,7 +292,7 @@ export class FeedPublisher {
         rescopeTo(state, this.identity(), delivery.reason)
         continue
       }
-      await this.emitTo(state, delivery.changes, delivery.throughSeq)
+      await this.emitTo(state, delivery.changes, delivery.throughSeq, minAvailableSeq)
     }
   }
 
@@ -299,6 +300,7 @@ export class FeedPublisher {
     state: ConnectionState,
     changes: readonly ScopedChange[],
     throughSeq: number,
+    minAvailableSeq: number,
   ): Promise<void> {
     // Nothing to certify: this connection is already at or past the range. Not an
     // error — a connection that attached at the head legitimately sees this.
@@ -321,7 +323,7 @@ export class FeedPublisher {
       return
     }
 
-    const frame = this.frame(state.fromSeq, throughSeq, rows, await this.retentionFloor())
+    const frame = this.frame(state.fromSeq, throughSeq, rows, minAvailableSeq)
     const admission = state.queue.offer(frame)
     if (admission.kind === 'demoted') {
       // The connection's position is now MEANINGLESS, and leaving it advanced
