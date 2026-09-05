@@ -62,17 +62,17 @@ const USER: UserId = asUserId('user:sole')
 function makeSecrets() {
   const rows = new Map<string, { value: string; updatedAt: string }>()
   return {
-    get: (key: ServerSecretKey): string | undefined => rows.get(key)?.value,
-    getOrEmpty: (key: ServerSecretKey): string => rows.get(key)?.value ?? '',
-    set: (key: ServerSecretKey, value: string, updatedAt: string): void => {
+    get: async (key: ServerSecretKey): Promise<string | undefined> => rows.get(key)?.value,
+    getOrEmpty: async (key: ServerSecretKey): Promise<string> => rows.get(key)?.value ?? '',
+    set: async (key: ServerSecretKey, value: string, updatedAt: string): Promise<void> => {
       if (value === '') rows.delete(key)
       else rows.set(key, { value, updatedAt })
     },
-    clear: (key: ServerSecretKey): void => {
+    clear: async (key: ServerSecretKey): Promise<void> => {
       rows.delete(key)
     },
-    apiKeyFor: (provider: string): string | undefined => rows.get(`apiKeys.${provider}`)?.value,
-    presence: (): SecretPresenceWire[] =>
+    apiKeyFor: async (provider: string): Promise<string | undefined> => rows.get(`apiKeys.${provider}`)?.value,
+    presence: async (): Promise<SecretPresenceWire[]> =>
       SERVER_SECRET_KEYS.map((key) => ({
         key,
         present: rows.has(key),
@@ -136,7 +136,7 @@ describe('the blob write may not carry a secret', () => {
         apiKeys: { ...current.apiKeys, openai: 'sk-smuggled-through-the-blob' },
       }),
     ).not.toThrow(/sk-smuggled/)
-    expect(secrets.get('apiKeys.openai')).toBeUndefined()
+    expect(await secrets.get('apiKeys.openai')).toBeUndefined()
   })
 
   it('a BLANK secret member does not clear the stored one — the blob cannot express a clear', async () => {
@@ -155,7 +155,7 @@ describe('the blob write may not carry a secret', () => {
     expect(() =>
       service.setSettingsFor(USER, { ...current, apiKeys: { ...current.apiKeys, anthropic: '' } }),
     ).not.toThrow()
-    expect(secrets.get('apiKeys.anthropic')).toBe('sk-configured')
+    expect(await secrets.get('apiKeys.anthropic')).toBe('sk-configured')
   })
 
   it('ACCEPTS a stale client posting back the material it was served', async () => {
@@ -173,7 +173,7 @@ describe('the blob write may not carry a secret', () => {
       }),
     ).not.toThrow()
     expect((await service.getSettingsFor(USER)).sidebar.repoSort).toBe('alphabetical')
-    expect(secrets.get('apiKeys.openai')).toBe('sk-served-earlier')
+    expect(await secrets.get('apiKeys.openai')).toBe('sk-served-earlier')
   })
 
   it('refuses EVERY secret key, not just the one someone remembered', async () => {
@@ -211,7 +211,7 @@ describe('setSecret / clearSecret are the only path to material', () => {
     const wire = await service.setSecret('apiKeys.openai', 'sk-live-value')
     // POD-419: the material lands in the server-only keyed store, and NOT in the
     // blob — which is the object that round-trips to a browser.
-    expect(secrets.get('apiKeys.openai')).toBe('sk-live-value')
+    expect(await secrets.get('apiKeys.openai')).toBe('sk-live-value')
     expect((await service.getSettingsFor(USER)).apiKeys.openai).toBe('')
     expect(JSON.stringify(await service.getSettingsFor(USER))).not.toContain('sk-live-value')
     expect(wire.key).toBe('apiKeys.openai')
@@ -232,7 +232,7 @@ describe('setSecret / clearSecret are the only path to material', () => {
     await service.setSecret('integrations.linearApiKey', 'lin_api_x')
     const wire = await service.clearSecret('integrations.linearApiKey')
     // Absence is the ROW being absent, not a blank value.
-    expect(secrets.get('integrations.linearApiKey')).toBeUndefined()
+    expect(await secrets.get('integrations.linearApiKey')).toBeUndefined()
     expect(wire).toEqual({
       key: 'integrations.linearApiKey',
       present: false,
@@ -294,7 +294,7 @@ describe('the preference patch applies by path and validates by model', () => {
     expect((await service.getSettingsFor(USER)).apiKeys.openai).toBe('')
     // …and it did not reach the keyed store either, which is where a write that
     // slipped past the blob guard would now actually land.
-    expect(secrets.get('apiKeys.openai')).toBeUndefined()
+    expect(await secrets.get('apiKeys.openai')).toBeUndefined()
   })
 })
 
@@ -309,10 +309,10 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   /** A service whose minting user can CHANGE between mint and redeem — the only
    *  way to tell "the binding follows the mint" apart from "the binding follows
    *  whoever is around", which on a one-user instance look identical. */
-  function ceremony(): {
+  async function ceremony(): Promise<{
     service: SettingsService
     bound: TelegramChatBinding[]
-  } {
+  }> {
     const st = makeStore()
     // The bot token lives in the KEYED SECRET STORE, not in the settings blob:
     // POD-419 moved every secret consumer onto `secrets`, and the ceremony reads
@@ -321,7 +321,11 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // "Telegram bot token is required before setup" before reaching the
     // ownership assertion these tests exist to make.
     const secretStore = makeSecrets()
-    secretStore.set('notifications.telegramBotToken', 'bot:tok', '2026-07-30T12:00:00.000Z')
+    await secretStore.set(
+      'notifications.telegramBotToken',
+      'bot:tok',
+      '2026-07-30T12:00:00.000Z',
+    )
     const bound: TelegramChatBinding[] = []
     const service = new SettingsService(st, secretStore, new EventBus(), {
       telegramBindings: { upsert: (b) => bound.push(b) },
@@ -349,7 +353,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // because the user travelled inside the mint. If it says Bob, ownership is
     // flowing from the redeeming call — POD-1079's failure mode, where anyone
     // holding a setupId completes someone else's ceremony and takes the chat.
-    const { service, bound } = ceremony()
+    const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(ALICE)
     const result = await service.pollTelegramSetup(setup.setupId)
 
@@ -362,7 +366,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   it('binds to BOB when BOB is the one who minted — the mint is read, not a constant', async () => {
     // The positive control the previous test needs: without it, an
     // implementation that hard-coded Alice would pass it perfectly.
-    const { service, bound } = ceremony()
+    const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(BOB)
     await service.pollTelegramSetup(setup.setupId)
 
@@ -370,7 +374,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   })
 
   it('records the chat the claimant messaged from', async () => {
-    const { service, bound } = ceremony()
+    const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(ALICE)
     await service.pollTelegramSetup(setup.setupId)
     expect(bound[0]?.chatId).toBe('555')
@@ -381,7 +385,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
     // Telegram. Without this, "the binding names the minter" could be satisfied
     // by a service that binds at MINT time, which would let anyone who can start
     // a ceremony bind a chat they do not control.
-    const { service, bound } = ceremony()
+    const { service, bound } = await ceremony()
     await service.startTelegramSetup(ALICE)
     expect(bound).toEqual([])
   })
@@ -389,13 +393,13 @@ describe('the binding names the MINTER, never whoever redeems', () => {
   it('an unknown setupId is `expired`, indistinguishable from a stale one', async () => {
     // The contract's error-consistency cell: telling them apart would say
     // whether someone else's ceremony is currently open.
-    const { service, bound } = ceremony()
+    const { service, bound } = await ceremony()
     expect(await service.pollTelegramSetup('never-minted')).toEqual({ status: 'expired' })
     expect(bound).toEqual([])
   })
 
   it('a redeemed mint is single-use — the second redemption is `expired`', async () => {
-    const { service, bound } = ceremony()
+    const { service, bound } = await ceremony()
     const setup = await service.startTelegramSetup(ALICE)
     expect((await service.pollTelegramSetup(setup.setupId)).status).toBe('connected')
     expect(await service.pollTelegramSetup(setup.setupId)).toEqual({ status: 'expired' })
