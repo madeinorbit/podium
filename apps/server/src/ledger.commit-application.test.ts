@@ -101,7 +101,9 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     ).rejects.toThrow('enclosing span failed')
 
     // The database forgot the row…
-    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain('c-rolled-back')
+    expect((await store.conversations.index.search({})).map((r) => r.id)).not.toContain(
+      'c-rolled-back',
+    )
     // …and the install that would have claimed it never happened.
     expect(applied).toEqual([])
   })
@@ -134,20 +136,22 @@ describe("Ledger.commit's apply arm runs on the outermost commit (POD-3366)", ()
     const store = await openTestStore(':memory:')
     const ledger = makeLedger(store)
     const seen: string[] = []
-    const foldedIds = () =>
-      ledger.authority.snapshot('conversation').map((v) => (v as { id: string }).id)
+    const foldedIds = async () =>
+      (await ledger.authority.snapshot('conversation')).map((v) => (v as { id: string }).id)
 
     await ledger.commit({
       write: async () => {},
       changes: () => [upsert('c-order-outer')],
-      apply: () => seen.push(foldedIds().includes('c-order-outer') ? 'after' : 'before'),
+      apply: async () =>
+        seen.push((await foldedIds()).includes('c-order-outer') ? 'after' : 'before'),
     })
 
     await store.transact(async () => {
       await ledger.commit({
         write: async () => {},
         changes: () => [upsert('c-order-inner')],
-        apply: () => seen.push(foldedIds().includes('c-order-inner') ? 'after' : 'before'),
+        apply: async () =>
+          seen.push((await foldedIds()).includes('c-order-inner') ? 'after' : 'before'),
       })
     })
 

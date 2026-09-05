@@ -119,15 +119,15 @@ function ctxFor(
         'immediate',
       )!,
 
-    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
-      modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
+      await modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
+    discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {
-      listSessions: () => modules.sessions.listSessions(),
+      listSessions: async () => await modules.sessions.listSessions(),
       issues: modules.issues,
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },
@@ -171,7 +171,11 @@ describe('draft launch compensation', () => {
 
   it('does not create a draft when an existing issue takes precedence', async () => {
     const o = await makeOracle()
-    const issue = await o.reg.issues.create({ repoPath: '/p', title: 'Existing work', startNow: false })
+    const issue = await o.reg.issues.create({
+      repoPath: '/p',
+      title: 'Existing work',
+      startNow: false,
+    })
 
     const created = await dispatchSessionCommand(ctxFor(o, human(FIRST_ADMIN_USER_ID)), 'create', {
       agentKind: 'codex',
@@ -547,7 +551,9 @@ describe('invisible fails exactly like nonexistent', () => {
       await dispatchSessionCommand(visible, 'kill', { sessionId: GHOST }),
     )
     // And the hidden session is still alive: the refusal refused, it did not act.
-    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
+    expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([
+      sessionId,
+    ])
   })
 
   it('a relayed send to a hidden session throws the same message as one to a ghost', async () => {

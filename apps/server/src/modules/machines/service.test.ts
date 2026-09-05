@@ -190,6 +190,7 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     // so the throw is caused by `use`, not by the fixture being unrunnable. And
     // the offline machine is here too, proving the two refusals are different
     // messages rather than one generic "unavailable".
+    // DECISION POD-3465
     expect(() =>
       serviceListing([{ ...runnable, online: true }]).requireAgent(MACHINE, 'codex'),
     ).not.toThrow()
@@ -231,18 +232,19 @@ describe('MachinesService.requireAgent refuses rather than falling through (POD-
     })
   })
 
-  test('a shell on a denied machine is refused too — spawning is `use`', () => {
+  test('a shell on a denied machine is refused too — spawning is `use`', async () => {
     // Shells skip the harness checks, and that shortcut must not skip the access
     // gate. Counterfactual: the same shell request on an undenied machine passes.
+    // DECISION POD-3465
     expect(() =>
       serviceListing([{ id: MACHINE, name: 'vmi', online: true }]).requireAgent(MACHINE, 'shell'),
     ).not.toThrow()
-    expect(() =>
+    await expect(
       serviceListing([{ id: MACHINE, name: 'vmi', online: true, use: 'denied' }]).requireAgent(
         MACHINE,
         'shell',
       ),
-    ).toThrow(/do not have access/)
+    ).rejects.toThrow(/do not have access/)
   })
 })
 
@@ -407,9 +409,9 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
       'native:codex:fp-a',
     )
-    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
-      'native:codex:fp-b',
-    )
+    expect(
+      await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b')),
+    ).toBe('native:codex:fp-b')
   })
 
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
@@ -428,8 +430,10 @@ describe('MachinesService inventory persistence (#222)', () => {
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send)
 
-    expect((await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
-    expect(() => svc.requireAgent(MACHINE, 'claude-code')).toThrow(
+    expect(
+      (await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory,
+    ).toBeUndefined()
+    await expect(svc.requireAgent(MACHINE, 'claude-code')).rejects.toThrow(
       "machine 'Builder' is still probing whether claude-code is installed",
     )
 
@@ -463,7 +467,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     await svc.attach(MACHINE, recorder().send)
 
     await svc.recordInventory(MACHINE, INV)
-    expect(() => svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).toThrow(
+    await expect(svc.resolveMachineForAgent(MACHINE, '/repo', 'codex')).rejects.toThrow(
       "codex is not installed on machine 'Builder'",
     )
 
@@ -553,8 +557,8 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // Called once per client on every broadcast. Reading `ownershipRows()`
       // here is the load-bearing part: it goes through the SAME record cache the
       // transfer must have dropped, so a stale entry lands in this array.
-      machinesForPrincipal: () => {
-        broadcasts.push(svc.ownershipRows().find((r) => r.id === MACHINE)?.ownerUserId)
+      machinesForPrincipal: async () => {
+        broadcasts.push((await svc.ownershipRows()).find((r) => r.id === MACHINE)?.ownerUserId)
         return []
       },
     } satisfies MachinesDeps)
@@ -641,9 +645,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
       // SECOND PRINCIPAL. The gate refuses this in `fleetAuthzFailure`; the
       // service refuses it again, because a service reachable from more than one
       // transport must not depend on every one of them remembering.
-      expect(() =>
+      await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_B)),
-      ).toThrow('only the machine owner may transfer ownership')
+      ).rejects.toThrow('only the machine owner may transfer ownership')
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBe(OWNER_A)
       // A refused transfer is SILENT — no ledger append, no broadcast.
       expect(broadcasts).toEqual([])
@@ -656,9 +660,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('an unknown recipient is refused rather than quarantining the machine', async () => {
     const { svc, store, dir, broadcasts } = await transferWorld()
     try {
-      expect(() =>
+      await expect(
         svc.transferMachineOwnership(MACHINE, asUserId('user:typo'), asUserId(OWNER_A)),
-      ).toThrow('unknown user: user:typo')
+      ).rejects.toThrow('unknown user: user:typo')
       // The hazard this closes: an owner the ledger records but `userExists`
       // cannot resolve is quarantined by the next reconcile — owner null, usable
       // by nobody. Nothing was appended, so nothing to reconcile.
@@ -673,9 +677,9 @@ describe('ownership transfer projects onto the fleet (POD-1480)', () => {
   test('transferring to the current owner is refused, not a silent no-op broadcast', async () => {
     const { svc, dir, broadcasts } = await transferWorld()
     try {
-      expect(() =>
+      await expect(
         svc.transferMachineOwnership(MACHINE, asUserId(OWNER_A), asUserId(OWNER_A)),
-      ).toThrow('machine is already owned by that user')
+      ).rejects.toThrow('machine is already owned by that user')
       expect(broadcasts).toEqual([])
     } finally {
       rmSync(dir, { recursive: true, force: true })
@@ -812,8 +816,10 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
       // Alice's machine whether the adopter meant to take it themselves or hand
       // it to someone else. Neither recipient makes the machine unowned.
-      expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
-      expect(() => svc.adoptMachine(MACHINE, asUserId(ALICE))).toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow(
+        'machine already has an owner',
+      )
+      await expect(svc.adoptMachine(MACHINE, asUserId(ALICE))).rejects.toThrow(
         'machine already has an owner',
       )
 
@@ -838,7 +844,9 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
-      expect(() => svc.adoptMachine(MACHINE, asUserId(BOB))).toThrow('machine already has an owner')
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow(
+        'machine already has an owner',
+      )
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }
@@ -847,7 +855,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown recipient is refused rather than re-quarantining the machine', async () => {
     const { svc, store, dir } = await adoptWorld()
     try {
-      expect(() => svc.adoptMachine(MACHINE, asUserId('user:typo'))).toThrow(
+      await expect(svc.adoptMachine(MACHINE, asUserId('user:typo'))).rejects.toThrow(
         'unknown user: user:typo',
       )
       // The hazard: adopting to an unresolvable id appends an owner the next
@@ -863,7 +871,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
   test('an unknown machine is refused before anything is read', async () => {
     const { svc, dir } = await adoptWorld()
     try {
-      expect(() => svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).toThrow(
+      await expect(svc.adoptMachine(asMachineId('ghost'), asUserId(ALICE))).rejects.toThrow(
         "unknown machine 'ghost'",
       )
     } finally {

@@ -44,8 +44,8 @@ function fakeWs() {
     on: (ev: string, cb: (...a: unknown[]) => void) => {
       ;(handlers[ev] ??= []).push(cb)
     },
-    emit: (ev: string, ...a: unknown[]) => {
-      for (const handler of handlers[ev] ?? []) handler(...a)
+    emit: async (ev: string, ...a: unknown[]) => {
+      for (const handler of handlers[ev] ?? []) await handler(...a)
     },
   }
 }
@@ -79,7 +79,7 @@ const authenticatedSocket = async (caps: string[]) => {
   const reg = await registryWithMachine()
   const ws = fakeWs()
   wireDaemonSocket(ws as never, reg)
-  ws.emit(
+  await ws.emit(
     'message',
     frame({
       type: 'peerHello',
@@ -101,7 +101,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
         caps,
         credential: { kind: 'machineToken', token: 'tok', machineHint: 'm1' },
       })
-    const negotiated = receiveDaemonFrame(
+    const negotiated = await receiveDaemonFrame(
       createDaemonAcceptor({
         machines: reg.modules.machines,
         connectionId: 'caps-negotiated',
@@ -115,7 +115,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       reply: { caps: [CAP_TERMINAL_OUTPUT_BINARY_V1] },
     })
 
-    const unoffered = receiveDaemonFrame(
+    const unoffered = await receiveDaemonFrame(
       createDaemonAcceptor({
         machines: reg.modules.machines,
         connectionId: 'caps-unoffered',
@@ -135,7 +135,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',
@@ -160,7 +160,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const route = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',
@@ -177,7 +177,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
       sourceFrames: 3,
     }
     const encoded = encodeBinaryEnvelope(metadata, payload)
-    ws.emit('message', Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength))
+    await ws.emit('message', Buffer.from(encoded.buffer, encoded.byteOffset, encoded.byteLength))
     expect(route).toHaveBeenCalledOnce()
     const batch = route.mock.calls[0]![1]
     expect(batch).toMatchObject({ sessionId: 'binary-session', sourceFrames: 3 })
@@ -190,7 +190,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',
@@ -244,8 +244,8 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const { reg, ws } = await authenticatedSocket([])
     const route = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     const binary = binaryFrame({ v: 1, type: 'ptyOutput', sessionId: 's1', sourceFrames: 1 })
-    ws.emit('message', binary)
-    ws.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
+    await ws.emit('message', binary)
+    await ws.emit('message', frame({ type: 'agentExit', sessionId: 'session-1', code: 0 }))
     expect(ws.terminate).toHaveBeenCalledOnce()
     expect(route).not.toHaveBeenCalled()
   })
@@ -273,7 +273,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     ['oversized', Buffer.allocUnsafe(BINARY_ENVELOPE_MAX_MESSAGE_BYTES + 1)],
   ])('terminates negotiated %s binary output', async (_name, binary) => {
     const { ws } = await authenticatedSocket([CAP_TERMINAL_OUTPUT_BINARY_V1])
-    ws.emit('message', binary)
+    await ws.emit('message', binary)
     expect(ws.terminate).toHaveBeenCalledOnce()
   })
 
@@ -281,7 +281,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const { reg, ws } = await authenticatedSocket([])
     const routeOutput = vi.spyOn(reg.gateway, 'routeDaemonOutput').mockImplementation(() => {})
     const routeFrame = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
-    ws.emit(
+    await ws.emit(
       'message',
       frame({ type: 'agentFrameBatch', sessionId: 'legacy', frames: ['AP8=', ''] }),
     )
@@ -301,7 +301,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const reg = await registryWithMachine('m1', 'tok', 'server-key-1')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',
@@ -322,7 +322,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',
@@ -342,7 +342,7 @@ describe('the daemon socket speaks the permanent envelope', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({
         type: 'peerHello',
@@ -366,11 +366,17 @@ describe('handshake order at the real gateway', () => {
     const reg = await registryWithMachine()
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
 
     const before = ws.sent.length
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     const after = ws.sent.slice(before).map((s) => JSON.parse(s) as { type: string })
     // A rejection, not a second helloOk — a live connection's principal is fixed.
     expect(after.some((m) => m.type === 'helloRejected')).toBe(true)
@@ -382,11 +388,17 @@ describe('handshake order at the real gateway', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     // Wrong token first …
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'nope', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'nope', hostname: 'box' }),
+    )
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
     // … then the right one on the SAME socket. The daemon treats a rejection as
     // terminal (daemon.ts blocks, no reconnect loop) and so does the gateway.
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
     expect(attach).not.toHaveBeenCalled()
   })
 
@@ -395,8 +407,11 @@ describe('handshake order at the real gateway', () => {
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
-    ws.emit('message', frame({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }))
+    await ws.emit(
+      'message',
+      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
+    )
+    await ws.emit('message', frame({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }))
     expect(onMsg).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),
       expect.objectContaining({ type: 'agentExit' }),
@@ -411,7 +426,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     const attach = vi.spyOn(reg.gateway, 'attachDaemon')
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    ws.emit(
+    await ws.emit(
       'message',
       frame({ type: 'hello', machineId: 'm-someone-elses', token: 'tok', hostname: 'evil' }),
     )
@@ -422,7 +437,7 @@ describe('payload identity is inert at the real MachinesService', () => {
   it('a token with no machine hint fails closed rather than scanning', async () => {
     const reg = await registryWithMachine()
     const directory = createMachineDirectory(reg.modules.machines)
-    expect(directory.verifyMachineToken('tok')).toBeNull()
+    expect(await directory.verifyMachineToken('tok')).toBeNull()
   })
 
   it('pairing passes the peer name through and mints a token once', async () => {
@@ -435,7 +450,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     })
     const code = pairing.mint({})
     const directory = createMachineDirectory(reg.modules.machines)
-    const paired = directory.redeemPairCode(code, {
+    const paired = await directory.redeemPairCode(code, {
       machineId: asMachineId('m-new'),
       name: 'New Box',
       hostname: 'new.local',
@@ -443,7 +458,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     expect(paired).toMatchObject({ machine: 'm-new', name: 'New Box' })
     expect(paired).toMatchObject({ issuedToken: expect.any(String), updatePubkey: 'server-key-1' })
     // Single use.
-    expect(directory.redeemPairCode(code, { machineId: asMachineId('m-new') })).toBeNull()
+    expect(await directory.redeemPairCode(code, { machineId: asMachineId('m-new') })).toBeNull()
   })
 
   /**
@@ -531,7 +546,7 @@ describe('payload identity is inert at the real MachinesService', () => {
     // Collision refused BEFORE redeem, so the same code still admits a NEW id
     // (the allowance branch — without it the guard could be "refuse all pairs").
     const directory = createMachineDirectory(machines)
-    const paired = directory.redeemPairCode(code, {
+    const paired = await directory.redeemPairCode(code, {
       machineId: asMachineId('attacker-fresh'),
       name: 'Attacker Box',
       hostname: 'evil.local',
@@ -546,7 +561,7 @@ describe('the machine principal carries owner and grants, and fails closed witho
   it('an existing machine row has no owner yet, so it grants `use` to nobody', async () => {
     const reg = await registryWithMachine()
     const directory = createMachineDirectory(reg.modules.machines)
-    const resolved = directory.verifyMachineToken('tok', 'm1', { hostname: 'box' })
+    const resolved = await directory.verifyMachineToken('tok', 'm1', { hostname: 'box' })
     expect(resolved).toMatchObject({ machine: 'm1', owner: null, grants: [] })
     // The all-in-one guard: authenticating to the server confers no execute on the
     // host machine, and an owner-less row confers it on nobody at all.
