@@ -19,6 +19,7 @@ import {
   checkManifestFile,
   checkPlaneLeakAll,
   checkPrincipalFree,
+  checkProjectionSqlIdentifiers,
   checkRepositoryDbCapture,
   checkSessionBindingFieldAccess,
   checkSqlRawLiteral,
@@ -63,6 +64,7 @@ function realRepoViolations(): Violation[] {
       out.push(
         ...checkStoreRawHandles(file, source),
         ...checkRepositoryDbCapture(file, source),
+        ...checkProjectionSqlIdentifiers(file, source),
         ...checkDrizzleTransaction(file, source),
         ...checkDrizzleImportHome(file, source),
         ...checkSqlRawLiteral(file, source),
@@ -1295,6 +1297,49 @@ describe('repository-db-capture (POD-3221 B1)', () => {
 
   it('is quiet on the real repository', () => {
     expect(realRepoViolations().filter((v) => v.rule === 'repository-db-capture')).toEqual([])
+  })
+})
+
+describe('projection-sql-identifier (POD-3221 rule 36b)', () => {
+  const REPO = 'apps/server/src/store/widgets.ts'
+
+  it('defeat: names the bare outer column when the inner table gains the same column', () => {
+    const source = [
+      "const parents = sqliteTable('parents', { id: integer('id') })",
+      "const children = sqliteTable('children', { id: integer('id'), parentId: integer('parent_id') })",
+      'const childCount = sql<number>`(SELECT COUNT(*) FROM ${children} c WHERE ${children.parentId} = ${parents.id})`',
+      'const projection = { id: parents.id, childCount }',
+      'db.select(projection).from(parents).all()',
+    ].join('\n')
+
+    const violations = checkProjectionSqlIdentifiers(REPO, source)
+    expect(violations.map((violation) => violation.rule)).toEqual(['projection-sql-identifier'])
+    expect(violations[0]?.specifier).toBe('parents.id')
+    expect(violations[0]?.message).toContain('same-named `id` column')
+    expect(
+      checkFile(REPO, source).some((violation) => violation.rule === 'projection-sql-identifier'),
+    ).toBe(true)
+  })
+
+  it('accepts the explicit outer identifier and the inner table columns', () => {
+    const source = [
+      "const childCount = sql<number>`(SELECT COUNT(*) FROM ${children} c WHERE ${children.parentId} = ${sql.identifier('parents')}.${sql.identifier('id')})`",
+      'db.select({ childCount }).from(parents).all()',
+    ].join('\n')
+    expect(checkProjectionSqlIdentifiers(REPO, source)).toEqual([])
+  })
+
+  it('does not flag drizzle helpers, plain columns, WHERE fragments, or composed fragments', () => {
+    const source = [
+      'const correlated = sql<number>`(SELECT COUNT(*) FROM ${children} c WHERE ${children.parentId} = ${parents.id})`',
+      'const composed = sql<number>`${correlated}`',
+      'db.select({ id: parents.id, maximum: max(parents.id), distinct: countDistinct(parents.id), composed }).from(parents).where(correlated).all()',
+    ].join('\n')
+    expect(checkProjectionSqlIdentifiers(REPO, source)).toEqual([])
+  })
+
+  it('is quiet on the real repository', () => {
+    expect(realRepoViolations().filter((v) => v.rule === 'projection-sql-identifier')).toEqual([])
   })
 })
 
