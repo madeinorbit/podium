@@ -55,7 +55,7 @@
 import { type AnyCommandContract, SETTINGS_CONTRACTS } from '@podium/commands'
 import { isAdminGrade, type UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
 import { spawnedByParentSessionId } from '@podium/model'
 import { type Context, mods } from '../../trpc'
 import { isSettingsCommand, type SettingsCommandName } from './registry'
@@ -158,7 +158,7 @@ export function settingsAuthzFailure(
  */
 export async function settingsAuthzDeps(ctx: Context): Promise<SettingsAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = resolvePrincipal(ctx.capability, {
+  const principal = await resolvePrincipalAsync(ctx.capability, {
     parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure

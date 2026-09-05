@@ -17,7 +17,7 @@
 import { READ_POSITION_CONTRACTS, type ReadPositionContractName } from '@podium/commands'
 import type { UserId, UserRole } from '@podium/model'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
 import { spawnedByParentSessionId } from '@podium/model'
 import type { Context } from '../../trpc'
 import { mods } from '../../trpc'
@@ -62,7 +62,7 @@ export function readPositionAuthzFailure(
 /** Resolve principal + live role from a tRPC context (never from payload). */
 export async function readPositionAuthzDeps(ctx: Context): Promise<ReadPositionAuthzDeps> {
   const sessions = mods(ctx).sessions
-  const principal = resolvePrincipal(ctx.capability, {
+  const principal = await resolvePrincipalAsync(ctx.capability, {
     parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure

@@ -202,6 +202,39 @@ const MAX_CHAIN_DEPTH = 64
  * without is the cookie/in-process operator channel (a human). Neither reads
  * anything from payload.
  */
+export interface AsyncDelegationIndex {
+  parentSessionOf(sessionId: SessionId): SessionId | undefined | Promise<SessionId | undefined>
+  onBehalfOfFor?(sessionId: SessionId): UserId | undefined | Promise<UserId | undefined>
+}
+
+/** Resolve a principal where the live delegation index reads durable async state. */
+export async function resolvePrincipalAsync(
+  capability: Capability,
+  delegations: AsyncDelegationIndex,
+): Promise<CommandPrincipal> {
+  const actorSessionId = capability.actorSessionId
+  if (actorSessionId === undefined) {
+    const user = capability.onBehalfOf
+    if (user === undefined || capability.actorUser !== user) {
+      throw new Error('human capability has no authenticated user attribution')
+    }
+    return { kind: 'user', user, capability }
+  }
+  const chain: SessionId[] = []
+  let cursor = await delegations.parentSessionOf(actorSessionId)
+  while (cursor !== undefined && chain.length < MAX_CHAIN_DEPTH) {
+    if (cursor === actorSessionId || chain.includes(cursor)) break
+    chain.push(cursor)
+    cursor = await delegations.parentSessionOf(cursor)
+  }
+  const root: SessionId = chain[chain.length - 1] ?? actorSessionId
+  const onBehalfOf = (await delegations.onBehalfOfFor?.(root)) ?? capability.onBehalfOf
+  if (onBehalfOf === undefined) {
+    throw new Error(`agent capability has no delegation owner: ${actorSessionId}`)
+  }
+  return { kind: 'agent', agentSessionId: actorSessionId, onBehalfOf, capability, chain }
+}
+
 export function resolvePrincipal(
   capability: Capability,
   delegations: DelegationIndex,

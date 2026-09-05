@@ -49,7 +49,7 @@ import {
 } from '@podium/model'
 import type { MachineVerb } from '@podium/protocol'
 import { TRPCError } from '@trpc/server'
-import { type CommandPrincipal, onBehalfOfUser, resolvePrincipal } from '../../command-principal'
+import { type CommandPrincipal, onBehalfOfUser, resolvePrincipalAsync } from '../../command-principal'
 import {
   checkMachineVerb,
   isMachineOwner,
@@ -347,7 +347,7 @@ function machineRefusal(
 export async function fleetAuthzDeps(ctx: Context): Promise<FleetAuthzDeps> {
   const machines = mods(ctx).machines
   const sessions = mods(ctx).sessions
-  const principal = resolvePrincipal(ctx.capability, {
+  const principal = await resolvePrincipalAsync(ctx.capability, {
     parentSessionOf: async (sessionId) =>
       // POD-1646: the narrow read. Authorization runs on essentially every
       // request, so the full reader-scoped pass this used to build was pure
