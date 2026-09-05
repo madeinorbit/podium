@@ -132,7 +132,7 @@ export interface StoreExecutorOptions<TClient> {
   onReportFailure?: (error: unknown, label: string) => void
 }
 
- /**
+/**
  * The registrar for the three post-commit mechanisms, from inside a body.
  * Registered on the innermost open scope; a savepoint's registrations merge
  * into its parent when it releases and are discarded when it rolls back,
@@ -252,7 +252,9 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, [statement])
-      return await scope.frame.unit.inFlight.track(async () => await scope.frame.lease.session.execute(statement))
+      return await scope.frame.unit.inFlight.track(
+        async () => await scope.frame.lease.session.execute(statement),
+      )
     }
     if (scope.kind === 'post-commit') {
       // The transaction is closed, so this is a root statement — but it stays
@@ -298,13 +300,15 @@ export function createStoreExecutor<TClient>(
     if (scope.kind === 'transaction') {
       assertAddressable(scope.frame)
       assertWritable(scope.frame, statements)
-      return await scope.frame.unit.inFlight.track(async () =>
-        await scope.frame.lease.session.executeBatch(statements),
+      return await scope.frame.unit.inFlight.track(
+        async () => await scope.frame.lease.session.executeBatch(statements),
       )
     }
     if (scope.kind === 'post-commit') {
       assertDraining(scope)
-      return await scope.inFlight.track(async () => await scope.lease.session.executeBatch(statements))
+      return await scope.inFlight.track(
+        async () => await scope.lease.session.executeBatch(statements),
+      )
     }
     const lane = laneFor(statements)
     return await scheduler.run(lane, async (lease) => {
@@ -352,7 +356,9 @@ export function createStoreExecutor<TClient>(
       assertHealthy()
       assertAddressable(frame)
       assertWritable(frame, [statement])
-      return await frame.unit.inFlight.track(async () => await frame.lease.session.execute(statement))
+      return await frame.unit.inFlight.track(
+        async () => await frame.lease.session.execute(statement),
+      )
     }
   }
 
@@ -361,7 +367,9 @@ export function createStoreExecutor<TClient>(
       assertHealthy()
       assertAddressable(frame)
       assertWritable(frame, statements)
-      return await frame.unit.inFlight.track(async () => await frame.lease.session.executeBatch(statements))
+      return await frame.unit.inFlight.track(
+        async () => await frame.lease.session.executeBatch(statements),
+      )
     }
   }
 
@@ -551,7 +559,7 @@ export function createStoreExecutor<TClient>(
     // Claimed before the first await, so a second branch opened in the same
     // turn is refused rather than racing for the savepoint stack.
     parent.child = frame
-    const name = `podium_sp_${frame.depth}`
+    const name = `podium_nested_${frame.depth}`
     try {
       await parent.lease.session.enterSavepoint(name)
     } catch (error) {

@@ -256,8 +256,8 @@ describe('re-entrancy', () => {
     expect(await noteBodies(h.db)).toEqual(['outer', 'inner'])
     expect(h.log.boundaries()).toEqual([
       's1:BEGIN IMMEDIATE',
-      's1:SAVEPOINT podium_sp_1',
-      's1:RELEASE podium_sp_1',
+      's1:SAVEPOINT podium_nested_1',
+      's1:RELEASE podium_nested_1',
       's1:COMMIT',
     ])
   })
@@ -301,7 +301,7 @@ describe('re-entrancy', () => {
     })
 
     expect(await noteBodies(h.db)).toEqual(['outer', 'after'])
-    expect(h.log.boundaries()).toContain('s1:ROLLBACK TO podium_sp_1')
+    expect(h.log.boundaries()).toContain('s1:ROLLBACK TO podium_nested_1')
     expect(h.log.boundaries()).toContain('s1:COMMIT')
   })
 
@@ -1437,7 +1437,7 @@ describe('scopes that outlive the lease they run on', () => {
       'open:write',
       's1:begin:write',
       `s1:execute:${insert}`,
-      's1:enter:podium_sp_1',
+      's1:enter:podium_nested_1',
       's1:rollback',
       's1:close',
     ])
@@ -1479,7 +1479,7 @@ describe('scopes that outlive the lease they run on', () => {
       'open:write',
       's1:begin:write',
       `s1:execute:${insert}`,
-      's1:enter:podium_sp_1',
+      's1:enter:podium_nested_1',
       's1:rollback',
       's1:close',
     ])
@@ -2272,9 +2272,9 @@ describe('scope fencing over admitted work', () => {
     expect(driver.calls).toEqual([
       'open:write',
       's1:begin:write',
-      's1:enter:podium_sp_1',
+      's1:enter:podium_nested_1',
       `s1:execute:${insert}`,
-      's1:release:podium_sp_1',
+      's1:release:podium_nested_1',
       's1:commit',
       's1:close',
     ])
@@ -2304,10 +2304,10 @@ describe('scope fencing over admitted work', () => {
     expect(driver.calls).toEqual([
       'open:write',
       's1:begin:write',
-      's1:enter:podium_sp_1',
+      's1:enter:podium_nested_1',
       `s1:execute:${insert}`,
-      's1:rollbackTo:podium_sp_1',
-      's1:release:podium_sp_1',
+      's1:rollbackTo:podium_nested_1',
+      's1:release:podium_nested_1',
       's1:rollback',
       's1:close',
     ])

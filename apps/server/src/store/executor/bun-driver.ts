@@ -150,7 +150,7 @@ function session(
   /**
    * Names the savepoint a batch inside an open transaction takes as its own
    * boundary. Per session and monotonic, so it can never collide with the
-   * executor's `podium_sp_<depth>` frames or with another batch's.
+   * executor's `podium_nested_<depth>` frames or with another batch's.
    */
   let nextBatchBoundary = 1
   // Whether `begin` actually opened a transaction on this connection. `commit`
@@ -270,8 +270,7 @@ function session(
   }
 }
 
-export interface BunStoreExecutorOptions
-  extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
+export interface BunStoreExecutorOptions extends Omit<StoreExecutorOptions<QueryClient>, 'driver'> {
   /** The shared connection. Becomes both the driver's and the legacy handle. */
   database: SqlDatabase
   /** See {@link BunDriverOptions.openReader}. */
