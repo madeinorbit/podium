@@ -1470,6 +1470,36 @@ depth 0 returning the callback result, rollback at depth 0 rethrowing the origin
 savepoints committing when everything succeeds, and — the load-bearing one — rolling back ONLY the
 inner savepoint when the outer catches the throw.
 
+### Rule 48a — the sync-to-rejects spelling is authorized GLOBALLY; stop asking per site
+
+[POD-3263 has now raised this class three times — the awaitify ledger, `engine.test.ts`'s capture
+helper, and `relay.issue-session-delete.test.ts`'s rollback canaries. Standing authorization,
+2026-09-05, so the flip is not serialized behind a coordinator round-trip per file.]
+
+`expect(() => fn()).toThrow(X)` becoming `await expect(fn()).rejects.toThrow(X)` is NOT a change to
+what is asserted. Same matcher, same expectation, async spelling — it is `await` plus the call moving
+inside, which is exactly what the flip's mechanical rule permits. **Apply it wherever the callee
+became async. No further permission needed.**
+
+TWO CONDITIONS, and they are the whole reason this is a rule rather than a shrug:
+
+1. THE AWAIT IS MANDATORY AND ITS ABSENCE IS SILENT. `expect(p).rejects.toThrow()` without `await`
+   asserts nothing and passes forever. Canary each batch: break the subject, watch a named case red.
+   This is the opposite hazard to rule 48's capture helper, where a missed await leaves
+   `expect(Promise).toBe(string)` and fails LOUDLY. Same flip, inverted risk — do not carry the
+   confidence from one to the other.
+
+2. WHATEVER FOLLOWS THE THROW IS THE REAL GUARD AND TRANSFERS UNTOUCHED. At the
+   `relay.issue-session-delete.test.ts` sites the `toThrow` is only the trigger; each is followed by
+   four awaited state assertions — `deletedAt` still unset, the session still listed, the row still
+   present — which are what actually prove the rollback happened. Those do not change. And note the
+   second reason the await is mandatory there: without it the operation may not have SETTLED when
+   those state assertions run, so dropping it buys a flaky pass rather than an honest one.
+
+IF A SITE HAS NO POST-THROW ASSERTIONS, say so in the handoff rather than adding some. A bare
+converted `rejects.toThrow` is acceptable where that is all the original pinned; inventing new
+assertions mid-flip is a different change and needs its own ruling.
+
 ### Rule 49 — a cached RETENTION bound resolves PER PASS, and its fail-closed answer is re-bootstrap
 
 [Ruling on POD-3263's fifth boundary, 2026-09-05. Refines rule 47, which covers a synchronous reader
