@@ -1445,6 +1445,26 @@ rather than a reimplementation of it:
         : this.root.transaction((t) => scope.run(t, fn), { behavior: 'immediate' })
     }
 
+**RULE 35a — THE OUTER ARM IS THE EXECUTOR'S, NOT DRIZZLE'S (POD-3263 correction, 2026-09-05).**
+The snippet above says `this.root.transaction(...)`. That is right for bun:sqlite, where the
+size-one queue owns one shared connection, and WRONG for the async driver. Over `sqlite-proxy`,
+drizzle implements `transaction()` as BEGIN, body, COMMIT issued through its callback — three
+ordinary statements that the root `QueryClient` scheduler would lease INDEPENDENTLY, so nothing
+holds one connection across the body. `driver.ts` states the contract the other way round: the
+queue owns the connection, and an interactive transaction is held open on the server across awaits
+under a declared lease budget. So the outer arm must be the executor's `transact`, which pins that
+lease; drizzle's own `transaction` is correct ONLY for the nested arm, where a connection is already
+pinned and all it adds is a savepoint:
+
+    // outer: the executor pins the lease, and the span runs on the pinned connection
+    executor.transact((tx) => scope.run(buildStoreDrizzle(tx.drizzle), fn))
+    // nested: a savepoint inside the already-pinned connection
+    currentTransaction().transaction((inner) => scope.run(inner, fn))
+
+The ambient getter, the `behavior: 'immediate'` intent and the savepoint deletions are all
+unchanged; only WHO opens the outermost span moves, from drizzle to the executor. Found by POD-3263
+before wiring it rather than after, which is why it costs a paragraph instead of a phase.
+
 DELETED by this: the `podium_sp_${depth}` savepoint construction and the `depths` WeakMap in
 `packages/runtime/src/sqlite/transaction.ts`. Drizzle nests via its own savepoints and we stop having
 a second tally. That is POD-3327 / POD-3267 and it is now a deletion with a named replacement rather
