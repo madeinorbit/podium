@@ -556,7 +556,7 @@ describe('SessionRegistry', () => {
       protectedWrite: true,
     }
     // POD-732: the eleven shims are deleted; every caller enters at `execute`.
-    const created = reg.modules.workflows.execute(operator, 'create', {
+    const created = await reg.modules.workflows.execute(operator, 'create', {
       name: 'Research, plan, implement',
       description: '',
       scope: 'global',
@@ -570,8 +570,8 @@ describe('SessionRegistry', () => {
         },
       ],
     })
-    reg.modules.workflows.execute(operator, 'publish', { revisionId: created.revision.id })
-    reg.modules.workflows.execute(operator, 'assign', {
+    await reg.modules.workflows.execute(operator, 'publish', { revisionId: created.revision.id })
+    await reg.modules.workflows.execute(operator, 'assign', {
       targetKind: 'global',
       targetId: '',
       revisionId: created.revision.id,
@@ -602,7 +602,7 @@ describe('SessionRegistry', () => {
     expect(
       hiddenInstructions?.every((instruction) => !instruction.content.includes('fix the bug')),
     ).toBe(true)
-    expect(reg.modules.workflows.runs({}, operator)).toMatchObject([
+    expect(await reg.modules.workflows.runs({}, operator)).toMatchObject([
       { coordinatorSessionId: sessionId, revision: { id: created.revision.id } },
     ])
 
@@ -627,7 +627,7 @@ describe('SessionRegistry', () => {
     expect(client.sent).not.toContainEqual(
       expect.objectContaining({ type: 'sessionDraftChanged', sessionId: blankSessionId }),
     )
-    expect(reg.modules.workflows.runs({}, operator)).toEqual(
+    expect(await reg.modules.workflows.runs({}, operator)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           coordinatorSessionId: blankSessionId,
@@ -657,7 +657,7 @@ describe('SessionRegistry', () => {
       onBehalfOf: FIRST_ADMIN_USER_ID,
       protectedWrite: true,
     }
-    const created = reg.modules.workflows.execute(operator, 'create', {
+    const created = await reg.modules.workflows.execute(operator, 'create', {
       name: 'Delegated review',
       description: '',
       scope: 'global',
@@ -687,13 +687,13 @@ describe('SessionRegistry', () => {
       }),
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }
-    reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
+    await reg.modules.workflows.execute(coordinatorCaller, 'assignStep', {
       runId: run.id,
       stepId: 'review',
       sessionId: worker,
     })
     const workerCapability = reg.modules.sessions.capabilityForSession(worker)
-    reg.modules.workflows.execute(
+    await reg.modules.workflows.execute(
       {
         actor: { kind: 'session', id: worker },
         capability: workerCapability,
@@ -5303,12 +5303,13 @@ describe('reconnect identity (hello reclaim)', () => {
 })
 
 describe('session draft sync — versioned (POD-859, flag on)', () => {
-  async function flaggedReg(store = openTestStore(':memory:', TEST_MACHINE)) {
+  async function flaggedReg(store?: SessionStore) {
+    store ??= await openTestStore(':memory:', TEST_MACHINE)
     // Enable draft sync through the canonical experiments store [spec:SP-f4b9].
     // Tests run with PODIUM_APP_VERSION unset → devMode → the flag is listed, so a
     // user toggle enables it (matches getFeatureStates resolution).
-    store.settings.setSettings({
-      ...store.settings.getSettings(),
+    await store.settings.setSettings({
+      ...await store.settings.getSettings(),
       experimental: { 'draft-sync': true },
     })
     return { reg: await SessionRegistry.create(store, undefined, { instanceId: 'default' }), store }
@@ -5475,10 +5476,13 @@ describe('session draft sync — versioned (POD-859, flag on)', () => {
  * user is in.
  */
 describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
-  const plainReg = async (store = openTestStore(':memory:', TEST_MACHINE)) => ({
-    reg: await SessionRegistry.create(store, undefined, { instanceId: 'default' }),
-    store,
-  })
+  const plainReg = async (store?: SessionStore) => {
+    store ??= await openTestStore(':memory:', TEST_MACHINE)
+    return {
+      reg: await SessionRegistry.create(store, undefined, { instanceId: 'default' }),
+      store,
+    }
+  }
 
   it('stamps a rev on a legacy setSessionDraft frame', async () => {
     const { reg } = await plainReg()
@@ -5613,7 +5617,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
       })
       vi.advanceTimersByTime(1000)
 
-      expect(store.sessions.loadDrafts()[sessionId]).toBe('readable either way')
+      expect((await store.sessions.loadDrafts())[sessionId]).toBe('readable either way')
       store.close()
     } finally {
       vi.useRealTimers()
@@ -5713,7 +5717,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
           text: 'about to send this',
         })
         vi.advanceTimersByTime(1000) // the window closes: the row is on disk
-        expect(store.sessions.loadDraftDocs()[sessionId]).toBeDefined()
+        expect((await store.sessions.loadDraftDocs())[sessionId]).toBeDefined()
 
         reg.clientGateway.routeClientFrame(idA, {
           type: 'draftEdit',
@@ -5730,10 +5734,10 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
           text: '',
         })
 
-        expect(store.sessions.loadDraftDocs()[sessionId]).toBeUndefined()
+        expect((await store.sessions.loadDraftDocs())[sessionId]).toBeUndefined()
         // …and the open window does not resurrect it when it elapses.
         vi.advanceTimersByTime(2000)
-        expect(store.sessions.loadDraftDocs()[sessionId]).toBeUndefined()
+        expect((await store.sessions.loadDraftDocs())[sessionId]).toBeUndefined()
         store.close()
       } finally {
         vi.useRealTimers()
