@@ -38,7 +38,7 @@ export const ACCOUNT_QUERIES = {
   // blob read being reinstated — taking either side wholesale would have
   // silently undone one of the two.
   list: query(noInput, async (state) =>
-    (await accountViews(
+    await Promise.all((await accountViews(
       async (provider) => await state.settings.apiKeyFor(provider),
       state.accounts,
       await state.machines.listMachines(),
@@ -60,7 +60,7 @@ export const ACCOUNT_QUERIES = {
         loginMachines,
         ...(attempt ? { loginAttempt: attempt } : {}),
       }
-    }),
+    })),
   ),
 } as const
 

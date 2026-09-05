@@ -146,7 +146,7 @@ const MANAGED_KEY_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
  * production query passes machine records and therefore has no homedir fallback.
  */
 export async function accountViews(
-  legacyApiKey: (provider: string) => string | undefined,
+  legacyApiKey: (provider: string) => string | undefined | Promise<string | undefined>,
   accounts: AccountsRepository,
   machinesOrHome: readonly MachineRecord[] | string = [],
 ): Promise<AccountView[]> {
@@ -161,10 +161,10 @@ export async function accountViews(
       : nativeFromCatalog(buildLoginCatalog(machinesOrHome), machinesOrHome)
 
   const stored = new Map((await accounts.list()).map((a) => [a.id, a]))
-  const managed: AccountView[] = MANAGED_KEY_PROVIDERS.map((provider) => {
+  const managed: AccountView[] = await Promise.all(MANAGED_KEY_PROVIDERS.map(async (provider) => {
     const id = `managed:${provider}`
     const row = stored.get(asAccountId(id))
-    const legacyKey = legacyApiKey(provider) ?? ''
+    const legacyKey = (await legacyApiKey(provider)) ?? ''
     if (row) {
       return {
         id,
