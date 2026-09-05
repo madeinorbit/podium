@@ -20,8 +20,10 @@ admission checks. `Update::download` still performs the original minisign verifi
 installation code is unchanged. TLS initialization is shared with direct download so
 recovery does not require an earlier check to select the crypto provider/Linux CA defaults.
 
-A unit regression checks verifier and installer configuration preservation without
-invoking discovery. `scripts/native-machine-update.integration.ts` exercises the real
+Focused regressions check verifier and installer configuration preservation without
+invoking discovery, plus actual HTTP Accept headers for both direct construction and
+ordinary feed discovery/download (JSON for feeds, octet-stream for artifacts, and
+caller-supplied Accept preserved). `scripts/native-machine-update.integration.ts` exercises the real
 Linux shell, signed download, rejection, replacement, and supervisor recovery when
 the rolling feed advertises the current/older version or answers HTTP 204/503.
 

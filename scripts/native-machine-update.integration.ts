@@ -18,6 +18,12 @@ import { requestMachineUpdate } from "../packages/runtime/src/machine-update-con
 import { readMachineUpdateJournal } from "../packages/runtime/src/machine-update";
 import { buildVendoredAbduco } from "../packages/pty/src/abduco-bin";
 import { buildVendoredHost } from "../packages/pty/src/host-bin";
+import { launcherShim } from "./build-bun";
+
+// This lane owns one compiler at a time, including all synchronous child builds.
+process.env.PODIUM_TEST_WORKERS = "1";
+process.env.CARGO_BUILD_JOBS = "1";
+process.env.GOMAXPROCS = "2";
 
 const repo = resolve(import.meta.dirname, "..");
 const root = mkdtempSync("/tmp/podium-native-update-");
@@ -114,6 +120,13 @@ async function stopShell() {
     Boolean,
     "old supervisor stopped"
   );
+  // Keep the display alive across app.restart(), then release it once the shell
+  // and its supervisor are gone instead of accumulating one Xvfb per attempt.
+  for (const pid of wrappers.splice(0)) {
+    try {
+      process.kill(-pid, "SIGTERM");
+    } catch {}
+  }
 }
 function launch(env: NodeJS.ProcessEnv) {
   const child = spawn(
@@ -164,7 +177,7 @@ try {
   ] as const) {
     console.log(`Building isolated native version ${version}`);
     run("cargo", ["build", "--manifest-path", join(tauri, "Cargo.toml")], {
-      CARGO_BUILD_JOBS: "2",
+      CARGO_BUILD_JOBS: "1",
       CARGO_PROFILE_DEV_DEBUG: "0",
       TAURI_CONFIG: JSON.stringify({
         version,
@@ -329,6 +342,7 @@ try {
     "--outfile",
     join(payload, "podium-cli"),
   ]);
+  writeFileSync(join(payload, "podium"), launcherShim(), { mode: 0o755 });
   writeFileSync(join(payload, "VERSION"), oldVersion + "\n");
   const env: NodeJS.ProcessEnv = {};
   for (const [key, value] of Object.entries(process.env))
@@ -349,7 +363,16 @@ try {
     env[`XDG_${kind}_HOME`] = dir;
     if (kind === "RUNTIME") env.XDG_RUNTIME_DIR = dir;
   }
+  const isolatedHome = join(root, "home");
+  const isolatedTmp = join(root, "tmp");
+  mkdirSync(isolatedHome);
+  mkdirSync(isolatedTmp, { mode: 0o700 });
   Object.assign(env, {
+    HOME: isolatedHome,
+    TMPDIR: isolatedTmp,
+    PODIUM_TEST_WORKERS: "1",
+    CARGO_BUILD_JOBS: "1",
+    GOMAXPROCS: "2",
     SSL_CERT_FILE: ca,
     SSL_CERT_DIR: root,
     PODIUM_STATE_DIR: state,
@@ -478,6 +501,10 @@ try {
       throw new Error("native successor artifact identity mismatch");
     if (journal?.grant.grantId !== accepted.grantId)
       throw new Error("recovery replaced exact grant authority");
+    for (const field of ["url", "signature", "version", "channel"] as const) {
+      if (journal?.grant.target.native?.[field] !== accepted.target.native[field])
+        throw new Error(`recovery replaced approved native ${field}`);
+    }
     if (
       existsSync(join(state, "run/daemon.pid")) ||
       existsSync(join(state, "run/server.pid"))

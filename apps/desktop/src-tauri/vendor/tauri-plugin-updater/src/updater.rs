@@ -555,10 +555,6 @@ impl Updater {
         };
         let installer = installer_for_bundle_type(bundle_type());
         let (download_url, signature) = self.get_urls(&release, &installer)?;
-        let mut headers = self.headers.clone();
-        if !headers.contains_key(ACCEPT) {
-            headers.insert(ACCEPT, HeaderValue::from_static("application/json"));
-        }
         Ok(Update {
             run_on_main_thread: self.run_on_main_thread.clone(),
             config: self.config.clone(),
@@ -576,7 +572,7 @@ impl Updater {
             timeout: None,
             proxy: self.proxy.clone(),
             no_proxy: self.no_proxy,
-            headers,
+            headers: self.headers.clone(),
             installer_args: self.installer_args.clone(),
             current_exe_args: self.current_exe_args.clone(),
             configure_client: self.configure_client.clone(),
@@ -1579,12 +1575,10 @@ fn escape_msi_property_arg(arg: impl AsRef<OsStr>) -> String {
 #[cfg(test)]
 mod tests {
 
-    // POD-3456: construction must retain configured trust/installer settings even
-    // when discovery would refuse the target, without making any feed request.
-    #[test]
-    fn authorized_release_keeps_verifier_without_discovery() {
-        use super::*;
-        let updater = Updater {
+    use super::*;
+
+    fn configured_updater() -> Updater {
+        Updater {
             run_on_main_thread: Arc::new(Box::new(|_| Ok(()))),
             config: Config {
                 pubkey: "configured-key".into(),
@@ -1605,7 +1599,13 @@ mod tests {
             configure_client: Some(Arc::new(|client| client)),
             installer_args: vec![OsString::from("--configured-installer-arg")],
             current_exe_args: vec![OsString::from("--configured-restart-arg")],
-        };
+        }
+    }
+
+    // Construction retains trust/installer settings without consulting discovery.
+    #[test]
+    fn authorized_release_keeps_verifier_without_discovery() {
+        let updater = configured_updater();
         for version in ["1.0.0", "2.0.0", "3.0.0"] {
             let release = serde_json::json!({
                 "version": version,
@@ -1647,6 +1647,97 @@ mod tests {
                 "version": "3.0.0", "url": "not-a-url", "signature": "s"
             }))
             .is_err());
+    }
+
+    // Exercise actual requests for direct recovery and ordinary discovery. The feed
+    // defaults to JSON; artifacts default to octet-stream; explicit Accept survives both.
+    #[test]
+    fn authorized_release_download_headers_preserve_upstream_behavior() {
+        use std::io::{Read, Write};
+        use std::net::TcpListener;
+        use std::time::Instant;
+
+        for discover in [false, true] {
+            for custom_accept in [None, Some("application/vnd.podium.artifact")] {
+                let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+                listener.set_nonblocking(true).unwrap();
+                let origin = format!("http://{}", listener.local_addr().unwrap());
+                let release = serde_json::json!({
+                    "version": "3.0.0",
+                    "url": format!("{origin}/artifact"),
+                    "signature": "invalid-signature",
+                });
+                let feed_body = release.to_string();
+                let server = std::thread::spawn(move || {
+                    let mut requests = Vec::new();
+                    let deadline = Instant::now() + Duration::from_secs(10);
+                    while requests.len() < if discover { 2 } else { 1 } {
+                        let (mut stream, _) = match listener.accept() {
+                            Ok(connection) => connection,
+                            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                                assert!(Instant::now() < deadline, "download did not reach server");
+                                std::thread::sleep(Duration::from_millis(10));
+                                continue;
+                            }
+                            Err(error) => panic!("{error}"),
+                        };
+                        stream
+                            .set_read_timeout(Some(Duration::from_secs(5)))
+                            .unwrap();
+                        let mut request = Vec::new();
+                        while !request.ends_with(b"\r\n\r\n") {
+                            let mut byte = [0];
+                            stream.read_exact(&mut byte).unwrap();
+                            request.push(byte[0]);
+                        }
+                        let request = String::from_utf8(request).unwrap();
+                        let body = if request.starts_with("GET /feed ") {
+                            feed_body.as_str()
+                        } else {
+                            "untrusted artifact bytes"
+                        };
+                        write!(stream, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}", body.len(), body).unwrap();
+                        requests.push(request);
+                    }
+                    requests
+                });
+                let mut updater = configured_updater();
+                updater.proxy = None;
+                updater.no_proxy = true;
+                updater.version_comparator = None;
+                updater.endpoints = vec![Url::parse(&format!("{origin}/feed")).unwrap()];
+                if let Some(accept) = custom_accept {
+                    updater
+                        .headers
+                        .insert(ACCEPT, HeaderValue::from_static(accept));
+                }
+                tauri::async_runtime::block_on(async {
+                    let update = if discover {
+                        updater.check().await.unwrap().unwrap()
+                    } else {
+                        updater.update_from_release(release).unwrap()
+                    };
+                    assert_eq!(update.headers, updater.headers);
+                    // Real verifier must reject the bytes; no install is called.
+                    assert!(update.download(|_, _| {}, || {}).await.is_err());
+                });
+                let requests = server.join().unwrap();
+                for (index, request) in requests.iter().enumerate() {
+                    let expected = custom_accept.unwrap_or(if discover && index == 0 {
+                        "application/json"
+                    } else {
+                        "application/octet-stream"
+                    });
+                    assert!(
+                        request
+                            .to_ascii_lowercase()
+                            .lines()
+                            .any(|line| line == format!("accept: {expected}")),
+                        "{request}"
+                    );
+                }
+            }
+        }
     }
 
     #[test]
