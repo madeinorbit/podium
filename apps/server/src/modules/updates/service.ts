@@ -1501,10 +1501,19 @@ export class UpdatesService {
     return this.abandonWait(inFlight, detail)
   }
 
-  /** Raw handshake proof, deliberately bypassing optimistic convergence state. */
+  /** Running directory proof plus the same execution fence used by fleet reads. */
   machineBootedAtTarget(machineId: MachineId, targetVersion: string): boolean {
     const machine = this.deps.machines().find((candidate) => candidate.id === machineId)
-    return machine?.online === true && machine.version === targetVersion
+    if (machine?.online !== true || machine.version !== targetVersion) return false
+    const channel = this.channelOf(machine)
+    const state = this.machineStates.get(machineId)
+    if (state?.channel !== channel) return true
+    if (machine.presenceSource !== 'supervisor' && !state.requiresExecutionConfirmation) return true
+    const pending = this.pendingGrants.get(machineId)
+    return (
+      state.state === 'current' &&
+      (pending === undefined || this.grantMatchesTarget(pending, channel, this.target(channel)))
+    )
   }
 
   /**

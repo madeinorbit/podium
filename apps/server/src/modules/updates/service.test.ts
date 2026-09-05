@@ -155,6 +155,7 @@ describe('UpdatesService', () => {
       const { svc, send } = start()
       for (let i = 0; i < 3; i++) {
         expect(svc.fleet()[0]).toMatchObject({ state: 'granted', version: '0.4.1' })
+        expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
         svc.tick()
       }
       expect(send).toHaveBeenCalledTimes(1)
@@ -167,7 +168,9 @@ describe('UpdatesService', () => {
       expect(send).toHaveBeenCalledTimes(1)
       // The original grant still correlates after any number of early reads.
       svc.onStatus(asMachineId('a'), confirmed)
+      expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
       expect(svc.fleet()[0]).toMatchObject({ state: 'current', version: '0.4.2' })
+      expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(true)
       expect(send).toHaveBeenCalledTimes(2)
       svc.fleet()
       svc.tick()
@@ -186,6 +189,7 @@ describe('UpdatesService', () => {
       const { svc, send } = start()
       svc.onStatus(asMachineId('a'), { ...confirmed, ...override })
       expect(svc.fleet()[0]?.state).not.toBe('current')
+      expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
       svc.tick()
       expect(send).toHaveBeenCalledTimes(1)
       svc.onStatus(asMachineId('a'), confirmed)
@@ -204,6 +208,7 @@ describe('UpdatesService', () => {
         detail: 'Required child failed health',
       })
       expect(svc.fleet()[0]).toMatchObject({ state, detail: 'Required child failed health' })
+      expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
       svc.tick()
       expect(send).toHaveBeenCalledTimes(1)
     })
@@ -212,6 +217,7 @@ describe('UpdatesService', () => {
       const { svc, send, machines } = start()
       Object.assign(machines[0]!, { presenceSource: 'legacy-daemon' })
       expect(svc.fleet()[0]?.state).toBe('granted')
+      expect(svc.machineBootedAtTarget(asMachineId('a'), '0.4.2')).toBe(false)
       expect(send).toHaveBeenCalledTimes(1)
       svc.onStatus(asMachineId('a'), { ...confirmed, state: 'restarting' })
       expect(svc.fleet()[0]?.state).toBe('restarting')
