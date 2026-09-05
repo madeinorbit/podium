@@ -259,7 +259,7 @@ describe('target gating on send (A2)', () => {
         (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
           to: 'sKid',
           body: 'x',
-        }))) as { ok: boolean }
+        })) as { ok: boolean }
       ).ok,
     ).toBe(true)
   })
