@@ -155,11 +155,11 @@ interface DeliveryOutcome {
  *  the message as the first prompt after prime); the default (absent) marks the
  *  ledger and surfaces needs-attention instead. */
 export interface SpawnOnWake {
-  spawn(input: { issueId: IssueId | null; message: MessageRow }): {
+  spawn(input: { issueId: IssueId | null; message: MessageRow }): Promise<{
     ok: boolean
     sessionId?: SessionId
     reason?: string
-  }
+  }>
 }
 
 interface InboxDeliveryInput {
@@ -1652,7 +1652,7 @@ export class MessageDeliveryService {
     if (message.fromKind !== 'operator') {
       await this.brakes.recordWake(`${this.senderKeyOfRow(message)}|${issueId ?? ''}`)
     }
-    const r = this.deps.spawnOnWake.spawn({ issueId, message })
+    const r = await this.deps.spawnOnWake.spawn({ issueId, message })
     if (r.ok && r.sessionId) {
       // spawnIssue rides the event so the budget survives restarts (see
       // spawnCountFor) — it can differ from toId for session-addressed wakes.

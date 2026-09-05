@@ -219,7 +219,7 @@ export class CloudService {
     // structural shape. The first draft wrote `{ cwd?: string }` and tsgo caught
     // it: `inferFromPath` takes a required path, so a looser local shape would
     // have been a second, wrong declaration of what a session is.
-    session: ReturnType<RegistryModules['sessions']['listSessions']>[number],
+    session: Awaited<ReturnType<RegistryModules['sessions']['listSessions']>>[number],
   ): Promise<CloudRepoRequest> {
     const repoPath = await this.deps.repos.inferFromPath(session.cwd, session.machineId)
     if (!repoPath) {

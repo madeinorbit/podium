@@ -438,7 +438,7 @@ export class DaemonRpcService {
     kind: DaemonRequestKind<T>,
     timeoutMs: number,
     onTimeout: () => T,
-    build: (requestId: string) => ControlMessage,
+    build: (requestId: string) => ControlMessage | Promise<ControlMessage>,
     machineId?: MachineId,
   ): Promise<T> {
     return await this.broker.request({ kind, timeoutMs, onTimeout, build, machineId })

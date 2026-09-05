@@ -29,7 +29,7 @@ export interface SpawnOnWakeDeps {
     spawnedBy?: string
     machineId?: MachineId
     ownerUserId: UserId
-  }): { sessionId: SessionId }
+  }): { sessionId: SessionId } | Promise<{ sessionId: SessionId }>
 }
 
 /** Provenance for the spawned child, derived from the triggering message's
@@ -70,7 +70,7 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
       const cwd = issue.worktreePath ?? issue.repoPath
       if (!cwd) return { ok: false, reason: 'issue has no working directory' }
       try {
-        const { sessionId } = deps.createSession({
+        const { sessionId } = await deps.createSession({
           cwd,
           agentKind: issue.defaultAgent as AgentKind, // safeParsed downstream ('auto' → role default)
           model: issue.defaultModel,

@@ -77,7 +77,7 @@ export interface DaemonRequestSpec<T> {
   readonly timeoutMs: number
   /** The value the caller receives when no VALID answer arrives in time. */
   onTimeout(): T
-  build(requestId: string): ControlMessage
+  build(requestId: string): ControlMessage | Promise<ControlMessage>
   /** The machine the request is sent to — and the only one allowed to answer.
    *  Omitted means the fleet's default machine, resolved at send time. */
   readonly machineId?: MachineId | undefined
@@ -141,11 +141,12 @@ export class DaemonRequestBroker implements DaemonRequestPort {
     return this.pending.size
   }
 
-  request<T>(spec: DaemonRequestSpec<T>): Promise<T> {
+  async request<T>(spec: DaemonRequestSpec<T>): Promise<T> {
     const requestId = this.nextRequestId(spec.kind.prefix)
     // Resolved HERE, not at settle time: the target is a fact about the request,
     // and `defaultMachine()` can change between send and reply.
     const targetMachineId = spec.machineId ?? this.deps.defaultMachine()
+    const message = await spec.build(requestId)
     return new Promise<T>((resolve) => {
       const timer = setTimeout(() => {
         this.pending.delete(requestId)
@@ -160,7 +161,7 @@ export class DaemonRequestBroker implements DaemonRequestPort {
           resolve(value as T)
         },
       })
-      this.deps.toMachine(targetMachineId, spec.build(requestId))
+      this.deps.toMachine(targetMachineId, message)
     })
   }
 
