@@ -218,19 +218,19 @@ export interface MailHarness {
   advance(ms: number): void
   setNow(iso: string): void
   /** Create an issue and return its row-ish metadata. */
-  createIssue(input: { title: string; repoPath?: string; parentId?: IssueId }): {
+  createIssue(input: { title: string; repoPath?: string; parentId?: IssueId }): Promise<{
     id: IssueId
     seq: number
-  }
+  }>
   /** Attach a worktree path to an issue (issue-membership by cwd). Goes through
    *  the IssueService, not the raw store: the service holds the authoritative
    *  in-memory rows and a direct store write is invisible to it. */
-  setWorktree(issueId: IssueId, worktreePath: string): void
-  archive(issueId: IssueId): void
+  setWorktree(issueId: IssueId, worktreePath: string): Promise<void>
+  archive(issueId: IssueId): Promise<void>
   put(...fixtures: SessionFixture[]): SessionMeta[]
   /** A capability for an agent bound to an issue subtree. */
   agentCap(issueId: IssueId, sessionId?: SessionId): Capability
-  events(kinds?: string[]): { kind: string; subject: string; payload: unknown }[]
+  events(kinds?: string[]): Promise<{ kind: string; subject: string; payload: unknown }[]>
 }
 
 // THE operator capability, re-exported (POD-335). This used to be a

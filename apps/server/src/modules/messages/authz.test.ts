@@ -71,8 +71,8 @@ async function rejectsWith(p: Promise<unknown>, code: string, message: string): 
 describe('the sender is stamped from the capability, never from the payload (A1)', () => {
   it('ignores every sender-shaped field a client smuggles into the send payload', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const target = h.createIssue({ title: 'target' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const target = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, phase: 'idle' })
 
     const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
@@ -147,7 +147,7 @@ describe('the sender is stamped from the capability, never from the payload (A1)
 describe('queued message retraction', () => {
   it('lets the exact sender cancel a queued row and refuses its recipient', async () => {
     const h = await mailHarness()
-    const target = h.createIssue({ title: 'target' })
+    const target = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: target.id, status: 'hibernated' })
 
     const sent = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -189,8 +189,8 @@ describe('queued message retraction', () => {
 describe('target gating on send (A2)', () => {
   it('gates an issue-addressed send on write access to the RESOLVED issue, and takes --outside-scope as the confirmation', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'idle' })
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
@@ -211,8 +211,8 @@ describe('target gating on send (A2)', () => {
 
   it('--outside-scope crosses SCOPE ONLY — it never elevates the clamp matrix', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sTheirs'), issueId: theirs.id, phase: 'working' })
 
     const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
@@ -227,7 +227,7 @@ describe('target gating on send (A2)', () => {
 
   it('routes a session-addressed send through the session-target gate, parent/operator-only when the target has no issue', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
+    const mine = await h.createIssue({ title: 'mine' })
     // An issueless session, and a cwd no issue owns.
     h.put({ sessionId: asSessionId('sFree'), cwd: '/elsewhere', phase: 'idle' })
     await expect(
@@ -266,9 +266,9 @@ describe('target gating on send (A2)', () => {
 
   it('puts the spawn-on-wake seam DOWNSTREAM of the same check — a denied cross-subtree wake spawns nothing', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
-    h.setWorktree(theirs.id, '/wt/theirs')
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
+    await h.setWorktree(theirs.id, '/wt/theirs')
     // No live session on `theirs`: a permitted wake here WOULD reach the spawn seam.
     await rejectsWith(
       (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
@@ -303,8 +303,8 @@ describe('target gating on send (A2)', () => {
 describe('unknown vs out-of-scope vs in-scope target (A3)', () => {
   it('DIVERGES today: an unknown id succeeds-then-dead-letters while an out-of-scope id throws PRECONDITION_FAILED', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     h.put({ sessionId: asSessionId('sMine'), issueId: mine.id, phase: 'idle' })
     const cap = h.agentCap(mine.id, asSessionId('sMine2'))
 
@@ -358,7 +358,7 @@ describe('unknown vs out-of-scope vs in-scope target (A3)', () => {
 
   it('never writes a legacy mirror row for an unresolvable ref (#463 belt-and-braces)', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
+    const mine = await h.createIssue({ title: 'mine' })
     const r = (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
       to: 'iss_nope',
       body: 'x',
@@ -376,7 +376,7 @@ describe('unknown vs out-of-scope vs in-scope target (A3)', () => {
 describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', () => {
   it('consumes only the caller’s OWN issue box', async () => {
     const h = await mailHarness()
-    const own = h.createIssue({ title: 'own' })
+    const own = await h.createIssue({ title: 'own' })
     await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: own.id }, body: 'for you' })
 
     const rows = (await h.gate.dispatch(
@@ -393,10 +393,10 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
 
   it('returns a DESCENDANT issue’s box unfiltered but does NOT consume it (a peek is not a consume)', async () => {
     const h = await mailHarness()
-    const parent = h.createIssue({ title: 'parent' })
-    const child = h.createIssue({ title: 'child', parentId: parent.id })
+    const parent = await h.createIssue({ title: 'parent' })
+    const child = await h.createIssue({ title: 'child', parentId: parent.id })
     // Traffic between two OTHER principals, in the child's box.
-    const other = h.createIssue({ title: 'other' })
+    const other = await h.createIssue({ title: 'other' })
     const foreign = await h.svc.send(
       { kind: 'agent', issueId: other.id, sessionId: asSessionId('sOther') },
       { to: { kind: 'issue', id: child.id }, body: 'not for the parent' },
@@ -422,9 +422,9 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
 
   it('filters an OUT-OF-SCOPE peek down to rows the caller could mayView', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const unrelated = h.createIssue({ title: 'unrelated' })
-    const third = h.createIssue({ title: 'third' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const unrelated = await h.createIssue({ title: 'unrelated' })
+    const third = await h.createIssue({ title: 'third' })
     // (a) traffic between two other principals — invisible.
     await h.svc.send(
       { kind: 'agent', issueId: third.id, sessionId: asSessionId('sThird') },
@@ -452,7 +452,7 @@ describe('inbox scope arithmetic — own consumes, in-scope peeks do not (A4)', 
 
   it('consumes the caller’s OWN principals on a bare inbox, and refuses a caller with no mailbox', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
+    const mine = await h.createIssue({ title: 'mine' })
     await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: mine.id }, body: 'issue mail' })
     const rows = (await h.gate.dispatch(
       h.agentCap(mine.id, asSessionId('sMe')),
@@ -493,8 +493,8 @@ describe('read-surface and reply authz (A5)', () => {
   // gate says which rows come back. It stays a QUERY either way.
   it('gives a member their OWN ledger traffic and reserves cross-user rows for admin grade', async () => {
     const h = await mailHarness()
-    const mine = h.createIssue({ title: 'mine' })
-    const theirs = h.createIssue({ title: 'theirs' })
+    const mine = await h.createIssue({ title: 'mine' })
+    const theirs = await h.createIssue({ title: 'theirs' })
     await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: mine.id }, body: 'x' })
     // THE COUNTERFACTUAL: traffic in a box the member is not a party to. Without
     // this row the filtered result and the unfiltered one are the same list and
@@ -532,9 +532,9 @@ describe('read-surface and reply authz (A5)', () => {
 
   it('lets only the recipient (or the operator) reply, and never consumes queued status on show', async () => {
     const h = await mailHarness()
-    const from = h.createIssue({ title: 'from' })
-    const to = h.createIssue({ title: 'to' })
-    const bystander = h.createIssue({ title: 'bystander' })
+    const from = await h.createIssue({ title: 'from' })
+    const to = await h.createIssue({ title: 'to' })
+    const bystander = await h.createIssue({ title: 'bystander' })
     h.put({ sessionId: asSessionId('sFrom'), issueId: from.id, phase: 'idle' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const original = await h.svc.send(
@@ -587,7 +587,7 @@ describe('read-surface and reply authz (A5)', () => {
 
   it('dismisses a recipient-owned message straight to `read` without opening the inbox', async () => {
     const h = await mailHarness()
-    const to = h.createIssue({ title: 'to' })
+    const to = await h.createIssue({ title: 'to' })
     h.put({ sessionId: asSessionId('sTo'), issueId: to.id, phase: 'idle' })
     const r = await h.svc.send({ kind: 'operator' }, { to: { kind: 'issue', id: to.id }, body: 'x' })
     const wire = (await h.gate.dispatch(
@@ -604,7 +604,7 @@ describe('read-surface and reply authz (A5)', () => {
 
   it('returns pendingReminders only for the CALLING session, and nothing for a session-less caller', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     await h.svc.send(
       { kind: 'operator' },
@@ -632,7 +632,7 @@ describe('read-surface and reply authz (A5)', () => {
 describe('the operator principal class (A6)', () => {
   it('is exempt from the wake cooldown, and the sweep does not brake it either', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'sleeper' })
+    const iss = await h.createIssue({ title: 'sleeper' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const to = { kind: 'session' as const, id: 's1' }
 
@@ -660,7 +660,7 @@ describe('the operator principal class (A6)', () => {
 
   it('renders the labels as "the operator" on both sides', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // fromLabel: only reachable through the ONE framed operator case, a question.
     const q = await h.svc.send(
@@ -685,7 +685,7 @@ describe('the operator principal class (A6)', () => {
 
   it('keeps a toKind:operator row queued for UI pickup, skipped by both attemptDelivery and the sweep', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'escalating' })
+    const iss = await h.createIssue({ title: 'escalating' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     const r = await h.svc.send(
       { kind: 'agent', issueId: iss.id, sessionId: asSessionId('s1') },
@@ -705,7 +705,7 @@ describe('the operator principal class (A6)', () => {
 
   it('falls back to kind operator in replyTarget for superagent, operator and system senders', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     const rows: MessageRow[] = (['superagent', 'operator', 'system'] as const).map(
       (fromKind) =>
         h.svc.send(
@@ -723,7 +723,7 @@ describe('the operator principal class (A6)', () => {
 
   it('keys superagent cooldowns by their accountable user', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'sleeper' })
+    const iss = await h.createIssue({ title: 'sleeper' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, status: 'hibernated' })
     const to = { kind: 'session' as const, id: 's1' }
 
@@ -745,7 +745,7 @@ describe('the operator principal class (A6)', () => {
 
   it('collapses every operator to one principal for the responds-to-request check', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
     // An operator asks for a response...
     const asked = await h.svc.send(
@@ -778,7 +778,7 @@ describe('the operator principal class (A6)', () => {
 
 describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
   const legacyRow = async (
-    h: ReturnType<typeof mailHarness>,
+    h: Awaited<ReturnType<typeof mailHarness>>,
     fromIssue: string,
     fromSession: string | null,
   ): Promise<MessageRow> => {
@@ -816,7 +816,7 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
 
   it('resolves a legacy `issue:#N` sender ref to the real issue and mirrors under the real id', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'legacy sender' })
+    const iss = await h.createIssue({ title: 'legacy sender' })
     const original = await legacyRow(h, `issue:#${iss.seq}`, null)
     expect(await h.svc.replyTarget(original)).toEqual({ kind: 'issue', id: iss.id })
 
@@ -853,7 +853,7 @@ describe('reply to a legacy raw-ref sender (A7, POD-463)', () => {
 
   it('prefers a LIVE sender session over the sender issue, and the issue once that session is gone', async () => {
     const h = await mailHarness()
-    const iss = h.createIssue({ title: 'sender issue' })
+    const iss = await h.createIssue({ title: 'sender issue' })
     h.put({ sessionId: asSessionId('sAlive'), issueId: iss.id, phase: 'idle' })
     const original = await legacyRow(h, `issue:#${iss.seq}`, 'sAlive')
     expect(await h.svc.replyTarget(original)).toEqual({ kind: 'session', id: 'sAlive' })

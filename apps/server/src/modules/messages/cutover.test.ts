@@ -375,8 +375,8 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       const ceiling = ceilingHiding(() => hidden)
       const policy = mailPolicy({ ceiling })
       const h = await mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
-      const mine = h.createIssue({ title: 'mine' })
-      const theirs = h.createIssue({ title: 'theirs' })
+      const mine = await h.createIssue({ title: 'mine' })
+      const theirs = await h.createIssue({ title: 'theirs' })
       const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
       // ALLOWED first, so the instrument is known to be able to say yes: without
@@ -407,8 +407,8 @@ describe('the tRPC arm and the relay arm reach the SAME answer', () => {
       const ceiling = ceilingHiding(() => hidden)
       const policy = mailPolicy({ ceiling })
       const h = await mailHarness({ ceiling, authorizeAtApply: policy.authorizeAtApply })
-      const mine = h.createIssue({ title: 'mine' })
-      const theirs = h.createIssue({ title: 'theirs' })
+      const mine = await h.createIssue({ title: 'mine' })
+      const theirs = await h.createIssue({ title: 'theirs' })
       hidden.push(theirs.id)
       const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
@@ -544,8 +544,8 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
   it('rejects at the drain and tells the sender, once the target leaves the ceiling', async () => {
     const hidden: string[] = []
     const h = await composed(hidden)
-    const target = h.createIssue({ title: 'target' })
-    const sender = h.createIssue({ title: 'sender' })
+    const target = await h.createIssue({ title: 'target' })
+    const sender = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
 
     // Accepted while the target is visible; no live session there, so it QUEUES —
@@ -583,8 +583,8 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
 
   it('delivers the identical send when nothing was revoked — the instrument can say yes', async () => {
     const h = await composed([])
-    const target = h.createIssue({ title: 'target' })
-    const sender = h.createIssue({ title: 'sender' })
+    const target = await h.createIssue({ title: 'target' })
+    const sender = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: asSessionId('sSender'), issueId: sender.id, phase: 'idle' })
 
     const accepted = (await h.gate.dispatch(

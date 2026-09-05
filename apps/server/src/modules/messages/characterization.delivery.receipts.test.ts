@@ -35,15 +35,15 @@ import { OPERATOR } from '../../test-support/capabilities'
 import { mailHarness } from './characterization-support'
 
 /** The receipt payloads recorded on the ledger, in order. */
-const receipts = (h: ReturnType<typeof mailHarness>): Record<string, unknown>[] =>
-  h
-    .events(['message.receipt'])
-    .map((e) => e.payload as Record<string, unknown>)
+const receipts = async (
+  h: Awaited<ReturnType<typeof mailHarness>>,
+): Promise<Record<string, unknown>[]> =>
+  (await h.events(['message.receipt'])).map((e) => e.payload as Record<string, unknown>)
 
 describe('flag-on delivery: the table still chooses, the receipt reports (R1)', () => {
   it('sends an idle target through the same push, and settles it with an accepted receipt', async () => {
     const h = await mailHarness({ receipts: {} })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -60,14 +60,14 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
 
     // THE EVIDENCE IS NEW. Flag off, nothing on this row said whether the turn
     // opened; the ledger inferred delivery from the push returning ok.
-    expect(receipts(h)).toMatchObject([
+    expect(await receipts(h)).toMatchObject([
       { messageId: r.id, outcome: 'accepted', provenBy: 'hook', deliveredAs: 'when-ready' },
     ])
   })
 
   it('routes an interrupt through interruptText and reports the interrupt delivery', async () => {
     const h = await mailHarness({ receipts: {} })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
 
     await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -79,12 +79,12 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
     // A running target + interrupt urgency is the one mid-turn path, and the
     // flag does not move it.
     expect(h.pushes.map((p) => p.fn)).toEqual(['interruptText'])
-    expect(receipts(h)).toMatchObject([{ outcome: 'accepted', deliveredAs: 'interrupt' }])
+    expect(await receipts(h)).toMatchObject([{ outcome: 'accepted', deliveredAs: 'interrupt' }])
   })
 
   it('leaves a busy live target holding for its turn boundary, with no push and no receipt', async () => {
     const h = await mailHarness({ receipts: {} })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'working' })
 
     await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -97,7 +97,7 @@ describe('flag-on delivery: the table still chooses, the receipt reports (R1)', 
     // receipt to report because nothing was dispatched — the flag must not turn
     // a deliberate hold into a speculative send.
     expect(h.pushes).toEqual([])
-    expect(receipts(h)).toEqual([])
+    expect(await receipts(h)).toEqual([])
   })
 })
 
@@ -111,7 +111,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
 
   it('records the unconfirmed delivery on the ledger and pushes exactly once', async () => {
     const h = await mailHarness({ receipts: { answer: () => unverified } })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -122,7 +122,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
     // THE ACCEPTANCE CRITERION. The window closed without proof, and the answer
     // is one honest ledger entry — not a second push.
     expect(h.pushes).toHaveLength(1)
-    expect(receipts(h)).toMatchObject([
+    expect(await receipts(h)).toMatchObject([
       {
         messageId: r.id,
         outcome: 'unverified',
@@ -141,7 +141,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
 
   it('does not resend when the sweep runs after an unverified receipt', async () => {
     const h = await mailHarness({ receipts: { answer: () => unverified } })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
     await h.gate.dispatch(OPERATOR, undefined, 'send', { to: `#${iss.seq}`, body: 'once only' })
@@ -157,7 +157,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
 
   it('still confirms on the transcript echo — the receipt did not close the question', async () => {
     const h = await mailHarness({ receipts: { answer: () => unverified } })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     const target = asSessionId('sTarget')
     h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
 
@@ -173,7 +173,9 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
     const delivered = (await h.svc.message(r.id))!
     expect(delivered.status).toBe('delivered')
     expect(
-      h.events(['message.delivered']).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map(
+        (e) => (e.payload as { confirmedVia: string }).confirmedVia,
+      ),
     ).toEqual(['echo'])
   })
 })
@@ -181,7 +183,7 @@ describe('flag-on delivery: unverified is delivered-unconfirmed, never a retry (
 describe('flag-on delivery: the window is open until the driver answers (R3)', () => {
   it('reports nothing while the receipt is outstanding, then records it on settle', async () => {
     const h = await mailHarness({ receipts: { defer: true } })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('sTarget'), issueId: iss.id, phase: 'idle' })
 
     const r = (await h.gate.dispatch(OPERATOR, undefined, 'send', {
@@ -195,15 +197,15 @@ describe('flag-on delivery: the window is open until the driver answers (R3)', (
     // to await proof.
     expect(r.ok).toBe(true)
     expect(h.pushes).toHaveLength(1)
-    expect(receipts(h)).toEqual([])
+    expect(await receipts(h)).toEqual([])
 
     expect(h.settleReceipts()).toBe(1)
-    expect(receipts(h)).toMatchObject([{ messageId: r.id, outcome: 'accepted' }])
+    expect(await receipts(h)).toMatchObject([{ messageId: r.id, outcome: 'accepted' }])
   })
 
   it('does not move a row the echo already settled while the window was open', async () => {
     const h = await mailHarness({ receipts: { defer: true, answer: () => unverifiedLate } })
-    const iss = h.createIssue({ title: 'target' })
+    const iss = await h.createIssue({ title: 'target' })
     const target = asSessionId('sTarget')
     h.put({ sessionId: target, issueId: iss.id, phase: 'idle' })
 
@@ -237,13 +239,13 @@ describe('flag-on delivery: a legacy-driven session is untouched (R4)', () => {
     // The mixed fleet, which is the reason the flag is per-session at all: one
     // daemon, one server, two sessions, only one of them driven.
     const h = await mailHarness({ receipts: { onContract: [asSessionId('sDriven')] } })
-    const legacy = h.createIssue({ title: 'legacy' })
+    const legacy = await h.createIssue({ title: 'legacy' })
     h.put({ sessionId: asSessionId('sLegacy'), issueId: legacy.id, phase: 'idle' })
 
     await h.gate.dispatch(OPERATOR, undefined, 'send', { to: `#${legacy.seq}`, body: 'no driver' })
 
     expect(h.pushes.map((p) => p.fn)).toEqual(['sendText'])
-    expect(receipts(h)).toEqual([])
+    expect(await receipts(h)).toEqual([])
   })
 })
 
@@ -263,8 +265,8 @@ describe('flag-on delivery: attachment refusals notify the sender (R5)', () => {
         }),
       },
     })
-    const targetIssue = h.createIssue({ title: 'target' })
-    const senderIssue = h.createIssue({ title: 'sender' })
+    const targetIssue = await h.createIssue({ title: 'target' })
+    const senderIssue = await h.createIssue({ title: 'sender' })
     h.put({ sessionId: target, issueId: targetIssue.id, phase: 'idle' })
     h.put({ sessionId: sender, issueId: senderIssue.id, phase: 'idle' })
 
