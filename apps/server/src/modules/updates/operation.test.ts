@@ -1286,8 +1286,7 @@ function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${sent.length + 1}`,
       concurrency: 3,
       fleetChannel: () => 'dev',
-      exclusiveOperationActive: async () =>
-        (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+      exclusiveOperationActive: async () => (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
       exclusiveOperationVersion: async (channel) =>
         exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),

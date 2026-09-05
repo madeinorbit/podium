@@ -407,9 +407,9 @@ describe('MachinesService inventory persistence (#222)', () => {
     expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex'))).toBe(
       'native:codex:fp-a',
     )
-    expect(
-      await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b')),
-    ).toBe('native:codex:fp-b')
+    expect(await svc.nativeAccountIdForMachine(MACHINE, 'codex', asAccountId('native:codex:fp-b'))).toBe(
+      'native:codex:fp-b',
+    )
   })
 
   test('a reconnect treats persisted absence as probing and a spawn wait joins the report', async () => {
@@ -428,9 +428,7 @@ describe('MachinesService inventory persistence (#222)', () => {
     const daemon = recorder()
     await svc.attach(MACHINE, daemon.send)
 
-    expect(
-      (await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory,
-    ).toBeUndefined()
+    expect((await svc.listMachines()).find((machine) => machine.id === MACHINE)?.inventory).toBeUndefined()
     await expect(svc.requireAgent(MACHINE, 'claude-code')).rejects.toThrow(
       "machine 'Builder' is still probing whether claude-code is installed",
     )
@@ -814,9 +812,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       // TWO PRINCIPALS' WORTH OF ROUTE, at the service seam: adoption refuses
       // Alice's machine whether the adopter meant to take it themselves or hand
       // it to someone else. Neither recipient makes the machine unowned.
-      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow(
-        'machine already has an owner',
-      )
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow('machine already has an owner')
       await expect(svc.adoptMachine(MACHINE, asUserId(ALICE))).rejects.toThrow(
         'machine already has an owner',
       )
@@ -842,9 +838,7 @@ describe('adoption of an unowned machine (POD-1494)', () => {
       expect((await store.machines.getMachine(MACHINE))?.ownerUserId).toBeNull()
       expect(await svc.effectiveOwner(MACHINE)).toBe(ALICE)
 
-      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow(
-        'machine already has an owner',
-      )
+      await expect(svc.adoptMachine(MACHINE, asUserId(BOB))).rejects.toThrow('machine already has an owner')
     } finally {
       rmSync(dir, { recursive: true, force: true })
     }

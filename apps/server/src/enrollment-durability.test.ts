@@ -361,9 +361,7 @@ describe('D19.4 regression sequences', () => {
     // Admin holds see, nobody holds use.
     expect(await canSeeMachine(admin, asMachineId(machineId), ownership)).toBe(true)
     expect(await checkMachineUse(admin, asMachineId(machineId), ownership)).toBe('unauthorized')
-    expect(await machineVerbsFor(admin, asMachineId(machineId), ownership)).toEqual(
-      new Set(['see']),
-    )
+    expect(await machineVerbsFor(admin, asMachineId(machineId), ownership)).toEqual(new Set(['see']))
     // A non-admin principal does not get see via quarantine.
     const plainMember = userCommandPrincipal(asUserId('user:nobody'), 'member')
     expect(await canSeeMachine(plainMember, asMachineId(machineId), ownership)).toBe(false)
@@ -396,9 +394,7 @@ describe('D19.4 regression sequences', () => {
     ).toBeUndefined()
     // Old owner no longer holds use/manage via the ledger-wins ownershipRows path.
     // (They may still hold admin-grade fleet powers elsewhere; machine verbs drop.)
-    expect(
-      await checkMachineUse(oldP, asMachineId(machineId), ownershipMidCrash),
-    ).not.toBeUndefined()
+    expect(await checkMachineUse(oldP, asMachineId(machineId), ownershipMidCrash)).not.toBeUndefined()
 
     // Restart: reconcile repairs the row with no manual step.
     const restarted = await makeWorld(dir)
@@ -425,11 +421,7 @@ describe('D19.4 regression sequences', () => {
     expect((await restarted.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)
     const ownership = ownershipFromMachines(svc)
     expect(
-      await checkMachineUse(
-        userCommandPrincipal(OTHER, 'member'),
-        asMachineId(machineId),
-        ownership,
-      ),
+      await checkMachineUse(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership),
     ).toBeUndefined()
     expect(
       await checkMachineVerb(

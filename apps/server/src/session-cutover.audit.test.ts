@@ -658,10 +658,7 @@ describe('AC5 · attribution is a pair and comes from the transport', () => {
 
     // And the value that IS written comes from the principal: an agent's create
     // stamps that agent, a human's stamps `user`.
-    const agentSession = await o.reg.modules.sessions.createSession({
-      agentKind: 'shell',
-      cwd: '/p',
-    })
+    const agentSession = await o.reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/p' })
     const asAgent = ctxFor(o, agentFor(agentSession.sessionId, FIRST_ADMIN_USER_ID))
     const created = await dispatchSessionCommand(asAgent, 'create', {
       agentKind: 'shell',
@@ -796,9 +793,7 @@ describe('AC6 · the machine `use` gate is on the only remaining path', () => {
       cwd: '/p',
     })
     expect(created.sessionId).toBeDefined()
-    expect(
-      await dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId }),
-    ).toBeUndefined()
+    expect(await dispatchSessionCommand(ctx, 'kill', { sessionId: created.sessionId })).toBeUndefined()
   })
 
   it('THE ALL-IN-ONE CASE: a non-owner may not execute on the host daemon', async () => {

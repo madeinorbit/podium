@@ -366,17 +366,11 @@ describe('handshake order at the real gateway', () => {
     const reg = await registryWithMachine()
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    await ws.emit(
-      'message',
-      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
-    )
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     expect(ws.sent.some((s) => s.includes('helloOk'))).toBe(true)
 
     const before = ws.sent.length
-    await ws.emit(
-      'message',
-      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
-    )
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     const after = ws.sent.slice(before).map((s) => JSON.parse(s) as { type: string })
     // A rejection, not a second helloOk — a live connection's principal is fixed.
     expect(after.some((m) => m.type === 'helloRejected')).toBe(true)
@@ -388,17 +382,11 @@ describe('handshake order at the real gateway', () => {
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
     // Wrong token first …
-    await ws.emit(
-      'message',
-      frame({ type: 'hello', machineId: 'm1', token: 'nope', hostname: 'box' }),
-    )
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'nope', hostname: 'box' }))
     expect(ws.sent.some((s) => s.includes('helloRejected'))).toBe(true)
     // … then the right one on the SAME socket. The daemon treats a rejection as
     // terminal (daemon.ts blocks, no reconnect loop) and so does the gateway.
-    await ws.emit(
-      'message',
-      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
-    )
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     expect(attach).not.toHaveBeenCalled()
   })
 
@@ -407,10 +395,7 @@ describe('handshake order at the real gateway', () => {
     const onMsg = vi.spyOn(reg.gateway, 'routeDaemonFrame').mockImplementation(() => {})
     const ws = fakeWs()
     wireDaemonSocket(ws as never, reg)
-    await ws.emit(
-      'message',
-      frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }),
-    )
+    await ws.emit('message', frame({ type: 'hello', machineId: 'm1', token: 'tok', hostname: 'box' }))
     await ws.emit('message', frame({ type: 'agentExit', sessionId: asSessionId('s1'), code: 0 }))
     expect(onMsg).toHaveBeenCalledWith(
       expect.objectContaining({ kind: 'machine', machine: 'm1' }),

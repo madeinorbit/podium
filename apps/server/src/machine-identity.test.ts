@@ -270,8 +270,7 @@ describe('rows are attributed from birth — there is no placeholder phase', () 
     })
 
     expect(
-      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)
-        ?.machineId,
+      (await registry.modules.sessions.listSessions()).find((s) => s.sessionId === sessionId)?.machineId,
     ).toBe(HOST)
     expect((await store.sessions.loadSessions())[0]?.machineId).toBe(HOST)
     store.close()
