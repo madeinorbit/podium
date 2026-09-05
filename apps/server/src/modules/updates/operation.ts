@@ -2374,7 +2374,7 @@ export function createUpdateFleetBridge(deps: {
    * which is what the composition root's engine uses.
    */
   now?: () => number
-}): { onFleetChanged: () => void; onTargetChanged: () => void } {
+}): { onFleetChanged: () => Promise<void>; onTargetChanged: () => Promise<void> } {
   /**
    * EVERY UPDATE WHOSE DEFERRED PROMISE IS STILL STANDING (POD-3040).
    *

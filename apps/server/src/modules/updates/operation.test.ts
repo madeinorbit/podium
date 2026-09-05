@@ -1963,7 +1963,7 @@ describe('the step runners', () => {
       detail:
         'attempt 2 of 2 did not reach dev+abc1234 (running 0.4.1); applying again will retry it',
     })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -2075,7 +2075,7 @@ describe('the step runners', () => {
       version: '0.4.1',
       detail: 'cannot converge: schema-advanced — target missing an applied migration',
     })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -2233,7 +2233,7 @@ describe('the step runners', () => {
       detail: 'cannot converge: dirty-working-tree',
     })
     fleet[1] = machine({ id: 'laptop' })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -2330,7 +2330,7 @@ describe('the step runners', () => {
 
     // The daemon reconnects on the new build: the machine DIRECTORY is the proof.
     fleet[0] = machine({ id: 'vmi', version: 'dev+abc1234' })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -2761,17 +2761,17 @@ describe('a version published mid-operation', () => {
 })
 
 describe('the fleet bridge', () => {
-  it('is silent when no update operation is running', () => {
+  it('is silent when no update operation is running', async () => {
     const h = harness()
     const recordProgress = vi.fn(() => Promise.resolve())
     const admitDeferred = vi.fn(() => Promise.resolve())
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: {
-        active: () => undefined,
+        active: async () => undefined,
         recordProgress,
         admitDeferred,
         recordDeferred: () => Promise.resolve(),
-        history: () => [],
+        history: async () => [],
         reensure: () => Promise.resolve(),
         recordDetails: () => undefined,
       },
@@ -2801,7 +2801,7 @@ describe('the fleet bridge', () => {
       state: 'downloading',
       version: '0.4.1',
     })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -2834,7 +2834,7 @@ describe('the fleet bridge', () => {
     expect((await h.read()).deferred).toEqual([{ id: 'laptop', name: 'laptop', reason: 'offline' }])
 
     fleet[1] = machine({ id: 'laptop' })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -2966,7 +2966,7 @@ describe('the fleet bridge', () => {
     await h.engine.whenSettled('op_1')
 
     fleet[1] = machine({ id: 'laptop', supervised: true })
-    createUpdateFleetBridge({
+    await createUpdateFleetBridge({
       engine: h.engine,
       updates: h.updates,
       now: () => h.clock.clock.now(),
@@ -4119,11 +4119,11 @@ describe('a wave whose canary arrived without an attach', () => {
     const recordProgress = vi.fn(async () => {})
     const bridge = createUpdateFleetBridge({
       engine: {
-        active: () => ({ id: 'op_1', kind: UPDATE_OPERATION_KIND, operation }),
+        active: async () => ({ id: 'op_1', kind: UPDATE_OPERATION_KIND, operation }),
         recordProgress,
         admitDeferred: async () => {},
         recordDeferred: async () => {},
-        history: () => [],
+        history: async () => [],
         reensure,
         recordDetails: () => undefined,
       },
@@ -4144,8 +4144,7 @@ describe('a wave whose canary arrived without an attach', () => {
       now: () => 1_000,
     })
 
-    bridge.onFleetChanged()
-    await Promise.resolve()
+    await bridge.onFleetChanged()
 
     expect(reensure).toHaveBeenCalledWith('op_1', UPDATE_STEP_MACHINES, expect.anything())
   })
