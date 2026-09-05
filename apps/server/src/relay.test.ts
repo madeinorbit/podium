@@ -7096,7 +7096,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
   })
 
   describe('message startup recovery isolation [POD-842] [spec:SP-c29e]', () => {
-    it('keeps registry boot alive when the recovery job throws', () => {
+    it('keeps registry boot alive when the recovery job throws', async () => {
       const reconcile = vi
         .spyOn(MessageDeliveryService.prototype, 'reconcileQueued')
         .mockImplementationOnce(() => {
@@ -7105,9 +7105,7 @@ describe('event-driven mail delivery wiring [POD-842] [spec:SP-c29e]', () => {
       const logs = captureLogs()
       let registry: SessionRegistry | undefined
       try {
-        expect(() => {
-          registry = SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
-        }).not.toThrow()
+        registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
         expect(logs.at('warn')).toContainEqual(
           expect.objectContaining({
             msg: expect.stringContaining('queued message startup recovery failed'),

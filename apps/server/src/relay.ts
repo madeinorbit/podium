@@ -1406,7 +1406,9 @@ export class SessionRegistry {
         telegramRouteAvailable: async (ownerUserId) =>
           (await this.store.telegramBindings.listForUser(ownerUserId)).length === 1,
         requestTelegram: (request) => this.bus.emit('notification.telegramRequested', request),
-        appendEvent: async (e) => await this.store.events.appendEvent(e),
+        appendEvent: async (e) => {
+          await this.store.events.appendEvent(e)
+        },
         now: () => this.now(),
         clients: (ownerUserId) =>
           [...clientRegistry.values()].filter(
@@ -1693,7 +1695,9 @@ export class SessionRegistry {
           await issues.sendMail(issueId, from, body)
         } catch {}
       },
-      appendEvent: async (e) => await this.store.events.appendEvent(e),
+      appendEvent: async (e) => {
+        await this.store.events.appendEvent(e)
+      },
     })
     const lockCommands = new LockCommandDispatcher({
       locks,
@@ -1977,7 +1981,9 @@ export class SessionRegistry {
           })
         },
         createIssue: async (o) => await issues.create({ ...o, startNow: false }),
-        appendEvent: async (e) => await this.store.events.appendEvent(e),
+        appendEvent: async (e) => {
+          await this.store.events.appendEvent(e)
+        },
         now: () => new Date(this.now()).toISOString(),
         // Bounded-wait seam, absent unless a fixture injected one (see
         // SessionRegistryOptions.mailAwait). The gate's `now` above is what
