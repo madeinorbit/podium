@@ -148,10 +148,10 @@ describe('codexComplete', () => {
   it('throws a CodexHttpError carrying the status on a non-2xx response', async () => {
     const fetchImpl = mockFetch('unauthorized', 401)
     await expect(
-      await codexComplete(fetchImpl, AUTH, 'gpt-5.5', [{ role: 'user', content: 'hi' }], []),
+      codexComplete(fetchImpl, AUTH, 'gpt-5.5', [{ role: 'user', content: 'hi' }], []),
     ).rejects.toBeInstanceOf(CodexHttpError)
     await expect(
-      await codexComplete(fetchImpl, AUTH, 'gpt-5.5', [{ role: 'user', content: 'hi' }], []),
+      codexComplete(fetchImpl, AUTH, 'gpt-5.5', [{ role: 'user', content: 'hi' }], []),
     ).rejects.toMatchObject({ status: 401 })
   })
 })

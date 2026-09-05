@@ -554,7 +554,7 @@ describe('Shipping command boundary', () => {
       /pass an issue id/,
     )
     await expect(
-      await dispatcher.run(agentCaller(root.id), 'ship', issueRegistry.defs.ship, {}),
+      dispatcher.run(agentCaller(root.id), 'ship', issueRegistry.defs.ship, {}),
     ).resolves.toBeDefined()
     // `run` is the ALREADY-guarded, ALREADY-parsed entry point and returns the
     // handler's own return value unwrapped — unlike `dispatch`, which defers into
@@ -579,7 +579,7 @@ describe('Shipping command boundary', () => {
     const outside = await registry.issues.create({ repoPath: '/r', title: 'Outside', startNow: false })
 
     await expect(
-      await dispatcher.dispatch(agentCaller(own.id), 'issues', 'ship', { id: outside.id }),
+      dispatcher.dispatch(agentCaller(own.id), 'issues', 'ship', { id: outside.id }),
     ).rejects.toThrow(/outside your subtree.*--outside-scope/)
     expect(enqueueCurrent).not.toHaveBeenCalled()
 
@@ -683,7 +683,7 @@ describe('Shipping command boundary', () => {
       ['resolveShipHold', { orderId: 'ship_hidden', action: 'retry', expectedGeneration: 1 }],
     ] as const) {
       await expect(
-        await dispatcher.dispatch(agentCaller('iss_root'), 'issues', proc, input),
+        dispatcher.dispatch(agentCaller('iss_root'), 'issues', proc, input),
       ).rejects.toMatchObject({ code: 'NOT_FOUND' })
     }
   })

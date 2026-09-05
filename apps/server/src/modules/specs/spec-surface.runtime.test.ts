@@ -238,7 +238,7 @@ describe('the contract schemas are THE schemas the surface validates with', () =
     // The refusals the shipped schemas made, still made, through the relay path.
     await expect(svc.invoke('create', { repoPath: repo, parent: 'SP-root' })).rejects.toThrow()
     await expect(
-      await svc.invoke('create', { repoPath: repo, title: '', parent: 'SP-root' }),
+      svc.invoke('create', { repoPath: repo, title: '', parent: 'SP-root' }),
     ).rejects.toThrow()
     await expect(svc.invoke('save', { repoPath: repo, id: '' })).rejects.toThrow()
     await expect(svc.invoke('remove', { repoPath: '', id: 'SP-abcd' })).rejects.toThrow()
@@ -250,7 +250,7 @@ describe('the contract schemas are THE schemas the surface validates with', () =
     })) as { id: string }
     expect(made.id).toMatch(/^SP-/)
     await expect(
-      await svc.invoke('save', { repoPath: repo, id: made.id, title: 'Kept' }),
+      svc.invoke('save', { repoPath: repo, id: made.id, title: 'Kept' }),
     ).resolves.toBeTruthy()
   })
 })

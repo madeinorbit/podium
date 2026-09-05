@@ -277,7 +277,7 @@ describe('IssueService CRUD', () => {
     const before = await svc.get(id)
 
     await expect(
-      await svc.createAndMaybeStart({
+      svc.createAndMaybeStart({
         repoPath: '/r',
         title: 'Replacement',
         description: 'Overwrite attempt',
@@ -5043,7 +5043,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const { svc, snapshot } = await artifactHarness()
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     await expect(
-      await svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') }),
+      svc.panelArtifactAdd(w.id, { path: 'a.png' }, { actorSessionId: asSessionId('/wt') }),
     ).rejects.toThrow(/no owning worktree/)
     expect(snapshot).not.toHaveBeenCalled()
   })
@@ -5101,7 +5101,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     const w = await svc.create({ repoPath: '/r', title: 'X', startNow: false })
     sessions[0]!.issueId = w.id
     await expect(
-      await svc.panelArtifactAdd(
+      svc.panelArtifactAdd(
         w.id,
         { path: 'artifacts/stty-size.txt', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
@@ -5123,7 +5123,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
       sourcePaths: ['screenshots.png/stty-size.txt'],
     })
     await expect(
-      await svc.panelArtifactAdd(
+      svc.panelArtifactAdd(
         w.id,
         { path: 'screenshots.png', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
@@ -5139,7 +5139,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
     await svc.update(w.id, { worktreePath: '/wt/issue-1', machineId: asMachineId('issue-machine') })
     sessions[0]!.machineId = asMachineId('other-machine')
     await expect(
-      await svc.panelArtifactAdd(
+      svc.panelArtifactAdd(
         w.id,
         { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },
@@ -5148,7 +5148,7 @@ describe('IssueService panelArtifactAdd/Remove (permanent snapshots [spec:SP-0fc
 
     sessions[0]!.issueId = w.id
     await expect(
-      await svc.panelArtifactAdd(
+      svc.panelArtifactAdd(
         w.id,
         { path: 'shot.png', terminalEvidence: true, sourceRoot: '/review' },
         { actorSessionId: asSessionId('/wt') },

@@ -54,7 +54,7 @@ describe('prepareTarget reconnect inventory', () => {
     } as unknown as SessionWorkspacePorts)
 
     await expect(
-      await workspace.prepareTarget({
+      workspace.prepareTarget({
         agentKind: 'shell',
         cwd: '/repo',
         machineId: asMachineId('machine-b'),

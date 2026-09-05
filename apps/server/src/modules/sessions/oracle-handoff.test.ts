@@ -470,7 +470,7 @@ describe('oracle: handoff success across two machines', () => {
     const f = await handoffFixture({ deferTargetInventory: true })
 
     await expect(
-      await f.reg.modules.issueSessionLifecycle.handoffSession(
+      f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),
@@ -618,7 +618,7 @@ describe('oracle: handoff success across two machines', () => {
     // to ignore it. Two callers, one answer, and that is the behaviour-preserving
     // default rather than an absence of enforcement.
     await expect(
-      await f.reg.modules.issueSessionLifecycle.handoffSession(
+      f.reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId: f.sessionId, machineId: asMachineId('m2') },
         WORKER_CALLER,
       ),

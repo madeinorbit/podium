@@ -67,7 +67,7 @@ describe('handoff admission: the gate, before anything is coalesced', () => {
   it('fails closed on a missing principal — there is no ambient operator', async () => {
     const start = vi.fn(async () => ok())
     await expect(
-      await admissionFor(makeSession()).admit(
+      admissionFor(makeSession()).admit(
         { sessionId: SESSION, machineId: TARGET },
         undefined as unknown as HandoffCaller,
         gate().assert,
@@ -80,7 +80,7 @@ describe('handoff admission: the gate, before anything is coalesced', () => {
   it('refuses an absent session with the command`s pinned throw', async () => {
     const start = vi.fn(async () => ok())
     await expect(
-      await admissionFor(undefined).admit(
+      admissionFor(undefined).admit(
         { sessionId: SESSION, machineId: TARGET },
         caller(),
         gate().assert,
@@ -93,7 +93,7 @@ describe('handoff admission: the gate, before anything is coalesced', () => {
   it('asks the capability table whether the harness can be handed off, not the name', async () => {
     const start = vi.fn(async () => ok())
     await expect(
-      await admissionFor(makeSession({ agentKind: 'opencode' })).admit(
+      admissionFor(makeSession({ agentKind: 'opencode' })).admit(
         { sessionId: SESSION, machineId: TARGET },
         caller(),
         gate().assert,
@@ -106,7 +106,7 @@ describe('handoff admission: the gate, before anything is coalesced', () => {
   it('refuses a session with no resume reference', async () => {
     const start = vi.fn(async () => ok())
     await expect(
-      await admissionFor(makeSession({ resume: false })).admit(
+      admissionFor(makeSession({ resume: false })).admit(
         { sessionId: SESSION, machineId: TARGET },
         caller(),
         gate().assert,
@@ -130,7 +130,7 @@ describe('handoff admission: the gate, before anything is coalesced', () => {
   it('a denied TARGET stops the dispatch before it starts', async () => {
     const start = vi.fn(async () => ok())
     await expect(
-      await admissionFor(makeSession()).admit(
+      admissionFor(makeSession()).admit(
         { sessionId: SESSION, machineId: TARGET },
         caller(),
         gate(TARGET).assert,
@@ -186,7 +186,7 @@ describe('handoff admission: one live transfer per session', () => {
     // The second caller may not use the target. It must be refused even though a
     // transfer to that same target is already running and would have succeeded.
     await expect(
-      await admission.admit(
+      admission.admit(
         { sessionId: SESSION, machineId: TARGET },
         caller(),
         gate(TARGET).assert,
@@ -207,7 +207,7 @@ describe('handoff admission: one live transfer per session', () => {
       t.start,
     )
     await expect(
-      await admission.admit({ sessionId: SESSION, machineId: OTHER }, caller(), gate().assert, t.start),
+      admission.admit({ sessionId: SESSION, machineId: OTHER }, caller(), gate().assert, t.start),
     ).rejects.toThrow('session handoff already in progress')
     expect(t.start).toHaveBeenCalledTimes(1)
     t.settle(ok())

@@ -896,7 +896,7 @@ describe('session handoff orchestration', () => {
   it('resumes the unchanged source row when export fails', async () => {
     const { reg, source, sessionId } = await handoffRegistry({ failExport: true })
     await expect(
-      await reg.modules.issueSessionLifecycle.handoffSession(
+      reg.modules.issueSessionLifecycle.handoffSession(
         { sessionId, machineId: asMachineId('m2') },
         TEST_CALLER,
       ),

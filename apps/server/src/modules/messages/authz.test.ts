@@ -231,7 +231,7 @@ describe('target gating on send (A2)', () => {
     // An issueless session, and a cwd no issue owns.
     h.put({ sessionId: asSessionId('sFree'), cwd: '/elsewhere', phase: 'idle' })
     await expect(
-      await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
+      h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), true, 'send', {
         to: 'sFree',
         body: 'x',
       }),
@@ -544,16 +544,16 @@ describe('read-surface and reply authz (A5)', () => {
     const oid = original.message.id
 
     await expect(
-      await h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'reply', {
+      h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'reply', {
         id: oid,
         body: 'no',
       }),
     ).rejects.toThrow('only the recipient of a message may reply to it')
     await expect(
-      await h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'show', { id: oid }),
+      h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'show', { id: oid }),
     ).rejects.toThrow('not allowed to view a message you neither sent nor received')
     await expect(
-      await h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'dismiss', {
+      h.gate.dispatch(h.agentCap(bystander.id, asSessionId('sBy')), undefined, 'dismiss', {
         id: oid,
       }),
     ).rejects.toThrow('only the recipient of a message may dismiss it')

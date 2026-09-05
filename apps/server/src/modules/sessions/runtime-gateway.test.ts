@@ -126,7 +126,7 @@ describe('attachment staging', () => {
   it('returns not_running before sending bytes when no machine owns the session', async () => {
     const { gateway, staged } = makeGateway({ machineOf: () => undefined })
     await expect(
-      await gateway.stageAttachment({
+      gateway.stageAttachment({
         sessionId: SESSION,
         source: { bytes: new Uint8Array([1]), filename: 'x.png', mediaType: 'image/png' },
       }),
@@ -191,7 +191,7 @@ describe('send', () => {
     })
     expect(forwarded[0]?.attachments).toEqual([attachment])
     await expect(
-      await gateway.send({
+      gateway.send({
         sessionId: SESSION,
         text: 'later',
         origin: 'human',

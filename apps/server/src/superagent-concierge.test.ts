@@ -250,7 +250,7 @@ describe('concierge threads (issue #64)', () => {
   it('rejects an unregistered repoPath without minting a thread', async () => {
     const { sa } = await harness()
     await expect(
-      await sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
+      sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
     ).rejects.toThrow(/unknown repo/)
     expect((await sa.listThreads(FIRST_ADMIN_USER_ID)).filter((t) => t.kind === 'concierge')).toHaveLength(
       1,

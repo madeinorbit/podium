@@ -94,7 +94,7 @@ describe('login propagation coordinator', () => {
     })
 
     await expect(
-      await service.propagate({
+      service.propagate({
         targetMachineId: asMachineId('target'),
         agentKind: 'codex',
         principalUserId: asUserId(owner),
@@ -149,7 +149,7 @@ describe('login propagation coordinator', () => {
     })
 
     await expect(
-      await service.propagate({
+      service.propagate({
         targetMachineId: asMachineId('target'),
         agentKind: 'codex',
         principalUserId: asUserId('user:other'),

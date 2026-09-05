@@ -310,7 +310,7 @@ describe('resolveReleaseTarget trust root', () => {
     const fetchImpl = devFetchFixture({})
 
     await expect(
-      await resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
+      resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
     ).resolves.toMatchObject({ version: '0.1.2-dev.4+abc1234', trust: 'instance' })
 
     // Manifest AND artifact HEAD both authenticated: the dev feed is 401-first,
@@ -470,7 +470,7 @@ describe('resolveReleaseTarget trust root', () => {
       })
 
       await expect(
-        await resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
+        resolveReleaseTarget('dev', { fetch: fetchImpl, feed: DEV_FEED }),
       ).rejects.toThrow(/redirect/)
       expect(fetchImpl.mock.calls.map(([request]) => String(request))).not.toContain(inFeed)
     })
@@ -602,7 +602,7 @@ describe('resolveReleaseTarget trust root', () => {
     const fetchImpl = vi.fn<typeof fetch>(async () => json(manifest))
 
     await expect(
-      await resolveReleaseTarget(channel, { fetch: fetchImpl, ...(feed ? { feed } : {}) }),
+      resolveReleaseTarget(channel, { fetch: fetchImpl, ...(feed ? { feed } : {}) }),
     ).rejects.toThrow(`${channel} target unavailable: release manifest offered a non-feed delivery`)
   })
 

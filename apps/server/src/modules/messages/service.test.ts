@@ -3115,11 +3115,11 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     const { svc } = await harness([])
     const gate = gateFor(svc)
     await expect(
-      await gate.dispatch(peerCap, undefined, 'send', { to: `#${ISSUE.seq}`, body: 'wake it' }),
+      gate.dispatch(peerCap, undefined, 'send', { to: `#${ISSUE.seq}`, body: 'wake it' }),
     ).rejects.toThrow(/outside your subtree/)
     // --outside-scope confirms the crossing...
     await expect(
-      await gate.dispatch(peerCap, true, 'send', { to: `#${ISSUE.seq}`, body: 'wake it' }),
+      gate.dispatch(peerCap, true, 'send', { to: `#${ISSUE.seq}`, body: 'wake it' }),
     ).resolves.toMatchObject({ ok: true })
     // ...and never elevates the clamp matrix: a peer interrupt stays clamped.
     const r = (await gate.dispatch(peerCap, true, 'send', {
@@ -3135,7 +3135,7 @@ describe('MessageGate.send authz (target-issue scope) [spec:SP-34d7 authz]', () 
     const { svc } = await harness([])
     const gate = gateFor(svc)
     await expect(
-      await gate.dispatch(peerCap, undefined, 'send', { to: SENDER_ISSUE.id, body: 'self note' }),
+      gate.dispatch(peerCap, undefined, 'send', { to: SENDER_ISSUE.id, body: 'self note' }),
     ).resolves.toMatchObject({ ok: true })
   })
 

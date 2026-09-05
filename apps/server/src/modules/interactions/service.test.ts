@@ -309,7 +309,7 @@ describe('InteractionService — synthesis', () => {
       policyPrincipal: () => PRINCIPAL,
     })
     await expect(
-      await broken.onStateChanged({ sessionId: S, prev: undefined, next: questionState() }),
+      broken.onStateChanged({ sessionId: S, prev: undefined, next: questionState() }),
     ).resolves.toBeUndefined()
     void svc
   })

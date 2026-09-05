@@ -222,7 +222,7 @@ describe('what the driver seam observes', () => {
     const driver = instrumentDriver(createBunSqliteDriver({ database: db }), hub)
     const session = await driver.open('write')
     await expect(
-      await session.executeBatch([
+      session.executeBatch([
         {
           sql: 'INSERT INTO t (id, v) VALUES (?, ?)',
           params: [5, 'e'],

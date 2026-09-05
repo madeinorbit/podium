@@ -176,7 +176,7 @@ describe('issues.answerQuestion (issue #53)', () => {
     // alone would allow it) is refused: answerQuestion would later deliver the
     // human's answer INTO that session.
     await expect(
-      await call(
+      call(
         'setNeedsHuman',
         { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') },
         worker,
@@ -196,7 +196,7 @@ describe('issues.answerQuestion (issue #53)', () => {
       },
     }
     await expect(
-      await call(
+      call(
         'setNeedsHuman',
         { id: a.id, question: 'q', askedBy: asSessionId('sess_victim') },
         sessionless,

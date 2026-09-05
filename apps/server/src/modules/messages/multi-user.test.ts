@@ -49,7 +49,7 @@ describe('the human ceiling bounds addressing — not the agent’s own scope', 
     // and NAMES its target — which is safe precisely because the human can
     // already see it. D20.1 ratifies this shape rather than collapsing it.
     await expect(
-      await h.gate.dispatch(cap, undefined, 'send', { to: theirs.id, body: 'x' }),
+      h.gate.dispatch(cap, undefined, 'send', { to: theirs.id, body: 'x' }),
     ).rejects.toThrow(/outside your subtree; re-run with --outside-scope/)
 
     // With it, the send goes through — today's cross-issue coordination path,
@@ -278,7 +278,7 @@ describe('spawnAgent places work on OWNED COMPUTE and fails closed', () => {
     const h = await mailHarness({ machines: machines({ use: false, reachable: true }) })
     const issue = await withMachine(h)
     await expect(
-      await h.gate.dispatch(
+      h.gate.dispatch(
         h.agentCap(asIssueId(issue.id), asSessionId('sMe')),
         undefined,
         'spawnAgent',

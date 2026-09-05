@@ -86,7 +86,7 @@ describe('resolveCodexAuth — read-only, self-healing', () => {
     writeAuth(home, token)
 
     await expect(
-      await resolveCodexAuth(FETCH_FORBIDDEN, { rejectedAccessToken: token }),
+      resolveCodexAuth(FETCH_FORBIDDEN, { rejectedAccessToken: token }),
     ).rejects.toBeInstanceOf(LlmConfigError)
   })
 })

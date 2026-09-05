@@ -261,7 +261,7 @@ describe('server transfer RPC', () => {
     )
     const data = Buffer.alloc(SERVER_TRANSFER_MAX_CHUNK_BYTES * 2 + 3)
     await expect(
-      await rpc.serverTransferChunk(
+      rpc.serverTransferChunk(
         { transferId: 'transfer-1', path: 'podium.db', offset: 9, data },
         asMachineId('target-machine'),
       ),
@@ -298,7 +298,7 @@ describe('server transfer RPC', () => {
     ])
     expect(chunks.every((chunk) => chunk.manifestDigest === 'a'.repeat(64))).toBe(true)
     await expect(
-      await rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), asMachineId('target-machine')),
+      rpc.serverTransferAcknowledge('transfer-1', 'a'.repeat(64), asMachineId('target-machine')),
     ).resolves.toMatchObject({ ok: true })
     expect(sent.at(-1)?.msg).toMatchObject({
       type: 'serverTransferAcknowledgeRequest',

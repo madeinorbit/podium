@@ -364,7 +364,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     await h.settle()
     // "Open in terminal" is available again (it gates on harnessSessionId).
     await expect(
-      await h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
+      h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
     ).resolves.toBeDefined()
   })
 
@@ -386,7 +386,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
     expect(() => h.sa.clear(FIRST_ADMIN_USER_ID, asThreadId('global'))).not.toThrow()
     // The thread is usable again immediately — the whole point of the hatch.
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'after the reset',
@@ -408,7 +408,7 @@ describe('global thread priming, clear, and per-turn user focus (#225)', () => {
       threadId: asThreadId('global'),
     })
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'x',
@@ -555,7 +555,7 @@ describe('sendTurn (headless harness turns)', () => {
       (await h.sa.listThreads(FIRST_ADMIN_USER_ID)).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(true)
     await expect(
-      await h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
+      h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
     ).resolves.toMatchObject({
       phase: 'working',
     })
@@ -565,7 +565,7 @@ describe('sendTurn (headless harness turns)', () => {
       (await h.sa.listThreads(FIRST_ADMIN_USER_ID)).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(false)
     await expect(
-      await h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
+      h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
     ).resolves.toMatchObject({
       phase: 'idle',
     })
@@ -674,14 +674,14 @@ describe('sendTurn (headless harness turns)', () => {
       text: 'one',
     })
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'two',
       }),
     ).resolves.toMatchObject({ queued: true })
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'three',
@@ -732,7 +732,7 @@ describe('sendTurn (headless harness turns)', () => {
       (await h.registry.sessionStore.superagent.getSuperagentThread('global'))?.harnessSessionId,
     ).toBeUndefined()
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'retry',
@@ -768,7 +768,7 @@ describe('sendTurn (headless harness turns)', () => {
   it('rejects an unknown thread', async () => {
     const h = await harness()
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('btw_nope'),
         text: 'x',
@@ -841,7 +841,7 @@ describe('conciergeTurn / startBtwTurn (thread creation on the headless path)', 
   it('rejects an unregistered repo without minting a thread', async () => {
     const h = await harness()
     await expect(
-      await h.sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
+      h.sa.conciergeTurn({ ownerUserId: FIRST_ADMIN_USER_ID, repoPath: '/typo', text: 'hi' }),
     ).rejects.toThrow(/unknown repo/)
     expect(
       (await h.sa.listThreads(FIRST_ADMIN_USER_ID)).filter((t) => t.kind === 'concierge'),
@@ -966,7 +966,7 @@ describe('openInTerminal + one-writer lock', () => {
     ).toBe(sessionId)
     // One writer: sendTurn refuses while the terminal session is alive.
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'x',
@@ -975,7 +975,7 @@ describe('openInTerminal + one-writer lock', () => {
     // The lock clears lazily once the terminal session is gone.
     h.registry.modules.sessions.killSession({ sessionId })
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'x',
@@ -989,7 +989,7 @@ describe('openInTerminal + one-writer lock', () => {
   it('refuses before a harness session exists and while a turn is running', async () => {
     const h = await harness()
     await expect(
-      await h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
+      h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
     ).rejects.toThrow(/no harness session/)
     await h.sa.sendTurn({
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -997,7 +997,7 @@ describe('openInTerminal + one-writer lock', () => {
       text: 'hi',
     })
     await expect(
-      await h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
+      h.sa.openInTerminal({ ownerUserId: FIRST_ADMIN_USER_ID, threadId: asThreadId('global') }),
     ).rejects.toThrow(/turn is running/)
   })
 
@@ -1150,7 +1150,7 @@ describe('boot reconciliation for headless sessions', () => {
       requestDigest: replay.requestDigest,
     })
     await expect(
-      await superagent.sendTurn({
+      superagent.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'next message',
@@ -1373,7 +1373,7 @@ describe('harness switch + effort (#199)', () => {
       text: 'one',
     })
     await expect(
-      await h.sa.sendTurn({
+      h.sa.sendTurn({
         ownerUserId: FIRST_ADMIN_USER_ID,
         threadId: asThreadId('global'),
         text: 'two on grok',

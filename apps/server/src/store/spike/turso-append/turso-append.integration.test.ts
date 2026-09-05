@@ -161,7 +161,7 @@ describe.skipIf(SQLD === undefined)('change-log append over libsql', () => {
   it('rolls the whole append back when a chunk throws, INCLUDING the counter', async () => {
     await withSlice(async (slice) => {
       await expect(
-        await slice.withSession(async (s) =>
+        slice.withSession(async (s) =>
           await appendChangesLiteral(s, slice.db, slice.tables, upsertRows(250, 'f'), 1_000, {
             afterChunk: (i) => {
               if (i === 1) throw new Error('deliberate failure after the second chunk')
@@ -257,7 +257,7 @@ describe.skipIf(SQLD === undefined)('change-log append over libsql', () => {
         expect(kept).toEqual([1, 2])
 
         await expect(
-          await appendChangesNested(session, slice.db, slice.tables, upsertRows(5, 'd'), 2_000, 'sp_doomed', {
+          appendChangesNested(session, slice.db, slice.tables, upsertRows(5, 'd'), 2_000, 'sp_doomed', {
             // Thrown AFTER the chunk has inserted and its `change_latest` rows
             // have been written — the only window in which a partially applied
             // nested append could survive into the outer span.
@@ -402,7 +402,7 @@ describe.skipIf(SQLD === undefined)('change-log append over libsql', () => {
       try {
         await session.begin('write')
         await expect(
-          await session.executeBatch([
+          session.executeBatch([
             {
               sql: `INSERT INTO ${slice.prefix}changes (entity, entity_id, op, payload, event_time) VALUES (?, ?, ?, ?, ?)`,
               params: ['issue', 'ok', 'upsert', '{}', 1],

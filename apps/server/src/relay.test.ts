@@ -2964,7 +2964,7 @@ describe('readTranscript (disk read via daemon — no cache short-circuit)', () 
     const daemon: ControlMessage[] = []
     reg.gateway.attachDaemon(reg.sessionStore.hostMachineId, (m) => daemon.push(m))
     await expect(
-      await reg.modules.rpc.readTranscript(
+      reg.modules.rpc.readTranscript(
         { sessionId: asSessionId('nope'), direction: 'before', limit: 10 },
         { kind: 'user', id: FIRST_ADMIN_USER_ID },
       ),
@@ -5690,7 +5690,7 @@ describe('versioned drafts with the draft-sync flag OFF (POD-2045)', () => {
           .at(-1)
         expect(broadcastRev).toBe(5)
 
-        const persisted = store.sessions.loadDraftDocs()[sessionId]
+        const persisted = (await store.sessions.loadDraftDocs())[sessionId]
         expect(persisted).toBeDefined()
         // Behind the live document (the window coalesces), but only by a window —
         // never by the whole burst, which is what "rev 0 / no row" would mean.

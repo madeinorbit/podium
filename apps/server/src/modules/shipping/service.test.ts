@@ -272,7 +272,7 @@ describe('ShippingService enqueue transaction', () => {
     })
 
     await expect(
-      await service.enqueue({
+      service.enqueue({
         issueId: issue.id,
         ...approval,
         approved: {
@@ -497,7 +497,7 @@ describe('ShippingService enqueue transaction', () => {
     })
 
     await expect(
-      await service.enqueue({
+      service.enqueue({
         issueId: root.id,
         ...approval,
         approved: {
@@ -614,7 +614,7 @@ describe('ShippingService enqueue transaction', () => {
       })
       await strict.issues.update(issue.id, { stage: 'review' })
       await expect(
-        await strict.service.enqueueCurrent({
+        strict.service.enqueueCurrent({
           issueId: issue.id,
           principal: approval.principal,
           overrideScope: false,
@@ -650,7 +650,7 @@ describe('ShippingService enqueue transaction', () => {
         }),
       ).toThrow(ShippingOrderAccessError)
       await expect(
-        await service.resolveHold({
+        service.resolveHold({
           orderId,
           action: 'retry',
           expectedGeneration: 1,
@@ -658,7 +658,7 @@ describe('ShippingService enqueue transaction', () => {
         }),
       ).rejects.toThrow('shipping order not found or inaccessible')
       await expect(
-        await service.cancel({
+        service.cancel({
           orderId,
           principal: approval.principal,
           overrideScope: false,
@@ -708,7 +708,7 @@ describe('ShippingService enqueue transaction', () => {
       actions: ['retry', 'return-to-issue'],
     })
     await expect(
-      await service.resolveHold({
+      service.resolveHold({
         orderId: order.id,
         action: 'retry',
         expectedGeneration: 2,
@@ -1329,7 +1329,7 @@ describe('ShippingService enqueue transaction', () => {
       BEGIN SELECT RAISE(ABORT, 'event refused'); END`)
 
     await expect(
-      await service.cancel({
+      service.cancel({
         orderId: order.id,
         principal: approval.principal,
         requestedBy: approval.requestedBy,
@@ -2161,7 +2161,7 @@ describe('ShippingService enqueue transaction', () => {
       members: admitted.map(({ receipt }) => ({ orderId: receipt.order.id })),
     })
     await expect(
-      await service.enqueue({ issueId: sibling.issue.id, ...approval }),
+      service.enqueue({ issueId: sibling.issue.id, ...approval }),
     ).resolves.toMatchObject({
       created: false,
       order: { id: sibling.receipt.order.id },

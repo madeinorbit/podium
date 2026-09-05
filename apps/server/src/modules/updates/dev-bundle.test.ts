@@ -765,7 +765,7 @@ describe('finalizeTimingIntoRecord', () => {
 describe('buildDevBundle', () => {
   it('refuses the retired caller-supplied digest seam', async () => {
     await expect(
-      await buildDevBundle({
+      buildDevBundle({
         clientRootDigest: 'a'.repeat(64),
       } as unknown as Parameters<typeof buildDevBundle>[0]),
     ).rejects.toThrow(/caller-supplied clientRootDigest is forbidden/)
@@ -1258,7 +1258,7 @@ describe('buildDevBundle', () => {
 
     // The child died before it could say the clients passed.
     await expect(
-      await attempt(async () => {
+      attempt(async () => {
         throw new Error('client verification failed')
       }),
     ).rejects.toThrow('client verification failed')
@@ -1270,7 +1270,7 @@ describe('buildDevBundle', () => {
     const seams = publisherSeams()
     const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
     await expect(
-      await buildDevBundle({
+      buildDevBundle({
         ...seams,
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1295,7 +1295,7 @@ describe('buildDevBundle', () => {
     const seams = publisherSeams()
     const buildId = mintBuildId('20260812T182015Z', 'aaaaaaa')
     await expect(
-      await buildDevBundle({
+      buildDevBundle({
         ...seams,
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1319,7 +1319,7 @@ describe('buildDevBundle', () => {
     const { bytes, signature, signingKey } = signedFixture()
     const store = memoryFs()
     await expect(
-      await buildDevBundle({
+      buildDevBundle({
         ...publisherSeams(),
         root: '/repo/podium',
         headSha: 'aaaaaaa',
@@ -1457,7 +1457,7 @@ describe('buildDevBundle', () => {
   it('releases the lease and keeps a failed build unpublished', async () => {
     const events: string[] = []
     await expect(
-      await buildDevBundle({
+      buildDevBundle({
         ...publisherSeams(),
         headSha: '123456789abcdef',
         fs: stubFs(),
@@ -2389,7 +2389,7 @@ describe('the dev feed manifest the publisher writes', () => {
     const publisher = publisherFor(store, () => 'bbbbbbb')
 
     await expect(
-      await publisher.requestBuild(true, {
+      publisher.requestBuild(true, {
         headSha: 'aaaaaaa',
         version: '0.1.0-dev.1+aaaaaaa',
       }),

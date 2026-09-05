@@ -238,7 +238,7 @@ describe('versioned mutex', () => {
     // a holder has already failed.
     const mutex = new VersionedMutex()
     await expect(
-      await mutex.run(async () => {
+      mutex.run(async () => {
         throw new Error('holder failed')
       }),
     ).rejects.toThrow('holder failed')

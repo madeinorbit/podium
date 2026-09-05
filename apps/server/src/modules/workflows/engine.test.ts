@@ -3320,7 +3320,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       await expect(
-        await dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }),
+        dispatchWorkflowRpc(h.service, operator, 'get', { id: created.workflow.id }),
       ).resolves.toMatchObject({
         workflow: { id: created.workflow.id },
       })

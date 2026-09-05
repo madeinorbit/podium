@@ -301,7 +301,7 @@ describe('agent spawn (gate)', () => {
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
       await expect(
-        await gate.dispatch(PARENT, true, 'spawnAgent', {
+        gate.dispatch(PARENT, true, 'spawnAgent', {
           issue: ISSUE.id,
           prompt: 'go',
           executionProfileId: 'prof_x',
@@ -319,7 +319,7 @@ describe('agent spawn (gate)', () => {
         resolveExecutionProfile: profileOn('machine-elsewhere'),
       })
       await expect(
-        await gate.dispatch(PARENT, true, 'spawnAgent', {
+        gate.dispatch(PARENT, true, 'spawnAgent', {
           issue: ISSUE.id,
           prompt: 'go',
           executionProfileId: 'prof_x',
@@ -409,7 +409,7 @@ describe('agent spawn (gate)', () => {
   it('authz: a subtree caller spawning onto ANOTHER issue needs --outside-scope', async () => {
     const { gate } = await harness()
     await expect(
-      await gate.dispatch(PARENT, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      gate.dispatch(PARENT, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/outside your subtree/)
   })
 
@@ -433,7 +433,7 @@ describe('agent spawn (gate)', () => {
   it('rejects --issue AND --new together, and neither', async () => {
     const { gate } = await harness()
     await expect(
-      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
         issue: ISSUE.id,
         newTitle: 't',
         prompt: 'x',
@@ -451,7 +451,7 @@ describe('agent spawn (gate)', () => {
     }
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY)
     await expect(
-      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/spawn budget exhausted/)
     expect(spawns).toHaveLength(SPAWN_BUDGET_PER_DAY) // the refused spawn never ran
     // Durably ledgered for the audit trail.
@@ -459,7 +459,7 @@ describe('agent spawn (gate)', () => {
     expect(evs).toHaveLength(1)
     // Operator spawns are never budgeted.
     await expect(
-      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      gate.dispatch(OPERATOR, undefined, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).resolves.toMatchObject({ ok: true })
   })
 
@@ -471,7 +471,7 @@ describe('agent spawn (gate)', () => {
     // Fresh service + gate over the SAME store: the budget is still spent.
     const second = await harness({ store: first.store })
     await expect(
-      await second.gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      second.gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow(/spawn budget exhausted/)
   })
 
@@ -491,7 +491,7 @@ describe('agent spawn (gate)', () => {
       },
     })
     await expect(
-      await gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
+      gate.dispatch(PARENT, true, 'spawnAgent', { issue: ISSUE.id, prompt: 'x' }),
     ).rejects.toThrow("machine 'Builder' is offline")
     // Recorded as-is rather than judged: the unit is consumed before the seam
     // runs and is NOT refunded when the seam throws, so the next call is the
@@ -526,7 +526,7 @@ describe('agent spawn (gate)', () => {
     // inherit from, so the repo has to be named or the child has nowhere to live.
     const { gate, created } = await harness()
     await expect(
-      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', { newTitle: 'orphan', prompt: 'p' }),
+      gate.dispatch(OPERATOR, undefined, 'spawnAgent', { newTitle: 'orphan', prompt: 'p' }),
     ).rejects.toThrow('--new needs --repo (no issue scope to inherit a repo from)')
     expect(created).toEqual([])
     await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
@@ -572,7 +572,7 @@ describe('agent spawn (gate)', () => {
     const { gate } = await harness()
     await gate.dispatch(PARENT, undefined, 'spawnAgent', { newTitle: 'w', prompt: 'x' }) // iss_new: no worktree
     await expect(
-      await gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
+      gate.dispatch(OPERATOR, undefined, 'spawnAgent', {
         issue: 'iss_new',
         prompt: 'x',
         worktree: true,
@@ -842,7 +842,7 @@ describe('agent await (bounded, never hangs)', () => {
       onBehalfOf: FIRST_ADMIN_USER_ID,
     }
     await expect(
-      await gate.dispatch(stranger, undefined, 'awaitAgent', {
+      gate.dispatch(stranger, undefined, 'awaitAgent', {
         sessionId: asSessionId('child1'),
         timeoutSeconds: 0,
       }),
@@ -1137,7 +1137,7 @@ describe('session ask — the seance (#237 tier 4)', () => {
   it('is subject to the session-target scope gate: denied outside the subtree without --outside-scope', async () => {
     const { gate } = await harness({ sessions: [child({ spawnedBy: 'user' })] })
     await expect(
-      await gate.dispatch(PARENT, undefined, 'ask', {
+      gate.dispatch(PARENT, undefined, 'ask', {
         sessionId: asSessionId('child1'),
         question: 'q',
         timeoutSeconds: 0,
@@ -1282,7 +1282,7 @@ describe('mail dismiss — recipient-only clear', () => {
     expect(wire).toMatchObject({ id: sent.message.id, status: 'read' })
     expect(await store.messages.countPending({ kind: 'issue', id: ISSUE.id })).toBe(0)
     await expect(
-      await gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
+      gate.dispatch(PARENT, undefined, 'dismiss', { id: sent.message.id }),
     ).rejects.toThrow(/only the recipient/)
   })
 })

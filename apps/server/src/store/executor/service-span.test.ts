@@ -285,7 +285,7 @@ describe('the cross-service span', () => {
     const before = issues.installed.get('i1')
 
     await expect(
-      await issues.shippingCommitMany(
+      issues.shippingCommitMany(
         [{ id: 'i1', mutation: { expectedStage: 'shipping', needsHuman: true } }],
         async () => {
           await settle(2)
@@ -306,7 +306,7 @@ describe('the cross-service span', () => {
     const { h, issues } = await fixture()
     let closureRan = false
     await expect(
-      await issues.shippingCommitMany(
+      issues.shippingCommitMany(
         [{ id: 'i1', mutation: { expectedStage: 'review', needsHuman: true } }],
         async () => {
           closureRan = true

@@ -81,7 +81,7 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   it('rejects a direct-upload filename that could escape its artifact directory', async () => {
     const store = new IssueArtifactStore(base, fakeRpc({}))
     await expect(
-      await store.upload({ issueId: asIssueId('iss_1'), filename: '../mock.png', dataBase64: 'UE5H' }),
+      store.upload({ issueId: asIssueId('iss_1'), filename: '../mock.png', dataBase64: 'UE5H' }),
     ).rejects.toThrow(/plain filename/)
     expect(existsSync(join(base, 'iss_1'))).toBe(false)
   })
@@ -139,7 +139,7 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
   it('errors the op naming the file when a pull fails — nothing left on disk', async () => {
     const store = new IssueArtifactStore(base, fakeRpc({}))
     await expect(
-      await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'gone.png' }),
+      store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'gone.png' }),
     ).rejects.toThrow(/gone\.png/)
     expect(existsSync(join(base, 'iss_1'))).toBe(false)
   })
@@ -154,7 +154,7 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     })
     const store = new IssueArtifactStore(base, rpc)
     await expect(
-      await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'huge.bin' }),
+      store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'huge.bin' }),
     ).rejects.toThrow(/per-file cap/)
   })
 
@@ -165,7 +165,7 @@ describe('IssueArtifactStore [spec:SP-0fc9]', () => {
     }))
     const store = new IssueArtifactStore(base, fakeRpc({}, { '/wt/d': entries }))
     await expect(
-      await store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'd' }),
+      store.snapshot({ issueId: asIssueId('iss_1'), root: '/wt', sourcePath: 'd' }),
     ).rejects.toThrow(/exceeds 200 files/)
   })
 

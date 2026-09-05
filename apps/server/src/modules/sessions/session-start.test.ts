@@ -214,7 +214,7 @@ describe('Claude SDK continuity projection', () => {
     expect(await reloaded.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
-      await reloaded.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+      reloaded.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
     ).resolves.toEqual({
       ok: true,
     })
@@ -288,7 +288,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
-      await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
     ).resolves.toEqual({
       ok: true,
     })
@@ -330,7 +330,7 @@ describe('legacy selected-driver lifecycle compatibility', () => {
     expect(await reg.modules.sessions.hibernateSession({ sessionId })).toEqual({ ok: true })
     daemon.length = 0
     await expect(
-      await reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
+      reg.modules.issueSessionLifecycle.resurrectSession({ sessionId }),
     ).resolves.toEqual({
       ok: true,
     })

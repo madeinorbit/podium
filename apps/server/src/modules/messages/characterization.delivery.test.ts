@@ -1073,7 +1073,7 @@ describe('characterization: sender-queryable status (D12)', () => {
     // A stranger may not query it.
     const stranger = await h.createIssue({ title: 'stranger' })
     await expect(
-      await h.gate.dispatch(h.agentCap(stranger.id, asSessionId('sStranger')), undefined, 'status', {
+      h.gate.dispatch(h.agentCap(stranger.id, asSessionId('sStranger')), undefined, 'status', {
         id: r.message.id,
       }),
     ).rejects.toThrow('not allowed to view a message you neither sent nor received')

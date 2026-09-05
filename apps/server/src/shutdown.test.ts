@@ -131,7 +131,7 @@ describe('closeServerFast', () => {
     // Without closeAllConnections this would hang until the socket drains
     // (i.e. essentially forever) — the POD-611 4s-per-restart floor.
     await expect(
-      await closeServerFast({
+      closeServerFast({
         closeWebSockets: () => Promise.resolve(),
         server,
         persist: [['store.close', persisted]],
