@@ -253,7 +253,7 @@ describe('store issues', () => {
     await expect(s.issues.upsertIssue({ ...base(), stage: 'bogus' })).rejects.toThrow(/stage/i)
     // 'auto' is a legal defaultAgent (AgentChoice sentinel) — it must NOT be rejected;
     // it is resolved to a concrete kind only at spawn time.
-    expect(() => s.issues.upsertIssue({ ...base(), defaultAgent: 'auto' })).not.toThrow()
+    await s.issues.upsertIssue({ ...base(), defaultAgent: 'auto' })
   })
 
   it('normalizes a non-array blockedBy to [] on write', async () => {
@@ -274,7 +274,7 @@ describe('store issues', () => {
     await s.issues.upsertIssue(base())
     rawDb(s).prepare('UPDATE issues SET blocked_by = ? WHERE id = ?').run('{not json', 'iss_1')
 
-    expect(() => s.issues.listIssueRows()).not.toThrow()
+    await s.issues.listIssueRows()
     expect((await s.issues.getIssue('iss_1'))?.blockedBy).toEqual([])
     expect((await s.issues.listIssueRows()).map((i) => i.id)).toContain('iss_1')
   })
@@ -665,7 +665,7 @@ describe('shipping durable store', () => {
       rawDb(s).prepare('DELETE FROM delivery_receipts WHERE id = ?').run(receipt.id),
     ).toThrow(/delivery receipt is immutable/)
 
-    expect(() => s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))).not.toThrow()
+    await s.shipping.createOrder(shipOrder({ id: asShipOrderId('order-2') }))
     s.close()
     const restarted = await openTestStore(file)
     expect(await restarted.shipping.getOrder(order.id)).toMatchObject({
@@ -984,15 +984,15 @@ describe('shipping durable store', () => {
   it('atomically rejects cross-lane, non-prefix, and stale-member train custody', async () => {
     const s = await openTestStore(':memory:', asMachineId('machine-1'))
     const issueIds = ['a', 'b', 'c'].map((suffix) => asIssueId(`iss_train_${suffix}`))
-    issueIds.forEach((id, index) =>
-      s.issues.upsertIssue({
+    for (const [index, id] of issueIds.entries()) {
+      await s.issues.upsertIssue({
         ...base(),
         id,
         seq: 70 + index,
         branch: `issue/train-${index}`,
         machineId: asMachineId('machine-1'),
-      }),
-    )
+      })
+    }
     const a = shipOrder({
       id: asShipOrderId('order-train-a'),
       issueId: issueIds[0],

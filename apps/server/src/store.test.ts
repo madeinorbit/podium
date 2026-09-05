@@ -63,7 +63,7 @@ describe('SessionStore repos', () => {
     store.beginTransferFence()
     await expect(store.repos.addRepo('/home/u/fenced', store.hostMachineId)).rejects.toThrow()
     store.endTransferFence()
-    expect(() => store.repos.addRepo('/home/u/reopened', store.hostMachineId)).not.toThrow()
+    await store.repos.addRepo('/home/u/reopened', store.hostMachineId)
     store.close()
   })
 
@@ -1040,7 +1040,7 @@ describe('SessionStore superagent threads', () => {
       .prepare("UPDATE superagent_messages SET tool_calls = '{bad' WHERE content = 'a'")
       .run()
 
-    expect(() => s.superagent.loadSuperagentMessages('global')).not.toThrow()
+    await s.superagent.loadSuperagentMessages('global')
     const msgs = await s.superagent.loadSuperagentMessages('global')
     expect(msgs.map((m) => m.content)).toEqual(['a', 'b'])
     expect(msgs[0]?.toolCalls).toBeUndefined()

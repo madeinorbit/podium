@@ -195,7 +195,7 @@ it('deletes one lock and leaves the rest, and deleting an absent lock is not an 
     expect((await store.locks.listLocks(repo)).map((l) => l.name)).toEqual(['ship'])
     expect((await store.locks.listLocks(other)).map((l) => l.name)).toEqual(['build'])
 
-    expect(() => store.locks.deleteLock(repo, 'build')).not.toThrow()
+    await store.locks.deleteLock(repo, 'build')
   } finally {
     store.close()
   }

@@ -79,7 +79,8 @@ beforeEach(async () => {
 describe('repo reads under a projection pass', () => {
   it('resolves many paths without re-scanning repos per path', async () => {
     const paths = Array.from({ length: 50 }, (_, i) => `/home/u/alpha/.worktrees/w${i}`)
-    const ids = paths.map((p) => repos.resolveRepoIdForPath(p))
+    const ids: Array<string | undefined> = []
+    for (const path of paths) ids.push(await repos.resolveRepoIdForPath(path))
 
     // Correctness first: every worktree path resolves to alpha's stable repo id,
     // so a cache that answered with a wrong (or empty) list would fail here.

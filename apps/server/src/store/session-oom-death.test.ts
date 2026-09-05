@@ -75,11 +75,9 @@ const row = (id: string, extra: Partial<SessionRow>): SessionRow => ({
 })
 
 describe('an OOM death, durably', () => {
-  it('writes a session the kernel killed instead of throwing on the stop-reason CHECK', () => {
+  it('writes a session the kernel killed instead of throwing on the stop-reason CHECK', async () => {
     // The regression: `stopReason: 'oom'` reaching the column at all.
-    expect(() =>
-      sessions.upsertSession(row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT })),
-    ).not.toThrow()
+    await sessions.upsertSession(row('sess-oom', { stopReason: 'oom', oomKilledAt: DIED_AT }))
   })
 
   it('keeps the kill time, and keeps the column inside its own vocabulary', async () => {
