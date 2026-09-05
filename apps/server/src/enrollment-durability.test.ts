@@ -324,10 +324,10 @@ describe('D19.4 regression sequences', () => {
     const ownership = ownershipFromMachines(restarted.machines)
     const owner = userCommandPrincipal(asUserId(OWNER), 'admin')
     const colleague = userCommandPrincipal(OTHER, 'member')
-    expect(checkMachineUse(owner, asMachineId(machineId), ownership)).toBeUndefined()
+    expect(await checkMachineUse(owner, asMachineId(machineId), ownership)).toBeUndefined()
     // Non-owning member cannot use; without see they look "absent".
-    expect(checkMachineUse(colleague, asMachineId(machineId), ownership)).toBe('absent')
-    expect(canSeeMachine(colleague, asMachineId(machineId), ownership)).toBe(false)
+    expect(await checkMachineUse(colleague, asMachineId(machineId), ownership)).toBe('absent')
+    expect(await canSeeMachine(colleague, asMachineId(machineId), ownership)).toBe(false)
   })
 
   it('4b. owner account deleted → QUARANTINED (admin see, nobody use)', async () => {
@@ -359,13 +359,13 @@ describe('D19.4 regression sequences', () => {
     const ownership = ownershipFromMachines(svc)
     const admin = userCommandPrincipal(asUserId(OWNER), 'admin')
     // Admin holds see, nobody holds use.
-    expect(canSeeMachine(admin, asMachineId(machineId), ownership)).toBe(true)
-    expect(checkMachineUse(admin, asMachineId(machineId), ownership)).toBe('unauthorized')
-    expect(machineVerbsFor(admin, asMachineId(machineId), ownership)).toEqual(new Set(['see']))
+    expect(await canSeeMachine(admin, asMachineId(machineId), ownership)).toBe(true)
+    expect(await checkMachineUse(admin, asMachineId(machineId), ownership)).toBe('unauthorized')
+    expect(await machineVerbsFor(admin, asMachineId(machineId), ownership)).toEqual(new Set(['see']))
     // A non-admin principal does not get see via quarantine.
     const plainMember = userCommandPrincipal(asUserId('user:nobody'), 'member')
-    expect(canSeeMachine(plainMember, asMachineId(machineId), ownership)).toBe(false)
-    expect(checkMachineVerb(admin, asMachineId(machineId), ownership, 'manage')).toBe(
+    expect(await canSeeMachine(plainMember, asMachineId(machineId), ownership)).toBe(false)
+    expect(await checkMachineVerb(admin, asMachineId(machineId), ownership, 'manage')).toBe(
       'unauthorized',
     )
   })
@@ -388,13 +388,13 @@ describe('D19.4 regression sequences', () => {
     const oldP = userCommandPrincipal(asUserId(OWNER), 'admin')
     const newP = userCommandPrincipal(OTHER, 'member')
     // Authorization must not serve the stale projection (D19.4d rule 2).
-    expect(checkMachineUse(newP, asMachineId(machineId), ownershipMidCrash)).toBeUndefined()
+    expect(await checkMachineUse(newP, asMachineId(machineId), ownershipMidCrash)).toBeUndefined()
     expect(
-      checkMachineVerb(newP, asMachineId(machineId), ownershipMidCrash, 'manage'),
+      await checkMachineVerb(newP, asMachineId(machineId), ownershipMidCrash, 'manage'),
     ).toBeUndefined()
     // Old owner no longer holds use/manage via the ledger-wins ownershipRows path.
     // (They may still hold admin-grade fleet powers elsewhere; machine verbs drop.)
-    expect(checkMachineUse(oldP, asMachineId(machineId), ownershipMidCrash)).not.toBeUndefined()
+    expect(await checkMachineUse(oldP, asMachineId(machineId), ownershipMidCrash)).not.toBeUndefined()
 
     // Restart: reconcile repairs the row with no manual step.
     const restarted = await makeWorld(dir)
@@ -421,10 +421,10 @@ describe('D19.4 regression sequences', () => {
     expect((await restarted.store.machines.getMachine(machineId))?.ownerUserId).toBe(OTHER)
     const ownership = ownershipFromMachines(svc)
     expect(
-      checkMachineUse(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership),
+      await checkMachineUse(userCommandPrincipal(OTHER, 'member'), asMachineId(machineId), ownership),
     ).toBeUndefined()
     expect(
-      checkMachineVerb(
+      await checkMachineVerb(
         userCommandPrincipal(OTHER, 'member'),
         asMachineId(machineId),
         ownership,
@@ -432,7 +432,7 @@ describe('D19.4 regression sequences', () => {
       ),
     ).toBeUndefined()
     expect(
-      checkMachineUse(
+      await checkMachineUse(
         userCommandPrincipal(asUserId(OWNER), 'admin'),
         asMachineId(machineId),
         ownership,

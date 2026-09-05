@@ -179,15 +179,15 @@ function ctxFor(
       ))!,
     rpc: () => modules.rpc,
 
-    createDraftIssue: (repoPath, agentKind, issueId, ownership) =>
-      modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
+    createDraftIssue: async (repoPath, agentKind, issueId, ownership) =>
+      await modules.issues.createDraftFor(repoPath, agentKind, issueId, ownership),
     attachDraftArtifacts: async (issueId, artifacts) => {
       for (const artifact of artifacts) await modules.issues.panelArtifactUpload(issueId, artifact)
     },
-    discardUnlaunchedDraft: (issueId) => modules.issues.discardUnlaunchedDraft(issueId),
+    discardUnlaunchedDraft: async (issueId) => await modules.issues.discardUnlaunchedDraft(issueId),
     issueOwner: () => undefined,
     access: {
-      listSessions: () => modules.sessions.listSessions(),
+      listSessions: async () => await modules.sessions.listSessions(),
       issues: modules.issues,
       ...(opts.visibility ? { visibility: opts.visibility } : {}),
     },

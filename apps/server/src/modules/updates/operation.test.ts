@@ -1286,9 +1286,9 @@ function harness(options: HarnessOptions = {}) {
       nextGrantId: () => `grant_${sent.length + 1}`,
       concurrency: 3,
       fleetChannel: () => 'dev',
-      exclusiveOperationActive: () => driver()?.active(LIFECYCLE_EXCLUSION_GROUP) !== undefined,
-      exclusiveOperationVersion: (channel) =>
-        exclusiveUpdateVersion(driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
+      exclusiveOperationActive: async () => (await driver()?.active(LIFECYCLE_EXCLUSION_GROUP)) !== undefined,
+      exclusiveOperationVersion: async (channel) =>
+        exclusiveUpdateVersion(await driver()?.active(LIFECYCLE_EXCLUSION_GROUP), channel),
       onTargetChanged: (channel) => targetChanged?.(channel),
     })
     if (initialTarget) service.setTarget('dev', initialTarget)
@@ -1332,7 +1332,7 @@ function harness(options: HarnessOptions = {}) {
     // Wired exactly as `updateOperationContext` wires it, because a watcher
     // that cannot be stopped is precisely what POD-2173 was about: a harness
     // that left this out would prove the fix nothing.
-    stepActive: (id, stepId) => driver().watching(id, stepId),
+    stepActive: async (id, stepId) => await driver().watching(id, stepId),
     schedule: (fn) => {
       scheduled.push(fn)
     },
@@ -1376,8 +1376,8 @@ function harness(options: HarnessOptions = {}) {
         await Promise.resolve()
       }
     },
-    read(id = 'op_1'): Operation {
-      const operation = store.get(id)?.operation
+    async read(id = 'op_1'): Promise<Operation> {
+      const operation = (await store.get(id))?.operation
       if (!operation) throw new Error(`operation ${id} is not readable`)
       return operation
     },
@@ -1616,8 +1616,8 @@ describe('the step runners', () => {
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
       createDatabaseSnapshot,
-      requestCoordinatorRestart: () => {
-        const operation = h.read()
+      requestCoordinatorRestart: async () => {
+        const operation = await h.read()
         seen.push({
           state: stepState(operation, UPDATE_STEP_SERVER) ?? 'absent',
           snapshotPath: operation.details?.databaseSnapshotPath,
@@ -1643,7 +1643,7 @@ describe('the step runners', () => {
         order.push('snapshot')
         return '/state/podium.db.backup'
       },
-      requestCoordinatorRestart: () => {
+      requestCoordinatorRestart: async () => {
         order.push('restart')
       },
     })
@@ -1746,7 +1746,7 @@ describe('the step runners', () => {
         order.push('verify:done')
         return { ok: true, path: snapshotPath }
       },
-      requestCoordinatorRestart: () => {
+      requestCoordinatorRestart: async () => {
         order.push('restart')
       },
     })
@@ -2353,7 +2353,7 @@ describe('surviving the coordinator restart', () => {
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
-      requestCoordinatorRestart: () => {},
+      requestCoordinatorRestart: async () => {},
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
@@ -3334,7 +3334,7 @@ describe('§3.2 the cancel boundary', () => {
       machines: [],
       target: packedTarget(),
       servedWebDigest: () => WEB_DIGEST,
-      requestCoordinatorRestart: () => {},
+      requestCoordinatorRestart: async () => {},
     })
     await h.engine.start(UPDATE_OPERATION_KIND, h.context())
     await h.engine.whenSettled('op_1')
