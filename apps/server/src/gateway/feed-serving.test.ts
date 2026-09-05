@@ -390,16 +390,18 @@ describe('a reconnect storm heals through the feed, with no snapshot path', () =
     const peers = Array.from({ length: 12 }, (_, i) => new Peer(`c${i}`, 1, true))
     let published = 0
     const bootstrapSeq = new Map<string, number>()
-    peers.forEach((peer, index) => {
+    for (const [index, peer] of peers.entries()) {
       // Interleaved, which is what a storm is: a write lands between attaches, so
       // no two peers bootstrap at the same seq.
       if (index % 3 === 0) {
-        commit(p, 'session', `storm-`, { sessionId: `storm-${index}` })
-        published = publishPending(p, published)
+        await commit(p, 'session', `storm-`, { sessionId: `storm-${index}` })
+        published = await publishPending(p, published)
       }
-      expect(p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id))).toBeNull()
-      bootstrapSeq.set(peer.id, p.authority.cursor())
-    })
+      expect(
+        await p.serving.attach(peer, DEVICE_GRADE_PRINCIPAL, p.routingPrincipal(peer.id)),
+      ).toBeNull()
+      bootstrapSeq.set(peer.id, await p.authority.cursor())
+    }
     expect(new Set(bootstrapSeq.values()).size).toBeGreaterThan(1)
 
     await commit(p, 'session', 'after-the-storm', { sessionId: 'after-the-storm' })
