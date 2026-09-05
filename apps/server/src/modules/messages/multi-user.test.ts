@@ -203,9 +203,7 @@ describe('a queued send is re-authorized at the drain, not at accept', () => {
     expect(after?.status).toBe('dead_letter')
     expect(h.pushes.filter((p) => p.sessionId === 'sTarget')).toEqual([])
     // …and never silently dropped — the sender is told (ADR 3 D9).
-    const notices = h.svc
-      .inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })
-      .filter((m) => m.body.includes(r.message.id))
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(r.message.id))
     expect(notices.length).toBeGreaterThan(0)
     expect(notices.at(-1)?.body).toContain('sender no longer has access to the target')
   })

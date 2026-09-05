@@ -574,9 +574,7 @@ describe('the queued-send rejection is live through the COMPOSED pair, not just 
     // …and never silently dropped (ADR 3 D9). The reason is the one an id that
     // does not exist gives, so the queue is not an existence oracle one step
     // removed (D20.2).
-    const notices = h.svc
-      .inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })
-      .filter((m) => m.body.includes(accepted.id))
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sSender' }], { limit: 50 })).filter((m) => m.body.includes(accepted.id))
     expect(notices.length).toBeGreaterThan(0)
     expect(notices.at(-1)?.body).toContain('issue no longer exists')
   })

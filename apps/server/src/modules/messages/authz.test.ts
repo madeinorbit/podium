@@ -195,7 +195,7 @@ describe('target gating on send (A2)', () => {
     const cap = h.agentCap(mine.id, asSessionId('sMine'))
 
     await rejectsWith(
-      (await h.gate.dispatch(cap, undefined, 'send', { to: `#${theirs.seq}`, body: 'x' }))!,
+      h.gate.dispatch(cap, undefined, 'send', { to: `#${theirs.seq}`, body: 'x' }),
       'PRECONDITION_FAILED',
       `issue ${theirs.id} is outside your subtree; re-run with --outside-scope to confirm`,
     )
@@ -259,7 +259,7 @@ describe('target gating on send (A2)', () => {
         (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
           to: 'sKid',
           body: 'x',
-        })) as { ok: boolean }
+        }))) as { ok: boolean }
       ).ok,
     ).toBe(true)
   })
@@ -271,11 +271,11 @@ describe('target gating on send (A2)', () => {
     await h.setWorktree(theirs.id, '/wt/theirs')
     // No live session on `theirs`: a permitted wake here WOULD reach the spawn seam.
     await rejectsWith(
-      (await h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
+      h.gate.dispatch(h.agentCap(mine.id, asSessionId('sMine')), undefined, 'send', {
         to: theirs.id,
         body: 'wake up',
         lifecycle: 'wake',
-      }))!,
+      }),
       'PRECONDITION_FAILED',
       `issue ${theirs.id} is outside your subtree; re-run with --outside-scope to confirm`,
     )
@@ -699,19 +699,22 @@ describe('the operator principal class (A6)', () => {
     expect(h.pushes).toEqual([])
     expect((await h.svc.message(r.message.id))!.status).toBe('queued')
     // An inbox read does NOT consume an operator-addressed row either.
-    h.svc.readInbox([{ kind: 'operator' }], { consume: null })
+    await h.svc.readInbox([{ kind: 'operator' }], { consume: null })
     expect((await h.svc.message(r.message.id))!.status).toBe('queued')
   })
 
   it('falls back to kind operator in replyTarget for superagent, operator and system senders', async () => {
     const h = await mailHarness()
     const iss = await h.createIssue({ title: 'target' })
-    const rows: MessageRow[] = (['superagent', 'operator', 'system'] as const).map(
-      (fromKind) =>
-        h.svc.send(
-          fromKind === 'system' ? { kind: 'system', name: 'steward' } : { kind: fromKind },
-          { to: { kind: 'issue', id: iss.id }, body: fromKind },
+    const rows: MessageRow[] = await Promise.all(
+      (['superagent', 'operator', 'system'] as const).map(async (fromKind) =>
+        (
+          await h.svc.send(
+            fromKind === 'system' ? { kind: 'system', name: 'steward' } : { kind: fromKind },
+            { to: { kind: 'issue', id: iss.id }, body: fromKind },
+          )
         ).message,
+      ),
     )
     for (const row of rows) {
       // SINGLE-OPERATOR: every non-agent sender's replies land in the

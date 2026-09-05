@@ -563,9 +563,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     expect(delivered.deliveredAt).toBe(h.now())
     expect(delivered.readAt).toBeNull()
     expect(
-      h
-        .events(['message.delivered'])
-        .map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
     ).toEqual(['echo'])
   })
 
@@ -576,7 +574,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     const id = r.message.id
     expect((await h.svc.message(id))!.status).toBe('queued')
 
-    const rows = h.svc.readInbox([{ kind: 'issue', id: iss.id }], {
+    const rows = await h.svc.readInbox([{ kind: 'issue', id: iss.id }], {
       consume: asSessionId('sReader'),
     })
     expect(rows.map((m) => m.status)).toEqual(['read'])
@@ -614,9 +612,7 @@ describe('characterization: delivered (echo) vs read (inbox) (D6)', () => {
     await h.svc.onSessionIdle(s1!, { priorPhase: 'idle' })
     expect((await h.svc.message(id))!.status).toBe('delivered')
     expect(
-      h
-        .events(['message.delivered'])
-        .map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
     ).toEqual(['boundary'])
   })
 })
@@ -724,9 +720,7 @@ describe('characterization: reply threading and thread termination (D8)', () => 
     // A reply PROVES receipt — a stronger signal than a transcript echo.
     expect(acked.status).toBe('delivered')
     expect(
-      h
-        .events(['message.delivered'])
-        .map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
+      (await h.events(['message.delivered'])).map((e) => (e.payload as { confirmedVia: string }).confirmedVia),
     ).toContain('ack')
     expect(await kinds(h)).toContain('message.acked')
   })
@@ -891,16 +885,14 @@ describe('characterization: who owes a reply, and the single redelivery (D9)', (
     // ONE notice PER MESSAGE — a group notice referencing only the latest would
     // leave the others unmarked and re-fire them next settle (the loop that sent
     // one message 7 notices in 33 minutes).
-    const notices = h.svc
-      .inbox([{ kind: 'session', id: 'sFrom' }])
-      .filter((m) => m.kind === 'notification')
+    const notices = (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter((m) => m.kind === 'notification')
     expect(notices).toHaveLength(2)
     expect(notices[0]!.body).toContain('finished without responding to your message')
     expect(notices[0]!.body).toContain(`issue #${to.seq} stage=review`)
     // Idempotent: a second settle produces nothing new.
     await h.svc.systemAckFallback(asSessionId('sTo'), { outcome: 'finished' })
     expect(
-      h.svc.inbox([{ kind: 'session', id: 'sFrom' }]).filter((m) => m.kind === 'notification'),
+      (await h.svc.inbox([{ kind: 'session', id: 'sFrom' }])).filter((m) => m.kind === 'notification'),
     ).toHaveLength(2)
   })
 })
@@ -988,20 +980,20 @@ describe('characterization: urgency-gated blocking send (D11)', () => {
     // The push happens synchronously inside send(), so the echo can only arrive
     // afterwards: drive it from the FIRST poll of the block. No wall-clock wait,
     // and the confirmation travels the real transcript-echo path.
-    let echoOnce: (() => void) | null = null
+    let echoOnce: (() => Promise<void>) | null = null
     const h = await mailHarness({
       awaitPollMs: 500,
-      onPoll: () => {
+      onPoll: async () => {
         const fire = echoOnce
         echoOnce = null
-        fire?.()
+        await fire?.()
       },
     })
     const iss = await h.createIssue({ title: 'target' })
     h.put({ sessionId: asSessionId('s1'), issueId: iss.id, phase: 'idle' })
-    echoOnce = () => {
-      const row = h.svc.inbox([{ kind: 'session', id: 's1' }]).at(-1)!
-      h.svc.onTranscriptDelta(asSessionId('s1'), [
+    echoOnce = async () => {
+      const row = (await h.svc.inbox([{ kind: 'session', id: 's1' }])).at(-1)!
+      await h.svc.onTranscriptDelta(asSessionId('s1'), [
         { role: 'user', text: `podium message ${row.id}` },
       ])
     }
