@@ -72,7 +72,7 @@ const drive = async (
   const cmd = SPEC_COMMANDS.find((c) => c.name === verb)
   if (!cmd) throw new Error(`no such spec CLI verb: ${verb}`)
   // Seed a real component for the verbs that need a target.
-  const seeded = svc.create({ repoPath: repo, title: 'Seeded', parent: 'SP-root' })
+  const seeded = await svc.create({ repoPath: repo, title: 'Seeded', parent: 'SP-root' })
   const parsed = cmd.args.parse({
     repoPath: repo,
     ...args,

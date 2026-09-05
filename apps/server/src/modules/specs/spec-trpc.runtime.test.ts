@@ -97,27 +97,24 @@ describe('the derived procedures dispatch to the real service', () => {
     })) as { title: string }
     expect(saved.title).toBe('Renamed')
 
-    expect(svc.get({ repoPath: repo, id: created.id })).not.toBeNull()
+    expect(await svc.get({ repoPath: repo, id: created.id })).not.toBeNull()
     await SPEC_COMMANDS_TRPC.remove.handler(svc, { repoPath: repo, id: created.id })
-    expect(svc.get({ repoPath: repo, id: created.id })).toBeNull()
+    expect(await svc.get({ repoPath: repo, id: created.id })).toBeNull()
   })
 
-  it('REFUSES a root the machine does not register — the gate did not move', () => {
+  it('REFUSES a root the machine does not register — the gate did not move', async () => {
     const svc = new SpecsService({ repoRoots: () => [tmpRepo()] })
-    // Synchronous, deliberately: `SpecsService.create` throws before it returns,
-    // so a `.rejects` assertion would never see the error and would pass against
-    // a service that never refused. The refusal is not on a promise.
     const unregistered = tmpRepo() // a real directory, but not a REGISTERED one
-    expect(() =>
+    await expect(
       SPEC_COMMANDS_TRPC.create.handler(svc, {
         repoPath: unregistered,
         title: 'Nope',
         parent: 'SP-root',
       }),
-    ).toThrow(TRPCError)
-    expect(() =>
+    ).rejects.toThrow(TRPCError)
+    await expect(
       SPEC_COMMANDS_TRPC.remove.handler(svc, { repoPath: unregistered, id: 'SP-0001' }),
-    ).toThrow(/not a known repository path/)
+    ).rejects.toThrow(/not a known repository path/)
   })
 })
 

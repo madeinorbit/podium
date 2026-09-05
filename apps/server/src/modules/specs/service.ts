@@ -62,7 +62,7 @@ type In<K extends keyof typeof specsInputs> = z.infer<(typeof specsInputs)[K]>
 
 export interface SpecsServiceDeps {
   /** Registered repo roots — the allowlist gate (same source RepoRegistry lists). */
-  repoRoots: () => string[]
+  repoRoots: () => string[] | Promise<string[]>
 }
 
 export class SpecsService {
@@ -75,8 +75,8 @@ export class SpecsService {
    * a save against such a root used to fall through to mkdir/write, throw a raw
    * fs error, and surface as an unlogged 500.
    */
-  private requireRepoRoot(repoPath: string): void {
-    if (!isAllowedRoot(this.deps.repoRoots(), repoPath)) {
+  private async requireRepoRoot(repoPath: string): Promise<void> {
+    if (!isAllowedRoot(await this.deps.repoRoots(), repoPath)) {
       throw new TRPCError({ code: 'FORBIDDEN', message: 'root is not a known repository path' })
     }
     let isDir = false
@@ -115,35 +115,35 @@ export class SpecsService {
     }
   }
 
-  list(input: In<'list'>): SpecComponentMeta[] {
-    this.requireRepoRoot(input.repoPath)
+  async list(input: In<'list'>): Promise<SpecComponentMeta[]> {
+    await this.requireRepoRoot(input.repoPath)
     return this.run(() => listSpecs(input.repoPath))
   }
 
-  get(input: In<'get'>): SpecComponent | null {
-    this.requireRepoRoot(input.repoPath)
+  async get(input: In<'get'>): Promise<SpecComponent | null> {
+    await this.requireRepoRoot(input.repoPath)
     return this.run(() => getSpec(input.repoPath, input.id))
   }
 
-  create(input: In<'create'>): SpecComponent {
-    this.requireRepoRoot(input.repoPath)
+  async create(input: In<'create'>): Promise<SpecComponent> {
+    await this.requireRepoRoot(input.repoPath)
     return this.run(() => createSpec(input.repoPath, input))
   }
 
-  save(input: In<'save'>): SpecComponent {
-    this.requireRepoRoot(input.repoPath)
+  async save(input: In<'save'>): Promise<SpecComponent> {
+    await this.requireRepoRoot(input.repoPath)
     const { repoPath, ...rest } = input
     return this.run(() => saveSpec(repoPath, rest))
   }
 
-  remove(input: In<'remove'>): { ok: boolean } {
-    this.requireRepoRoot(input.repoPath)
+  async remove(input: In<'remove'>): Promise<{ ok: boolean }> {
+    await this.requireRepoRoot(input.repoPath)
     this.run(() => removeSpec(input.repoPath, input.id))
     return { ok: true }
   }
 
-  search(input: In<'search'>): SpecSearchHit[] {
-    this.requireRepoRoot(input.repoPath)
+  async search(input: In<'search'>): Promise<SpecSearchHit[]> {
+    await this.requireRepoRoot(input.repoPath)
     return this.run(() => searchSpecs(input.repoPath, input.query))
   }
 
