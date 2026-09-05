@@ -1639,7 +1639,7 @@ const prepareRunner: StepRunner<UpdateOperationContext> = {
       }
     }
 
-    const inFlight = preparing.get(operation.id) ?? await context.requestDestBundle()
+    const inFlight = preparing.get(operation.id) ?? context.requestDestBundle()
     preparing.set(operation.id, inFlight)
     // A PACK IS QUIET FOR MINUTES and has no percentage to offer, so its
     // liveness is "the build this server started has not settled yet" — true,

@@ -202,7 +202,7 @@ export function createHeadShaCache(deps: {
       // A second caller arriving mid-read joins it rather than forking its own
       // git. `/version` reads HEAD several times per poll.
       if (inFlight) return inFlight
-      const request = await (async () => {
+      const request = (async () => {
         // The ceiling is measured from the last READ, not the last hit — a hit
         // that refreshed it would push the ceiling out forever and there would
         // be no ceiling.
@@ -242,7 +242,7 @@ export function createGitHeadShaCache(
   return createHeadShaCache({
     read,
     stamp: async () => {
-      located ??= await locateGitRefs(root)
+      located ??= locateGitRefs(root)
       const where = await located
       if (where === null) {
         located = null
