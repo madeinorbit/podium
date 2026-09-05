@@ -126,7 +126,7 @@ function server(store: FleetLogStore) {
 }
 
 describe('raising a remote daemon and reading its records centrally', () => {
-  it('goes from the operator’s command to a per-machine file on the server', () => {
+  it('goes from the operator’s command to a per-machine file on the server', async () => {
     const store = new FleetLogStore({ dir })
     const mux = server(store)
     const flatblock = host(FLATBLOCK, mux)
@@ -142,7 +142,7 @@ describe('raising a remote daemon and reading its records centrally', () => {
       machineName: () => 'Flatblock',
       toMachine: (_id, msg) => void sent.push(msg),
     })
-    const reply = director.setLevel({
+    const reply = await director.setLevel({
       level: 'debug',
       ttlMs: 60_000,
       target: { machineId: FLATBLOCK },

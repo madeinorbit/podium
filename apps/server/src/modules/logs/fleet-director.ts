@@ -60,7 +60,7 @@ export interface DaemonConnectionsPort {
   /** Machines with a live daemon socket right now. */
   onlineMachineIds(): MachineId[]
   /** Display name for a machine; falls back to the id. */
-  machineName(id: string): string
+  machineName(id: string): string | Promise<string>
   /** Deliver a control frame. Only ever called for an ONLINE machine here. */
   toMachine(machineId: MachineId, msg: ControlMessage): void
 }
@@ -100,7 +100,7 @@ export class FleetLogLevelDirector {
     private readonly drops?: FleetDropCounts,
   ) {}
 
-  setLevel(input: LogsSetDaemonLevelInput): SetDaemonLevelResult {
+  async setLevel(input: LogsSetDaemonLevelInput): Promise<SetDaemonLevelResult> {
     const message: ControlMessage = {
       type: 'setDaemonLogLevel',
       level: input.level,
@@ -116,7 +116,7 @@ export class FleetLogLevelDirector {
       const serverDropped = this.drops?.serverDroppedFor(machineId) ?? 0
       reached.push({
         machineId,
-        name: this.fleet.machineName(machineId),
+        name: await this.fleet.machineName(machineId),
         ...(dropped > 0 ? { dropped } : {}),
         ...(serverDropped > 0 ? { serverDropped } : {}),
       })
