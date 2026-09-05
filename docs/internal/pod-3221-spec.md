@@ -1532,6 +1532,30 @@ WHAT YOU MAY NOT DO, in any case: make the non-yielding path yield, or paper ove
 async result behind a sync reader without asking which way that cache drifts (rule 49). Those are the
 two failure modes this rule exists to prevent.
 
+### Rule 48b — the NO-THROW counterfactual keeps its matcher: `await expect(fn()).resolves.not.toThrow()`
+
+[POD-3463 found the gap: rule 48a covers the positive rejection assertion and says nothing about
+`.not.toThrow()`. 2026-09-05.]
+
+    expect(() => fn()).not.toThrow()        becomes        await expect(fn()).resolves.not.toThrow()
+
+That is `await` plus `.resolves`, with the MATCHER UNCHANGED, so it satisfies the mechanical rule
+literally. Apply it wherever the callee went async; standing authorization, no need to ask.
+
+I VERIFIED IT IS ARMED rather than assuming, because a no-throw assertion that cannot fail is worth
+nothing: against a resolving promise it passes, and against a rejecting one it FAILS. Both directions
+measured on this repo's vitest before this rule was written.
+
+DO NOT COLLAPSE IT TO A BARE `await fn()`. An unhandled rejection does fail the test, so the coverage
+is similar — but it deletes the `expect` and with it the test's statement of its own property, which
+is more than `await`/`async`/rename and therefore outside the mechanical rule. These counterfactuals
+exist precisely to say "this path stays alive"; a bare call says nothing, and the next person to touch
+it cannot tell an intentional assertion from an incidental call.
+
+KNOWN SITE TO REPAIR: `relay.test.ts`, "keeps registry boot alive when the recovery job throws",
+where `expect(() => { registry = SessionRegistry.create(...) }).not.toThrow()` was collapsed to a bare
+`registry = await SessionRegistry.create(...)` during the flip. Restore the matcher form.
+
 ### Rule 50 — when a mechanism is deleted, MECHANISM assertions die with it and BEHAVIOUR assertions transfer
 
 [Standing rule, 2026-09-05. POD-3263 has hit this shape four times — the thenable refusal,
