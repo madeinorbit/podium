@@ -172,11 +172,9 @@ describe('daemon update grant over the live server socket', () => {
         },
       })
 
-      await waitFor(() =>
+      await waitFor(async () =>
         Boolean(
-          server?.registry.modules.machines
-            .listMachines()
-            .some(
+          (await server?.registry.modules.machines.listMachines())?.some(
               (machine) =>
                 machine.id === machineId && machine.online && machine.appVersion === fromVersion,
             ),
