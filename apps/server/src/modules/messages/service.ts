@@ -303,7 +303,9 @@ export interface MessageDeliveryDeps {
    * the honest statement of the current fact rather than a disabled check: with
    * one human there is nothing to revoke. POD-1075/POD-1079 wire the real port.
    */
-  authorizeAtApply?(message: MessageRow): { ok: true } | { ok: false; reason: string }
+  authorizeAtApply?(
+    message: MessageRow,
+  ): { ok: true } | { ok: false; reason: string } | Promise<{ ok: true } | { ok: false; reason: string }>
   /**
    * WAKE-PATH MACHINE USE (POD-1193 / readiness §3.1.4 M2).
    *
@@ -325,7 +327,10 @@ export interface MessageDeliveryDeps {
    *
    * Absent = allow. Same honest single-user default as authorizeAtApply.
    */
-  placementAtWake?(message: MessageRow, machineId: MachineId): PlacementDecision
+  placementAtWake?(
+    message: MessageRow,
+    machineId: MachineId,
+  ): PlacementDecision | Promise<PlacementDecision>
   now(): string
 }
 
@@ -667,7 +672,7 @@ export class MessageDeliveryService {
 
       // Re-authorize at the new apply boundary. The send was accepted before the
       // child exit, but its delegated rights may have changed since then.
-      const auth = this.applyAuth(message)
+      const auth = await this.applyAuth(message)
       if (!auth.ok) {
         await this.deadLetter(message, auth.reason, { notifySender: true })
         continue
@@ -1110,7 +1115,12 @@ export class MessageDeliveryService {
     // beyond its human's visibility would land a row in that issue's legacy
     // mailbox even though delivery later refuses it — a write into a workspace
     // the principal cannot see, which is the injection §3.1.5 exists to prevent.
-    if (message.toKind === 'issue' && toId && await issues.has(toId) && this.applyAuth(message).ok) {
+    if (
+      message.toKind === 'issue' &&
+      toId &&
+      await issues.has(toId) &&
+      (await this.applyAuth(message)).ok
+    ) {
       legacy = {
         id,
         // `toId` is polymorphic by `toKind` (see the MessageRow field's note), so
@@ -1188,7 +1198,7 @@ export class MessageDeliveryService {
     // ADR 3 D8: re-authorize on EVERY apply. A queued send whose principal lost
     // access before the drain is rejected here and surfaced to its sender —
     // not silently dropped, not applied.
-    const auth = this.applyAuth(message)
+    const auth = await this.applyAuth(message)
     if (!auth.ok) return await this.deadLetter(message, auth.reason, { notifySender })
     if (message.toKind === 'operator') {
       // Escalation to the human: stays queued, kind-tagged for UI pickup (ledger
@@ -2690,10 +2700,12 @@ export class MessageDeliveryService {
   /** {@link MessageDeliveryDeps.authorizeAtApply}, with the absent-port default
    *  stated once. Never memoized: D8 re-authorizes on EVERY apply, and a cached
    *  answer is the capability snapshot D16 refuses, one layer down. */
-  private applyAuth(message: MessageRow): { ok: true } | { ok: false; reason: string } {
+  private async applyAuth(
+    message: MessageRow,
+  ): Promise<{ ok: true } | { ok: false; reason: string }> {
     const port = this.deps.authorizeAtApply
     if (!port) return { ok: true }
-    return port(message)
+    return await port(message)
   }
 
   /**
@@ -2721,7 +2733,7 @@ export class MessageDeliveryService {
     if (!machineId) return null
     const port = this.deps.placementAtWake
     if (!port) return null
-    const decision = port(message, machineId)
+    const decision = await port(message, machineId)
     if (decision === 'allowed') return null
     return await this.deadLetter(message, WAKE_PLACEMENT_DENIED_REASON, { notifySender })
   }
@@ -2733,7 +2745,7 @@ export class MessageDeliveryService {
   async authorizeQueuedInput(messageId: string): Promise<{ ok: true } | { ok: false; reason: string }> {
     const message = await this.deps.messages.getMessage(messageId)
     if (!message) return { ok: false, reason: 'session no longer exists' }
-    return this.applyAuth(message)
+    return await this.applyAuth(message)
   }
 
   async notifyQueuedInputRejected(messageId: string, reason: string): Promise<void> {

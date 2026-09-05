@@ -139,8 +139,10 @@ export const applyAuthFromCeiling = (ceiling: HumanCeiling): ApplyCeilingPort =>
  * non-allowed outcomes (D20.2) inside MessageDeliveryService.
  */
 export interface PrincipalMailPolicy {
-  principalForCapability(capability: Capability): CommandPrincipal
-  principalForMessage(message: MessageRow): CommandPrincipal | undefined
+  principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
+  principalForMessage(
+    message: MessageRow,
+  ): CommandPrincipal | undefined | Promise<CommandPrincipal | undefined>
   policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
 }
 
@@ -148,17 +150,17 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
   authorizeAtApply: ApplyCeilingPort
   placementAtWake: WakePlacementPort
   gateOptions: {
-    principalForCapability(capability: Capability): CommandPrincipal
+    principalForCapability(capability: Capability): CommandPrincipal | Promise<CommandPrincipal>
     policyFor(principal: CommandPrincipal): { ceiling: HumanCeiling; machines: MachineAccess }
   }
 } {
   const authorizeAtApply = Object.assign(
-    (message: MessageRow) => {
+    async (message: MessageRow) => {
       if (message.toKind !== 'issue' || !message.toId) return { ok: true } as const
-      const principal = opts.principalForMessage(message)
+      const principal = await opts.principalForMessage(message)
       if (!principal)
         return { ok: false, reason: 'sender authorization is no longer valid' } as const
-      if (opts.policyFor(principal).ceiling.canSee({ kind: 'issue', id: message.toId })) {
+      if (await opts.policyFor(principal).ceiling.canSee({ kind: 'issue', id: message.toId })) {
         return { ok: true } as const
       }
       return { ok: false, reason: 'issue no longer exists' } as const
@@ -166,8 +168,8 @@ export function principalMailPolicy(opts: PrincipalMailPolicy): {
     { dynamic: true as const },
   )
   const placementAtWake: WakePlacementPort = (message, machineId) =>
-    withReadScope(() => {
-      const principal = opts.principalForMessage(message)
+    withReadScope(async () => {
+      const principal = await opts.principalForMessage(message)
       // No principal left to re-resolve → deny. A wake is code execution; the
       // single-user default only applies when the port is ABSENT, not when the
       // sender cannot be found.

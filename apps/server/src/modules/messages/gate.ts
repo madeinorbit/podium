@@ -175,7 +175,9 @@ export class MessageGate {
   /** The shared authz + projection arithmetic (L3), also handed to every joined
    *  handler so there is exactly ONE authz path rather than one per command. */
   private readonly access: MailAccess
-  private readonly principalForCapability?: (capability: Capability) => CommandPrincipal
+  private readonly principalForCapability?: (
+    capability: Capability,
+  ) => CommandPrincipal | Promise<CommandPrincipal>
   private readonly policyFor?: (principal: CommandPrincipal) => {
     ceiling: HumanCeiling
     machines: MachineAccess
@@ -186,7 +188,9 @@ export class MessageGate {
     opts?: {
       ceiling?: HumanCeiling
       machines?: MachineAccess
-      principalForCapability?: (capability: Capability) => CommandPrincipal
+      principalForCapability?: (
+        capability: Capability,
+      ) => CommandPrincipal | Promise<CommandPrincipal>
       policyFor?: (principal: CommandPrincipal) => {
         ceiling: HumanCeiling
         machines: MachineAccess
@@ -275,7 +279,7 @@ export class MessageGate {
     correlationId: string | undefined,
   ): Promise<unknown> {
     const principal =
-      this.principalForCapability?.(capability) ??
+      (await this.principalForCapability?.(capability)) ??
       resolvePrincipal(capability, {
         parentSessionOf: (sessionId) =>
           spawnedByParentSessionId(findSessionById(this.deps, sessionId)?.spawnedBy),

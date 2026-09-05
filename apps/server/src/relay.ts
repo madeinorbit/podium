@@ -57,7 +57,7 @@ import { IssueAttachOrchestrator } from './application/issue-attach-orchestrator
 import {
   type CommandPrincipal,
   onBehalfOfUser,
-  resolvePrincipal,
+  resolvePrincipalAsync,
   systemPrincipal,
   userCommandPrincipal,
 } from './command-principal'
@@ -562,7 +562,7 @@ export class SessionRegistry {
     // Delegation is resolved from durable session ownership on every apply. This
     // lookup is available before feature construction and never snapshots rights.
     const principalForCapability = (capability: import('@podium/model').Capability) =>
-      resolvePrincipal(capability, {
+      resolvePrincipalAsync(capability, {
         parentSessionOf: async (candidate) =>
           spawnedByParentSessionId(
             (await this.store.sessions.getSession(asSessionId(candidate)))?.spawnedBy,
@@ -574,7 +574,7 @@ export class SessionRegistry {
       capability: import('@podium/model').Capability,
       overrideScope?: boolean,
     ): Promise<import('./modules/workflows/service').WorkflowCaller> => {
-      const principal = principalForCapability(capability)
+      const principal = await principalForCapability(capability)
       const human = onBehalfOfUser(principal)
       const role = human === null ? undefined : await this.store.users.roleOf(human)
       return {
@@ -1162,7 +1162,7 @@ export class SessionRegistry {
         if (message.fromKind === 'system') return systemPrincipal(message.fromName ?? 'message')
         if (message.fromSession) {
           try {
-            return principalForCapability(await capabilityForLiveSession(message.fromSession))
+            return await principalForCapability(await capabilityForLiveSession(message.fromSession))
           } catch {
             return undefined
           }
@@ -1872,7 +1872,7 @@ export class SessionRegistry {
           if (workflowPrincipal.actor.startsWith('session:')) {
             const sessionId = asSessionId(workflowPrincipal.actor.slice('session:'.length))
             try {
-              principal = principalForCapability(sessionsSvc.capabilityForSession(sessionId))
+              principal = await principalForCapability(sessionsSvc.capabilityForSession(sessionId))
             } catch {
               principal = undefined
             }
@@ -2127,7 +2127,7 @@ export class SessionRegistry {
             throw new Error(`unknown target session: ${existingSessionId}`)
           }
           const fresh = op.target.kind === 'fresh' ? op.target : null
-          const principal = resolvePrincipal(sessionsSvc.capabilityForSession(sessionId), {
+          const principal = await resolvePrincipalAsync(sessionsSvc.capabilityForSession(sessionId), {
             parentSessionOf: async (candidate) =>
               spawnedByParentSessionId(await sessionsSvc.sessionSpawnedBy(candidate)),
             onBehalfOfFor: (candidate) => sessionsSvc.sessionOwner(candidate)?.owner,
@@ -2434,7 +2434,7 @@ export class SessionRegistry {
           let principal: CommandPrincipal
           if (attribution.actor.kind === 'agent') {
             const sessionId = asSessionId(attribution.actor.id)
-            principal = principalForCapability(sessionsSvc.capabilityForSession(sessionId))
+            principal = await principalForCapability(sessionsSvc.capabilityForSession(sessionId))
             if (principal.kind !== 'agent' || principal.onBehalfOf !== userId) {
               throw new Error('shipping requester delegation no longer matches its original actor')
             }

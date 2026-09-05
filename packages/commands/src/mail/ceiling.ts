@@ -47,7 +47,9 @@ import { asIssueId, asSessionId, type IssueId, type SessionId, type MachineId } 
  * the user/grant tables (POD-1075 / POD-1079), never from this package.
  */
 export interface HumanCeiling {
-  canSee(entity: { readonly kind: 'issue' | 'session'; readonly id: string }): boolean
+  canSee(entity: { readonly kind: 'issue' | 'session'; readonly id: string }):
+    | boolean
+    | Promise<boolean>
 }
 
 /**
@@ -106,7 +108,7 @@ export async function resolveAddress(ref: string, deps: AddressDeps): Promise<Ad
     // `isKnownSession` has just confirmed this ref names a live session, so the
     // brand is applied on the far side of the existence check, not before it.
     const sessionId = asSessionId(ref)
-    return deps.ceiling.canSee({ kind: 'session', id: sessionId })
+    return await deps.ceiling.canSee({ kind: 'session', id: sessionId })
       ? { kind: 'session', id: sessionId }
       : { kind: 'unresolvable' }
   }
@@ -123,7 +125,7 @@ export async function resolveAddress(ref: string, deps: AddressDeps): Promise<Ad
   // confirm-required error naming an issue it may not see. Collapsing to a
   // single value removes the branch that could differ.
   if (!await deps.issueExists(id)) return { kind: 'unresolvable' }
-  if (!deps.ceiling.canSee({ kind: 'issue', id })) return { kind: 'unresolvable' }
+  if (!await deps.ceiling.canSee({ kind: 'issue', id })) return { kind: 'unresolvable' }
   return { kind: 'issue', id }
 }
 
