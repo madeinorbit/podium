@@ -225,9 +225,10 @@ describe('SessionStore event log retention', () => {
 
   it('row cap deletes the oldest rows beyond maxRows even when young', async () => {
     const store = await openTestStore(':memory:')
-    const ids = [1, 2, 3, 4, 5].map(() =>
-      store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }),
-    )
+    const ids: number[] = []
+    for (let i = 0; i < 5; i++) {
+      ids.push(await store.events.appendEvent({ ts: daysAgo(0), kind: 'k', subject: 's' }))
+    }
     expect(await pruneEventBatch(store, { maxAgeDays: 14, maxRows: 2 })).toBe(3)
     expect((await store.events.listEventsSince(0)).map((e) => e.id)).toEqual(ids.slice(3))
   })

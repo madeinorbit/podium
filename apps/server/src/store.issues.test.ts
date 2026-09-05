@@ -142,16 +142,16 @@ describe('needs-human question metadata round-trip (issue #53)', () => {
 })
 
 /** Seed bare parent issues — FKs (migration 006) require referenced rows to exist. */
-function seedIssues(store: SessionStore, ...ids: string[]): void {
-  ids.forEach((id, i) => {
-    store.issues.upsertIssue(baseRow({ id: asIssueId(id), seq: 100 + i }))
-  })
+async function seedIssues(store: SessionStore, ...ids: string[]): Promise<void> {
+  for (const [i, id] of ids.entries()) {
+    await store.issues.upsertIssue(baseRow({ id: asIssueId(id), seq: 100 + i }))
+  }
 }
 
 describe('IssueRow rich fields round-trip (P1)', () => {
   it('persists and reads back new fields', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
+    await seedIssues(store, 'iss_epic', 'iss_new', 'iss_canon')
     await store.issues.upsertIssue(
       baseRow({
         priority: 0,
@@ -311,7 +311,7 @@ describe('needs_human data layer (P4)', () => {
 describe('issue labels (P1)', () => {
   it('sets, reads (sorted), and lists distinct labels', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a', 'iss_b')
+    await seedIssues(store, 'iss_a', 'iss_b')
     await store.issues.setIssueLabels(asIssueId('iss_a'), ['ui', 'backend', 'ui'])
     await store.issues.setIssueLabels(asIssueId('iss_b'), ['backend'])
     expect(await store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['backend', 'ui'])
@@ -320,7 +320,7 @@ describe('issue labels (P1)', () => {
 
   it('setIssueLabels replaces the prior set', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a')
+    await seedIssues(store, 'iss_a')
     await store.issues.setIssueLabels(asIssueId('iss_a'), ['x', 'y'])
     await store.issues.setIssueLabels(asIssueId('iss_a'), ['y', 'z'])
     expect(await store.issues.getIssueLabels(asIssueId('iss_a'))).toEqual(['y', 'z'])
@@ -330,7 +330,7 @@ describe('issue labels (P1)', () => {
 describe('issue deps (P1)', () => {
   it('adds, lists (both directions), and removes deps', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
+    await seedIssues(store, 'iss_a', 'iss_b', 'iss_c')
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b')) // idempotent
@@ -351,7 +351,7 @@ describe('issue deps (P1)', () => {
 describe('issue comments (P1)', () => {
   it('adds and lists comments oldest-first', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a', 'iss_b')
+    await seedIssues(store, 'iss_a', 'iss_b')
     await store.issues.addIssueComment({
       id: asIssueId('c1'),
       issueId: asIssueId('iss_a'),
@@ -398,7 +398,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('add/list/count: ordered by created_at,id; count only unread', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a', 'iss_other')
+    await seedIssues(store, 'iss_a', 'iss_other')
     await store.issues.addIssueMessage(msg('msg_b', asIssueId('iss_a'), 't2'))
     await store.issues.addIssueMessage(msg('msg_a', asIssueId('iss_a'), 't1'))
     await store.issues.addIssueMessage(msg('msg_c', asIssueId('iss_other'), 't1'))
@@ -422,7 +422,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('claim is atomic: second claim returns false and does not overwrite the winner', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a')
+    await seedIssues(store, 'iss_a')
     await store.issues.addIssueMessage(msg('msg_a'))
     expect(await store.issues.claimIssueMessage('msg_a', 'issue:#3', 'tc')).toBe(true)
     expect(await store.issues.claimIssueMessage('msg_a', 'issue:#4', 'tc2')).toBe(false)
@@ -434,7 +434,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('markRead is idempotent and never regresses a claimed message', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a')
+    await seedIssues(store, 'iss_a')
     await store.issues.addIssueMessage(msg('msg_a'))
     await store.issues.markIssueMessagesRead(
       asUserId(SOLE_USER_ID),
@@ -472,7 +472,7 @@ describe('issue mail store (agent mail #103)', () => {
 
   it('deleteIssueChildRows removes the issue mailbox', async () => {
     const store = await openTestStore(':memory:')
-    seedIssues(store, 'iss_a', 'iss_other')
+    await seedIssues(store, 'iss_a', 'iss_other')
     await store.issues.addIssueMessage(msg('msg_a'))
     await store.issues.addIssueMessage(msg('msg_z', asIssueId('iss_other')))
     await store.issues.deleteIssueChildRows(asIssueId('iss_a'))
