@@ -110,13 +110,13 @@ export function resolveSessionTarget(
  *
  * Throws (TRPCError or Error) exactly as the shipped paths do.
  */
-export function assertMayCommandSession(
+export async function assertMayCommandSession(
   principal: CommandPrincipal,
   session: SessionTargetRow,
   proc: string,
   deps: SessionAccessDeps,
   overrideScope?: boolean,
-): void {
+): Promise<void> {
   if (principal.kind === 'system') return
   const capability: Capability = principal.capability
   const targetIssueId = session.issueId ?? deps.issues.issueForCwd(session.cwd)

@@ -244,7 +244,7 @@ export class SessionCommandCtx {
   ): Promise<(SessionTargetRow & { machineId?: MachineId }) | undefined> {
     const resolved = resolveSessionTarget(this.principal, sessionId, this.deps.access)
     if (resolved.kind === 'absent') return undefined
-    assertMayCommandSession(
+    await assertMayCommandSession(
       this.principal,
       resolved.session,
       proc,

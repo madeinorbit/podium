@@ -56,18 +56,18 @@ function granteesOf(edges: readonly GrantRow[]): string[] {
 export class SessionAuthz {
   constructor(private readonly ports: SessionAuthzPorts) {}
 
-  authorizeQueuedInputAtApply(input: {
+  async authorizeQueuedInputAtApply(input: {
     sessionId: SessionId
     principal: InboxPrincipalReference
     sourceMessageId: string | null
-  }): { ok: true } | { ok: false; reason: string } {
+  }): Promise<{ ok: true } | { ok: false; reason: string }> {
     const refused = { ok: false, reason: 'session no longer exists' } as const
     const target = this.ports.sessions.get(input.sessionId)
     const ownership = this.sessionOwner(input.sessionId)
     if (!target || !ownership) return refused
 
     if (input.sourceMessageId) {
-      const source = this.ports.deps.authorizeQueuedMessage?.(input.sourceMessageId)
+      const source = await this.ports.deps.authorizeQueuedMessage?.(input.sourceMessageId)
       if (source && !source.ok) return source
     }
 
@@ -199,7 +199,7 @@ export class SessionAuthz {
      * longer exists" sent two agents hunting for a coordinator that was alive.
      */
     try {
-      assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access, true)
+      await assertMayCommandSession(principal, resolved.session, 'sessions.sendText', access, true)
     } catch (error) {
       const detail = error instanceof Error ? error.message : String(error)
       return { ok: false, reason: `not authorized: ${detail}` }

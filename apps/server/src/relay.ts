@@ -1612,7 +1612,7 @@ export class SessionRegistry {
       await issueSessionLifecycle.stopClosedIssue({ ...input, reason: 'close' })
 
     this.bus.on('session.wakeRequested', async ({ sessionId, principal }) => {
-      const authorized = sessionsSvc.authorizeQueuedInputAtApply({
+      const authorized = await sessionsSvc.authorizeQueuedInputAtApply({
         sessionId,
         principal,
         sourceMessageId: null,
