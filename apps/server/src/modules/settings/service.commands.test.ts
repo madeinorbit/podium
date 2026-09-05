@@ -101,7 +101,7 @@ beforeEach(() => {
     telegramBindings: { upsert: () => {} },
     // REQUIRED (POD-421): an absent trail is indistinguishable from a working
     // one at every call site, so it is a compile error rather than a default.
-    audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
+    audit: { repo: { append: async () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
     fingerprintKey: () => FINGERPRINT_KEY,
     now: () => Date.parse('2026-07-30T12:00:00.000Z'),
     modelProbe: { list: vi.fn(async () => []) } as never,
@@ -336,7 +336,7 @@ describe('the binding names the MINTER, never whoever redeems', () => {
       telegramBindings: { upsert: (b) => bound.push(b) },
       // REQUIRED (POD-421): an absent trail is indistinguishable from a working
       // one at every call site, so it is a compile error rather than a default.
-      audit: { repo: { append: () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
+      audit: { repo: { append: async () => {} }, now: () => '2026-07-31T00:00:00.000Z' },
       generateTelegramSetupCode: () => 'PODIUM-CODE',
       telegramSetup: {
         getMe: async () => ({ username: 'bot' }),
