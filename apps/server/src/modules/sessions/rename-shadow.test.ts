@@ -70,8 +70,8 @@ async function stack() {
 }
 
 /** What both paths write, read back off the row. The shared observable truth. */
-function observe(sessions: SessionRegistry['modules']['sessions'], sessionId: string) {
-  const row = sessions.listSessions().find((s) => s.sessionId === sessionId)
+async function observe(sessions: SessionRegistry['modules']['sessions'], sessionId: string) {
+  const row = (await sessions.listSessions()).find((s) => s.sessionId === sessionId)
   return { name: row?.name, nameSource: row?.nameSource }
 }
 
@@ -276,10 +276,11 @@ describe('the shadow comparison is able to FAIL', () => {
     // Divergence injected into the TARGET stack only, through the real service —
     // the same method the path calls, so this is the divergence a real regression
     // would produce rather than a hand-built object.
-    target.sessions.renameSession({ sessionId: target.created.sessionId, name: 'diverged' })
+    await target.sessions.renameSession({ sessionId: target.created.sessionId, name: 'diverged' })
 
+    const observed = await observe(target.sessions, target.created.sessionId)
     expect(() =>
-      expect({ row: observe(target.sessions, target.created.sessionId) }).toEqual({
+      expect({ row: observed }).toEqual({
         row: legacy.row,
       }),
     ).toThrow()

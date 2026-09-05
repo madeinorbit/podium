@@ -82,7 +82,7 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
   })
 
   const toolkit = new SessionReadToolkit({
-    listSessions: () => [meta as SessionMeta],
+    listSessions: async () => [meta as SessionMeta],
     issues: ({
         resolveRef: () => ISSUE.id,
         getMeta: () => ISSUE,
@@ -90,10 +90,10 @@ it('captures spawn values instead of drifting issue defaults in row, meta, and s
         issueForCwd: () => ISSUE.id,
       }) as unknown as IssueService,
     messages: ({ deliveredUnacked: () => [] }) as unknown as MessageDeliveryService,
-    events: { appendEvent: () => 1 },
+    events: { appendEvent: async () => 1 },
     watermarks: {
-      getRecapWatermark: () => null,
-      setRecapWatermark: () => {},
+      getRecapWatermark: async () => null,
+      setRecapWatermark: async () => {},
     },
     repoOp: async () => ({ ok: true, output: '' }),
     readTranscript: async () => ({ items: [], hasMore: false }),

@@ -36,7 +36,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
   const watermarks = new Map<string, string>()
   const reads: { anchor?: string; direction: string }[] = []
   const toolkit = new SessionReadToolkit({
-    listSessions: () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
+    listSessions: async () => opts?.sessions ?? [session({ issueId: ISSUE.id })],
     issues: ({
         resolveRef: (ref: string) => {
           if (ref === '#228' || ref === '228' || ref === ISSUE.id) return ISSUE.id
@@ -50,7 +50,7 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         deliveredUnacked: () => [{ id: 'm1' }, { id: 'm2' }],
       }) as unknown as MessageDeliveryService,
     events: {
-      appendEvent: (e) => {
+      appendEvent: async (e) => {
         events.push({ kind: e.kind, subject: e.subject, payload: e.payload })
         return 1
       },
@@ -62,8 +62,8 @@ function harness(opts?: { sessions?: SessionMeta[]; items?: TranscriptItem[]; ha
         : { ok: true, output: '## branch\n M a.ts\n?? b.ts' }
     },
     watermarks: {
-      getRecapWatermark: (reader, sessionId) => watermarks.get(`${reader}|${sessionId}`) ?? null,
-      setRecapWatermark: (reader, sessionId, watermark) => {
+      getRecapWatermark: async (reader, sessionId) => watermarks.get(`${reader}|${sessionId}`) ?? null,
+      setRecapWatermark: async (reader, sessionId, watermark) => {
         watermarks.set(`${reader}|${sessionId}`, watermark)
       },
     },

@@ -77,7 +77,7 @@ function makeGateway(
   const queue: RuntimeDurableQueuePort = {
     enqueue:
       overrides.queue?.enqueue ??
-      ((input) => {
+      (async (input) => {
         enqueued.push(input)
         return { ok: true, position: 3 }
       }),
@@ -91,13 +91,13 @@ function makeGateway(
       systemPrincipal: () => SYSTEM_INBOX_PRINCIPAL,
       now: () => Date.UTC(2026, 7, 14),
       events: {
-        record: (_sessionId, event) => {
+        record: async (_sessionId, event) => {
           durableEvents.push(event)
           if (durableEvents.length > 64) durableEvents.splice(0, durableEvents.length - 64)
           return { kind: 'accepted', eventId: durableEvents.length }
         },
-        ready: () => durableEvents.length > 0,
-        recent: () => durableEvents,
+        ready: async () => durableEvents.length > 0,
+        recent: async () => durableEvents,
         replayBoardProjection: async () => {},
       },
     }),
