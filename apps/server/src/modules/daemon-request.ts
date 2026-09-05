@@ -109,7 +109,7 @@ export interface DaemonRequestPort {
 
 export interface DaemonRequestBrokerDeps {
   toMachine(machineId: MachineId, msg: ControlMessage): void
-  defaultMachine(): MachineId
+  defaultMachine(): MachineId | Promise<MachineId>
 }
 
 /** One in-flight request: who may answer it, and what happens when they do. */
@@ -145,7 +145,7 @@ export class DaemonRequestBroker implements DaemonRequestPort {
     const requestId = this.nextRequestId(spec.kind.prefix)
     // Resolved HERE, not at settle time: the target is a fact about the request,
     // and `defaultMachine()` can change between send and reply.
-    const targetMachineId = spec.machineId ?? this.deps.defaultMachine()
+    const targetMachineId = spec.machineId ?? (await this.deps.defaultMachine())
     const message = await spec.build(requestId)
     return new Promise<T>((resolve) => {
       const timer = setTimeout(() => {
