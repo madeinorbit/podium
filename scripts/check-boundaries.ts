@@ -1352,18 +1352,7 @@ const DRIZZLE_IMPORT_ROOTS: readonly string[] = [
  * itself. A hand-built list would have been a second opinion about which files
  * are unconverted, and the rule's opinion is the one that gates.
  */
-export const STAGE_A_UNCONVERTED: readonly string[] = [
-  // NOT a repository, and the one entry here that was not derived from the rule
-  // (POD-3281): the temporary raw-handle feed of the statement probe seam. It
-  // names the handle because that is its whole job — observing the statements
-  // an UNCONVERTED repository issues, so the query-count probes and the
-  // hot-path script keep measuring while Stage A is half done. It is on this
-  // ledger rather than in RAW_HANDLE_OWNERS because it is deleted at the same
-  // gate as the executor's `legacy` field, by POD-3326. The permanent half
-  // (`statement-probe.ts`) names no handle and needs no entry.
-  'apps/server/src/store/executor/legacy-handle-probe.ts',
-  'apps/server/src/store/executor/executor.ts',
-]
+export const STAGE_A_UNCONVERTED: readonly string[] = []
 
 export type FlipUndeletedEntry = Readonly<{
   file: string
@@ -1400,27 +1389,6 @@ export const FLIP_UNDELETED: readonly FlipUndeletedEntry[] = [
     construct: 'the `depths` WeakMap',
     issue: 'POD-3267',
     target: { kind: 'code', pattern: /\bconst\s+depths\s*=\s*new\s+WeakMap\s*</ },
-  },
-  {
-    file: 'apps/server/src/store/executor/synchronous-span.ts',
-    construct: '`runSynchronousSpan`',
-    issue: 'POD-3327',
-    target: { kind: 'code', pattern: /\bexport\s+function\s+runSynchronousSpan\s*</ },
-  },
-  {
-    file: 'apps/server/src/store/executor/legacy-handle-probe.ts',
-    construct: 'the whole legacy-handle probe file',
-    issue: 'POD-3326',
-    target: { kind: 'whole-file' },
-  },
-  {
-    file: 'apps/server/src/store/executor/executor.ts',
-    construct: 'the `StoreExecutor.legacy` readonly field',
-    issue: 'POD-3267',
-    target: {
-      kind: 'code',
-      pattern: /\breadonly\s+legacy\s*:\s*SqlDatabase\s*\|\s*undefined\b/,
-    },
   },
 ]
 

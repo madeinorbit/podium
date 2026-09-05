@@ -26,7 +26,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { createBunSqliteDriver } from './bun-driver'
 import type { DriverSession, Statement, StoreDriver } from './driver'
 import { NO_BUSY_RETRY, UNBOUNDED_WRITE_BUDGET_MS } from './driver'
-import { observeLegacyHandle } from './legacy-handle-probe'
 import {
   instrumentDriver,
   queryAttributionProbe,
@@ -153,24 +152,6 @@ describe('parity between the SqlDatabase wrapper and the driver seam', () => {
 
     expect(wrapper).toEqual({ count: 1, rows: 0 })
     expect(seam).toEqual(wrapper)
-  })
-
-  it('records the raw-handle feed identically, so a half-converted store reads as one number', () => {
-    const statement = SHAPES[2]?.statement
-    if (!statement) throw new Error('shape fixture is empty')
-
-    resetQueryAttribution()
-    throughWrapper(fresh(), statement)
-    const wrapper = costOf(statement.sql)
-
-    resetQueryAttribution()
-    const handle = fresh()
-    const hub = new StatementProbeHub()
-    hub.attach(queryAttributionProbe)
-    observeLegacyHandle({ db: handle }, hub)
-    handle.prepare(statement.sql).all()
-
-    expect(costOf(statement.sql)).toEqual(wrapper)
   })
 })
 
@@ -370,35 +351,5 @@ describe('the hub', () => {
     await session.execute({ sql: 'SELECT 1', params: [], method: 'all', intent: 'read' })
     await session.close()
     expect(seen).toEqual([])
-  })
-})
-
-describe('the legacy handle feed', () => {
-  it('restores the original prepare on detach, so a second window is not double counted', () => {
-    const handle = fresh()
-    const before = handle.prepare
-    const seen: StatementObservation[] = []
-    const hub = new StatementProbeHub()
-    hub.attach((observation) => seen.push(observation))
-    const restore = observeLegacyHandle({ db: handle }, hub)
-    handle.prepare('SELECT v FROM t').all()
-    restore()
-    handle.prepare('SELECT v FROM t').all()
-
-    expect(seen).toHaveLength(1)
-    expect(handle.prepare).toBe(before)
-  })
-
-  it('declares no intent, because a raw-handle caller declared none', () => {
-    const handle = fresh()
-    const seen: StatementObservation[] = []
-    const hub = new StatementProbeHub()
-    hub.attach((observation) => seen.push(observation))
-    observeLegacyHandle({ db: handle }, hub)
-    handle.prepare("INSERT INTO t (id, v) VALUES (8, 'h')").run()
-
-    expect(seen[0]?.intent).toBe('undeclared')
-    expect(seen[0]?.seam).toBe('legacy-handle')
-    expect(seen[0]?.method).toBe('run')
   })
 })
