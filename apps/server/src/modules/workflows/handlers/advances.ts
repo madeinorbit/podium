@@ -32,13 +32,18 @@ export async function checkpointHandler(
   input: ContractInput<typeof workflowCheckpointContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const run = engine.runFor(caller, input.runId)
+  const run = await engine.runFor(caller, input.runId)
   const now = deps.now()
   if (run.steps.length === 0) {
     // The prompt-only arm: no steps, so the checkpoint moves the RUN.
     access.assertCoordinator(run, caller)
     if (input.status === 'complete') await deps.store.updateRunStatus(run.id, 'complete', now)
-    else await deps.store.updateRunStatus(run.id, input.status === 'blocked' ? 'blocked' : 'active', null)
+    else
+      await deps.store.updateRunStatus(
+        run.id,
+        input.status === 'blocked' ? 'blocked' : 'active',
+        null,
+      )
     await deps.store.appendEvent({
       workflowId: run.revision.workflowId,
       runId: run.id,
@@ -118,7 +123,7 @@ export async function assignStepHandler(
   input: ContractInput<typeof workflowAssignStepContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const run = engine.runFor(caller, input.runId)
+  const run = await engine.runFor(caller, input.runId)
   access.assertCoordinator(run, caller)
   const current = engine.currentStep(run)
   if (!current || current.stepId !== input.stepId)
@@ -150,7 +155,7 @@ export async function skipHandler(
   input: ContractInput<typeof workflowSkipContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const run = engine.runFor(caller, input.runId)
+  const run = await engine.runFor(caller, input.runId)
   access.assertCoordinator(run, caller)
   const current = engine.currentStep(run)
   if (!current || current.stepId !== input.stepId)
@@ -191,7 +196,7 @@ export async function retryHandler(
   input: ContractInput<typeof workflowRetryContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const run = engine.runFor(caller, input.runId)
+  const run = await engine.runFor(caller, input.runId)
   access.assertCoordinator(run, caller)
   const target = run.steps.find((step) => step.stepId === input.stepId)
   if (!target) throw new Error(`workflow has no step ${input.stepId}`)
@@ -218,7 +223,7 @@ export async function adoptHandler(
   input: ContractInput<typeof workflowAdoptContract>,
 ) {
   const { caller, deps, access, engine } = ctx
-  const current = engine.runFor(caller, input.runId)
+  const current = await engine.runFor(caller, input.runId)
   access.assertCoordinator(current, caller)
   if (current.status !== 'active' && current.status !== 'blocked')
     throw new Error('only an active workflow run may adopt a revision')
@@ -236,7 +241,7 @@ export async function adoptHandler(
   // EVERYTHING VALIDATES BEFORE THE SUPERSEDE (POD-730 §8). The order below is
   // the invariant, not an accident of how it was written: a failure at any of
   // these four points must leave the live run exactly as it was.
-  engine.assertRevisionMatchesStart(revision, {
+  await engine.assertRevisionMatchesStart(revision, {
     sessionId: session.sessionId,
     cwd: session.cwd,
     ...(issueId ? { issueId } : {}),

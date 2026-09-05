@@ -137,10 +137,10 @@ export interface WorkflowEngine {
   actor(caller: WorkflowCaller): WorkflowActor
   scopeRef(scope: z.infer<typeof WorkflowScope>, raw: string | null | undefined): string | null
   currentStep(run: WorkflowRunWire): WorkflowRunStepWire | null
-  nextPacket(runId: string, message: string, warnings?: string[]): WorkflowNextActionWire
+  nextPacket(runId: string, message: string, warnings?: string[]): Promise<WorkflowNextActionWire>
   /** Resolves a run AND takes its visibility decision — an unknown id and an
    *  invisible one leave by the same throw (ADR 3 Amendment 1 D20.2). */
-  runFor(caller: WorkflowCaller, requested?: string): WorkflowRunWire
+  runFor(caller: WorkflowCaller, requested?: string): Promise<WorkflowRunWire>
   observationWarningsForRun(
     run: WorkflowRunWire,
     step: WorkflowRunStepWire,
@@ -151,7 +151,7 @@ export interface WorkflowEngine {
   assertRevisionMatchesStart(
     revision: WorkflowRevisionWire,
     input: { sessionId: SessionId; cwd: string; issueId?: IssueId },
-  ): void
+  ): Promise<void>
   startRun(input: {
     sessionId: SessionId
     cwd: string
@@ -161,7 +161,7 @@ export interface WorkflowEngine {
     startStepId?: string
     /** The delegating human, when the caller could resolve one. */
     onBehalfOf?: string | null
-  }): WorkflowRunWire
+  }): Promise<WorkflowRunWire>
 }
 
 export class WorkflowService implements WorkflowEngine {
@@ -227,9 +227,9 @@ export class WorkflowService implements WorkflowEngine {
   }
 
   async list(input: WorkflowListInput, caller: WorkflowCaller) {
-    return (await this.deps.store
-      .listWorkflows(input))
-      .filter((workflow) => this.canReadWorkflow(caller, workflow))
+    return (await this.deps.store.listWorkflows(input)).filter((workflow) =>
+      this.canReadWorkflow(caller, workflow),
+    )
   }
 
   async get(input: { id: string }, caller: WorkflowCaller) {
@@ -237,7 +237,10 @@ export class WorkflowService implements WorkflowEngine {
     // (ADR 3 Amendment 1 D20.2) — `assertWorkflowRead` is where that lives, so
     // this no longer resolves the row and then refuses it with a second string.
     const workflow = await this.access.assertWorkflowRead(caller, input.id)
-    return { workflow, revisions: await this.deps.store.listRevisions(input.id) }
+    return {
+      workflow,
+      revisions: await this.deps.store.listRevisions(input.id),
+    }
   }
 
   /** QUERY, not a mutation — and one of the three read-shaped operator branches
@@ -272,13 +275,15 @@ export class WorkflowService implements WorkflowEngine {
     if (input.runId && input.stepId) {
       const run = await this.deps.store.getRun(input.runId)
       if (!run) throw new Error(`unknown workflow run: ${input.runId}`)
-      const step = (await this.deps.store
-        .getRunSteps(run.id))
-        .find((candidate) => candidate.stepId === input.stepId)
+      const step = (await this.deps.store.getRunSteps(run.id)).find(
+        (candidate) => candidate.stepId === input.stepId,
+      )
       if (!step) throw new Error(`workflow run ${run.id} has no step ${input.stepId}`)
       if (step.executionProfileId !== input.profileId) {
         throw new Error(
-          `workflow step ${input.stepId} requires ${step.executionProfileId ?? 'no execution profile'}, not ${input.profileId}`,
+          `workflow step ${input.stepId} requires ${
+            step.executionProfileId ?? 'no execution profile'
+          }, not ${input.profileId}`,
         )
       }
       profile = step.executionProfileSnapshot
@@ -335,7 +340,11 @@ export class WorkflowService implements WorkflowEngine {
     }
     return this.access.visibleRuns(
       caller,
-      (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(async (row) => await this.toRun(row)),
+      await Promise.all(
+        (await this.deps.store.listRuns(input.includeTerminal ?? false)).map(
+          async (row) => await this.toRun(row),
+        ),
+      ),
     )
   }
 
@@ -385,7 +394,9 @@ export class WorkflowService implements WorkflowEngine {
     issueId?: IssueId
     explicitRevisionId?: string
   }): Promise<{ revision: WorkflowRevisionWire; prompt: string } | null> {
-    const existing = input.issueId ? await this.deps.store.findLiveRun('issue', input.issueId) : null
+    const existing = input.issueId
+      ? await this.deps.store.findLiveRun('issue', input.issueId)
+      : null
     if (existing) {
       if (input.explicitRevisionId && input.explicitRevisionId !== existing.revisionId)
         throw new Error('the issue already has a pinned workflow; adopt a new revision explicitly')
@@ -403,7 +414,7 @@ export class WorkflowService implements WorkflowEngine {
     issueId?: IssueId
   }): Promise<{ revision: WorkflowRevisionWire; prompt: string } | null> {
     const existing =
-      await this.deps.store.findLiveRunForSession(input.sessionId) ??
+      (await this.deps.store.findLiveRunForSession(input.sessionId)) ??
       (input.issueId ? await this.deps.store.findLiveRun('issue', input.issueId) : null)
     if (!existing) return null
     const revision = await this.deps.store.getRevision(existing.revisionId)
@@ -436,7 +447,9 @@ export class WorkflowService implements WorkflowEngine {
     const ownerUserId =
       input.onBehalfOf !== undefined
         ? input.onBehalfOf
-        : this.access.owner({ actor: { kind: 'session', id: input.sessionId } })
+        : this.access.owner({
+            actor: { kind: 'session', id: input.sessionId },
+          })
     if (ownerUserId === null) throw new Error('workflow run has no live owner')
     const run: WorkflowRunRow = {
       id: `wrun_${randomUUID()}`,
@@ -452,12 +465,14 @@ export class WorkflowService implements WorkflowEngine {
     }
     await this.deps.store.insertRun({
       run,
-      steps: revision.steps.map(async (step) => ({
-        ...step,
-        profile: step.executionProfileId
-          ? await this.deps.store.getProfile(step.executionProfileId)
-          : null,
-      })),
+      steps: await Promise.all(
+        revision.steps.map(async (step) => ({
+          ...step,
+          profile: step.executionProfileId
+            ? await this.deps.store.getProfile(step.executionProfileId)
+            : null,
+        })),
+      ),
     })
     if (input.startStepId && startPosition > 0) {
       const steps = await this.deps.store.getRunSteps(run.id)
@@ -503,8 +518,15 @@ export class WorkflowService implements WorkflowEngine {
       onBehalfOf:
         input.onBehalfOf !== undefined
           ? input.onBehalfOf
-          : this.access.onBehalfOf({ actor: { kind: 'session', id: input.sessionId } }),
-      payload: { revisionId: revision.id, subjectKind, subjectId, startStepId: input.startStepId },
+          : this.access.onBehalfOf({
+              actor: { kind: 'session', id: input.sessionId },
+            }),
+      payload: {
+        revisionId: revision.id,
+        subjectKind,
+        subjectId,
+        startStepId: input.startStepId,
+      },
       now,
     })
     const inserted = await this.deps.store.getRun(run.id)
@@ -572,7 +594,11 @@ export class WorkflowService implements WorkflowEngine {
     )
   }
 
-  async nextPacket(runId: string, message: string, warnings: string[] = []): Promise<WorkflowNextActionWire> {
+  async nextPacket(
+    runId: string,
+    message: string,
+    warnings: string[] = [],
+  ): Promise<WorkflowNextActionWire> {
     const row = await this.deps.store.getRun(runId)
     if (!row) throw new Error(`workflow run ${runId} disappeared`)
     const run = await this.toRun(row)
