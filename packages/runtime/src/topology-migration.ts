@@ -48,7 +48,7 @@ export type MigrationAction =
 
 export interface TopologyObservation {
   persistence: PersistenceShape
-  mode: 'all-in-one' | 'server' | 'daemon' | 'client' | undefined
+  mode: 'all-in-one' | 'server' | 'daemon' | 'client' | 'supervisor' | undefined
   instanceId: string
   /** Parent unit file exists in the user unit dir. */
   parentUnitPresent: boolean
@@ -255,7 +255,10 @@ function planSystemd(obs: TopologyObservation): MigrationAction {
  * Pure semantics of each action, used by tests to walk the machine and pull
  * the plug after every step. The CLI adapter's side-effects must match this.
  */
-export function applyAction(obs: TopologyObservation, action: MigrationAction): TopologyObservation {
+export function applyAction(
+  obs: TopologyObservation,
+  action: MigrationAction,
+): TopologyObservation {
   const desired = desiredParentUnit(obs.instanceId)
   switch (action.type) {
     case 'noop':
@@ -279,7 +282,10 @@ export function applyAction(obs: TopologyObservation, action: MigrationAction): 
     case 'mask-legacy':
       return {
         ...obs,
-        maskedUnits: unique([...obs.maskedUnits, ...enabledLegacyUnits(obs.enabledUnits, obs.instanceId)]),
+        maskedUnits: unique([
+          ...obs.maskedUnits,
+          ...enabledLegacyUnits(obs.enabledUnits, obs.instanceId),
+        ]),
       }
     case 'start-parent':
       return {
@@ -317,9 +323,10 @@ export function applyAction(obs: TopologyObservation, action: MigrationAction): 
         parentProcessLive: true,
         parentHealthy: true,
         cannotRestart: false,
-        liveRoles: unique(
-          [...obs.liveRoles.filter((role) => role !== 'janitor'), 'parent'],
-        ) as RunRole[],
+        liveRoles: unique([
+          ...obs.liveRoles.filter((role) => role !== 'janitor'),
+          'parent',
+        ]) as RunRole[],
       }
     case 'reclaim-stale-roles':
       return {
@@ -392,7 +399,9 @@ export function legacyDevObservation(
   return {
     ...legacyVpsObservation(instanceId),
     installedUnits: units,
-    enabledUnits: units.filter((name) => !name.endsWith('-system.service') && !name.includes('backend')),
+    enabledUnits: units.filter(
+      (name) => !name.endsWith('-system.service') && !name.includes('backend'),
+    ),
     activeUnits: units.filter(
       (name) =>
         name.includes('server') || name.includes('janitor') || name.includes('daemon.service'),

@@ -4,8 +4,8 @@
  * Tauri launches one external-payload parent for a local all-in-one installation.
  * That parent must host the server, janitor, and daemon together while the native
  * frame supervises its handover chain. Planner tests can establish the requested
- * roles, but only a real boot can establish that the janitor actually handshakes
- * and the supervised daemon actually reports as an installed fleet machine.
+ * roles, but only a real boot can establish that the janitor handshakes and the
+ * parent reports its installed payload and services on the machine plane.
  */
 import { spawn, type ChildProcess } from 'node:child_process'
 import { createServer } from 'node:net'
@@ -71,7 +71,7 @@ afterEach(async () => {
 })
 
 describe('desktop-supervised local stack', () => {
-  it('hosts a live server, janitor lease, and supervised daemon in one versioned child', async () => {
+  it('hosts a live server, janitor lease, and machine supervisor in one versioned child', async () => {
     const stateDir = await mkdtemp(join(tmpdir(), 'podium-desktop-stack-'))
     roots.push(stateDir)
     const payloadDir = join(stateDir, 'payload')
@@ -151,10 +151,15 @@ describe('desktop-supervised local stack', () => {
           | undefined
         const machine = db
           .prepare(
-            'SELECT app_version, supervised, install_kind FROM machines WHERE app_version = ?',
+            'SELECT app_version, presence_source, install_kind, service_report_json FROM machines WHERE app_version = ?',
           )
           .get(version) as
-          | { app_version: string; supervised: number; install_kind: string }
+          | {
+              app_version: string
+              presence_source: string
+              install_kind: string
+              service_report_json: string
+            }
           | undefined
         return lease && machine ? { lease, machine } : undefined
       } finally {
@@ -167,8 +172,13 @@ describe('desktop-supervised local stack', () => {
     expect(observed.lease.schema_version).toMatch(/^maintenance-/)
     expect(observed.machine).toEqual({
       app_version: version,
-      supervised: 1,
+      presence_source: 'supervisor',
       install_kind: 'installed',
+      service_report_json: expect.any(String),
+    })
+    expect(JSON.parse(observed.machine.service_report_json)).toMatchObject({
+      server: { policy: 'enabled', state: 'available' },
+      agentExecution: { policy: 'enabled', state: 'available' },
     })
     expect(child.pid).toBeGreaterThan(0)
     expect(child.exitCode, output).toBeNull()

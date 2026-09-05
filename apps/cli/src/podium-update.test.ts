@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { sign as cryptoSign, generateKeyPairSync } from 'node:crypto'
-import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
@@ -147,6 +147,7 @@ describe('podium update helpers', () => {
 describe('podium update swap crash-safety', () => {
   let work: string
   let server: Server | undefined
+  const savedState = process.env.PODIUM_STATE_DIR
   const savedHome = process.env.PODIUM_HOME
   const savedExit = process.exitCode
 
@@ -157,6 +158,8 @@ describe('podium update swap crash-safety', () => {
   afterEach(() => {
     server?.close()
     server = undefined
+    if (savedState === undefined) delete process.env.PODIUM_STATE_DIR
+    else process.env.PODIUM_STATE_DIR = savedState
     if (savedHome === undefined) delete process.env.PODIUM_HOME
     else process.env.PODIUM_HOME = savedHome
     process.exitCode = savedExit
@@ -206,7 +209,11 @@ describe('podium update swap crash-safety', () => {
     signature: 'sign' | 'bad' = 'sign',
   ): Promise<string> {
     const buf = tarball ? readFileSync(tarball) : null
-    const sig = buf ? (signature === 'sign' ? devSign(buf) : 'AAAA') : ''
+    const sig = buf
+      ? signature === 'sign'
+        ? devSign(buf)
+        : 'AAAA'
+      : devSign(Buffer.from('unavailable artifact'))
     let port = 0
     server = createServer((req, res) => {
       const path = req.url ?? ''
@@ -243,6 +250,7 @@ describe('podium update swap crash-safety', () => {
     writeFileSync(join(dir, 'VERSION'), `${version}\n`)
     writeFileSync(join(dir, 'podium'), '#!/bin/sh\n')
     process.env.PODIUM_HOME = dir
+    process.env.PODIUM_STATE_DIR = join(dir, '..', 'state')
     return dir
   }
 
@@ -256,7 +264,7 @@ describe('podium update swap crash-safety', () => {
     expect(existsSync(`${dir}.old`)).toBe(true)
     expect(readFileSync(join(`${dir}.old`, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     // No sibling .podium-update-* temp dir is left behind.
-    expect(readdirSync(dirname(dir)).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
+    expect(existsSync(`${dir}.prepared`)).toBe(false)
     // Signal "actually updated" via exit code 10 so the systemd timer only restarts the
     // daemon when a real swap happened (0 = already current, 1 = failure).
     expect(process.exitCode).toBe(10)
@@ -273,7 +281,6 @@ describe('podium update swap crash-safety', () => {
 
   it('REFUSES to swap when signature verification fails (tampered tarball)', async () => {
     const dir = stageInstall('0.1.0')
-    const parent = dirname(dir)
     // Feed advertises a newer version + a real tarball, but with a WRONG signature.
     const feed = await startFeed('0.1.1', makeTarball('0.1.1'), 'bad')
     await runUpdate(feed, testPubkeyB64)
@@ -281,12 +288,11 @@ describe('podium update swap crash-safety', () => {
     expect(process.exitCode).toBe(1)
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     expect(existsSync(`${dir}.old`)).toBe(false)
-    expect(readdirSync(parent).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
+    expect(existsSync(`${dir}.prepared`)).toBe(false)
   })
 
   it('stages on the install dir filesystem, not tmpdir (sibling temp dir)', async () => {
     const dir = stageInstall('0.1.0')
-    const parent = dirname(dir)
     // Trip a swap failure AFTER staging by leaving a sentinel we can scan for: we assert the
     // temp dir is created as a sibling. Use a feed whose tarball lacks headless/ so the swap
     // is skipped but extraction already happened in the sibling dir during this call.
@@ -299,7 +305,7 @@ describe('podium update swap crash-safety', () => {
     // Install dir survives untouched; no leftover sibling temp dir; backup never created.
     expect(readFileSync(join(dir, 'VERSION'), 'utf8').trim()).toBe('0.1.0')
     expect(existsSync(`${dir}.old`)).toBe(false)
-    expect(readdirSync(parent).filter((n) => n.startsWith('.podium-update-'))).toHaveLength(0)
+    expect(existsSync(`${dir}.prepared`)).toBe(false)
   })
 
   it('fails loud (exitCode=1) on a non-OK manifest response', async () => {

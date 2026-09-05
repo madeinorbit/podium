@@ -16,10 +16,13 @@ import {
   isPostUpdateCrashLoop,
   markPostUpdate,
   markRollbackUnavailable,
+  machineServiceReport,
   POST_UPDATE_CRASH_LOOP_THRESHOLD,
   rollbackDecision,
   watchdogPetDecision,
 } from './parent-supervisor'
+
+const OBSERVED_AT = '2026-08-26T12:00:00.000Z'
 
 describe('classifyChildExit', () => {
   it('treats exit 78 as refusal and signals as crash', () => {
@@ -76,6 +79,58 @@ describe('applyChildExit', () => {
       attempts: 1,
       nextAtMs: 8_500,
     })
+  })
+})
+
+describe('machineServiceReport', () => {
+  it('reports a refused daemon as degraded while the server stays available', () => {
+    let snap = emptyParentSnapshot('running')
+    snap = applyChildRunning(snap, 'server', 10)
+    snap = applyChildRunning(snap, 'daemon', 11)
+    snap = applyChildExit(snap, 'daemon', {
+      exitCode: CHILD_REFUSAL_EXIT_CODE,
+      nowMs: 1_000,
+      reason: 'daemon configuration refused',
+    })
+
+    expect(
+      machineServiceReport({
+        snap,
+        assignment: { server: true, agentExecution: true },
+        running: { server: true, agentExecution: true },
+        observedAt: OBSERVED_AT,
+      }),
+    ).toEqual({
+      server: { policy: 'enabled', state: 'available', observedAt: OBSERVED_AT },
+      agentExecution: {
+        policy: 'enabled',
+        state: 'refused',
+        reason: 'daemon configuration refused',
+        observedAt: OBSERVED_AT,
+      },
+    })
+  })
+
+  it('reports the disable-only lockout and a pending assignment change distinctly', () => {
+    const report = machineServiceReport({
+      snap: emptyParentSnapshot('running'),
+      assignment: { server: true, agentExecution: true },
+      running: { server: false, agentExecution: false },
+      agentExecutionLockout: true,
+      observedAt: OBSERVED_AT,
+    })
+
+    expect(report.server).toMatchObject({
+      policy: 'enabled',
+      state: 'stopped',
+      reason: 'changes on restart',
+    })
+    expect(report.agentExecution).toMatchObject({
+      policy: 'enabled',
+      state: 'refused',
+      reason: 'refused by local policy',
+    })
+    expect(report.agentExecutionLockout).toBe(true)
   })
 })
 

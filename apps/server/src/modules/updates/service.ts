@@ -335,6 +335,7 @@ export class UpdatesService {
    */
   private readonly waveHistory = new Map<UpdateChannel, WaveRound[]>()
 
+  private lastGrantAuthority = 0
   constructor(private readonly deps: UpdatesDeps) {}
 
   approvedTarget(channel: UpdateChannel): UpdateTarget | undefined {
@@ -1476,6 +1477,10 @@ export class UpdatesService {
       const grant: UpdateGrantMessage = {
         type: 'updateGrant',
         grantId: this.deps.nextGrantId(),
+        issuedAt: (this.lastGrantAuthority = Math.max(
+          this.deps.now(),
+          this.lastGrantAuthority + 1,
+        )),
         ...(repair ? { repair: true } : {}),
         target,
         ...(this.deps.updatePubkey ? { updatePubkey: this.deps.updatePubkey() } : {}),

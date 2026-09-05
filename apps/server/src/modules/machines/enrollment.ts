@@ -35,6 +35,7 @@ export interface EnrollmentHost {
   invalidateMachineCache(): void
   /** Fan out `machinesChanged` after a write clients can see (owner transfer). */
   broadcastMachines(): void
+  hasSupervisor(machineId: MachineId): boolean
 }
 
 /** Client-facing hello/pair refusal — identical for every denial (D19.4 / D20). */
@@ -68,6 +69,7 @@ export function sha256(s: string): string {
 export interface DaemonAuthenticationOptions {
   /** Authenticate existing durable identity without mutating its projection. */
   readonly verifyOnly?: boolean
+  readonly source?: 'supervisor' | 'legacy-daemon'
 }
 
 export function authenticateDaemon(
@@ -142,7 +144,10 @@ export function authenticateDaemon(
     }
     const row = deps.store.machines.getMachine(frame.machineId)
     if (!row) return { ok: false, reason: HELLO_DENIED_REASON }
-    if (!options.verifyOnly) {
+    if (
+      !options.verifyOnly &&
+      (options.source === 'supervisor' || !host.hasSupervisor(frame.machineId))
+    ) {
       deps.store.machines.touchMachine(frame.machineId, frame.hostname)
       host.invalidateMachineCache()
     }

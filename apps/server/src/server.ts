@@ -5,7 +5,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { trpcServer } from '@hono/trpc-server'
 import { createLogger } from '@podium/logger'
-import { asMachineId, controlPlaneAvailable, FIRST_ADMIN_USER_ID } from '@podium/model'
+import {
+  asMachineId,
+  controlPlaneAvailable,
+  FIRST_ADMIN_USER_ID,
+  MachineServiceAssignment,
+} from '@podium/model'
 import {
   CAP_TERMINAL_INPUT_BINARY_V1,
   CAP_TERMINAL_OUTPUT_BINARY_V1,
@@ -39,6 +44,7 @@ import {
   stateDir,
 } from '@podium/runtime/local-machine'
 import { startLoopMetrics } from '@podium/runtime/loop-metrics'
+import { SUPERVISOR_SERVICE_ASSIGNMENT_ENV } from '@podium/runtime/machine-supervisor'
 import { clearParentOutcome, readParentOutcome } from '@podium/runtime/parent-control'
 import {
   formatTopQueries,
@@ -724,7 +730,17 @@ export async function startServer(
   // structural guard against the regression where data vanished because no daemon ever
   // registered. The same-host daemon then authenticates through the normal hello path
   // (wsServer) presenting this same id.
-  if (!recoveryOnly) registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken)
+  let bootstrapAssignment: MachineServiceAssignment | undefined
+  const encodedAssignment = process.env[SUPERVISOR_SERVICE_ASSIGNMENT_ENV]
+  if (encodedAssignment) {
+    try {
+      bootstrapAssignment = MachineServiceAssignment.parse(JSON.parse(encodedAssignment))
+    } catch (error) {
+      throw new Error('invalid parent-supplied machine service assignment', { cause: error })
+    }
+  }
+  if (!recoveryOnly)
+    registry.modules.machines.ensureHostMachine(hostname(), bootstrapToken, bootstrapAssignment)
   // RETIRED at POD-309: the node⇄hub dialer (`UpstreamSync`) and the issue write
   // forwarder (`UpstreamForwarder`) were constructed here when config.json carried an
   // `upstream` block. Federation is deferred, not cancelled ([spec:SP-0371], ADR 5 D1);
@@ -882,6 +898,7 @@ export async function startServer(
 
   /** One real host participant when an installed parent can apply its grants. */
   const localUpdateParticipant =
+    process.env.PODIUM_MACHINE_UPDATE_OWNER !== 'supervisor' &&
     !recoveryOnly &&
     process.env.PODIUM_E2E_DISABLE_LOCAL_UPDATE_PARTICIPANT !== '1' &&
     !developmentRuntime.runningFromSource &&

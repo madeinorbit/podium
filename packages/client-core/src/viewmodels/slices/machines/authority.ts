@@ -28,6 +28,7 @@ import {
   type RecentSession,
   type RepoMachines,
   resolveTargetMachine,
+  agentExecutionRejection,
   type SelectableMachine,
   structuralRejection,
 } from '@podium/model'
@@ -76,6 +77,10 @@ export type MachineAvailability =
    * collapse M5 forbids, one axis further down.
    */
   | 'incapable'
+  /** Agent hosting is intentionally disabled by assignment or local lockout. */
+  | 'disabled'
+  /** Agent hosting is assigned but the execution plane is not available. */
+  | 'degraded'
 
 export interface MachineView<M extends SelectableMachine = SelectableMachine> {
   readonly machine: M
@@ -108,9 +113,13 @@ export function machineViews<M extends SelectableMachine>(
         ? 'unauthorized'
         : structuralRejection(machine) === 'no-daemon'
           ? 'incapable'
-          : machine.online
-            ? 'available'
-            : 'unreachable',
+          : !machine.online
+            ? 'unreachable'
+            : agentExecutionRejection(machine) === 'agents-disabled'
+              ? 'disabled'
+              : agentExecutionRejection(machine) === 'agents-unavailable'
+                ? 'degraded'
+                : 'available',
     })
   }
   return out

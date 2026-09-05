@@ -312,8 +312,8 @@ export function MachinesPanel({
             <div className="min-w-0">
               <h3 className="settings-h">Machines</h3>
               <p className="settings-prose mt-1">
-                Every machine running a Podium daemon that has paired with this server. Sessions
-                from all machines appear together in your workspace.
+                Every Podium machine paired with this server, including machines that are not
+                hosting agents. Sessions from all machines appear together in your workspace.
               </p>
             </div>
             <Button
@@ -1052,7 +1052,71 @@ function MachineRow({
       : componentsLabel === 'Waiting for first connection'
         ? 'Paired, but its daemon has never connected.'
         : undefined
-  const daemonVersion = machine.inventory?.podiumVersion
+  const reportedVersion = machine.appVersion ?? undefined
+  const assignment = machine.serviceAssignment
+  const services = machine.services
+  const agentChangesOnRestart =
+    services?.agentExecution.reason === 'changes on restart' ||
+    (services?.agentExecution.policy === 'disabled' &&
+      services.agentExecution.state === 'available')
+  const serverChangesOnRestart =
+    services?.server.reason === 'changes on restart' ||
+    (services?.server.policy === 'disabled' && services.server.state === 'available')
+  const degradedServices = !machine.online
+    ? []
+    : [
+        ...(assignment?.server === true &&
+        services?.server.state !== 'available' &&
+        !serverChangesOnRestart
+          ? ['server' as const]
+          : []),
+        ...(assignment?.agentExecution === true &&
+        services?.agentExecution.policy !== 'disabled' &&
+        services?.agentExecutionLockout !== true &&
+        !agentChangesOnRestart &&
+        services?.agentExecution.state !== 'available'
+          ? ['agents' as const]
+          : []),
+      ]
+  const agentHostingOff =
+    machine.online &&
+    degradedServices.length === 0 &&
+    services?.agentExecution.state !== 'available' &&
+    (assignment?.agentExecution === false ||
+      services?.agentExecution.policy === 'disabled' ||
+      services?.agentExecutionLockout === true ||
+      agentChangesOnRestart)
+  const fleetState = !machine.online
+    ? {
+        label: `Offline · Last seen ${relativeTime(machine.lastSeenAt, now)}`,
+        tone: 'offline' as const,
+      }
+    : degradedServices.length > 0
+      ? {
+          label: `Online · Degraded: ${degradedServices.join(', ')}`,
+          tone: 'degraded' as const,
+          detail:
+            [
+              ...(degradedServices.includes('server') && services?.server.reason
+                ? [services.server.reason]
+                : []),
+              ...(degradedServices.includes('agents') && services?.agentExecution.reason
+                ? [services.agentExecution.reason]
+                : []),
+            ].join('; ') || 'Assigned service is not available',
+        }
+      : agentHostingOff
+        ? {
+            label: 'Online · Agent hosting off',
+            tone: 'off' as const,
+            detail:
+              services?.agentExecutionLockout === true
+                ? 'Disabled by local policy'
+                : agentChangesOnRestart && assignment?.agentExecution === true
+                  ? 'Enabled on restart'
+                  : 'Disabled on this machine',
+          }
+        : { label: 'Online', tone: 'online' as const }
   const updateTargetVersion =
     machine.targetVersion !== undefined ? machine.targetVersion : serverAppVersion
   /**
@@ -1134,10 +1198,14 @@ function MachineRow({
             role="img"
             className={cn(
               'mt-[7px] size-1.5 flex-none rounded-full',
-              machine.online ? 'bg-success' : 'bg-muted-foreground/40',
+              fleetState.tone === 'degraded'
+                ? 'bg-warning'
+                : fleetState.tone === 'offline'
+                  ? 'bg-muted-foreground/40'
+                  : 'bg-success',
             )}
-            title={machine.online ? 'Online' : 'Offline'}
-            aria-label={machine.online ? 'Online' : 'Offline'}
+            title={fleetState.label}
+            aria-label={fleetState.label}
           />
 
           <div className="min-w-0 flex-1">
@@ -1196,7 +1264,7 @@ function MachineRow({
                   // is what separates a machine waiting for someone to accept an
                   // offer from one that took the grant and never arrived.
                   title={`${skew.note ? `${skew.note} ` : ''}This machine runs Podium ${
-                    daemonVersion ? formatDisplayedVersion(daemonVersion) : daemonVersion
+                    reportedVersion ? formatDisplayedVersion(reportedVersion) : reportedVersion
                   }; its selected update target is ${
                     updateTargetVersion
                       ? formatDisplayedVersion(updateTargetVersion)
@@ -1214,21 +1282,54 @@ function MachineRow({
               <span className="min-w-0 truncate font-mono" title={machine.hostname}>
                 {machine.hostname}
               </span>
-              {daemonVersion && (
+              {reportedVersion && (
                 <>
                   <span aria-hidden="true">·</span>
                   <span
                     className="font-mono"
-                    title={`Podium ${formatDisplayedVersion(daemonVersion)} on this machine`}
+                    title={`Podium ${formatDisplayedVersion(reportedVersion)} on this machine`}
                   >
-                    {formatDisplayedVersion(daemonVersion)}
+                    {formatDisplayedVersion(reportedVersion)}
                   </span>
                 </>
               )}
               <span aria-hidden="true">·</span>
-              <span className="tabular-nums">
-                {machine.online ? 'Online' : `Last seen ${relativeTime(machine.lastSeenAt, now)}`}
+              <span
+                className={cn('tabular-nums', fleetState.tone === 'degraded' && 'text-warning')}
+                title={'detail' in fleetState ? fleetState.detail : undefined}
+              >
+                {fleetState.label}
               </span>
+              {'detail' in fleetState && fleetState.detail && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span className={fleetState.tone === 'degraded' ? 'text-warning' : undefined}>
+                    {fleetState.detail}
+                    {fleetState.tone === 'degraded' ? ' · Restart Podium on this machine.' : ''}
+                  </span>
+                </>
+              )}
+              {fleetState.tone === 'online' &&
+                assignment?.agentExecution === true &&
+                services?.agentExecution.state === 'available' && (
+                  <>
+                    <span aria-hidden="true">·</span>
+                    <span>Agents available</span>
+                  </>
+                )}
+              {(agentChangesOnRestart || serverChangesOnRestart) && (
+                <>
+                  <span aria-hidden="true">·</span>
+                  <span>
+                    Changes on restart
+                    {agentChangesOnRestart && assignment?.agentExecution === false
+                      ? ': agent hosting off'
+                      : serverChangesOnRestart && assignment?.server === false
+                        ? ': server off'
+                        : ''}
+                  </span>
+                </>
+              )}
               {/* WHAT RUNS HERE (POD-2700 §4.1). The fleet panel is the one
                   surface that shows EVERY machine, including the ones no picker
                   may offer — an operator must be able to repair a machine that
@@ -1604,6 +1705,12 @@ function MachineUpdateControls({
   const [applying, setApplying] = useState(false)
   const [updateError, setUpdateError] = useState<string | null>(null)
   const [updateStatus, setUpdateStatus] = useState<string | null>(null)
+  const deliveryUnavailable =
+    machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0
+  const deliveryUnavailableReason =
+    machine.services?.crashOwner === 'desktop'
+      ? 'Managed by Desktop updater.'
+      : 'This install does not advertise an update delivery method.'
   // Convergence for this row is SERVER state, read by the panel. The local
   // `applying` flag only covers the mutation round trip; deriving progress from
   // it alone made the row look idle the instant the grant was issued, and lost
@@ -1674,7 +1781,7 @@ function MachineUpdateControls({
   }
 
   const applyUpdate = async (): Promise<void> => {
-    if (busy || changingChannel || !machine.online || !targetVersion) return
+    if (busy || changingChannel || !machine.online || !targetVersion || deliveryUnavailable) return
     setApplying(true)
     setUpdateError(null)
     setUpdateStatus(null)
@@ -1791,21 +1898,30 @@ function MachineUpdateControls({
         variant="outline"
         size="sm"
         className="ml-auto flex-none"
-        disabled={busy || changingChannel || !machine.online || !targetVersion || alreadyCurrent}
+        disabled={
+          busy ||
+          changingChannel ||
+          !machine.online ||
+          !targetVersion ||
+          alreadyCurrent ||
+          deliveryUnavailable
+        }
         hidden={sourceRun}
         aria-busy={busy}
         aria-label={`Apply update to ${machine.name}`}
         title={
           !machine.online
             ? 'This machine must be online to apply its selected target.'
-            : (unavailableReason ?? undefined)
+            : deliveryUnavailable
+              ? deliveryUnavailableReason
+              : (unavailableReason ?? undefined)
         }
         onClick={() => void applyUpdate()}
       >
         {busy ? 'Applying…' : alreadyCurrent ? 'Current' : retryable ? 'Try again' : 'Apply'}
       </Button>
 
-      {(unavailableReason || updateError || updateStatus) && (
+      {(unavailableReason || deliveryUnavailable || updateError || updateStatus) && (
         // min-w-0 as well as basis-full: a flex item's automatic minimum is its
         // min-content width, and these lines are `truncate` (nowrap), so without
         // it the longest reason set the row's width and ran off the pane.
@@ -1823,6 +1939,11 @@ function MachineUpdateControls({
                 channel === null ? 'its update source' : UPDATE_CHANNEL_LABELS[channel],
                 unavailableReason,
               )}
+            </span>
+          )}
+          {deliveryUnavailable && (
+            <span className="min-w-0 settings-micro text-warning!">
+              Cannot take delivery: {deliveryUnavailableReason}
             </span>
           )}
           {updateError && (

@@ -70,6 +70,80 @@ function setTrpc(mutate: () => Promise<{ code: string; joinCommand: string | nul
   } as unknown as Store['trpc']
 }
 
+describe('MachinesPanel supervisor fleet states', () => {
+  it('renders healthy, deliberately disabled, degraded, and offline rows distinctly', async () => {
+    const observedAt = '2026-08-26T12:00:00.000Z'
+    const status = {
+      policy: 'disabled' as const,
+      state: 'stopped' as const,
+      observedAt,
+    }
+    storeState.machines = [
+      machine({
+        id: asMachineId('m-online'),
+        name: 'online',
+        online: true,
+        serviceAssignment: { server: false, agentExecution: true },
+        services: {
+          server: status,
+          agentExecution: { policy: 'enabled', state: 'available', observedAt },
+        },
+      }),
+      machine({
+        id: asMachineId('m-off'),
+        name: 'agents-off',
+        online: true,
+        serviceAssignment: { server: false, agentExecution: false },
+        services: { server: status, agentExecution: status },
+      }),
+      machine({
+        id: asMachineId('m-agent-degraded'),
+        name: 'agent-degraded',
+        online: true,
+        serviceAssignment: { server: false, agentExecution: true },
+        services: {
+          server: status,
+          agentExecution: {
+            policy: 'enabled',
+            state: 'refused',
+            reason: 'daemon configuration refused',
+            observedAt,
+          },
+        },
+      }),
+      machine({
+        id: asMachineId('m-server-degraded'),
+        name: 'server-degraded',
+        online: true,
+        serviceAssignment: { server: true, agentExecution: false },
+        services: {
+          server: {
+            policy: 'enabled',
+            state: 'stopped',
+            reason: 'server exited',
+            observedAt,
+          },
+          agentExecution: status,
+        },
+      }),
+      machine({ id: asMachineId('m-offline'), name: 'offline', online: false }),
+    ]
+    setTrpc(vi.fn())
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Online')).toBeTruthy()
+    expect(screen.getByText('Online · Agent hosting off')).toBeTruthy()
+    expect(screen.getByText('Disabled on this machine')).toBeTruthy()
+    expect(screen.getByText('Online · Degraded: agents')).toBeTruthy()
+    expect(
+      screen.getByText('daemon configuration refused · Restart Podium on this machine.'),
+    ).toBeTruthy()
+    expect(screen.getByText('Online · Degraded: server')).toBeTruthy()
+    expect(screen.getByText('server exited · Restart Podium on this machine.')).toBeTruthy()
+    expect(screen.getByText(/Offline · Last seen/)).toBeTruthy()
+  })
+})
+
 const enableCard = () => screen.queryByRole('button', { name: /host sessions on this device/i })
 
 describe('MachinesPanel hosting affordances', () => {
@@ -317,9 +391,15 @@ describe('MachinesPanel update rows', () => {
 
   const applyButton = () => screen.getByRole('button', { name: /apply update to/i })
 
-  it('offers the ordinary Apply path to a desktop-supervised daemon', async () => {
+  it('offers the ordinary Apply path to a capable supervisor', async () => {
     storeState.machines = [
-      machine({ name: 'macbook', online: true, supervised: true, targetVersion: '0.5.0' }),
+      machine({
+        name: 'macbook',
+        online: true,
+        presenceSource: 'supervisor',
+        deliveryCaps: ['update.delivery.feed'],
+        targetVersion: '0.5.0',
+      }),
     ]
     setUpdateTrpc()
     render(<MachinesPanel />)
@@ -327,6 +407,29 @@ describe('MachinesPanel update rows', () => {
     expect(await screen.findByText('Target 0.5.0')).toBeTruthy()
     expect(applyButton().hasAttribute('disabled')).toBe(false)
     expect(screen.queryByText(/Managed by Podium Desktop/)).toBeNull()
+  })
+
+  it('keeps a Desktop-owned supervisor visible but disables server delivery', async () => {
+    const observedAt = '2026-08-26T12:00:00.000Z'
+    storeState.machines = [
+      machine({
+        name: 'macbook',
+        online: true,
+        presenceSource: 'supervisor',
+        deliveryCaps: [],
+        targetVersion: '0.5.0',
+        services: {
+          server: { policy: 'enabled', state: 'available', observedAt },
+          agentExecution: { policy: 'disabled', state: 'stopped', observedAt },
+          crashOwner: 'desktop',
+        },
+      }),
+    ]
+    setUpdateTrpc()
+    render(<MachinesPanel />)
+
+    expect(await screen.findByText('Managed by Desktop updater.')).toBeTruthy()
+    expect(applyButton().hasAttribute('disabled')).toBe(true)
   })
 
   it('still offers Apply to an ordinary fleet machine', async () => {

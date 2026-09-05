@@ -626,9 +626,10 @@ export class SessionRegistry {
           // it the wave grants updates a machine has already said it cannot
           // use, and the fleet learns by failing (POD-2004).
           ...(machine.deliveryCaps ? { deliveryCaps: machine.deliveryCaps } : {}),
-          // A daemon inside Podium Desktop is the shell's to update, never the
-          // wave's — the planner refuses to select it (POD-2099).
-          ...(machine.supervised ? { supervised: true } : {}),
+          ...(machine.presenceSource ? { presenceSource: machine.presenceSource } : {}),
+          ...(machine.services?.crashOwner === 'desktop'
+            ? { deliveryUnavailableReason: 'managed by Desktop updater' }
+            : {}),
           // WHICH BYTES IT COULD RUN (POD-2783), in the release manifest's own
           // vocabulary, through the SAME function the mint keys the manifest by
           // — so "the platforms this release contains" and "this machine's

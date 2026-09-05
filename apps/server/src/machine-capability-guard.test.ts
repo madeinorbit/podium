@@ -19,7 +19,7 @@
  * failure this work replaces.
  */
 import { asMachineId, asUserId } from '@podium/model'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { resolvePrincipal } from './command-principal'
 import { SuperagentService } from './modules/superagent'
 import { SessionRegistry } from './relay'
@@ -161,25 +161,31 @@ describe('issue homing refuses a machine that can never hold the worktree', () =
 
 describe('offline is not incapable', () => {
   it('an offline daemon host is refused for a LIVE action with different words', () => {
-    const { registry, laptop, coordinator, dropLaptopDaemon } = fleet()
-    dropLaptopDaemon()
-    const machines = registry.modules.machines
-    // Same requirement, same call, two machines — and two different sentences.
-    let offlineMessage = ''
-    let incapableMessage = ''
     try {
-      machines.requireRepoHost(laptop)
-    } catch (e) {
-      offlineMessage = e instanceof Error ? e.message : String(e)
+      vi.useFakeTimers()
+      const { registry, laptop, coordinator, dropLaptopDaemon } = fleet()
+      dropLaptopDaemon()
+      vi.advanceTimersByTime(30_001)
+      const machines = registry.modules.machines
+      // Same requirement, same call, two machines — and two different sentences.
+      let offlineMessage = ''
+      let incapableMessage = ''
+      try {
+        machines.requireRepoHost(laptop)
+      } catch (e) {
+        offlineMessage = e instanceof Error ? e.message : String(e)
+      }
+      try {
+        machines.requireRepoHost(coordinator)
+      } catch (e) {
+        incapableMessage = e instanceof Error ? e.message : String(e)
+      }
+      expect(offlineMessage).toContain('offline')
+      expect(offlineMessage).not.toContain('runs no Podium daemon')
+      expect(incapableMessage).toContain('runs no Podium daemon')
+      expect(incapableMessage).not.toContain('offline')
+    } finally {
+      vi.useRealTimers()
     }
-    try {
-      machines.requireRepoHost(coordinator)
-    } catch (e) {
-      incapableMessage = e instanceof Error ? e.message : String(e)
-    }
-    expect(offlineMessage).toContain('offline')
-    expect(offlineMessage).not.toContain('runs no Podium daemon')
-    expect(incapableMessage).toContain('runs no Podium daemon')
-    expect(incapableMessage).not.toContain('offline')
   })
 })

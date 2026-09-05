@@ -24,10 +24,10 @@
  *     precisely the crash the backoff ladder and the rollback exist for.
  */
 import { type ChildProcess, type SpawnOptions, spawn } from 'node:child_process'
-import { existsSync, mkdirSync, openSync } from 'node:fs'
+import { existsSync, mkdirSync, openSync, readFileSync, writeFileSync, renameSync } from 'node:fs'
 import { join } from 'node:path'
 import { createLogger } from '@podium/logger'
-import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode } from './config'
+import { LOGGING_MODE_ENV, resolveInstallDir, resolveLoggingMode, stateDir } from './config'
 import { readConnectivity } from './connectivity'
 import {
   clearParentRequest,
@@ -62,6 +62,7 @@ import {
 import { type ParentUpdateSwapResult, parseUpdateTarget } from './parent-update-swap'
 import { liveRecord, logDir } from './run-registry'
 import { sdNotify, watchdogPetIntervalMs } from './sd-notify'
+import { watchSupervisor } from './supervisor'
 import { oldBundlePresent, pruneOldBundle, restoreOldBundle } from './update-install'
 
 const log = createLogger('runtime:parent')
@@ -110,6 +111,8 @@ export type ServerReadyProbeFn = (port: number) => Promise<boolean>
 
 export interface ParentProcessDeps {
   installDir?: string
+  /** Boot-captured supervisor identity, required by the machine updater. */
+  runningIdentity?: { version: string; digest?: string }
   /**
    * Where `run/` lives. Distinct from `installDir`: a rollback RENAMES the
    * install directory, so the control files must not be inside it. Defaults to
@@ -177,6 +180,8 @@ export interface ParentProcessDeps {
   now?: () => number
   sleep?: (ms: number) => Promise<void>
   onSnapshot?: (snap: ParentSnapshot) => void
+  /** Parent-owned credential handoff, evaluated for every daemon spawn. */
+  childEnv?: () => NodeJS.ProcessEnv
   /** How long a component may claim to be running without advancing (watchdog). */
   componentWedgedMs?: number
   /** Watchdog pet cadence. Default: half of WATCHDOG_USEC, per systemd's margin. */
@@ -330,6 +335,7 @@ export class ParentProcess {
   private tickTimer: ReturnType<typeof setInterval> | undefined
   private handoverInFlight: Promise<void> | undefined
   private successor: ChildProcess | undefined
+  private stopShellWatch: (() => void) | undefined
   private signalsInstalled = false
   private readonly installedHandlers: Array<[NodeJS.Signals, () => void]> = []
   private mainPidDeclared = false
@@ -368,6 +374,39 @@ export class ParentProcess {
       : emptyParentSnapshot('booting')
     if (this.env[PARENT_POST_UPDATE_ENV] === '1') {
       this.snap = markPostUpdate(this.snap, this.deps.now())
+    }
+  }
+
+  setUpdateMigrationKnowledge(value: boolean | undefined): void {
+    this.deps.releaseHadMigrations = value
+  }
+
+  private readyPath(): string {
+    return join(this.deps.stateDir ?? stateDir(), 'run', 'supervisor-ready.json')
+  }
+  private publishReady(): void {
+    if (!this.deps.runningIdentity) return
+    const path = this.readyPath()
+    mkdirSync(join(this.deps.stateDir ?? stateDir(), 'run'), { recursive: true })
+    const temporary = `${path}.${process.pid}.tmp`
+    writeFileSync(temporary, JSON.stringify({ ...this.deps.runningIdentity, pid: process.pid }), {
+      mode: 0o600,
+    })
+    renameSync(temporary, path)
+  }
+  private successorReady(pid: number, version: string): boolean {
+    if (!this.deps.runningIdentity) return true
+    try {
+      const value = JSON.parse(readFileSync(this.readyPath(), 'utf8'))
+      const digestPath = join(this.installDir, 'ARTIFACT.sha256')
+      const digest = existsSync(digestPath) ? readFileSync(digestPath, 'utf8').trim() : undefined
+      return (
+        value.pid === pid &&
+        value.version === version &&
+        (digest === undefined || value.digest === digest)
+      )
+    } catch {
+      return false
     }
   }
 
@@ -418,10 +457,20 @@ export class ParentProcess {
     }
     this.installedHandlers.push([PARENT_HANDOVER_SIGNAL, handover])
     process.on(PARENT_HANDOVER_SIGNAL, handover)
+    // The desktop can die during enrollment or native update recovery, including
+    // when there are no child roles to notice its death. Arm before any boot await.
+    this.stopShellWatch = watchSupervisor(
+      () => {
+        void this.onTerminationSignal('SIGTERM')
+      },
+      { env: this.env },
+    )
   }
 
   /** Detach the handlers again. For tests, which share one process across cases. */
   removeSignalHandlers(): void {
+    this.stopShellWatch?.()
+    this.stopShellWatch = undefined
     for (const [sig, handler] of this.installedHandlers.splice(0)) {
       process.removeListener(sig, handler)
     }
@@ -703,6 +752,7 @@ export class ParentProcess {
     // it at spawn time would have reclaimed — that is, SIGTERMed — the parent
     // still supervising the serving stack.
     await this.deps.claimRole?.()
+    this.publishReady()
     this.pruneStaleOldBundle(healthy)
     this.deps.notify('READY=1')
     // First pet immediately, so a stall right after boot has the full
@@ -784,6 +834,7 @@ export class ParentProcess {
       else log.warn('parent health gate timed out', { ...fields, budgetMs })
       return ok
     }
+    if (!wantsServer && !wantsDaemon) return true
     while (this.deps.now() < deadline) {
       if (this.terminating) return settle(false, 'terminating')
       if (!wantsServer && wantsDaemon) {
@@ -851,6 +902,7 @@ export class ParentProcess {
     })
     const childEnv: NodeJS.ProcessEnv = {
       ...this.env,
+      ...(this.deps.childEnv?.() ?? {}),
       PODIUM_PORT: String(this.deps.port),
       PODIUM_HOME: this.installDir,
       PODIUM_UNDER_PARENT: '1',
@@ -1127,6 +1179,7 @@ export class ParentProcess {
     try {
       const deadline = this.deps.now() + (this.deps.handoverTimeoutMs ?? 90_000)
       const wantsServer = this.childOrder.includes('server')
+      const wantsDaemon = this.requiresDaemon()
       while (this.deps.now() < deadline) {
         if (this.terminating) return
         if (successorExited || successor.exitCode !== null) {
@@ -1134,13 +1187,15 @@ export class ParentProcess {
         }
         const healthy = wantsServer
           ? isHandoverHealthy(await this.deps.probeHealth(this.deps.port), expectedVersion, {
-              requiresDaemon: this.requiresDaemon(),
+              requiresDaemon: wantsDaemon,
             })
-          : isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+          : wantsDaemon
+            ? isDaemonHandoverHealthy(await this.deps.probeDaemonHealth(), expectedVersion)
+            : liveRecord('parent')?.pid === successorPid
         if (successorExited || successor.exitCode !== null) {
           return await abortAfterSuccessorExit()
         }
-        if (healthy) {
+        if (healthy && this.successorReady(successorPid, expectedVersion)) {
           // The gate has passed: NOW tell systemd where its main process moved.
           // nginx-reload pattern, but strictly after health, never before.
           this.deps.notify(`MAINPID=${successorPid}`)

@@ -135,31 +135,88 @@ describe('targets are bounded by machine USE', () => {
     repo('/repos/mine', { machineId: asMachineId('m-mine') }),
     repo('/repos/theirs', { machineId: asMachineId('m-theirs') }),
     repo('/repos/offline', { machineId: asMachineId('m-offline') }),
+    repo('/repos/disabled', { machineId: asMachineId('m-disabled') }),
+    repo('/repos/degraded', { machineId: asMachineId('m-degraded') }),
     repo('/repos/mine/wt', { machineId: asMachineId('m-mine'), kind: 'worktree' }),
   ]
   const machines = [
     machine('m-mine', { use: 'granted' }),
     machine('m-theirs', { use: 'denied' }),
     machine('m-offline', { use: 'granted', online: false }),
+    machine('m-disabled', {
+      use: 'granted',
+      components: ['daemon'],
+      serviceAssignment: { server: false, agentExecution: false },
+      services: {
+        server: {
+          policy: 'disabled',
+          state: 'stopped',
+          observedAt: '2026-08-03T11:00:00.000Z',
+        },
+        agentExecution: {
+          policy: 'disabled',
+          state: 'stopped',
+          observedAt: '2026-08-03T11:00:00.000Z',
+        },
+      },
+    }),
+    machine('m-degraded', {
+      use: 'granted',
+      components: ['daemon'],
+      serviceAssignment: { server: false, agentExecution: true },
+      services: {
+        server: {
+          policy: 'disabled',
+          state: 'stopped',
+          observedAt: '2026-08-03T11:00:00.000Z',
+        },
+        agentExecution: {
+          policy: 'enabled',
+          state: 'stopped',
+          reason: 'agent execution plane is disconnected',
+          observedAt: '2026-08-03T11:00:00.000Z',
+        },
+      },
+    }),
   ]
 
   it('offers only usable targets and counts the rest by reason', () => {
     const { choices, excluded } = automationTargetChoices(repos, [], machineViewsFromWire(machines))
     expect(choices.map((c) => c.value)).toEqual(['/repos/mine', GLOBAL_TARGET])
     // Unauthorized and unreachable stay distinguishable (§3.1.4 M5).
-    expect(excluded).toEqual({ unauthorized: 1, unreachable: 1 })
+    expect(excluded).toEqual({
+      unauthorized: 1,
+      unreachable: 1,
+      incapable: 0,
+      disabled: 1,
+      degraded: 1,
+    })
   })
 
   it('reads an unscoped machine list permissively, so single-user parity holds', () => {
-    const unscoped = [machine('m-mine'), machine('m-theirs'), machine('m-offline')]
+    const unscoped = [
+      machine('m-mine'),
+      machine('m-theirs'),
+      machine('m-offline'),
+      machine('m-disabled'),
+      machine('m-degraded'),
+    ]
     const { choices, excluded } = automationTargetChoices(repos, [], machineViewsFromWire(unscoped))
     expect(choices.map((c) => c.value)).toEqual([
       '/repos/mine',
       '/repos/theirs',
       '/repos/offline',
+      '/repos/disabled',
+      '/repos/degraded',
       GLOBAL_TARGET,
     ])
-    expect(excluded).toEqual({ unauthorized: 0, unreachable: 0 })
+    expect(excluded).toEqual({
+      unauthorized: 0,
+      unreachable: 0,
+      incapable: 0,
+      disabled: 0,
+      degraded: 0,
+    })
   })
 
   it('renders an unusable saved target as an opaque, unselectable reference', () => {

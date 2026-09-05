@@ -45,6 +45,10 @@ export function agentCapabilityReason(
       return `${machineName} hasn’t reported its agent inventory yet; retry shortly.`
     case 'harness-probe-timed-out':
       return `Couldn’t determine whether ${spawnAgentLabel(label)} is installed on ${machineName}; probe ${probeDescription ?? 'timed out'}. Retry.`
+    case 'agents-disabled':
+      return `Agent hosting is disabled on ${machineName}.`
+    case 'agents-unavailable':
+      return `Agent hosting is degraded on ${machineName}.`
     case 'harness-missing':
       return `${spawnAgentLabel(label)} is not installed on ${machineName}.`
     default: {
@@ -68,6 +72,10 @@ export function agentCapabilityHint(
       return 'inventory pending'
     case 'harness-probe-timed-out':
       return 'probe timed out'
+    case 'agents-disabled':
+      return 'agents off'
+    case 'agents-unavailable':
+      return 'agents degraded'
     case 'harness-missing':
       return 'not installed'
     default:
@@ -153,11 +161,15 @@ export function candidateFromAvailability<M extends HandoffMachine & { name: str
       ? 'unauthorized'
       : availability === 'incapable'
         ? 'no-daemon'
-        : availability === 'unreachable'
-          ? 'offline'
-          : machine.inventory === undefined
-            ? undefined
-            : harnessRejection(machine, agentKind)
+        : availability === 'disabled'
+          ? 'agents-disabled'
+          : availability === 'degraded'
+            ? 'agents-unavailable'
+            : availability === 'unreachable'
+              ? 'offline'
+              : machine.inventory === undefined
+                ? undefined
+                : harnessRejection(machine, agentKind)
   return {
     machineName: machine.name,
     ...(rejection ? { rejection } : {}),

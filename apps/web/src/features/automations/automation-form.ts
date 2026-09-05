@@ -390,12 +390,16 @@ export interface AutomationTargetExclusions {
   /** POD-2700: repos on machines that run no Podium daemon. Counted apart from
    *  `unreachable` because "offline" invites a wait that can never end. */
   readonly incapable: number
+  readonly disabled: number
+  readonly degraded: number
 }
 
 export const NO_TARGET_EXCLUSIONS: AutomationTargetExclusions = {
   unauthorized: 0,
   unreachable: 0,
   incapable: 0,
+  disabled: 0,
+  degraded: 0,
 }
 
 const repoLabel = (path: string): string => path.split('/').filter(Boolean).pop() ?? path
@@ -421,6 +425,8 @@ export function automationTargetChoices(
   let unauthorized = 0
   let unreachable = 0
   let incapable = 0
+  let disabled = 0
+  let degraded = 0
   for (const repo of repos) {
     if (repo.kind === 'worktree') continue
     // No machineId means an unscoped legacy row, not an unknown machine: the
@@ -436,6 +442,8 @@ export function automationTargetChoices(
     }
     if (availability === 'unauthorized') unauthorized += 1
     else if (availability === 'incapable') incapable += 1
+    else if (availability === 'disabled') disabled += 1
+    else if (availability === 'degraded') degraded += 1
     else unreachable += 1
     withheld.push(choice)
   }
@@ -458,13 +466,17 @@ export function automationTargetChoices(
           ? 'machine offline'
           : known?.availability === 'incapable'
             ? 'machine runs no daemon'
-            : 'not available to you'
+            : known?.availability === 'disabled'
+              ? 'agent hosting disabled'
+              : known?.availability === 'degraded'
+                ? 'agent hosting unavailable'
+                : 'not available to you'
       }`,
       availability: known?.availability ?? 'unauthorized',
       opaque: true,
     })
   }
-  return { choices, excluded: { unauthorized, unreachable, incapable } }
+  return { choices, excluded: { unauthorized, unreachable, incapable, disabled, degraded } }
 }
 
 function usageAt(
@@ -491,6 +503,14 @@ export function targetExclusionNote(excluded: AutomationTargetExclusions): strin
   if (excluded.unreachable > 0)
     parts.push(
       `${excluded.unreachable} ${plural(excluded.unreachable)} on machines that are offline`,
+    )
+  if (excluded.disabled > 0)
+    parts.push(
+      `${excluded.disabled} ${plural(excluded.disabled)} on machines with agent hosting disabled`,
+    )
+  if (excluded.degraded > 0)
+    parts.push(
+      `${excluded.degraded} ${plural(excluded.degraded)} on machines whose agent hosting is unavailable`,
     )
   if (parts.length === 0) return ''
   return `Not shown: ${parts.join('; ')}.`

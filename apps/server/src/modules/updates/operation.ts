@@ -818,7 +818,7 @@ type DeliverableTarget = {
  * can name bytes a particular machine has told us it cannot install.
  */
 export function machineCanTakeTargetNow(
-  machine: Pick<WaveMachine, 'deliveryCaps'>,
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>,
   target: DeliverableTarget,
 ): boolean {
   if (!machineCanUseTargetTrust(machine, target.trust)) return false
@@ -832,7 +832,7 @@ export function machineCanTakeTargetNow(
 /** Is there anyone here this descriptor can be handed to as it stands? */
 export function fleetCanTakeTargetNow(
   target: DeliverableTarget,
-  machines: readonly Pick<WaveMachine, 'deliveryCaps'>[],
+  machines: readonly Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>[],
 ): boolean {
   if (!needsDevelopmentBundle(target)) return true
   return machines.some((machine) => machineCanTakeTargetNow(machine, target))
@@ -872,7 +872,10 @@ function packWouldCoverPlatform(machine: Pick<WaveMachine, 'platform'>): boolean
  */
 function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
   if (!machineCanUseTargetTrust(machine, target.trust)) return false
-  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
+  if (machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0) {
+    return false
+  }
+  if (machine.deliveryCaps === undefined && machine.presenceSource !== 'supervisor') return true
   return !machineCanTakeTargetNow(machine, target)
 }
 
@@ -912,6 +915,14 @@ function machineCarriedBy(
  * step's first pass.
  */
 function placeOf(machine: WaveMachine): StepPlace {
+  if (machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0) {
+    return {
+      id: machine.id,
+      ...(machine.name ? { name: machine.name } : {}),
+      state: 'cannot-take-delivery',
+      detail: machine.deliveryUnavailableReason ?? 'cannot take delivery',
+    }
+  }
   return {
     id: machine.id,
     ...(machine.name ? { name: machine.name } : {}),
@@ -943,6 +954,7 @@ function deferralReason(
 ): string {
   if (!machine.online) return 'offline'
   if (!machineCanUseTargetTrust(machine, target.trust)) return 'legacy-instance-trust'
+  if (machine.deliveryUnavailableReason) return machine.deliveryUnavailableReason
   // A machine that has never said what it is cannot be given a platform reason.
   if (machine.platform === undefined) return 'cannot-take-delivery'
   // …and this one is about the MACHINE alone, so no target can excuse it.
@@ -976,10 +988,8 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const host = input.hostMachineId
     ? input.fleet.find((machine) => machine.id === input.hostMachineId)
     : undefined
-  // Server-only desktop mode intentionally has no local daemon, hence no host
-  // machine report. Process ownership is the authoritative fact; a supervised
-  // daemon row remains the backward-compatible corroborating signal.
-  const desktopHosted = input.desktopSupervised === true || host?.supervised === true
+  // Crash ownership is a local runtime fact, never persisted fleet policy.
+  const desktopHosted = input.desktopSupervised === true
   const hostUpdatesThroughFleet =
     host?.online === true && isPackagedRolloutTarget(host) && host.version !== target.version
   const steps: OperationPlan['steps'] = []
@@ -1032,10 +1042,14 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       (packable &&
         machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
         packWouldCoverPlatform(machine)))
-  const core = behind.filter((machine) => machine.online && canTakeEventually(machine))
-  // §3.6: a machine outside the live wave must not hold the outcome open. Deferred
-  // records distinguish transient offline delivery from permanent verifier incompatibility;
-  // only the former can converge merely by reconnecting.
+  const explicitDeliveryRefusal = (machine: WaveMachine): boolean =>
+    machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0
+  const core = behind.filter(
+    (machine) => machine.online && (canTakeEventually(machine) || explicitDeliveryRefusal(machine)),
+  )
+  // §3.6: a machine that is asleep must not hold the outcome open. It goes to
+  // `deferred` with an honest note and the standing reconciliation converges it
+  // when it reconnects.
   for (const machine of behind) {
     if (core.includes(machine)) continue
     deferred.push({
@@ -1072,6 +1086,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
   const webBehind = expectedWeb !== undefined && input.servedWebDigest !== expectedWeb
   if (
     !desktopHosted &&
+    !hostUpdatesThroughFleet &&
     !sourceCannotTakeTarget &&
     webBehind &&
     (input.canRebuildWeb || input.canPrepare || input.canRestartServer)
@@ -1923,6 +1938,13 @@ export function projectMachines(
      * always allowed to overrule a verdict — a machine that is now ON the target
      * did not, in the end, fail to update.
      */
+    if (place.state === 'cannot-take-delivery') {
+      return {
+        ...place,
+        ...(machine.name ? { name: machine.name } : {}),
+        detail: machine.deliveryUnavailableReason ?? place.detail ?? 'cannot take delivery',
+      }
+    }
     if (
       !machine.online &&
       machine.version !== targetVersion &&
@@ -2000,7 +2022,9 @@ export function projectMachines(
     }
   }
 
-  const done = places.filter((place) => place.state === 'current').length
+  const done = places.filter(
+    (place) => place.state === 'current' || place.state === 'cannot-take-delivery',
+  ).length
   return { places, progress: { done, total: places.length } }
 }
 
@@ -2561,7 +2585,8 @@ export function createUpdateFleetBridge(deps: {
   return bridge
 }
 
-const isArrived = (place: StepPlace): boolean => place.state === 'current'
+const isArrived = (place: StepPlace): boolean =>
+  place.state === 'current' || place.state === 'cannot-take-delivery'
 
 /**
  * WHICH DEFERRED PLACES MAY JOIN THE WAVE NOW (§3.6).

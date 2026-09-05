@@ -51,6 +51,8 @@ export interface DaemonOptions {
   name?: string
   onBlocked?: (info: { type: string; reason: string }) => void
   identityDir?: string
+  /** Parent supplied the credential; daemon must never persist or rotate it. */
+  identityReadOnly?: boolean
   machineId?: MachineId
   launch?: typeof agentLaunchCommand
   backend?: DurableBackend

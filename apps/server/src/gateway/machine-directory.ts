@@ -46,7 +46,7 @@ export interface MachineAuthenticator {
       hostname: string
       name?: string
     },
-    options?: { readonly verifyOnly?: boolean },
+    options?: { readonly verifyOnly?: boolean; readonly source?: 'supervisor' | 'legacy-daemon' },
   ):
     | {
         ok: true
@@ -83,6 +83,7 @@ const resolved = (
 
 export interface MachineDirectoryOptions {
   readonly verifyOnly?: boolean
+  readonly source?: 'supervisor' | 'legacy-daemon'
 }
 
 export const createMachineDirectory = (
@@ -107,8 +108,9 @@ export const createMachineDirectory = (
       },
       options,
     )
-    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
-
+    return auth.ok
+      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      : null
   },
 
   /**
@@ -134,8 +136,9 @@ export const createMachineDirectory = (
       },
       options,
     )
-    return auth.ok ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations) : null
-
+    return auth.ok
+      ? resolved(auth.machineId, auth.name, undefined, auth.updatePubkey, auth.updateKeyRotations)
+      : null
   },
 
   /**

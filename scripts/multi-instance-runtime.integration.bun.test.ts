@@ -48,6 +48,7 @@ import type { AppRouter } from '../apps/server/src/router'
 import { machineFileKey } from '../apps/server/src/modules/logs/fleet-store'
 import { SessionStore } from '../apps/server/src/store'
 import { buildVendoredAbduco } from '../packages/pty/src/abduco-bin'
+import { buildVendoredHost } from '../packages/pty/src/host-bin'
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url))
 const CLI = join(ROOT, 'scripts', 'cli.ts')
@@ -181,15 +182,17 @@ function buildPackagedCli(): string {
   const distDir = join(buildRoot, 'dist-bun')
   mkdirSync(scriptsDir, { recursive: true })
   mkdirSync(distDir, { recursive: true })
-  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts']) {
+  for (const file of ['cli-compiled.ts', 'cli.ts', 'embedded-abduco.ts', 'embedded-host.ts']) {
     cpSync(join(ROOT, 'scripts', file), join(scriptsDir, file))
   }
-  for (const dir of ['apps', 'packages', 'node_modules']) {
+  for (const dir of ['apps', 'packages']) {
     symlinkSync(join(ROOT, dir), join(buildRoot, dir), 'dir')
   }
 
   const embeddedAbduco = join(distDir, 'abduco.bin')
   expect(buildVendoredAbduco(embeddedAbduco)).toBe(embeddedAbduco)
+  const embeddedHost = join(distDir, 'podium-host.bin')
+  expect(buildVendoredHost(embeddedHost)).toBe(embeddedHost)
   const executable = join(buildRoot, 'podium-cli')
   execFileSync(
     process.execPath,
@@ -315,11 +318,12 @@ async function runPackagedCli(
   executable: string,
   spec: InstanceSpec,
   args: string[],
+  envOverrides: Record<string, string | undefined> = {},
 ): Promise<CliResult> {
   const child = spawn(executable, args, {
     // A packaged executable must not depend on being launched from the checkout.
     cwd: TEST_ROOT,
-    env: instanceEnv(spec, { PODIUM_APP_VERSION: undefined }),
+    env: instanceEnv(spec, { PODIUM_APP_VERSION: undefined, ...envOverrides }),
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let stdout = ''
@@ -348,6 +352,7 @@ function packagedDiagnostics(spec: InstanceSpec): string {
   const files = [
     'config.json',
     'connectivity.json',
+    'supervisor.json',
     'logs/parent.log',
     'logs/daemon.log',
     'logs/parent.ndjson',
@@ -421,12 +426,7 @@ describe('long instance durable sockets', () => {
     const oldSocketDir = join(stateDir, 'runtime', 'abduco')
     const impossibleDir = join('/tmp', `podium-refusal-${process.pid}-${'x'.repeat(28)}`)
     mkdirSync(oldSocketDir, { recursive: true })
-    const oldPath = abducoSocketPathname(
-      oldSocketDir,
-      oldLabel,
-      userInfo().username,
-      hostname(),
-    )
+    const oldPath = abducoSocketPathname(oldSocketDir, oldLabel, userInfo().username, hostname())
     expect(Buffer.byteLength(oldPath)).toBeGreaterThan(LINUX_UNIX_SOCKET_PATH_BYTES)
 
     const previous = {
@@ -555,7 +555,7 @@ describe('multi-instance runtime isolation', () => {
     expect(existsSync(join(foreign.stateDir, 'instance.json'))).toBe(false)
     expect(existsSync(join(foreign.stateDir, 'config.json'))).toBe(false)
   }, 30_000)
-  it('accepts a legitimate daemon from the compiled packaged join path', async () => {
+  it('enrolls a packaged machine through its supervisor without a duplicate row', async () => {
     const source = await packagedCoordinator()
     const sourceApi = trpc(source)
     const pairing = await sourceApi.machines.pairingCode.mutate()
@@ -578,24 +578,153 @@ describe('multi-instance runtime isolation', () => {
 
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
     expect(joined.stdout).toContain('podium joined as')
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
       machineId: string
       token?: string
+      updatePubkey?: string
     }
     expect(identity.token).toBeTruthy()
+    expect(identity.updatePubkey).toBeTruthy()
     await waitUntil(
       async () =>
         (await sourceApi.machines.list.query()).some(
-          (machine) => machine.id === identity.machineId && machine.online,
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.presenceSource === 'supervisor' &&
+            machine.services?.agentExecution.state === 'available',
         ),
-      'compiled packaged daemon enrollment',
+      'compiled packaged supervisor enrollment',
     )
+    const matchingRows = (await sourceApi.machines.list.query()).filter(
+      (machine) => machine.id === identity.machineId,
+    )
+    expect(matchingRows).toHaveLength(1)
+    expect(matchingRows[0]).toMatchObject({
+      serviceAssignment: { server: false, agentExecution: true },
+      deliveryCaps: ['update.delivery.feed'],
+      services: {
+        server: { policy: 'disabled', state: 'stopped' },
+        agentExecution: { policy: 'enabled', state: 'available' },
+      },
+    })
     expect(
       JSON.parse(readFileSync(join(fleet.stateDir, 'connectivity.json'), 'utf8')),
     ).toMatchObject({
       state: 'connected',
     })
-  }, 120_000)
+
+    const daemonRecord = JSON.parse(
+      readFileSync(join(fleet.stateDir, 'run', 'daemon.pid'), 'utf8'),
+    ) as { pid: number }
+    process.kill(daemonRecord.pid, 'SIGKILL')
+    await waitUntil(async () => {
+      const row = (await sourceApi.machines.list.query()).find(
+        (machine) => machine.id === identity.machineId,
+      )
+      return (
+        row?.online === true &&
+        row.deliveryCaps?.includes('update.delivery.feed') === true &&
+        row.services?.agentExecution.state === 'stopped'
+      )
+    }, 'daemon failure under live supervisor')
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).find((machine) => machine.id === identity.machineId)
+          ?.services?.agentExecution.state === 'available',
+      'daemon recovery under live supervisor',
+    )
+
+    const stopped = await runPackagedCli(executable, fleet, ['stop'])
+    expect(stopped.code, `${stopped.stdout}\n${stopped.stderr}`).toBe(0)
+    const legacyIdentity = {
+      machineId: identity.machineId,
+      token: identity.token,
+      updatePubkey: identity.updatePubkey,
+    }
+    writeFileSync(join(fleet.stateDir, 'daemon.json'), JSON.stringify(legacyIdentity))
+    rmSync(join(fleet.stateDir, 'supervisor.json'))
+    expect(
+      JSON.parse(readFileSync(join(fleet.stateDir, 'config.json'), 'utf8')),
+    ).not.toHaveProperty('pairCode')
+
+    const restarted = await runPackagedCli(executable, fleet, [])
+    expect(restarted.code, `${restarted.stdout}\n${restarted.stderr}`).toBe(0)
+    await waitUntil(
+      () => existsSync(join(fleet.stateDir, 'supervisor.json')),
+      'legacy credential import',
+    )
+    expect(JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8'))).toMatchObject(
+      legacyIdentity,
+    )
+    await waitUntil(
+      async () =>
+        (await sourceApi.machines.list.query()).some(
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.presenceSource === 'supervisor',
+        ),
+      'legacy machine supervisor restart',
+    )
+    expect(
+      (await sourceApi.machines.list.query()).filter(
+        (machine) => machine.id === identity.machineId,
+      ),
+    ).toHaveLength(1)
+
+    const stopBeforeLockout = await runPackagedCli(executable, fleet, ['stop'])
+    expect(stopBeforeLockout.code, `${stopBeforeLockout.stdout}\n${stopBeforeLockout.stderr}`).toBe(
+      0,
+    )
+    const configPath = join(fleet.stateDir, 'config.json')
+    const config = JSON.parse(readFileSync(configPath, 'utf8')) as Record<string, unknown>
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...config,
+        mode: 'supervisor',
+        agentExecutionLockout: true,
+      }),
+    )
+    const supervisorOnly = await runPackagedCli(executable, fleet, [])
+    expect(supervisorOnly.code, `${supervisorOnly.stdout}\n${supervisorOnly.stderr}`).toBe(0)
+    await waitUntil(async () => {
+      const row = (await sourceApi.machines.list.query()).find(
+        (machine) => machine.id === identity.machineId,
+      )
+      return (
+        row?.online === true &&
+        row.presenceSource === 'supervisor' &&
+        row.deliveryCaps?.includes('update.delivery.feed') === true &&
+        row.services?.agentExecutionLockout === true &&
+        row.services.agentExecution.reason === 'refused by local policy'
+      )
+    }, 'supervisor-only lockout report')
+
+    const stopBeforeUnlock = await runPackagedCli(executable, fleet, ['stop'])
+    expect(stopBeforeUnlock.code, `${stopBeforeUnlock.stdout}\n${stopBeforeUnlock.stderr}`).toBe(0)
+    writeFileSync(
+      configPath,
+      JSON.stringify({
+        ...config,
+        mode: 'supervisor',
+        agentExecutionLockout: false,
+      }),
+    )
+    const unlocked = await runPackagedCli(executable, fleet, [])
+    expect(unlocked.code, `${unlocked.stdout}\n${unlocked.stderr}`).toBe(0)
+    await waitUntil(async () => {
+      const row = (await sourceApi.machines.list.query()).find(
+        (machine) => machine.id === identity.machineId,
+      )
+      return (
+        row?.online === true &&
+        row.services?.agentExecutionLockout !== true &&
+        row.services?.agentExecution.state === 'available'
+      )
+    }, 'cleared lockout agent availability')
+  }, 180_000)
 
   /**
    * FLEET DAEMON LOG CAPTURE, ACROSS THE SOCKET (POD-3156).
@@ -634,13 +763,16 @@ describe('multi-instance runtime isolation', () => {
       'detached',
     ])
     expect(joined.code, `${joined.stdout}\n${joined.stderr}\n${packagedDiagnostics(fleet)}`).toBe(0)
-    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'daemon.json'), 'utf8')) as {
+    const identity = JSON.parse(readFileSync(join(fleet.stateDir, 'supervisor.json'), 'utf8')) as {
       machineId: string
     }
     await waitUntil(
       async () =>
         (await sourceApi.machines.list.query()).some(
-          (machine) => machine.id === identity.machineId && machine.online,
+          (machine) =>
+            machine.id === identity.machineId &&
+            machine.online &&
+            machine.services?.agentExecution.state === 'available',
         ),
       'remote daemon enrollment for log capture',
     )
@@ -731,6 +863,43 @@ describe('multi-instance runtime isolation', () => {
     })
   }, 120_000)
 
+  it('keeps a compiled server-only machine online and updateable without a daemon', async () => {
+    const spec = makeSpec('blue', 'packaged-server-only')
+    mkdirSync(spec.stateDir, { recursive: true })
+    writeFileSync(
+      join(spec.stateDir, 'config.json'),
+      JSON.stringify({ mode: 'server', persistence: 'detached', port: spec.port }),
+    )
+    const executable = buildPackagedCli()
+    packagedSpecs.push({ executable, spec })
+
+    const started = await runPackagedCli(executable, spec, [], { PODIUM_ADOPT_STATE: '1' })
+    expect(started.code, `${started.stdout}\n${started.stderr}\n${packagedDiagnostics(spec)}`).toBe(
+      0,
+    )
+    await waitUntil(async () => (await version(spec))?.instanceId === 'blue', 'server-only host')
+    await waitUntil(async () => {
+      const row = (await trpc(spec).machines.list.query())[0]
+      return (
+        row?.online === true &&
+        row.presenceSource === 'supervisor' &&
+        row.services?.server.state === 'available'
+      )
+    }, 'server-only supervisor report')
+    const rows = await trpc(spec).machines.list.query()
+    expect(rows).toHaveLength(1)
+    expect(rows[0]).toMatchObject({
+      online: true,
+      presenceSource: 'supervisor',
+      serviceAssignment: { server: true, agentExecution: false },
+      deliveryCaps: ['update.delivery.feed'],
+      services: {
+        server: { policy: 'enabled', state: 'available' },
+        agentExecution: { policy: 'disabled', state: 'stopped' },
+      },
+    })
+  }, 120_000)
+
   it('claims an absent named root before the compiled launcher materializes abduco', async () => {
     const namedSpec = makeSpec('blue', 'cold-blue')
     expect(existsSync(namedSpec.stateDir)).toBe(false)
@@ -798,14 +967,18 @@ describe('multi-instance runtime isolation', () => {
     const named = startInstance(namedSpec, { PODIUM_ADOPT_STATE: '1' })
     await waitUntil(async () => (await version(compat))?.instanceId === 'default', 'compat server')
     await waitUntil(async () => (await version(named))?.instanceId === 'blue', 'named server')
-    await waitUntil(
-      async () => (await trpc(compat).machines.list.query()).some((machine) => machine.online),
-      'compat daemon',
-    )
-    await waitUntil(
-      async () => (await trpc(named).machines.list.query()).some((machine) => machine.online),
-      'named daemon',
-    )
+    for (const instance of [compat, named]) {
+      await waitUntil(async () => {
+        const rows = await trpc(instance).machines.list.query()
+        return (
+          rows.length === 1 &&
+          rows[0]?.online === true &&
+          rows[0]?.presenceSource === 'supervisor' &&
+          rows[0]?.services?.server.state === 'available' &&
+          rows[0]?.services?.agentExecution.state === 'available'
+        )
+      }, `${instance.id} all-in-one supervisor`)
+    }
     for (const [port, label] of [
       [compat.hookPort, 'compat hook'],
       [named.hookPort, 'named hook'],

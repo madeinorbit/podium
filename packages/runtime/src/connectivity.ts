@@ -1,7 +1,7 @@
-// Daemon⇄server connectivity status file (issue #19). The daemon is the only writer; the
-// CLI (`podium status`) is the reader — so "up" can reflect whether the daemon is actually
-// TALKING to its server, not merely that a PID exists. Lives next to daemon.json (the paired
-// identity) so isolated/test daemons never touch the real state dir.
+// Machine⇄server connectivity status file (issue #19). A supervisor-owned install writes
+// this from its machine plane; a legacy standalone daemon remains the compatibility writer.
+// The CLI (`podium status`) is the reader, so "up" reflects an authenticated machine path,
+// not merely a PID. It lives in the selected state root beside the machine identity.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { z } from 'zod'

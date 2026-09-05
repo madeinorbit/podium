@@ -60,7 +60,8 @@ import {
 export function rolesForMode(mode: PodiumConfig['mode']): RunRole[] {
   if (mode === 'all-in-one') return ['parent', 'server', 'daemon']
   if (mode === 'server') return ['parent', 'server']
-  if (mode === 'daemon') return ['daemon']
+  if (mode === 'daemon') return ['parent', 'daemon']
+  if (mode === 'supervisor') return ['parent']
   return []
 }
 
