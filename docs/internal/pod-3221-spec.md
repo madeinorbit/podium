@@ -1420,6 +1420,43 @@ Call sites then read `this.transact(() => ...)` and `this.db.insert(...)`: a spa
 self-explanatory, no nesting, and IDENTICAL before and after the flip except for async/await. The
 construction lines in `store.ts` do NOT change — they still pass the one capability object.
 
+### Rule 47 — a synchronous reader over an async store LOADS AT AN ASYNC ENTRY POINT, never at composition
+
+[Ruling on POD-3263's no-rule boundary, 2026-09-05. The site is `FeedIdentityRegistry.current()`,
+which must stay synchronous because `FeedPublisher` drain/connect and the conformance getters call it
+on a path that may not yield (§2.5). Its store's reads are async after the flip.]
+
+B1 proposed loading and minting in an async `open(store, mint)` before composition. REFUSED, because
+`identity.ts` documents two properties that construction-time loading destroys, and both have stated
+reasons:
+
+    Constructing this does NOT write. The identity is minted lazily on the first `current()`, so a
+    read-only consumer of a fresh database does not silently create a feed — and, more usefully, so a
+    test can observe the "no identity persisted yet" state that a first-boot replica actually meets.
+
+and `current()` reads THROUGH on a cache miss, "which is what makes 'survives a restart' a property a
+test can assert by building a second registry over the same store".
+
+THE RULE. Where a synchronous reader sits over a now-async store, add an EXPLICIT async resolve step
+and call it at the async entry points that already precede the synchronous path — not in the
+constructor, and not in composition. Three conditions:
+
+1. CONSTRUCTION STILL WRITES NOTHING. The resolve step is a separate call, so a read-only consumer
+   that never enters the write path still never mints. That is the property being preserved.
+2. THE SYNCHRONOUS READER THROWS IF UNRESOLVED. It must not lazily mint, return null, or return a
+   stale value. A missed call site has to fail loudly at the first read: for feed identity the silent
+   alternative is a replica applying a foreign timeline, which `bump()`'s own guard exists to prevent.
+3. RESOLVE IS IDEMPOTENT AND READS THROUGH ONCE. Building a second registry over the same store and
+   resolving must still observe the persisted value, so the restart property keeps its test.
+
+WHY NOT THE OTHER ARM. Making `current()` async and widening the publisher/connection API pushes a
+yield into the transport drain, which is exactly the class §2.5 exists to forbid: a drain that can
+yield mid-loop lets frames interleave. The registry is not the place to discover that.
+
+GENERALLY: when the flip makes a dependency async under a caller that may not yield, the fix is to
+move the await EARLIER to a boundary that already exists, never to make the non-yielding path yield
+and never to hide the await behind a cache that can be stale.
+
 ### Rule 35 — transaction routing is AMBIENT, and drizzle's transaction is the mechanism
 
 [Operator decision on record, 2026-09-04. Supersedes the framing in rule 30, which described ambient
