@@ -56,7 +56,7 @@ function port() {
   return {
     rows,
     repo: {
-      append: (row: SettingsAuditRow): void => {
+      append: async (row: SettingsAuditRow): Promise<void> => {
         rows.push(row)
       },
     },

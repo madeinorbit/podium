@@ -4,9 +4,9 @@ import { EventLogRetention } from './retention'
 describe('EventLogRetention [spec:SP-c29e]', () => {
   it('plans once, runs bounded delete units to completion, and reports metrics', async () => {
     const plan = { cutoff: '2026-01-01T00:00:00.000Z', capThroughId: 10 }
-    const planEventPrune = vi.fn(() => plan)
+    const planEventPrune = vi.fn(async () => plan)
     const deleted = [500, 500, 40]
-    const pruneEventBatch = vi.fn(() => deleted.shift() ?? 0)
+    const pruneEventBatch = vi.fn(async () => deleted.shift() ?? 0)
     const onMetrics = vi.fn()
     const retention = new EventLogRetention(
       { planEventPrune, pruneEventBatch },
@@ -31,11 +31,11 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
     let monotonicMs = 0
     let planId = 0
     const callsByPlan = new Map<number, number>()
-    const planEventPrune = vi.fn(() => ({
+    const planEventPrune = vi.fn(async () => ({
       cutoff: '2026-01-01T00:00:00.000Z',
       capThroughId: ++planId,
     }))
-    const pruneEventBatch = vi.fn((plan: { capThroughId: number }) => {
+    const pruneEventBatch = vi.fn(async (plan: { capThroughId: number }) => {
       monotonicMs += 13
       const calls = callsByPlan.get(plan.capThroughId) ?? 0
       callsByPlan.set(plan.capThroughId, calls + 1)
@@ -59,11 +59,11 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
     const plan = { cutoff: '2026-01-01T00:00:00.000Z', capThroughId: 10 }
     const planEventPrune = vi
       .fn()
-      .mockImplementationOnce(() => {
+      .mockImplementationOnce(async () => {
         throw error
       })
-      .mockReturnValue(plan)
-    const pruneEventBatch = vi.fn(() => 0)
+      .mockResolvedValue(plan)
+    const pruneEventBatch = vi.fn(async () => 0)
     const retention = new EventLogRetention({ planEventPrune, pruneEventBatch })
 
     const first = await retention.pruneNow()
@@ -80,11 +80,11 @@ describe('EventLogRetention [spec:SP-c29e]', () => {
 
   it('dispose cancels a yielded job before another delete unit starts', async () => {
     let nowMs = 0
-    const planEventPrune = vi.fn(() => ({
+    const planEventPrune = vi.fn(async () => ({
       cutoff: '2026-01-01T00:00:00.000Z',
       capThroughId: 10,
     }))
-    const pruneEventBatch = vi.fn(() => {
+    const pruneEventBatch = vi.fn(async () => {
       nowMs += 13
       return 500
     })
