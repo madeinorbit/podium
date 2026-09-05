@@ -90,19 +90,19 @@ export interface MessageMailboxDeps {
   /** Legacy mirror read-marking (store.issues.markIssueMessagesRead): a
    *  substrate inbox read must consume the mirror row's unread status too, or
    *  mailPending's legacy fallback keeps nagging. Drop with the table. */
-  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void
+  mirrorMarkIssueMailRead?(issueId: IssueId, ids: string[]): void | Promise<void>
   /** THE send path. A reply is an ordinary send with a server-computed
    *  recipient, so it goes through the same clamps, brakes and ledger. */
   send(
     from: MessageSender,
     input: MessageSendInput,
     opts?: MessageSendOptions,
-  ): MessageSendResult
-  cancelQueuedInput(message: MessageRow): void
+  ): MessageSendResult | Promise<MessageSendResult>
+  cancelQueuedInput(message: MessageRow): void | Promise<void>
   /** The transition ledger — a read is a status transition like any other. */
-  emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void
+  emitTransition(message: MessageRow, kind: string, extra?: Record<string, unknown>): void | Promise<void>
   /** The rendered sender label, for a reminder's render-ready row. */
-  fromLabel(message: MessageRow): string
+  fromLabel(message: MessageRow): string | Promise<string>
 }
 
 export class MessageMailbox {
@@ -165,7 +165,7 @@ export class MessageMailbox {
   ): Promise<MessageSendResult> {
     const original = await this.deps.messages.getMessage(input.inReplyTo)
     if (!original) throw new Error(`unknown message ${input.inReplyTo}`)
-    return this.deps.send(from, {
+    return await this.deps.send(from, {
       to: await this.replyTarget(original),
       body: input.body,
       kind: input.kind ?? 'ack',
@@ -201,7 +201,7 @@ export class MessageMailbox {
     const out: { id: string; from: string; body: string }[] = []
     for (const m of await this.deps.messages.listDeliveredUnacked(sessionId, at)) {
       if (!await this.deps.messages.markReminded(m.id, at)) continue
-      out.push({ id: m.id, from: this.deps.fromLabel(m), body: m.body })
+      out.push({ id: m.id, from: await this.deps.fromLabel(m), body: m.body })
     }
     return out
   }
@@ -250,7 +250,7 @@ export class MessageMailbox {
         : null,
     ].filter(Boolean)
     for (const m of rows) {
-      this.deps.send(
+      await this.deps.send(
         { kind: 'system', name: 'steward' },
         {
           to: await this.replyTarget(m),
@@ -351,7 +351,7 @@ export class MessageMailbox {
     input: MessageSendInput,
     opts?: { pollMs?: number; sleep?(ms: number): Promise<void>; now?(): number },
   ): Promise<MessageSendResult> {
-    const r = this.deps.send(from, input, { awaitReceipt: true })
+    const r = await this.deps.send(from, input, { awaitReceipt: true })
     const disposition = await this.blockForDelivery(r, opts)
     if (disposition !== 'dead_letter') return { ...r, disposition }
 
@@ -417,13 +417,15 @@ export class MessageMailbox {
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */
-  inbox(
+  async inbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
-  ): MessageRow[] {
-    const rows = principals.flatMap(async (p) =>
-      await this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
-    )
+  ): Promise<MessageRow[]> {
+    const rows = (await Promise.all(
+      principals.map(async (p) =>
+        await this.deps.messages.listMessagesFor(p, { limit: opts?.limit ?? 50 }),
+      ),
+    )).flat()
     rows.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     return rows.slice(-(opts?.limit ?? 50))
   }
@@ -436,14 +438,17 @@ export class MessageMailbox {
    * counts stop nagging on either surface. A row already pushed (delivered) is
    * still promoted to read when the recipient opens it.
    */
-  readInbox(
+  async readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { consume?: SessionId | null; limit?: number },
-  ): MessageRow[] {
-    const rows = this.inbox(principals, opts?.limit !== undefined ? { limit: opts.limit } : {})
+  ): Promise<MessageRow[]> {
+    const rows = await this.inbox(
+      principals,
+      opts?.limit !== undefined ? { limit: opts.limit } : {},
+    )
     if (opts?.consume === undefined) return rows
     const at = this.deps.now()
-    return rows.map(async (m) => {
+    return await Promise.all(rows.map(async (m) => {
       // Per-READER receipt first [POD-1379]: this session has now been shown the
       // row whatever a peer on the same issue mailbox already did to the shared
       // delivery ledger — otherwise a message a peer consumed keeps nagging.
@@ -453,7 +458,7 @@ export class MessageMailbox {
       await this.retireNotificationFact(m, at)
       if (m.toKind === 'issue' && m.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
+          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(m.toId), [m.id])
         } catch {}
       }
       const read = {
@@ -462,9 +467,9 @@ export class MessageMailbox {
         readAt: at,
         deliveredTo: m.deliveredTo ?? opts.consume ?? null,
       }
-      this.deps.emitTransition(read, 'message.read')
+      await this.deps.emitTransition(read, 'message.read')
       return read
-    })
+    }))
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox.
@@ -479,13 +484,13 @@ export class MessageMailbox {
       await this.deps.messages.markRead(message.id, consume, at)
       if (message.toKind === 'issue' && message.toId) {
         try {
-          this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
+          await this.deps.mirrorMarkIssueMailRead?.(asIssueId(message.toId), [message.id])
         } catch {}
       }
     }
     const dismissed = await this.deps.messages.getMessage(messageId) ?? message
     if (dismissed.status === 'read' && message.status !== 'read') {
-      this.deps.emitTransition(dismissed, 'message.read')
+      await this.deps.emitTransition(dismissed, 'message.read')
     }
     await this.retireNotificationFact(message, at)
     return dismissed
@@ -504,8 +509,8 @@ export class MessageMailbox {
       ...message,
       status: 'cancelled' as const,
     }
-    this.deps.cancelQueuedInput(message)
-    this.deps.emitTransition(cancelled, 'message.cancelled')
+    await this.deps.cancelQueuedInput(message)
+    await this.deps.emitTransition(cancelled, 'message.cancelled')
     return cancelled
   }
 

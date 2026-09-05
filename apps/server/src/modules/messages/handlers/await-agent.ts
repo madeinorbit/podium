@@ -59,8 +59,7 @@ export async function awaitAgentHandler(
     // Rich agent ack first (it carries WHAT the child did): the child's most
     // recent ack addressed back to this caller since the wait began. Wins over
     // exit/settle classification — reported-then-exited is acked, not gone.
-    const ack = svc
-      .inbox(principals, { limit: 50 })
+    const ack = (await svc.inbox(principals, { limit: 50 }))
       .filter(
         (m) => m.kind === 'ack' && m.fromSession === input.sessionId && m.createdAt >= waitStart,
       )

@@ -771,7 +771,7 @@ export class MessageDeliveryService {
       drainPreferred: async (session, messages, nowMs) => await this.drainPreferred(session, messages, nowMs),
       attemptOne: async (message, nowMs) => {
         if (!await this.prepareQueuedAttemptSafely(message, nowMs)) return
-        this.attemptDelivery(message, { viaSweep: true })
+        await this.attemptDelivery(message, { viaSweep: true })
         await this.scheduleQueuedWakeRetry(message)
       },
     }
@@ -791,7 +791,10 @@ export class MessageDeliveryService {
     if (this.stateOf(session) !== 'idle') return []
     const handled = messages.map((message) => message.id)
     if (this.draftHoldActive(session)) return handled
-    const eligible = messages.filter(async (message) => await this.prepareQueuedAttemptSafely(message, nowMs))
+    const eligibility = await Promise.all(
+      messages.map(async (message) => await this.prepareQueuedAttemptSafely(message, nowMs)),
+    )
+    const eligible = messages.filter((_, index) => eligibility[index])
     eligible.sort((a, b) => a.createdAt.localeCompare(b.createdAt) || a.id.localeCompare(b.id))
     try {
       await this.deliverBatch(session, eligible)
@@ -1124,7 +1127,7 @@ export class MessageDeliveryService {
       this.deps.mirrorIssueMail?.(legacy)
     }
 
-    const outcome = this.attemptDelivery(
+    const outcome = await this.attemptDelivery(
       message,
       opts?.awaitReceipt ? { awaitReceipt: true } : undefined,
     )
@@ -2049,7 +2052,9 @@ export class MessageDeliveryService {
 
   /** The per-issue / per-session delivery ledger (#237) — a pure read. */
   async ledger(q: { issueId?: IssueId; sessionId?: SessionId; limit?: number }): Promise<MessageRow[]> {
-    return (await this.mailbox.ledger(q)).map(async (message) => await this.withQueuePosition(message))
+    return await Promise.all(
+      (await this.mailbox.ledger(q)).map(async (message) => await this.withQueuePosition(message)),
+    )
   }
 
   private async withQueuePosition(message: MessageRow): Promise<MessageRow> {
@@ -2105,19 +2110,19 @@ export class MessageDeliveryService {
   }
 
   /** Inbox listing for a set of recipient principals, oldest first. */
-  inbox(
+  async inbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { limit?: number },
-  ): MessageRow[] {
-    return this.mailbox.inbox(principals, opts)
+  ): Promise<MessageRow[]> {
+    return await this.mailbox.inbox(principals, opts)
   }
 
   /** Inbox read for `podium mail inbox` — the PULL-path confirmation [POD-834 §04d]. */
-  readInbox(
+  async readInbox(
     principals: { kind: 'issue' | 'session' | 'operator'; id?: string | null }[],
     opts?: { consume?: SessionId | null; limit?: number },
-  ): MessageRow[] {
-    return this.mailbox.readInbox(principals, opts)
+  ): Promise<MessageRow[]> {
+    return await this.mailbox.readInbox(principals, opts)
   }
 
   /** Explicitly clear one recipient-owned message without opening the inbox. */

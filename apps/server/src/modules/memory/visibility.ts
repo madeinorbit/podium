@@ -254,14 +254,15 @@ export class MemoryVisibilityPolicy {
     const sessions = this.request
       ? [...new Set([...keys].flatMap((key) => this.request?.sessionsByNativeKey.get(key) ?? []))]
       : await this.store.sessions.loadSessions()
-    return sessions.some(async (row) => {
-      if (!row.resumeValue && !row.conversationId) return false
+    for (const row of sessions) {
+      if (!row.resumeValue && !row.conversationId) continue
       const rowMachine = row.machineId
       const matches =
         (row.resumeValue && keys.has(nativeKey(rowMachine, row.resumeValue))) ||
         (row.conversationId && keys.has(nativeKey(rowMachine, row.conversationId)))
-      return Boolean(matches) && await this.mayReadSessionRow(userId, row)
-    })
+      if (matches && await this.mayReadSessionRow(userId, row)) return true
+    }
+    return false
   }
 
   /**

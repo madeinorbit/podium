@@ -88,11 +88,11 @@ export interface DeliveryRunner {
     session: SessionMeta,
     messages: readonly MessageRow[],
     nowMs: number,
-  ): readonly string[]
+  ): readonly string[] | Promise<readonly string[]>
   /** One row, attempted. Takes NO session listing [POD-1653]: delivery resolves
    *  its recipient through the narrow by-id / by-issue reads, so the scheduler
    *  no longer builds (and this no longer carries) a full reader-scoped pass. */
-  attemptOne(message: MessageRow, nowMs: number): void
+  attemptOne(message: MessageRow, nowMs: number): void | Promise<void>
   /** ONE clock read per pass, shared by every row in it — as it was when all of
    *  this lived in one object. */
   nowMs(): number
@@ -248,13 +248,17 @@ export class DeliveryScheduler {
     const nowMs = this.runner.nowMs()
     const handled = new Set<string>()
     for (const group of preferredGroups.values()) {
-      const taken = this.runner.drainPreferred(group.session, [...group.messages.values()], nowMs)
+      const taken = await this.runner.drainPreferred(
+        group.session,
+        [...group.messages.values()],
+        nowMs,
+      )
       for (const id of taken) handled.add(id)
     }
     for (const message of selected.values()) {
       if (handled.has(message.id)) continue
       try {
-        this.runner.attemptOne(message, nowMs)
+        await this.runner.attemptOne(message, nowMs)
       } catch (error) {
         this.recordTriggerFailure(`message ${message.id}`, error)
       }
@@ -379,7 +383,7 @@ export class DeliveryScheduler {
     const nowMs = this.runner.nowMs()
     for (const message of page) {
       try {
-        this.runner.attemptOne(message, nowMs)
+        await this.runner.attemptOne(message, nowMs)
       } catch (error) {
         this.recordTriggerFailure(`retry message ${message.id}`, error)
       }

@@ -355,7 +355,7 @@ export class SettingsService {
    * save through the legacy command would fail. Only a CHANGE is refused, which
    * is precisely the write that must go through the secret commands.
    */
-  private assertNoSecretChange(_previous: PodiumSettings, next: PodiumSettings): void {
+  private async assertNoSecretChange(_previous: PodiumSettings, next: PodiumSettings): Promise<void> {
     // POD-419 CHANGED WHAT "UNCHANGED" MEANS, and the comparison had to follow.
     //
     // POD-420 compared the incoming blob against the PREVIOUS BLOB, which was
@@ -370,15 +370,16 @@ export class SettingsService {
     // upgrade.
     const leaf = (blob: PodiumSettings, key: ServerSecretKey): string =>
       String(readSettingsLeaf(blob, key) ?? '')
-    const changed = SERVER_SECRET_KEYS.filter(async (key) => {
+    const changes = await Promise.all(SERVER_SECRET_KEYS.map(async (key) => {
       const incoming = leaf(next, key)
       const stored = await this.secrets.getOrEmpty(key)
       // A blank incoming member is the scrubbed blob coming home, never a
       // request to clear: clearing is `settings.clearSecret`, which is
       // online-only and admin-grade. Treating it as a clear would let any
       // preference save from a client that never had the material delete it.
-      return incoming !== '' && incoming !== stored
-    })
+      return incoming !== '' && incoming !== stored ? key : null
+    }))
+    const changed = changes.filter((key): key is ServerSecretKey => key !== null)
     if (changed.length === 0) return
     // Names the KEYS and never a value: the key vocabulary is public (the
     // presence projection publishes all five), the material is not.
@@ -405,7 +406,7 @@ export class SettingsService {
    */
   async setSettingsFor(userId: UserId, settings: PodiumSettings): Promise<PodiumSettings> {
     const previous = await this.store.getSettingsFor(userId)
-    this.assertNoSecretChange(previous, settings)
+    await this.assertNoSecretChange(previous, settings)
     await this.store.setSettingsFor(userId, settings, new Date(this.now()).toISOString())
     const next = await this.store.getSettingsFor(userId)
     this.emitSettingsChanged(previous, next)

@@ -203,15 +203,17 @@ export class MemorySearchService {
       }
     }
 
-    const visibleTranscriptRows = (await this.store.conversations.transcriptIndex
-      .searchCandidates(text))
-      .filter(async (row) =>
+    const transcriptRows = await this.store.conversations.transcriptIndex.searchCandidates(text)
+    const transcriptVisibility = await Promise.all(
+      transcriptRows.map(async (row) =>
         await visibility.mayRead(reader, {
           class: 'transcript',
           machineId: row.machineId,
           nativeId: row.nativeId,
         }),
-      )
+      ),
+    )
+    const visibleTranscriptRows = transcriptRows.filter((_, index) => transcriptVisibility[index])
     const bestRank = visibleTranscriptRows[0]?.rank
     const seen = new Set<string>()
     for (const row of visibleTranscriptRows) {
