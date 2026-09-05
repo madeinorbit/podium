@@ -351,9 +351,9 @@ const secondSubject = {
 const s3 = agent('s3', 'issue-2')
 
 /** Capture a throw as `name: message | code=<code>` so both are pinned at once. */
-function thrown(fn: () => unknown): string {
+async function thrown(fn: () => unknown): Promise<string> {
   try {
-    fn()
+    await fn()
     return 'NO THROW'
   } catch (error) {
     const err = error as Error & { code?: unknown }
@@ -547,7 +547,7 @@ describe('POD-730 workflow mutation characterization', () => {
 
     it('fork of an unknown revision throws before touching anything', async () => {
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.fork(
             { revisionId: 'wfr_nope', name: 'X', description: '', scope: 'global' },
             operator,
@@ -587,7 +587,7 @@ describe('POD-730 workflow mutation characterization', () => {
     })
 
     it('publish of an unknown revision, and of a revision whose workflow is gone', async () => {
-      expect(thrown(() => h.service.publish({ revisionId: 'wfr_nope' }, operator))).toBe(
+      expect(await thrown(() => h.service.publish({ revisionId: 'wfr_nope' }, operator))).toBe(
         'Error: unknown workflow revision: wfr_nope | code=undefined',
       )
     })
@@ -608,7 +608,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // failure surfaces as a raw SQLite constraint error, not a domain error.
       // The service has no pre-check and no friendly message.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             {
               name: 'Same name',
@@ -666,7 +666,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // not rejected.
       expect(global.workflow.scopeRef).toBeNull()
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             { name: 'R', description: '', scope: 'repository', instructions: '', steps: [] },
             operator,
@@ -689,7 +689,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // pin above via the `repository` arm, where `scopeRef` is legitimately
       // absent rather than empty and the schema accepts it.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             {
               name: 'T',
@@ -725,7 +725,7 @@ describe('POD-730 workflow mutation characterization', () => {
         instructions: 'agent wrote this',
         steps: [],
       }
-      expect(thrown(() => h.service.create(global, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.create(global, agent('s1')))).toBe(
         'Error: approval required to create a global workflow | code=undefined',
       )
       // The COUNTERFACTUAL: the same call by an admin-grade principal is
@@ -768,7 +768,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.revise(
             { workflowId: created.workflow.id, instructions: 'v2 by a foreign agent', steps: [] },
             agent('s3', 'issue-2'),
@@ -811,7 +811,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       expect(
-        thrown(() => h.service.publish({ revisionId: created.revision.id }, agent('s1'))),
+        await thrown(() => h.service.publish({ revisionId: created.revision.id }, agent('s1'))),
       ).toBe('Error: approval required to change a global workflow | code=undefined')
       // The SAME session with protectedWrite granted at the edge gets through.
       expect(
@@ -835,7 +835,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(mine.workflow.scopeRef).toBe('repo-a')
       // ...another repo is not.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             {
               name: 'Repo b',
@@ -852,7 +852,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // A session whose cwd resolves to NO repo cannot create a repository
       // workflow at all — repoIdForPath returns null and nothing matches.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             {
               name: 'Repo none',
@@ -882,7 +882,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ))
       // write: s1 (repo-a) may not revise a repo-b workflow.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.revise(
             { workflowId: repoB.workflow.id, instructions: 'x', steps: [] },
             agent('s1'),
@@ -894,13 +894,13 @@ describe('POD-730 workflow mutation characterization', () => {
         // pinned the divergence precisely so this convergence would be visible.
       ).toBe(`Error: unknown workflow: ${repoB.workflow.id} | code=undefined`)
       // read: same boundary, and now the SAME message as the write.
-      expect(thrown(() => h.service.get({ id: repoB.workflow.id }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.get({ id: repoB.workflow.id }, agent('s1')))).toBe(
         `Error: unknown workflow: ${repoB.workflow.id} | code=undefined`,
       )
       // The COUNTERFACTUAL that stops this being vacuous: an id that really
       // does not exist produces the byte-identical string, which is the whole
       // claim — two DIFFERENT causes, one indistinguishable answer.
-      expect(thrown(() => h.service.get({ id: 'wf_nope' }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.get({ id: 'wf_nope' }, agent('s1')))).toBe(
         'Error: unknown workflow: wf_nope | code=undefined',
       )
       // s3 IS in repo-b and may do both.
@@ -945,7 +945,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(byIssue.workflow.scopeRef).toBe('issue-1')
       // Neither → refused.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             {
               name: 'By stranger',
@@ -997,7 +997,7 @@ describe('POD-730 workflow mutation characterization', () => {
         subtree.workflow.id,
       )
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.revise(
             { workflowId: subtree.workflow.id, instructions: 'x', steps: [] },
             caller,
@@ -1024,7 +1024,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ))
       const ghost: WorkflowCaller = { actor: { kind: 'session', id: asSessionId('gone') } }
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.revise(
             { workflowId: created.workflow.id, instructions: 'x', steps: [] },
             ghost,
@@ -1036,7 +1036,7 @@ describe('POD-730 workflow mutation characterization', () => {
         // reporting that the workflow is there and the caller's session is not.
       ).toBe(`Error: unknown workflow: ${created.workflow.id} | code=undefined`)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             {
               name: 'Ghost create',
@@ -1050,7 +1050,7 @@ describe('POD-730 workflow mutation characterization', () => {
           ),
         ),
       ).toBe('Error: workflow creation lost its session context | code=undefined')
-      expect(thrown(() => h.service.get({ id: created.workflow.id }, ghost))).toBe(
+      expect(await thrown(() => h.service.get({ id: created.workflow.id }, ghost))).toBe(
         `Error: unknown workflow: ${created.workflow.id} | code=undefined`,
       )
     })
@@ -1170,7 +1170,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ))
       // Operator: only the published-revision brake applies.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'global', targetId: '', revisionId: unpublished.revision.id },
             operator,
@@ -1178,7 +1178,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: shared workflow defaults require a published revision | code=undefined')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'repository', targetId: 'repo-a', revisionId: unpublished.revision.id },
             operator,
@@ -1188,7 +1188,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // Session without protectedWrite: the ORDER matters — approval is
       // reported before the unpublished-revision problem is ever noticed.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'global', targetId: '', revisionId: unpublished.revision.id },
             agent('s1'),
@@ -1196,7 +1196,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: approval required to change the global workflow default | code=undefined')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'repository', targetId: 'repo-a', revisionId: unpublished.revision.id },
             agent('s1'),
@@ -1227,7 +1227,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('issue-1')
       // A different issue, even in the same repo, is outside the capability subtree.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'issue', targetId: 'issue-2', revisionId: own.revision.id },
             agent('s1'),
@@ -1236,7 +1236,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe("Error: issue issue-2 is outside this agent's workflow scope | code=undefined")
       // A caller with no capability at all cannot bind any issue.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'issue', targetId: 'issue-1', revisionId: own.revision.id },
             { actor: { kind: 'session', id: asSessionId('s1') } },
@@ -1254,7 +1254,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ))).targetId,
       ).toBe('s1')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'session', targetId: 's2', revisionId: own.revision.id },
             agent('s1'),
@@ -1283,7 +1283,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'session', targetId: 's1', revisionId: foreign.revision.id },
             agent('s1'),
@@ -1296,7 +1296,7 @@ describe('POD-730 workflow mutation characterization', () => {
         // never existed producing it too.
       ).toBe(`Error: unknown workflow revision: ${foreign.revision.id} | code=undefined`)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'session', targetId: 's1', revisionId: 'wfr_nope' },
             agent('s1'),
@@ -1448,7 +1448,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.resolveRevision({
             sessionId: asSessionId('s1'),
             cwd: '/repo-a/wt',
@@ -1460,7 +1460,7 @@ describe('POD-730 workflow mutation characterization', () => {
         `Error: workflow revision ${foreign.revision.id} is outside the requested start scope | code=undefined`,
       )
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.resolveRevision({
             sessionId: asSessionId('s1'),
             cwd: '/repo-a/wt',
@@ -1541,7 +1541,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // Every other guard on this surface returns EARLY for the operator; this
       // one refuses the SESSION. Both encode "there is exactly one human".
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.profileSave(
             {
               name: 'Agent profile',
@@ -1560,7 +1560,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe('Error: only an administrator may change execution profiles | code=undefined')
       // overrideScope does NOT lift it — only protectedWrite does.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.profileSave(
             {
               name: 'Agent profile',
@@ -1591,7 +1591,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // a bare operator is a member. This is the inverse-shaped guard becoming
       // the same shape as every other one.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.profileSave(
             {
               name: 'Bare operator profile',
@@ -1670,7 +1670,7 @@ describe('POD-730 workflow mutation characterization', () => {
       })
       // A profile id that does not match the step's pinned id is refused.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.executionProfileForLaunch({
             caller: operator,
             profileId: 'wfp_other',
@@ -1681,7 +1681,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ).toBe(`Error: workflow step review requires ${profile.id}, not wfp_other | code=undefined`)
       // A step with no profile reports "no execution profile" in the same text.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.executionProfileForLaunch({
             caller: operator,
             profileId: profile.id,
@@ -1693,7 +1693,7 @@ describe('POD-730 workflow mutation characterization', () => {
         `Error: workflow step implement requires no execution profile, not ${profile.id} | code=undefined`,
       )
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.executionProfileForLaunch({
             caller: operator,
             profileId: profile.id,
@@ -1703,7 +1703,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: unknown workflow run: wrun_nope | code=undefined')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.executionProfileForLaunch({
             caller: operator,
             profileId: profile.id,
@@ -1713,7 +1713,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe(`Error: workflow run ${run.id} has no step nope | code=undefined`)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.executionProfileForLaunch({ caller: operator, profileId: 'wfp_nope' }),
         ),
       ).toBe('Error: unknown execution profile: wfp_nope | code=undefined')
@@ -1814,7 +1814,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ))
       expect(packet.warnings).toEqual(['execution profile wfp_missing is unavailable'])
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.executionProfileForLaunch({
             caller: operator,
             profileId: 'wfp_missing',
@@ -2001,7 +2001,7 @@ describe('POD-730 workflow mutation characterization', () => {
       }))
       // A non-coordinator issue participant is refused by assertCoordinator...
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             { runId: run.id, status: 'active', summary: '', evidence: EMPTY_EVIDENCE },
             agent('s2'),
@@ -2320,7 +2320,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // workflow.step_skipped events are emitted for them.
       expect(kinds(h.store)).toEqual(['workflow.created', 'workflow.run_started'])
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.startRun({
             sessionId: asSessionId('s3'),
             cwd: '/repo-b/wt',
@@ -2387,7 +2387,7 @@ describe('POD-730 workflow mutation characterization', () => {
         summary: 'finished step A',
         evidence: { summary: 'A evidence', tests: ['a: pass'], artifacts: [] },
       }
-      expect(thrown(() => h.service.checkpoint(payload, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.checkpoint(payload, agent('s1')))).toBe(
         `Error: ${AMBIGUOUS_ADVANCE_MESSAGE} | code=undefined`,
       )
       // NOTHING HAPPENED. The refusal is not a half-apply: the run is exactly
@@ -2480,7 +2480,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ;(await h.service.checkpoint(payload, agent('s1')))
       // The second delivery names a step that is no longer current → refused.
       // Naming the step is the ONLY protection against the double-advance above.
-      expect(thrown(() => h.service.checkpoint(payload, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.checkpoint(payload, agent('s1')))).toBe(
         'Error: step implement is not the current linear step | code=undefined',
       )
       expect((await h.store.workflows.getRunSteps(run.id)).map((s) => s.status)).toEqual([
@@ -2543,7 +2543,7 @@ describe('POD-730 workflow mutation characterization', () => {
       const { run } = await twoStepRun(h)
       ;(await h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1')))
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.skip({ runId: run.id, stepId: 'implement', reason: 'no' }, agent('s1')),
         ),
       ).toBe('Error: only the current step may be skipped | code=undefined')
@@ -2579,7 +2579,7 @@ describe('POD-730 workflow mutation characterization', () => {
     it('only the current linear step may be checkpointed', async () => {
       const { run } = await twoStepRun(h)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             {
               runId: run.id,
@@ -2593,7 +2593,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: step review is not the current linear step | code=undefined')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             {
               runId: run.id,
@@ -2628,7 +2628,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ;(await h.service.skip({ runId: run.id, stepId: 'implement', reason: '' }, agent('s1')))
       ;(await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1')))
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             { runId: run.id, status: 'complete', summary: '', evidence: EMPTY_EVIDENCE },
             agent('s1'),
@@ -2636,7 +2636,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe(`Error: ${AMBIGUOUS_ADVANCE_MESSAGE} | code=undefined`)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             {
               runId: run.id,
@@ -2654,7 +2654,7 @@ describe('POD-730 workflow mutation characterization', () => {
     it('only the current step may be assigned or skipped', async () => {
       const { run } = await twoStepRun(h)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assignStep(
             { runId: run.id, stepId: 'review', sessionId: asSessionId('s2') },
             agent('s1'),
@@ -2662,10 +2662,10 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe('Error: only the current step may be assigned | code=undefined')
       expect(
-        thrown(() => h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))),
+        await thrown(() => h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1'))),
       ).toBe('Error: only the current step may be skipped | code=undefined')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assignStep(
             { runId: run.id, stepId: 'nope', sessionId: asSessionId('s2') },
             agent('s1'),
@@ -2699,9 +2699,9 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s1'),
       ))
       expect(
-        thrown(() => h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))),
+        await thrown(() => h.service.retry({ runId: run.id, stepId: 'implement' }, agent('s1'))),
       ).toBe('Error: cannot retry a step after a later step has started | code=undefined')
-      expect(thrown(() => h.service.retry({ runId: run.id, stepId: 'nope' }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.retry({ runId: run.id, stepId: 'nope' }, agent('s1')))).toBe(
         'Error: workflow has no step nope | code=undefined',
       )
       // A SKIPPED later step also counts as "started" and locks the earlier one.
@@ -2717,7 +2717,7 @@ describe('POD-730 workflow mutation characterization', () => {
         s3,
       ))
       ;(await h.service.skip({ runId: other.run.id, stepId: 'review', reason: '' }, s3))
-      expect(thrown(() => h.service.retry({ runId: other.run.id, stepId: 'implement' }, s3))).toBe(
+      expect(await thrown(() => h.service.retry({ runId: other.run.id, stepId: 'implement' }, s3))).toBe(
         'Error: cannot retry a step after a later step has started | code=undefined',
       )
     })
@@ -2820,18 +2820,18 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       ))
-      expect(thrown(() => h.service.adopt({ revisionId: 'wfr_nope' }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.adopt({ revisionId: 'wfr_nope' }, agent('s1')))).toBe(
         'Error: unknown workflow revision: wfr_nope | code=undefined',
       )
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.adopt({ revisionId: created.revision.id, startStepId: 'nope' }, agent('s1')),
         ),
       ).toBe('Error: workflow has no step nope | code=undefined')
       // POD-731 CONVERGENCE (D20.2): a revision the principal may not see now
       // fails identically to one that does not exist — the assertion two above
       // is the counterfactual, using an id that never existed.
-      expect(thrown(() => h.service.adopt({ revisionId: foreign.revision.id }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.adopt({ revisionId: foreign.revision.id }, agent('s1')))).toBe(
         `Error: unknown workflow revision: ${foreign.revision.id} | code=undefined`,
       )
       // Every one of those left the live run untouched...
@@ -2851,7 +2851,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ;(await h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, agent('s1')))
       expect((await h.store.workflows.getRun(run.id))?.status).toBe('complete')
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.adopt({ revisionId: created.revision.id, runId: run.id }, agent('s1')),
         ),
       ).toBe('Error: only an active workflow run may adopt a revision | code=undefined')
@@ -2876,7 +2876,7 @@ describe('POD-730 workflow mutation characterization', () => {
     it('adopt is coordinator-only for a session caller', async () => {
       const { created, run } = await twoStepRun(h)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.adopt({ revisionId: created.revision.id, runId: run.id }, agent('s2')),
         ),
       ).toBe('Error: only the workflow coordinator may perform this transition | code=undefined')
@@ -2898,7 +2898,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(prepared?.prompt).toContain('drive it')
       // Asking for a different revision is refused — adopt is the only way.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.prepareStart({
             sessionId: asSessionId('s2'),
             cwd: '/repo-a/wt',
@@ -2941,13 +2941,13 @@ describe('POD-730 workflow mutation characterization', () => {
       // that read refusal is now the unknown-revision string, so an invisible
       // revision id and one that never existed are indistinguishable here too.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.adopt({ revisionId: repoB.revision.id, runId: run.id }, agent('s1')),
         ),
       ).toBe(`Error: unknown workflow revision: ${repoB.revision.id} | code=undefined`)
       // With the read gate lifted, the start-scope check is what refuses it.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.adopt({ revisionId: repoB.revision.id, runId: run.id }, overriding('s1')),
         ),
       ).toBe(
@@ -3060,7 +3060,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // THE CLOSED HALF. A bare operator can no longer create global content,
       // and therefore can no longer publish it without approval either.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.create(
             { name: 'Bare global', description: '', scope: 'global', instructions: '', steps: [] },
             bareOperator,
@@ -3074,7 +3074,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       expect(
-        thrown(() => h.service.publish({ revisionId: global.revision.id }, bareOperator)),
+        await thrown(() => h.service.publish({ revisionId: global.revision.id }, bareOperator)),
       ).toBe('Error: approval required to change a global workflow | code=undefined')
       expect(((await h.service.publish({ revisionId: global.revision.id }, operator))).publishedAt).toBe(NOW)
     })
@@ -3147,10 +3147,10 @@ describe('POD-730 workflow mutation characterization', () => {
       // no-run message — the only path that never echoed the caller's id. The
       // convergence goes toward the stricter of the two, so a run id confirms
       // nothing; the assertion below on `wrun_nope` is the counterfactual.
-      expect(thrown(() => h.service.status({ runId: foreignRun.id }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.status({ runId: foreignRun.id }, agent('s1')))).toBe(
         'Error: no active workflow run for this session | code=undefined',
       )
-      expect(thrown(() => h.service.status({ runId: 'wrun_nope' }, agent('s1')))).toBe(
+      expect(await thrown(() => h.service.status({ runId: 'wrun_nope' }, agent('s1')))).toBe(
         'Error: no active workflow run for this session | code=undefined',
       )
       // Three ways a session is admitted: coordinator, step assignee, or any
@@ -3164,7 +3164,7 @@ describe('POD-730 workflow mutation characterization', () => {
       ))
       expect(((await h.service.status({ runId: own.run.id }, agent('s4')))).id).toBe(own.run.id)
       // SINGLE-OPERATOR: overrideScope does NOT widen runFor either.
-      expect(thrown(() => h.service.status({ runId: foreignRun.id }, overriding('s1')))).toBe(
+      expect(await thrown(() => h.service.status({ runId: foreignRun.id }, overriding('s1')))).toBe(
         'Error: no active workflow run for this session | code=undefined',
       )
     })
@@ -3196,7 +3196,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // is not visible to it at all — and the refusal is the unknown-run message
       // (D20.2), not one that admits the run exists.
       expect(
-        thrown(() => h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, bareOperator)),
+        await thrown(() => h.service.skip({ runId: run.id, stepId: 'review', reason: '' }, bareOperator)),
       ).toBe('Error: no active workflow run for this session | code=undefined')
       // The COUNTERFACTUAL: the same call by the admin succeeds, so the refusal
       // above is the grade and not the run having become untouchable.
@@ -3214,7 +3214,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // s1 (coordinator) is allowed; s4 (neither coordinator nor assignee) is not;
       // the operator is allowed regardless.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             {
               runId: run.id,
@@ -3249,7 +3249,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // s2 IS on issue-1, so runFor admits it, but it is neither coordinator nor
       // the step's assignee — the refusal comes from checkpoint's allowed check.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.checkpoint(
             {
               runId: run.id,
@@ -3468,9 +3468,9 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       ))
-      const unknown = thrown(() => h.service.get({ id: 'wf_does-not-exist' }, agent('s1')))
-      const outOfScope = thrown(() => h.service.get({ id: foreign.workflow.id }, agent('s1')))
-      const inScope = thrown(() => h.service.get({ id: mine.workflow.id }, agent('s1')))
+      const unknown = await thrown(() => h.service.get({ id: 'wf_does-not-exist' }, agent('s1')))
+      const outOfScope = await thrown(() => h.service.get({ id: foreign.workflow.id }, agent('s1')))
+      const inScope = await thrown(() => h.service.get({ id: mine.workflow.id }, agent('s1')))
       expect(unknown).toBe('Error: unknown workflow: wf_does-not-exist | code=undefined')
       // POD-731: the two have CONVERGED. This is the same assertion the ARTEFACT
       // made, inverted — `not.toBe` became `toBe` — which is the shape that
@@ -3508,19 +3508,19 @@ describe('POD-730 workflow mutation characterization', () => {
         },
         operator,
       ))
-      const unknown = thrown(() =>
+      const unknown = await thrown(() =>
         h.service.revise(
           { workflowId: 'wf_does-not-exist', instructions: '', steps: [] },
           agent('s1'),
         ),
       )
-      const outOfScopeTask = thrown(() =>
+      const outOfScopeTask = await thrown(() =>
         h.service.revise(
           { workflowId: foreignTask.workflow.id, instructions: '', steps: [] },
           agent('s1'),
         ),
       )
-      const outOfScopeRepo = thrown(() =>
+      const outOfScopeRepo = await thrown(() =>
         h.service.revise(
           { workflowId: foreignRepo.workflow.id, instructions: '', steps: [] },
           agent('s1'),
@@ -3561,9 +3561,9 @@ describe('POD-730 workflow mutation characterization', () => {
         revisionId: created.revision.id,
       }))
       const own = await twoStepRun(h)
-      const unknown = thrown(() => h.service.status({ runId: 'wrun_does-not-exist' }, agent('s1')))
-      const outOfScope = thrown(() => h.service.status({ runId: foreignRun.id }, agent('s1')))
-      const inScope = thrown(() => h.service.status({ runId: own.run.id }, agent('s1')))
+      const unknown = await thrown(() => h.service.status({ runId: 'wrun_does-not-exist' }, agent('s1')))
+      const outOfScope = await thrown(() => h.service.status({ runId: foreignRun.id }, agent('s1')))
+      const inScope = await thrown(() => h.service.status({ runId: own.run.id }, agent('s1')))
       // POD-731: converged onto the message that never mentioned the id — the
       // strictest of the five shapes POD-730 found, rather than a sixth. An
       // unknown run id and an invisible one are now one answer.
@@ -3571,9 +3571,9 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(outOfScope).toBe(unknown)
       expect(inScope).toBe('NO THROW')
       // A caller with no run and no runId gets the same text as an unknown id.
-      expect(thrown(() => h.service.status({}, agent('s4')))).toBe(unknown)
+      expect(await thrown(() => h.service.status({}, agent('s4')))).toBe(unknown)
       // ...and so does an operator with no runId at all.
-      expect(thrown(() => h.service.status({}, operator))).toBe(unknown)
+      expect(await thrown(() => h.service.status({}, operator))).toBe(unknown)
     })
 
     it('revision ids report existence directly, in scope or not', async () => {
@@ -3593,7 +3593,7 @@ describe('POD-730 workflow mutation characterization', () => {
       // succeeded, so the refusal itself proved the row was there; the handlers
       // now rethrow the unknown-revision string for both outcomes.
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'session', targetId: 's1', revisionId: foreign.revision.id },
             agent('s1'),
@@ -3601,7 +3601,7 @@ describe('POD-730 workflow mutation characterization', () => {
         ),
       ).toBe(`Error: unknown workflow revision: ${foreign.revision.id} | code=undefined`)
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.assign(
             { targetKind: 'session', targetId: 's1', revisionId: 'wfr_nope' },
             agent('s1'),
@@ -3643,7 +3643,7 @@ describe('POD-730 workflow mutation characterization', () => {
         operator,
       ))
       expect(
-        thrown(() =>
+        await thrown(() =>
           h.service.startRun({
             sessionId: asSessionId('s1'),
             cwd: '/repo-a/wt',

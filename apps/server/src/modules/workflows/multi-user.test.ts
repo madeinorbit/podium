@@ -173,9 +173,9 @@ async function makeHarness(policy: Policy) {
   return { store, service: driveWorkflows(service) }
 }
 
-const thrown = (fn: () => unknown): string => {
+const thrown = async (fn: () => unknown): Promise<string> => {
   try {
-    fn()
+    await fn()
     return 'NO THROW'
   } catch (error) {
     return (error as Error).message
@@ -225,7 +225,7 @@ describe('workflows under two humans', () => {
   it('refuses one member WRITING another member’s workflow, and lets the owner through', async () => {
     const created = await alicesWorkflow()
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.revise(
           { workflowId: created.workflow.id, instructions: 'bob was here', steps: [] },
           policy.caller(null, BOB),
@@ -256,7 +256,7 @@ describe('workflows under two humans', () => {
   it('refuses one member READING another member’s workflow, and honours an explicit grant', async () => {
     const created = await alicesWorkflow()
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)),
       ),
     ).toBe(`unknown workflow: ${created.workflow.id}`)
@@ -275,13 +275,13 @@ describe('workflows under two humans', () => {
       created.workflow.id,
     )
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('b1'), BOB)),
       ),
     ).toBe(`unknown workflow: ${created.workflow.id}`)
     // …and the read grant does not open the WRITE path for Bob either.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.revise(
           { workflowId: created.workflow.id, instructions: 'x', steps: [] },
           policy.caller(null, BOB),
@@ -328,7 +328,7 @@ describe('workflows under two humans', () => {
     expect((await h.service.bindings(bob()))).toEqual([])
     expect((await h.service.profiles(bob()))).toEqual([])
     // …and a named run id tells Bob nothing either.
-    expect(thrown(() => h.service.status({ runId: run.id }, bob()))).toBe(
+    expect(await thrown(() => h.service.status({ runId: run.id }, bob()))).toBe(
       'no active workflow run for this session',
     )
 
@@ -352,10 +352,10 @@ describe('workflows under two humans', () => {
       instructions: '',
       steps: [],
     }
-    expect(thrown(() => h.service.create(global, policy.caller(asSessionId('a1'), ALICE)))).toBe(
+    expect(await thrown(() => h.service.create(global, policy.caller(asSessionId('a1'), ALICE)))).toBe(
       'approval required to create a global workflow',
     )
-    expect(thrown(() => h.service.create(global, policy.caller(asSessionId('b1'), BOB)))).toBe(
+    expect(await thrown(() => h.service.create(global, policy.caller(asSessionId('b1'), BOB)))).toBe(
       'approval required to create a global workflow',
     )
     // An ADMIN may. The library is admin-grade to WRITE, not unwritable.
@@ -364,7 +364,7 @@ describe('workflows under two humans', () => {
     // …and a member still cannot revise what the admin created, which is the
     // half the shipped `assertWorkflowWrite` left wide open.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.revise(
           { workflowId: created.workflow.id, instructions: 'member edit', steps: [] },
           policy.caller(asSessionId('b1'), BOB),
@@ -421,7 +421,7 @@ describe('workflows under two humans', () => {
     policy.revoke(ALICE)
 
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.checkpoint(
           {
             runId: run.id,
@@ -451,7 +451,7 @@ describe('workflows under two humans', () => {
     // over the grade — which is the rule ADR 9 D5 A1 actually states, since a
     // revoked person's rights are gone regardless of what they used to be.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.checkpoint(
           {
             runId: run.id,
@@ -481,7 +481,7 @@ describe('workflows under two humans', () => {
     // …and the refusal is the same string an unknown run gives, so a revoked
     // principal cannot use its own revocation as an existence oracle.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.status({ runId: 'wrun_nope' }, policy.caller(asSessionId('a1'), ALICE)),
       ),
     ).toBe('no active workflow run for this session')
@@ -516,7 +516,7 @@ describe('workflows under two humans', () => {
 
     // a2 sits on m-bob, which Alice holds no `use` on.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.assignStep(
           { runId: run.id, stepId: 'one', sessionId: asSessionId('a2') },
           policy.caller(asSessionId('a1'), ALICE),
@@ -527,7 +527,7 @@ describe('workflows under two humans', () => {
     // The two answers differ — M5's requirement — so an operator can tell a
     // permissions problem from a dead machine.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.assignStep(
           { runId: run.id, stepId: 'one', sessionId: asSessionId('a3') },
           policy.caller(asSessionId('a1'), ALICE),
@@ -574,7 +574,7 @@ describe('workflows under two humans', () => {
     // a reproducibility snapshot must not become an authorization model).
     policy.setActing(BOB)
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.executionProfileForLaunch({
           profileId: profile.id,
           caller: policy.caller(null, BOB, 'admin'),
@@ -599,7 +599,7 @@ describe('workflows under two humans', () => {
     // A member may not create one at all — ADR 1 D6, managed credentials are
     // admin-grade to manage.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.profileSave(
           {
             name: 'Bob profile',
@@ -768,7 +768,7 @@ describe('the ownership port is consulted, not assumed', () => {
     ))
     // Deliberately NOT recorded as owned — the pre-migration row.
     expect(
-      thrown(() =>
+      await thrown(() =>
         h.service.get({ id: created.workflow.id }, policy.caller(asSessionId('a1'), ALICE)),
       ),
     ).toBe(`unknown workflow: ${created.workflow.id}`)
