@@ -110,8 +110,8 @@ async function harness(
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       }
     },
-    children: (id: string, recursive?: boolean) =>
-      issues.children(id, recursive).map((issue) => ({
+    children: async (id: string, recursive?: boolean) =>
+      (await issues.children(id, recursive)).map((issue) => ({
         ...issue,
         branch: issue.branch ?? `issue/${issue.seq}-shipping-test`,
       })),
@@ -134,10 +134,10 @@ async function harness(
         options.rootIntegrationReceipt ??
         (options.useStoredReceipts
           ? store.shipping.rootIntegrationReceipt.bind(store.shipping)
-          : (rootIssueId, approvedHeadSha) => ({
+          : async (rootIssueId, approvedHeadSha) => ({
               rootIssueId,
               approvedHeadSha,
-              descendants: issuePort.children(rootIssueId, true).map((child) => ({
+              descendants: (await issuePort.children(rootIssueId, true)).map((child) => ({
                 issueId: child.id,
                 approvedHeadSha: 'head-sha',
               })),
@@ -513,7 +513,7 @@ describe('ShippingService enqueue transaction', () => {
 
   it('admits a top-level leaf without fabricating a descendant integration receipt', async () => {
     const { store, issues, service } = await harness(undefined, {
-      rootIntegrationReceipt: () => null,
+      rootIntegrationReceipt: async () => null,
     })
     const issue = await issues.create({
       repoPath: '/repo',
@@ -2205,7 +2205,7 @@ describe('ShippingService single-flight guards (POD-3258)', () => {
     const original = store.shipping.listReceipts.bind(store.shipping)
     const spy = vi.spyOn(store.shipping, 'listReceipts').mockImplementation(async () => {
       calls += 1
-      if (!inner) inner = await service.tick()
+      if (!inner) inner = service.tick()
       return await original()
     })
 
