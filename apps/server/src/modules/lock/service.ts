@@ -54,11 +54,11 @@ export type LockAcquireResult = LockAcquireResultWire
 export interface LockServiceDeps {
   locks: LocksRepository
   /** Cross-row atomicity for release→advance / sweep (SessionStore.transact). */
-  transact<T>(fn: () => T): T
+  transact<T>(fn: () => Promise<T>): T | Promise<T>
   funnel: Pick<WriteFunnel, 'run'>
   now(): number
   /** repoPath → stable repo_id (ReposRepository.resolveRepoIdForPath). */
-  resolveRepoId(repoPath: string): RepoId
+  resolveRepoId(repoPath: string): RepoId | Promise<RepoId>
   /** Is the session still around (waiter pruning)? Unknown/exited → false. */
   /** `LockSessionKey`, not `SessionId`: `advanceQueue` DEPENDS on being able to
    *  look up `UNKNOWN_RELAY_SESSION` and get `false` — that miss is exactly how
@@ -314,8 +314,8 @@ export class LockService {
     }
   }
 
-  private repoIdFor(repoPath: string): RepoId {
-    return this.deps.resolveRepoId(repoPath)
+  private async repoIdFor(repoPath: string): Promise<RepoId> {
+    return await this.deps.resolveRepoId(repoPath)
   }
 
   async acquire(
@@ -333,7 +333,7 @@ export class LockService {
     },
   ): Promise<LockAcquireResult> {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
-    const repoId = this.repoIdFor(input.repoPath)
+    const repoId = await this.repoIdFor(input.repoPath)
     return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(async () => {
@@ -403,7 +403,7 @@ export class LockService {
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string },
   ): Promise<{ released: true; next: LockHolderWire | null }> {
-    const repoId = this.repoIdFor(input.repoPath)
+    const repoId = await this.repoIdFor(input.repoPath)
     return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(async () => {
@@ -432,7 +432,7 @@ export class LockService {
     caller: LockCallerIdentity,
     input: { repoPath: string; name: string },
   ): Promise<{ cancelled: true }> {
-    const repoId = this.repoIdFor(input.repoPath)
+    const repoId = await this.repoIdFor(input.repoPath)
     return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(async () => {
@@ -457,7 +457,7 @@ export class LockService {
     input: { repoPath: string; name: string; ttlSeconds?: number },
   ): Promise<LockWire> {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
-    const repoId = this.repoIdFor(input.repoPath)
+    const repoId = await this.repoIdFor(input.repoPath)
     return await this.deps.funnel.run({
       write: async () =>
         await this.deps.transact(async () => {
@@ -480,7 +480,7 @@ export class LockService {
 
   /** All locks in the repo, or just `name` (empty array when free). */
   async status(input: { repoPath: string; name?: string }): Promise<LockWire[]> {
-    const repoId = this.repoIdFor(input.repoPath)
+    const repoId = await this.repoIdFor(input.repoPath)
     return await this.deps.funnel.run({
       write: async () =>
         await this.deps.transact(async () => {
@@ -504,7 +504,7 @@ export class LockService {
     input: { repoPath: string; name: string; ttlSeconds?: number; note?: string },
   ): Promise<{ lock: LockWire; previousHolder: LockHolderWire | null }> {
     const ttl = input.ttlSeconds ?? DEFAULT_LOCK_TTL_SECONDS
-    const repoId = this.repoIdFor(input.repoPath)
+    const repoId = await this.repoIdFor(input.repoPath)
     return await this.deps.funnel.run({
       write: () =>
         this.deps.transact(async () => {
