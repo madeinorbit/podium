@@ -60,7 +60,7 @@ function memoryStore(): AuthorityStore {
   }[] = []
   let nextSeq = 1
   return {
-    appendChanges(
+    async appendChanges(
       batch: ReadonlyArray<{
         entity: string
         entityId: string
@@ -76,12 +76,12 @@ function memoryStore(): AuthorityStore {
       }
       return seqs
     },
-    maxChangeSeq: () => nextSeq - 1,
-    minChangeSeq: () => rows[0]?.seq ?? null,
-    changesSince: (cursor: number) => rows.filter((r) => r.seq > cursor),
-    planChangePrune: () => ({ thresholdSeq: 0 }),
-    pruneChangeBatch: () => 0,
-    latestChangeStates: () => {
+    maxChangeSeq: async () => nextSeq - 1,
+    minChangeSeq: async () => rows[0]?.seq ?? null,
+    changesSince: async (cursor: number) => rows.filter((r) => r.seq > cursor),
+    planChangePrune: async () => ({ thresholdSeq: 0 }),
+    pruneChangeBatch: async () => 0,
+    latestChangeStates: async () => {
       const latest = new Map<string, (typeof rows)[number]>()
       for (const r of rows) latest.set(`${r.entity}/${r.entityId}`, r)
       return [...latest.values()]
