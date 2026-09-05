@@ -73,7 +73,7 @@ describe('oracle: rename (the curated name slot)', () => {
 
     await o.call.sessions.rename({ sessionId, name: '  Deploy pipeline  ' })
 
-    expect(o.meta(sessionId)).toMatchObject({ name: 'Deploy pipeline', nameSource: 'user' })
+    expect(await o.meta(sessionId)).toMatchObject({ name: 'Deploy pipeline', nameSource: 'user' })
     const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(row).toMatchObject({ name: 'Deploy pipeline', nameSource: 'user' })
     await waitFor(
@@ -90,14 +90,14 @@ describe('oracle: rename (the curated name slot)', () => {
     await o.call.sessions.rename({ sessionId, name: '' })
 
     // An empty curated name is OMITTED from the wire, not sent as ''.
-    expect(o.meta(sessionId).name).toBeUndefined()
-    expect(o.meta(sessionId).nameSource).toBeUndefined()
+    expect((await o.meta(sessionId)).name).toBeUndefined()
+    expect((await o.meta(sessionId)).nameSource).toBeUndefined()
     // The precedence rule that depends on it: with the stamp gone, the agent wins.
     expect(o.reg.modules.sessions.setAgentName({ sessionId, name: 'agent pick' })).toEqual({
       ok: true,
       name: 'agent pick',
     })
-    expect(o.meta(sessionId)).toMatchObject({ name: 'agent pick', nameSource: 'agent' })
+    expect(await o.meta(sessionId)).toMatchObject({ name: 'agent pick', nameSource: 'agent' })
   })
 
   it(`${MUST_NOT_CHANGE}: a user-set name is sovereign — setAgentName refuses it and returns a reason instead of throwing [spec:SP-eb60]`, async () => {
@@ -110,7 +110,7 @@ describe('oracle: rename (the curated name slot)', () => {
     expect(refused.ok).toBe(false)
     expect(refused.name).toBe('Human pick')
     expect(typeof refused.reason).toBe('string')
-    expect(o.meta(sessionId)).toMatchObject({ name: 'Human pick', nameSource: 'user' })
+    expect(await o.meta(sessionId)).toMatchObject({ name: 'Human pick', nameSource: 'user' })
   })
 
   it(`${MUST_NOT_CHANGE}: an agent may overwrite its OWN earlier agent-set name`, async () => {
@@ -119,7 +119,7 @@ describe('oracle: rename (the curated name slot)', () => {
     o.reg.modules.sessions.setAgentName({ sessionId, name: 'first guess' })
 
     expect(o.reg.modules.sessions.setAgentName({ sessionId, name: 'second guess' }).ok).toBe(true)
-    expect(o.meta(sessionId)).toMatchObject({ name: 'second guess', nameSource: 'agent' })
+    expect(await o.meta(sessionId)).toMatchObject({ name: 'second guess', nameSource: 'agent' })
   })
 })
 
@@ -136,12 +136,12 @@ describe('oracle: setArchived', () => {
       geometry: { cols: 80, rows: 24 },
     })
     await o.call.sessions.markRead({ sessionId })
-    const readAtBefore = o.meta(sessionId).readAt
+    const readAtBefore = (await o.meta(sessionId)).readAt
     expect(readAtBefore).not.toBeNull()
 
     await o.call.sessions.setArchived({ sessionId, archived: true })
 
-    const meta = o.meta(sessionId)
+    const meta = await o.meta(sessionId)
     // Archive stops the process (POD-108): a shell keeps its resume-free park.
     expect(meta.archived).toBe(true)
     expect(meta.status).toBe('hibernated')
@@ -168,7 +168,7 @@ describe('oracle: setArchived', () => {
 
     await o.call.sessions.setArchived({ sessionId, archived: false })
 
-    expect(o.meta(sessionId)).toMatchObject({ archived: false, status: 'hibernated' })
+    expect(await o.meta(sessionId)).toMatchObject({ archived: false, status: 'hibernated' })
     expect(o.daemon.filter((m) => m.type === 'spawn')).toHaveLength(spawnsAfterArchive)
   })
 
@@ -180,12 +180,12 @@ describe('oracle: setArchived', () => {
       sessionId,
       code: 0,
     })
-    expect(o.meta(sessionId).status).toBe('exited')
+    expect((await o.meta(sessionId)).status).toBe('exited')
     const killsBefore = o.daemon.filter((m) => m.type === 'kill').length
 
     await o.call.sessions.setArchived({ sessionId, archived: true })
 
-    expect(o.meta(sessionId)).toMatchObject({ archived: true, status: 'exited' })
+    expect(await o.meta(sessionId)).toMatchObject({ archived: true, status: 'exited' })
     expect(o.daemon.filter((m) => m.type === 'kill')).toHaveLength(killsBefore)
   })
 })
@@ -215,7 +215,7 @@ describe('oracle: read state', () => {
 
     await o.call.sessions.markRead({ sessionId })
 
-    const readAt = o.meta(sessionId).readAt
+    const readAt = (await o.meta(sessionId)).readAt
     expect(typeof readAt).toBe('string')
     // Both DEVICES of the one principal see the same readAt — the feed is unscoped.
     await waitFor(
@@ -237,13 +237,13 @@ describe('oracle: read state', () => {
   it(`${MUST_NOT_CHANGE}: markRead flips derived unread to false; markUnread clears readAt and flips it back`, async () => {
     const o = await makeOracle()
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
-    expect(o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
+    expect(await o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
 
     await o.call.sessions.markRead({ sessionId })
-    expect(o.meta(sessionId).unread).toBe(false)
+    expect((await o.meta(sessionId)).unread).toBe(false)
 
     await o.call.sessions.markUnread({ sessionId })
-    expect(o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
+    expect(await o.meta(sessionId)).toMatchObject({ readAt: null, unread: true })
   })
 
   it(`${MUST_NOT_CHANGE}: readAt is an ISO-8601 string, not epoch ms (the unread compare is lexical)`, async () => {
@@ -252,7 +252,7 @@ describe('oracle: read state', () => {
 
     await o.call.sessions.markRead({ sessionId })
 
-    const readAt = o.meta(sessionId).readAt as string
+    const readAt = (await o.meta(sessionId)).readAt as string
     expect(readAt).toBe(new Date(readAt).toISOString())
   })
 })
@@ -263,13 +263,13 @@ describe('oracle: setWorkState', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.setWorkState({ sessionId, workState: 'testing' })
-    expect(o.meta(sessionId).workState).toBe('testing')
+    expect((await o.meta(sessionId)).workState).toBe('testing')
     expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.workState).toBe(
       'testing',
     )
 
     await o.call.sessions.setWorkState({ sessionId, workState: null })
-    expect(o.meta(sessionId).workState).toBeUndefined()
+    expect((await o.meta(sessionId)).workState).toBeUndefined()
     expect(
       (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)?.workState,
     ).toBeNull()
@@ -283,13 +283,13 @@ describe('oracle: setIssueId', () => {
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
     await o.call.sessions.setIssueId({ sessionId, issueId: issue.id })
-    expect(o.meta(sessionId).issueId).toBe(issue.id)
+    expect((await o.meta(sessionId)).issueId).toBe(issue.id)
     const attached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(attached?.refIssueId).toBe(issue.id)
     expect(typeof attached?.refLetter).toBe('string')
 
     await o.call.sessions.setIssueId({ sessionId, issueId: null })
-    expect(o.meta(sessionId).issueId).toBeUndefined()
+    expect((await o.meta(sessionId)).issueId).toBeUndefined()
     // The ref allocation is NOT rewound — a detach must not mint a DRAFT ordinal.
     const detached = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)
     expect(detached?.refIssueId).toBe(issue.id)
@@ -313,7 +313,7 @@ describe('oracle: snoozes', () => {
     // and the returned map are byte-identical for the single-user case.
     expect(returned).toEqual({ [sessionId]: until })
     expect(await o.call.snoozes.list()).toEqual({ [sessionId]: until })
-    expect(o.meta(sessionId).snoozedUntil).toBe(until)
+    expect((await o.meta(sessionId)).snoozedUntil).toBe(until)
     // And the row is KEYED by user: a different principal's slice is empty. This
     // is the assertion the old instance-wide characterization could not make.
     expect(await o.store.sessions.listSnoozes(asUserId(SOLE_USER_ID))).toEqual({
@@ -361,7 +361,7 @@ describe('oracle: snoozes', () => {
     await o.call.snoozes.set({ sessionId, until: null })
 
     expect(await o.call.snoozes.clear({ sessionId })).toEqual({})
-    expect(o.meta(sessionId).snoozedUntil).toBeUndefined()
+    expect((await o.meta(sessionId)).snoozedUntil).toBeUndefined()
   })
 })
 
@@ -567,7 +567,7 @@ describe('oracle: the wake fence (POD-1472)', () => {
     expect(reopened.sessionId).toBe(sessionId)
     expect((await o.reg.modules.sessions.listSessions()).map((s) => s.sessionId)).toEqual([sessionId])
     expect((await o.store.sessions.loadSessions()).map((r) => r.id)).toEqual([sessionId])
-    expect(o.meta(sessionId).status).toBe('starting')
+    expect((await o.meta(sessionId)).status).toBe('starting')
     // It is the resurrect path, so it fences too — one frame, under the old id.
     expect(spawnFrames(o.daemon, sessionId)).toEqual([
       expect.objectContaining({

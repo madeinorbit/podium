@@ -38,7 +38,7 @@ describe('oracle: who created this session', () => {
 
     const { sessionId } = await o.call.sessions.create({ agentKind: 'shell', cwd: '/p' })
 
-    expect(o.meta(sessionId).spawnedBy).toBe('user')
+    expect((await o.meta(sessionId)).spawnedBy).toBe('user')
     expect((await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)).toMatchObject({
       spawnedBy: 'user',
       ownerUserId: FIRST_ADMIN_USER_ID,
@@ -55,7 +55,7 @@ describe('oracle: who created this session', () => {
       conversationId: 'n1',
     })
 
-    expect(o.meta(sessionId).spawnedBy).toBe('user')
+    expect((await o.meta(sessionId)).spawnedBy).toBe('user')
   })
 
   it(`${MUST_NOT_CHANGE}: an agent-spawned child is stamped 'session:<parent>' — the actor half already exists, from the capability`, async () => {
@@ -79,7 +79,7 @@ describe('oracle: who created this session', () => {
     const childId = (spawned.result as { sessionId: SessionId }).sessionId
     // Actor = the calling session, resolved from the relay capability. There is
     // no second field recording WHICH HUMAN that agent is acting for.
-    expect(o.meta(childId).spawnedBy).toBe(`session:${parent.sessionId}`)
+    expect((await o.meta(childId)).spawnedBy).toBe(`session:${parent.sessionId}`)
   })
 })
 
@@ -103,8 +103,8 @@ describe('oracle: who named this session', () => {
     })
     await o.call.sessions.rename({ sessionId: human.sessionId, name: 'named by the operator' })
 
-    expect(o.meta(agent.sessionId).nameSource).toBe('agent')
-    expect(o.meta(human.sessionId).nameSource).toBe('user')
+    expect((await o.meta(agent.sessionId)).nameSource).toBe('agent')
+    expect((await o.meta(human.sessionId)).nameSource).toBe('user')
     // Two different agents would both stamp the identical 'agent' — the actor
     // half of the pair is NOT recorded on the row.
     const rows = await o.store.sessions.loadSessions()

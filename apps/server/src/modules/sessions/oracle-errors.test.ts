@@ -241,7 +241,7 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
     })
     // The machine drops off: no daemon socket, so nothing can reach the PTY.
     o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-    expect(o.meta(sessionId).status).toBe('reconnecting')
+    expect((await o.meta(sessionId)).status).toBe('reconnecting')
     o.daemon.length = 0
 
     const sent = await o.call.sessions.sendText({ sessionId, text: 'anyone there' })
@@ -284,11 +284,11 @@ describe('oracle: unreachable machine (the shape §3.1.4 M5 must stay distinguis
       'target machine is offline',
     )
     // Nothing moved, nothing parked, and no handover overlay was ever painted.
-    expect(o.meta(sessionId)).toMatchObject({
+    expect(await o.meta(sessionId)).toMatchObject({
       machineId: o.store.hostMachineId,
       status: 'starting',
     })
-    expect(o.meta(sessionId).handoffTarget).toBeUndefined()
+    expect((await o.meta(sessionId)).handoffTarget).toBeUndefined()
   })
 
   /**

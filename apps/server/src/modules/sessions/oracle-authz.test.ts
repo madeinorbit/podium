@@ -123,7 +123,7 @@ describe('oracle: the authenticated admin seam', () => {
 
     await o.call.sessions.rename({ sessionId: foreign.sessionId, name: 'taken over' })
 
-    expect(o.meta(foreign.sessionId)).toMatchObject({ name: 'taken over', nameSource: 'user' })
+    expect(await o.meta(foreign.sessionId)).toMatchObject({ name: 'taken over', nameSource: 'user' })
   })
 })
 
@@ -509,11 +509,11 @@ describe('oracle: the writes an agent CAN make, and what gates them', () => {
 
     expect(reply.ok).toBe(true)
     // The payload's sessionId is inert (ADR 3 D7): the CALLER got the name.
-    expect(o.meta(agentSessionId)).toMatchObject({
+    expect(await o.meta(agentSessionId)).toMatchObject({
       name: 'renamed by a stranger',
       nameSource: 'agent',
     })
-    expect(o.meta(victim.sessionId).name).toBeUndefined()
+    expect((await o.meta(victim.sessionId)).name).toBeUndefined()
   })
 
   it(`${MUST_NOT_CHANGE}: an unknown relay router is refused rather than resolving through the prototype chain`, async () => {

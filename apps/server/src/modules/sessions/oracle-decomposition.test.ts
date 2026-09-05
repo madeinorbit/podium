@@ -280,7 +280,7 @@ describe('oracle: activity flush and cumulative compute', () => {
     expect(
       (await o.store.sessions.loadSessions()).find((row) => row.id === sessionId)?.workingMsTotal,
     ).toBe(7_000)
-    expect(o.meta(sessionId).agentState?.workingMsTotal).toBe(7_000)
+    expect((await o.meta(sessionId)).agentState?.workingMsTotal).toBe(7_000)
   })
 })
 
@@ -377,7 +377,7 @@ describe('oracle: native identity receipts', () => {
       ackRequested: true,
     })
 
-    expect(f.o.meta(f.bob.sessionId).resume).toEqual({
+    expect((await f.o.meta(f.bob.sessionId)).resume).toEqual({
       kind: 'codex-thread',
       value: 'thread-bob',
     })
@@ -410,8 +410,8 @@ describe('oracle: native identity receipts', () => {
       ackRequested: true,
     })
 
-    expect(f.o.meta(f.alice.sessionId).resume).toEqual(shared)
-    expect(f.o.meta(f.bob.sessionId).resume).toBeUndefined()
+    expect((await f.o.meta(f.alice.sessionId)).resume).toEqual(shared)
+    expect((await f.o.meta(f.bob.sessionId)).resume).toBeUndefined()
     expect(
       (await f.o.reg.modules.sessions
         .listSessions())

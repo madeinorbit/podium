@@ -413,7 +413,7 @@ describe('oracle: sessions.uploadImage', () => {
     })
     // Placement first, routing second: if this ever fails, the fixture is wrong,
     // not the behaviour under test.
-    expect(o.meta(sessionId).machineId).toBe('other')
+    expect((await o.meta(sessionId)).machineId).toBe('other')
     otherSeen.length = 0
     o.daemon.length = 0
 
@@ -565,7 +565,7 @@ describe('oracle: sessions.uploadImage', () => {
       // (below) and would let a future "refuse immediately when offline" change
       // land while this test stayed green.
       o.reg.gateway.detachDaemon(o.reg.sessionStore.hostMachineId)
-      expect(o.meta(sessionId).status).toBe('reconnecting')
+      expect((await o.meta(sessionId)).status).toBe('reconnecting')
       expect(o.reg.modules.machines.onlineMachineIds()).toEqual([])
       o.daemon.length = 0
 
