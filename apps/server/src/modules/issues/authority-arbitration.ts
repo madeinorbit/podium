@@ -15,7 +15,7 @@ export interface IssueArbitrationInput {
   issueId: IssueId
   expectedRevision?: number
   /** Read through the issue service while the ledger transaction is active. */
-  currentRevision: () => number | undefined
+  currentRevision: () => number | undefined | Promise<number | undefined>
 }
 
 interface IssueArbitrationScope {
@@ -37,12 +37,12 @@ export class IssueAuthorityArbitration {
   private readonly scope = new AsyncLocalStorage<IssueArbitrationScope>()
 
   readonly ledger: {
-    commit<T>(op: LedgerCommitOp<T>): LedgerCommitResult<T>
-    capture(specs: EntityChangeSpec[]): MetadataChange[]
+    commit<T>(op: LedgerCommitOp<T>): Promise<LedgerCommitResult<T>>
+    capture(specs: EntityChangeSpec[]): Promise<MetadataChange[]>
     reconcile(
       entity: MetadataEntityKind,
       rows: { id: string; value: unknown }[],
-    ): MetadataChange[]
+    ): Promise<MetadataChange[]>
   }
 
   constructor(private readonly source: Ledger) {
@@ -83,8 +83,8 @@ export class IssueAuthorityArbitration {
           // Keep that product behavior, but make the compatibility decision in
           // the Authority instead of bypassing the stricter kernel.
           omittedExpectedRevision: 'accept',
-          current: () => {
-            const revision = active.input.currentRevision()
+          current: async () => {
+            const revision = await active.input.currentRevision()
             active.actualRevision = revision
             return revision === undefined ? undefined : { revision }
           },

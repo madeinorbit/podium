@@ -489,7 +489,9 @@ export class LockService {
             const lock = await this.deps.locks.getLock(repoId, input.name)
             return lock ? [await this.toWire(lock)] : []
           }
-          return (await this.deps.locks.listLocks(repoId)).map(async (l) => await this.toWire(l))
+          return await Promise.all(
+            (await this.deps.locks.listLocks(repoId)).map(async (lock) => await this.toWire(lock)),
+          )
         }),
     })
   }

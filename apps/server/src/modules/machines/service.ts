@@ -937,12 +937,13 @@ export class MachinesService {
   async ownershipRows(): Promise<{ id: MachineId; name: string; ownerUserId: UserId | null }[]> {
     // Ledger-wins for owner (D19.4d rule 4): authorization never serves a stale
     // row when the durable append has already committed a transition.
-    return (await this.machineRecords()).map(async (m) => ({
+    return await Promise.all((await this.machineRecords()).map(async (m) => ({
       id: m.id,
       name: m.name,
       ownerUserId:
-        await this.effectiveOwner(m.id) ?? (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
-    }))
+        (await this.effectiveOwner(m.id)) ??
+        (m.ownerUserId === null ? null : asUserId(m.ownerUserId)),
+    })))
   }
 
   /**
