@@ -1821,14 +1821,14 @@ describe('ShippingService enqueue transaction', () => {
   it('reopens a released train repair from its persisted context after restart and daemon loss', async () => {
     let daemonEvidenceRef: string | undefined
     let evidenceRegistry: ShippingEvidenceRegistry | undefined
-    let persistedEvidenceRef: ReturnType<ShippingEvidenceRegistry['materialize']> | undefined
+    let persistedEvidenceRef: Awaited<ReturnType<ShippingEvidenceRegistry['materialize']>> | undefined
     let originalContext: ShippingRepairContext | undefined
     let reopenedContext: ShippingRepairContext | undefined
     const consider = vi.fn(async (input: ShippingRepairContext) => {
       if (!originalContext) {
         if (!daemonEvidenceRef) throw new Error('daemon evidence ref was not constructed')
         originalContext = JSON.parse(JSON.stringify(input)) as ShippingRepairContext
-        persistedEvidenceRef = evidenceRegistry!.materialize({
+        persistedEvidenceRef = await evidenceRegistry!.materialize({
           sourceRef: daemonEvidenceRef,
           content: 'persisted train failure evidence',
           order: input.order,
@@ -1971,7 +1971,7 @@ describe('ShippingService enqueue transaction', () => {
     expect(unavailableDaemon).not.toHaveBeenCalled()
     const restartedEvidence = new ShippingEvidenceRegistry(store.shipping)
     expect(
-      restartedEvidence.resolve({
+      await restartedEvidence.resolve({
         sourceRef: evidenceRef,
         order: reopenedContext!.order,
         attempt: reopenedContext!.attempt,
@@ -1980,7 +1980,7 @@ describe('ShippingService enqueue transaction', () => {
       }),
     ).toBe(persistedEvidenceRef)
     expect(
-      restartedEvidence.read(
+      await restartedEvidence.read(
         {
           ...reopenedContext!,
           failure: { ...reopenedContext!.failure, artifactRefs: [persistedEvidenceRef!] },

@@ -2290,7 +2290,7 @@ export class SessionRegistry {
         materialize: async (input) => {
           const materialized: import('@podium/model').ShipwrightEvidenceRef[] = []
           for (const ref of input.refs) {
-            const existing = shippingEvidence.resolve({
+            const existing = await shippingEvidence.resolve({
               sourceRef: ref,
               order: input.order,
               attempt: input.attempt,
@@ -2311,7 +2311,7 @@ export class SessionRegistry {
               throw new Error(resolved.error ?? 'shipping evidence was refused')
             }
             materialized.push(
-              shippingEvidence.materialize({
+              await shippingEvidence.materialize({
                 sourceRef: ref,
                 content: resolved.content,
                 order: input.order,
@@ -2329,7 +2329,7 @@ export class SessionRegistry {
         let remaining = Math.min(limits.maxContextBytes, limits.maxFailureBytes)
         for (const ref of input.failure.artifactRefs) {
           if (remaining <= 0) break
-          const resolved = shippingEvidence.read(input, ref, remaining)
+          const resolved = await shippingEvidence.read(input, ref, remaining)
           content.push(resolved)
           remaining -= Buffer.byteLength(resolved)
         }
