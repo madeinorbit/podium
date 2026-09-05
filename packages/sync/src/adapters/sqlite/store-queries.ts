@@ -59,7 +59,7 @@ import type { SQLiteAsyncDatabase } from 'drizzle-orm/sqlite-core'
  * adapter genuinely depends on rather than a shape copied over wholesale.
  */
 export interface SyncRunResult {
-  readonly changes: number
+  readonly changes: number | bigint
   readonly lastInsertRowid: number | bigint
 }
 

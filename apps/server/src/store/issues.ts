@@ -101,7 +101,7 @@ export class IssuesRepository {
   constructor(
     queries: StoreQueries,
     /** Repos-aggregate lookup: stable repo_id for an issue's repoPath. */
-    private readonly resolveRepoIdForPath: (repoPath: string) => string,
+    private readonly resolveRepoIdForPath: (repoPath: string) => string | Promise<string>,
   ) {
     this.rootDb = queries.rootDb
     this.createOrJoinTransaction = queries.createOrJoinTransaction
@@ -234,7 +234,7 @@ export class IssuesRepository {
       createdByActor: row.createdByActor ?? row.ownerUserId,
       createdByOnBehalfOf: row.createdByOnBehalfOf,
       repoPath: row.repoPath,
-      repoId: row.repoId ?? (this.resolveRepoIdForPath(row.repoPath) as RepoId),
+      repoId: row.repoId ?? ((await this.resolveRepoIdForPath(row.repoPath)) as RepoId),
       seq: row.seq,
       title: row.title,
       description: row.description,
@@ -688,13 +688,14 @@ export class IssuesRepository {
     // (or an issue filed under a sub-path of the root) list together. The
     // NULL-repo_id fallback keeps legacy rows the boot heal hasn't stamped yet
     // visible under their exact path.
+    const repoId = repoPath ? await this.resolveRepoIdForPath(repoPath) : undefined
     const rows = repoPath
       ? await this.db
           .select()
           .from(issues)
           .where(
             or(
-              eq(issues.repoId, this.resolveRepoIdForPath(repoPath) as RepoId),
+              eq(issues.repoId, repoId as RepoId),
               and(isNull(issues.repoId), eq(issues.repoPath, repoPath)),
             ),
           )
@@ -803,7 +804,7 @@ export class IssuesRepository {
       .all()
     const byRepo = new Map<string, typeof rows>()
     for (const r of rows) {
-      const rid = r.repoId ?? this.resolveRepoIdForPath(r.repoPath)
+      const rid = r.repoId ?? (await this.resolveRepoIdForPath(r.repoPath))
       const g = byRepo.get(rid)
       if (g) g.push(r)
       else byRepo.set(rid, [r])
