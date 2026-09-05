@@ -278,7 +278,9 @@ export class OperationEngine {
     //
     // NOT AWAITING IT MEANS NOBODY IS WATCHING IT, so the throw has to be
     // caught here — see `containDriveFailure` (POD-2151).
-    void (await this.drive(operation.id)).catch(async (err) => await this.containDriveFailure(operation.id, err))
+    void this.drive(operation.id).catch(
+      async (err) => await this.containDriveFailure(operation.id, err),
+    )
     return { started: true, operation }
   }
 
@@ -345,7 +347,10 @@ export class OperationEngine {
    * external boundary. The update server step uses this synchronously between
    * publishing its database snapshot and requesting the process restart.
    */
-  async recordDetails(operationId: string, patch: Record<string, unknown>): Promise<Operation | undefined> {
+  async recordDetails(
+    operationId: string,
+    patch: Record<string, unknown>,
+  ): Promise<Operation | undefined> {
     const operation = (await this.deps.store.get(operationId))?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
     const details =
@@ -456,7 +461,10 @@ export class OperationEngine {
     await this.enqueue(operationId, async () => {
       const operation = (await this.deps.store.get(operationId))?.operation
       if (!operation) return
-      await this.persist({ ...operation, deferred: [...deferred] } as PersistedOperation, this.now())
+      await this.persist(
+        { ...operation, deferred: [...deferred] } as PersistedOperation,
+        this.now(),
+      )
     })
   }
 
@@ -490,7 +498,10 @@ export class OperationEngine {
       if (!step || step.id !== stepId || step.state !== 'running') return
       if (patch) {
         const at = this.now()
-        await this.persist(this.applyPatch(operation, stepId, { ...patch, state: 'running' }, at), at)
+        await this.persist(
+          this.applyPatch(operation, stepId, { ...patch, state: 'running' }, at),
+          at,
+        )
       }
       await this.driveLocked(operationId)
     })
@@ -573,12 +584,13 @@ export class OperationEngine {
       return adopted
     }
     for (const row of live) {
-      const outcome = await (await this.adoptRow(row, realityFor, contextFor)).catch(async (err) =>
-        await this.abandonSafely(row, {
-          code: ADOPTION_FAILED_ERROR_CODE,
-          message: `This server could not resume a '${row.kind}' operation.`,
-          detail: err instanceof Error ? err.message : String(err),
-        }),
+      const outcome = await this.adoptRow(row, realityFor, contextFor).catch(
+        async (err) =>
+          await this.abandonSafely(row, {
+            code: ADOPTION_FAILED_ERROR_CODE,
+            message: `This server could not resume a '${row.kind}' operation.`,
+            detail: err instanceof Error ? err.message : String(err),
+          }),
       )
       if (outcome) adopted.push(outcome)
     }
@@ -762,11 +774,11 @@ export class OperationEngine {
 
   private async enqueue(operationId: string, work: () => Promise<void>): Promise<void> {
     if (this.stopped) return await Promise.resolve()
-    const previous = this.chains.get(operationId) ?? await Promise.resolve()
-    const next = await previous.then(work, work)
+    const previous = this.chains.get(operationId) ?? Promise.resolve()
+    const next = previous.then(work, work)
     this.chains.set(
       operationId,
-      await next.catch(() => undefined),
+      next.catch(() => undefined),
     )
     return next
   }
@@ -862,7 +874,7 @@ export class OperationEngine {
     stepId: string,
     budget: StepDeadlines | undefined,
   ): Promise<StepOutcome | typeof OVERDUE> {
-    const ensure = await this.invoke(runner, operation, stepId)
+    const ensure = this.invoke(runner, operation, stepId)
     const step = (operation.steps ?? []).find((s) => s.id === stepId)
     const due = step ? deadlineDue(step, budget, this.now()) : undefined
     if (due === undefined) return ensure
@@ -1030,7 +1042,10 @@ export class OperationEngine {
    * fails with. The grace itself is unconditional either way: ending the wait is
    * what POD-2149 was for, and a wedge is not fixed by a wrong outcome.
    */
-  private async expireWaiting(operationId: string, def?: AnyOperationKindDefinition): Promise<void> {
+  private async expireWaiting(
+    operationId: string,
+    def?: AnyOperationKindDefinition,
+  ): Promise<void> {
     const operation = (await this.deps.store.get(operationId))?.operation
     if (operation?.state !== 'waiting') return
     const error = def?.describeWaitingExpiry?.({ operation })
@@ -1156,7 +1171,10 @@ export class OperationEngine {
    * that the store is the broken thing, and a second throw out of the recovery
    * path is exactly how a contained failure becomes an uncontained one.
    */
-  private async abandonSafely(row: OperationRow, error: OperationError): Promise<Operation | undefined> {
+  private async abandonSafely(
+    row: OperationRow,
+    error: OperationError,
+  ): Promise<Operation | undefined> {
     try {
       return await this.abandon(row, error)
     } catch {
@@ -1234,8 +1252,8 @@ export class OperationEngine {
       this.deps.clock.setTimeout(
         () => {
           // A deadline is the other drive site nobody awaits (POD-2151).
-          void this.enqueue(operationId, async () => await this.onDeadline(operationId)).catch(async (err) =>
-            await this.containDriveFailure(operationId, err),
+          void this.enqueue(operationId, async () => await this.onDeadline(operationId)).catch(
+            async (err) => await this.containDriveFailure(operationId, err),
           )
         },
         Math.max(0, due - this.now()),
@@ -1254,14 +1272,15 @@ export class OperationEngine {
    * The step a timer is about, with the budget it is judged against — the four
    * refusals every deadline path shares, resolved once.
    */
-  private async watched(operationId: string):
-    Promise<| {
+  private async watched(operationId: string): Promise<
+    | {
         operation: Operation
         def: AnyOperationKindDefinition
         step: OperationStep
         budget: StepDeadlines
       }
-    | undefined> {
+    | undefined
+  > {
     const operation = (await this.deps.store.get(operationId))?.operation
     if (!operation || isTerminalOperationState(operation.state)) return undefined
     const def = this.deps.registry.get(operation.kind)
