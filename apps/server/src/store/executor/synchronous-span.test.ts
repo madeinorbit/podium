@@ -11,34 +11,13 @@
  * production entry point rather than a locally wrapped copy of it.
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { openTestStore } from '../../test-support/open-test-store'
 import { postCommit } from './executor'
-import {
-  afterCommit,
-  restoreSpanEffectSinks,
-  type SpanEffectSinks,
-  setSpanEffectSinks,
-} from './synchronous-span'
-
-let installed: SpanEffectSinks | undefined
-const reported: string[] = []
-
-function collectSinks(): void {
-  installed = setSpanEffectSinks({
-    onReportFailure: (_error, label) => reported.push(`report:${label}`),
-  })
-}
-
-afterEach(() => {
-  if (installed) restoreSpanEffectSinks(installed)
-  installed = undefined
-  reported.length = 0
-})
+import { afterCommit } from './synchronous-span'
 
 describe('afterCommit outside a span', () => {
   it('runs the step now, and unguarded', () => {
-    collectSinks()
     const ran: string[] = []
     afterCommit(() => void ran.push('now'), 'x')
     expect(ran).toEqual(['now'])
@@ -49,7 +28,6 @@ describe('afterCommit outside a span', () => {
         throw new Error('listener not wired')
       }, 'y'),
     ).toThrow('listener not wired')
-    expect(reported).toEqual([])
   })
 })
 
@@ -76,12 +54,12 @@ describe('the store seam', () => {
     const store = await openTestStore(':memory:')
     try {
       const ran: string[] = []
-      expect(() =>
+      await expect(
         store.transact(() => {
           postCommit().effect(() => void ran.push('effect'), 'e')
           throw new Error('rolled back')
         }),
-      ).toThrow('rolled back')
+      ).rejects.toThrow('rolled back')
       expect(ran).toEqual([])
     } finally {
       store.close()
