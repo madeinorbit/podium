@@ -2340,7 +2340,9 @@ export function describeUpdateWaitingExpiry(input: {
  */
 export function createUpdateFleetBridge(deps: {
   engine: {
-    active(group?: string): { id: string; kind: string; operation: Operation | null } | undefined
+    active(
+      group?: string,
+    ): Promise<{ id: string; kind: string; operation: Operation | null } | undefined>
     recordProgress(id: string, stepId: string, patch: StepProgressPatch): Promise<void>
     admitDeferred(
       id: string,
@@ -2361,7 +2363,7 @@ export function createUpdateFleetBridge(deps: {
     history(
       kind?: string,
       limit?: number,
-    ): { id: string; kind: string; operation: Operation | null }[]
+    ): Promise<{ id: string; kind: string; operation: Operation | null }[]>
   }
   updates: UpdatesService
   /**
@@ -2395,7 +2397,7 @@ export function createUpdateFleetBridge(deps: {
    * an unrelated row is never written.
    */
   const restateStaleDeferredPromises = async (): Promise<void> => {
-    for (const row of deps.engine.history(UPDATE_OPERATION_KIND)) {
+    for (const row of await deps.engine.history(UPDATE_OPERATION_KIND)) {
       if (!row.operation) continue
       const details = updateOperationDetails(row.operation)
       if (!details) continue
@@ -2423,7 +2425,7 @@ export function createUpdateFleetBridge(deps: {
       await bridge.onFleetChanged()
     },
     onFleetChanged: async () => {
-      const row = deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
+      const row = await deps.engine.active(LIFECYCLE_EXCLUSION_GROUP)
       if (!row || row.kind !== UPDATE_OPERATION_KIND || !row.operation) return
       const step = stepOf(row.operation, UPDATE_STEP_MACHINES)
       if (!step || isFinishedStep(step) || step.state === 'pending') return
