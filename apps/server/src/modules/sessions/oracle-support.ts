@@ -139,7 +139,7 @@ export interface Oracle {
   /** Session metadata as the wire sees it. */
   meta(
     sessionId: SessionId,
-  ): ReturnType<SessionRegistry['modules']['sessions']['listSessions']>[number]
+  ): Promise<Awaited<ReturnType<SessionRegistry['modules']['sessions']['listSessions']>>[number]>
   /**
    * Invoke a write the way a RELAYED AGENT does — through the capability seam,
    * with the capability minted from the calling session's cwd. This is the ONLY

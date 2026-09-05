@@ -307,7 +307,7 @@ describe('MaintenanceService [spec:SP-c29e]', () => {
       expect.objectContaining({ kind: 'system', job: 'expiry' }),
     )
     expect(await service.apply(command)).toMatchObject({ status: 'already-applied' })
-    tryAutoArchiveObserved.mockReturnValueOnce('not-due')
+    tryAutoArchiveObserved.mockResolvedValueOnce('not-due')
     const second = {
       ...observed,
       issueId: asIssueId('iss_2'),

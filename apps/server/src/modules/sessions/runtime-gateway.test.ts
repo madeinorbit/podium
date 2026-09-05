@@ -77,7 +77,7 @@ function makeGateway(
   const queue: RuntimeDurableQueuePort = {
     enqueue:
       overrides.queue?.enqueue ??
-      (async (input) => {
+      ((input) => {
         enqueued.push(input)
         return { ok: true, position: 3 }
       }),

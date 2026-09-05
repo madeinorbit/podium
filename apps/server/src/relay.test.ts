@@ -31,7 +31,7 @@ import { MessageDeliveryService, NEXT_TURN_DELIVERY_BUDGET_MS } from './modules/
 import { sessionCommandCtx } from './modules/sessions/command-ctx'
 import { dispatchSessionCommand } from './modules/sessions/command-plane'
 import { SessionRegistry } from './relay'
-import type { SessionRow } from './store'
+import type { SessionRow, SessionStore } from './store'
 import { captureLogs } from './test-support/capture-logs'
 import { attachTestClient } from './test-support/client-transport'
 import { openTestStore } from './test-support/open-test-store'
