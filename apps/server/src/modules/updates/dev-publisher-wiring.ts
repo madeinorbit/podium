@@ -280,7 +280,7 @@ export function wireDevBundlePublisher(deps: {
    */
   const readHeadSha = deps.readHeadSha ?? developmentHeadSha
   const headSha = sourceRoot
-    ? createGitHeadShaCache(sourceRoot, async () => await readHeadSha(sourceRoot))
+    ? createGitHeadShaCache(sourceRoot, () => readHeadSha(sourceRoot))
     : undefined
   /**
    * The website the compile will demand. Owned here rather than in `server.ts`
@@ -292,7 +292,7 @@ export function wireDevBundlePublisher(deps: {
     ? createDevWebBuilder({
         root: sourceRoot,
         instanceId,
-        headSha: async () => await headSha?.read() ?? await readHeadSha(sourceRoot),
+        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
       })
     : undefined
   const publisher = sourceRoot
@@ -301,7 +301,7 @@ export function wireDevBundlePublisher(deps: {
         root: sourceRoot,
         instanceId,
         publisherStateDir: publisherStateDirectory,
-        headSha: async () => await headSha?.read() ?? await readHeadSha(sourceRoot),
+        headSha: () => headSha?.read() ?? readHeadSha(sourceRoot),
         signingKey: deps.signingKey,
         ...(releaseTiming ? { timing: releaseTiming } : {}),
         lock: createServerDevBundleLock(sourceRoot, deps.locks),
@@ -481,7 +481,7 @@ export function wireDevBundlePublisher(deps: {
     if (provenArtifactKey === key) return
     if (proofInFlight?.key === key) return proofInFlight.proof
 
-    const proof = await (async () => {
+    const proof = (async () => {
       for (const [url, artifact] of routes) {
         const size = await artifactSize(artifact.path)
         if (size === undefined) {
@@ -541,7 +541,7 @@ export function wireDevBundlePublisher(deps: {
   }
 
   const approval = createReleaseApprovalFlow({
-    proposal: async () => await publisher?.proposal(),
+    proposal: async () => publisher?.proposal(),
     release: async (approved) => {
       // One id for this attempt, minted before the first line is emitted. Two approvals
       // of the same version are two runs and must not share a staging file.
@@ -630,16 +630,16 @@ export function wireDevBundlePublisher(deps: {
           'This server does not publish development releases.',
         )
       }
-      return await approval.approve(approvedBy, expected)
+      return approval.approve(approvedBy, expected)
     },
-    requestBuild: async () => {
-      if (!publisher) return await Promise.resolve()
+    requestBuild: () => {
+      if (!publisher) return Promise.resolve()
       // Refuse before the compile, with the remedy in the sentence, rather than
       // pack for thirty-five seconds and leave the step waiting (POD-2227).
       const blocked = artifactOriginFailure()
       if (blocked) {
         recordPublishFailure(blocked)
-        return await Promise.reject(blocked)
+        return Promise.reject(blocked)
       }
       publishFailureDetail = undefined
       // A human pressed Update. Whatever the stamp says, ask git — the one
@@ -716,7 +716,7 @@ export function wireDevBundlePublisher(deps: {
     registerRoute: (app) => {
       if (!publisher) return
       registerDevFeedRoutes(app, {
-        publishedArtifact: async (version, platform) => await publisher.publishedArtifact(version, platform),
+        publishedArtifact: (version, platform) => publisher.publishedArtifact(version, platform),
         probeArtifact: (version, platform) => {
           const candidate = publisher.current()
           if (!candidate || candidate.version !== version) return null
